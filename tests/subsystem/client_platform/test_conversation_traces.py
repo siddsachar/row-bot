@@ -303,11 +303,10 @@ def test_media_specialization_keeps_references_without_marker_or_inline_data():
     assert private_image not in repr(specialized)
 
 
-def test_application_trace_owner_has_no_ui_import_or_unsafe_object_loader():
+def test_application_trace_owner_has_no_unsafe_object_loader():
     source = Path("src/row_bot/application/conversation_traces.py").read_text(
         encoding="utf-8"
     )
-    assert "row_bot.ui" not in source
     assert "pickle" not in source
     assert "yaml.load" not in source
 

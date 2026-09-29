@@ -49,38 +49,43 @@ def test_chat_approval_uses_durable_claim_and_exact_resume(platform):
     assert fake.calls[-1]["interrupt_ids"] == ("native-interrupt",)
 
 
-def test_legacy_default_model_is_frozen_for_cross_client_approval(platform, monkeypatch):
-    from row_bot import models
-    from row_bot.ui.legacy_adapter import generation
+def test_model_is_frozen_at_the_approval_for_a_cross_client_resume(platform, monkeypatch):
+    import sqlite3
+    from row_bot import models, threads
     from row_bot.providers.selection import model_ref
     original = model_ref("fixture", "original-model")
     replacement = model_ref("fixture", "replacement-model")
     monkeypatch.setattr(models, "get_current_model", lambda: original)
-    monkeypatch.setattr(generation, "client_platform_service", platform)
-    config = {"configurable": {"thread_id": "conversation-a"}}
-    first = platform.admit_execution("conversation-a", config, text="Synthetic legacy default input")
-    queue = generation.LegacyEventQueue(first)
-    try:
-        queue.put(("interrupt", {"__interrupt_id": "legacy-native-interrupt", "description": "Synthetic approval"}))
-        platform.finish_execution(first, "waiting_approval")
-        assert config["configurable"]["model_override"] == original
-        assert platform.pending_approval_model_ref(first.approval_id, "conversation-a") == original
-        monkeypatch.setattr(models, "get_current_model", lambda: replacement)
-        fake = ScriptedAgentStream((CheckpointCommit((AIMessage(content="Complete", id="legacy-approved-native"),),
-                                                     "legacy-approved-native"), ("done", "Complete")))
-        calls = []
-        def resume(tools, resumed_config, approved, **kwargs):
-            calls.append(resumed_config["configurable"]["model_override"])
-            yield from fake.resume(tools, resumed_config, approved, **kwargs)
-        platform.resume_factory = resume
-        receipt = platform.execute(owner_id="second-client", idempotency_key="legacy-approval", target=first.approval_id,
-            command=command("approval.resolve", "legacy-approval", {"decision": "approve"}))
-        resumed = platform.registry.get(receipt["execution_id"])
-        assert resumed.producer_done.wait(10) and resumed.status == "completed"
-        assert calls == [original] and len(fake.calls) == 1
-        assert fake.calls[0]["interrupt_ids"] == ("legacy-native-interrupt",)
-    finally:
-        queue.close_consumer()
+    identity = fixture_id("frozen-model-native")
+    fake = ScriptedAgentStream(
+        (("interrupt", {"__interrupt_id": "frozen-native-interrupt", "description": "Synthetic approval"}),),
+        (CheckpointCommit((AIMessage(content="Complete", id=identity),), identity), ("done", "Complete")))
+    calls = []
+
+    def resume(tools, resumed_config, approved, **kwargs):
+        calls.append(resumed_config["configurable"]["model_override"])
+        yield from fake.resume(tools, resumed_config, approved, **kwargs)
+
+    platform.stream_factory = fake.stream
+    platform.resume_factory = resume
+    accepted = platform.execute(owner_id="first-client", idempotency_key=fixture_id("frozen-model:key"),
+                                target="conversation-a", command=command("conversation.submit", "frozen-model", {
+                                    "submission_id": fixture_id("frozen-model"), "text": "Synthetic input",
+                                    "attachment_refs": [],
+                                    "model_selection": {"provider_id": "fixture", "model_ref": original}}))
+    first = platform.registry.get(accepted["execution_id"])
+    assert first.producer_done.wait(10) and first.status == "waiting_approval"
+    assert platform.pending_approval_model_ref(first.approval_id, "conversation-a") == original
+    # The default and the conversation's own selection move on before a second client approves.
+    monkeypatch.setattr(models, "get_current_model", lambda: replacement)
+    with sqlite3.connect(threads.DB_PATH) as connection:
+        connection.execute("UPDATE thread_meta SET model_override=? WHERE thread_id='conversation-a'", (replacement,))
+    receipt = platform.execute(owner_id="second-client", idempotency_key="frozen-approval", target=first.approval_id,
+                               command=command("approval.resolve", "frozen-approval", {"decision": "approve"}))
+    resumed = platform.registry.get(receipt["execution_id"])
+    assert resumed.producer_done.wait(10) and resumed.status == "completed"
+    assert calls == [original] and len(fake.calls) == 2
+    assert fake.calls[-1]["interrupt_ids"] == ("frozen-native-interrupt",)
 
 
 def test_prepared_admission_recovery_never_duplicates_or_dispatches(platform):

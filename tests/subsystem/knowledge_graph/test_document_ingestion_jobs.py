@@ -430,7 +430,6 @@ def test_repeated_ui_initialization_starts_one_supervisor(tmp_path, monkeypatch)
 
 def test_restart_loaded_jobs_keep_user_visible_status(tmp_path, monkeypatch):
     jobs, service = _service(tmp_path, monkeypatch)
-    from row_bot.ui.settings import document_job_status_label
 
     batch = service.create_batch()
     job = _queue_local_file(service, batch, 0, "queued.txt", b"queued")
@@ -438,7 +437,6 @@ def test_restart_loaded_jobs_keep_user_visible_status(tmp_path, monkeypatch):
     reloaded = jobs.DocumentJobService(tmp_path / "data")
 
     assert reloaded.get_job(job.id).status == "queued"
-    assert document_job_status_label(reloaded.get_job(job.id).status) == "Queued"
 
 
 def test_recovery_retires_orphans_and_health_reports_clean_state(tmp_path, monkeypatch):

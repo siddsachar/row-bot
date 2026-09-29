@@ -8,6 +8,7 @@ import logging
 
 import pytest
 
+from row_bot.application.conversation_traces import bounded_safe_summary
 from row_bot.automation.contracts import ActionReceipt, AutomationSurface
 from row_bot.computer_use.client import CuaResponse
 from row_bot.computer_use.service import (
@@ -24,8 +25,6 @@ from row_bot.tools.computer_use_tool import (
     _computer_error_payload,
     _observation_payload,
 )
-from row_bot.ui.tool_trace import display_tool_content
-from row_bot.ui.live_control import computer_live_control_view
 
 
 OWNER = LeaseOwner("verdict-thread", "verdict-generation", "verdict-task")
@@ -324,7 +323,7 @@ def test_receipt_and_observation_payloads_expose_only_safe_classification_fields
     assert observation_payload["verdict"] == "escalate"
     assert observation_payload["next_step"] == "pixel_click_once"
 
-    visible_trace = display_tool_content(json.dumps(receipt_payload))
+    visible_trace, _truncated = bounded_safe_summary(json.dumps(receipt_payload))
     assert "private" not in visible_trace.casefold()
     assert "driver prose" not in visible_trace.casefold()
     assert "verify fresh state" in visible_trace.casefold()
@@ -350,7 +349,7 @@ def test_error_trace_summary_projects_safe_classification_fields() -> None:
     )
 
     payload = json.loads(_computer_error_payload("click", error))
-    visible_trace = display_tool_content(payload).casefold()
+    visible_trace = bounded_safe_summary(payload)[0].casefold()
 
     assert "requested auto" in visible_trace
     assert "delivered foreground" in visible_trace
@@ -935,7 +934,7 @@ def test_timeout_and_disconnect_do_not_use_ended_session_recovery(
     assert fake_transport.session_start_count == starts_before
 
 
-def test_live_control_status_exposes_safe_route_verdict_and_next_step(
+def test_status_snapshot_exposes_safe_route_verdict_and_next_step(
     service,
     fake_transport,
 ) -> None:
@@ -964,18 +963,6 @@ def test_live_control_status_exposes_safe_route_verdict_and_next_step(
     assert snapshot["last_escalation_recommendation"] == "foreground"
     assert snapshot["last_verdict"] == "escalate"
     assert snapshot["last_next_step"] == "retry_foreground_once"
-
-    view = computer_live_control_view(snapshot, OWNER.thread_id)
-    visible = view.last_action.casefold()
-    assert "requested auto" in visible
-    assert "delivered background" in visible
-    assert "driver suspected noop" in visible
-    assert "native unchanged" in visible
-    assert "degraded" in visible
-    assert "foreground" in visible
-    assert "verdict escalate" in visible
-    assert "next retry foreground once" in visible
-    assert "synthetic reversible action" not in visible
 
 
 def test_action_receipt_log_includes_only_safe_classification_fields(

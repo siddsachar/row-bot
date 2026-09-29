@@ -5,13 +5,13 @@ from datetime import datetime, timezone
 import logging
 
 from row_bot.access.cookies import AccessCookieManager
+from row_bot.access.service import AccessService
 from row_bot.mobile import access_gate
 from row_bot.mobile.access_gate import (
     MobileAccessGate,
     is_true_local_scope,
     recognized_forwarding_header_names,
 )
-from row_bot.mobile.auth import confirm_pairing, create_pairing_ticket
 from row_bot.mobile.store import MobileAuthStore
 
 
@@ -67,7 +67,7 @@ def _run_websocket(gate: MobileAccessGate, *, path: str, client: str, headers=No
         "type": "websocket",
         "scheme": "ws",
         "path": path,
-        "query_string": b"EIO=4&transport=websocket",
+        "query_string": b"",
         "headers": [(b"host", b"localhost"), *(headers or [])],
         "client": (client, 50000),
         "subprotocols": [],
@@ -102,12 +102,16 @@ def _header(messages, name: bytes) -> bytes:
 def _valid_cookie(store: MobileAuthStore, monkeypatch) -> tuple[str, str]:
     now = datetime(2026, 7, 5, 9, 0, tzinfo=timezone.utc)
     monkeypatch.setattr("row_bot.access.store.utc_now", lambda: now)
-    ticket = create_pairing_ticket(store, now=now)
-    confirmation = confirm_pairing(
-        store, code=ticket.code, display_name="Phone", now=now
+    service = AccessService(store.access_store)
+    created = service.create_invitation(intended_origin="http://localhost", now=now)
+    claim = service.claim_invitation(
+        created.token,
+        intended_origin="http://localhost",
+        display_name="Phone",
+        now=now,
     )
     cookie_name = AccessCookieManager(store.access_store.instance_id).names.http
-    return confirmation.device.id, f"{cookie_name}={confirmation.token}"
+    return claim.device.id, f"{cookie_name}={claim.session_token}"
 
 
 def test_true_local_scope_requires_loopback_without_forwarded_headers() -> None:
@@ -223,7 +227,7 @@ def test_websocket_scope_is_gated_without_cookie(tmp_path, caplog) -> None:
 
     with caplog.at_level(logging.WARNING, logger="row_bot.access.middleware"):
         messages = _run_websocket(
-            gate, path="/_nicegui_ws/socket.io", client="192.168.1.20"
+            gate, path="/any-websocket", client="192.168.1.20"
         )
 
     assert messages == [{"type": "websocket.close", "code": 1008}]
@@ -238,7 +242,7 @@ def test_valid_cookie_allows_remote_websocket_scope(tmp_path, monkeypatch) -> No
 
     messages = _run_websocket(
         gate,
-        path="/_nicegui_ws/socket.io",
+        path="/any-websocket",
         client="192.168.1.20",
         headers=[
             (b"cookie", cookie.encode("latin-1")),

@@ -17,8 +17,6 @@ def test_workflow_audit_source_contracts_are_wired() -> None:
     tasks_source = (REPO_ROOT / "src" / "row_bot" / "tasks.py").read_text(encoding="utf-8")
     shell_source = (REPO_ROOT / "src" / "row_bot" / "tools" / "shell_tool.py").read_text(encoding="utf-8")
     telegram_source = (REPO_ROOT / "src" / "row_bot" / "channels" / "telegram.py").read_text(encoding="utf-8")
-    sidebar_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
-    command_center_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "command_center.py").read_text(encoding="utf-8")
 
     functions = {
         node.name: ast.get_source_segment(tasks_source, node)
@@ -46,7 +44,6 @@ def test_workflow_audit_source_contracts_are_wired() -> None:
     assert "_PENDING_TTL_SECONDS" in telegram_source
     assert "def _cleanup_stale_pending" in telegram_source
     assert telegram_source.count("with _pending_lock:") >= 6
-    assert "Already handled" in sidebar_source or "Already handled" in command_center_source
 
 
 def test_shell_command_classification_regressions() -> None:

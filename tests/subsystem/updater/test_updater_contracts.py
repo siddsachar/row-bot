@@ -117,16 +117,12 @@ def test_updater_runtime_wiring_contracts(tmp_path, monkeypatch) -> None:
     assert "**Updates**" in _QUERY_HANDLERS["updates"]()
 
     iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-    status_bar = Path("src/row_bot/ui/status_bar.py").read_text(encoding="utf-8")
-    settings = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
     app = Path("src/row_bot/app.py").read_text(encoding="utf-8")
     guide = Path("tool_guides/updater_guide/SKILL.md").read_text(encoding="utf-8")
 
     assert "CloseApplications=yes" in iss
-    for relative in ("updater.py", "tools/updater_tool.py", "ui/update_dialog.py"):
+    for relative in ("updater.py", "tools/updater_tool.py"):
         assert Path("src/row_bot", relative).is_file()
-    assert "_refresh_update_pill" in status_bar
-    assert "build_update_section" in settings
     assert "start_update_scheduler" in app
     assert "name: updater_guide" in guide
     assert "row_bot_updater" in guide

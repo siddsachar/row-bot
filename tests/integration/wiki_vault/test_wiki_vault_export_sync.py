@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import inspect
 import json
 import os
 import time
@@ -170,7 +169,7 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
     assert (wiki_stack["vault"] / "wiki" / "index.md").exists()
 
 
-def test_wiki_cleanup_preserves_raw_and_conversations_and_ui_uses_knowledge_tab(
+def test_wiki_cleanup_preserves_raw_and_conversations_and_status_uses_knowledge_tab(
     wiki_stack: dict[str, Any],
 ) -> None:
     wiki_vault = wiki_stack["wiki_vault"]
@@ -199,27 +198,9 @@ def test_wiki_cleanup_preserves_raw_and_conversations_and_ui_uses_knowledge_tab(
     assert "wiki_vault" in delete_all
     assert "clear_wiki_folder" in delete_all
 
-    settings_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-    home_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "home.py").read_text(encoding="utf-8")
     status_checks_source = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
-    ast.parse(settings_source)
-    ast.parse(home_source)
     ast.parse(status_checks_source)
 
-    assert "_build_knowledge_tab" in settings_source
-    assert "_build_memory_tab" not in settings_source
-    assert "_build_wiki_tab" not in settings_source
-    assert "tab_knowledge" in settings_source
-    assert "tab_mem" not in settings_source
-    assert "tab_wiki" not in settings_source
-    assert '"Knowledge"' in settings_source
-    assert "confirm(" in settings_source.split("_delete_all_knowledge", 1)[1].split("\n\n", 1)[0]
-    assert "reset_vector_store" in settings_source.split("_delete_all_knowledge", 1)[1][:800]
-    assert "clear_wiki_folder" in settings_source.split("_delete_all_knowledge", 1)[1][:800]
-    assert "confirm(" in settings_source.split("_clear_docs", 1)[1].split("\n\n", 1)[0]
-    assert 'ui.tab("Knowledge"' in home_source
-    assert 'ui.tab("Memory"' not in home_source
-    assert "Knowledge Extraction" in home_source
     assert 'settings_tab="Memory"' not in status_checks_source
     assert 'settings_tab="Knowledge"' in status_checks_source
 
@@ -307,7 +288,7 @@ def test_wiki_tool_contract_and_removed_search_tool(wiki_stack: dict[str, Any]) 
     assert "Wiki Vault Status" in stats_tool.invoke({})
 
 
-def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str, Any]) -> None:
+def test_knowledge_editability_hybrid_search_and_status_wiring(wiki_stack: dict[str, Any]) -> None:
     kg = wiki_stack["kg"]
     memory = wiki_stack["memory"]
     memory_tool = wiki_stack["memory_tool"]
@@ -360,7 +341,6 @@ def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str,
     assert {"id", "category", "subject", "content"} <= set(parsed_results[0])
 
     from row_bot.tools.memory_tool import _UpdateMemoryInput
-    from row_bot.ui.entity_editor import open_entity_editor
 
     assert set(_UpdateMemoryInput.model_fields) == {
         "memory_id",
@@ -370,26 +350,11 @@ def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str,
         "aliases",
         "tags",
     }
-    sig = inspect.signature(open_entity_editor)
-    assert "entity_id" in sig.parameters
-    assert "on_saved" in sig.parameters
 
     prompts_src = (REPO_ROOT / "src" / "row_bot" / "prompts.py").read_text(encoding="utf-8")
-    settings_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-    graph_panel_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "graph_panel.py").read_text(encoding="utf-8")
     status_checks_src = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
-    entity_editor_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "entity_editor.py").read_text(encoding="utf-8")
-    for source in (settings_src, graph_panel_src, status_checks_src, entity_editor_src):
-        ast.parse(source)
+    ast.parse(status_checks_src)
 
     assert "wiki_search" not in prompts_src
-    assert "check_vault_sync" in settings_src
-    assert "sync_all_from_vault" in settings_src
-    assert "Sync from Vault" in settings_src
-    assert "graph-edit-trigger" in graph_panel_src
-    assert "entity_editor" in graph_panel_src
     assert "check_vault_sync" in status_checks_src
     assert "edited in vault" in status_checks_src
-    assert "Audit and Provenance" in entity_editor_src
-    assert "mark_user_modified" in entity_editor_src
-    assert "set_status" in entity_editor_src

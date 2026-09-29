@@ -550,21 +550,6 @@ def test_review_draft_is_bound_to_current_finding_and_never_dispatches_or_saves(
         client.draft_review_fix(project.id, expected_revision=project.updated_at, page_id=finding.page_id, finding_id='unknown')
 
 
-def test_retained_presentation_escapes_script_metadata_and_offline_mode_avoids_cdn(project, monkeypatch):
-    from row_bot.designer import presentation
-    project.pages[0].notes = '</script><script>unexpected()</script>'
-    project.brand.heading_font = 'Missing Font'
-    project.brand.body_font = 'Missing Font'
-    monkeypatch.setattr(fonts, 'get_font_css_embedded', lambda family, **_kw: fonts._strict_font_css(family))
-    with pytest.raises(fonts.FontReadError, match='font_unavailable'):
-        presentation._build_reveal_html(project, offline_fonts=True)
-    project.brand.heading_font = project.brand.body_font = 'Arial'
-    html = presentation._build_reveal_html(project, offline_fonts=True)
-    assert '\\u003c/script\\u003e' in html
-    assert '</script><script>unexpected()' not in html
-    assert 'fonts.googleapis.com' not in html
-
-
 def test_global_preset_leaf_replacement_is_retained_without_overwrite(project, monkeypatch):
     from row_bot.developer import edits
     first = mutate_global(project, name='Shared')

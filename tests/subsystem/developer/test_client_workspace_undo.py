@@ -338,59 +338,6 @@ def test_cancelled_tool_review_allows_a_new_explicit_review_without_resurrecting
     assert d.undo.execute_retained_undo(second_review, second, confirmed=True, validate=lambda: None).reverted
 
 
-@pytest.mark.parametrize("confirm,revoked", [(False, False), (True, False), (True, True)])
-def test_actual_nicegui_revert_callback_requires_confirmation_and_live_owner(undo, monkeypatch, confirm, revoked):
-    import ast
-    import asyncio
-    from functools import partial
-    from pathlib import Path
-    from types import SimpleNamespace
-    from row_bot.ui import access_context
-    d = undo
-    identity = d.imported({"a.txt": "old\n"}, {"a.txt": "new\n"})
-    module = ast.parse(Path("src/row_bot/developer/ui.py").read_text())
-    callback = next(node for node in ast.walk(module) if isinstance(node, ast.AsyncFunctionDef) and node.name == "_revert")
-    class Element:
-        def __enter__(self): return self
-        def __exit__(self, *_args): return None
-        def classes(self, *_args): return self
-        def style(self, *_args): return self
-        def props(self, *_args): return self
-        def submit(self, value): self.value = value
-        def __await__(self):
-            async def answer():
-                if revoked:
-                    client.has_socket_connection = False
-                return confirm
-            return answer().__await__()
-    class Client:
-        instances = {}
-        id = "synthetic-client"
-        has_socket_connection = True
-        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(row_bot_access_service=None)))
-    client = Client()
-    Client.instances[client.id] = client
-    access = SimpleNamespace(is_local_owner=True)
-    monkeypatch.setattr(access_context, "access_context_from_client", lambda _client: access)
-    monkeypatch.setattr(access_context, "require_ui_owner", lambda selected: selected)
-    notices, audits = [], []
-    ui = SimpleNamespace(context=SimpleNamespace(client=client), dialog=Element, card=Element, row=Element,
-        label=lambda *_args: Element(), button=lambda *_args, **_kwargs: Element(), notify=lambda message, **_kwargs: notices.append(message))
-    async def io_bound(function, *args, **kwargs):
-        return function(*args, **kwargs)
-    state = SimpleNamespace(thread_id="chat", active_developer_workspace_id=d.workspace.id, messages=[])
-    scope = {"ui": ui, "run": SimpleNamespace(io_bound=io_bound), "partial": partial, "workspace_now": d.workspace,
-        "next_snapshot": SimpleNamespace(thread_id="chat"), "state": state, "add_chat_message": audits.append,
-        "on_refresh": lambda: None, "reverting": set(), "revert_change_set": lambda *_a: pytest.fail("strict Undo used legacy text reconstruction")}
-    exec(compile(ast.Module(body=[callback], type_ignores=[]), "<actual-nicegui-undo-callback>", "exec"), scope)
-    asyncio.run(scope["_revert"](identity))
-    assert (d.root / "a.txt").read_bytes() == (b"old\n" if confirm and not revoked else b"new\n")
-    assert len(audits) == (1 if confirm and not revoked else 0)
-    assert not scope["reverting"]
-    if revoked:
-        assert notices and "resource_binding_revoked" in notices[-1]
-
-
 def test_fresh_inspector_snapshot_keeps_original_reverted_undo_until_finalization(undo, monkeypatch):
     from row_bot.developer import inspector_snapshot, runtime, todos
     d = undo

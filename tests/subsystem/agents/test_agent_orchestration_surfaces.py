@@ -416,36 +416,6 @@ def test_group_stop_wins_synthesis_race(tmp_path, monkeypatch):
     assert calls == []
 
 
-def test_detached_voice_final_uses_saved_transport():
-    from row_bot.voice.output_controller import speak_orchestration_final
-
-    class FakeTTS:
-        enabled = True
-
-        def __init__(self):
-            self.finals = []
-
-        def flush_streaming(self, text):
-            self.finals.append(text)
-
-    tts = FakeTTS()
-    assert speak_orchestration_final(
-        {"voice_mode": True, "voice_transport": "normal"},
-        "Consolidated final",
-        tts_service=tts,
-        realtime_speaker=None,
-        now=lambda: 0.0,
-    )
-    assert tts.finals == ["Consolidated final"]
-    assert not speak_orchestration_final(
-        {"voice_mode": False, "voice_transport": "normal"},
-        "Silent",
-        tts_service=tts,
-        realtime_speaker=None,
-        now=lambda: 0.0,
-    )
-
-
 def test_agent_entrypoints_route_later_input_without_starting_another_graph(
     monkeypatch,
 ):

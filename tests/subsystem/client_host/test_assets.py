@@ -40,7 +40,7 @@ def client(root: Path, *, mode: str = "desktop", middleware: bool = True) -> Tes
     app = FastAPI()
     @app.get("/")
     def root_route():
-        return {"surface": "NiceGUI fixture"}
+        return {"surface": "existing root fixture"}
     @app.get("/connect")
     def connect():
         return {"surface": "connect"}
@@ -57,7 +57,7 @@ def client(root: Path, *, mode: str = "desktop", middleware: bool = True) -> Tes
 
 def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     host = client(build)
-    assert host.get("/").json() == {"surface": "NiceGUI fixture"}
+    assert host.get("/").json() == {"surface": "existing root fixture"}
     assert host.get("/app-v2").headers["location"] == "/app-v2/"
     shell = host.get("/app-v2/")
     assert shell.status_code == 200 and shell.headers["cache-control"] == "no-store"
@@ -102,7 +102,7 @@ def test_missing_build_does_not_break_existing_root(tmp_path: Path) -> None:
     assert host.get("/app-v2/").status_code == 503
 
 
-def test_missing_preview_runtime_preserves_nicegui_and_fails_new_client_safely(build: Path, monkeypatch) -> None:
+def test_missing_preview_runtime_preserves_existing_root_and_fails_new_client_safely(build: Path, monkeypatch) -> None:
     from row_bot.designer.runtime import loader
     def missing():
         raise OSError("private runtime path")

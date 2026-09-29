@@ -1,57 +1,16 @@
 """Contested ordering, identity and memory checks independent of the authors."""
 from __future__ import annotations
 
-import asyncio
 import json
-import threading
 
 from langchain_core.messages import AIMessage
 import pytest
 
 from row_bot.projection.conversation import ConversationProjection
-from row_bot.ui.legacy_adapter.view_subscription import LegacyViewSubscription
 from tests.contracts.client_platform.test_headless_lifecycle import command, platform as platform, submit
 from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier, fixture_id
 
 pytestmark = pytest.mark.contract
-
-
-def test_f_u04_old_checkpoint_load_cannot_apply_after_a_b_a_selection():
-    async def scenario():
-        projection = ConversationProjection(fixture_id("view-epoch"))
-        entered, release = threading.Event(), threading.Event()
-        applied, finished = [], asyncio.Event()
-        calls = []
-
-        def load(target):
-            calls.append(target)
-            if len(calls) == 1:
-                entered.set()
-                assert release.wait(10)
-                return [{"content": "old A before selection changed"}]
-            return [{"content": "current A after selection changed"}]
-
-        def apply(target, messages):
-            applied.append((target, messages))
-            if messages[0]["content"].startswith("current"):
-                finished.set()
-
-        viewer = LegacyViewSubscription(projection, load, apply)
-        try:
-            projection.install_checkpoint("a", "checkpoint-1", [])
-            viewer.observe("a")
-            assert await asyncio.to_thread(entered.wait, 10)
-            viewer.observe("b")
-            viewer.observe("a")
-            projection.install_checkpoint("a", "checkpoint-2", [])
-            release.set()
-            await asyncio.wait_for(finished.wait(), 10)
-            assert applied == [("a", [{"content": "current A after selection changed"}])]
-        finally:
-            release.set()
-            viewer.close()
-
-    asyncio.run(scenario())
 
 
 def test_f_p01_two_native_ai_messages_commit_distinct_segments_in_one_pass(platform):

@@ -100,8 +100,8 @@ def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tm
         _detach_file_handler(logging_config)
 
 
-def test_logging_health_and_ui_wiring_contracts() -> None:
-    from row_bot.ui.status_checks import ALL_CHECKS, check_logging
+def test_logging_health_and_startup_wiring_contracts() -> None:
+    from row_bot.status_checks import ALL_CHECKS, check_logging
 
     result = check_logging()
     assert result.name == "Logging"
@@ -109,12 +109,6 @@ def test_logging_health_and_ui_wiring_contracts() -> None:
     assert result.settings_tab == "System"
     assert check_logging in ALL_CHECKS
 
-    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-    home_source = Path("src/row_bot/ui/home.py").read_text(encoding="utf-8")
     app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
 
-    assert "set_file_log_level" in settings_source
-    assert "Open Log Folder" in settings_source
-    assert "read_recent_logs" in home_source
-    assert "View Full Log" in home_source
     assert "setup_file_logging()" in app_source

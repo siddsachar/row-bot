@@ -114,15 +114,8 @@ def test_llm_condition_prompt_and_response_handling(tmp_path, monkeypatch) -> No
     assert len(long_prompt) < 40_000
 
 
-def test_condition_parse_step_id_and_mermaid_helpers(tmp_path, monkeypatch) -> None:
+def test_condition_step_id_and_mermaid_helpers(tmp_path, monkeypatch) -> None:
     tasks = fresh_tasks_module(tmp_path, monkeypatch)
-    from row_bot.ui.task_dialog import _parse_condition_expr
-
-    assert _parse_condition_expr("contains:hello") == ("contains:", "hello")
-    assert _parse_condition_expr("empty") == ("empty", "")
-    assert _parse_condition_expr("json:status:equals:success") == ("json:", "status:equals:success")
-    assert _parse_condition_expr("llm:Is it good?") == ("llm:", "Is it good?")
-    assert _parse_condition_expr("and:[a,b]") == (None, "")
 
     steps = [
         {"id": "old_a", "type": "prompt", "prompt": "a"},

@@ -115,22 +115,6 @@ def test_preview_retains_embedded_assets_without_network_references():
     assert 'src="data:image/png;base64,AAAA"' in rendered
 
 
-def test_render_module_has_no_nicegui_import(monkeypatch):
-    import builtins
-    import importlib
-    from row_bot.designer import preview
-
-    original = builtins.__import__
-    def guarded(name, *args, **kwargs):
-        if name == "nicegui" or name.startswith("nicegui."):
-            pytest.fail("Headless preview imported NiceGUI")
-        return original(name, *args, **kwargs)
-    monkeypatch.setattr(builtins, "__import__", guarded)
-    importlib.reload(preview)
-    project = DesignerProject(pages=[DesignerPage(html="<p>Headless</p>")])
-    assert "Headless" in preview.render_page_html(project, project.pages[0].html)
-
-
 def _event():
     return {"previewId": "frame-a", "revision": "rev-a", "capability": "token-a",
             "msgType": "text-edit", "detail": {"xpath": "/html/body/p[1]", "tag": "p",

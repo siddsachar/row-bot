@@ -82,7 +82,7 @@ def test_monitor_api_separates_remote_log_authority(tmp_path, monkeypatch):
 def test_system_diagnosis_requires_local_explicit_request(tmp_path, monkeypatch):
     _monitor_store(tmp_path, monkeypatch)
     from row_bot.application import client_diagnosis
-    from row_bot.ui.status_checks import CheckResult
+    from row_bot.status_checks import CheckResult
 
     calls = []
 
