@@ -1,4 +1,4 @@
-"""Application services shared by authenticated clients and legacy adapters."""
+"""Application services shared by authenticated clients."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing
 from datetime import datetime, timezone
 from dataclasses import asdict
@@ -54,6 +54,67 @@ def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, 
         for _, record in records
     ])
     return [(indexed[0], row) for indexed, row in zip(records, projected)]
+
+
+def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: str,
+                    expected_results: int, computer: bool) -> Iterator[tuple]:
+    """A denied approval ends the turn once the denied calls have their results.
+
+    The model is not asked again, so it cannot retry the action or reach for
+    another way to do it: the stream is closed there, and the reply says so.
+    """
+    message = ("Computer Use access was denied. No action was taken." if computer
+               else "The requested action was denied. No action was taken.")
+    iterator = iter(events)
+    settled = 0
+    try:
+        for event in iterator:
+            kind = event[0] if isinstance(event, tuple) and event else ""
+            if kind in {"tool_call", "token", "thinking", "thinking_token", "summarizing"}:
+                continue  # a replayed pending call or a new model attempt
+            if kind in {"interrupt", "done"}:
+                break
+            yield event
+            if kind == "error":
+                return
+            if kind == "tool_done":
+                settled += 1
+                if settled >= max(1, expected_results):
+                    break
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            close()
+    from langchain_core.messages import AIMessage
+    from row_bot import threads
+    if threads.append_checkpoint_messages(conversation_id, [AIMessage(id=identity, content=message)]):
+        yield ("output_binding", {"native_message_id": identity,
+                                  "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id)})
+    yield ("done", message)
+
+
+def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> list[str]:
+    """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``)."""
+    from row_bot.tasks import _get_conn
+    withdrawn = []
+    with closing(_get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT id, approval_payload_json FROM approval_requests "
+            "WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'",
+            (conversation_id,)).fetchall()
+        for row in rows:
+            try:
+                context = json.loads(row["approval_payload_json"] or "{}")
+            except ValueError:
+                context = {}
+            if generation_id and str(context.get("generation_id") or "") != generation_id:
+                continue
+            if conn.execute("UPDATE approval_requests SET status='cancelled', responded_at=? "
+                            "WHERE id=? AND status='pending'",
+                            (datetime.now().isoformat(), row["id"])).rowcount:
+                withdrawn.append(str(row["id"]))
+        conn.commit()
+    return withdrawn
 
 
 class ClientPlatformService:
@@ -879,15 +940,16 @@ class ClientPlatformService:
     def stop_conversation(self, conversation_id: str, generation_id: str = "") -> dict:
         """Stop a conversation's turn, and the computer use it holds.
 
-        The computer is released first, then the turn is cancelled; a pause
-        or other computer approval the turn waits on is withdrawn, since
-        nothing will go on with it.
+        The computer is released first, then the turn is cancelled; every
+        approval the turn waits on is withdrawn, since nothing will go on with
+        it (answering one later must not start the run again).
         """
         with _COMMAND_LOCK:
             from row_bot.application.client_computer_controls import stop_computer_use
             waiting = (self.projection.snapshot(conversation_id).get("generation")
                        or self._paused_approval_generation(conversation_id))
             withdrawn = stop_computer_use(conversation_id, generation_id=generation_id)
+            withdrawn += _withdraw_turn_approvals(conversation_id, generation_id)
             if generation_id:
                 # A Buddy click owns the displayed run even if a replacement
                 # has started before dispatch. Never stop that replacement or
@@ -1112,6 +1174,12 @@ class ClientPlatformService:
                               bool((approval_context or {}).get("approved")),
                               interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event)
                               if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
+                    if approval_context is not None and not approval_context.get("approved"):
+                        events = _settled_denial(
+                            events, conversation_id=conversation_id,
+                            identity=str(uuid.uuid5(uuid.NAMESPACE_URL, f"row-bot:denied:{handle.pass_id}")),
+                            expected_results=len(approval_context.get("interrupt_ids") or ()),
+                            computer=bool(approval_context.get("computer")))
                     for event in events:
                         self.registry.check_dispatch(handle)
                         if self.stream_factory is not None and event[0] in {"token", "tool_start", "tool_done", "output_binding"}:
@@ -1422,11 +1490,15 @@ class ClientPlatformService:
                 raise
             from row_bot.application.conversation_followups import after_approval
             after_approval(conversation_id, approved=approved)
+            interrupt = stored.get("interrupt")
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
                                  approval_context={"approved": approved,
                                                    "interrupt_ids": context["interrupt_ids"],
                                                    "pass_id": context.get("pass_id"),
-                                                   "generation_id": lease_generation})
+                                                   "generation_id": lease_generation,
+                                                   "computer": any(
+                                                       isinstance(item, dict) and item.get("tool") == "computer_use"
+                                                       for item in (interrupt if isinstance(interrupt, list) else [interrupt]))})
             return {**result, "approval_id": approval_id}
         if not respond_to_approval(row["resume_token"], payload.get("decision") == "approve"):
             raise ClientPlatformError("approval_already_resolved")
