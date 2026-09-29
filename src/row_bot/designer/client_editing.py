@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import html
 import json
 import re
 from collections.abc import Callable
@@ -15,6 +14,7 @@ from bs4 import BeautifulSoup, Tag
 
 from row_bot.designer import history, storage
 from row_bot.designer.client_service import ArtifactError, ArtifactPage, _identifier, read_artifact
+from row_bot.designer.preview import branded_blank_html
 from row_bot.designer.state import DESIGNER_MODES, DesignerPage, DesignerProject, default_page_kind_for_mode
 from row_bot.thread_cleanup import resolve_managed_path
 
@@ -94,24 +94,6 @@ def _unique_route_id(project: DesignerProject, title: str) -> str:
     while candidate in taken:
         candidate, suffix = f"{base}-{suffix}", suffix + 1
     return candidate
-
-
-def _blank_page_html(project: DesignerProject, title: str) -> str:
-    """A brand-aware blank page at the canvas size (the NiceGUI navigator's look), text escaped."""
-    from row_bot.designer.preview import _build_brand_css
-    brand_css = _build_brand_css(project.brand) if project.brand else ""
-    width, height = int(project.canvas_width), int(project.canvas_height)
-    return (
-        f"<!DOCTYPE html><html><head>{brand_css}"
-        f"<style>html,body{{margin:0;width:{width}px;height:{height}px;overflow:hidden;"
-        "background:var(--bg,#0F172A);color:var(--text,#F8FAFC);"
-        "font-family:var(--body-font,sans-serif);}"
-        "h1,h2,h3,h4{font-family:var(--heading-font,sans-serif);}</style>"
-        "</head><body>"
-        '<div style="display:flex;align-items:center;justify-content:center;height:100%;">'
-        f'<h1 style="font-size:2.5rem;opacity:0.3;">{html.escape(title)}</h1>'
-        "</div></body></html>"
-    )
 
 
 def _text_targets(page):
@@ -356,7 +338,7 @@ def apply_edit(project_id: str, *, expected_revision: str, operation: str,
             index = _page_index(updated, page_id) + 1
             page_title = _new_page_title(updated.mode)
             updated.pages.insert(index, DesignerPage(
-                html=_blank_page_html(updated, page_title), title=page_title,
+                html=branded_blank_html(updated, page_title), title=page_title,
                 route_id=_unique_route_id(updated, page_title), kind=default_page_kind_for_mode(updated.mode)))
             updated.active_page = index
         elif operation == "page_delete":
