@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { remindLaterAbout } from '../shell/AttentionIndicator';
 import { Download, RotateCcw, SkipForward } from 'lucide-react';
 import type {
   UpdateCommand,
@@ -366,8 +367,16 @@ export function UpdateControls({ owner }: { owner: Owner }) {
                 >
                   <SkipForward size={17} aria-hidden />
                 </CompactAction>
-                <Button variant="ghost" onClick={() => setDeferred(true)}>
-                  Later
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    // The sidebar indicator leaves it out for a day, on this
+                    // device (parity row 12).
+                    remindLaterAbout(snapshot.available!.version);
+                    setDeferred(true);
+                  }}
+                >
+                  Remind me later
                 </Button>
               </div>
             </div>

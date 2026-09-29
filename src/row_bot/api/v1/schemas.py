@@ -4020,6 +4020,24 @@ class McpCatalogPayload(McpCatalogRequest):
     nonce: str = Field(min_length=1, max_length=128)
 
 
+class AttentionProblem(WireModel):
+    id: str = Field(min_length=1, max_length=64)
+    title: str = Field(max_length=160)
+    detail: str = Field(max_length=512)
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows"]
+
+
+class AttentionUpdate(WireModel):
+    version: str = Field(min_length=1, max_length=64)
+
+
+class AttentionSnapshot(WireModel):
+    """What needs the person now: the sidebar's one indicator (parity 12, 13)."""
+    schema_version: Literal[1]
+    problems: list[AttentionProblem] = Field(max_length=20)
+    update: AttentionUpdate | None
+
+
 class McpChatState(WireModel):
     """Whether connected MCP servers' tools reach the chat ("Enable in chat", B130)."""
     schema_version: Literal[1]

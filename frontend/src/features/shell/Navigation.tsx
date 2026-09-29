@@ -31,6 +31,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { useClientState, useRuntime } from '../../runtime';
+import AttentionIndicator from './AttentionIndicator';
 import { useShellSettled } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
 import {
@@ -926,6 +927,10 @@ export default function Navigation({
         )}
       </section>
       <footer className="nav-footer" aria-label="Workspace destinations">
+        <AttentionIndicator
+          load={controller.attention}
+          onNavigate={openRoute}
+        />
         <div className="nav-footer-row">
           {showBuddy ? (
             <BuddySurface />
@@ -1030,6 +1035,7 @@ export function NavigationRail({
         )}
       </div>
       <div className="navigation-rail-group navigation-rail-footer">
+        <AttentionIndicator load={controller.attention} compact />
         <Hint label="Settings">
           <Link
             className="button ghost icon-button icon-action icon-action-md"

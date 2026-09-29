@@ -2287,6 +2287,9 @@ export class ClientController {
     this.query(() => this.transport.knowledgeGraph?.(limit, signal));
   monitorSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.monitorSnapshot?.(signal));
+  /** The sidebar's one indicator: problems and an update (rows 12, 13). */
+  attention = (signal?: AbortSignal) =>
+    this.query(() => this.transport.attention?.(signal));
   monitorLogs = (limit = 200, signal?: AbortSignal) =>
     this.query(() => this.transport.monitorLogs?.(limit, signal));
   systemDiagnosis = (signal?: AbortSignal) =>

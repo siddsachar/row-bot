@@ -198,6 +198,9 @@ export class HttpTransport implements ClientTransport {
   monitorSnapshot(signal?: AbortSignal) {
     return wire.getMonitorSnapshot(this.base, this.session(), signal);
   }
+  attention(signal?: AbortSignal) {
+    return wire.getAttention(this.base, this.session(), signal);
+  }
   monitorLogs(limit = 200, signal?: AbortSignal) {
     return wire.getMonitorLogs(this.base, this.session(), limit, signal);
   }

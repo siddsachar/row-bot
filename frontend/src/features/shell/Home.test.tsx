@@ -102,6 +102,7 @@ const mock = vi.hoisted(() => ({
     knowledgeGraph: vi.fn(),
     monitorSnapshot: vi.fn(),
     notices: vi.fn(),
+    attention: vi.fn(),
     savedTasks: vi.fn(),
     knowledgeEntityDetail: vi.fn(),
     reviewDreamRun: vi.fn(),
@@ -174,6 +175,11 @@ beforeEach(() => {
     latest: 0,
     notices: [],
     startup_warnings: [],
+  });
+  mock.controller.attention.mockResolvedValue({
+    schema_version: 1,
+    problems: [],
+    update: null,
   });
   mock.controller.savedTasks.mockResolvedValue(taskPage());
   mock.controller.monitorLogs.mockResolvedValue(monitorSnapshot.logs);

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { AttentionProblem } from '../../api/types';
 import {
   Brain,
   CalendarClock,
@@ -113,6 +114,19 @@ export type MonitorSnapshot = {
   };
 };
 
+/** Where each kind of problem is fixed. */
+const ATTENTION_PLACES: Record<
+  AttentionProblem['place'],
+  { to: string; label: string }
+> = {
+  channels: { to: '/settings/channels', label: 'Open Channels' },
+  plugins: { to: '/settings/plugins', label: 'Open Plugins' },
+  mcp: { to: '/settings/mcp', label: 'Open MCP' },
+  access: { to: '/settings/access', label: 'Open Devices & remote access' },
+  models: { to: '/settings/models', label: 'Open Models' },
+  workflows: { to: '/?tab=workflows', label: 'Open Workflows' },
+};
+
 export type MonitorHomeProps = {
   snapshot: MonitorSnapshot | null;
   loading: boolean;
@@ -121,6 +135,8 @@ export type MonitorHomeProps = {
   onRunDiagnosis: () => Promise<SystemDiagnosis>;
   /** Problems met while Row-Bot started (plugins, tunnel, tokens…). */
   startupWarnings?: readonly string[];
+  /** Problems the sidebar indicator counts (parity rows 12, 13). */
+  attention?: readonly AttentionProblem[];
   /** Up to 200 redacted entries for the console (local owner only). */
   loadLogs?: (signal?: AbortSignal) => Promise<MonitorLogs>;
   loadTasks?: () => Promise<TaskSummaryPage>;
@@ -853,6 +869,7 @@ export default function MonitorHome({
   onRefresh,
   onRunDiagnosis,
   startupWarnings,
+  attention,
   loadLogs,
   loadTasks,
   writeClipboard,
@@ -1185,6 +1202,34 @@ export default function MonitorHome({
         >
           {error}
         </ErrorState>
+      )}
+      {attention && attention.length > 0 && (
+        // What the sidebar's indicator counts (parity rows 12, 13), each
+        // with the place to fix it.
+        <section
+          className="monitor-section monitor-startup"
+          aria-labelledby="attention-heading"
+        >
+          <header className="monitor-section-head">
+            <h3 id="attention-heading">Needs attention</h3>
+          </header>
+          <ul className="monitor-startup-list">
+            {attention.map((problem) => (
+              <li key={problem.id}>
+                <TriangleAlert size={14} aria-hidden />
+                <span>
+                  <strong>{problem.title}</strong> {problem.detail}{' '}
+                  <Link
+                    className="settings-inline-action"
+                    to={ATTENTION_PLACES[problem.place].to}
+                  >
+                    {ATTENTION_PLACES[problem.place].label}
+                  </Link>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       <ul className="health-strip" aria-label="Health">
         {tiles.map((tile) => {

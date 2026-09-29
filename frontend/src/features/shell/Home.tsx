@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AttentionProblem } from '../../api/types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
@@ -52,6 +53,7 @@ export default function Home() {
   const [monitorError, setMonitorError] = useState('');
   const [monitorReload, setMonitorReload] = useState(0);
   const [startupWarnings, setStartupWarnings] = useState<string[]>([]);
+  const [attention, setAttention] = useState<AttentionProblem[]>([]);
   const monitorRead = useRef({ at: 0, key: '' });
   const [setup, setSetup] = useState<OnboardingSnapshot | null>(null);
   // Until a default model exists, opening Row-Bot opens Setup (decision 10).
@@ -148,6 +150,13 @@ export default function Home() {
     controller.notices(abort.signal).then(
       (page) => {
         if (!abort.signal.aborted) setStartupWarnings(page.startup_warnings);
+      },
+      () => undefined,
+    );
+    // What the sidebar's indicator counts is listed first (rows 12, 13).
+    controller.attention(abort.signal).then(
+      (value) => {
+        if (!abort.signal.aborted) setAttention(value.problems);
       },
       () => undefined,
     );
@@ -467,6 +476,7 @@ export default function Home() {
                 onRefresh={() => setMonitorReload((value) => value + 1)}
                 onRunDiagnosis={() => controller.systemDiagnosis()}
                 startupWarnings={startupWarnings}
+                attention={attention}
                 loadLogs={loadLogs}
                 loadTasks={identity ? loadTasks : undefined}
               />

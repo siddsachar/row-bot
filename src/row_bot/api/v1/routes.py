@@ -5026,6 +5026,20 @@ def create_router(
         )
         return await respond(request, dto.MonitorSnapshot, result)
 
+    @router.get("/monitor/attention")
+    async def monitor_attention(request: Request) -> JSONResponse:
+        # The sidebar's one indicator (parity rows 12, 13). Only the owner on
+        # this computer hears about updates: other devices can't install.
+        await session(request)
+        context = await _context(request)
+        from row_bot.application.client_monitor import read_attention
+
+        result = await call(
+            read_attention,
+            include_update=context.is_local_owner and context.direct_loopback,
+        )
+        return await respond(request, dto.AttentionSnapshot, result)
+
     @router.get("/monitor/logs")
     async def monitor_logs(request: Request, limit: int = 200) -> JSONResponse:
         await session(request)

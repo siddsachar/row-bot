@@ -295,6 +295,143 @@ def read_monitor_snapshot(*, include_logs: bool) -> dict[str, Any]:
     return result
 
 
+# ── Attention (NiceGUI parity rows 12 and 13) ──────────────────────────────
+# One sidebar indicator: problems that need the person (it opens Monitor) and
+# an update (it opens Updates). Quiet when everything is healthy. Reads are
+# passive: Python state only, no probes, nothing started.
+
+_MAX_PROBLEMS = 20
+_MODULE = __import__("sys").modules
+
+
+def _problem(problem_id: str, title: str, detail: str, place: str) -> dict[str, str]:
+    return {
+        "id": _bounded(problem_id, 64),
+        "title": _bounded(title, 160),
+        "detail": _bounded(detail, 512),
+        "place": place,
+    }
+
+
+def _channel_problems() -> list[dict[str, str]]:
+    """Channels set to start with Row-Bot that aren't running, or that run
+    without being reachable (a stopped channel someone stopped is fine)."""
+    registry = _MODULE.get("row_bot.channels.registry")
+    config = _MODULE.get("row_bot.channels.config")
+    if registry is None:
+        return []
+    problems = []
+    try:
+        channels = list(registry.all_channels())
+    except Exception:
+        return []
+    for channel in channels:
+        try:
+            name = str(channel.name)
+            label = str(getattr(channel, "display_name", name))
+            if not channel.is_configured():
+                continue
+            reader = getattr(channel, "link_status", None)
+            link = reader() if callable(reader) else None
+            if isinstance(link, dict) and link.get("state") in {"starting", "scan"}:
+                problems.append(_problem(f"channel:{name}", f"{label} is waiting for a scan",
+                    "Scan its code in Settings › Channels to link your phone.", "channels"))
+                continue
+            if channel.is_running():
+                check = getattr(channel, "reachability_problem", None)
+                problem = check() if callable(check) else None
+                if problem:
+                    problems.append(_problem(f"channel:{name}", f"{label} can't be reached",
+                                             str(problem), "channels"))
+                continue
+            wanted = config.get(name, "auto_start", False) is True if config is not None else False
+            if wanted:
+                problems.append(_problem(f"channel:{name}", f"{label} stopped",
+                    "It is set to start with Row-Bot but isn't running.", "channels"))
+        except Exception:
+            continue
+    return problems
+
+
+def _tunnel_problems() -> list[dict[str, str]]:
+    tunnel = _MODULE.get("row_bot.tunnel")
+    if tunnel is None:
+        return []
+    try:
+        status, detail = tunnel.tunnel_manager.status()
+    except Exception:
+        return []
+    if status not in {"warn", "error"}:
+        return []
+    return [_problem("tunnel", "Your public tunnel isn't running", str(detail), "access")]
+
+
+def _plugin_problems() -> list[dict[str, str]]:
+    loader = _MODULE.get("row_bot.plugins.loader")
+    state = _MODULE.get("row_bot.plugins.state")
+    if loader is None:
+        return []
+    problems = []
+    try:
+        results = list(loader.get_load_results())
+    except Exception:
+        return []
+    for result in results:
+        if result.success or getattr(result, "stale", False):
+            continue
+        try:
+            if state is not None and not state.is_plugin_enabled(result.plugin_id):
+                continue
+        except Exception:
+            pass
+        problems.append(_problem(f"plugin:{result.plugin_id}", f"The plugin {result.plugin_id} didn't load",
+            "Open it in Settings › Plugins; a plugin with its own code may need Prepare.", "plugins"))
+    return problems
+
+
+def _mcp_problems() -> list[dict[str, str]]:
+    runtime = _MODULE.get("row_bot.mcp_client.runtime")
+    if runtime is None:
+        return []
+    try:
+        status = runtime.get_status_summary()
+    except Exception:
+        return []
+    enabled = int(status.get("enabled_server_count") or 0)
+    connected = int(status.get("connected_server_count") or 0)
+    if not status.get("enabled") or not enabled or connected >= enabled:
+        return []
+    return [_problem("mcp", "An MCP server isn't connected",
+                     f"{connected} of {enabled} turned-on servers are connected.", "mcp")]
+
+
+def _available_update() -> Any:
+    updater = _MODULE.get("row_bot.updater")
+    if updater is None:
+        return None
+    try:
+        return updater.get_update_state().available
+    except Exception:
+        return None
+
+
+def read_attention(*, include_update: bool) -> dict[str, Any]:
+    """What needs the person now, for the sidebar's one indicator."""
+    problems: list[dict[str, str]] = []
+    for reader in (_channel_problems, _tunnel_problems, _plugin_problems,
+                   _mcp_problems):
+        try:
+            problems.extend(reader())
+        except Exception:
+            continue
+    update = None
+    if include_update:
+        available = _available_update()
+        version = _bounded(getattr(available, "version", ""), 64) if available else ""
+        update = {"version": version} if version else None
+    return {"schema_version": 1, "problems": problems[:_MAX_PROBLEMS], "update": update}
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(

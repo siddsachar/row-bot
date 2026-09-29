@@ -1701,3 +1701,31 @@
     transition: none;
   }
 }
+
+/* One attention indicator (parity rows 12, 13): shown only when something
+   needs the person — problems open Monitor, an update opens Updates. */
+.nav-attention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-size: var(--text-12);
+  font-weight: 500;
+  text-decoration: none;
+}
+.nav-attention[data-tone='info'] {
+  background: var(--status-info-background);
+  color: var(--status-info-text);
+}
+.nav-attention:hover {
+  filter: brightness(1.04);
+}
+.nav-attention.is-compact {
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+}

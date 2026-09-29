@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "maxLength": 512,
+      "title": "Detail",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "place": {
+      "enum": [
+        "channels",
+        "plugins",
+        "mcp",
+        "access",
+        "models",
+        "workflows"
+      ],
+      "title": "Place",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 160,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "detail",
+    "place"
+  ],
+  "title": "AttentionProblem",
+  "type": "object"
+}

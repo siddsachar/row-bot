@@ -154,3 +154,35 @@ def test_dream_run_requires_current_review_and_is_idempotent(tmp_path, monkeypat
     assert first.json() == second.json()
     assert first.json()["status"] == "completed"
     assert calls == ["run"]
+
+
+def test_attention_is_quiet_when_healthy_and_names_what_needs_you(tmp_path, monkeypatch):
+    """Parity rows 12 and 13: one sidebar indicator for problems (to Monitor)
+    and an update (to Updates), quiet when everything is healthy. The read is
+    passive: it never probes a service or starts anything."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    for name in ("_channel_problems", "_tunnel_problems", "_plugin_problems",
+                 "_mcp_problems"):
+        monkeypatch.setattr(client_monitor, name, lambda: [])
+    monkeypatch.setattr(client_monitor, "_available_update", lambda: None)
+    assert client_monitor.read_attention(include_update=True) == {
+        "schema_version": 1, "problems": [], "update": None}
+
+    monkeypatch.setattr(client_monitor, "_channel_problems", lambda: [{
+        "id": "channel:telegram", "title": "Telegram stopped",
+        "detail": "It is set to start with Row-Bot but isn't running.", "place": "channels"}])
+    monkeypatch.setattr(client_monitor, "_available_update", lambda: SimpleNamespace(version="9.1.0"))
+    value = client_monitor.read_attention(include_update=True)
+    assert [problem["id"] for problem in value["problems"]] == ["channel:telegram"]
+    assert value["update"] == {"version": "9.1.0"}
+    # Another device reads the problems, never the update (it can't install).
+    assert client_monitor.read_attention(include_update=False)["update"] is None
+
+    local, _, _ = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        response = local.get("/api/v1/monitor/attention", headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["problems"][0]["title"] == "Telegram stopped"

@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "AttentionProblem": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "maxLength": 512,
+          "title": "Detail",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "place": {
+          "enum": [
+            "channels",
+            "plugins",
+            "mcp",
+            "access",
+            "models",
+            "workflows"
+          ],
+          "title": "Place",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "detail",
+        "place"
+      ],
+      "title": "AttentionProblem",
+      "type": "object"
+    },
+    "AttentionUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "AttentionUpdate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What needs the person now: the sidebar's one indicator (parity 12, 13).",
+  "properties": {
+    "problems": {
+      "items": {
+        "$ref": "#/$defs/AttentionProblem"
+      },
+      "maxItems": 20,
+      "title": "Problems",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "update": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttentionUpdate"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "problems",
+    "update"
+  ],
+  "title": "AttentionSnapshot",
+  "type": "object"
+}
