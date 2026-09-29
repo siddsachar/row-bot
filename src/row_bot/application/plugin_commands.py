@@ -250,7 +250,51 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
                 for key, value in (provides.items() if type(provides) is dict else [])
                 if key in {"native_tools", "mcp_servers", "channels", "skills"}
             },
+            "changelog_url": _https_url(entry.get("changelog_url")),
         }
+    return result
+
+
+def _https_url(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text or len(text) > 2048:
+        return None
+    try:
+        parsed = urlsplit(text)
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return None
+    return text
+
+
+def _plugin_guide(plugin_id: str) -> str:
+    """The plugin's README as its setup steps (parity row 39), bounded text."""
+    try:
+        from row_bot.plugins import installer
+
+        readme = installer._source_for_preparation(plugin_id) / "README.md"
+        if readme.is_symlink() or not readme.is_file() or readme.stat().st_size > 256 * 1024:
+            return ""
+        text = readme.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    text = "".join(ch for ch in text if ch in "\n\t" or ord(ch) >= 32)
+    return text[:32768]
+
+
+def _sign_in(auth: object) -> list[dict[str, str]]:
+    """The sign-ins a plugin declares, by name and kind (display only)."""
+    if type(auth) is not dict:
+        return []
+    result = []
+    for key, spec in list(auth.items())[:16]:
+        if type(spec) is not dict:
+            continue
+        result.append({
+            "label": str(spec.get("label") or spec.get("name") or key)[:128],
+            "kind": str(spec.get("type") or "")[:64],
+        })
     return result
 
 
@@ -353,6 +397,34 @@ def _capabilities(
     }
 
 
+def environment_needed(plugin_id: str) -> bool:
+    """A worker plugin whose private environment is missing or out of date.
+
+    Worker plugins (a ``plugin_main.py``) load only from a prepared
+    environment; nothing prepared one, so they could never load (B129).
+    """
+    try:
+        from row_bot.plugins import installer, state as plugin_state
+
+        source = installer._source_for_preparation(plugin_id)
+        if not (source / "plugin_main.py").is_file():
+            return False
+        records = plugin_state.get_plugin_environment_state(plugin_id)
+        receipt = records.get("operations", {}).get(records.get("active_operation_id"))
+        return not (
+            type(receipt) is dict
+            and receipt.get("stage") == "ready"
+            and receipt.get("plugin_revision") == installer.get_plugin_source_revision(plugin_id)
+        )
+    except Exception:
+        return False
+
+
+def _prepare_capability(plugin_id: str) -> dict[str, Any]:
+    needed = environment_needed(plugin_id)
+    return {"available": needed, "code": None if needed else "plugin_environment_ready"}
+
+
 def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
     validate()
     root = _root()
@@ -430,6 +502,7 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
                 update_available=bool(market and _newer(market["version"], manifest.version)),
             ),
         }
+        item["capabilities"]["prepare"] = _prepare_capability(manifest.id)
         items.append(item)
     for plugin_id, market in cached.items():
         if plugin_id in seen:
@@ -457,10 +530,13 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
                 "health": "unknown",
                 "update_version": None,
                 "manifest_revision": None,
-                "capabilities": _capabilities(
-                    installed=False, enabled=False, setup=False, healthy=False,
-                    market_available=True,
-                ),
+                "capabilities": {
+                    **_capabilities(
+                        installed=False, enabled=False, setup=False, healthy=False,
+                        market_available=True,
+                    ),
+                    "prepare": {"available": False, "code": "plugin_not_installed"},
+                },
             }
         )
     items.sort(key=lambda item: (str(item["name"]).casefold(), item["plugin_id"]))
@@ -514,6 +590,12 @@ def read_plugin_catalog(
         "revision": revision,
         "availability": "available",
         "items": page,
+        # Counted over every plugin, not the tab or search shown (B120).
+        "installed_count": sum(1 for item in items if item["installed"]),
+        "attention_count": sum(
+            1 for item in items
+            if item["installed"] and item["health"] in {"load_failed", "failed", "error", "unhealthy"}
+        ),
         "total": len(values),
         "next_cursor": f"{revision}:{offset + limit}"
         if offset + limit < len(values)
@@ -601,12 +683,18 @@ def read_plugin_detail(
             else health["status"],
         },
         "permissions": [str(value)[:64] for value in manifest.permissions[:64]],
-        "capabilities": _capabilities(
-            installed=True,
-            enabled=enabled,
-            setup=setup,
-            healthy=health["status"] == "passed",
-        ),
+        "capabilities": {
+            **_capabilities(
+                installed=True,
+                enabled=enabled,
+                setup=setup,
+                healthy=health["status"] == "passed",
+            ),
+            "prepare": _prepare_capability(plugin_id),
+        },
+        "guide": _plugin_guide(plugin_id),
+        "sign_in": _sign_in(getattr(manifest, "auth", {})),
+        "changelog_url": (_marketplace(root).get(plugin_id) or {}).get("changelog_url"),
     }
     validate()
     return detail

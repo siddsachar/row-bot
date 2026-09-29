@@ -253,6 +253,11 @@ const CATALOG: Record<string, Entry> = {
   ],
   invalid_fields: ['Check the fields you filled in and try again.', 'review'],
 
+  plugin_environment_ready: [
+    'This plugin is already prepared. Refresh the list.',
+    'review',
+  ],
+
   // Approvals
   approval_already_resolved: [
     'This approval was already answered. Close this and check the conversation.',

@@ -26,6 +26,7 @@ import PluginLifecycleActions, {
   type PluginLifecycleApi,
 } from './PluginLifecycleActions';
 import { SettingsSummary, SettingsTabs, SummaryChip } from './anatomy';
+import { ConnectSheet, type ConnectStep } from './ConnectSheet';
 
 export type PluginCapability = { available: boolean; code: string | null };
 export type PluginCatalogItem = {
@@ -54,6 +55,9 @@ export type PluginCatalogPage = {
   items: PluginCatalogItem[];
   total: number;
   next_cursor: string | null;
+  /** Over every plugin, whatever the tab or search shows (B120). */
+  installed_count?: number;
+  attention_count?: number;
 };
 export type PluginField = {
   name: string;
@@ -79,6 +83,10 @@ export type PluginDetail = {
   health: { status: string; checks: { label: string; status: string }[] };
   permissions: string[];
   capabilities: Record<string, PluginCapability>;
+  /** The connect sheet (parity row 39): README steps, sign-ins, changelog. */
+  guide?: string;
+  sign_in?: { label: string; kind: string }[];
+  changelog_url?: string | null;
 };
 export type PluginAction =
   | 'plugin.enable'
@@ -505,9 +513,13 @@ export default function PluginSettings({
   );
   useEffect(() => () => clearTimeout(searchTimer.current), []);
   const tab = state.source === 'installed' ? 'installed' : 'discover';
+  // Counted over every plugin by the server, not this tab's page (B120).
   const installedCount =
-    state.page?.items.filter((plugin) => plugin.installed).length ?? 0;
+    state.page?.installed_count ??
+    state.page?.items.filter((plugin) => plugin.installed).length ??
+    0;
   const failedCount =
+    state.page?.attention_count ??
     state.page?.items.filter((plugin) => UNHEALTHY.has(plugin.health)).length ??
     0;
   const toolbar = (
@@ -660,6 +672,23 @@ export default function PluginSettings({
       {state.selected && (
         <section aria-label={`Manage ${state.selected.name}`}>
           <h3>{state.selected.name}</h3>
+          <ConnectSheet
+            title={`Set up ${state.selected.name}`}
+            steps={pluginSteps(state.selected)}
+          >
+            {state.selected.changelog_url && (
+              <p>
+                <a
+                  className="settings-inline-action"
+                  href={state.selected.changelog_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  What’s new in {state.selected.name}
+                </a>
+              </p>
+            )}
+          </ConnectSheet>
           <p>
             Health: {humanizeToken(state.selected.health.status).toLowerCase()}.
             Permissions:{' '}
@@ -838,6 +867,58 @@ const unavailableLifecycle: PluginLifecycleApi = {
 
 const UNHEALTHY = new Set(['failed', 'error', 'unhealthy', 'load_failed']);
 
+/**
+ * A plugin's connect sheet (parity row 39): its own setup notes, the
+ * sign-ins it declares, then settings, the local test and turning it on,
+ * with why a step is unavailable instead of a greyed control (U52).
+ */
+function pluginSteps(plugin: PluginDetail): ConnectStep[] {
+  const steps: ConnectStep[] = [];
+  if (plugin.guide)
+    steps.push({
+      id: 'guide',
+      text: 'Read its setup notes.',
+      children: (
+        <details className="settings-plugin-guide">
+          <summary>Setup notes</summary>
+          <div className="settings-plugin-guide-text">{plugin.guide}</div>
+        </details>
+      ),
+    });
+  (plugin.sign_in ?? []).forEach((item, index) =>
+    steps.push({
+      id: `sign-in-${index}`,
+      text: `Sign in to ${item.label}${
+        item.kind ? ` (${humanizeToken(item.kind)})` : ''
+      } when the plugin asks.`,
+    }),
+  );
+  const fields = [...plugin.settings, ...plugin.secrets];
+  if (fields.length)
+    steps.push({
+      id: 'settings',
+      text: plugin.capabilities.configure?.available
+        ? 'Fill in its settings below and save them.'
+        : 'Turn it off to change its settings.',
+      done: fields.every((field) => !field.required || field.configured),
+    });
+  steps.push({
+    id: 'test',
+    text: 'Run its local test.',
+    done: plugin.health.status === 'passed',
+  });
+  steps.push({
+    id: 'enable',
+    text: plugin.enabled
+      ? 'It is on.'
+      : plugin.capabilities.enable?.available
+        ? 'Turn it on.'
+        : 'Turn it on once its settings are saved and the local test passed.',
+    done: plugin.enabled,
+  });
+  return steps;
+}
+
 function pluginStatus(plugin: PluginCatalogItem): {
   tone: Tone;
   label: string;
@@ -846,7 +927,12 @@ function pluginStatus(plugin: PluginCatalogItem): {
   // Enabled but not running: the last load failed (e.g. its environment is
   // not prepared), whatever its last explicit test said.
   if (plugin.health === 'load_failed')
-    return { tone: 'danger', label: 'Failed to load' };
+    return {
+      tone: 'danger',
+      label: plugin.capabilities.prepare?.available
+        ? 'Needs preparing'
+        : 'Failed to load',
+    };
   if (UNHEALTHY.has(plugin.health))
     return { tone: 'danger', label: 'Needs attention' };
   if (plugin.enabled) return { tone: 'success', label: 'Enabled' };
@@ -946,6 +1032,17 @@ function PluginRow({
       <div className="settings-plugin-row-actions">
         {plugin.installed ? (
           <>
+            {lifecycle && plugin.capabilities.prepare?.available && (
+              // A worker plugin loads only from its own prepared
+              // environment, which nothing made before (B129, B164).
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => void life.action('prepare')}
+              >
+                Prepare
+              </Button>
+            )}
             <Button
               aria-label={`Manage ${plugin.name}`}
               disabled={locked}

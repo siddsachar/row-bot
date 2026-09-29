@@ -346,6 +346,7 @@
     "plugin_changed": 409,
     "plugin_configuration_unconfirmed": 409,
     "plugin_enablement_unconfirmed": 409,
+    "plugin_environment_ready": 409,
     "plugin_lifecycle_changed": 409,
     "plugin_lifecycle_receipt_unavailable": 404,
     "plugin_lifecycle_worker_unavailable": 409,

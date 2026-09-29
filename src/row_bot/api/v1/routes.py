@@ -647,6 +647,8 @@ _STATUS.update(
     dict.fromkeys(("channel_operation_unavailable", "action_unavailable"), 404)
 )
 _STATUS["channel_status_unavailable"] = 503
+# A worker plugin that was prepared meanwhile (B129).
+_STATUS["plugin_environment_ready"] = 409
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(

@@ -2986,6 +2986,9 @@ class PluginCatalogPage(WireModel):
     items: list[PluginCatalogItem] = Field(max_length=50)
     total: int = Field(ge=0, le=2000)
     next_cursor: str | None = Field(max_length=2048)
+    # Over every plugin, whatever the tab or search shows (B120).
+    installed_count: int = Field(default=0, ge=0, le=2000)
+    attention_count: int = Field(default=0, ge=0, le=2000)
 
 
 class PluginField(WireModel):
@@ -3010,6 +3013,11 @@ class PluginHealth(WireModel):
     checks: list[PluginHealthCheck] = Field(max_length=64)
 
 
+class PluginSignIn(WireModel):
+    label: str = Field(max_length=128)
+    kind: str = Field(max_length=64)
+
+
 class PluginDetail(WireModel):
     schema_version: Literal[1]
     plugin_id: OpaqueId
@@ -3023,6 +3031,11 @@ class PluginDetail(WireModel):
     health: PluginHealth
     permissions: list[str] = Field(max_length=64)
     capabilities: dict[str, PluginCapability]
+    # The plugin's connect sheet (parity row 39): its README as setup steps,
+    # the sign-ins it declares, and the marketplace changelog link.
+    guide: str = Field(default="", max_length=32768)
+    sign_in: list[PluginSignIn] = Field(default_factory=list, max_length=16)
+    changelog_url: str | None = Field(default=None, max_length=2048)
 
 
 PluginAction = Literal[
@@ -3079,12 +3092,12 @@ class PluginReceipt(WireModel):
 
 
 class PluginLifecycleReviewRequest(WireModel):
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(default="", max_length=128)
 
 
 class PluginLifecycleReview(WireModel):
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(max_length=128)
     name: str = Field(max_length=256)
     version: str = Field(max_length=64)
@@ -3098,7 +3111,7 @@ class PluginLifecycleReview(WireModel):
 class PluginLifecycleCommand(WireModel):
     command_id: UUID
     client_session_id: UUID
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(default="", max_length=128)
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -3106,7 +3119,7 @@ class PluginLifecycleCommand(WireModel):
 class PluginLifecycleReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain"]
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(max_length=128)
     message: str = Field(max_length=1024)
 

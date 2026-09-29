@@ -163,6 +163,13 @@
   },
   "additionalProperties": false,
   "properties": {
+    "attention_count": {
+      "default": 0,
+      "maximum": 2000,
+      "minimum": 0,
+      "title": "Attention Count",
+      "type": "integer"
+    },
     "availability": {
       "enum": [
         "available",
@@ -170,6 +177,13 @@
       ],
       "title": "Availability",
       "type": "string"
+    },
+    "installed_count": {
+      "default": 0,
+      "maximum": 2000,
+      "minimum": 0,
+      "title": "Installed Count",
+      "type": "integer"
     },
     "items": {
       "items": {

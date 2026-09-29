@@ -153,6 +153,27 @@
       ],
       "title": "PluginHealthCheck",
       "type": "object"
+    },
+    "PluginSignIn": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "maxLength": 64,
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "kind"
+      ],
+      "title": "PluginSignIn",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -164,6 +185,19 @@
       "title": "Capabilities",
       "type": "object"
     },
+    "changelog_url": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Changelog Url"
+    },
     "description": {
       "maxLength": 2048,
       "title": "Description",
@@ -172,6 +206,12 @@
     "enabled": {
       "title": "Enabled",
       "type": "boolean"
+    },
+    "guide": {
+      "default": "",
+      "maxLength": 32768,
+      "title": "Guide",
+      "type": "string"
     },
     "health": {
       "$ref": "#/$defs/PluginHealth"
@@ -220,6 +260,14 @@
       },
       "maxItems": 128,
       "title": "Settings",
+      "type": "array"
+    },
+    "sign_in": {
+      "items": {
+        "$ref": "#/$defs/PluginSignIn"
+      },
+      "maxItems": 16,
+      "title": "Sign In",
       "type": "array"
     },
     "version": {

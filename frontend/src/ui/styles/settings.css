@@ -3211,3 +3211,70 @@
     min-height: 44px;
   }
 }
+
+/* One connect sheet for channels, accounts and plugins (Phase 15): numbered
+   steps with their link, values to copy and the step's control in place. */
+.connect-sheet {
+  display: grid;
+  gap: 8px;
+}
+.connect-sheet > h4 {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+.connect-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connect-steps > li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.connect-step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.connect-steps > li[data-done='true'] .connect-step-number {
+  background: var(--status-success-background);
+  color: var(--status-success-text);
+}
+.connect-step-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.connect-step-body > p {
+  margin: 2px 0 0;
+}
+.connect-step-body a svg {
+  margin-inline-start: 3px;
+  vertical-align: -1px;
+}
+.connect-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings-plugin-guide-text {
+  max-height: 320px;
+  margin-top: 6px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}

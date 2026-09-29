@@ -35,6 +35,8 @@ def test_missing_store_is_passive_and_does_not_create_it(tmp_path, monkeypatch):
         "revision": commands._revision([]),
         "availability": "available",
         "items": [],
+        "installed_count": 0,
+        "attention_count": 0,
         "total": 0,
         "next_cursor": None,
     }

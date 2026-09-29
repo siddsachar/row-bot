@@ -4,6 +4,7 @@ import type {
   PluginLifecycleReceipt,
   PluginLifecycleReview,
 } from '../../api/types';
+import { clientError } from '../../api/errors';
 import { readRetainedCommand, retainCommand } from '../../api/retained-command';
 import { Button } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
@@ -20,11 +21,22 @@ export type PluginLifecycleApi = {
   receipt: (commandId: string) => Promise<PluginLifecycleReceipt>;
 };
 
+type Confirmable = Exclude<PluginLifecycleCommand['action'], 'refresh'>;
+
+const CONFIRM: Record<Confirmable, { title: string; label: string }> = {
+  install: { title: 'Install', label: 'Install plugin' },
+  update: { title: 'Update', label: 'Update plugin' },
+  prepare: { title: 'Prepare', label: 'Prepare plugin' },
+  remove: { title: 'Uninstall', label: 'Uninstall plugin' },
+};
+
 /**
- * Install, update, uninstall and marketplace refresh for one plugin (or the
- * marketplace when `plugin` is omitted). Each action is reviewed by the
- * server and applied in one step; uninstall asks first. An unconfirmed
- * outcome is retained per plugin so it can be checked instead of repeated.
+ * Install, update, prepare, uninstall and marketplace refresh for one plugin
+ * (or the marketplace when `plugin` is omitted). The server reviews each
+ * action first; install, update, prepare and uninstall show what the review
+ * says (source, checksum, what it may do) and run only after the person
+ * confirms it (B144). An unconfirmed outcome is retained per plugin so it
+ * can be checked instead of repeated.
  */
 export function usePluginLifecycle(
   plugin: PluginCatalogItem | undefined,
@@ -42,7 +54,28 @@ export function usePluginLifecycle(
   };
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [reviewed, setReviewed] = useState<{
+    kind: Confirmable;
+    review: PluginLifecycleReview;
+  } | null>(null);
+  const run = async (
+    kind: PluginLifecycleCommand['action'],
+    review: PluginLifecycleReview,
+  ) => {
+    const commandId = crypto.randomUUID();
+    remember(commandId);
+    const receipt = await api.execute({
+      command_id: commandId,
+      action: kind,
+      plugin_id: plugin?.plugin_id ?? '',
+      revision: review.revision,
+    });
+    setMessage(receipt.message);
+    if (receipt.status !== 'uncertain') {
+      remember('');
+      onChanged();
+    }
+  };
   const action = async (kind: PluginLifecycleCommand['action']) => {
     if (busy || pending) return;
     setBusy(true);
@@ -50,21 +83,24 @@ export function usePluginLifecycle(
     setMessage('');
     try {
       const review = await api.review(kind, plugin?.plugin_id ?? '');
-      const commandId = crypto.randomUUID();
-      remember(commandId);
-      const receipt = await api.execute({
-        command_id: commandId,
-        action: kind,
-        plugin_id: plugin?.plugin_id ?? '',
-        revision: review.revision,
-      });
-      setMessage(receipt.message);
-      if (receipt.status !== 'uncertain') {
-        remember('');
-        onChanged();
-      }
+      // The marketplace refresh says what it fetches on its own button.
+      if (kind === 'refresh') await run(kind, review);
+      else setReviewed({ kind, review });
     } catch (cause) {
-      setError(String(cause));
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirm = async () => {
+    const current = reviewed;
+    if (!current || busy || pending) return;
+    setReviewed(null);
+    setBusy(true);
+    try {
+      await run(current.kind, current.review);
+    } catch (cause) {
+      setError(clientError(cause).message);
     } finally {
       setBusy(false);
     }
@@ -81,7 +117,7 @@ export function usePluginLifecycle(
         onChanged();
       }
     } catch (cause) {
-      setError(String(cause));
+      setError(clientError(cause).message);
     } finally {
       setBusy(false);
     }
@@ -98,33 +134,74 @@ export function usePluginLifecycle(
       )}
     </>
   );
-  const confirmation = plugin ? (
-    <ModalTask
-      open={confirmRemove}
-      onOpenChange={setConfirmRemove}
-      title={`Uninstall ${plugin.name}?`}
-      description="This deletes its files, settings, and secret metadata."
-      ariaLabel={`Uninstall ${plugin.name}`}
-    >
-      <div className="button-row">
-        <Button onClick={() => setConfirmRemove(false)}>Cancel</Button>
-        <Button
-          variant="danger"
-          onClick={() => {
-            setConfirmRemove(false);
-            void action('remove');
-          }}
-        >
-          Uninstall plugin
-        </Button>
-      </div>
-    </ModalTask>
-  ) : null;
+  const words = reviewed ? CONFIRM[reviewed.kind] : null;
+  const confirmation =
+    plugin && reviewed && words ? (
+      <ModalTask
+        open
+        onOpenChange={(open) => {
+          if (!open) setReviewed(null);
+        }}
+        title={`${words.title} ${plugin.name}?`}
+        description={
+          reviewed.kind === 'remove'
+            ? 'This deletes its files, settings, and secret metadata.'
+            : 'Check what it is and what it may do before it runs.'
+        }
+        ariaLabel={`${words.title} ${plugin.name}`}
+      >
+        <div className="stack settings-plugin-review">
+          {(reviewed.kind === 'install' || reviewed.kind === 'update') && (
+            <dl className="settings-facts">
+              <div className="settings-fact">
+                <dt>Version</dt>
+                <dd>{reviewed.review.version || plugin.version}</dd>
+              </div>
+              <div className="settings-fact">
+                <dt>From</dt>
+                <dd className="settings-break-word">
+                  {reviewed.review.source}
+                </dd>
+              </div>
+              <div className="settings-fact">
+                <dt>Checksum</dt>
+                <dd className="settings-break-word">
+                  {reviewed.review.checksum || 'Not pinned'}
+                </dd>
+              </div>
+              <div className="settings-fact">
+                <dt>May use</dt>
+                <dd>
+                  {(reviewed.review.permissions ?? []).join(', ') ||
+                    'Nothing listed'}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {(reviewed.review.disclosures ?? []).length > 0 && (
+            <ul aria-label="What this does">
+              {(reviewed.review.disclosures ?? []).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="button-row">
+          <Button onClick={() => setReviewed(null)}>Cancel</Button>
+          <Button
+            variant={reviewed.kind === 'remove' ? 'danger' : 'primary'}
+            onClick={() => void confirm()}
+          >
+            {words.label}
+          </Button>
+        </div>
+      </ModalTask>
+    ) : null;
   return {
     busy,
     locked,
     action,
-    requestRemove: () => setConfirmRemove(true),
+    requestRemove: () => void action('remove'),
     feedback,
     confirmation,
   };
@@ -196,6 +273,14 @@ export default function PluginLifecycleActions({
             onClick={() => void lifecycle.action('update')}
           >
             Update to {plugin.update_version}
+          </Button>
+        )}
+        {plugin.installed && plugin.capabilities.prepare?.available && (
+          <Button
+            disabled={lifecycle.locked}
+            onClick={() => void lifecycle.action('prepare')}
+          >
+            Prepare
           </Button>
         )}
         {plugin.installed && (

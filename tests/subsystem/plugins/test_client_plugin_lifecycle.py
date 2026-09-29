@@ -201,3 +201,17 @@ def test_interrupted_lifecycle_receipt_does_not_claim_success(monkeypatch):
     )
     assert receipt["status"] == "uncertain"
     assert "unconfirmed" in receipt["message"]
+
+
+def test_install_review_says_everything_the_person_confirms(lifecycle):
+    """B144: the review's disclosures were never shown and install ran right
+    after review. React now shows them before Install; the review says where
+    the code comes from, whether it is pinned, and that a worker plugin gets
+    its own environment."""
+    _item, entry, calls = lifecycle
+    review = owner.review_plugin_lifecycle("install", entry.id, validate=lambda: None)
+    assert review["source"] == entry.archive_url and review["permissions"] == ["filesystem_read"]
+    text = " ".join(review["disclosures"])
+    assert "kept disabled" in text and "checked against the displayed checksum" in text
+    assert "private Python environment" in text
+    assert calls == []

@@ -10,12 +10,35 @@ from collections.abc import Callable
 from hashlib import sha256
 import json
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
 
-_ACTIONS = frozenset({"install", "update", "remove", "refresh"})
+_ACTIONS = frozenset({"install", "update", "remove", "refresh", "prepare"})
+
+_PREPARE_DISCLOSURES = [
+    "Row-Bot creates a private Python environment for this plugin in its data folder, then loads the plugin.",
+    "Nothing is downloaded: the plugin declares no dependencies.",
+]
+
+
+def _prepare(plugin_id: str, operation_id: str) -> tuple[bool, str]:
+    """Prepare a worker plugin's private environment (B129).
+
+    Worker plugins (a ``plugin_main.py``) load only from a prepared
+    environment. Plugins declare no dependencies, so nothing is downloaded.
+    """
+    from row_bot.plugins import installer
+
+    outcome = installer.prepare_plugin_environment(
+        plugin_id,
+        [],
+        expected_plugin_revision=installer.get_plugin_source_revision(plugin_id),
+        operation_id=operation_id,
+    )
+    return outcome.ready, str(outcome.error_code or "")
 
 
 def _entry(plugin_id: str):
@@ -77,8 +100,10 @@ def review_plugin_lifecycle(
             raise ClientPlatformError("plugin_not_found")
         if action == "install" and item["installed"]:
             raise ClientPlatformError("plugin_already_installed")
-        if action in {"update", "remove"} and not item["installed"]:
+        if action in {"update", "remove", "prepare"} and not item["installed"]:
             raise ClientPlatformError("plugin_not_installed")
+        if action == "prepare" and not item["capabilities"].get("prepare", {}).get("available"):
+            raise ClientPlatformError("plugin_environment_ready")
         if action == "update" and not item["update_version"]:
             raise ClientPlatformError("plugin_update_unavailable")
         entry = _entry(plugin_id) if action in {"install", "update"} else None
@@ -107,8 +132,11 @@ def review_plugin_lifecycle(
                     "Third-party plugin code and dependencies may contact external services when enabled; inspect its source and permissions before proceeding.",
                     "The marketplace index does not pin this package with a checksum; its content may change before download."
                     if not checksum else "The downloaded package is checked against the displayed checksum.",
+                    "A plugin with its own code gets a private Python environment in Row-Bot's data folder.",
                 ]
                 if action in {"install", "update"}
+                else list(_PREPARE_DISCLOSURES)
+                if action == "prepare"
                 else ["Removal deletes plugin files, settings, and secret metadata. This cannot be undone."]
             ),
         }
@@ -169,6 +197,13 @@ def execute_plugin_lifecycle(
     elif action == "remove":
         outcome = installer.uninstall_plugin(plugin_id)
         success, message = outcome.success, "Plugin removed." if outcome.success else "Plugin removal failed; inspect the local installation."
+    elif action == "prepare":
+        success, code = _prepare(plugin_id, command["command_id"])
+        message = (
+            f"Prepared {reviewed['name']}. It loads now."
+            if success
+            else f"Row-Bot couldn't prepare {reviewed['name']} ({code or 'environment_preparation_failed'})."
+        )
     else:
         entry = _entry(plugin_id)
         local_source = _local_source(entry)
@@ -192,7 +227,15 @@ def execute_plugin_lifecycle(
             else f"Updated {plugin_id}." if success else
             "Plugin operation failed; inspect the local installation."
         )
-    if success and action in {"install", "update", "remove"}:
+        if success:
+            # A worker plugin loads only from its prepared environment (B129).
+            from row_bot.application.plugin_commands import environment_needed
+
+            if environment_needed(plugin_id):
+                prepared, code = _prepare(plugin_id, str(uuid4()))
+                if not prepared:
+                    message += f" Its environment isn't ready ({code}); use Prepare."
+    if success and action in {"install", "update", "remove", "prepare"}:
         from row_bot.plugins import loader
 
         loader.refresh_plugin_runtime(f"plugin {action}")

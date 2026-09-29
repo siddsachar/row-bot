@@ -6,7 +6,8 @@
         "install",
         "update",
         "remove",
-        "refresh"
+        "refresh",
+        "prepare"
       ],
       "title": "Action",
       "type": "string"

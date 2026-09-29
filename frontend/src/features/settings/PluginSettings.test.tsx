@@ -117,7 +117,14 @@ function options() {
           : source === 'marketplace'
             ? page.items.filter((item) => !item.installed)
             : page.items;
-      return { ...page, items, total: items.length };
+      // The server counts every plugin, whatever the tab shows (B120).
+      return {
+        ...page,
+        items,
+        total: items.length,
+        installed_count: 1,
+        attention_count: 0,
+      };
     }),
     open: vi.fn().mockResolvedValue(detail),
     review: vi.fn().mockImplementation(async (action, payload) => ({
@@ -162,6 +169,8 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
   // Discover is the saved marketplace; it never fetches over the network.
   fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   expect(await screen.findByText('Cached Plugin')).toBeVisible();
+  // Discover shows the saved marketplace, and still "1 installed" (B120).
+  expect(screen.getByText('1 installed')).toBeVisible();
   expect(screen.getByLabelText('Plugin source')).toHaveValue('marketplace');
   expect(screen.getByText(/Install unavailable/)).toBeVisible();
   expect(props.load).toHaveBeenLastCalledWith(
@@ -348,6 +357,9 @@ it('keeps a newly installed marketplace plugin visible for its next action', asy
   await screen.findByText('0 matching plugins.');
   fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Install plugin' }),
+  );
   await waitFor(() =>
     expect(props.load).toHaveBeenLastCalledWith(
       { query: '', source: 'all', cursor: undefined },
