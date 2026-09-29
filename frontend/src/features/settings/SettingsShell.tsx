@@ -87,7 +87,7 @@ const descriptions: Record<string, string> = {
   system: 'Workspace folder, shell, browser, files and logs.',
   access: 'Remote access, tunnels, invitations and signed-in sessions.',
   updates: 'The installed version and how updates arrive.',
-  data: 'Import from other assistants, and irreversible clean-up.',
+  data: 'Back up and restore, import from other assistants, and irreversible clean-up.',
 };
 
 export function SettingIcon({ id, size = 18 }: { id: string; size?: number }) {
