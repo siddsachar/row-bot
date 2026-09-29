@@ -78,6 +78,15 @@ class ClientAdapter(ABC):
     def open_approval(self, record_key: str | None = None) -> None:
         """Open a real pending approval without resolving it."""
 
+    @classmethod
+    @abstractmethod
+    def install_capture_privacy_filter(cls, context: Any, records: Mapping[str, str]) -> None:
+        """Keep secrets and notifications out of every recorded frame of a browser context."""
+
+    @abstractmethod
+    def prepare_scene(self, scene: SceneSpec) -> None:
+        """Bring the client to the scene's semantic starting state."""
+
     @abstractmethod
     def await_settled_state(self, scene: SceneSpec) -> None:
         """Wait for a semantic terminal scene state, never a fixed sleep."""
