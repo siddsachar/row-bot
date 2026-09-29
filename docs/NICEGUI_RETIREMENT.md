@@ -14,8 +14,8 @@ NiceGUI's screens. Each NiceGUI-only or partial capability below is **kept**
 simpler controls) or **dropped** (covered elsewhere or not worth a control),
 always with a reason. NiceGUI is hidden (nothing in the app routes to it; only
 `--legacy-ui` opens it) once every keep and simplify row has shipped, which is
-planned for Phase 15 of the polish program. Its code is removed in the next
-release.
+planned for Phase 16 of the polish program (the remaining rows ship in Phase
+15). Its code is removed in the next release.
 
 53 rows: 19 keep, 28 simplify, 6 drop. Capabilities already at full parity
 (attachments by picker, slash palette, approvals, pickers, workflows, settings
@@ -38,8 +38,8 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 9 | Agents | Child agents: Peek, Stop, Message, Resume, Replacement, Copy summary, Ask parent | Simplify | Open the child thread (exists), Stop, Message | 11 | Shipped (Phase 11) |
 | 10 | Shell | Background notices (API errors, account health, Hatch, document jobs, memory policy, workflows) | Keep | Notices over the event stream through the app's notice primitive, coalesced; warnings and errors always, information only for jobs the person started | 9 | Shipped (Phase 9) |
 | 11 | Shell | Start-up warnings shown once (plugin load failures, tunnel start failures, token warnings) | Keep | Merged with 10: shown once, and listed in Monitor | 9 | Shipped (Phase 9) |
-| 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention | 16 | Open |
-| 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 16 | Open |
+| 12 | Shell | Update-available pill that opens the update dialog | Simplify | Merged with 13 into one sidebar-footer indicator that appears only when something needs attention (a problem, an update) | 15 | Open |
+| 13 | Shell | Always-visible service health with click-through | Simplify | The same indicator as 12; quiet when everything is healthy | 15 | Open |
 | 14 | Native | Right-click Cut, Copy, Paste, Select All in the desktop window | Keep | Cut, Copy, Paste and Select All in the desktop window | 9 | Shipped (Phase 9) |
 | 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Shipped (Phase 10) |
 | 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Shipped (Phase 10) |
