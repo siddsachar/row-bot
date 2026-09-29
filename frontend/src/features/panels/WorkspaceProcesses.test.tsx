@@ -860,3 +860,43 @@ it('names a refused command instead of calling it an approval failure (B142)', a
   expect(alert).toHaveTextContent(/can't run here/);
   expect(props.start).not.toHaveBeenCalled();
 });
+
+it('stops every running process at once', async () => {
+  const running = (id: string, command: string): WorkspaceProcessInfo => ({
+    ...process,
+    process_id: id,
+    command_id: id,
+    command,
+  });
+  const { props } = fixture({
+    load: async () => ({
+      ...snapshot,
+      processes: [
+        running('server', 'npm run dev'),
+        running('watch', 'npm run watch'),
+        {
+          ...running('done', 'npm test'),
+          state: 'exited',
+          exit_code: 0,
+          quiesced: true,
+        },
+      ],
+    }),
+  });
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Stop all processes' }),
+  );
+  await waitFor(() => expect(props.stop).toHaveBeenCalledTimes(2));
+  expect(props.stop.mock.calls.map(([id]) => id).sort()).toEqual([
+    'server',
+    'watch',
+  ]);
+});
+
+it('offers Stop all only while more than one process runs', async () => {
+  fixture({ load: async () => ({ ...snapshot, processes: [process] }) });
+  await screen.findByRole('region', { name: 'Processes' });
+  expect(
+    screen.queryByRole('button', { name: 'Stop all processes' }),
+  ).toBeNull();
+});

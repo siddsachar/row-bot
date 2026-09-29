@@ -794,6 +794,12 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
                   ? `Exited ${item.exit_code}`
                   : 'Stopped';
   const log = state.log;
+  const stoppable = state.processes.filter(
+    (item) =>
+      !item.quiesced &&
+      item.state !== 'stopping' &&
+      !state.controls.has(item.process_id),
+  );
   return (
     <section className="dev-run" aria-label="Workspace processes">
       {!state.snapshot && !state.error && (
@@ -920,7 +926,23 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
       )}
       {state.processes.length > 0 && (
         <section className="dev-run-section" aria-label="Processes">
-          <h4>Processes</h4>
+          <header className="dev-run-section-header">
+            <h4>Processes</h4>
+            {stoppable.length > 1 && (
+              <Button
+                variant="ghost"
+                aria-label="Stop all processes"
+                onClick={() =>
+                  stoppable.forEach(
+                    (item) => void control(item.process_id, false),
+                  )
+                }
+              >
+                <Square size={12} aria-hidden />
+                Stop all
+              </Button>
+            )}
+          </header>
           <ul className="dev-processes">
             {[...state.processes].reverse().map((item) => (
               <li

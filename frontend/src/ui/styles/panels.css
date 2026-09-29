@@ -1514,6 +1514,13 @@
   display: grid;
   gap: 4px;
 }
+.dev-run-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
 .dev-run-section h4,
 .dev-git-section h4 {
   margin: 0;
