@@ -598,7 +598,15 @@ export default function PluginSettings({
             onAction={(action) =>
               void selectForAction(plugin.plugin_id, action)
             }
-            onChanged={() => void refresh(undefined, 'all')}
+            // Prepare or uninstall on Installed stays on Installed (a row's
+            // outcome message would vanish with the tab); an install from
+            // Discover shows it beside the marketplace.
+            onChanged={() =>
+              void refresh(
+                undefined,
+                state.source === 'installed' ? 'installed' : 'all',
+              )
+            }
           />
         ))}
       </ul>
