@@ -32,21 +32,20 @@ def test_shards_split_the_test_files_without_dropping_any() -> None:
         shard_files(files, "4/3")
 
 
-def test_changed_tier_expands_source_test_map() -> None:
-    specs = matrix.commands_for_tier("changed", changed_files=["src/row_bot/providers/runtime.py"])
+def test_changed_tier_selects_tests_by_convention(tmp_path) -> None:
+    for folder in ("tests/subsystem/providers", "tests/integration/providers"):
+        (tmp_path / folder).mkdir(parents=True)
+    (tmp_path / "tests/subsystem/workflows").mkdir(parents=True)
+    (tmp_path / "tests/subsystem/workflows/test_tasks_recovery.py").touch()
+    (tmp_path / "tests/test_goal_mode.py").touch()
 
-    changed = next(spec for spec in specs if spec.name == "changed-tests")
-    assert "tests/contracts/test_provider_contract.py" in changed.argv
-    assert "tests/subsystem/providers" in changed.argv
-    assert changed.env["ROW_BOT_TEST_MODE"] == "1"
+    paths = matrix.changed_test_paths([
+        "src/row_bot/providers/runtime.py", "src/row_bot/tasks.py", "tests/test_goal_mode.py",
+        "src/row_bot/unmapped/module.py", "README.md",
+    ], root=tmp_path)
 
-
-def test_changed_frontend_selects_node_checks_and_backend_contracts() -> None:
-    specs = matrix.commands_for_tier("changed", changed_files=["frontend/src/api/http.ts"])
-    assert "client-foundation" in [spec.name for spec in specs]
-    changed = next(spec for spec in specs if spec.name == "changed-tests")
-    assert "tests/subsystem/client_host" in changed.argv
-    assert "tests/subsystem/client_protocol" in changed.argv
+    assert paths == ["tests/subsystem/providers", "tests/integration/providers",
+                     "tests/subsystem/workflows/test_tasks_recovery.py", "tests/test_goal_mode.py"]
 
 
 def test_client_checks_never_install_and_fail_fast(tmp_path, monkeypatch) -> None:

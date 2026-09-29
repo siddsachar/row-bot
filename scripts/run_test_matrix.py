@@ -194,10 +194,30 @@ def changed_files_from_git(base: str) -> list[str]:
     return changed
 
 
-def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
-    from tests.helpers.source_test_map import select_tests_for_changes
+def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list[str]:
+    """The tests for changed files, by convention: changed test files themselves;
+    for `src/row_bot/<package>/...` the `tests/<lane>/<package>` folders; for
+    `src/row_bot/<module>.py` the `test_<module>*.py` files. A local shortcut:
+    the PR lane runs everything."""
+    selected: list[str] = []
+    for name in (path.replace("\\", "/") for path in changed_files):
+        parts = name.split("/")
+        if parts[0] == "tests" and parts[-1].startswith("test_") and name.endswith(".py"):
+            candidates = [root / name]
+        elif name.startswith("src/row_bot/") and len(parts) > 3:
+            candidates = [root / "tests" / lane / parts[2] for lane in ("contracts", "subsystem", "integration")]
+        elif name.startswith("src/row_bot/") and name.endswith(".py"):
+            candidates = sorted((root / "tests").rglob(f"test_{Path(name).stem}*.py"))
+        else:
+            candidates = []
+        for candidate in candidates:
+            relative = candidate.relative_to(root).as_posix()
+            if candidate.exists() and relative not in selected:
+                selected.append(relative)
+    return selected
 
-    selection = select_tests_for_changes(changed_files)
+
+def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
     commands: list[CommandSpec] = []
     if any(path.replace("\\", "/").startswith(("frontend/", "contracts/client-platform/"))
            or path == "scripts/run_client_checks.py" for path in changed_files):
@@ -205,8 +225,8 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
     if any(path in {"pyproject.toml", "uv.lock", "requirements.txt", "scripts/dependency_requirements.py"}
            for path in changed_files):
         commands.append(COMMANDS["dependency-requirements"])
-    if selection.test_paths:
-        commands.append(_pytest("changed-tests", *selection.test_paths))
+    if paths := changed_test_paths(changed_files):
+        commands.append(_pytest("changed-tests", *paths))
     return commands
 
 
