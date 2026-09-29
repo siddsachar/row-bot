@@ -195,8 +195,16 @@ def _preview(plan_id: str, plan: MigrationPlan, target_root: Path, revision: str
 
 def scan_migration(
     *, owner_id: str, provider: str, source: str, target: str = "", include_secrets: bool = False,
+    same_source_as: str | None = None,
 ) -> dict[str, Any]:
     """Build a read-only plan only after the owner requests a scan."""
+    if same_source_as is not None:
+        # A rescan with other choices reuses the folder of this owner's last preview.
+        with _LOCK:
+            saved = _PLANS.get(same_source_as)
+        if saved is None or saved["owner_id"] != owner_id:
+            raise ClientPlatformError("migration_plan_missing")
+        source = str(saved["source"])
     source_root, target_root = _roots(provider, source, target)
     plan = build_migration_plan(provider, source_root, target_root=target_root, include_secrets=include_secrets)
     if len(plan.items) > 4096:

@@ -271,6 +271,21 @@ class FolderSelections:
         validate: Callable[[FolderSelectionScope], None],
     ) -> Path | None:
         """The backup archive picked for Settings › Data › Restore, once."""
+        return self.consume_exact_path(
+            grant_id, session_id, validate, intent="restore_backup", destination="data-restore", kind="file",
+        )
+
+    def consume_exact_path(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+        *,
+        intent: str,
+        destination: str,
+        kind: str,
+    ) -> Path | None:
+        """One picked file or folder for exactly this intent, once."""
         from row_bot.developer.review import scoped_workspace_path
 
         with self._lock:
@@ -281,15 +296,15 @@ class FolderSelections:
             scope = grant.scope
             if (
                 scope.session_id != session_id
-                or scope.intent != "restore_backup"
-                or scope.destination != "data-restore"
+                or scope.intent != intent
+                or scope.destination != destination
             ):
                 raise ClientPlatformError("capability_revoked")
             validate(scope)
             del self._exact_values[grant_id]
         validate(scope)
         selected = scoped_workspace_path(grant.path)
-        if not selected.is_file():
+        if not (selected.is_file() if kind == "file" else selected.is_dir()):
             raise ClientPlatformError("resource_unavailable")
         return selected
 

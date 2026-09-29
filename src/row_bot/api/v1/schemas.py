@@ -2106,6 +2106,10 @@ class MigrationScanRequest(WireModel):
     provider: Literal["hermes", "openclaw"]
     # Empty: the old app's folder found in its usual place.
     source: str = Field(default="", max_length=2048)
+    # Or the folder picked with Browse in the desktop app (one use) ...
+    source_grant: OpaqueId | None = None
+    # ... and, for a rescan with other choices, that preview's folder again.
+    same_source_as: UUID | None = None
     target: str = Field(default="", max_length=2048)
     include_secrets: bool = False
 

@@ -259,3 +259,50 @@ def test_migration_sources_api_is_for_this_computer_only(tmp_path, monkeypatch):
     assert result.status_code == 200, result.text
     assert result.json()["sources"][0] == {"provider": "hermes", "label": "Hermes Agent",
                                            "found": True, "place": "~/.hermes"}
+
+
+def test_browse_picks_the_folder_once_and_a_rescan_reuses_that_preview(tmp_path, monkeypatch):
+    """Parity row 53: Browse when the old app isn't in its usual folder; no path reaches the page."""
+    from tests.subsystem.client_protocol.test_protocol_security import _native_proof
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "empty-home"))
+    source = create_realistic_hermes_home(tmp_path / "elsewhere" / "hermes-copy")
+    target = tmp_path / "target"
+    local, _, _ = client_app()
+    with local:
+        proof, headers = _native_proof(local)
+        picked = local.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                            json={**proof, "selection_kind": "folder", "intent_id": str(uuid4()),
+                                  "intent": "migration_source", "conversation_id": None,
+                                  "destination": "migration", "path": str(source)})
+        assert picked.status_code == 200, picked.text
+        assert str(source) not in picked.text
+        grant = picked.json()["reference"]
+        body = {"provider": "hermes", "target": str(target), "include_secrets": False}
+        first = local.post("/api/v1/system/migration/scan", headers=headers, json={**body, "source_grant": grant})
+        assert first.status_code == 200, first.text
+        assert first.json()["source_found"] is True
+        assert str(source) not in first.text
+        # The grant is spent; a rescan with other choices names the preview instead.
+        spent = local.post("/api/v1/system/migration/scan", headers=headers, json={**body, "source_grant": grant})
+        assert spent.status_code == 409
+        again = local.post("/api/v1/system/migration/scan", headers=headers,
+                           json={**body, "include_secrets": True, "same_source_as": first.json()["plan_id"]})
+        assert again.status_code == 200, again.text
+        assert any(item["category"] == "api_keys" and item["selected"] for item in again.json()["items"])
+        # Another app's pick kind or intent is refused.
+        wrong = local.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                           json={**proof, "selection_kind": "file", "intent_id": str(uuid4()),
+                                 "intent": "migration_source", "conversation_id": None,
+                                 "destination": "migration", "path": str(source / "config.yaml")})
+        assert wrong.status_code == 422
+    assert not target.exists()
+
+
+def test_a_rescan_cannot_borrow_another_owners_preview(tmp_path):
+    source = create_realistic_hermes_home(tmp_path / "source")
+    preview = client_migration.scan_migration(owner_id="owner-a", provider="hermes", source=str(source),
+                                              target=str(tmp_path / "target"))
+    with pytest.raises(Exception, match="migration_plan_missing"):
+        client_migration.scan_migration(owner_id="owner-b", provider="hermes", source="",
+                                        target=str(tmp_path / "target"), same_source_as=preview["plan_id"])

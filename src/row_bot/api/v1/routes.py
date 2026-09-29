@@ -1563,10 +1563,12 @@ def create_router(
                 {"reference": value["grant_id"], "kind": "folder"},
             )
 
-        if (body.intent == "restore_backup" and body.destination == "data-restore"
-                and body.conversation_id is None):
-            # Settings › Data › Restore: one .zip archive, granted by reference.
-            if selected.suffix.lower() != ".zip":
+        exact_picks = {("restore_backup", "data-restore"): "file", ("migration_source", "migration"): "folder"}
+        wanted = exact_picks.get((body.intent, body.destination))
+        if wanted is not None and body.conversation_id is None:
+            # Settings › Data: a backup to restore (one .zip) or the old app's
+            # folder to import from, granted by reference.
+            if body.selection_kind != wanted or (wanted == "file" and selected.suffix.lower() != ".zip"):
                 raise ProtocolError("invalid_command", 422)
             native_intent = await call(folder_selections.begin_exact, scope)
             value = await call(
@@ -1575,14 +1577,14 @@ def create_router(
                 scope,
                 selected,
                 authorized,
-                kind="file",
+                kind=wanted,
             )
             if value.get("status") != "selected":
                 raise ProtocolError("action_denied", 403)
             return await respond(
                 request,
                 dto.NativeSelectionView,
-                {"reference": value["grant_id"], "kind": "file"},
+                {"reference": value["grant_id"], "kind": wanted},
             )
         if body.conversation_id is None or body.intent != "attachment":
             raise ProtocolError("invalid_command", 422)
@@ -5180,13 +5182,42 @@ def create_router(
         body = await _body(request, dto.MigrationScanRequest, 8192)
         from row_bot.application.client_migration import scan_migration
 
+        source = body.source
+        if body.source_grant:
+            if body.source or body.same_source_as:
+                raise ProtocolError("invalid_migration_selection", 422)
+
+            def validate_native_folder(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            picked = await call(
+                folder_selections.consume_exact_path,
+                body.source_grant,
+                current.id,
+                validate_native_folder,
+                intent="migration_source",
+                destination="migration",
+                kind="folder",
+            )
+            if picked is None:
+                raise ProtocolError("capability_revoked", 409)
+            source = str(picked)
         result = await call(
             scan_migration,
             owner_id=current.id,
             provider=body.provider,
-            source=body.source,
+            source=source,
             target=body.target,
             include_secrets=body.include_secrets,
+            same_source_as=str(body.same_source_as) if body.same_source_as and not body.source_grant else None,
         )
         return await respond(request, dto.MigrationPreview, result)
 
