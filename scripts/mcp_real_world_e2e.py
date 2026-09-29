@@ -85,15 +85,42 @@ def _load_modules(data_dir: Path):
     import row_bot.mcp_client.config as mcp_config
     import row_bot.mcp_client.marketplace as marketplace
     import row_bot.mcp_client.runtime as runtime
-    import row_bot.ui.mcp_settings as mcp_settings
     from row_bot.mcp_client.safety import prefixed_tool_name
 
     mcp_config = importlib.reload(mcp_config)
     marketplace = importlib.reload(marketplace)
     runtime.shutdown()
     runtime = importlib.reload(runtime)
-    mcp_settings = importlib.reload(mcp_settings)
-    return mcp_config, marketplace, runtime, mcp_settings, prefixed_tool_name
+    return mcp_config, marketplace, runtime, prefixed_tool_name
+
+
+def _apply_probe_defaults(server_cfg: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any]:
+    """Accept a probed catalog the way a first review does: destructive tools off and gated."""
+    from row_bot.mcp_client.conflicts import requires_manual_tool_selection
+
+    enabled: dict[str, bool] = {}
+    approvals: list[str] = []
+    catalog: dict[str, dict[str, Any]] = {}
+    manual_select = requires_manual_tool_selection(str(server_cfg.get("name") or ""), server_cfg)
+    for tool in probe.get("tools") or []:
+        tool_name = tool.get("name")
+        if not tool_name:
+            continue
+        destructive = bool(tool.get("destructive"))
+        enabled[tool_name] = False if manual_select else not destructive
+        if destructive:
+            approvals.append(tool_name)
+        catalog[tool_name] = {
+            "name": tool_name,
+            "description": str(tool.get("description") or ""),
+            "destructive": destructive,
+            "requires_approval": bool(tool.get("requires_approval") or destructive),
+            "input_schema": tool.get("input_schema") or {},
+        }
+    server_cfg.setdefault("tools", {})["enabled"] = enabled
+    server_cfg.setdefault("tools", {})["require_approval"] = approvals
+    server_cfg.setdefault("tools", {})["catalog"] = catalog
+    return server_cfg
 
 
 def _preview(text: str, max_chars: int = 500) -> str:
@@ -133,7 +160,7 @@ def _run_target(target: Target, args: argparse.Namespace) -> TargetResult:
 
     with tempfile.TemporaryDirectory(prefix="row_bot_mcp_e2e_") as tmp:
         data_dir = Path(tmp)
-        mcp_config, marketplace, runtime, mcp_settings, prefixed_tool_name = _load_modules(data_dir)
+        mcp_config, marketplace, runtime, prefixed_tool_name = _load_modules(data_dir)
         try:
             if not runtime.sdk_available():
                 return TargetResult(target.name, "fail", "Python package 'mcp' is not installed")
@@ -159,7 +186,7 @@ def _run_target(target: Target, args: argparse.Namespace) -> TargetResult:
             if int(probe.get("tool_count") or 0) <= 0:
                 return TargetResult(target.name, "fail", "Probe returned no tools")
 
-            reviewed_cfg = mcp_settings._apply_probe_defaults(dict(imported_cfg), probe)
+            reviewed_cfg = _apply_probe_defaults(dict(imported_cfg), probe)
             enabled_defaults = dict((reviewed_cfg.get("tools") or {}).get("enabled") or {})
             if source.get("overlaps_native") and any(enabled_defaults.values()):
                 return TargetResult(target.name, "fail", "Overlapping server enabled tools before manual selection")
