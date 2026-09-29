@@ -322,12 +322,9 @@ test('a deck request gets a design from the assistant, drafted in the next step'
       { kind: 'artifact', page_count: 1, first_title: 'Fixture cover' },
     ]);
   const card = page.getByRole('group', { name: 'Created design Fixture deck' });
-  await expect(card).toHaveCount(1);
-  await expect(
-    page.getByText('Created the synthetic presentation in the bound design.'),
-  ).toHaveCount(1);
-  // The drafted deck may open by itself (the turn changed it); otherwise its
-  // card opens it. Either way the design is one step away.
+  // The drafted deck may open by itself (the turn changed it; on a phone it
+  // then covers the chat); otherwise its card opens it. Either way the design
+  // is one step away.
   const preview = page.getByRole('region', {
     name: 'Design preview',
     exact: true,
@@ -340,6 +337,12 @@ test('a deck request gets a design from the assistant, drafted in the next step'
     await expect(preview).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
   await screenshot(page, testInfo, 'design-created-and-open');
+  // Back in the chat: one card for it and the step's reply.
+  await leavePanels(page);
+  await expect(card).toHaveCount(1);
+  await expect(
+    page.getByText('Created the synthetic presentation in the bound design.'),
+  ).toHaveCount(1);
 });
 
 test('two Decks require an explicit captured write target independent of panel focus', async ({
