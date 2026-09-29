@@ -52,7 +52,7 @@ const leafLabels: Record<SettingsLeafId, string> = {
   channels: 'Channels',
   profiles: 'Agent profiles',
   system: 'System',
-  access: 'Access',
+  access: 'Devices & remote access',
   updates: 'Updates',
   data: 'Data',
 };
@@ -76,7 +76,8 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   channels: 'telegram discord slack sms whatsapp messaging',
   profiles: 'agents personas delegation',
   system: 'shell browser computer use workspace folder logging files',
-  access: 'remote tunnel invitations sessions tailscale mobile phone',
+  access:
+    'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
   updates: 'version upgrade release channel beta',
   data: 'migration import hermes openclaw danger delete',
 };
@@ -118,7 +119,8 @@ export const settingsRedirects: Record<
   theme: { leaf: 'appearance' },
   update: { leaf: 'updates' },
   'remote-access': { leaf: 'access' },
-  sessions: { leaf: 'access', anchor: 'sessions' },
+  sessions: { leaf: 'access', anchor: 'devices' },
+  devices: { leaf: 'access', anchor: 'devices' },
 };
 
 /** Former Settings pages that now live in a conversation's Context card. */
@@ -401,18 +403,28 @@ export const settingsRows: SettingsRow[] = [
   },
   {
     leaf: 'access',
-    anchor: 'remote-access',
-    label: 'Remote access',
-    keywords: 'network origins listen',
+    anchor: 'connect',
+    label: 'Connect a phone or computer',
+    keywords: 'phone pair qr code invitation tablet laptop',
   },
-  { leaf: 'access', anchor: 'tunnel', label: 'Tunnel', keywords: 'ngrok' },
   {
     leaf: 'access',
-    anchor: 'invitations',
-    label: 'Invitations',
-    keywords: 'phone pair',
+    anchor: 'devices',
+    label: 'Your devices',
+    keywords: 'sessions signed in sign out phones computers',
   },
-  { leaf: 'access', anchor: 'sessions', label: 'Signed-in sessions' },
+  {
+    leaf: 'access',
+    anchor: 'remote-access',
+    label: 'Network access',
+    keywords: 'listen wifi lan allowed addresses origins',
+  },
+  {
+    leaf: 'access',
+    anchor: 'tunnel',
+    label: 'Public link',
+    keywords: 'ngrok tunnel internet',
+  },
   {
     leaf: 'updates',
     anchor: 'updates.channel',

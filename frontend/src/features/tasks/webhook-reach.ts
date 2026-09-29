@@ -15,7 +15,7 @@ const reachOf = (snapshot: SettingsSnapshot): WebhookReach => ({
  * A saved webhook's address and reachability for the workflow page. The
  * address (with its secret) is read from the private configuration only
  * when it is copied; the tunnel starts or stops through the same reviewed
- * settings actions as Settings › Access.
+ * settings actions as Settings › Devices & remote access.
  */
 export function webhookReach(controller: ClientController) {
   return {

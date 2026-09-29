@@ -795,7 +795,7 @@ it('shows ngrok setup links only after opening the guide without a tunnel action
   expect(mutation.execute).not.toHaveBeenCalled();
 });
 
-it('shows the saved webhook exposure choice and an active local-owner URL', async () => {
+it('shows a running public link in one line with its address, Copy and Stop (row 51)', async () => {
   mutation.page = 'system';
   const writeText = vi
     .fn()
@@ -811,6 +811,8 @@ it('shows the saved webhook exposure choice and an active local-owner URL', asyn
         ...snapshot.system,
         tunnel: {
           ...snapshot.system.tunnel,
+          runtime_state: 'active',
+          active_count: 1,
           main_app_enabled: true,
           main_app_url: 'https://synthetic.ngrok.example',
         },
@@ -820,22 +822,24 @@ it('shows the saved webhook exposure choice and an active local-owner URL', asyn
     />,
   );
   expect(
-    screen.getByText('Expose task webhook endpoint after restart'),
-  ).toBeVisible();
+    screen.getByText(/On at synthetic\.ngrok\.example\./),
+  ).toBeInTheDocument();
+  // The task webhook's address lives with its workflow now (row 52).
+  expect(screen.queryByText(/api\/webhook/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy address' }));
   expect(
-    screen.getByText('https://synthetic.ngrok.example/api/webhook/{task_id}'),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Copy URL' }));
-  expect(await screen.findByText(/Could not copy/)).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Copy URL' }));
-  expect(await screen.findByText('Copied')).toBeVisible();
-  expect(writeText).toHaveBeenCalledWith(
-    'https://synthetic.ngrok.example/api/webhook/{task_id}',
-  );
+    await screen.findByText('Row-Bot couldn’t copy it.'),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy address' }));
+  expect(await screen.findByText('Copied.')).toBeInTheDocument();
+  expect(writeText).toHaveBeenCalledWith('https://synthetic.ngrok.example');
+  expect(
+    screen.getByRole('button', { name: 'Stop public link' }),
+  ).toBeInTheDocument();
   expect(mutation.review).not.toHaveBeenCalled();
 });
 
-it('shows remote tunnel availability without exposing the URL or owner controls', () => {
+it('shows the public link to other devices without its controls', () => {
   mutation.page = 'system';
   render(
     <SystemSnapshotPanel
@@ -854,10 +858,12 @@ it('shows remote tunnel availability without exposing the URL or owner controls'
   );
   expect(
     screen.getByText(
-      'Tunnel controls are available in the local owner session.',
+      'Only Row-Bot’s owner on the computer running it can start or stop the public link.',
     ),
-  ).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Start app tunnel' })).toBeNull();
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Start public link' }),
+  ).toBeNull();
   expect(screen.queryByText(/api\/webhook/)).toBeNull();
 });
 
@@ -881,7 +887,7 @@ it('shows the real tunnel state and a failed start in words (B106)', () => {
     />,
   );
   expect(screen.getByRole('alert')).toHaveTextContent(
-    `Not running. ${failure}`,
+    `Public Off. It didn’t start: ${failure}`,
   );
   expect(document.body).not.toHaveTextContent(/Ready|Runtime status/);
   view.rerender(
@@ -900,7 +906,7 @@ it('shows the real tunnel state and a failed start in words (B106)', () => {
     />,
   );
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(screen.getByText(/Running: 1 public address\./)).toBeVisible();
+  expect(screen.getByText(/On: 1 public address\./)).toBeInTheDocument();
 });
 
 it('recovers an interrupted tunnel command from its original receipt after remount', async () => {
@@ -924,10 +930,17 @@ it('recovers an interrupted tunnel command from its original receipt after remou
       part="access"
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Start app tunnel' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start public link' }));
+  // Starting the public link says what it means first.
+  expect(mutation.review).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(await screen.findByRole('dialog')).getByRole('button', {
+      name: 'Start public link',
+    }),
+  );
   expect(
     await screen.findByRole('button', { name: 'Check again' }),
-  ).toBeVisible();
+  ).toBeInTheDocument();
   const priorReviews = vi.mocked(mutation.review).mock.calls.length;
   first.unmount();
   render(
@@ -937,28 +950,30 @@ it('recovers an interrupted tunnel command from its original receipt after remou
       part="access"
     />,
   );
-  expect(screen.getByRole('button', { name: 'Check again' })).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Check again' }),
+  ).toBeInTheDocument();
   expect(vi.mocked(mutation.review).mock.calls.length).toBe(priorReviews);
   fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   expect(
     await screen.findByRole('button', { name: 'Inspect current tunnel state' }),
-  ).toBeVisible();
+  ).toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'Inspect current tunnel state' }),
   );
   expect(
     await screen.findByRole('button', { name: 'Try another tunnel action' }),
-  ).toBeVisible();
+  ).toBeInTheDocument();
   expect(
     screen.getByText(/Current saved restart choice: disabled/),
-  ).toBeVisible();
+  ).toBeInTheDocument();
   expect(mutation.refreshSnapshot).toHaveBeenCalledTimes(1);
   fireEvent.click(
     screen.getByRole('button', { name: 'Try another tunnel action' }),
   );
   expect(
-    screen.getByRole('button', { name: 'Start app tunnel' }),
-  ).toBeVisible();
+    screen.getByRole('button', { name: 'Start public link' }),
+  ).toBeInTheDocument();
   expect(mutation.execute).toHaveBeenCalledTimes(1);
 });
 
@@ -1220,11 +1235,12 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   expect(screen.getByLabelText('File log level')).toHaveValue('INFO');
   expect(screen.queryByRole('heading', { name: 'Mobile Access' })).toBeNull();
   // Remote reach moved to Access.
-  expect(screen.queryByText('Connected devices')).toBeNull();
+  expect(screen.queryByText('Public link')).toBeNull();
   system.unmount();
   const access = renderSetting('access');
-  expect(screen.getByText('Connected devices')).toBeVisible();
-  expect(screen.getByLabelText('Listen mode')).toBeVisible();
+  // Access keeps its rarely changed options in Advanced (Phase 14).
+  expect(screen.getByText('Public link')).toBeInTheDocument();
+  expect(screen.getByLabelText('Tunnel provider')).toHaveValue('ngrok');
   access.unmount();
 
   const tracker = renderSetting('tracker');

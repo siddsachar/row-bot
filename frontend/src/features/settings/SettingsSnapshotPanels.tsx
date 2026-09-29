@@ -239,26 +239,6 @@ function VoiceModelRow({
   );
 }
 
-/** The tunnel as it is now, in words (B106): never "Ready" when it failed. */
-function tunnelStatus(tunnel: SettingsSnapshot['system']['tunnel']): string {
-  const count = tunnel.active_count ?? 1;
-  switch (tunnel.runtime_state) {
-    case 'active':
-      return `Running: ${count} public ${count === 1 ? 'address' : 'addresses'}.`;
-    case 'failed':
-      return `Not running. ${tunnel.last_error ?? ''}`.trim();
-    case 'not_configured':
-      return 'Not set up: no ngrok authtoken is saved.';
-    case 'idle':
-      return 'Set up, not running.';
-    default:
-      return 'Not checked yet.';
-  }
-}
-
-function enabledLabel(value: boolean | null | undefined) {
-  return value == null ? 'Status unavailable' : value ? 'Enabled' : 'Disabled';
-}
 function configuredLabel(value: boolean | null | undefined) {
   return value == null
     ? 'Saved state unavailable'
@@ -1342,46 +1322,6 @@ function GroupedOperationSetting({
   );
 }
 
-function DelimitedListSetting({
-  mutation,
-  field,
-  label,
-  value,
-  hint,
-}: {
-  mutation: SettingsMutationIO;
-  field: string;
-  label: string;
-  value: string[];
-  hint?: string;
-}) {
-  return (
-    <SavedSetting
-      mutation={mutation}
-      field={field}
-      label={label}
-      value={value}
-      hint={hint}
-      commit="blur"
-    >
-      {({ value: draft, setValue, disabled }) => (
-        <Input
-          value={(draft as string[]).join(', ')}
-          disabled={disabled}
-          onChange={(event) =>
-            setValue(
-              event.target.value
-                .split(',')
-                .map((item) => item.trim())
-                .filter(Boolean),
-            )
-          }
-        />
-      )}
-    </SavedSetting>
-  );
-}
-
 function SecretSetting({
   mutation,
   field,
@@ -1808,30 +1748,123 @@ export function VoiceSnapshotPanel({
   );
 }
 
-function TaskWebhookUrl({
-  baseUrl,
+function publicHost(url: string) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * The public link in one line (parity row 51, B106): whether it is on, the
+ * address with Copy and Stop, or why it is off. Starting it asks first, since
+ * the whole app becomes reachable from the internet.
+ */
+function PublicLinkStatus({
+  tunnel,
+  mutation,
   writeClipboard,
 }: {
-  baseUrl: string;
+  tunnel: SettingsSnapshot['system']['tunnel'];
+  mutation: SettingsMutationIO;
   writeClipboard?: ClientPlatform['writeClipboard'];
 }) {
-  const [copyState, setCopyState] = useState('');
-  const url = `${baseUrl}/api/webhook/{task_id}`;
-  async function copy() {
-    if (await writeClipboardText(url, writeClipboard)) {
-      setCopyState('Copied');
-    } else {
-      setCopyState('Could not copy. Select the URL above or try again.');
-    }
-  }
+  const [copied, setCopied] = useState('');
+  const url = tunnel.main_app_url;
+  const count = tunnel.active_count ?? 1;
+  const control = tunnel.local_owner_control_available;
+  const line =
+    tunnel.runtime_state === 'active'
+      ? url
+        ? `On at ${publicHost(url)}. Anyone can reach Row-Bot’s sign-in page there; only devices you connect get in.`
+        : `On: ${count} public ${count === 1 ? 'address' : 'addresses'}.`
+      : tunnel.runtime_state === 'failed'
+        ? `Off. It didn’t start: ${tunnel.last_error ?? 'no reason given'}`
+        : tunnel.runtime_state === 'not_configured' ||
+            !tunnel.credential.configured
+          ? 'Not set up: add your ngrok token below.'
+          : tunnel.runtime_state === 'idle'
+            ? 'Off. Set up and ready to start.'
+            : 'Off.';
   return (
-    <p className="settings-help">
-      Task webhook URL: <code className="settings-break-word">{url}</code>{' '}
-      <Button type="button" variant="ghost" onClick={() => void copy()}>
-        Copy URL
-      </Button>
-      {copyState && <span role="status">{copyState}</span>}
-    </p>
+    <div
+      className="access-status-line"
+      data-tone={
+        tunnel.runtime_state === 'active'
+          ? 'warning'
+          : tunnel.runtime_state === 'failed'
+            ? 'danger'
+            : undefined
+      }
+    >
+      <p role={tunnel.runtime_state === 'failed' ? 'alert' : undefined}>
+        <strong>Public</strong> {line}
+      </p>
+      {url && control && (
+        <div className="button-row">
+          <Button
+            variant="ghost"
+            onClick={() =>
+              void writeClipboardText(url, writeClipboard).then((done) =>
+                setCopied(done ? 'Copied.' : 'Row-Bot couldn’t copy it.'),
+              )
+            }
+          >
+            Copy address
+          </Button>
+          {copied && <span role="status">{copied}</span>}
+        </div>
+      )}
+      {control ? (
+        <div className="settings-action-grid">
+          {tunnel.runtime_state === 'active' ? (
+            <ReviewedSettingsAction
+              mutation={mutation}
+              field="tunnel.stop_main"
+              label="Stop public link"
+              description=""
+            />
+          ) : tunnel.credential.configured ? (
+            <>
+              <StartPublicLink mutation={mutation} />
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="tunnel.check"
+                label="Check setup"
+                description=""
+                variant="ghost"
+              />
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <p className="settings-help">
+          Only Row-Bot’s owner on the computer running it can start or stop the
+          public link.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Start the saved public link, after saying what that means. */
+export function StartPublicLink({
+  mutation,
+  description = '',
+}: {
+  mutation: SettingsMutationIO;
+  description?: string;
+}) {
+  return (
+    <ReviewedSettingsAction
+      mutation={mutation}
+      field="tunnel.start_main"
+      label="Start public link"
+      description={description}
+      variant="primary"
+      confirm="Row-Bot becomes reachable from the internet at a public ngrok address until you stop it, and starts it again after a restart. Anyone can reach its sign-in page there; only a device with a code from this page gets in."
+    />
   );
 }
 
@@ -1841,6 +1874,7 @@ export function SystemSnapshotPanel({
   pickFolder,
   writeClipboard,
   part = 'system',
+  network,
 }: {
   snapshot: SettingsSnapshot['system'];
   mutation: SettingsMutationIO;
@@ -1848,6 +1882,8 @@ export function SystemSnapshotPanel({
   writeClipboard?: ClientPlatform['writeClipboard'];
   /** System: this machine's capabilities. Access: reaching it from elsewhere. */
   part?: 'system' | 'access';
+  /** Access › Advanced › Network: listen mode, addresses, Tailscale. */
+  network?: ReactNode;
 }) {
   const appAvailability = useSyncExternalStore(
     appPwaClient.subscribe,
@@ -1865,152 +1901,81 @@ export function SystemSnapshotPanel({
             }
           >
             {snapshot.remote_access.listen_mode === 'local_only'
-              ? 'This device only'
-              : 'Local network'}
+              ? 'This computer only'
+              : 'Your network too'}
           </SummaryChip>
           <SummaryChip>
-            {snapshot.mobile_access.active_sessions === 1
-              ? '1 session'
-              : `${snapshot.mobile_access.active_sessions} sessions`}
+            {snapshot.mobile_access.active_devices === 1
+              ? '1 device'
+              : `${snapshot.mobile_access.active_devices} devices`}
           </SummaryChip>
-        </SettingsSummary>
-        <Section
-          title="Remote access"
-          description="Every non-local device needs a revocable authenticated session."
-          icon={ShieldCheck}
-          anchor="remote-access"
-        >
-          <SelectSetting
-            mutation={mutation}
-            field="remote_access.listen_mode"
-            label="Listen mode"
-            value={snapshot.remote_access.listen_mode}
-            options={[
-              { value: 'local_only', label: 'This device only' },
-              { value: 'local_network', label: 'Local network' },
-            ]}
-          />
-          <DelimitedListSetting
-            mutation={mutation}
-            field="remote_access.configured_origins"
-            label="Allowed origins"
-            value={snapshot.remote_access.configured_origins}
-            hint="Comma-separated exact origins."
-          />
-          <p className="settings-help">
-            Tailscale and allowed addresses: not checked.
-          </p>
-          <Facts>
-            <Fact
-              label="Remote access availability"
-              value={savedStateLabel(snapshot.mobile_access.availability)}
-            />
-            <Fact
-              label="Connected devices"
-              value={snapshot.mobile_access.active_devices}
-            />
-            <Fact
-              label="Authenticated sessions"
-              value={snapshot.mobile_access.active_sessions}
-            />
-          </Facts>
-        </Section>
-        <Section
-          title="Tunnel"
-          description="Expose the app through ngrok. Checks and starts are always explicit."
-          icon={Network}
-          anchor="tunnel"
-        >
-          <details>
-            <summary>Tunnel setup</summary>
-            <p className="settings-help">
-              Create an ngrok account at{' '}
-              <a
-                href="https://ngrok.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                ngrok.com
-              </a>
-              , then copy your authtoken from the{' '}
-              <a
-                href="https://dashboard.ngrok.com/get-started/your-authtoken"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                ngrok dashboard
-              </a>
-              . Save it below before checking or starting a tunnel.
-            </p>
-          </details>
-          <SelectSetting
-            mutation={mutation}
-            field="tunnel.provider"
-            label="Tunnel provider"
-            value={snapshot.tunnel.provider}
-            options={[{ value: 'ngrok', label: 'ngrok' }]}
-          />
-          <SecretSetting
-            mutation={mutation}
-            field="tunnel.credential"
-            label="Tunnel credential"
-            configured={snapshot.tunnel.credential.configured}
-            source={snapshot.tunnel.credential.source}
-            fingerprint={snapshot.tunnel.credential.fingerprint}
-          />
-          <p
-            className="settings-help"
-            role={
-              snapshot.tunnel.runtime_state === 'failed' ? 'alert' : undefined
-            }
-          >
-            {tunnelStatus(snapshot.tunnel)} Opening Settings never starts or
-            exposes a tunnel.
-          </p>
-          <Facts>
-            <Fact
-              label="Expose task webhook endpoint after restart"
-              value={enabledLabel(snapshot.tunnel.main_app_enabled)}
-            />
-            <Fact
-              label="Current app tunnel"
-              value={snapshot.tunnel.main_app_url ? 'Active' : 'Not active'}
-            />
-          </Facts>
-          {snapshot.tunnel.main_app_url &&
-            snapshot.tunnel.local_owner_control_available && (
-              <TaskWebhookUrl
-                baseUrl={snapshot.tunnel.main_app_url}
-                writeClipboard={writeClipboard}
-              />
-            )}
-          {snapshot.tunnel.local_owner_control_available ? (
-            <div className="settings-action-grid">
-              <ReviewedSettingsAction
-                mutation={mutation}
-                field="tunnel.check"
-                label="Check tunnel setup"
-                description="Checks saved local configuration without opening a tunnel."
-              />
-              <ReviewedSettingsAction
-                mutation={mutation}
-                field="tunnel.start_main"
-                label="Start app tunnel"
-                description="Exposes the local app and task webhook endpoint through ngrok and saves this choice for restart."
-              />
-              <ReviewedSettingsAction
-                mutation={mutation}
-                field="tunnel.stop_main"
-                label="Stop app tunnel"
-                description="Stops the Row-Bot app tunnel and disables its restart preference."
-              />
-            </div>
-          ) : (
-            <p className="settings-help">
-              Tunnel controls are available in the local owner session.
-            </p>
+          {snapshot.tunnel.runtime_state === 'active' && (
+            <SummaryChip tone="warning">Public link on</SummaryChip>
           )}
-        </Section>
+        </SettingsSummary>
+        <SettingsAdvanced
+          anchor="advanced"
+          meta="Network, allowed addresses and the public link"
+        >
+          <Section
+            title="Network"
+            description="Where Row-Bot listens and the addresses it accepts."
+            icon={ShieldCheck}
+            anchor="network"
+          >
+            {network}
+          </Section>
+          <Section
+            title="Public link"
+            description="Reach Row-Bot from anywhere through ngrok. It opens only when you start it."
+            icon={Network}
+            anchor="tunnel"
+          >
+            <PublicLinkStatus
+              tunnel={snapshot.tunnel}
+              mutation={mutation}
+              writeClipboard={writeClipboard}
+            />
+            <SelectSetting
+              mutation={mutation}
+              field="tunnel.provider"
+              label="Tunnel provider"
+              value={snapshot.tunnel.provider}
+              options={[{ value: 'ngrok', label: 'ngrok' }]}
+            />
+            <SecretSetting
+              mutation={mutation}
+              field="tunnel.credential"
+              label="Tunnel credential"
+              configured={snapshot.tunnel.credential.configured}
+              source={snapshot.tunnel.credential.source}
+              fingerprint={snapshot.tunnel.credential.fingerprint}
+            />
+            <details>
+              <summary>Tunnel setup</summary>
+              <p className="settings-help">
+                Create an ngrok account at{' '}
+                <a
+                  href="https://ngrok.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  ngrok.com
+                </a>
+                , then copy your authtoken from the{' '}
+                <a
+                  href="https://dashboard.ngrok.com/get-started/your-authtoken"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  ngrok dashboard
+                </a>{' '}
+                and save it above. Opening Settings never starts the public
+                link.
+              </p>
+            </details>
+          </Section>
+        </SettingsAdvanced>
       </div>
     );
   const cu = snapshot.computer_use;

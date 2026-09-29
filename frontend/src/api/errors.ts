@@ -145,12 +145,24 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  externally_managed: [
+    "This server's deployment settings manage its addresses, so they can't be changed here.",
+    'none',
+  ],
   idempotency_expired: [
     'That action is too old to check. Look at the current state before doing it again.',
     'review',
   ],
   idempotency_mismatch: [
     'That action was already used for something else. Start it again.',
+    'review',
+  ],
+  invalid_device_name: [
+    'Name the device with 1 to 80 characters on one line.',
+    'review',
+  ],
+  invalid_origin: [
+    'Use one exact address, such as https://row-bot.example.com.',
     'review',
   ],
   network_unavailable: [

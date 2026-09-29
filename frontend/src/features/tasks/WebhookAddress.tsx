@@ -148,7 +148,7 @@ export default function WebhookAddress({
                     returnFocusTo: event.currentTarget,
                     title: 'Make Row-Bot reachable from the internet?',
                     description:
-                      'This starts your tunnel so services on the internet can call this webhook. Anyone with this webhook address can run the workflow. Row-Bot itself also opens at the tunnel address, where it still asks for sign-in. Stop it here or in Settings › Access.',
+                      'This starts your tunnel so services on the internet can call this webhook. Anyone with this webhook address can run the workflow. Row-Bot itself also opens at the tunnel address, where it still asks for sign-in. Stop it here or in Settings › Devices & remote access.',
                     confirmLabel: 'Make reachable',
                     onConfirm: () => {
                       overlay.close();

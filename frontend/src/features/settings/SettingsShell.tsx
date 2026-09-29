@@ -85,7 +85,8 @@ const descriptions: Record<string, string> = {
   channels: 'Messaging platforms Row-Bot can talk through.',
   profiles: 'Profiles for delegated agents: built-in and your own.',
   system: 'Workspace folder, shell, browser, files and logs.',
-  access: 'Remote access, tunnels, invitations and signed-in sessions.',
+  access:
+    'Use Row-Bot on a phone or another computer, and see what is signed in.',
   updates: 'The installed version and how updates arrive.',
   data: 'Back up and restore, import from other assistants, and irreversible clean-up.',
 };

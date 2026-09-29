@@ -6,6 +6,8 @@ export type AccessSession = {
   expires_at: string;
   revoked_at: string | null;
   lifetime: 'trusted' | 'temporary' | 'migrated';
+  /** The session making this request (B141). */
+  current?: boolean;
 };
 
 export type AccessDevice = {
@@ -17,6 +19,10 @@ export type AccessDevice = {
   user_agent: string | null;
   paired_from: string | null;
   access_route: string | null;
+  /** The client address it was last seen from (owner-only). */
+  last_address?: string | null;
+  /** The device making this request: "This device" (B141). */
+  current?: boolean;
   sessions: AccessSession[];
 };
 
@@ -84,6 +90,9 @@ function validDevice(value: unknown): value is AccessDevice {
     typeof row.display_name === 'string' &&
     row.display_name.length <= 80 &&
     typeof row.created_at === 'string' &&
+    (row.last_address == null ||
+      (typeof row.last_address === 'string' &&
+        row.last_address.length <= 128)) &&
     Array.isArray(row.sessions) &&
     row.sessions.length <= 256 &&
     row.sessions.every(validSession)
@@ -97,6 +106,11 @@ export interface AccessClient {
   ): Promise<{ renewed: boolean; expires_at: string }>;
   revokeSession(sessionId: string, signal?: AbortSignal): Promise<void>;
   revokeDevice(deviceId: string, signal?: AbortSignal): Promise<void>;
+  rename(
+    deviceId: string,
+    displayName: string,
+    signal?: AbortSignal,
+  ): Promise<AccessDevice>;
   logout(signal?: AbortSignal): Promise<void>;
 }
 
@@ -125,6 +139,8 @@ export type AccessInvitation = {
   expires_at: string;
   claimed_at: string | null;
   cancelled_at: string | null;
+  /** The device a claimed invitation connected. */
+  claimed_device_id?: string | null;
 };
 
 export interface AccessInvitationClient {
@@ -431,6 +447,16 @@ export const accessClient: AccessClient = {
         signal,
       },
     );
+  },
+  async rename(deviceId, displayName, signal) {
+    if (!identifier.test(deviceId)) throw { code: 'invalid_command' };
+    const value = await request(
+      `/api/access/devices/${encodeURIComponent(deviceId)}/rename`,
+      { method: 'POST', signal },
+      { display_name: displayName },
+    );
+    if (!validDevice(value.device)) throw { code: 'dependency_unavailable' };
+    return value.device;
   },
   async logout(signal) {
     await request('/api/access/logout', { method: 'POST', signal });

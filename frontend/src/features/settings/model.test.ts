@@ -46,7 +46,7 @@ describe('settings navigation metadata', () => {
       'Channels',
       'Agent profiles',
       'System',
-      'Access',
+      'Devices & remote access',
       'Updates',
       'Data',
     ]);

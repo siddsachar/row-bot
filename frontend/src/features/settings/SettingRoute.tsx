@@ -38,12 +38,14 @@ import Phase4RetainedSettings, {
 import { SettingsDangerZone, DangerAction } from './anatomy';
 import { useWorkspaceActions } from '../shell/workspace-actions';
 import SettingsShell from './SettingsShell';
-import AccessSessions from './AccessSessions';
-import AccessInvitations from './AccessInvitations';
+import AccessConnect from './AccessConnect';
+import AccessDevices from './AccessDevices';
+import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
 import {
   DocumentEmbeddingSnapshot,
   DocumentModelSetting,
+  StartPublicLink,
   ToolConfigurationSnapshot,
   TrackerDangerAction,
   UtilitiesSnapshotPanel,
@@ -133,6 +135,7 @@ export default function SettingRoute() {
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
   const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
+  const [devicesReload, setDevicesReload] = useState(0);
   // A removal in progress (retained by its owner) keeps its Danger zone open.
   const [documentDangerOpen, setDocumentDangerOpen] = useState(() =>
     Boolean(documentRemovalsOwner?.get()?.getSnapshot().selected),
@@ -783,6 +786,24 @@ export default function SettingRoute() {
           ) ? (
           settingsSnapshot && mutation ? (
             <>
+              {leaf.id === 'access' ? (
+                // Devices & remote access: connect, your devices, then
+                // Advanced (from the retained panel below).
+                <>
+                  <AccessConnect
+                    tunnel={settingsSnapshot.system.tunnel}
+                    startPublic={
+                      <StartPublicLink
+                        mutation={mutation}
+                        description="Opens Row-Bot to the internet through your saved ngrok setup until you stop it."
+                      />
+                    }
+                    writeClipboard={platform.writeClipboard}
+                    onConnected={() => setDevicesReload((value) => value + 1)}
+                  />
+                  <AccessDevices reloadKey={devicesReload} />
+                </>
+              ) : null}
               <Phase4RetainedSettings
                 setting={leaf.id as Phase4RetainedSetting}
                 snapshot={settingsSnapshot}
@@ -791,24 +812,18 @@ export default function SettingRoute() {
                 pickFolder={controller.pickFolder}
                 showAccountActions
                 writeClipboard={platform.writeClipboard}
+                accessNetwork={
+                  leaf.id === 'access' ? (
+                    <>
+                      <AccessNetwork />
+                      <AccessTailscale
+                        variant="line"
+                        writeClipboard={platform.writeClipboard}
+                      />
+                    </>
+                  ) : undefined
+                }
               />
-              {leaf.id === 'access' ? (
-                <>
-                  <div data-setting-anchor="invitations">
-                    <AccessInvitations
-                      writeClipboard={platform.writeClipboard}
-                    />
-                  </div>
-                  <div data-setting-anchor="tailscale">
-                    <AccessTailscale />
-                  </div>
-                  <div data-setting-anchor="sessions">
-                    <AccessSessions
-                      currentSessionId={state.handshake?.client_session_id}
-                    />
-                  </div>
-                </>
-              ) : null}
             </>
           ) : (
             snapshotState

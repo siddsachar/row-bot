@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { SettingsSnapshot } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import {
@@ -21,6 +22,7 @@ export default function Phase4RetainedSettings({
   pickFolder,
   showAccountActions = false,
   writeClipboard,
+  accessNetwork,
 }: {
   setting: Phase4RetainedSetting;
   snapshot: SettingsSnapshot;
@@ -29,6 +31,8 @@ export default function Phase4RetainedSettings({
   pickFolder?: SettingsFolderPicker;
   showAccountActions?: boolean;
   writeClipboard?: ClientPlatform['writeClipboard'];
+  /** Access › Advanced › Network: the live network controls. */
+  accessNetwork?: ReactNode;
 }) {
   if (setting === 'voice')
     return (
@@ -64,6 +68,7 @@ export default function Phase4RetainedSettings({
       pickFolder={pickFolder}
       writeClipboard={writeClipboard}
       part={setting === 'access' ? 'access' : 'system'}
+      network={accessNetwork}
     />
   );
 }
