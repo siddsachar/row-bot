@@ -112,6 +112,11 @@ const CATALOG: Record<string, Entry> = {
     'review',
     GITHUB,
   ],
+  github_cli_unauthenticated: [
+    'Sign in to GitHub on this computer to open pull requests.',
+    'review',
+    GITHUB,
+  ],
 
   // Connection and access
   action_denied: ["This device isn't allowed to do that.", 'none'],

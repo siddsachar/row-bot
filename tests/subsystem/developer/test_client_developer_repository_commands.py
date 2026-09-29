@@ -296,3 +296,32 @@ def test_canonical_repository_read_lists_local_branches_for_the_switcher(tmp_pat
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
     public, _private = backend.repository(SimpleNamespace(path=str(plain)))
     assert public["is_git"] is False and public["branches"] == []
+
+
+def test_a_pull_request_needs_the_github_cli_before_it_is_reviewed(domain, monkeypatch):
+    monkeypatch.setattr(commands, "_github_cli_ready", lambda: False)
+    current = snapshot(domain)["revision"]
+    with pytest.raises(Exception) as missing:
+        review(domain, "developer.repository.pull_request",
+               {"revision": current, "title": "T", "body": "B", "draft": True})
+    assert getattr(missing.value, "code", "") == "github_cli_missing"
+    # Pushing needs git only, never gh.
+    assert review(domain, "developer.repository.push", {"revision": current})["policy_action"] == "git_push"
+    monkeypatch.setattr(commands, "_github_cli_ready", lambda: True)
+    assert review(domain, "developer.repository.pull_request",
+                  {"revision": current, "title": "T", "body": "B", "draft": True})["action"] == \
+        "developer.repository.pull_request"
+
+
+@pytest.mark.parametrize(("result", "code"), [
+    (dict(ran=False, ok=False, stderr="GitHub CLI is not installed."), "github_cli_missing"),
+    (dict(ran=True, ok=False, returncode=4, stderr="To get started with GitHub CLI, please run:  gh auth login"),
+     "github_cli_unauthenticated"),
+    (dict(ran=True, ok=False, returncode=1, stderr="You are not logged into any GitHub hosts."),
+     "github_cli_unauthenticated"),
+    (dict(ran=True, ok=False, returncode=1, stderr="a pull request for branch x already exists"), "pull_request_failed"),
+])
+def test_pull_request_failures_name_what_to_fix(result, code):
+    from row_bot.developer.github import GhResult
+
+    assert commands._pull_request_error(GhResult(**result)) == code

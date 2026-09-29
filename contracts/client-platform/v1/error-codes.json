@@ -177,6 +177,7 @@
     "git_status_unavailable": 409,
     "github_cli_host_terminal_required": 409,
     "github_cli_missing": 409,
+    "github_cli_unauthenticated": 409,
     "goal_action_unavailable": 409,
     "goal_library_too_large": 413,
     "goal_operation_unconfirmed": 409,

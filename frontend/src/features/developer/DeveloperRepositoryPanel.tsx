@@ -1,4 +1,12 @@
-import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { Link2 } from 'lucide-react';
+import { AppLink } from '../../ui/app-link';
 import {
   ArrowUpFromLine,
   GitBranch,
@@ -405,6 +413,16 @@ export default function DeveloperRepositoryPanel(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.visible, props.scope, inScope, props.revisionKey]);
 
+  // Pull requests need the GitHub command-line tool, signed in: when it is
+  // missing the section shows the same Connect card the chat uses (row 36).
+  const [github, setGithub] = useState<
+    'github_cli_missing' | 'github_cli_unauthenticated' | null
+  >(null);
+  const githubNeed = (code: string | null | undefined) =>
+    code === 'github_cli_missing' || code === 'github_cli_unauthenticated'
+      ? code
+      : null;
+
   const patchDrafts = (patch: Partial<Drafts>) =>
     session.update({ drafts: { ...session.getSnapshot().drafts, ...patch } });
 
@@ -466,8 +484,14 @@ export default function DeveloperRepositoryPanel(
       session.update({ reviewed: attempt });
       if (!requiresConfirmation(action)) direct = attempt;
     } catch (error) {
-      if (!request.signal.aborted)
-        session.update({ error: clientError(error).message });
+      const failure = clientError(error);
+      const need =
+        action === 'developer.repository.pull_request'
+          ? githubNeed(failure.code)
+          : null;
+      if (need) setGithub(need);
+      else if (!request.signal.aborted)
+        session.update({ error: failure.message });
     } finally {
       session.endRead(request);
       if (!request.signal.aborted) session.update({ reading: false });
@@ -517,11 +541,15 @@ export default function DeveloperRepositoryPanel(
           message: `Row-Bot couldn't confirm the change (${labelCode(receipt.code)}).`,
         });
       } else {
+        const need = githubNeed(receipt.code);
+        if (need) setGithub(need);
+        else if (receipt.status === 'completed') setGithub(null);
         session.update({
           pending: null,
           reviewed: null,
-          message:
-            receipt.status === 'completed'
+          message: need
+            ? ''
+            : receipt.status === 'completed'
               ? (DONE_WORDS[attempt.command.type] ?? 'Done.')
               : `The repository change was refused: ${reasonText(receipt.code) || labelCode(receipt.code)}.`,
         });
@@ -864,6 +892,31 @@ export default function DeveloperRepositoryPanel(
               className="dev-disclosure"
               meta={repo.remote_configured ? undefined : 'Needs a remote'}
             >
+              {github && (
+                <div
+                  className="transcript-card"
+                  data-kind="connect"
+                  role="group"
+                  aria-label="Connect GitHub"
+                >
+                  <Link2 className="transcript-card-icon" aria-hidden />
+                  <div className="transcript-card-text">
+                    <span>
+                      {github === 'github_cli_missing'
+                        ? 'Pull requests go through the GitHub command-line tool (gh). Install it, then connect GitHub.'
+                        : 'Sign in to GitHub on this computer to open pull requests.'}
+                    </span>
+                  </div>
+                  <div className="transcript-card-actions">
+                    <AppLink
+                      className="button primary"
+                      to="/settings/accounts#github"
+                    >
+                      Connect GitHub
+                    </AppLink>
+                  </div>
+                </div>
+              )}
               <div className="dev-pr-form">
                 <div className="dev-git-row">
                   <Input

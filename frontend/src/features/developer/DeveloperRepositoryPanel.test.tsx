@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import DeveloperRepositoryPanel, {
   createDeveloperRepositorySession,
   type DeveloperRepositoryReceipt,
@@ -460,4 +461,26 @@ it('does not read or reuse a session outside its exact binding scope', async () 
   render(<DeveloperRepositoryPanel {...props} scope="another-scope" />);
   expect(await screen.findByText('Developer workspace changed')).toBeVisible();
   await waitFor(() => expect(props.load).not.toHaveBeenCalled());
+});
+
+it('shows the Connect GitHub card when a pull request needs the GitHub tool', async () => {
+  const props = options();
+  props.review.mockRejectedValueOnce({ code: 'github_cli_missing' });
+  render(
+    <MemoryRouter>
+      <DeveloperRepositoryPanel {...props} />
+    </MemoryRouter>,
+  );
+  await ready();
+  fireEvent.change(screen.getByLabelText('Pull request title'), {
+    target: { value: 'Add dates' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }));
+  const card = await screen.findByRole('group', { name: 'Connect GitHub' });
+  expect(card).toHaveTextContent('GitHub command-line tool (gh)');
+  expect(
+    within(card).getByRole('link', { name: 'Connect GitHub' }),
+  ).toHaveAttribute('href', '/settings/accounts#github');
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(props.execute).not.toHaveBeenCalled();
 });

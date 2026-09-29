@@ -164,6 +164,7 @@ _STATUS.update(
         "account_busy": 429,
         "github_cli_missing": 409,
         "github_cli_host_terminal_required": 409,
+        "github_cli_unauthenticated": 409,
         "account_receipt_missing": 404,
         "account_credentials_invalid": 422,
         "account_credentials_required": 409,
