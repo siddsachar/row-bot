@@ -193,11 +193,13 @@ Python:
 - Match the surrounding style; no en-masse reformatting in a feature PR
 - No `print(...)` for diagnostics in shipped code; use `logging`
 
-UI (NiceGUI):
+UI (the React client in `frontend/`):
 
-- Reuse the shared primitives in `ui/` (`bulk_select`, `confirm`, `skeleton`,
-  `timer_utils`, `chat_components`) before reaching for new abstractions
-- Match the existing dark-mode-first card aesthetic
+- Reuse the shared primitives in `frontend/src/ui` (`primitives`, `overlays`,
+  `format`) before reaching for new abstractions
+- Follow `docs/CLIENT_PLATFORM_PRODUCT_SYSTEM.md` and check both light and
+  dark themes
+- Run `npm --prefix frontend run check` for client changes
 
 ---
 

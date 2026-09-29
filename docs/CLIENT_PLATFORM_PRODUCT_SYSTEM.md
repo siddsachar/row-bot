@@ -789,8 +789,8 @@ asset manifest and `build:verify` require it.
   first settled render and the avatar (or 700 ms).
 
 The native wiring (window roles, attested bridge, lease renewal, grant
-re-attestation) is in `docs/ARCHITECTURE.md` › Buddy Desktop Overlay. What the
-default app still loads from NiceGUI, as the checklist for removing it, is in
+re-attestation) is in `docs/ARCHITECTURE.md` › Buddy Desktop Overlay. The
+record of what React took over when NiceGUI was removed is in
 `docs/NICEGUI_RETIREMENT.md`.
 
 ## Errors, notices and recovery

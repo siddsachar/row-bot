@@ -16,7 +16,6 @@ integrity hash; the local gate includes exact inventory and audit results.
 
 | Candidate | Decision and owned adaptation |
 | --- | --- |
-| Existing NiceGUI/Quasar primitives | Retained for the default host. They depend on NiceGUI element/runtime ownership and cannot supply a standalone React client or its focus lifecycle. No legacy CSS is copied. |
 | Radix dialog/menu/popover/tabs/tooltip/toast | Selected individually, avoiding unused components. Upstream supplies ARIA patterns, focus trap/return, Escape, outside interaction and scroll locking. Native HTML selects retain browser behavior. One Radix modal scope supplies dialogs, sheets and alert-dialog semantics; confirmation suspends mounted task content and defaults focus to Cancel. Integrated browser evidence remains required. |
 | react-resizable-panels 4.12.4 | Selected for pointer capture, touch, separator semantics and size constraints. Row-Bot owns persisted geometry and the specified 16/48px keyboard increments; conversation children retain identity. No floating window manager. |
 | React Router | One basename `/app-v2/`, lazy secondary surfaces and explicit unknown-route recovery. No capability-specific app packages. |

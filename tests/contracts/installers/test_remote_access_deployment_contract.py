@@ -486,9 +486,8 @@ def test_caddy_example_is_a_dedicated_origin_with_explicit_proxy_contract() -> N
     assert "header_up X-Forwarded-Proto {scheme}" in source
     assert "header_up X-Forwarded-For {remote_host}" in source
     assert "header_up X-Forwarded-Port {server_port}" in source
-    assert "WebSockets automatically" in source
+    assert "must never be buffered" in source
     assert "flush_interval -1" in source
-    assert "stream_close_delay 5m" in source
     assert "health_uri /readyz" in source
     assert "/row-bot {" not in source
 

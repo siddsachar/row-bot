@@ -452,10 +452,10 @@ operator-managed VPS deployments.
 For a reverse proxy, configure `ROW_BOT_PUBLIC_URL`,
 `ROW_BOT_ALLOWED_HOSTS`, and `ROW_BOT_TRUSTED_PROXY_CIDRS` explicitly. Do not
 trust a broad Docker network or accept caller-supplied forwarding headers.
-Keep NiceGUI at one worker, preserve WebSocket upgrades, and terminate public
-traffic with HTTPS. Public ingress also requires operator-owned rate limiting,
-firewall policy, log review, and recovery procedures; Row-Bot does not modify
-the host firewall.
+Run one Row-Bot process, do not buffer the event stream (`/api/v1/events`,
+`text/event-stream`), and terminate public traffic with HTTPS. Public ingress
+also requires operator-owned rate limiting, firewall policy, log review, and
+recovery procedures; Row-Bot does not modify the host firewall.
 
 Remote browser voice captures the requesting browser's microphone, performs
 transcription in Row-Bot with the selected local STT engine (Whisper by default,
@@ -794,7 +794,7 @@ python -m pip install -r requirements.txt
 python launcher.py
 ```
 
-On Windows and macOS, `launcher.py` starts the tray icon and opens the React app on the first available local port, normally `http://localhost:8080/app-v2/`. On Linux it opens the same client in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port. Use `launcher.py --legacy-ui` to open the retained local NiceGUI fallback at `/`; the older `--client-v2` option is a deprecated no-op alias for the default.
+On Windows and macOS, `launcher.py` starts the tray icon and opens the React app on the first available local port, normally `http://localhost:8080/app-v2/`. On Linux it opens the same client in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port. The old `--legacy-ui` and `--client-v2` options are deprecated no-ops; the app always opens React.
 
 Authenticated headless/server mode:
 
@@ -806,13 +806,13 @@ The installed console entry point is `row-bot serve`. The legacy
 `python launcher.py --server --no-open` form remains temporarily compatible but
 is deprecated.
 
-Direct NiceGUI fallback launch:
+Direct server launch, without the launcher's tray or window:
 
 ```bash
 python app.py
 ```
 
-The direct wrapper opens NiceGUI at `http://localhost:8080`. Set `ROW_BOT_PORT` to choose a different port.
+The direct wrapper serves Row-Bot at `http://localhost:8080`, which redirects to `/app-v2/`. Set `ROW_BOT_PORT` to choose a different port.
 
 Dependency edits go through `pyproject.toml`, not `requirements.txt`:
 
@@ -954,4 +954,4 @@ Apache 2.0. See [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-Built with [NiceGUI](https://nicegui.io/), [LangGraph](https://langchain-ai.github.io/langgraph/), [LangChain](https://python.langchain.com/), [Ollama](https://ollama.com/), [FAISS](https://github.com/facebookresearch/faiss), [Cua Driver](https://github.com/trycua/cua), [Kokoro TTS](https://github.com/thewh1teagle/kokoro-onnx), [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [FunASR/SenseVoice](https://github.com/modelscope/FunASR), [HuggingFace](https://huggingface.co/), and [tiktoken](https://github.com/openai/tiktoken).
+Built with [React](https://react.dev/), [FastAPI](https://fastapi.tiangolo.com/), [LangGraph](https://langchain-ai.github.io/langgraph/), [LangChain](https://python.langchain.com/), [Ollama](https://ollama.com/), [FAISS](https://github.com/facebookresearch/faiss), [Cua Driver](https://github.com/trycua/cua), [Kokoro TTS](https://github.com/thewh1teagle/kokoro-onnx), [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [FunASR/SenseVoice](https://github.com/modelscope/FunASR), [HuggingFace](https://huggingface.co/), and [tiktoken](https://github.com/openai/tiktoken).

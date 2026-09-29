@@ -1,8 +1,7 @@
 # Row-Bot client foundation
 
-This is one React application. The launcher opens it by default at `/app-v2/`;
-NiceGUI remains mounted at `/` as the explicit `--legacy-ui` fallback.
-Production runs local built assets and the existing Python backend. Node is
+This is one React application and Row-Bot's only UI. The launcher opens it at
+`/app-v2/`, and `/` redirects there. Production runs local built assets and the existing Python backend. Node is
 required only for development, tests and installer assembly.
 
 Use Node **24.15.0**, npm **11**, and the checked-in lockfile:

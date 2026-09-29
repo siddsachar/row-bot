@@ -1,29 +1,29 @@
-# NiceGUI retirement inventory
+# NiceGUI retirement
 
-The default native app opens the React client at `/app-v2/`, and since Phase 7
-the torn-off desktop Buddy is the React overlay at `/app-v2/buddy-overlay`.
-NiceGUI is still loaded, though, and still provides parts of the process. This
-is the checklist for removing it completely. Locations are as of the Phase 7
-change; line numbers drift, so search for the names.
+NiceGUI was retired in favour of the React client and removed completely in
+this release. The React client in `frontend/` is the only UI, served at
+`/app-v2/`. `GET /` redirects to `/app-v2/` and keeps the query string; a
+remote browser without a session goes to `/connect` first. A plain FastAPI app
+(`row_bot.server`), run by uvicorn from `row_bot.app`, replaced NiceGUI's
+server plumbing: the start-up and shutdown hooks, route registration, static
+mounts and GZip. `launcher.py --legacy-ui` and `--client-v2` are deprecated
+no-ops: they log a warning and the app opens React.
 
 ## Capability parity
 
-**The rule.** React keeps every job NiceGUI does, but it does not clone
-NiceGUI's screens. Each NiceGUI-only or partial capability below is **kept**
-(the same job, done the React way), **simplified** (the same job with fewer,
+React took over every job NiceGUI did, without cloning NiceGUI's screens. Each
+capability below, which React lacked or had only in part, was **kept** (the
+same job, done the React way), **simplified** (the same job with fewer,
 simpler controls) or **dropped** (covered elsewhere or not worth a control),
-always with a reason. NiceGUI is hidden (nothing in the app routes to it; only
-`--legacy-ui` opens it) once every keep and simplify row has shipped, which is
-planned for Phase 16 of the polish program; since Phase 15 no keep or simplify
-row is open. Its code is removed in the next release.
+always with a reason.
 
-53 rows: 19 keep, 28 simplify, 6 drop. Capabilities already at full parity
-(attachments by picker, slash palette, approvals, pickers, workflows, settings
-pages, knowledge, documents, designer and developer basics, and so on) are not
-listed.
+53 rows: 19 keep, 28 simplify, 6 drop. Capabilities that were already at full
+parity (attachments by picker, slash palette, approvals, pickers, workflows,
+settings pages, knowledge, documents, designer and developer basics, and so
+on) are not listed.
 
-Status: **Open** (not yet shipped), **Shipped** (with the phase that shipped
-it), **Closed** (covered by something that already exists; nothing to build).
+Status: **Shipped** (with the phase that shipped it) or **Closed** (covered by
+something that already exists; nothing to build).
 
 | # | Area | Capability in NiceGUI | Verdict | What React gets | Phase | Status |
 |---|---|---|---|---|---|---|
@@ -97,73 +97,22 @@ it), **Closed** (covered by something that already exists; nothing to build).
 - **31. Design references list.** The conversation's attachments are the
   design's references.
 
-## What NiceGUI still provides to the default app
+## What the removal did
 
-- [ ] **The ASGI application and server.** `app.py` builds on `nicegui.app`
-  (a FastAPI subclass with an orjson default response and NiceGUI's lifespan)
-  and starts it with `ui.run`, which also adds GZip and prefix-redirect
-  middleware and a `/favicon.ico` route. uvicorn is only a transitive
-  dependency today. The headless factory `create_client_platform_app`
-  (`api/v1/routes.py`) is the starting point for a plain FastAPI app.
-- [ ] **Start-up and shutdown.** `@app.on_startup` runs the whole start-up
-  sequence and writes `ui.state` start-up status, ready flag and warnings,
-  which `/api/startup-state` and `/readyz` read; `@app.on_shutdown` stops the
-  runtime. Both need a plain lifespan owner.
-- [ ] **Routes registered through NiceGUI.** `app.add_route` in `app.py`:
-  `/api/launcher-ping`, `/api/startup-state`, `/api/launcher-shutdown`,
-  `/api/webhook/{task_id}`, `/api/client-error` (NiceGUI page only),
-  `/healthz`, `/readyz`; the access and mobile routes; `channels/sms.py`
-  (`/sms`) and `plugins/webhooks.py` (plugin webhooks) add their own.
-- [ ] **Static mounts.** Keep `/static` (access policy glyph, mobile PWA
-  icons, offline page, service worker, favicon) and `/published` (API
-  sharing). `/_buddy` (Buddy looks: also used by `mobile/routes.py`),
-  `/_media` (NiceGUI video embeds) and `/_fonts/cache` (NiceGUI Designer
-  preview) serve NiceGUI surfaces only.
-- [ ] **Shared state read by the API.** `ui.state` (`AppState`,
-  `_active_generations`) is still read by `thread_cleanup` (API delete),
-  `ui.streaming.request_generation_stop`, `client_monitor` → Dream Cycle
-  idle checks, `memory_extraction.is_app_idle`, thread checkpoint cleanup,
-  the browser service and the `row_bot_status` tool; `ui.constants` by the
-  filesystem tool and Designer references. Move these to
-  `runtime.executions` (the generation registry) and a non-UI constants
-  module. Several imports are `try/except`, so they would silently become
-  no-ops without NiceGUI: replace them, do not just delete them.
-- [ ] **The voice coordinator.** `ui/state.AppState` builds the voice
-  coordinator (TTS, vision) that `client_platform` binds, so React Talk and
-  Dictation depend on it. It needs its own owner.
-- [ ] **The toast queue.** `notifications._toast_queue` is drained only by
-  the NiceGUI page. Since Phase 9 it keeps only the latest 32 and React gets
-  the same notices from `application/app_notices`, so it goes with the
-  NiceGUI page.
-- [ ] **The legacy UI at `/`.** The whole NiceGUI UI (`@ui.page("/")` in
-  `app.py`, `ui/*`, the NiceGUI modules under `designer/`, `developer/ui.py`,
-  `skills_hub/ui.py`, `plugins/ui_*.py`, WhatsApp's `build_custom_ui`, the
-  voice NiceGUI glue). The launcher opens it only with `--legacy-ui`, but the
-  React client links to it as "Current application" from the navigation
-  (`Navigation.tsx`) and the `index.html` noscript link. Connection problems
-  no longer link to it (Phase 9: they offer Reconnect or Reload). Remove each
-  remaining link when its surface is ported. Remote requests to `/` already redirect to `/app-v2/`;
-  loopback desktop requests do not.
-- [ ] **Launcher legacy branches.** `--legacy-ui` (and the no-op
-  `--client-v2` alias), `_client_url_for_port`, the window script's legacy
-  main-window `js_api`, and the legacy-only `_JsApi` methods (`open_url`,
-  `choose_file`, `choose_folder`, `open_window`, `close_window`). The Buddy
-  `_JsApi` methods now only delegate to the React overlay's host.
-- [ ] **Packaging and checks.** `pyproject.toml` depends on `nicegui`
-  (pulling python-socketio and orjson); uvicorn, markdown2 and lxml are only
-  transitive and must be declared directly. `scripts/verify_runtime_dependencies.py`
-  lists nicegui, `smoke_app.py` expects `GET /` to return the NiceGUI page,
-  and the browser fixture apps (`client_platform`, `client_workspace`,
-  `core_surface_parity`) run on NiceGUI. About 37 test files reference
-  nicegui and 82 import `row_bot.ui.*`.
-
-## Retired in Phase 7
-
-- The `/buddy-overlay` page, `build_buddy_overlay_page` and its CSS.
-- `static/buddy/runtime/buddy.js`. The legacy NiceGUI sidebar Buddy shows the
-  active look's still image.
-- The overlay-only projections in `buddy/overlay.py` (thread snapshot,
-  approval projection, plain-text projection), the NiceGUI-era native
-  lifecycle, and the launcher's foreground-app tracker with
-  `get_foreground_target` / `restore_foreground_target` (the NiceGUI overlay
-  returned focus to the previous app after Send; the React overlay does not).
+- [x] The app is a plain FastAPI app in `row_bot.server`, run by uvicorn, with no WebSocket support: the client uses HTTP and server-sent events.
+- [x] `app.py` owns the start-up and shutdown sequence; `application/startup_state` holds the ready flag, status and warnings for `/readyz` and `/api/startup-state`.
+- [x] Routes register on the FastAPI app; the SMS webhook and plugin webhooks use `add_late_route`.
+- [x] `/static`, `/_buddy`, `/published` and `/_fonts/cache` stay mounted; `/_media` (NiceGUI video embeds) is gone.
+- [x] Idle checks, conversation deletion, browser-tab eviction and the status tool read the one generation registry in `runtime.executions`.
+- [x] The filesystem tool's file extensions come from `row_bot.file_context`.
+- [x] Backend functions that only the NiceGUI pages called are deleted.
+- [x] `app.py` owns the one voice coordinator and binds it to the client platform.
+- [x] The toast queue is gone; notices reach React through `application/app_notices`.
+- [x] The NiceGUI UI at `/` and every NiceGUI module are deleted; React no longer links to a previous application.
+- [x] `--legacy-ui` and `--client-v2` are deprecated no-ops; the legacy window bridge methods are gone.
+- [x] `nicegui` is no longer a dependency; uvicorn and markdown2 are declared directly.
+- [x] The boundary check forbids `nicegui`, `row_bot.ui` and `plugins.ui_*` in `src`; the plugin loader still refuses plugins that import nicegui.
+- [x] The launch smoke check requires `/` to lead to React; the browser fixture app mounts on `row_bot.server.app`.
+- [x] The NiceGUI tests and the NiceGUI/React parity harnesses are deleted.
+- [x] The Windows installer deletes `{app}\app\src` before copying a new version, so an upgrade leaves no removed module behind.
+- [x] The NiceGUI desktop Buddy overlay was retired in Phase 7; the torn-off Buddy is the React overlay at `/app-v2/buddy-overlay`.

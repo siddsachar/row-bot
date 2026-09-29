@@ -40,14 +40,12 @@ The installed entry point is `row-bot serve`. The older
 compatibility path; new scripts and service definitions should use the
 subcommand. Server mode requires an authenticated browser even over loopback.
 
-The normal launcher opens React at `/app-v2/`; use the explicit fallback when
-diagnosing the retained NiceGUI client:
+The launcher opens the React client at `/app-v2/`. The old `--legacy-ui` and
+`--client-v2` options are deprecated no-ops.
 
-```powershell
-uv run python launcher.py --legacy-ui
-```
-
-Direct NiceGUI launch also remains supported through the root wrapper:
+To run the server without the launcher's tray or window, use the root wrapper
+(`http://localhost:8080`, which redirects to `/app-v2/`; `ROW_BOT_PORT` changes
+the port):
 
 ```powershell
 python app.py
@@ -66,14 +64,14 @@ Remote-access implementation is intentionally separated by responsibility:
   origin/Host/proxy checks, invitations, devices, sessions, cookies,
   capabilities, diagnostics, Tailscale Serve control, CLI helpers, and access
   routes.
-- `src/row_bot/ui/remote_access_settings.py` owns the owner-facing Remote
-  Access settings surface. `src/row_bot/ui/access_context.py` exposes the
-  request-scoped capability boundary used by UI handlers.
-- `src/row_bot/mobile/` keeps the companion UI and compatibility imports. The
-  versioned access policy and durable store live under `row_bot.access`; do not
-  reintroduce a second mobile-only authorization policy.
-- `src/row_bot/app.py`, `src/row_bot/app_port.py`, and
-  `src/row_bot/launcher.py` are shared integration points for deployment mode,
+- The React client owns the owner-facing Remote Access settings
+  (`frontend/src/features/settings/Access*.tsx`).
+- `src/row_bot/mobile/` keeps pairing routes, PWA endpoints, and compatibility
+  imports. The versioned access policy and durable store live under
+  `row_bot.access`; do not reintroduce a second mobile-only authorization
+  policy.
+- `src/row_bot/server.py`, `src/row_bot/app.py`, `src/row_bot/app_port.py`,
+  and `src/row_bot/launcher.py` are shared integration points for deployment mode,
   middleware, child-process restart, and CLI dispatch.
 - `deploy/docker/` contains the hardened image, loopback-published Compose
   example, and operator runbook. `deploy/reverse-proxy/` and `deploy/systemd/`
@@ -120,7 +118,7 @@ Because `src/row_bot` is recursive, the shared Browser runtime, native Computer
 Use, the Buddy desktop overlay, coordinated conversation cleanup, live provider
 media catalogs, context accounting and compaction, progressive capability and
 skill discovery, durable skill activation, access/runtime policy, provider
-transports, channel streaming, the Remote Access UI, and the mobile companion
+transports, channel streaming, the staged React client, and the mobile routes
 require no per-file installer entries. Deployment examples under `deploy/` are
 source-distribution/operator artifacts rather than runtime Python packages.
 `tests/test_linux_support.py` keeps required runtime packages in the

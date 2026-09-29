@@ -64,7 +64,9 @@ Priorities, in order:
 - `src/row_bot/designer/`: Designer Studio state, export, templates, rendering,
   previews, thumbnails, and AI content.
 - `src/row_bot/plugins/`, `skills_hub/`, `skills.py`: plugin and skill systems.
-- `src/row_bot/ui/`: NiceGUI UI surfaces and reusable UI helpers.
+- `frontend/`: the React client (the only UI), served at `/app-v2/`.
+- `src/row_bot/server.py` and `src/row_bot/app.py`: the FastAPI app, its
+  routes, middleware and start-up sequence, run by uvicorn.
 - `tests/contracts/`: fake adapter and interface contracts.
 - `tests/subsystem/`: deterministic subsystem end-to-end tests with fakes.
 - `tests/integration/`: deterministic cross-subsystem tests.
@@ -212,8 +214,9 @@ uv run python -m pytest tests/subsystem/test_coverage_inventory.py tests/subsyst
   approval-gated.
 - Developer Studio/shell: classify install, network, delete, git commit, git
   push, and PR actions conservatively; test sandbox import gates.
-- Designer/UI: reuse existing NiceGUI helpers and deterministic export/snapshot
-  checks; report manual visual checks when needed.
+- Designer/UI: reuse the React client primitives in `frontend/src/ui` and
+  deterministic export/snapshot checks; run `npm --prefix frontend run check`
+  for client changes; report manual visual checks when needed.
 - Installers/release: never add signing secrets to CI. Windows signing is
   local-only; macOS notarization is manual.
 

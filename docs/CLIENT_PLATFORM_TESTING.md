@@ -1,7 +1,7 @@
 # Client platform browser validation
 
-The Phase 2 shell and the existing NiceGUI UI share one real application
-process in browser validation. Tests use a new data directory and scripted
+Browser validation runs the React client against one real application process
+(`row_bot.server.app`). Tests use a new data directory and scripted
 provider/tool boundaries. They never attach to a user's running app or browser
 profile. Node, Python dependencies and browsers must already be installed using
 the repository's reviewed dependency process.
@@ -61,19 +61,9 @@ certify Firefox, WebKit, macOS, Linux, physical mobile devices or the native
 pywebview bridge. Missing required engines remain a named validation gap.
 Additional Playwright arguments follow `--`, for example `-- --grep bootstrap`.
 
-The unchanged legacy lifecycle assertions run through a destination wrapper:
-
-```powershell
-.venv/Scripts/python.exe tests/browser/client_foundation/run_legacy.py
-```
-
-It exercises real NiceGUI send/Stop, conversation switching/reload/two viewers,
-approval/resume, socket reconnect and Developer/Designer entry with scripted
-providers. The wrapper calls the unchanged Phase 1 runner's `main` and changes
-only its newly allocated output/data paths, adding a complete Phase 2 source
-fingerprint. All new evidence uses
-`.local/evidence/unified-client-platform/phase-2/qa/`. Earlier frozen evidence
-is preserved.
+The workspace suites run the same way through
+`tests/browser/client_workspace/run_browser.py`; see
+[the unified workspace guide](client-platform/unified-workspace.md).
 
 Each new browser run records source and generated-asset hashes before/after,
 Python/browser/project identity, actual listener PID, server readiness and RSS,

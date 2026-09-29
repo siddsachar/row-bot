@@ -191,7 +191,7 @@ C:\Program Files\Row-Bot\            # Installation directory
 â”‚   â”œâ”€â”€ Lib\site-packages\          # All pip packages installed here
 â”‚   â””â”€â”€ ...
 â””â”€â”€ app\                            # Application source code
-    â”œâ”€â”€ app.py                       # NiceGUI frontend
+    â”œâ”€â”€ app.py                       # FastAPI server (serves the React client)
     â”œâ”€â”€ agent.py                    # ReAct agent
     â”œâ”€â”€ memory.py                   # Long-term memory DB + FAISS vector search
     â”œâ”€â”€ memory_extraction.py        # Background memory extraction from conversations
@@ -213,7 +213,7 @@ C:\Program Files\Row-Bot\            # Installation directory
     â”œâ”€â”€ prompts.py                  # Centralized LLM prompts
     â”œâ”€â”€ notifications.py             # Unified notification system
     â”œâ”€â”€ launcher.py                 # System tray + native window + splash screen
-    â”œâ”€â”€ ui/                         # UI package (status bar, settings, sidebar, etc.)
+    â”œâ”€â”€ server.py                   # FastAPI app, start-up/shutdown hooks, late routes
     â”œâ”€â”€ sounds/                     # Notification sound effects
     â”‚   â”œâ”€â”€ workflow.wav
     â”‚   â””â”€â”€ timer.wav
@@ -236,11 +236,11 @@ C:\Program Files\Row-Bot\            # Installation directory
     â”‚   â”œâ”€â”€ ...
     â”‚   â””â”€â”€ youtube_tool.py
     â”œâ”€â”€ providers/                  # Provider config, auth metadata, catalog cache, runtime, Quick Choices
-    â”œâ”€â”€ mobile/                     # Mobile pairing, access gate, PWA routes, auth storage, route discovery
+    â”œâ”€â”€ mobile/                     # Mobile pairing, access gate, PWA routes, session storage
     â”œâ”€â”€ mcp_client/                 # External MCP server client/runtime
     â”œâ”€â”€ migration/                  # Hermes/OpenClaw migration wizard backend
     â”œâ”€â”€ developer/                  # Developer Studio, Git helpers, Docker sandbox, Custom Tools
-    â”œâ”€â”€ designer/                   # Designer Studio projects, editor, exports, and publishing
+    â”œâ”€â”€ designer/                   # Designer Studio projects, templates, exports, and publishing
     â”œâ”€â”€ bundled_skills/             # Built-in manual skills
     â”œâ”€â”€ tool_guides/                # Auto-activation tool guides
     â””â”€â”€ plugins/                    # Plugin system & marketplace
@@ -252,10 +252,7 @@ C:\Program Files\Row-Bot\            # Installation directory
         â”œâ”€â”€ marketplace.py
         â”œâ”€â”€ registry.py
         â”œâ”€â”€ sandbox.py
-        â”œâ”€â”€ state.py
-        â”œâ”€â”€ ui_marketplace.py
-        â”œâ”€â”€ ui_plugin_dialog.py
-        â””â”€â”€ ui_settings.py
+        â””â”€â”€ state.py
 
 %USERPROFILE%\.row-bot\               # User data directory (auto-created at runtime)
 â”œâ”€â”€ threads.db                      # Conversation history & checkpoints
@@ -308,7 +305,7 @@ The Inno Setup installer runs these steps:
 2. **Create shortcuts** â€” Start Menu and optionally Desktop
 3. **Optionally launch Row-Bot**
 
-On repair/upgrade, Inno Setup deletes `{app}\python` before extraction. User data in `%USERPROFILE%\.row-bot` is not touched.
+On repair/upgrade, Inno Setup deletes `{app}\python` and `{app}\app\src` before extraction, so no module a release removed stays behind. User data in `%USERPROFILE%\.row-bot` is not touched.
 
 The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirements.txt` so repair helpers and support diagnostics can identify the exact dependency set that produced the bundled runtime.
 
@@ -317,7 +314,7 @@ The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirement
 1. Run `Row-Bot-4.9.1-Windows-x64.exe`
 2. Follow the wizard â€” the app payload is already bundled; optional model/runtime assets download only when a feature needs them
 3. Launch Row-Bot from Start Menu or Desktop shortcut
-4. The system tray icon appears; the React app opens on the first available local port, normally `http://localhost:8080/app-v2/` (`--legacy-ui` retains the local NiceGUI fallback at `/`)
+4. The system tray icon appears; the React app opens on the first available local port, normally `http://localhost:8080/app-v2/`
 5. First launch shows a setup wizard â€” choose **Local** (download an Ollama model), **Providers** (enter an API key and pick a provider model), or **Custom/Self-hosted** (enter an OpenAI-compatible endpoint such as LM Studio, fetch models, and pick a default)
 
 ## Notes
@@ -375,5 +372,5 @@ The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirement
 - **Codex credential boundary**: external Codex CLI auth files are metadata/reference only. Direct ChatGPT / Codex runtime in the packaged app requires the in-app ChatGPT sign-in and stores Row-Bot-owned tokens in the OS credential store.
 - **Optional native package recovery**: built-in TTS uses Kokoro ONNX and does not require TorchCodec. If a user-approved shell command installs a broken optional native package into the embedded Python runtime, startup diagnostics and the launcher log emit recovery hints, and repair/upgrade replaces the embedded runtime.
 - **Task DB recovery**: `launcher.py --reset-tasks-db` backs up `tasks.db`, `tasks.db-wal`, and `tasks.db-shm` under the resolved Row-Bot data directory, recreates a clean task schema, and prints the exact paths. `launcher.py --reset-db` backs up known local SQLite stores (`tasks.db`, `memory.db`, `threads.db` families). `launcher.py --restore-data [backup-dir]` restores known SQLite files from a recovery backup or from the latest backup when no directory is supplied.
-- **Launcher**: Uses `launcher.py` (system tray icon + native window + splash screen) instead of running NiceGUI directly. The tray icon shows app status (running/stopped) and provides graceful shutdown.
+- **Launcher**: Uses `launcher.py` (system tray icon + native window + splash screen) instead of running the server directly. The tray icon shows app status (running/stopped) and provides graceful shutdown.
 - **Uninstall**: Registered with Windows Add/Remove Programs. The uninstaller removes the installation directory but does **not** delete user data in `~/.row-bot/` â€” users can remove it manually if desired.

@@ -1,9 +1,8 @@
 # Unified workspace contributor cookbook
 
-The default client at `/app-v2/` presents conversations, saved Designer artifacts
-and registered Developer workspaces through shared application services.
-NiceGUI remains mounted at `/` as the explicit `--legacy-ui` fallback. Selecting
-either client does not migrate user data or replace the shared host.
+The React client at `/app-v2/` presents conversations, saved Designer artifacts
+and registered Developer workspaces through shared application services. `/`
+redirects there.
 
 The checked-in [v1 contracts](../../contracts/client-platform/v1/schema/openapi.json)
 describe the public wire format. Python
@@ -279,8 +278,8 @@ parse it as checkpoint JSON or expose non-text blocks and private metadata.
 Library grouping (`all`, `pinned`, `artifact`, `workspace`) is server-side and
 continues beyond the loaded sidebar page.
 
-`GET` and `PUT /api/v1/conversations/{conversation}/draft` use the retained thread
-draft owner shared with NiceGUI. Save text and conversation-owned attachment
+`GET` and `PUT /api/v1/conversations/{conversation}/draft` use the existing thread
+draft owner. Save text and conversation-owned attachment
 references with `expected_revision`. An identical retry is idempotent; a stale
 different edit returns `draft_revision_conflict`. Keep unsaved local text visible
 and offer recovery rather than silently overwriting another client's draft.
@@ -328,7 +327,7 @@ result payloads and workspace paths are excluded.
 Fresh devices use dark appearance, the blue accent and compact desktop density.
 Explicit saved System/Light/Dark, accent, density and transparency preferences
 remain authoritative. Shared semantic tokens and bundled Row-Bot artwork supply
-the NiceGUI visual family; coarse-pointer targets and readable transcript text
+the visual family; coarse-pointer targets and readable transcript text
 remain accessibility requirements. No external font or icon fetch is required.
 
 Add deterministic tests under the existing domain and client-platform test
@@ -339,8 +338,8 @@ browser fixture runner is `tests/browser/client_workspace/run_browser.py` and
 requires its documented local browser/toolchain setup; Python ownership tests
 do not substitute for browser checks.
 
-Keep NiceGUI compatibility checks, generated-contract checks, client unit tests,
-browser accessibility/lifecycle checks and the appropriate Python matrix lanes
+Keep generated-contract checks, client unit tests, browser
+accessibility/lifecycle checks and the appropriate Python matrix lanes
 in the handoff. Report platform or manual checks that remain unperformed.
 
 This pilot does not supply a new native bridge or browser filesystem authority,

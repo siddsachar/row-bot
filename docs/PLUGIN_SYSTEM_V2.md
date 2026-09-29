@@ -8,11 +8,12 @@ may add only these surfaces:
 - Bundled skills under `skills/<skill_id>/SKILL.md`
 - Channels registered with `PluginAPI.register_channel(...)`
 
-Plugins must not add arbitrary app panels, custom NiceGUI, JavaScript, provider
+Plugins must not add arbitrary app panels, custom UI code, JavaScript, provider
 runtimes, memory providers, workflow triggers, general hooks, or custom settings
-tabs. Row-Bot owns one native Plugin Center that renders plugin metadata,
-permissions, settings, secrets, auth, health checks, tools, channels, skills,
-logs, updates, and enablement.
+tabs. The loader refuses plugins that import UI frameworks such as `nicegui`,
+`streamlit`, `gradio`, or `webview`. Row-Bot owns one native Plugin Center that
+renders plugin metadata, permissions, settings, secrets, auth, health checks,
+tools, channels, skills, logs, updates, and enablement.
 
 ## Manifest v2
 
@@ -79,7 +80,7 @@ Plugin channels may act as transport adapters while Row-Bot core owns agent
 execution, shared slash commands, approval gates, Goal Mode, media processing,
 pairing, and webhook lifecycle. Plugin code must keep using `plugins.api`; it
 must not import `row_bot.agent`, `row_bot.channels.*`, `row_bot.tasks`,
-`row_bot.tunnel`, NiceGUI, or other Row-Bot internals.
+`row_bot.tunnel`, UI frameworks, or other Row-Bot internals.
 
 The public channel bridge is exposed from `plugins.api`:
 
@@ -95,7 +96,7 @@ The public channel bridge is exposed from `plugins.api`:
   fetched by core.
 - `PluginAPI.register_webhook_route(...)`, `get_webhook_path(...)`, and
   `get_webhook_url(...)` register namespaced plugin webhooks under
-  `/plugin-webhooks/{plugin_id}/{name}` without exposing Starlette or NiceGUI
+  `/plugin-webhooks/{plugin_id}/{name}` without exposing Starlette or FastAPI
   types to plugin code.
 - Pairing and allowlist helpers on `PluginAPI` wrap the same channel auth store
   used by native channels.

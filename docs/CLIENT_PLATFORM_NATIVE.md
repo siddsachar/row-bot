@@ -6,15 +6,14 @@ download/save and discovery. Each operation returns `ok`, `cancelled` or an
 explicit `unavailable` reason. Components consume this interface; they do not
 look at screen size, user-agent strings, native flags or `pywebview.api`.
 
-The default native window opens `/app-v2/` and uses the narrow per-window
-`NativeClientBridge`; `--legacy-ui` opens `/` with the retained NiceGUI bridge.
+The native window opens `/app-v2/` and uses the narrow per-window
+`NativeClientBridge`.
 Direct/no-tray launch honors the saved Native or Browser preference and records
 the requested, selected, opened, authorized, and fallback outcome in the local
 launcher state. A failed native window may open the browser only with an
 explicit fallback reason; the browser never inherits native authority.
 `selectClientPlatform(media, handshake)` still follows the negotiated handshake
-rather than inferring authority from a URL or user agent. Existing NiceGUI
-consumers remain unchanged.
+rather than inferring authority from a URL or user agent.
 
 The browser implementation uses an explicit file input (directory input where
 supported), browser clipboard permissions, safe HTTP(S) links with
