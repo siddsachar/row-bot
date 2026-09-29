@@ -484,3 +484,31 @@ it('shows the Connect GitHub card when a pull request needs the GitHub tool', as
   expect(screen.queryByRole('alert')).toBeNull();
   expect(props.execute).not.toHaveBeenCalled();
 });
+
+it('keeps sandbox choices made while a re-read was on its way (B176)', async () => {
+  const props = options();
+  let finish = () => undefined as unknown;
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  props.load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve(page);
+      }),
+  );
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  fireEvent.change(screen.getByLabelText('Execution mode'), {
+    target: { value: 'docker' },
+  });
+  await act(async () => {
+    finish();
+  });
+  expect(screen.getByLabelText('Execution mode')).toHaveValue('docker');
+  // Fields the person left alone still follow the repository.
+  expect(screen.getByLabelText('Sandbox image')).toHaveValue(
+    page.sandbox.image,
+  );
+});

@@ -379,13 +379,35 @@ export default function DeveloperRepositoryPanel(
         props.scope,
       );
       if (request.signal.aborted) return;
+      const current = session.getSnapshot();
+      // A re-read keeps a sandbox field the person changed since the last
+      // read; untouched fields follow the repository (B176).
+      const was = current.snapshot?.sandbox;
+      const follow = <K extends keyof Drafts>(
+        key: K,
+        before: Drafts[K] | undefined,
+        after: Drafts[K],
+      ) =>
+        was && current.drafts[key] !== before ? current.drafts[key] : after;
       session.update({
         snapshot: result,
         drafts: {
-          ...session.getSnapshot().drafts,
-          executionMode: result.sandbox.execution_mode,
-          sandboxNetwork: result.sandbox.network,
-          sandboxImage: result.sandbox.image,
+          ...current.drafts,
+          executionMode: follow(
+            'executionMode',
+            was?.execution_mode,
+            result.sandbox.execution_mode,
+          ),
+          sandboxNetwork: follow(
+            'sandboxNetwork',
+            was?.network,
+            result.sandbox.network,
+          ),
+          sandboxImage: follow(
+            'sandboxImage',
+            was?.image,
+            result.sandbox.image,
+          ),
         },
       });
     } catch (error) {
