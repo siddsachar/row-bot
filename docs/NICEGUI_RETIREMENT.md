@@ -48,23 +48,23 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 19 | Workflows | Insert-variable menu (`{{date}}`, step outputs) | Simplify | Typing `{{` in a prompt suggests variables and step outputs | 13 | Open |
 | 20 | Workflows | Webhook URL shown in the workflow after saving | Keep | The webhook URL with Copy in the workflow's trigger | 13 | Open |
 | 21 | Workflows | External channels multi-select | Keep | A checklist of the configured channels | 13 | Open |
-| 22 | Designer | Duplicate a design | Keep | Duplicate in the Design panel's ⋯ menu | 12 | Open |
+| 22 | Designer | Duplicate a design | Keep | Duplicate in the Design panel's ⋯ menu (and ⌘K): a "(copy)" bound beside the original, opened in its own panel | 12 | Shipped (Phase 12) |
 | 23 | Designer | Zero-state quick actions ("Draft 3 slides from a brief", …) | Drop | — | 12 | Closed by review: conversation-first creation and the welcome prompts replace them |
-| 24 | Designer | A separate design palette (Ctrl/Cmd+K) and Review shortcut | Drop | — | 12 | Closed by review: the global ⌘K lists design commands when a design is open |
-| 25 | Designer | Review: apply all safe fixes, dismiss, re-scan | Simplify | Per-issue Fix and "Fix all safe issues"; re-checks after edits | 12 | Open |
-| 26 | Designer | Share: Copy link, Open folder, QR | Simplify | Publish: Copy link, QR, Unpublish | 12 | Open |
-| 27 | Designer | Export presets, "Exports save to…", Copy path, Open folder | Simplify | Pick a format, then "Saved · Open · Show in folder" | 12 | Open |
-| 28 | Designer | Add and delete pages (and screens) | Keep | Add and delete pages and screens | 12 | Open |
-| 29 | Designer | Canvas resize with formats, ratios and auto-fit | Simplify | A size menu of common formats that re-fits the content; anything custom by asking | 12 | Open |
-| 30 | Designer | Brand from a website; logo height and inset | Simplify | Brand "From a website"; logo size by asking | 12 | Open |
+| 24 | Designer | A separate design palette (Ctrl/Cmd+K) and Review shortcut | Drop | — | 12 | Closed by review: the global ⌘K lists the open design's commands (Present, Export, Share, Add a slide, Duplicate, Review; shipped in Phase 12) |
+| 25 | Designer | Review: apply all safe fixes, dismiss, re-scan | Simplify | Review checks by itself and again after every change; per-issue Fix (safe) or Ask Row-Bot, and "Fix all safe issues" | 12 | Shipped (Phase 12) |
+| 26 | Designer | Share: Copy link, Open folder, QR | Simplify | Publish asks once, then the link with Copy link, Open, a QR code for remote links, and Unpublish | 12 | Shipped (Phase 12) |
+| 27 | Designer | Export presets, "Exports save to…", Copy path, Open folder | Simplify | Pick a format (PDF, PNG, PowerPoint, HTML); on this computer it saves to the workspace's Exports folder with "Saved · Open · Show in folder"; other devices download | 12 | Shipped (Phase 12) |
+| 28 | Designer | Add and delete pages (and screens) | Keep | The page menu adds a page after the one shown and deletes the one shown (Undo in place) | 12 | Shipped (Phase 12) |
+| 29 | Designer | Canvas resize with formats, ratios and auto-fit | Simplify | A Size menu (16:9, 4:3, 1:1, A4, 9:16 · Phone) that re-fits every page; anything custom by asking | 12 | Shipped (Phase 12) |
+| 30 | Designer | Brand from a website; logo height and inset | Simplify | Brand "From a website" (one guarded read of a public page, applied with Undo); logo size by asking | 12 | Shipped (Phase 12) |
 | 31 | Designer | Project references list | Drop | — | 12 | Closed by review: the conversation's attachments are the design's references |
-| 32 | Developer | Remove a code folder from recents | Keep | Remove a saved code folder from the list | 12 | Open |
-| 33 | Developer | Custom tools list, new tool from a repository or folder, smoke test | Simplify | Settings › Tools › Custom tools: list, add from a folder, Test, remove; cloning happens in the conversation | 12 | Open |
-| 34 | Developer | "Run custom tool command once" approval dialog | Simplify | The standard approval card | 12 | Open |
-| 35 | Developer | Stop all servers | Keep | Stop all processes | 12 | Open |
-| 36 | Developer | GitHub CLI install hint in the Developer panel | Simplify | The inline "Connect GitHub" setup card when a Git action needs it | 12 | Open |
-| 37 | Computer use | Active session card and live-control dock | Simplify | A computer-use card: latest picture, Stop, Pause/Resume | 12 | Open |
-| 38 | Terminal | Interactive terminal (raw keys, Ctrl-C, Clear) | Simplify | The line terminal gains Stop, Clear and "Open in your terminal" | 12 | Open |
+| 32 | Developer | Remove a code folder from recents | Keep | Remove a saved code folder from the Open saved list (files stay; Undo) | 12 | Shipped (Phase 12) |
+| 33 | Developer | Custom tools list, new tool from a repository or folder, smoke test | Simplify | Settings › Tools › Custom tools: list, add from a folder (desktop app), Test, on/off, available in chat, remove; cloning happens in the conversation | 12 | Shipped (Phase 12) |
+| 34 | Developer | "Run custom tool command once" approval dialog | Simplify | The standard approval card before a test command that needs approval runs once (Settings and the code panel's builder) | 12 | Shipped (Phase 12) |
+| 35 | Developer | Stop all servers | Keep | Stop all processes in the Run tab | 12 | Shipped (Phase 12) |
+| 36 | Developer | GitHub CLI install hint in the Developer panel | Simplify | The Connect GitHub card in the pull request section when gh is missing or signed out | 12 | Shipped (Phase 12) |
+| 37 | Computer use | Active session card and live-control dock | Simplify | A computer-use card in the conversation: latest picture, Pause (you take over), Resume, Stop | 12 | Shipped (Phase 12) |
+| 38 | Terminal | Interactive terminal (raw keys, Ctrl-C, Clear) | Simplify | The line terminal gains Stop (Ctrl+C), Clear and "Open in your terminal" | 12 | Shipped (Phase 12) |
 | 39 | Plugins | Setup guide, changelog link, load log, declared sign-in | Simplify | A plugin connect sheet with setup steps, sign-in and the changelog link; load failures arrive as notices | 15 | Open |
 | 40 | Skills | Import a pasted SKILL.md | Keep | Skills "Import a skill" accepts pasted SKILL.md (to verify) | 15 | Open |
 | 41 | Channels | Per-channel "Expose via tunnel" switch and tunnel URL | Simplify | A channel that needs a public address opens the tunnel itself and shows "Reachable at …" with Copy | 15 | Open |

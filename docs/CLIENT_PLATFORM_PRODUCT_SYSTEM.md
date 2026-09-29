@@ -260,6 +260,13 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   / Not now) instead of a generic approval, and an account or channel it needs
   is a Connect card that opens its Settings page. Nothing is created from a
   message's wording, and a design opens by itself only when a turn changed it.
+- While Row-Bot uses the computer (Cua) in a conversation, a computer-use
+  card sits in the turn: "Using your computer · <app>" with a status dot, the
+  latest picture (in memory only, read by revision, `no-store`, hidden while
+  paused or waiting for approval, with a line saying why), and Pause ("you
+  take over"), Resume and Stop. A paused turn shows the card instead of an
+  approval card; denying a pause is Stop. Only the local owner on a direct
+  loopback connection controls it; other devices see the trace.
 - A server-started step (a goal's next turn, work continuing in a design or
   folder the reply created) is a quiet centred note ("Goal · turn 2 of 10",
   "Continuing in Tiny date app"), never the person's bubble; Retry and Send
@@ -305,6 +312,13 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   and stay inside the viewport.
 
 ### Settings
+
+Settings › Tools › Custom tools lists every custom tool (On, On · in chat,
+Off) and unfinished drafts; a row opens to its commands with Test. A test
+command that needs approval shows the approval card with the exact command
+and runs once only after Approve; the code panel's builder uses the same step.
+Add from a folder is a desktop folder pick that says first that it sends
+excerpts to the chosen model; Remove confirms and keeps the files.
 
 `features/settings/model.ts` is the one navigation/search/label/deep-link map:
 seven groups ordered by how often people visit them — General (Preferences,
@@ -460,14 +474,26 @@ workspace; Escape or Exit focus mode returns). Any action that changes nothing
 irreversibly is one reviewed step; destructive ones keep their confirmation.
 
 - **Design** fills the panel with the page on a dotted ground, fitted by
-  default (tall pages start at the panel width). The top bar holds the
+  default (tall pages start at the panel width). A design that was just made
+  (Add resource, a turn that made it, a duplicate) opens with the side region
+  at its widest; one already open keeps the width the person chose. Add
+  resource with a brief creates and drafts in one step ("Draft it now", on
+  when a brief is given); while a turn works on the design the panel says so
+  ("Drafting · Adding pages…", a live dot that stays still under reduced
+  motion) and refreshes the page after each finished step. The top bar holds the
   design name (edit in place; Enter saves, Escape cancels), Preview | Edit,
   and icon actions: undo and redo (Mod+Z / Shift+Mod+Z, also from the
   canvas), history, properties, present, share, export, an info popover with
   the capabilities and review requirements, and ⋯ (search tools, pages and
   assets; insert blocks; review; import a document). A floating dock carries
-  ◀ page N/M ▶ (the number opens a page menu), zoom (Fit, Width, 50–200%) and,
-  for landing pages and app mockups, device width. From 720px the page
+  ◀ page N/M ▶ (the number opens a page menu, which also adds a page after the
+  one shown and deletes the one shown), zoom (Fit, Width, 50–200%), a Size menu
+  for page-based designs (16:9, 4:3, 1:1, A4, 9:16 · Phone; every page is
+  re-fitted) and, for landing pages and app mockups, device width. A deletion
+  or size change says what happened with Undo in place. ⋯ also offers
+  Duplicate design (a "(copy)" bound beside it, opened in its own panel), and
+  while a design is shown ⌘K lists its actions (Present, Export, Share or
+  publish, Add a slide, Duplicate, Review, versions). From 720px the page
   strip sits on the left with thumbnails in the design's own aspect ratio and
   the inspector beside the canvas; below that the strip hides and the
   inspector is a sheet docked under the canvas, which refits above it. Edit
@@ -486,9 +512,21 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
   pause); the preview refreshes by itself and a manual refresh appears only
   on an error card. Undo restores the newest history snapshot; redo restores
   the state that undo replaced. Presenting takes the keyboard (arrows,
-  Escape) and hands focus back to Present when it ends. Exports download
-  locally and wait until the panel shows the saved version; sharing and
-  publishing always ask first. The Edit-mode bridge is a static script the
+  Escape) and hands focus back to Present when it ends; Present fills the
+  screen (Escape leaves full screen and ends it; notes stay off the audience's
+  screen). Export is four format buttons (PDF, PNG, PowerPoint, HTML; pages and
+  PowerPoint style under Options): on this computer one click exports and saves
+  a copy into the workspace's Exports folder, then offers Open and Show in
+  folder (local owner on direct loopback only); other devices get a Download
+  button. Exports wait until the panel shows the saved version. Publishing
+  asks once ("Publish these N pages at a local link? It opens on this computer
+  only."); the Share sheet then shows the saved link with Copy link, Open, a QR
+  code for remote links (drawn locally) and Unpublish. Sending to a channel or
+  X always asks first. Brand takes colours and fonts "From a website" (one
+  guarded read of a public page, applied through the brand control so Undo
+  works). Review checks the design when it opens and after every change: safe
+  findings have Fix, others Ask Row-Bot, and "Fix all safe issues" applies
+  them as one step. The Edit-mode bridge is a static script the
   client's page policy allows by digest; its identity is a JSON data block.
 - **Developer** opens with a status strip: folder, a branch chip (opens
   Git), ahead/behind, "N changed" or Clean, one checks dot, where commands
@@ -502,9 +540,21 @@ irreversibly is one reviewed step; destructive ones keep their confirmation.
   tree with a highlighted preview. **Run** lists detected checks with ▶ and
   every process in the folder; Run reviews and starts in one step and starts
   only with the server's approval evidence, and the selected process streams
-  into one console (follow, latest 2,000 lines). **Git** has a branch
+  into one console (follow, latest 2,000 lines). Commands run without a
+  shell, so the Run tab explains `&&`, `|`, `>` and `<` before sending instead
+  of calling it an approval failure; with more than one process running,
+  Stop all stops them. The inspector opens on Changes when Git or the agent
+  changed something. **Git** has a branch
   switcher, a commit box with a suggested message and file picks, and a pull
   request form with suggested text; push and pull requests confirm first.
+  Without the GitHub command-line tool (or signed out) the pull request
+  section shows the Connect GitHub card instead of a failure. The line
+  terminal (desktop app) has Stop (Ctrl+C), Clear and "Open in your
+  terminal", which opens the person's own terminal app at the conversation's
+  code folder with Row-Bot's keys removed from its environment. Add resource
+  names a new draft folder from its Name field ("Code folder" otherwise),
+  says in a browser that picking a folder needs the desktop app, and Open
+  saved can remove a folder from the list (files stay; Undo).
   Worktree, sandbox image and network sit under Advanced. Errors are neutral
   cards with the cause and one Retry.
 
