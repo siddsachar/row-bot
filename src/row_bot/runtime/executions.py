@@ -137,11 +137,17 @@ class GenerationRuntimeRegistry:
             return self._handles.get(execution_id)
 
     def conversation_generation(self, conversation_id: str, generation_id: str) -> ExecutionHandle | None:
-        """Resolve an exact normal-chat run, including its completed output owner."""
+        """Resolve an exact normal-chat run, including its completed output owner.
+
+        A turn resumed after an approval keeps its generation, so several runs
+        can share it: the one still running wins, else the latest.
+        """
         with self._lock:
-            return next((handle for handle in self._handles.values()
-                         if handle.domain == "conversation" and handle.conversation_id == conversation_id
-                         and handle.generation_id == generation_id), None)
+            matches = [handle for handle in self._handles.values()
+                       if handle.domain == "conversation" and handle.conversation_id == conversation_id
+                       and handle.generation_id == generation_id]
+            return next((handle for handle in reversed(matches) if not handle.producer_done.is_set()),
+                        matches[-1] if matches else None)
 
     def stop(self, conversation_id: str, *, reason: str = "user") -> bool:
         handles = self.active(conversation_id)

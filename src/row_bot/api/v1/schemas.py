@@ -410,6 +410,58 @@ class BrowserReceipt(WireModel):
     browser_control: BrowserControlSnapshot | None
 
 
+ComputerUseAction = Literal[
+    "computer_use.stop",
+    "computer_use.pause",
+    "computer_use.resume",
+]
+
+
+class ComputerUseSnapshot(WireModel):
+    """The conversation's computer-use card: plain state and what it can do."""
+
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    revision: BrowserRevision
+    # A session belongs to this conversation (it may be paused).
+    active: bool
+    state: Literal["working", "paused", "waiting_approval", "needs_attention", "stopped"]
+    app: str = Field(max_length=120)
+    has_picture: bool
+    # The approval the paused turn waits on; Resume answers it.
+    approval_id: OpaqueId | None
+    can_pause: bool
+    can_resume: bool
+    can_stop: bool
+
+
+class ComputerUsePreview(WireModel):
+    """The latest picture, from memory only; never stored or cached."""
+
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    revision: BrowserRevision
+    state: Literal["available", "waiting", "hidden", "inactive"]
+    mime_type: Literal["image/png", "image/jpeg"] | None = None
+    image_base64: str | None = Field(default=None, max_length=2_000_000)
+
+
+class ComputerUseCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: ComputerUseAction
+
+
+class ComputerUseReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    action: ComputerUseAction
+    conversation_id: OpaqueId
+    status: Literal["completed", "partial", "rejected"]
+    code: str | None = Field(max_length=128)
+    computer_use: ComputerUseSnapshot | None
+
+
 class StopPayload(WireModel):
     generation_id: OpaqueId | None = None
 

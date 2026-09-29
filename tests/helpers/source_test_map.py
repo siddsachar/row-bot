@@ -342,6 +342,17 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Managed browser controls expose sanitized state and require profile policy, exact review, idempotency, and authority-scoped recovery coverage.",
     ),
     SourceTestRule(
+        "react_computer_use_card",
+        ("src/row_bot/application/client_computer_controls.py",),
+        (
+            "tests/subsystem/client_protocol/test_computer_controls_domain.py",
+            "tests/subsystem/client_protocol/test_computer_controls_api.py",
+            "tests/subsystem/computer_use/test_privacy.py",
+            "tests/integration/computer_use",
+        ),
+        "The computer-use card stays local-owner only, keeps its picture in memory, and needs Stop/Pause/Resume ordering, approval resume, and idempotency coverage.",
+    ),
+    SourceTestRule(
         "client_foundation",
         (
             "frontend/**",

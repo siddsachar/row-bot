@@ -696,7 +696,7 @@ class ClientPlatformService:
             approval = self.get_approval(target)
             if str(command.get("expected_revision")) != approval["revision"]:
                 raise ClientPlatformError("revision_conflict", approval["revision"])
-            return self._resolve_approval(target, payload)
+            return self._resolve_approval(target, payload, runtime_surface=runtime_surface)
         row = self._metadata(target)
         expected = command.get("expected_revision")
         if expected is None or str(expected) != str(row["client_revision"]):
@@ -811,21 +811,7 @@ class ClientPlatformService:
                                runtime_surface=runtime_surface,
                                **({"frozen_context": frozen_context} if frozen_context is not None else {}))
         if kind == "conversation.stop":
-            generation_id = payload.get("generation_id")
-            if generation_id:
-                # A Buddy click owns the displayed run even if a replacement
-                # has started before dispatch. Never stop that replacement or
-                # pause its queue through an old generation's control.
-                handle = self.registry.conversation_generation(target, str(generation_id))
-                if handle is not None:
-                    self.registry.cancel(handle)
-            else:
-                self.registry.stop(target)
-                from row_bot.application.client_queue import pause_pending
-                pause_pending(self, target)
-            for handle in self.registry.active(target):
-                self.projection.publish(target, "generation.state", handle.view())
-            return {"conversation_id": target, "status": "cancel_requested"}
+            return self.stop_conversation(target, str(payload.get("generation_id") or ""))
         if kind == "conversation.steer":
             from row_bot.agent_orchestrator import get_active_orchestration, route_parent_steering
             orchestration = get_active_orchestration(target)
@@ -858,6 +844,40 @@ class ClientPlatformService:
                 "retained_developer_work": bool(result.retained_worktree_path or result.retained_sandbox),
             }
         raise ClientPlatformError("invalid_command")
+
+    def stop_conversation(self, conversation_id: str, generation_id: str = "") -> dict:
+        """Stop a conversation's turn, and the computer use it holds.
+
+        The computer is released first, then the turn is cancelled; a pause
+        or other computer approval the turn waits on is withdrawn, since
+        nothing will go on with it.
+        """
+        with _COMMAND_LOCK:
+            from row_bot.application.client_computer_controls import stop_computer_use
+            waiting = (self.projection.snapshot(conversation_id).get("generation")
+                       or self._paused_approval_generation(conversation_id))
+            withdrawn = stop_computer_use(conversation_id, generation_id=generation_id)
+            if generation_id:
+                # A Buddy click owns the displayed run even if a replacement
+                # has started before dispatch. Never stop that replacement or
+                # pause its queue through an old generation's control.
+                handle = self.registry.conversation_generation(conversation_id, generation_id)
+                if handle is not None:
+                    self.registry.cancel(handle)
+            else:
+                self.registry.stop(conversation_id)
+                from row_bot.application.client_queue import pause_pending
+                pause_pending(self, conversation_id)
+            for handle in self.registry.active(conversation_id):
+                self.projection.publish(conversation_id, "generation.state", handle.view())
+            if (waiting and waiting.get("approval_id") in withdrawn
+                    and not self.registry.active(conversation_id)):
+                # The paused turn no longer waits: every client drops its card.
+                self.projection.publish(conversation_id, "generation.state", {
+                    **waiting, "status": "stopped", "approval_id": None, "cancel_requested": True,
+                    "quiesced": True, "cleanup_complete": True, "can_stop": False,
+                    "revision": str(int(str(waiting.get("revision") or "0")) + 1)})
+            return {"conversation_id": conversation_id, "status": "cancel_requested"}
 
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",
                approval_context: dict | None = None, queue_record: dict | None = None,
@@ -924,7 +944,10 @@ class ClientPlatformService:
                 selected.append(binding)
             captured_bindings = tuple(selected)
         submission_id = str(payload.get("submission_id") or uuid.uuid4())
-        generation_id = str(queue_record["generation_id"]) if queue_record else str(uuid.uuid4())
+        # An approved turn keeps the paused turn's identity when its computer
+        # session is still held: the lease belongs to that generation.
+        generation_id = (str(queue_record["generation_id"]) if queue_record
+                         else str((approval_context or {}).get("generation_id") or uuid.uuid4()))
         text = str(payload.get("text") or "")
         if followup is not None:
             text = followup.prompt
@@ -1078,6 +1101,12 @@ class ClientPlatformService:
             finally:
                 if handle.cancel_scope.is_cancelled():
                     status = "stopped"
+                try:
+                    from row_bot.application.client_computer_controls import release_after_turn
+                    release_after_turn(conversation_id, generation_id, status)
+                except Exception:
+                    _LOG.warning("Computer use was not released after a turn in %s", conversation_id,
+                                 exc_info=True)
                 after_platform_turn(conversation_id, generation_id=generation_id, status=status,
                                     assistant_text=final_text, model_ref=model_ref,
                                     goal_id=str((started_goal or {}).get("id") or ""))
@@ -1253,7 +1282,8 @@ class ClientPlatformService:
                              if isinstance(item, dict) and item.get("__interrupt_id")]
             context = {"model_selection": {"provider_id": parsed[0] if parsed else "", "model_ref": handle.model_ref},
                        "interrupt_ids": interrupt_ids, "interrupt": payload,
-                       "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id), "pass_id": handle.pass_id}
+                       "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id), "pass_id": handle.pass_id,
+                       "generation_id": handle.generation_id}
             public_approval = project_approval_context(payload)
             _, handle.approval_id = create_approval_request(
                 handle.pass_id, "", "conversation", public_approval["reason"], resume_kind="conversation",
@@ -1319,11 +1349,13 @@ class ClientPlatformService:
             context = json.loads(row["approval_payload_json"])
             return str(context["model_selection"]["model_ref"])
 
-    def _resolve_approval(self, approval_id: str, payload: dict) -> dict:
+    def _resolve_approval(self, approval_id: str, payload: dict, *,
+                          runtime_surface: str = "normal_chat") -> dict:
         with _COMMAND_LOCK:
-            return self._resolve_approval_locked(approval_id, payload)
+            return self._resolve_approval_locked(approval_id, payload, runtime_surface=runtime_surface)
 
-    def _resolve_approval_locked(self, approval_id: str, payload: dict) -> dict:
+    def _resolve_approval_locked(self, approval_id: str, payload: dict, *,
+                                 runtime_surface: str = "normal_chat") -> dict:
         from row_bot.tasks import _get_conn, respond_to_approval
         with _get_conn() as conn:
             row = conn.execute("SELECT * FROM approval_requests WHERE id=?", (approval_id,)).fetchone()
@@ -1331,13 +1363,31 @@ class ClientPlatformService:
             raise ClientPlatformError("approval_already_resolved")
         if row["resume_kind"] == "conversation":
             conversation_id = str(row["source_thread_id"])
-            context = self.claim_legacy_approval(approval_id, conversation_id, payload.get("decision") == "approve")
+            approved = payload.get("decision") == "approve"
+            from row_bot.application import client_computer_controls as computer
+            stored = computer.approval_context(row["approval_payload_json"])
+            if computer.pause_item(stored.get("interrupt")) is not None and not approved:
+                # A computer-use pause has no "deny": its alternative is Stop.
+                # Replaying the paused turn could start the computer again.
+                self.stop_conversation(conversation_id)
+                return {"approval_id": approval_id, "status": "completed"}
+            # A paused computer runs again, from a fresh capture, before the
+            # turn goes on (Resume, as the NiceGUI live panel did).
+            lease_generation = computer.prepare_approval_resume(
+                self, conversation_id, stored, approved=approved, runtime_surface=runtime_surface)
+            try:
+                context = self.claim_legacy_approval(approval_id, conversation_id, approved)
+            except ClientPlatformError:
+                if lease_generation and computer.pause_item(stored.get("interrupt")) is not None:
+                    computer.stop_computer_use(conversation_id, generation_id=lease_generation)
+                raise
             from row_bot.application.conversation_followups import after_approval
-            after_approval(conversation_id, approved=payload.get("decision") == "approve")
+            after_approval(conversation_id, approved=approved)
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
-                                 approval_context={"approved": payload.get("decision") == "approve",
+                                 approval_context={"approved": approved,
                                                    "interrupt_ids": context["interrupt_ids"],
-                                                   "pass_id": context.get("pass_id")})
+                                                   "pass_id": context.get("pass_id"),
+                                                   "generation_id": lease_generation})
             return {**result, "approval_id": approval_id}
         if not respond_to_approval(row["resume_token"], payload.get("decision") == "approve"):
             raise ClientPlatformError("approval_already_resolved")
