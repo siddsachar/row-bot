@@ -421,6 +421,25 @@ class ClientPlatformService:
                     rows = [row for _, row in project_checkpoint_records(reader, records)]
                     self.projection.install_rows(conversation_id, reader.revision, rows)
 
+    def conversation_changed(self, conversation_id: str) -> None:
+        """A conversation was written outside its own turns (a delegated
+        agent's approval notice in its parent, the agent's paused turn): pages
+        showing it re-read it (B186). Best effort, off the writer's thread."""
+
+        def publish() -> None:
+            try:
+                with _COMMAND_LOCK:
+                    before = self.projection.snapshot(conversation_id)["projection_revision"]
+                    self._refresh_checkpoint(conversation_id)
+                    current = self.projection.snapshot(conversation_id)
+                    if current["projection_revision"] == before:
+                        self.projection.publish(conversation_id, "transcript.checkpoint",
+                                                {"checkpoint_revision": current["checkpoint_revision"]})
+            except Exception:
+                _LOG.debug("Could not publish an outside change to %s", conversation_id, exc_info=True)
+
+        threading.Thread(target=publish, daemon=True, name="conversation-changed").start()
+
     def _paused_approval_generation(self, conversation_id: str) -> dict | None:
         """The paused turn of a conversation whose approval is still pending.
 

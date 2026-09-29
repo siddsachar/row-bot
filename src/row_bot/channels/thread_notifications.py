@@ -81,7 +81,7 @@ def append_parent_thread_message_once(
                     return False
                 if _message_content(message).strip() == clean_text:
                     return False
-            return bool(
+            appended = bool(
                 append_checkpoint_messages(
                     clean_thread_id,
                     [AIMessage(content=clean_text, additional_kwargs={"row_bot_ui": metadata})],
@@ -90,6 +90,15 @@ def append_parent_thread_message_once(
     except Exception:
         log.debug("Could not append parent-thread notification to checkpoint", exc_info=True)
         return False
+    if appended:
+        # Open pages of the parent show the notice without a reload (B186).
+        try:
+            from row_bot.application.client_platform import client_platform_service
+
+            client_platform_service.conversation_changed(clean_thread_id)
+        except Exception:
+            log.debug("Could not tell open pages about the notice", exc_info=True)
+    return appended
 
 
 def append_agent_lifecycle_message_once(

@@ -242,3 +242,31 @@ def test_a_delegated_agents_thread_shows_its_task_not_the_handoff_prompt(service
     assert "Tidy the notes folder." in shown
     for internal in ("AGENT PROFILE", "MISSION", "RUNTIME MODEL", "PARENT REFS"):
         assert internal not in shown
+
+
+def test_open_pages_hear_about_a_delegated_agents_approval(service, monkeypatch):
+    """B186 (found on the real app): the parent's notice and the child's paused
+    turn are written outside any turn of those conversations, so an open page
+    showed neither until it was reloaded. Both conversations now publish a
+    checkpoint change, which makes their pages re-read."""
+    import time
+    from row_bot import threads
+    from row_bot.application import client_platform
+
+    monkeypatch.setattr(client_platform, "client_platform_service", service)
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    cursor = service.projection.snapshot(parent)["cursor"]
+    run, _resumed = _waiting_child(monkeypatch, parent)
+    child = run["thread_id"]
+
+    def changed(conversation, after):
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            events = service.projection.events_since(conversation, after)["events"]
+            if any(event["type"] == "transcript.checkpoint" for event in events):
+                return True
+            time.sleep(0.05)
+        return False
+
+    assert changed(parent, cursor)
+    assert changed(child, "0")

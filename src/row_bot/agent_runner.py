@@ -907,6 +907,19 @@ def _pause_agent_for_approval(
         status_message="Waiting for approval",
     )
     notify_agent_run_approval(approval_id)
+    # An open page of the agent's own thread shows its paused turn (B186).
+    _conversation_changed(str(configurable.get("thread_id") or run.get("thread_id") or ""))
+
+
+def _conversation_changed(thread_id: str) -> None:
+    if not thread_id:
+        return
+    try:
+        from row_bot.application.client_platform import client_platform_service
+
+        client_platform_service.conversation_changed(thread_id)
+    except Exception:
+        logger.debug("Could not tell open pages about %s", thread_id, exc_info=True)
 
 
 def _agent_entry_failed(run_id: str, exc: BaseException) -> None:
