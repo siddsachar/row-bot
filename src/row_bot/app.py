@@ -90,11 +90,11 @@ _app_boot_event("module_logger_ready", python=sys.executable, cwd=os.getcwd())
 
 
 def _startup_warning(message: str, *, source: str = "startup") -> None:
-    """A start-up problem: kept for the legacy page, shown once in the React
-    app and listed in Monitor (parity row 11)."""
-    import row_bot.ui.state as _st
+    """A start-up problem: shown once in the React app and listed in Monitor
+    (parity row 11)."""
+    from row_bot.application import startup_state
 
-    _st.startup_warnings.append(message)
+    startup_state.warnings.append(message)
     try:
         from row_bot.application.app_notices import app_notices
 
@@ -371,6 +371,7 @@ _patch_json_serializer()
 
 
 # ── UI package ───────────────────────────────────────────────────────────────
+from row_bot.application import startup_state
 from row_bot.ui.state import (
     AppState, GenerationState, P,
     _active_generations,
@@ -379,7 +380,6 @@ from row_bot.ui.state import (
     canonical_context_model_ref,
     clear_context_usage_projection,
     context_history_present,
-    startup_ready, startup_status, startup_warnings,
 )
 from row_bot.ui.constants import EXAMPLE_PROMPTS, welcome_message
 from row_bot.ui.helpers import (
@@ -547,7 +547,7 @@ async def _repair_orchestration_recovery_batch(after_id: str = "") -> None:
         )
 
 
-async def _auto_start_channel_background(channel, _st) -> None:
+async def _auto_start_channel_background(channel) -> None:
     channel_name = str(getattr(channel, "name", "") or "")
     display_name = str(getattr(channel, "display_name", channel_name) or channel_name)
     started = time.perf_counter()
@@ -594,10 +594,10 @@ async def _auto_start_channel_background(channel, _st) -> None:
         )
 
 
-async def _auto_start_channels_background(channels: list, _st) -> None:
+async def _auto_start_channels_background(channels: list) -> None:
     logger.info("startup.channels.auto_start_begin count=%d", len(channels))
     for channel in channels:
-        await _auto_start_channel_background(channel, _st)
+        await _auto_start_channel_background(channel)
     try:
         from row_bot.channels.thread_notifications import reconcile_pending_channel_notifications
 
@@ -612,7 +612,7 @@ async def _auto_start_channels_background(channels: list, _st) -> None:
     logger.info("startup.channels.auto_start_complete count=%d", len(channels))
 
 
-def _schedule_auto_start_channels(channels: list, _st):
+def _schedule_auto_start_channels(channels: list):
     if not channels:
         logger.info("startup.channels.auto_start_none")
         return None
@@ -622,7 +622,7 @@ def _schedule_auto_start_channels(channels: list, _st):
             getattr(channel, "name", ""),
         )
     return _schedule_background_task(
-        _auto_start_channels_background(channels, _st),
+        _auto_start_channels_background(channels),
         name="row-bot-channel-autostart",
     )
 
@@ -693,7 +693,13 @@ def _schedule_local_embedding_prewarm():
 # SINGLETON STATE
 # ═════════════════════════════════════════════════════════════════════════════
 
-state = AppState()
+# The process's one voice owner: React Talk and Dictation (bound below) and
+# the legacy page share the microphone through it.
+from row_bot.voice import get_voice_service
+from row_bot.voice.coordinator import VoiceSessionCoordinator
+
+_voice_coordinator = VoiceSessionCoordinator(get_voice_service())
+state = AppState(_voice_coordinator)
 state.show_onboarding = is_first_run()
 
 
@@ -701,12 +707,12 @@ state.show_onboarding = is_first_run()
 # OAUTH TOKEN HEALTH
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _check_oauth_tokens(_st=None) -> list[str]:
+def _check_oauth_tokens(at_startup: bool = False) -> list[str]:
     """Check Gmail & Calendar OAuth tokens if those tools are enabled.
 
     Attempts silent refresh when possible.  Returns a list of warning
-    strings (empty if everything is healthy).  If *_st* is provided,
-    warnings are also appended to ``_st.startup_warnings``.
+    strings (empty if everything is healthy).  At start-up the warnings are
+    also start-up warnings.
     """
     from row_bot.tools import registry as _reg
     warnings: list[str] = []
@@ -733,13 +739,13 @@ def _check_oauth_tokens(_st=None) -> list[str]:
         except Exception as exc:
             logger.warning("OAuth check failed for %s: %s", display, exc)
 
-    if _st is not None:
+    if at_startup:
         for warning in warnings:
             _startup_warning(warning, source="accounts")
     return warnings
 
 
-def _check_github_account_health(_st=None) -> list[str]:
+def _check_github_account_health(at_startup: bool = False) -> list[str]:
     """Check configured GitHub credentials without warning for anonymous use."""
     warnings: list[str] = []
     try:
@@ -761,7 +767,7 @@ def _check_github_account_health(_st=None) -> list[str]:
     except Exception as exc:
         logger.warning("GitHub account health check failed: %s", exc)
 
-    if _st is not None:
+    if at_startup:
         for warning in warnings:
             _startup_warning(warning, source="accounts")
     return warnings
@@ -784,10 +790,8 @@ def _periodic_oauth_check():
 
 @app.on_startup
 async def on_startup():
-    import row_bot.ui.state as _st
-
-    _st.startup_ready = False
-    _st.startup_status = "Starting Row-Bot..."
+    startup_state.ready = False
+    startup_state.status = "Starting Row-Bot..."
     _app_boot_event("startup_shell_ready", host=_APP_HOST, port=_APP_PORT)
     logger.info(
         "%s startup shell ready; scheduling background startup (session=%s)",
@@ -802,9 +806,7 @@ async def _run_startup_sequence_guarded():
     try:
         await _run_startup_sequence()
     except Exception as exc:
-        import row_bot.ui.state as _st
-
-        _st.startup_status = f"Startup error: {exc}"
+        startup_state.status = f"Startup error: {exc}"
         _startup_warning(
             "Row-Bot didn't finish starting. Some features may be unavailable; Monitor shows which.",
         )
@@ -823,10 +825,8 @@ async def _run_startup_sequence_guarded():
 async def _run_startup_sequence():
     _app_boot_event("startup_sequence_start")
     if is_docs_read_only_real_data_capture():
-        import row_bot.ui.state as _st
-
-        _st.startup_status = "Read-only Settings capture ready"
-        _st.startup_ready = True
+        startup_state.status = "Read-only Settings capture ready"
+        startup_state.ready = True
         _safe_console_print("[startup] Authorized real-data capture - startup writes suppressed")
         _app_boot_event("startup_real_data_capture_ready")
         return
@@ -846,10 +846,8 @@ async def _run_startup_sequence():
         await application_lifecycle.startup()
 
     if live_chat_parity:
-        import row_bot.ui.state as _st
-
-        _st.startup_status = "Live chat parity validation ready"
-        _st.startup_ready = True
+        startup_state.status = "Live chat parity validation ready"
+        startup_state.ready = True
         _safe_console_print(
             "[startup] Live chat parity mode - unrelated background and autostart activity skipped"
         )
@@ -857,10 +855,8 @@ async def _run_startup_sequence():
         return
 
     if docs_capture_disable_autostart():
-        import row_bot.ui.state as _st
-
-        _st.startup_status = "Docs capture ready"
-        _st.startup_ready = True
+        startup_state.status = "Docs capture ready"
+        startup_state.ready = True
         _safe_console_print("[startup] Docs capture enabled - background autostart skipped")
         _app_boot_event("startup_docs_capture_ready")
         return
@@ -892,8 +888,6 @@ async def _run_startup_sequence():
     except Exception:
         logger.exception("Data folder leftover sweep failed")
 
-    import row_bot.ui.state as _st
-
     logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from row_bot.data_paths import describe_data_paths
@@ -902,7 +896,7 @@ async def _run_startup_sequence():
         logger.debug("Could not describe %s data paths", APP_DISPLAY_NAME, exc_info=True)
 
     def _set(msg: str):
-        _st.startup_status = msg
+        startup_state.status = msg
         _app_boot_event("startup_phase", status=msg)
         _safe_console_print(f"[startup] {msg}")
 
@@ -1098,9 +1092,9 @@ async def _run_startup_sequence():
 
     # ── Proactive OAuth token health check ───────────────────────────
     with _startup_phase("oauth_token_health_check"):
-        await asyncio.to_thread(_check_oauth_tokens, _st)
+        await asyncio.to_thread(_check_oauth_tokens, True)
     with _startup_phase("github_account_health_check"):
-        await asyncio.to_thread(_check_github_account_health, _st)
+        await asyncio.to_thread(_check_github_account_health, True)
 
     # Schedule periodic re-check every 6 hours
     try:
@@ -1188,14 +1182,14 @@ async def _run_startup_sequence():
         logger.warning("Could not schedule browser idle eviction: %s", exc)
 
     _set("✅ Ready")
-    _st.startup_ready = True
+    startup_state.ready = True
     _schedule_background_task(
         _repair_orchestration_recovery_batch(),
         name="row-bot-orchestration-recovery",
     )
     _schedule_agent_graph_prewarm()
     _schedule_local_embedding_prewarm()
-    _schedule_auto_start_channels(auto_start_channels, _st)
+    _schedule_auto_start_channels(auto_start_channels)
     _app_boot_event("startup_sequence_complete")
     logger.info("%s startup complete", APP_DISPLAY_NAME)
 
@@ -1228,12 +1222,10 @@ async def _startup_state_handler(request: Request) -> JSONResponse:  # noqa: ARG
     """Expose startup state for the browser-side splash handoff."""
     if not _launcher_request_authorized(request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    import row_bot.ui.state as _st
-
     return JSONResponse({
-        "ready": bool(_st.startup_ready),
-        "status": str(_st.startup_status or ""),
-        "warnings": len(_st.startup_warnings),
+        "ready": bool(startup_state.ready),
+        "status": str(startup_state.status or ""),
+        "warnings": len(startup_state.warnings),
     })
 
 
@@ -1247,9 +1239,7 @@ async def _health_handler(request: Request) -> JSONResponse:  # noqa: ARG001
 
 async def _ready_handler(request: Request) -> JSONResponse:  # noqa: ARG001
     """Expose only whether application startup reached its ready state."""
-    import row_bot.ui.state as _st
-
-    ready = bool(_st.startup_ready)
+    ready = bool(startup_state.ready)
     return JSONResponse(
         {"ok": ready, "status": "ready" if ready else "starting"},
         status_code=200 if ready else 503,
@@ -1431,7 +1421,7 @@ from row_bot.application.folder_selections import FolderSelections
 from row_bot.native_client import select_existing_workspace_folder
 from row_bot.voice.browser_local import get_browser_local_voice_service
 
-client_platform_service.bind_voice(state.voice_coordinator,
+client_platform_service.bind_voice(_voice_coordinator,
                                    browser_service=get_browser_local_voice_service)
 
 install_client_platform(app, client_platform_service, instance_id=client_platform_service.instance_id,
@@ -1468,7 +1458,6 @@ async def on_shutdown():
 async def index():
     from row_bot.access.request_context import AuthenticationKind
     from row_bot.access.service import SESSION_REFRESH_POLL_INTERVAL
-    import row_bot.ui.state as _st
     from row_bot.ui.access_context import access_context_from_client
 
     ui.dark_mode(True)
@@ -1632,19 +1621,19 @@ async def index():
         ui.add_body_html(_docs_capture_bootstrap)
 
     # ── Startup splash (poll until backend is ready) ─────────────────────
-    if not _st.startup_ready:
+    if not startup_state.ready:
         with ui.column().classes("absolute-center items-center gap-4"):
             ui.image("/static/row_bot_glyph_256.png").style("width: 144px; height: 144px; object-fit: contain;")
             ui.label(APP_DISPLAY_NAME).style(
                 f"font-size: 1.6rem; font-weight: 700; letter-spacing: 0.1em; color: {APP_BRAND_ACCENT};"
             )
-            status_label = ui.label(_st.startup_status).classes("text-grey-5 text-sm")
+            status_label = ui.label(startup_state.status).classes("text-grey-5 text-sm")
             ui.spinner("dots", size="1.5rem", color="grey-6")
 
         def _poll_ready():
-            status_label.text = _st.startup_status
+            status_label.text = startup_state.status
             status_label.update()
-            if _st.startup_ready:
+            if startup_state.ready:
                 _poll_timer.deactivate()
                 ui.run_javascript("window.location.reload()")
 
@@ -1670,11 +1659,11 @@ async def index():
         return
 
     # ── Startup warnings ─────────────────────────────────────────────────
-    if _st.startup_warnings:
-        for msg in _st.startup_warnings:
+    if startup_state.warnings:
+        for msg in startup_state.warnings:
             logger.warning("Startup warning shown to user: %s", msg)
             ui.notify(msg, type="warning", timeout=8000, close_button=True)
-        _st.startup_warnings.clear()
+        startup_state.warnings.clear()
 
     # ── Head HTML (styles, highlight.js, vis-network) ────────────────────
     inject_head_html()

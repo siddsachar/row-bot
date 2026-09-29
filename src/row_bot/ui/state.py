@@ -17,12 +17,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from row_bot.models import get_current_model, get_user_context_size
-from row_bot.voice import get_voice_service
 from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.runtime import load_voice_runtime_settings
 from row_bot.tts import TTSService
-from row_bot.vision import VisionService
-from row_bot.vision_runtime import set_vision_service
+from row_bot.vision_runtime import get_vision_service
 from nicegui import ui
 from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
 
@@ -120,7 +118,7 @@ def cache_and_project_context_usage(
 class AppState:
     """Shared backend state â€” lives for the lifetime of the server process."""
 
-    def __init__(self) -> None:
+    def __init__(self, voice_coordinator: VoiceSessionCoordinator) -> None:
         self.thread_id: str | None = None
         self.thread_name: str | None = None
         self.thread_model_override: str = ""  # cloud model override for current thread
@@ -148,12 +146,11 @@ class AppState:
         self.voice_enabled: bool = False
         self.voice_input_mode: str = "talk"
         self.voice_runtime_settings = load_voice_runtime_settings()
-        self.voice_service = get_voice_service()
-        self.voice_coordinator = VoiceSessionCoordinator(self.voice_service)
+        self.voice_coordinator = voice_coordinator
+        self.voice_service = voice_coordinator.voice_service
         self.tts_service = TTSService()
-        self.vision_service = VisionService()
+        self.vision_service = get_vision_service()
         self.tts_service.voice_service = self.voice_coordinator
-        set_vision_service(self.vision_service)
         self.attached_data_cache: dict[str, bytes] = {}
         self.active_designer_project = None  # DesignerProject | None
         self.active_developer_workspace_id: str | None = None
@@ -289,9 +286,6 @@ _active_generations: dict[str, GenerationState] = {}
 
 
 # â”€â”€ Startup gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-startup_ready = False
-startup_status = "Startingâ€¦"
-startup_warnings: list[str] = []  # toast messages queued during startup
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

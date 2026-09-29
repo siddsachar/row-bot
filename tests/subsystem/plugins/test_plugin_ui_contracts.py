@@ -272,7 +272,7 @@ def test_app_startup_loads_plugins_before_mcp_and_schedules_agent_prewarm_after_
 
     plugin_index = app_source.index("from row_bot.plugins.loader import refresh_plugin_runtime")
     mcp_index = app_source.index("from row_bot.mcp_client.runtime import discover_enabled_servers")
-    ready_index = app_source.rindex("_st.startup_ready = True")
+    ready_index = app_source.rindex("startup_state.ready = True")
     graph_schedule_index = app_source.rindex("_schedule_agent_graph_prewarm()")
 
     assert plugin_index < mcp_index < ready_index < graph_schedule_index

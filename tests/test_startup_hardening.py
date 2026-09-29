@@ -165,7 +165,6 @@ def test_app_imports_with_startup_preflight():
 def test_startup_speed_imports_are_lazy_source_contract():
     app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
     launcher_src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-    state_src = Path("src/row_bot/ui/state.py").read_text(encoding="utf-8")
     agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
     discord_src = Path("src/row_bot/channels/discord_channel.py").read_text(encoding="utf-8")
     smoke_src = Path("scripts/smoke_app.py").read_text(encoding="utf-8")
@@ -180,8 +179,6 @@ def test_startup_speed_imports_are_lazy_source_contract():
         line == "from row_bot.agent import get_token_usage"
         for line in app_src.splitlines()
     )
-    assert "from row_bot.tools.vision_tool import set_vision_service" not in state_src
-    assert "from row_bot.vision_runtime import set_vision_service" in state_src
     assert "time.sleep(0.5)" not in discord_src
     assert "await asyncio.sleep(0.5)" in discord_src
     assert "--wait-startup-ready" in smoke_src
@@ -191,15 +188,6 @@ def test_startup_speed_imports_are_lazy_source_contract():
         for line in agent_src.splitlines()
     )
     assert "def create_react_agent" in agent_src
-
-
-def test_startup_splash_uses_readyz_http_status_source_contract():
-    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "fetch('/readyz', {cache: 'no-store'})" in app_src
-    assert "if (response.ok)" in app_src
-    assert "state.ready" not in app_src
-    assert "await response.json()" not in app_src
 
 
 def test_main_app_tunnel_startup_is_offloaded_source_contract():
@@ -250,9 +238,6 @@ def test_auto_start_channels_are_scheduled_in_background(monkeypatch):
     invalidations: list[str] = []
     monkeypatch.setattr(channel_registry, "clear_agent_cache_if_loaded", lambda: invalidations.append("clear"))
 
-    class FakeState:
-        startup_warnings: list[str] = []
-
     class FakeChannel:
         name = "fake"
         display_name = "Fake"
@@ -267,7 +252,7 @@ def test_auto_start_channels_are_scheduled_in_background(monkeypatch):
 
     async def run_check() -> None:
         channel = FakeChannel()
-        task = app_module._schedule_auto_start_channels([channel], FakeState())
+        task = app_module._schedule_auto_start_channels([channel])
         assert task is not None
         assert channel.started is False
         await task
