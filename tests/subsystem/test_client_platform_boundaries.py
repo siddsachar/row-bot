@@ -31,11 +31,11 @@ def test_real_headless_scopes_have_no_layer_or_annotation_regression():
     assert not {path: items for path, items in violations.items() if items}
 
 
-def test_nothing_outside_the_legacy_ui_imports_it():
+def test_nothing_imports_the_removed_nicegui_ui():
     assert presentation_violations() == []
 
 
-def test_a_backend_module_importing_the_legacy_ui_is_reported(monkeypatch, tmp_path):
+def test_a_module_importing_the_removed_ui_is_reported(monkeypatch, tmp_path):
     from scripts import check_client_platform_boundaries as checker
     module = tmp_path / "src" / "row_bot" / "plugins" / "health.py"
     module.parent.mkdir(parents=True)
@@ -43,7 +43,7 @@ def test_a_backend_module_importing_the_legacy_ui_is_reported(monkeypatch, tmp_p
     monkeypatch.setattr(checker, "ROOT", tmp_path)
 
     assert presentation_violations() == [
-        "src/row_bot/plugins/health.py:2: CP003 imports the legacy NiceGUI UI (row_bot.plugins.ui_settings)"]
+        "src/row_bot/plugins/health.py:2: CP003 imports the removed NiceGUI UI (row_bot.plugins.ui_settings)"]
 
 
 def test_legacy_message_helpers_reexport_one_pure_implementation():

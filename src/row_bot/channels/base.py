@@ -265,9 +265,3 @@ class Channel(ABC):
         """
         return []
 
-    def build_custom_ui(self, container) -> None:
-        """Render additional custom widgets in the settings panel.
-
-        Called *after* the template-generated config fields.
-        """
-        pass

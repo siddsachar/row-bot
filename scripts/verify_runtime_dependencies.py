@@ -28,7 +28,6 @@ FUNASR_VOICE_MODULES = () if (
 
 GROUPS = {
     "core": (
-        "nicegui",
         "fastapi",
         "starlette",
         "uvicorn",

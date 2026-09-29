@@ -64,8 +64,8 @@ from plugins.api import Channel
 
 The loader blocks imports from Row-Bot internals and UI frameworks. Channel
 plugins can subclass the public `Channel` export, but plugin-owned channels do
-not render arbitrary settings UI and do not render `build_custom_ui`; their
-setup is rendered by Plugin Center metadata.
+not render arbitrary settings UI; their setup is rendered by Plugin Center
+metadata.
 
 Plugin-packaged MCP servers follow plugin enablement. Disabling a plugin removes
 native tools, plugin MCP tools, plugin skills, and plugin-owned channels from

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
@@ -201,37 +200,3 @@ def test_each_render_input_invalidates_before_html_construction(tmp_path, monkey
     previous = preview_fingerprint(project)
     asset.write_bytes(b"replacement content")
     assert preview_fingerprint(project) != previous
-
-
-def test_legacy_idle_ticks_skip_renderer_and_allow_undo_refresh(monkeypatch):
-    import nicegui
-    from row_bot.designer import preview
-
-    class Element:
-        id = 1
-        def __enter__(self):
-            return self
-        def __exit__(self, *_):
-            return False
-        def __getattr__(self, _):
-            return lambda *a, **kw: self
-
-    scripts = []
-    fake = Element()
-    fake.context = SimpleNamespace(client=SimpleNamespace(on_disconnect=lambda *_: None))
-    fake.run_javascript = scripts.append
-    monkeypatch.setattr(nicegui, "ui", fake)
-    calls = []
-    render = preview.render_page_html
-    monkeypatch.setattr(preview, "render_page_html", lambda *a, **kw: (calls.append(1), render(*a, **kw))[1])
-    project = DesignerProject(pages=[DesignerPage(html="<p>A</p>")])
-    panel = preview.build_preview(project)
-    assert len(calls) == 1
-    for _ in range(120):
-        panel["refresh"]()
-    assert len(calls) == 1
-    project.pages[0].html = "<p>B</p>"
-    panel["refresh"]()
-    assert len(calls) == 2
-    panel["force_refresh"]()
-    assert len(calls) == 3

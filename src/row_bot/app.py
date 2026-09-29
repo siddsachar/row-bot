@@ -482,7 +482,7 @@ def _periodic_oauth_check():
         from row_bot.notifications import notify as _oauth_notify
         for msg in warnings:
             _oauth_notify("Account Issue", msg, sound="default",
-                          icon="⚠️", toast_type="warning", source="accounts")
+                          toast_type="warning", source="accounts")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

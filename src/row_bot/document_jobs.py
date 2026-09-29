@@ -2584,7 +2584,6 @@ def _notify_batch_complete(service: DocumentJobService, batch: DocumentBatch) ->
         notify(
             "Document Ingestion",
             f"{completed} complete, {failed} failed or cancelled, {duplicates} duplicate skipped",
-            icon="📄",
             toast_type="warning" if failed else "positive",
             source="documents",
             requested=True,

@@ -3986,7 +3986,6 @@ def run_task_background(
                 title="⏰ Row-Bot Reminder",
                 message=label,
                 sound="timer",
-                icon="⏰",
                 source="workflow",
                 requested=True,
             )
@@ -4028,7 +4027,6 @@ def run_task_background(
                     title="⚠️ Delivery Failed",
                     message=f"{task['name']} — {delivery_detail}",
                     sound="timer",
-                    icon="⚠️",
                     toast_type="warning",
                     source="workflow",
                 )
@@ -4467,7 +4465,6 @@ def run_task_background(
                                         title="⏸️ Approval Required",
                                         message=f"{task['name']}: {approval_msg}",
                                         sound="workflow",
-                                        icon="⏸️",
                                         toast_type="warning",
                                         source="workflow",
                                     )
@@ -4584,7 +4581,6 @@ def run_task_background(
                             title="⏸️ Approval Required",
                             message=f"{task['name']}: {approval_msg}",
                             sound="workflow",
-                            icon="⏸️",
                             toast_type="warning",
                             source="workflow",
                         )
@@ -4986,7 +4982,6 @@ def run_task_background(
                             title=f"📋 {task['name']}",
                             message=notify_msg,
                             sound="workflow",
-                            icon="📋",
                             source="workflow",
                             requested=True,
                         )
@@ -5075,7 +5070,6 @@ def run_task_background(
                         title="⏹️ Task Stopped",
                         message=f"{task['name']} was stopped.",
                         sound="workflow",
-                        icon="⏹️",
                         source="workflow",
                     )
                 return  # skip delivery, skip delete_after_run
@@ -5139,7 +5133,6 @@ def run_task_background(
                     title="⚡ Task Complete",
                     message=f"{task['name']} finished ({total} step{'s' if total != 1 else ''}).{suffix}",
                     sound="workflow",
-                    icon="⚡",
                     source="workflow",
                     requested=True,
                 )
@@ -5149,7 +5142,6 @@ def run_task_background(
                         title="⚠️ Delivery Failed",
                         message=f"{task['name']} — {delivery_detail}",
                         sound="timer",
-                        icon="⚠️",
                         toast_type="warning",
                         source="workflow",
                     )
@@ -7101,7 +7093,6 @@ def _resume_graph_interrupted(
                     title="⏸️ Approval Required",
                     message=f"{task['name']}: {approval_msg}",
                     sound="workflow",
-                    icon="⏸️",
                     toast_type="warning",
                     source="workflow",
                 )
@@ -7266,7 +7257,7 @@ def _resume_pipeline(resume_token: str, approved: bool = True, *,
         from row_bot.notifications import notify
         notify(title="❌ Task Denied",
                message=f"{task['name']}: approval denied by user",
-               sound="workflow", icon="❌", source="workflow")
+               sound="workflow", source="workflow")
         return
 
     _update_pipeline_status(state["run_id"], "running")
@@ -7532,7 +7523,6 @@ def _run_subtask_sync(
                         title=f"📋 {child_task['name']}",
                         message=msg,
                         sound="workflow",
-                        icon="📋",
                         source="workflow",
                         requested=True,
                     )

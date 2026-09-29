@@ -16,18 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCOPES = ("application", "runtime", "projection", "api")
 FORBIDDEN_IMPORTS = ("nicegui", "webview", "row_bot.ui", "row_bot.app",
                      "row_bot.developer.ui", "row_bot.designer.editor")
-# The legacy NiceGUI UI is being removed: nothing outside it may import it.
+# The NiceGUI UI is gone: nothing may import it again.
 PRESENTATION_IMPORTS = ("nicegui", "row_bot.ui")
 PRESENTATION_PREFIXES = ("row_bot.plugins.ui_",)
-LEGACY_PRESENTATION = (
-    "ui/", "developer/ui.py", "skills_hub/ui.py",
-    "plugins/ui_settings.py", "plugins/ui_marketplace.py", "plugins/ui_plugin_dialog.py",
-    "designer/brand_dialog.py", "designer/editor.py", "designer/export_dialog.py", "designer/home_tab.py",
-    "designer/import_dialog.py", "designer/presentation.py", "designer/review_dialog.py",
-    "designer/share_dialog.py", "designer/template_gallery.py", "designer/thumbnail.py",
-    "designer/page_navigator.py", "designer/preview.py", "designer/brand_lint.py",
-    "designer/command_palette.py", "channels/whatsapp.py",
-)
 
 
 @dataclass(frozen=True)
@@ -86,19 +77,17 @@ def _imported_modules(tree: ast.AST, package: str) -> list[tuple[int, str]]:
 
 
 def presentation_violations() -> list[str]:
-    """Modules outside the legacy NiceGUI UI that import it."""
+    """Modules that import the removed NiceGUI UI (or NiceGUI itself)."""
     source_root = ROOT / "src" / "row_bot"
     violations = []
     for path in sorted(source_root.rglob("*.py")):
         relative = path.relative_to(source_root).as_posix()
-        if relative.startswith(LEGACY_PRESENTATION):
-            continue
         package = ".".join(("row_bot", *path.relative_to(source_root).parent.parts))
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for line, module in _imported_modules(tree, package):
             if (any(module == name or module.startswith(name + ".") for name in PRESENTATION_IMPORTS)
                     or module.startswith(PRESENTATION_PREFIXES)):
-                violations.append(f"src/row_bot/{relative}:{line}: CP003 imports the legacy NiceGUI UI ({module})")
+                violations.append(f"src/row_bot/{relative}:{line}: CP003 imports the removed NiceGUI UI ({module})")
                 break
     return violations
 

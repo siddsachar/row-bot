@@ -46,7 +46,7 @@ HIGH_RISK_DIRECT_DEPENDENCIES = {
     "langgraph-checkpoint-sqlite",
     "mcp",
     "modelscope",
-    "nicegui",
+    "uvicorn",
     "numpy",
     "openai",
     "playwright",

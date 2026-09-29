@@ -220,7 +220,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
             _finish_hatch_job(job_id, draft, status="completed", message="Buddy motion pack generated")
             try:
                 from row_bot.notifications import notify
-                notify("Buddy motion ready", "Generated motion clips for the selected Buddy.", sound="workflow", icon="🎬",
+                notify("Buddy motion ready", "Generated motion clips for the selected Buddy.", sound="workflow",
                        source="buddy", requested=True)
             except Exception:
                 pass
@@ -248,7 +248,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
             _finish_hatch_job(job_id, draft, status="completed", message="Buddy art and motion pack generated")
             try:
                 from row_bot.notifications import notify
-                notify("Buddy generated", "Generated Buddy art and motion clips.", sound="workflow", icon="✨",
+                notify("Buddy generated", "Generated Buddy art and motion clips.", sound="workflow",
                        source="buddy", requested=True)
             except Exception:
                 pass
@@ -266,7 +266,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
                 from row_bot.notifications import notify
                 # The error stays in the job record; the notice says what to do.
                 notify("Buddy still ready", "The still image is ready, but its motion clips didn't finish.",
-                       sound="default", icon="⚠️", toast_type="warning", source="buddy", requested=True)
+                       sound="default", toast_type="warning", source="buddy", requested=True)
             except Exception:
                 pass
     except Exception as exc:
@@ -281,7 +281,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
         try:
             from row_bot.notifications import notify
             notify("Buddy generation failed", "Buddy generation didn't finish. Try again from Buddy settings.",
-                   sound="default", icon="⚠️", toast_type="negative", source="buddy", requested=True)
+                   sound="default", toast_type="negative", source="buddy", requested=True)
         except Exception:
             pass
 

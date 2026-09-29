@@ -1122,7 +1122,7 @@ def _notify_api_error(friendly_msg: str) -> None:
         # An open conversation already shows its own error with a next step;
         # background runs (workflows, channels) need the in-app notice.
         surface = str(_current_runtime_surface_var.get("") or "")
-        notify("Row-Bot – API Error", friendly_msg, sound="error", icon="⚠️",
+        notify("Row-Bot – API Error", friendly_msg, sound="error",
                toast_type="negative", source="model",
                in_app=surface not in {"normal_chat", "remote_client"})
     except Exception:

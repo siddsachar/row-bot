@@ -3,8 +3,7 @@
 All background subsystems (workflows, timers) call ``notify()`` to fire
 an immediate desktop notification + sound, and post an in-app notice that
 every open client shows (``application.app_notices``; the React client reads
-it over the event stream). The legacy NiceGUI page still drains a bounded
-toast queue of its own.
+it over the event stream).
 """
 
 from __future__ import annotations
@@ -13,19 +12,11 @@ import logging
 import pathlib
 import subprocess
 import sys
-import threading
-from collections import deque
 
 from row_bot.runtime_paths import sounds_dir
 
 logger = logging.getLogger(__name__)
 
-# ── Legacy toast queue (thread-safe, bounded) ──────────────────────────────
-# Only the --legacy-ui NiceGUI page drains this; without it the oldest toasts
-# fall off instead of piling up unread.
-_TOAST_LIMIT = 32
-_toast_queue: deque[dict] = deque(maxlen=_TOAST_LIMIT)
-_toast_lock = threading.Lock()
 _LEVELS = {"negative": "error", "warning": "warning"}
 
 # ── Sound files ──────────────────────────────────────────────────────────────
@@ -40,7 +31,6 @@ def notify(
     title: str,
     message: str,
     sound: str = "default",
-    icon: str = "🔔",
     toast_type: str = "positive",
     *,
     source: str = "app",
@@ -58,8 +48,6 @@ def notify(
     sound : str
         Sound key: ``"workflow"``, ``"timer"``, or ``"default"``
         (falls back to Windows system beep).
-    icon : str
-        Emoji prefix for the legacy toast message.
     source : str
         Where the notice comes from (``workflow``, ``documents``, ``buddy`` …).
     requested : bool
@@ -95,22 +83,6 @@ def notify(
                              source=source, requested=requested)
     except Exception:
         logger.debug("In-app notice failed (non-fatal)", exc_info=True)
-
-    # 4. Legacy NiceGUI toast
-    with _toast_lock:
-        _toast_queue.append({"icon": icon, "message": f"{message} ({timestamp})",
-                             "type": toast_type})
-
-
-def drain_toasts() -> list[dict]:
-    """Drain all pending toast messages (called by the legacy NiceGUI page).
-
-    Returns a list of ``{"icon": str, "message": str}`` dicts.
-    """
-    with _toast_lock:
-        toasts = list(_toast_queue)
-        _toast_queue.clear()
-    return toasts
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────

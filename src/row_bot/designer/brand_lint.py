@@ -7,9 +7,8 @@ Produces warnings (no auto-fix in 2.1) across five categories:
 - ``missing_alt``    — ``<img>`` tags with empty ``alt``
 - ``logo_safe_zone`` — large elements overlapping the configured logo corner
 
-The core ``lint_project`` / ``lint_page`` helpers are pure (no NiceGUI) so
-tests can exercise them directly. The dialog renderer lives at the bottom
-behind an ``open_brand_lint_dialog`` entry point that the editor calls.
+The ``lint_project`` / ``lint_page`` helpers are pure; the design review and
+the designer tool use them.
 """
 
 from __future__ import annotations
@@ -706,75 +705,3 @@ def apply_brand_repairs_to_html(
     if not changes:
         return page_html, []
     return str(soup), changes
-
-
-# ── NiceGUI dialog ───────────────────────────────────────────────────────
-
-_SEVERITY_COLORS = {"high": "red-6", "medium": "orange-7", "low": "grey-6"}
-
-
-def open_brand_lint_dialog(project) -> None:
-    """Open a read-only dialog listing brand-lint findings."""
-    from nicegui import ui
-
-    with ui.dialog() as dlg, ui.card().style(
-        "min-width: 560px; max-width: 720px; padding: 12px 14px;"
-    ):
-        header_row = ui.row().classes("w-full items-center justify-between no-wrap")
-        body_col = ui.column().classes("w-full gap-0").style(
-            "max-height: 420px; overflow-y: auto; margin-top: 8px;"
-        )
-        footer = ui.row().classes("w-full items-center justify-end q-mt-sm")
-
-        def _render() -> None:
-            header_row.clear()
-            body_col.clear()
-            report = lint_project(project)
-            findings = report["findings"]
-            with header_row:
-                with ui.column().classes("gap-0"):
-                    ui.label("Brand lint").classes("text-subtitle1 text-weight-medium")
-                    ui.label(report["summary"]).classes("text-xs text-grey-6")
-                if findings:
-                    sc = report["severity_counts"]
-                    with ui.row().classes("gap-1"):
-                        if sc.get("high"):
-                            ui.badge(f"{sc['high']} high").props("color=red-6")
-                        if sc.get("medium"):
-                            ui.badge(f"{sc['medium']} medium").props("color=orange-7")
-                        if sc.get("low"):
-                            ui.badge(f"{sc['low']} low").props("color=grey-6")
-            with body_col:
-                if not findings:
-                    ui.label("Everything looks on-brand.").classes(
-                        "text-grey-5 text-sm q-pa-md"
-                    )
-                    return
-                for f in findings:
-                    card = ui.row().classes(
-                        "w-full items-start no-wrap q-pa-sm"
-                    ).style("border-bottom: 1px solid #eee; gap: 10px;")
-                    with card:
-                        ui.badge(f["severity"]).props(
-                            f"color={_SEVERITY_COLORS.get(f['severity'], 'grey-6')}"
-                        ).classes("q-mt-xs")
-                        with ui.column().classes("gap-0"):
-                            ui.label(
-                                f"Page {f['page_index'] + 1} · {f['category']}"
-                            ).classes("text-xs text-grey-6")
-                            ui.label(f["message"]).classes("text-sm")
-                            if f.get("suggested_fix"):
-                                ui.label(f["suggested_fix"]).classes(
-                                    "text-xs text-grey-7"
-                                )
-                            if f.get("excerpt"):
-                                ui.label(f"\u201c{f['excerpt']}\u201d").classes(
-                                    "text-xs text-grey-5"
-                                ).style("font-style: italic;")
-
-        with footer:
-            ui.button("Re-scan", icon="refresh", on_click=_render).props("flat")
-            ui.button("Close", on_click=dlg.close).props("flat")
-
-        _render()
-        dlg.open()

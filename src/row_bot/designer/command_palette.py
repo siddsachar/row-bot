@@ -1,15 +1,14 @@
-"""Designer command palette (⌘K).
+"""Designer commands for the global palette (⌘K).
 
-Provides a fuzzy-filterable picker over designer sub-tools, pages, and
-assets. The logic helpers (`build_palette_items`, `filter_items`, `tool_prefill`)
-are pure and independently testable; the `open_command_palette` function
-renders a NiceGUI dialog that wires picks back to the editor.
+Fuzzy-filterable items over designer sub-tools, pages and assets
+(`build_palette_items`, `filter_items`, `tool_prefill`); the React palette
+reads them through ``designer.client_palette``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Iterable, Literal
 
 
 ItemCategory = Literal["tool", "page", "asset"]
@@ -158,88 +157,3 @@ def filter_items(items: list[PaletteItem], query: str, *, limit: int = 60) -> li
 
     scored.sort(key=lambda x: (-x[0], x[1]))
     return [triple[2] for triple in scored[:limit]]
-
-
-# ── NiceGUI dialog ───────────────────────────────────────────────────────
-
-def open_command_palette(
-    project,
-    *,
-    tool_names: Iterable[str],
-    prefill_input: Callable[[str], None],
-    on_navigate_page: Callable[[int], None] | None = None,
-) -> None:
-    """Open the ⌘K command palette dialog.
-
-    Parameters
-    ----------
-    project : DesignerProject
-    tool_names : iterable of str
-        Registered designer sub-tool names.
-    prefill_input : callable(str)
-        Called when the user picks a tool or asset — should populate the
-        chat input with the supplied text and focus it.
-    on_navigate_page : callable(int), optional
-        Called when the user picks a page — receives the 0-based index.
-    """
-    from nicegui import ui
-
-    items = build_palette_items(project, tool_names=list(tool_names))
-
-    with ui.dialog() as dlg, ui.card().style(
-        "min-width: 520px; max-width: 640px; padding: 12px 14px;"
-    ):
-        search = ui.input(placeholder="Search tools, pages, assets…").props(
-            "autofocus dense outlined clearable"
-        ).classes("w-full")
-
-        results_col = ui.column().classes("w-full gap-0").style(
-            "max-height: 360px; overflow-y: auto; margin-top: 8px;"
-        )
-
-        def _pick(item: PaletteItem) -> None:
-            dlg.close()
-            if item.category == "tool":
-                prefill_input(tool_prefill(str(item.payload)))
-            elif item.category == "page" and on_navigate_page is not None:
-                try:
-                    on_navigate_page(int(item.payload))
-                except Exception:
-                    pass
-            elif item.category == "asset":
-                aid = str(item.payload)
-                prefill_input(f"Reuse asset {aid} on the current page: ")
-
-        def _render(filtered: list[PaletteItem]) -> None:
-            results_col.clear()
-            with results_col:
-                if not filtered:
-                    ui.label("No matches.").classes("text-grey-5 text-sm q-pa-sm")
-                    return
-                for item in filtered:
-                    row = ui.row().classes(
-                        "w-full items-center justify-between no-wrap cursor-pointer"
-                    ).style("padding: 6px 10px; border-radius: 6px;")
-                    row.on("mouseenter", lambda r=row: r.style("background:#f4f5f7"))
-                    row.on("mouseleave", lambda r=row: r.style("background:transparent"))
-                    row.on("click", lambda _e, it=item: _pick(it))
-                    with row:
-                        with ui.column().classes("gap-0"):
-                            ui.label(item.label).classes("text-sm text-weight-medium")
-                            if item.hint:
-                                ui.label(item.hint).classes("text-xs text-grey-6")
-                        ui.label(item.category).classes("text-xs text-grey-5")
-
-        def _on_change(_e=None) -> None:
-            _render(filter_items(items, search.value or ""))
-
-        search.on("update:model-value", _on_change)
-        search.on("keydown.enter", lambda _e: _pick_first())
-
-        def _pick_first() -> None:
-            filtered = filter_items(items, search.value or "")
-            if filtered:
-                _pick(filtered[0])
-
-        _render(items)
-        dlg.open()

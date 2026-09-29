@@ -63,21 +63,16 @@ def test_journal_cleans_text_and_keeps_start_up_warnings_for_monitor():
     assert page.startup_warnings == ["The plugin 'rss' didn't load: environment not prepared"]
 
 
-def test_notify_posts_a_notice_and_never_grows_the_legacy_queue(journal, monkeypatch):
+def test_notify_posts_a_notice_for_every_open_client(journal, monkeypatch):
     from row_bot import notifications
     monkeypatch.setattr(notifications, "_desktop_notify", lambda *_: None)
     monkeypatch.setattr(notifications, "_play_sound", lambda *_: None)
-    notifications.drain_toasts()
     notifications.notify("Row-Bot – API Error", "Rate limit reached.", toast_type="negative", source="model")
     notifications.notify("Document Ingestion", "3 complete", source="documents", requested=True)
     notifications.notify("Row-Bot – API Error", "Shown in the chat instead.", toast_type="negative", in_app=False)
     posted = journal.since(0)
     assert [(notice.level, notice.source, notice.requested) for notice in posted] == [
         ("error", "model", False), ("info", "documents", True)]
-    for index in range(100):
-        notifications.notify("Workflow", f"Result {index}")
-    assert len(notifications.drain_toasts()) == notifications._TOAST_LIMIT
-    assert notifications.drain_toasts() == []
 
 
 def notice_client(journal):
