@@ -5,6 +5,7 @@ import {
 } from './features/buddy/BuddyFollow';
 import { bindDraftSync } from './draft-sync';
 import { keepNativeLease } from './native-lease';
+import { keepAccessSessionRenewed } from './access-renewal';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -206,6 +207,8 @@ async function start() {
   const unpublishBuddyTarget = publishBuddyTarget(controller, platform);
   const unbindDraftSync = bindDraftSync(controller);
   const releaseNativeLease = keepNativeLease(controller, platform);
+  // A phone or computer signed in by invitation stays signed in (B137).
+  const stopAccessRenewal = keepAccessSessionRenewed();
   const workspaceEditSessions = createWorkspaceEditSessions(controller, {
     capacity: 8,
   });
@@ -478,6 +481,7 @@ async function start() {
       unpublishBuddyTarget();
       unbindDraftSync();
       releaseNativeLease();
+      stopAccessRenewal();
       controller.dispose();
     },
   });

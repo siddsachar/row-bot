@@ -347,6 +347,96 @@ def test_migrated_cookie_refresh_is_a_non_secret_noop(tmp_path) -> None:
     assert raw_token not in response.text
 
 
+def _cookie_scope(header: str) -> tuple[str, frozenset[str]]:
+    """A Set-Cookie's name and attributes, without its value or lifetime."""
+    name = header.split("=", 1)[0]
+    attributes = frozenset(
+        part.strip().lower()
+        for part in header.split(";")[1:]
+        if not part.strip().lower().startswith(("max-age=", "expires="))
+    )
+    return name, attributes
+
+
+def test_refresh_renews_only_the_calling_session_and_keeps_its_scope(
+    tmp_path,
+) -> None:
+    """B137: the React client renews its own trusted session, nothing more."""
+    client, service, registration = _application(tmp_path)
+    claim = _claim_owner(client, service)
+    session_id = claim.json()["session"]["id"]
+    device_id = claim.json()["device"]["id"]
+    other_invitation = service.create_invitation(
+        intended_origin="http://localhost:8080"
+    )
+    other = service.claim_invitation(
+        other_invitation.token,
+        intended_origin="http://localhost:8080",
+        display_name="Other browser",
+    )
+    due = datetime.now(timezone.utc) + timedelta(days=1)
+    for renewable in (session_id, other.session.id):
+        _set_session_expiry(service, renewable, due)
+    before = service.store.get_session(session_id)
+
+    response = client.post(
+        "/api/access/session/refresh",
+        headers={"origin": "http://localhost:8080"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["renewed"] is True
+    after = service.store.get_session(session_id)
+    assert after.device_id == device_id
+    assert after.lifetime is SessionLifetime.TRUSTED
+    assert (after.token_hash, after.token_salt) == (
+        before.token_hash,
+        before.token_salt,
+    )
+    assert after.expires_at > due
+    # Another device's session, due as well, is untouched.
+    assert service.store.get_session(other.session.id).expires_at == due
+    # The cookie keeps its name, path and flags; only its lifetime moves.
+    assert _cookie_scope(response.headers["set-cookie"]) == _cookie_scope(
+        claim.headers["set-cookie"]
+    )
+    assert client.get("/api/access/session").json()["session_id"] == session_id
+
+
+def test_refresh_never_renews_a_revoked_or_expired_session(tmp_path) -> None:
+    """B137: renewal never revives a session that has ended."""
+    for case in ("revoked session", "revoked device", "expired"):
+        client, service, registration = _application(tmp_path / case.replace(" ", "-"))
+        claim = _claim_owner(client, service)
+        token = claim.cookies.get(registration.cookies.names.http)
+        session_id = claim.json()["session"]["id"]
+        now = datetime.now(timezone.utc)
+        if case == "revoked session":
+            _set_session_expiry(service, session_id, now + timedelta(days=1))
+            service.revoke_session(session_id)
+        elif case == "revoked device":
+            _set_session_expiry(service, session_id, now + timedelta(days=1))
+            service.revoke_device(claim.json()["device"]["id"])
+        else:
+            _set_session_expiry(service, session_id, now - timedelta(seconds=1))
+        before = service.store.get_session(session_id)
+
+        response = client.post(
+            "/api/access/session/refresh",
+            headers={
+                "origin": "http://localhost:8080",
+                "cookie": f"{registration.cookies.names.http}={token}",
+            },
+        )
+
+        assert response.status_code == 401, case
+        assert response.json()["error"] == "authentication_required", case
+        after = service.store.get_session(session_id)
+        assert after.expires_at == before.expires_at, case
+        assert after.revoked_at == before.revoked_at, case
+        assert service.validate_session(token, touch=False) is None, case
+
+
 def test_refresh_clears_cookies_when_session_expires_after_admission(
     tmp_path,
     monkeypatch,
