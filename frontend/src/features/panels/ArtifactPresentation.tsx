@@ -38,6 +38,8 @@ export type ArtifactPresentationProps = {
   openAudience?: (session: PresentationSession) => Promise<boolean>;
   /** Start at once (the design panel's Present) on this page. */
   autoStart?: boolean;
+  /** Already full screen (the design panel's Present): no Fullscreen button. */
+  fullscreen?: boolean;
   startIndex?: number;
   /** Called after End presentation, so the owner can leave presenter view. */
   onEnded?: () => void;
@@ -305,19 +307,21 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
             >
               Next slide
             </Button>
-            <Button
-              onClick={() => {
-                if (!host.current?.requestFullscreen) {
-                  setError('Fullscreen is unavailable in this browser.');
-                  return;
-                }
-                void host.current
-                  .requestFullscreen()
-                  .catch(() => setError('Fullscreen was not permitted.'));
-              }}
-            >
-              Fullscreen
-            </Button>
+            {!props.fullscreen && (
+              <Button
+                onClick={() => {
+                  if (!host.current?.requestFullscreen) {
+                    setError('Fullscreen is unavailable in this browser.');
+                    return;
+                  }
+                  void host.current
+                    .requestFullscreen()
+                    .catch(() => setError('Fullscreen was not permitted.'));
+                }}
+              >
+                Fullscreen
+              </Button>
+            )}
             {props.openAudience && (
               <Button onClick={() => void audience()}>
                 Open audience window

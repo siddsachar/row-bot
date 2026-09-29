@@ -755,10 +755,20 @@
 .artifact-presentation:focus {
   outline: none;
 }
-.artifact-presentation:fullscreen {
+.artifact-presentation:fullscreen,
+.design-stage:fullscreen {
   padding: 16px;
   background: #000;
   color: #fff;
+}
+/* Present from the Design panel: the slide fills the screen; the notes
+   stay with the presenter's window (audience window) or the panel. */
+.design-stage:fullscreen .presentation-body {
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1 1 auto;
+}
+.design-stage:fullscreen .presentation-notes {
+  display: none;
 }
 .presentation-bar {
   display: flex;

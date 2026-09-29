@@ -20,6 +20,8 @@ export type ArtifactPresentationPanelProps = {
   ) => Promise<DesignPresentationState>;
   preview: (pageId: string, signal: AbortSignal) => Promise<ArtifactPreview>;
   autoStart?: boolean;
+  /** The owner already shows the presentation full screen. */
+  fullscreen?: boolean;
   startIndex?: number;
   onEnded?: () => void;
 };

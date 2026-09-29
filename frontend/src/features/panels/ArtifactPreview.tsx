@@ -256,6 +256,10 @@ export default function ArtifactPreview({
   const measured = useRef(viewport);
   const panel = useRef<HTMLElement>(null);
   const presentButton = useRef<HTMLButtonElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  // Present fills the screen (U36); leaving full screen (Escape) ends it.
+  const [fullscreen, setFullscreen] = useState(false);
+  const enteredFullscreen = useRef(false);
   const frameHost = useRef<HTMLDivElement>(null);
   const latest = useRef<Preview | null>(null);
   const loader = useRef(load);
@@ -531,6 +535,42 @@ export default function ArtifactPreview({
       observer?.disconnect();
     };
   }, [visible, current?.resource_id, presenting]);
+
+  useEffect(() => {
+    if (!presenting) return;
+    const changed = () => {
+      if (!!stage.current && document.fullscreenElement === stage.current) {
+        enteredFullscreen.current = true;
+        setFullscreen(true);
+      } else if (enteredFullscreen.current) {
+        enteredFullscreen.current = false;
+        setFullscreen(false);
+        setPresenting(false);
+        requestAnimationFrame(() => presentButton.current?.focus());
+      }
+    };
+    document.addEventListener('fullscreenchange', changed);
+    // Full screen may already have started before this listener existed.
+    if (!!stage.current && document.fullscreenElement === stage.current)
+      changed();
+    return () => document.removeEventListener('fullscreenchange', changed);
+  }, [presenting]);
+
+  function present() {
+    if (presenting) {
+      enteredFullscreen.current = false;
+      setFullscreen(false);
+      setPresenting(false);
+      if (document.fullscreenElement === stage.current)
+        void document.exitFullscreen?.().catch(() => {});
+      return;
+    }
+    setPresenting(true);
+    setSide({ resourceId, view: null });
+    // Inside the click, while the browser still counts it as the person's
+    // gesture; where full screen is refused the presentation stays in the panel.
+    void stage.current?.requestFullscreen?.().catch(() => {});
+  }
 
   function reload() {
     latest.current = null;
@@ -976,10 +1016,7 @@ export default function ArtifactPreview({
               label="Present"
               pressed={presenting}
               disabled={!canPresent || (!presenting && !presentReady)}
-              onClick={() => {
-                setPresenting((value) => !value);
-                setSide({ resourceId, view: null });
-              }}
+              onClick={present}
             >
               <Play size={15} aria-hidden />
             </IconButton>
@@ -1106,7 +1143,7 @@ export default function ArtifactPreview({
             }
           />
         )}
-        <div className="design-stage">
+        <div className="design-stage" ref={stage}>
           {presenting && presentation && current ? (
             <ArtifactPresentationPanel
               {...presentation}
@@ -1114,8 +1151,13 @@ export default function ArtifactPreview({
               resourceRevision={current.resource_revision}
               visible={visible}
               autoStart
+              fullscreen={fullscreen}
               startIndex={current.page_index}
               onEnded={() => {
+                enteredFullscreen.current = false;
+                if (document.fullscreenElement === stage.current)
+                  void document.exitFullscreen?.().catch(() => {});
+                setFullscreen(false);
                 setPresenting(false);
                 // Back to where presenting started.
                 requestAnimationFrame(() => presentButton.current?.focus());

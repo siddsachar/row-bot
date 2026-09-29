@@ -1300,3 +1300,64 @@ it('keeps the size menu off landing pages and read-only previews', async () => {
   await screen.findByTitle('Slide preview: Opening');
   expect(screen.queryByRole('button', { name: /^Size:/ })).toBeNull();
 });
+
+it('presents full screen and ends when the person leaves full screen', async () => {
+  resizeFixture();
+  let fullscreenElement: Element | null = null;
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => fullscreenElement,
+  });
+  const requestFullscreen = vi.fn(async function (this: Element) {
+    fullscreenElement = document.querySelector('.design-stage');
+    expect(this).toBe(fullscreenElement);
+    document.dispatchEvent(new Event('fullscreenchange'));
+  });
+  Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+    configurable: true,
+    value: requestFullscreen,
+  });
+  const presentation = {
+    load: vi.fn(async () => ({
+      resource_id: 'deck-a',
+      resource_revision: 'resource-1',
+      page_id: 'slide-0',
+      title: 'Opening',
+      notes: '',
+      page_index: 0,
+      page_count: 2,
+      pages: [],
+      next_cursor: null,
+    })),
+    preview: vi.fn(() => new Promise<Preview>(() => {})),
+  };
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        presentation={presentation}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Present' })),
+  );
+  expect(requestFullscreen).toHaveBeenCalledOnce();
+  expect(requestFullscreen.mock.contexts[0]).toHaveClass('design-stage');
+  await screen.findByRole('button', { name: 'End presentation' });
+  // Already full screen: no second Fullscreen button.
+  expect(screen.queryByRole('button', { name: 'Fullscreen' })).toBeNull();
+  // Escape in full screen is the browser's: it leaves full screen.
+  await act(async () => {
+    fullscreenElement = null;
+    document.dispatchEvent(new Event('fullscreenchange'));
+  });
+  expect(screen.queryByRole('heading', { name: 'Presentation' })).toBeNull();
+  expect(screen.getByTitle('Slide preview: Opening')).toBeInTheDocument();
+  delete (HTMLElement.prototype as { requestFullscreen?: unknown })
+    .requestFullscreen;
+  delete (document as { fullscreenElement?: unknown }).fullscreenElement;
+});
