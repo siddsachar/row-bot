@@ -2509,9 +2509,14 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
       .click();
     await expect(editor.getByText(/^Saved disabled\./)).toBeVisible();
     await chooseFromMenu(editor, 'More MCP actions', 'Refresh');
+    // The re-read unlocks the form; its empty Add draft waits for a name
+    // and a command before Save Disabled is offered again.
+    await expect(
+      editor.getByLabel('Server name', { exact: true }),
+    ).toBeEnabled();
     await expect(
       editor.getByRole('button', { name: 'Save Disabled', exact: true }),
-    ).toBeEnabled();
+    ).toBeDisabled();
   };
   await save();
   // Row verbs other than Connection sit in the server's ⋯ menu.
