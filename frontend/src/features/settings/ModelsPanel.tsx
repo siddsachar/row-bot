@@ -125,6 +125,8 @@ export default function ModelsPanel({
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Decision 19: the last change can be taken back ("Saved · Undo").
+  const [undo, setUndo] = useState<null | (() => Promise<void>)>(null);
   const contextSelectedCap = state?.context.selected_cap;
   const contextPolicyKind = state?.context.policy_kind;
 
@@ -401,42 +403,50 @@ export default function ModelsPanel({
       setBusy('');
     }
   }
-  async function context(cap: number | null) {
+  async function context(cap: number | null, undoing = false) {
     if (!state) return;
+    const before = state.context.selected_cap;
+    const kind = state.context.policy_kind;
     setBusy('context');
     setError('');
+    setUndo(null);
     try {
       setState(
         await controller.updateModelContext({
-          policy_kind: state.context.policy_kind,
+          policy_kind: kind,
           cap,
         }),
       );
-      setNotice('Context setting saved.');
+      setNotice(undoing ? 'Undone.' : 'Saved');
+      if (!undoing) setUndo(() => () => context(before ?? null, true));
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
       setBusy('');
     }
   }
-  async function saveAgents(reset = false) {
+  async function saveAgents(
+    reset = false,
+    draft: Record<string, string> = agentDraft,
+    undoing = false,
+  ) {
     if (!agents) return;
+    const before = agents;
     setBusy('agents');
     setError('');
+    setUndo(null);
     try {
       let saved: AgentRuntimeSettingsState;
       if (reset) saved = await controller.resetAgentRuntimeSettings();
       else {
         const values = Object.fromEntries(
-          agentFields.map(({ key }) => {
-            const raw = agentDraft[key]?.trim() ?? '';
+          agentFields.map(({ key, label }) => {
+            const raw = draft[key]?.trim() ?? '';
             if (
               !/^\d+$/.test(raw) ||
               (!Number(raw) && key !== 'child_timeout_seconds')
             )
-              throw new Error(
-                `${key.replaceAll('_', ' ')} must be a whole number.`,
-              );
+              throw new Error(`${label} must be a whole number.`);
             return [key, Number(raw)];
           }),
         );
@@ -448,15 +458,33 @@ export default function ModelsPanel({
       setAgents(saved);
       setAgentDraft(fieldsFrom(saved));
       setNotice(
-        reset
-          ? 'Recommended agent limits restored.'
-          : 'Agent limits saved for new runs.',
+        undoing
+          ? 'Undone.'
+          : reset
+            ? 'Recommended agent limits restored.'
+            : 'Saved. New runs use these limits.',
       );
+      if (!undoing)
+        setUndo(() => () => saveAgents(false, fieldsFrom(before), true));
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
       setBusy('');
     }
+  }
+  // Text and numbers save when the field is left or Enter is pressed.
+  function commitCustomContext() {
+    const cap = Number(customContext);
+    if (!/^\d+$/.test(customContext) || cap < 16384) return;
+    if (cap === state?.context.selected_cap) return;
+    void context(cap);
+  }
+  function commitAgents() {
+    if (!agents || busy) return;
+    const saved = fieldsFrom(agents);
+    if (agentFields.every(({ key }) => (agentDraft[key] ?? '') === saved[key]))
+      return;
+    void saveAgents();
   }
   async function refreshCatalog() {
     setBusy('refresh');
@@ -519,7 +547,28 @@ export default function ModelsPanel({
   return (
     <div className="stack settings-models-parity" aria-label="Models settings">
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status" className="settings-saved-note">
+          {notice}
+          {undo && (
+            <>
+              {' · '}
+              <Button
+                variant="ghost"
+                className="small"
+                disabled={!!busy}
+                onClick={() => {
+                  const back = undo;
+                  setUndo(null);
+                  void back();
+                }}
+              >
+                Undo
+              </Button>
+            </>
+          )}
+        </p>
+      )}
       <section
         className="settings-model-defaults-group stack"
         aria-label="Defaults"
@@ -678,16 +727,12 @@ export default function ModelsPanel({
                   max={10000000}
                   value={customContext}
                   onChange={(event) => setCustomContext(event.target.value)}
+                  onBlur={commitCustomContext}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') commitCustomContext();
+                  }}
                 />
               </Field>
-              <Button
-                disabled={
-                  !/^\d+$/.test(customContext) || Number(customContext) < 16384
-                }
-                onClick={() => void context(Number(customContext))}
-              >
-                Save cap
-              </Button>
             </div>
           )}
           {state.context.warning && (
@@ -834,18 +879,15 @@ export default function ModelsPanel({
                         [key]: event.target.value,
                       }))
                     }
+                    onBlur={commitAgents}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') commitAgents();
+                    }}
                   />
                 </Field>
               ))}
             </div>
             <div className="actions">
-              <Button
-                variant="primary"
-                disabled={!!busy}
-                onClick={() => void saveAgents()}
-              >
-                Save
-              </Button>
               <Button
                 variant="ghost"
                 disabled={!!busy}

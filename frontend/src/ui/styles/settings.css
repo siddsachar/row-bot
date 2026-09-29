@@ -2804,3 +2804,25 @@
   color: var(--text-secondary);
   font-size: var(--text-12);
 }
+
+/* Decision 19: a change saves at once and says so, with Undo in place. */
+.settings-saved-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.settings-confirm-change {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-hover);
+  font-size: var(--text-13);
+}
+.settings-confirm-change p {
+  margin: 0;
+}

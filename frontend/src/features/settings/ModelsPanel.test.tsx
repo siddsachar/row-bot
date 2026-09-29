@@ -354,11 +354,13 @@ it('updates media toggles, defaults, camera, context, and delegation through the
       cap: 65536,
     }),
   );
-  fireEvent.change(
-    screen.getByRole('spinbutton', { name: /Maximum work rounds/ }),
-    { target: { value: '120' } },
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  const rounds = screen.getByRole('spinbutton', {
+    name: /Maximum work rounds/,
+  });
+  fireEvent.change(rounds, { target: { value: '120' } });
+  // Leaving the field saves it (decision 19); there is no Save button.
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  fireEvent.blur(rounds);
   await waitFor(() =>
     expect(controller.saveAgentRuntimeSettings).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -446,21 +446,18 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
   };
   page.on('request', recordCommand);
   try {
+    // Decision 19: no Save or Revert. Escape is the non-mutating path: it
+    // puts the saved value back without a review or a command.
     await name.fill(replacement);
-    const save = owner.getByRole('button', { name: 'Save', exact: true });
-    await expect(save).toBeVisible();
-
-    // Revert is the non-mutating cancellation path: it restores the saved
-    // value without issuing a review or a command.
-    await owner
-      .getByRole('button', { name: 'Revert Name', exact: true })
-      .click();
+    await expect(
+      owner.getByRole('button', { name: 'Save', exact: true }),
+    ).toHaveCount(0);
+    await expect(owner.getByRole('button', { name: /^Revert/ })).toHaveCount(0);
+    await name.press('Escape');
     await expect(name).toHaveValue(original);
-    await expect(save).toHaveCount(0);
     expect(commandRequests).toEqual([]);
 
     await name.fill(replacement);
-    await expect(save).toBeVisible();
     await assertNoOverflow(page);
     await accessibility(page, info, 'settings-snapshot-review-axe');
     await screenshot(page, info, 'settings-snapshot-review');
@@ -477,7 +474,8 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
         new URL(response.url()).pathname ===
           '/api/v1/settings/snapshot/commands',
     );
-    await save.click();
+    // Enter (or leaving the field) saves: reviewed and committed in one step.
+    await name.press('Enter');
     expect((await reviewed).ok()).toBe(true);
     const saveResponse = await saved;
     expect(saveResponse.ok()).toBe(true);
@@ -488,7 +486,10 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
     };
     expect(receipt.status).toBe('completed');
     expect(receipt.snapshot?.preferences?.identity?.name).toBe(replacement);
-    await expect(owner.getByRole('status')).toHaveText('Name saved.');
+    await expect(owner.getByRole('status')).toHaveText('Saved · Undo');
+    await expect(
+      owner.getByRole('button', { name: 'Undo Name', exact: true }),
+    ).toBeVisible();
     expect(commandRequests).toEqual([
       '/api/v1/settings/snapshot/review',
       '/api/v1/settings/snapshot/commands',

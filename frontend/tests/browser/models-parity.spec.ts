@@ -167,20 +167,27 @@ test('Vision, media, context, and delegation controls write local settings', asy
   await models
     .getByRole('spinbutton', { name: 'Custom context tokens' })
     .fill('60000');
-  await models.getByRole('button', { name: 'Save cap' }).click();
-  await expect(models.getByRole('status')).toContainText(
-    'Context setting saved',
-  );
+  // Enter saves the custom cap (decision 19), with Undo in place.
+  await models
+    .getByRole('spinbutton', { name: 'Custom context tokens' })
+    .press('Enter');
+  await expect(models.getByRole('status')).toContainText('Saved');
+  await expect(
+    models.getByRole('button', { name: 'Undo', exact: true }),
+  ).toBeVisible();
   // Agent limits are advanced: open their disclosure first.
   await models
     .locator('summary')
     .filter({ hasText: 'Agent runtime & delegation' })
     .click();
-  await models
-    .getByRole('spinbutton', { name: 'Maximum work rounds' })
-    .fill('91');
-  await models.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(models.getByRole('status')).toContainText('Agent limits saved');
+  const rounds = models.getByRole('spinbutton', {
+    name: 'Maximum work rounds',
+  });
+  await rounds.fill('91');
+  await rounds.press('Enter');
+  await expect(models.getByRole('status')).toContainText(
+    'New runs use these limits',
+  );
   await models
     .getByRole('button', { name: 'Restore recommended defaults' })
     .click();

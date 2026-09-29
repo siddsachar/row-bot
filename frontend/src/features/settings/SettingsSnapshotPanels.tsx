@@ -61,7 +61,6 @@ import type {
 } from '../../api/types';
 import {
   Button,
-  CompactAction,
   Field,
   IconButton,
   Input,
@@ -384,8 +383,9 @@ function SavedSetting({
   value,
   hint,
   validate,
+  confirm,
   group = false,
-  autoSave = false,
+  commit = 'change',
   layout = 'row',
   onDraftChange,
   children,
@@ -396,13 +396,20 @@ function SavedSetting({
   value: SettingsValue;
   hint?: string;
   group?: boolean;
-  autoSave?: boolean;
+  /**
+   * When a change saves (decision 19): "change" at once (choices, switches),
+   * "blur" when the field is left or Enter is pressed (text, numbers),
+   * "explicit" with its own Save (write-only secrets).
+   */
+  commit?: 'change' | 'blur' | 'explicit';
   /**
    * "row" puts the control beside its label, "stack" below it; "bare" shows
    * only the control (its own accessible name) inside a row that names it.
    */
   layout?: 'row' | 'stack' | 'bare';
   validate?: (value: SettingsValue) => string;
+  /** An outward choice asks first (decision 19): the question, or ''. */
+  confirm?: (value: SettingsValue) => string;
   onDraftChange?: (value: SettingsValue) => void;
   children: (state: {
     value: SettingsValue;
@@ -419,9 +426,21 @@ function SavedSetting({
   const [pendingCommand, setPendingCommand] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // The value before the last save, while "Saved · Undo" shows.
+  const [undo, setUndo] = useState<{ value: SettingsValue } | null>(null);
+  const [asking, setAsking] = useState<{
+    value: SettingsValue;
+    question: string;
+  } | null>(null);
   const abort = useRef<AbortController | null>(null);
   const running = useRef(false);
   const dirty = !sameValue(draft, value);
+  // Actions dressed as fields (verify a path, grant a folder) and secrets
+  // have nothing to go back to.
+  const undoable =
+    commit !== 'explicit' &&
+    !field.endsWith('_verify') &&
+    field !== 'workspace.folder_grant';
   const defaultValue = mutation.defaults?.[field];
   const modified =
     defaultValue !== undefined && !sameValue(value, defaultValue);
@@ -440,10 +459,20 @@ function SavedSetting({
     else mutation.drafts.write(mutation.page, field, next);
     setError('');
     setNotice('');
-    if (autoSave && !sameValue(next, value)) void saveChange(next);
+    setUndo(null);
+    setAsking(null);
+    if (commit !== 'change' || sameValue(next, value)) return;
+    const question = confirm?.(next) ?? '';
+    if (question) setAsking({ value: next, question });
+    else void saveChange(next);
   }
-  async function saveChange(nextValue: SettingsValue = draft) {
-    if (sameValue(nextValue, value) || running.current || pendingCommand)
+  async function saveChange(nextValue: SettingsValue = draft, undoing = false) {
+    // An Undo always sends: the page may not show the saved value yet.
+    if (
+      (!undoing && sameValue(nextValue, value)) ||
+      running.current ||
+      pendingCommand
+    )
       return;
     const validation = validate?.(nextValue) ?? '';
     if (validation) {
@@ -462,6 +491,8 @@ function SavedSetting({
     setBusy('review');
     setError('');
     setNotice('');
+    setUndo(null);
+    const before = value;
     let submitted = false;
     try {
       const result = await mutation.review(request, abort.current.signal);
@@ -486,8 +517,12 @@ function SavedSetting({
         setNotice(
           receipt.action_result
             ? `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim()
-            : `${label} saved.`,
+            : undoing
+              ? 'Undone.'
+              : 'Saved',
         );
+        if (undoable && !undoing && !receipt.action_result)
+          setUndo({ value: before });
       } else if (receipt.status === 'partial') {
         setNotice("Row-Bot couldn't confirm that. Check again.");
       } else {
@@ -551,6 +586,27 @@ function SavedSetting({
       aria-busy={!!busy}
       data-setting-anchor={field}
       data-modified={modified ? 'true' : undefined}
+      onBlur={(event) => {
+        if (
+          commit !== 'blur' ||
+          event.currentTarget.contains(event.relatedTarget as Node | null)
+        )
+          return;
+        void saveChange();
+      }}
+      onKeyDown={(event) => {
+        if (commit !== 'blur') return;
+        const target = event.target as HTMLElement;
+        if (event.key === 'Enter' && target.tagName === 'INPUT') {
+          event.preventDefault();
+          void saveChange();
+        } else if (event.key === 'Escape' && dirty) {
+          // Leave the field as it was saved; nothing is sent.
+          event.preventDefault();
+          event.stopPropagation();
+          change(value);
+        }
+      }}
     >
       {group ? (
         <fieldset className="field settings-choice-field">
@@ -599,12 +655,12 @@ function SavedSetting({
             <RotateCcw size={14} aria-hidden />
           </IconButton>
         )}
-        {dirty && autoSave && error && !pendingCommand && (
+        {dirty && commit !== 'explicit' && error && !pendingCommand && (
           <Button onClick={() => void saveChange()} disabled={!!busy}>
             Retry
           </Button>
         )}
-        {dirty && !autoSave && !pendingCommand && (
+        {dirty && commit === 'explicit' && !pendingCommand && (
           <Button
             variant="primary"
             onClick={() => void saveChange()}
@@ -618,18 +674,57 @@ function SavedSetting({
             {busy === 'save' ? 'Checking…' : 'Check again'}
           </Button>
         )}
-        {dirty && !autoSave && !pendingCommand && (
-          <CompactAction
-            label={`Revert ${label}`}
-            onClick={() => change(value)}
-            disabled={!!busy}
-          >
-            <RotateCcw size={16} aria-hidden />
-          </CompactAction>
-        )}
       </div>
+      {asking && (
+        <div
+          role="group"
+          aria-label={`Confirm ${label}`}
+          className="settings-confirm-change"
+        >
+          <p>{asking.question}</p>
+          <div className="action-cluster">
+            <Button
+              variant="primary"
+              className="small"
+              disabled={!!busy}
+              onClick={() => {
+                const next = asking.value;
+                setAsking(null);
+                void saveChange(next);
+              }}
+            >
+              Change it
+            </Button>
+            <Button className="small" onClick={() => change(value)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status" className="settings-saved-note">
+          {notice}
+          {undo && (
+            <>
+              {' · '}
+              <Button
+                variant="ghost"
+                className="small"
+                aria-label={`Undo ${label}`}
+                disabled={!!busy || !!pendingCommand}
+                onClick={() => {
+                  const previous = undo.value;
+                  setDraft(previous);
+                  void saveChange(previous, true);
+                }}
+              >
+                Undo
+              </Button>
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }
@@ -899,6 +994,7 @@ function TextSetting({
       value={value}
       hint={hint}
       layout={multiline ? 'stack' : 'row'}
+      commit="blur"
     >
       {({ value: draft, setValue, disabled }) =>
         multiline ? (
@@ -930,6 +1026,7 @@ function SelectSetting({
   options,
   hint,
   onDraftChange,
+  confirm,
 }: {
   mutation: SettingsMutationIO;
   field: string;
@@ -938,6 +1035,7 @@ function SelectSetting({
   options: { value: string; label: string }[];
   hint?: string;
   onDraftChange?: (value: string) => void;
+  confirm?: (value: string) => string;
 }) {
   const available = options.some((option) => option.value === value)
     ? options
@@ -950,6 +1048,7 @@ function SelectSetting({
       value={value}
       hint={hint}
       onDraftChange={(next) => onDraftChange?.(String(next))}
+      confirm={confirm && ((next) => confirm(String(next)))}
     >
       {({ value: draft, setValue, disabled }) => (
         <Select
@@ -1034,7 +1133,6 @@ function SwitchSetting({
       value={value}
       hint={hint}
       layout={bare ? 'bare' : 'row'}
-      autoSave
     >
       {({ value: draft, setValue, disabled }) => (
         <Toggle
@@ -1082,6 +1180,7 @@ function NumberSetting({
           ? ''
           : `Enter a value from ${min} to ${max}.`
       }
+      commit="blur"
     >
       {({ value: draft, setValue, disabled }) => (
         <Input
@@ -1262,6 +1361,7 @@ function DelimitedListSetting({
       label={label}
       value={value}
       hint={hint}
+      commit="blur"
     >
       {({ value: draft, setValue, disabled }) => (
         <Input
@@ -1344,6 +1444,7 @@ function SecretSetting({
           value=""
           hint="Write-only. The saved value is never returned to this client."
           group
+          commit="explicit"
         >
           {({ value, setValue, disabled }) => (
             <div className="settings-secret-input-row">
@@ -3053,6 +3154,11 @@ export function DocumentEmbeddingSnapshot({
             label="Provider"
             value={embedding.provider}
             onDraftChange={setProvider}
+            confirm={(next) =>
+              next === 'cloud'
+                ? 'Documents and memories will be sent to the cloud embedding provider to be indexed. Change it?'
+                : ''
+            }
             options={[
               { value: 'local', label: 'Local runtime model' },
               { value: 'cloud', label: 'Cloud embedding model' },

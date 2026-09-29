@@ -393,7 +393,7 @@ function renderSetting(setting: Phase4RetainedSetting) {
   );
 }
 
-it('renders real voice controls without probing a device or provider', () => {
+it('renders real voice controls without probing a device or provider', async () => {
   renderSetting('voice');
   expect(screen.getByLabelText('Talk provider')).toHaveValue('local');
   expect(screen.getByLabelText('Whisper model size')).toHaveValue('base');
@@ -424,13 +424,20 @@ it('renders real voice controls without probing a device or provider', () => {
   expect(
     screen.getByLabelText('Fallback to local Talk if Realtime is unavailable'),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Revert Talk provider' }));
-  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
+  // A choice saves at once (decision 19); nothing probes a device.
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'runtime.talk_provider',
+        value: 'openai_realtime',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
   expect(
     screen.getByRole('link', { name: 'Open conversation voice' }),
   ).toHaveAttribute('href', '/conversations/conversation-a');
   expect(document.body).not.toHaveTextContent('must-not-render');
-  expect(mutation.review).not.toHaveBeenCalled();
 });
 
 it('shows Realtime-only voice controls only for Realtime and hides uninstalled local TTS controls', () => {
@@ -671,9 +678,11 @@ it('tests a ready Computer Use runtime and verifies an explicit system binary', 
   });
   const control = input.closest('.settings-saved-control');
   expect(control).not.toBeNull();
-  fireEvent.click(
-    within(control as HTMLElement).getByRole('button', { name: 'Save' }),
-  );
+  // Enter in a text field saves it (decision 19); there is no Save button.
+  expect(
+    within(control as HTMLElement).queryByRole('button', { name: 'Save' }),
+  ).toBeNull();
+  fireEvent.keyDown(input, { key: 'Enter' });
   await waitFor(() =>
     expect(mutation.execute).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -971,7 +980,7 @@ it('uses an opaque local-owner folder grant and never renders a workspace path',
     screen.getByRole('button', { name: 'Choose workspace folder' }),
   );
   expect(await screen.findByText('Selected: Selected workspace')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  // The pick itself is the change: it saves at once, without Undo.
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -984,13 +993,30 @@ it('uses an opaque local-owner folder grant and never renders a workspace path',
   );
 });
 
-it('reviews and saves one retained setting without replaying it', async () => {
+it('saves one retained setting when the field is left, once, and offers Undo (decision 19)', async () => {
   renderSetting('voice');
-  fireEvent.change(screen.getByLabelText('Talk model'), {
+  const model = screen.getByLabelText('Talk model');
+  fireEvent.change(model, {
     target: { value: 'medium' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(mutation.review).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Revert/ })).toBeNull();
+  fireEvent.blur(model);
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
+  const saved = await screen.findByText(
+    (_, element) =>
+      element?.classList.contains('settings-saved-note') === true &&
+      element.textContent?.startsWith('Saved') === true,
+  );
+  expect(saved).toHaveAttribute('role', 'status');
+  fireEvent.click(screen.getByRole('button', { name: 'Undo Talk model' }));
+  await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(2));
+  expect(mutation.review).toHaveBeenLastCalledWith(
+    expect.objectContaining({ field: 'runtime.talk_model', value: 'small' }),
+    expect.any(AbortSignal),
+  );
+  expect(await screen.findByText('Undone.')).toBeInTheDocument();
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
       page: 'voice',
@@ -1049,7 +1075,7 @@ it('checks the original receipt instead of replaying an uncertain save', async (
   fireEvent.change(screen.getByLabelText('Talk model'), {
     target: { value: 'medium' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.keyDown(screen.getByLabelText('Talk model'), { key: 'Enter' });
   fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
   await waitFor(() => expect(mutation.receipt).toHaveBeenCalledTimes(1));
   expect(execute).toHaveBeenCalledTimes(1);
@@ -1148,7 +1174,7 @@ it('checks the original tracker deletion receipt without replaying it', async ()
   );
 });
 
-it('retains a dirty page draft until it is explicitly reverted', () => {
+it('retains an unsaved draft across pages and Escape puts the saved value back', () => {
   const first = renderSetting('voice');
   fireEvent.change(screen.getByLabelText('Talk model'), {
     target: { value: 'medium' },
@@ -1159,8 +1185,9 @@ it('retains a dirty page draft until it is explicitly reverted', () => {
   expect(mutation.execute).not.toHaveBeenCalled();
   renderSetting('voice');
   expect(screen.getByLabelText('Talk model')).toHaveValue('medium');
-  fireEvent.click(screen.getByRole('button', { name: 'Revert Talk model' }));
+  fireEvent.keyDown(screen.getByLabelText('Talk model'), { key: 'Escape' });
   expect(screen.getByLabelText('Talk model')).toHaveValue('small');
+  expect(mutation.review).not.toHaveBeenCalled();
 });
 
 it('does not carry a write draft into a new authenticated session owner', () => {
@@ -1287,7 +1314,14 @@ it('renders editable document, tool, and preference owners', async () => {
   });
   expect(screen.getByLabelText('Cloud model')).toBeVisible();
   expect(screen.queryByLabelText('Local model')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Revert Provider' }));
+  // Data would leave this computer, so it asks first (decision 19).
+  const ask = screen.getByRole('group', { name: 'Confirm Provider' });
+  expect(ask).toHaveTextContent(/sent to the cloud embedding provider/);
+  expect(mutation.review).not.toHaveBeenCalledWith(
+    expect.objectContaining({ field: 'embedding.provider' }),
+    expect.anything(),
+  );
+  fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
   expect(screen.getByLabelText('Local model')).toBeVisible();
   expect(screen.queryByLabelText('Cloud model')).toBeNull();
   documents.unmount();
