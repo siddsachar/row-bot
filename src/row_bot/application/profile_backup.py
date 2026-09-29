@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from row_bot import profile_restore
-from row_bot.profile_restore import SECRET_NAMES, kept_in_place
+from row_bot.profile_restore import SECRET_ENTRIES, SECRET_NAMES, kept_in_place
 
 FORMAT = "row-bot-backup"
 FORMAT_VERSION = 1
@@ -252,14 +252,18 @@ def inspect_backup(archive: Path, *, app_version: str | None = None) -> dict:
                     continue
                 if not _safe_member(name):
                     raise BackupError("backup_invalid")
-                top = PurePosixPath(name).parts[0]
-                if name != MANIFEST and (
-                    kept_in_place(top)
-                    or any(SECRET_NAMES.fullmatch(part) for part in PurePosixPath(name).parts)
-                ):
-                    raise BackupError("backup_invalid")
                 if (member.external_attr >> 16) & 0o170000 == 0o120000:
                     raise BackupError("backup_invalid")  # a symbolic link
+                if name == MANIFEST:
+                    continue
+                parts = PurePosixPath(name).parts
+                # A backup never holds credentials: one that does is refused.
+                if parts[0] in SECRET_ENTRIES or any(SECRET_NAMES.fullmatch(part) for part in parts):
+                    raise BackupError("backup_invalid")
+                # Machine-local files (caches, logs, locks) that another version
+                # still wrote are skipped, never restored (B181).
+                if kept_in_place(parts[0]):
+                    continue
                 size += member.file_size
             if size > MAX_BYTES:
                 raise BackupError("backup_too_large")
@@ -291,6 +295,8 @@ def stage_restore(archive: Path, data_dir: Path, *, source_name: str,
             for member in bundle.infolist():
                 if member.is_dir() or member.filename == MANIFEST:
                     continue
+                if kept_in_place(PurePosixPath(member.filename).parts[0]):
+                    continue  # machine-local: never restored (B181)
                 target = staged.joinpath(*PurePosixPath(member.filename).parts)
                 if not target.resolve().is_relative_to(staged.resolve()):
                     raise BackupError("backup_invalid")

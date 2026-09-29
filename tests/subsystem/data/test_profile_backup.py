@@ -215,3 +215,25 @@ def test_the_server_applies_a_pending_restore_before_it_opens_the_profile():
     first_import = min(source.index(line) for line in ("\nfrom row_bot.brand", "\nfrom row_bot.data_paths"))
     assert hook < first_import
     assert 'if __name__ == "__main__":\n    from row_bot.profile_restore import apply_on_start' in source
+
+
+def test_an_older_backup_with_files_now_left_out_still_restores_without_them(tmp_path):
+    """B181: entries a newer version treats as machine-local are skipped, not refused."""
+    archive = _zip(tmp_path / "older.zip", {
+        backup.MANIFEST: _manifest(),
+        "tools_config.json": "{}",
+        ".skills_activation.x7k2m9qa.json": "{}",
+        ".checkpoint-locks/thread.lock": "",
+        "logs/row_bot.log": "old log",
+    })
+    info = backup.inspect_backup(archive, app_version="4.9.1")
+    assert info["bytes"] == len("{}")
+    data = tmp_path / "profile"
+    data.mkdir()
+    backup.stage_restore(archive, data, source_name="older.zip", app_version="4.9.1")
+    staged = data / profile_restore.PENDING_DIR / "files"
+    assert sorted(path.name for path in staged.rglob("*") if path.is_file()) == ["tools_config.json"]
+    # Secrets are still refused outright.
+    with pytest.raises(backup.BackupError, match="backup_invalid"):
+        backup.inspect_backup(_zip(tmp_path / "keys.zip", {backup.MANIFEST: _manifest(),
+                                                           "x/token.json": "{}"}), app_version="4.9.1")
