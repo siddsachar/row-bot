@@ -11,9 +11,28 @@ import {
 } from '../../ui/primitives';
 
 const OUTPUT_LIMIT = 256 * 1024;
-// What Ctrl+C types in a terminal: the shell stops the running command
-// (ConPTY raises CTRL_C_EVENT, a Unix terminal sends SIGINT).
+// What Ctrl+C types in a terminal: the desktop app stops the running
+// command (a Unix terminal also sends SIGINT).
 const INTERRUPT = '\x03';
+// The line terminal shows plain text (B173): colour, cursor and title codes
+// are removed. A code cut off at the end of a read waits for the next one.
+const CODES =
+  // eslint-disable-next-line no-control-regex
+  /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|[@-Z\\-_])|[\x07\x00]/g;
+// eslint-disable-next-line no-control-regex
+const PARTIAL = /\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[()])?$/;
+
+function plainTerminalText(text: string): {
+  text: string;
+  rest: string;
+} {
+  const cut = PARTIAL.exec(text);
+  const complete = cut ? text.slice(0, cut.index) : text;
+  return {
+    text: complete.replace(CODES, ''),
+    rest: cut ? text.slice(cut.index) : '',
+  };
+}
 
 export default function NativeTerminal({ visible }: { visible: boolean }) {
   const conversationId = useClientSelector(
@@ -29,6 +48,8 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
   const [external, setExternal] = useState(false);
   const [externalError, setExternalError] = useState('');
   const cursor = useRef(0);
+  // The start of a terminal code cut off at the end of the last read.
+  const partial = useRef('');
   const outputRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
@@ -91,7 +112,11 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
         if (!alive) return;
         cursor.current = value.cursor;
         if (value.truncated) setTruncated(true);
-        const next = value.frames.map((frame) => frame.data).join('');
+        const plain = plainTerminalText(
+          partial.current + value.frames.map((frame) => frame.data).join(''),
+        );
+        partial.current = plain.rest;
+        const next = plain.text;
         if (next)
           setOutput((previous) => (previous + next).slice(-OUTPUT_LIMIT));
         timer = window.setTimeout(poll, value.latest > value.cursor ? 0 : 100);

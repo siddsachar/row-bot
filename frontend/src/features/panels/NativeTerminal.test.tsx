@@ -97,6 +97,21 @@ it('sends Ctrl+C from the input only when no text is selected', async () => {
   expect(mock.controller.terminalInput).toHaveBeenCalledTimes(1);
 });
 
+it('shows plain text: terminal codes are removed, even split across reads (B173)', async () => {
+  mock.controller.terminalRead.mockImplementationOnce(async (_id, cursor) =>
+    output(
+      cursor,
+      '\x1b[?25l\x1b[2J\x1b[m\x1b]0;Windows PowerShell\x07PS C:\\> ',
+      'ping\x1b[?25',
+      'h\r\nReply\x1b[93m ok\x1b[0m',
+    ),
+  );
+  await view();
+  expect(document.querySelector('.native-terminal-output')?.textContent).toBe(
+    'PS C:\\> ping\r\nReply ok',
+  );
+});
+
 it('clears the shown output without reading old output again', async () => {
   mock.controller.terminalRead.mockImplementationOnce(async (_id, cursor) =>
     output(cursor, 'PS C:\\> ', 'dir\r\n', 'fixture listing'),
