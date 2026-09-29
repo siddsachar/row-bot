@@ -575,13 +575,6 @@ def codex_reconnect_message(detail: str = "") -> str:
     )
 
 
-def codex_runtime_block_message(*, refresh_if_needed: bool = True) -> str | None:
-    health = check_codex_token_health(refresh_if_needed=refresh_if_needed)
-    if health.runnable:
-        return None
-    return codex_reconnect_message(health.detail)
-
-
 def fetch_codex_model_infos(
     *,
     access_token: str | None = None,
