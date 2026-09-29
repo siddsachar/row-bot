@@ -380,15 +380,6 @@ def test_developer_guides_and_skills_are_bundled():
     assert (root / "bundled_skills" / "developer_custom_tools" / "SKILL.md").exists()
 
 
-def test_developer_profile_removes_conflicting_generic_tools():
-    from row_bot.developer.profile import effective_tool_names
-
-    assert effective_tool_names(["filesystem", "shell", "image_gen"]) == [
-        "image_gen",
-        "developer",
-    ]
-
-
 def test_developer_skill_prompt_is_scoped_to_developer_mode(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("skills", None)
@@ -425,7 +416,7 @@ def test_custom_tool_request_does_not_fall_back_to_shell_when_builder_disabled()
     invoked = agent.invoke_agent(prompt, ["read_url", "shell"], config)
     events = list(agent.stream_agent(prompt, ["read_url", "shell"], config))
 
-    assert "Custom Tool Builder is disabled" in invoked
+    assert "Custom Tool Builder is off" in invoked
     assert "read_url or shell commands" in invoked
     assert events == [("token", invoked), ("done", invoked)]
 
@@ -440,46 +431,10 @@ def test_custom_tool_request_allows_builder_when_enabled(monkeypatch):
     ) is None
 
 
-def test_streaming_treats_deleted_nicegui_client_as_detached():
-    from row_bot.ui.streaming import _ui_handle_client_deleted
-
-    class DeletedElement:
-        @property
-        def client(self):
-            raise RuntimeError("The client this element belongs to has been deleted.")
-
-    assert _ui_handle_client_deleted(DeletedElement()) is True
-
-
-def test_developer_inspector_does_not_periodically_rebuild():
+def test_developer_inspector_snapshot_is_ui_free_and_fingerprinted():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
-    inspector_source = source.split("def _build_developer_inspector(", 1)[1].split(
-        "def _build_developer_inspector_static(", 1
-    )[0]
-
-    assert "safe_timer(5.0" not in inspector_source
-    assert "request_snapshot_refresh" in inspector_source
-    assert "get_snapshot" in inspector_source
-    assert "reason=\"active_poll\"" in inspector_source
-    assert "version_state[\"updater\"]" in inspector_source
-    assert "updater(snapshot)" in inspector_source
-    assert "refresh_snapshot_now" not in inspector_source
-
-    workspace_source = source.split("def build_developer_workspace(", 1)[1].split(
-        "def _build_developer_inspector(", 1
-    )[0]
-    assert "await send_message(text, voice_mode=voice_mode)" in workspace_source
-    assert "await send_message(text, voice_mode=voice_mode)\n        refresh" not in workspace_source
-
-
-def test_developer_inspector_uses_snapshot_and_native_file_tree():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    ui_source = (root / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     snapshot_source = (root / "src" / "row_bot" / "developer" / "inspector_snapshot.py").read_text(encoding="utf-8")
 
     assert "from nicegui import ui" not in snapshot_source
@@ -488,23 +443,6 @@ def test_developer_inspector_uses_snapshot_and_native_file_tree():
     assert "fingerprint" in snapshot_source
     assert "previous.fingerprint == snapshot.fingerprint" in snapshot_source
     assert "_get_thread_approval_mode" in snapshot_source
-    assert "section_bodies" in ui_source
-    assert "def _render_if_changed" in ui_source
-    assert "ui.tree(nodes, on_select=_select)" in ui_source
-    assert "Load file tree" in ui_source
-    assert "Devcontainer" not in ui_source
-    assert "Container launch is not enabled" not in ui_source
-    assert '"sandbox", "Sandbox", "inventory_2"' in ui_source
-    assert '"Sandbox image"' in ui_source
-    assert '"Save image"' in ui_source
-    assert "sandbox_image=image" in ui_source
-    assert "cleanup_workspace_sandbox" in ui_source
-    assert '"start_server"' in ui_source
-    assert "_APPROVAL_MODE_HELP" in ui_source
-    assert "stats_label" not in ui_source
-    assert "Expand to load diff." in ui_source
-    assert "_render_workspace_status_badges" in ui_source
-    assert "header_seen" in ui_source
 
 
 def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
@@ -521,63 +459,6 @@ def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
     second = inspector_snapshot.refresh_snapshot_for_tests(workspace.id, thread_id)
 
     assert first.version == second.version
-
-
-def test_streaming_skips_interrupt_dialog_for_detached_client():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
-
-    assert "if not gen.detached and not _ui_handle_client_deleted(p.interrupt_dlg):" in source
-    assert "state.pending_interrupt = payload" in source
-    assert "gen.interrupt_rendered" in source
-    assert "Approval pending for thread %s; dialog render skipped" in source
-    assert "_render_inline_interrupt_notice" in source
-    assert "Developer approval pending" in source
-    assert "developer_approval_container" in source
-
-
-def test_detached_finalize_uses_scoped_transcript_refresh_not_main_rebuild():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
-    app_source = (root / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
-
-    assert "Refresh only the transcript container" in source
-    assert "Detached finalize refreshed transcript without full main rebuild" in source
-    assert "refresh_chat_messages" in source
-    assert "cb.refresh_chat_messages = _refresh_chat_messages" in app_source
-    assert "p.chat_container.clear()" in app_source
-    assert "rebuild_main after detached finalize" not in source
-    finalize_block = source.split("# If we detached mid-stream", 1)[1].split("if p.stop_btn", 1)[0]
-    assert "cb.rebuild_main()" not in finalize_block
-    assert "gen.accumulated and not state.active_developer_workspace_id" in source
-
-
-def test_active_detached_finalize_preserves_optimistic_user_messages():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
-
-    assert "if state.thread_id == gen.thread_id:" in source
-    assert "_insert_assistant_before_future_queued_turns(" in source
-    assert "current_queued_ids=gen.queued_message_ids" in source
-    assert "Do not reload the active thread here" in source
-    assert "active but UI-detached run may have newer optimistic user" in source
-
-
-def test_post_render_javascript_failure_does_not_detach_after_final_row_render():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
-    assert "_handle_ui_runtime_error(gen, state, exc, \"post-render javascript\")" not in source
-    assert "marking the generation detached" in source
-    assert "append the persisted assistant message as a duplicate" in source
-    assert "JS runtime unavailable for hljs/mermaid" in source
 
 
 def test_developer_guidance_is_shell_aware_and_generic():
@@ -603,11 +484,8 @@ def test_developer_context_is_hidden_system_context():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    streaming_source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
     agent_source = (root / "src" / "row_bot" / "agent.py").read_text(encoding="utf-8")
 
-    assert "agent_input = f\"{developer_context}" not in streaming_source
-    assert '"developer_context": developer_context' in streaming_source
     assert "_developer_context_var" in agent_source
     assert '"turn.developer_context"' in agent_source
     assert "ephemeral_section" in agent_source

@@ -304,14 +304,8 @@ def test_runtime_getter_reads_channel_namespace(data_dir, monkeypatch):
     assert telegram._get_bot_token() == "tg-runtime"
 
 
-def test_channel_settings_uses_provider_style_secret_controls():
-    source = open("src/row_bot/ui/settings.py", encoding="utf-8").read()
+def test_app_startup_migrates_legacy_channel_secrets():
     app_source = open("src/row_bot/app.py", encoding="utf-8").read()
 
-    assert "Paste a new value to replace the saved one" in source
-    assert "Saved securely" in source
-    assert "Set by environment" in source
-    assert "Save Current" in source
-    assert "import_channel_secret_from_fallback" in source
     assert "migrate_legacy_channel_secrets" in app_source
     assert "legacy fallback remains active" in app_source

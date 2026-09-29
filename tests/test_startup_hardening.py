@@ -202,22 +202,6 @@ def test_main_app_tunnel_startup_is_offloaded_source_contract():
     assert app_src.index(status) < app_src.index(offloaded_start)
 
 
-def test_manual_channel_start_logs_safe_diagnostic_source_contract():
-    settings_src = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-    start_handler = settings_src.split("async def _start_ch", 1)[1].split(
-        "async def _stop_ch", 1
-    )[0]
-    diagnostic = settings_src.split(
-        "def _report_manual_channel_start_failure", 1
-    )[1]
-
-    assert "_report_manual_channel_start_failure(ch, exc)" in start_handler
-    assert "Manual channel start failed: channel=%s error_type=%s" in diagnostic
-    assert "channel.name," in diagnostic
-    assert "type(exc).__name__," in diagnostic
-    assert "logger.exception" not in diagnostic
-
-
 def test_channel_adapters_do_not_import_agent_at_module_import_time():
     for path in [
         Path("src/row_bot/channels/telegram.py"),

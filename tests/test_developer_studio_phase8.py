@@ -812,39 +812,15 @@ def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_pat
     assert capsules.list_capsules()[0].promoted_plugin_id == ""
 
 
-def test_tool_capsule_developer_ui_exposes_end_to_end_actions():
+def test_custom_tool_builder_sources_are_wired():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     capsules_source = (root / "src" / "row_bot" / "developer" / "tool_capsules.py").read_text(encoding="utf-8")
     tool_source = (root / "src" / "row_bot" / "tools" / "developer_tool.py").read_text(encoding="utf-8")
     global_tool_source = (root / "src" / "row_bot" / "tools" / "custom_tool_builder_tool.py").read_text(encoding="utf-8")
-    utilities_source = (root / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     guide_source = (root / "tool_guides" / "custom_tool_builder_guide" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "Custom Tools" in source
-    assert "New Custom Tool" in source
-    assert "Repo URL or local folder" in source
-    assert 'ui.stepper().props("vertical")' in source
-    assert "Inspect Tool" in source
-    assert "Create Tool" in source or "Create the tool" in source
-    assert "create_custom_tool_draft" in source
-    assert "create_tool_from_draft" in source
-    assert "list_custom_tool_drafts" in source
-    assert "clone_capsule_repository" in source
-    assert "Run Smoke Test" in source
-    assert "All commands" in source
-    assert "run_custom_tool_test_command" in source
-    assert "setup_custom_tool_python_environment" in source
-    assert "Set Up Python Venv" in source
-    assert "Test query" in source
-    assert "custom_tool_command_needs_query" in source
-    assert "Test First Command" not in source
-    assert "Test" in source
-    assert "promote_created_custom_tool_from_draft" in source
-    assert "remove_capsule" in source
-    assert "set_community_tools_enabled" not in source
     assert "generate_and_register_capsule" in capsules_source
     assert "custom_tool_builder" in capsules_source
     assert 'name="custom_tool_builder"' in global_tool_source
@@ -853,9 +829,6 @@ def test_tool_capsule_developer_ui_exposes_end_to_end_actions():
     assert "isolated .venv" in global_tool_source
     assert "Shell can help with extra read-only inspection" in guide_source
     assert "Do not use shell to manually register" in guide_source
-    assert "Clone parent folder (only for repo URLs)" in source
-    assert "repo-named subfolder inside the parent" in source
-    assert '"custom_tool_builder"' in utilities_source
     assert "CUSTOM_TOOL_DRAFTS_PATH" in capsules_source
     assert 'name="developer_custom_tool_builder"' not in tool_source
     assert 'name="developer_inspect_custom_tool_source"' not in tool_source
@@ -863,5 +836,3 @@ def test_tool_capsule_developer_ui_exposes_end_to_end_actions():
     assert 'name="developer_test_custom_tool"' not in tool_source
     assert 'name="developer_enable_custom_tool"' not in tool_source
     assert 'name="developer_promote_custom_tool"' not in tool_source
-    assert "Tool Capsule" not in source
-    assert '("capsules", "Custom Tools"' not in source

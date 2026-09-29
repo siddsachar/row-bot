@@ -93,43 +93,6 @@ class McpClientFoundationTests(unittest.TestCase):
 
         clear_cache.assert_called_once_with()
 
-    def test_server_form_edit_preserves_marketplace_metadata(self) -> None:
-        from row_bot.ui.mcp_settings import _server_from_form
-
-        existing = {
-            "name": "xquik-mcp",
-            "enabled": True,
-            "transport": "streamable_http",
-            "url": "https://xquik.com/mcp",
-            "source": {"catalog_id": "xquik-mcp", "risk_level": "high"},
-            "trust_level": "unverified",
-            "requirements": [{"kind": "network"}],
-            "tools": {
-                "enabled": {"explore": True, "xquik": False},
-                "require_approval": ["xquik"],
-            },
-        }
-
-        updated = _server_from_form(
-            "xquik-mcp",
-            "streamable_http",
-            "",
-            "",
-            "https://xquik.com/mcp",
-            "{}",
-            '{"x-api-key": "configured"}',
-            30,
-            24000,
-            base_config=existing,
-        )
-
-        self.assertFalse(updated["enabled"])
-        self.assertEqual(updated["source"], existing["source"])
-        self.assertEqual(updated["trust_level"], "unverified")
-        self.assertEqual(updated["requirements"], existing["requirements"])
-        self.assertEqual(updated["tools"], existing["tools"])
-        self.assertIsNot(updated["source"], existing["source"])
-
     def test_tool_discovery_clears_agent_cache(self) -> None:
         import row_bot.mcp_client.runtime as runtime
 
@@ -201,7 +164,6 @@ class McpClientFoundationTests(unittest.TestCase):
         importlib.reload(marketplace)
         from row_bot.mcp_client.conflicts import conflicts_for_entry, requires_manual_tool_selection
         from row_bot.mcp_client.safety import is_destructive_tool
-        from row_bot.ui.mcp_settings import _apply_probe_defaults
 
         xquik = next(entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.id == "xquik-mcp")
         self.assertFalse(xquik.recommended)
@@ -219,25 +181,6 @@ class McpClientFoundationTests(unittest.TestCase):
 
         executor_description = "Execute API calls against your Xquik account."
         self.assertTrue(is_destructive_tool("xquik", executor_description))
-        probe = {
-            "tools": [
-                {
-                    "name": "explore",
-                    "description": "Search the API endpoint catalog without making network calls.",
-                    "destructive": False,
-                },
-                {
-                    "name": "xquik",
-                    "description": executor_description,
-                    "destructive": True,
-                },
-            ]
-        }
-        updated = _apply_probe_defaults(xquik_config, probe)
-        self.assertEqual(updated["tools"]["enabled"], {"explore": False, "xquik": False})
-        self.assertEqual(updated["tools"]["require_approval"], ["xquik"])
-        self.assertFalse(updated["tools"]["catalog"]["explore"]["requires_approval"])
-        self.assertTrue(updated["tools"]["catalog"]["xquik"]["requires_approval"])
 
     def test_marketplace_import_preserves_trust_risk_and_overlap_metadata(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
@@ -255,7 +198,6 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_conflict_policy_uses_manual_selection_for_overlap_and_high_risk(self) -> None:
         from row_bot.mcp_client.conflicts import conflicts_for_server, requires_manual_tool_selection, unique_server_name
-        from row_bot.ui.mcp_settings import _apply_probe_defaults
 
         overlap_cfg = {
             "name": "playwright",
@@ -263,21 +205,6 @@ class McpClientFoundationTests(unittest.TestCase):
         }
         self.assertTrue(requires_manual_tool_selection("playwright", overlap_cfg))
         self.assertEqual(conflicts_for_server("playwright", overlap_cfg)[0].capability, "browser")
-        probe = {"tools": [
-            {
-                "name": "navigate",
-                "description": "Navigate to a page.",
-                "destructive": False,
-                "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}},
-            },
-            {"name": "delete_cookie", "description": "Delete a cookie.", "destructive": True},
-        ]}
-        updated = _apply_probe_defaults(dict(overlap_cfg), probe)
-        self.assertEqual(updated["tools"]["enabled"], {"navigate": False, "delete_cookie": False})
-        self.assertEqual(updated["tools"]["require_approval"], ["delete_cookie"])
-        self.assertEqual(updated["tools"]["catalog"]["navigate"]["description"], "Navigate to a page.")
-        self.assertEqual(updated["tools"]["catalog"]["navigate"]["input_schema"]["properties"]["url"]["type"], "string")
-        self.assertTrue(updated["tools"]["catalog"]["delete_cookie"]["destructive"])
 
         high_risk_cfg = {"name": "stripe", "source": {"risk_level": "high"}}
         self.assertTrue(requires_manual_tool_selection("stripe", high_risk_cfg))
@@ -690,58 +617,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(manifest["package_version"], "1.62.0")
         self.assertEqual(manifest["chromium_revision"], "1234")
         self.assertTrue(Path(requirements.playwright_browser_executable_path()).exists())
-
-    def test_settings_rows_include_configured_tools_without_live_catalog(self) -> None:
-        from row_bot.ui.mcp_settings import _OPEN_SERVER_EXPANSIONS, _display_tool_rows, _has_pending_enabled_servers, _requirement_label, _schema_summary, _server_expansion_default_open, _set_server_expansion_open
-        from row_bot.mcp_client.requirements import requirements_for_server
-
-        server_cfg = {
-            "tools": {
-                "enabled": {"echo": True, "delete_note": False},
-                "require_approval": ["delete_note"],
-                "catalog": {
-                    "echo": {
-                        "description": "Echo a message back to the caller.",
-                        "destructive": False,
-                        "requires_approval": False,
-                        "input_schema": {"type": "object", "properties": {"message": {"type": "string"}}},
-                    },
-                    "delete_note": {
-                        "description": "Delete a saved note.",
-                        "destructive": True,
-                        "requires_approval": True,
-                    },
-                },
-            }
-        }
-        rows = _display_tool_rows(server_cfg, [])
-        by_name = {row["name"]: row for row in rows}
-        self.assertEqual(set(by_name), {"echo", "delete_note"})
-        self.assertTrue(by_name["echo"]["enabled"])
-        self.assertEqual(by_name["echo"]["description"], "Echo a message back to the caller.")
-        self.assertEqual(by_name["echo"]["input_schema"]["properties"]["message"]["type"], "string")
-        self.assertFalse(by_name["delete_note"]["enabled"])
-        self.assertEqual(by_name["delete_note"]["description"], "Delete a saved note.")
-        self.assertTrue(by_name["delete_note"]["destructive"])
-        self.assertTrue(by_name["delete_note"]["requires_approval"])
-        self.assertTrue(all(row["configured_only"] for row in rows))
-        self.assertEqual(_schema_summary(by_name["echo"]["input_schema"]), "Inputs: message: string")
-        self.assertTrue(_has_pending_enabled_servers({"manual": {"enabled": True}}, {"manual": {"status": "connecting"}}))
-        self.assertTrue(_has_pending_enabled_servers({"manual": {"enabled": True}}, {"manual": {"status": "not_started"}}))
-        self.assertFalse(_has_pending_enabled_servers({"manual": {"enabled": True}}, {"manual": {"status": "connected"}}))
-        self.assertFalse(_has_pending_enabled_servers({"manual": {"enabled": False}}, {"manual": {"status": "connecting"}}))
-
-        _OPEN_SERVER_EXPANSIONS.clear()
-        self.assertFalse(_server_expansion_default_open("manual"))
-        _set_server_expansion_open("manual", True)
-        self.assertTrue(_server_expansion_default_open("manual"))
-        self.assertIn("manual", _OPEN_SERVER_EXPANSIONS)
-        _set_server_expansion_open("manual", False)
-        self.assertFalse(_server_expansion_default_open("manual"))
-        self.assertNotIn("manual", _OPEN_SERVER_EXPANSIONS)
-
-        req = requirements_for_server({"transport": "stdio", "command": "npx"})[0]
-        self.assertIn("Requires Node.js LTS", _requirement_label(req))
 
     def test_stdio_server_discovers_and_calls_dynamic_tool(self) -> None:
         cfg = self._reload_config()

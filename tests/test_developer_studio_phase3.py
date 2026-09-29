@@ -70,12 +70,3 @@ def test_developer_identity_questions_are_answered_naturally_from_context(tmp_pa
     assert "Git branch: feature/test" in context
     assert "facts above are authoritative for identity questions" in context
     assert not hasattr(agent_context, "maybe_answer_workspace_identity")
-
-
-def test_developer_streaming_never_intercepts_workspace_wording():
-    from pathlib import Path
-
-    source = Path("src/row_bot/ui/streaming.py").read_text(encoding="utf-8")
-
-    assert "maybe_answer_workspace_identity" not in source
-    assert "direct_answer" not in source

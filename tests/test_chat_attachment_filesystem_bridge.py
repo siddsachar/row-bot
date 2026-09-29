@@ -28,7 +28,7 @@ def _set_workspace(tmp_path, monkeypatch):
 
 
 def test_chat_attachment_materialization_copies_to_received_files(tmp_path, monkeypatch):
-    from row_bot.ui.helpers import materialize_chat_attachments
+    from row_bot.file_context import materialize_chat_attachments
 
     workspace = _set_workspace(tmp_path, monkeypatch)
     files = [
@@ -49,7 +49,7 @@ def test_chat_attachment_materialization_copies_to_received_files(tmp_path, monk
 
 
 def test_process_attached_files_includes_original_names_workspace_paths_and_cache(monkeypatch):
-    from row_bot.ui.helpers import process_attached_files
+    from row_bot.file_context import process_attached_files
     import row_bot.data_reader as data_reader
 
     class FakePage:
@@ -163,7 +163,8 @@ def test_workspace_read_file_reads_xls_when_dependency_available(tmp_path, monke
 
 def test_transcript_reload_strips_hidden_attachment_context():
     from langchain_core.messages import HumanMessage
-    from row_bot.ui.helpers import langchain_messages_to_ui_messages, wrap_attachment_context
+    from row_bot.file_context import wrap_attachment_context
+    from row_bot.message_projection import langchain_messages_to_ui_messages
 
     hidden = wrap_attachment_context(
         "[Attached data file: rows.csv]\n"

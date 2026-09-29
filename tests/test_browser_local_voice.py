@@ -5,11 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from row_bot.voice.browser_client import (
-    speak_browser_voice_js,
-    start_browser_voice_capture_js,
-    stop_browser_voice_js,
-)
 from row_bot.voice.browser_local import (
     BrowserLocalVoiceService,
     BrowserVoiceError,
@@ -150,18 +145,6 @@ def test_browser_transport_never_starts_the_device_voice_service() -> None:
     assert coordinator.transport == "browser"
     assert coordinator.is_running
     assert voice.is_running is False
-
-
-def test_browser_scripts_check_secure_context_and_clean_up_private_media() -> None:
-    capture = start_browser_voice_capture_js(sink_id=42, mode="talk")
-    cleanup = stop_browser_voice_js(cancel=True)
-    playback = speak_browser_voice_js("hello")
-
-    assert capture.index("isSecureContext") < capture.index("getUserMedia")
-    assert "credentials: 'same-origin'" in capture
-    assert "URL.revokeObjectURL" in cleanup
-    assert "/api/voice/local/synthesize" in playback
-    assert "URL.revokeObjectURL" in playback
 
 
 def test_kokoro_runtime_temp_is_created_only_under_app_data(

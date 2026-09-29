@@ -19,14 +19,11 @@ def test_agent_iteration_budget_is_uniform_across_surfaces():
     assert "RECURSION_LIMIT_DEVELOPER = _DEFAULT_FRAMEWORK_LIMIT" in agent_source
 
 
-def test_send_and_resume_use_checkpointed_budget_not_ui_recursion_constants():
+def test_send_and_resume_use_checkpointed_budget():
     agent_source = _read("src/row_bot/agent.py")
-    streaming_source = _read("src/row_bot/ui/streaming.py")
     assert "def _new_agent_graph_input" in agent_source
     assert "def _resume_agent_graph_config" in agent_source
     assert "validate_execution_budget(raw_budget)" in agent_source
-    assert "recursion_limit_for_mode" not in streaming_source
-    assert "RECURSION_LIMIT_CHAT" not in streaming_source
 
 
 def test_developer_wind_down_and_recursion_error_are_checkpoint_oriented():

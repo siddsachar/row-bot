@@ -6,7 +6,7 @@ import types
 
 def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
     import row_bot.documents as documents
-    from row_bot.ui.status_checks import check_document_store
+    from row_bot.status_checks import check_document_store
 
     processed_path = tmp_path / "processed_files.json"
     vector_dir = tmp_path / "vector_store"
@@ -28,7 +28,7 @@ def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
 def test_workflow_status_reports_running_and_pending(monkeypatch, tmp_path):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     import row_bot.tasks as tasks
-    from row_bot.ui.status_checks import check_task_scheduler
+    from row_bot.status_checks import check_task_scheduler
 
     monkeypatch.setattr(tasks, "_scheduler", types.SimpleNamespace(get_jobs=lambda: [object(), object()]))
     monkeypatch.setattr(tasks, "get_running_tasks", lambda: {"thread-1": {}, "thread-2": {}})
@@ -59,36 +59,8 @@ def test_home_status_has_aggregate_pills_for_current_settings_tabs():
         assert f"def {function_name}" in src
 
 
-def test_home_status_uses_compact_icon_pills():
-    src = open("src/row_bot/ui/status_bar.py", "r", encoding="utf-8").read()
-
-    assert "_STATUS_ICON_MAP" in src
-    assert "status-icon-pill" in src
-    assert "status-alert-badge" in src
-    assert "status-warn" in src
-    assert "status-error" in src
-    assert "aria-label" in src
-    assert "mid = (len(items) + 1) // 2" not in src
-    assert "for row_items in (items[:mid], items[mid:])" not in src
-    assert "row-bot-buddy-hatch-progress" in src
-    assert "extraction_pill" in src
-    assert ".tooltip(f\"{r.name}: {r.status_label} - {r.detail}\")" in src
-    for status_name in ("Ollama", "Documents", "Search", "MCP", "Plugins"):
-        assert f'"{status_name}"' in src
-
-
-def test_home_status_icon_map_uses_safe_material_icons():
-    src = open("src/row_bot/ui/status_bar.py", "r", encoding="utf-8").read()
-
-    assert '"Disk": "save"' in src
-    assert '"Threads DB": "storage"' in src
-    assert '"FAISS Index": "bubble_chart"' in src
-    for unsupported in ('"hard_drive"', '"database"', '"deployed_code"', '"sd_storage"', '"grain"'):
-        assert unsupported not in src
-
-
 def test_home_status_has_single_faiss_check():
-    from row_bot.ui.status_checks import ALL_CHECKS, run_all_checks
+    from row_bot.status_checks import ALL_CHECKS, run_all_checks
 
     faiss_check_count = sum(1 for fn in ALL_CHECKS if fn.__name__ == "check_faiss_index")
     assert faiss_check_count == 1
@@ -98,27 +70,6 @@ def test_home_status_has_single_faiss_check():
     assert names.count("FAISS Index") == 1
     assert names.count("Disk") == 1
     assert names.count("Threads DB") == 1
-
-
-def test_command_center_has_persisted_collapsed_rail_contract():
-    src = open("src/row_bot/ui/command_center.py", "r", encoding="utf-8").read()
-
-    assert "workflow_console_collapsed" in src
-    assert "workflow-console-rail" in src
-    assert "workflow-console-collapsed .workflow-console-rail" in src
-    assert "workflow-console-approval-alert" in src
-    assert "workflow-console-alert-flash" in src
-    assert "workflow-console-rail-badge insights" in src
-    assert "_save_command_center_collapsed" in src
-    assert "data-workflow-console-drawer" in src
-
-
-def test_command_center_insights_default_collapsed_expansion():
-    src = open("src/row_bot/ui/command_center.py", "r", encoding="utf-8").read()
-
-    assert 'ui.expansion("Insights", icon="lightbulb", value=False)' in src
-    assert "row-bot-command-center-insights-expansion" in src
-    assert '_insights_container = ui.column().classes("w-full gap-0 q-pt-xs")' in src
 
 
 def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch):

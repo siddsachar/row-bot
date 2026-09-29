@@ -105,20 +105,3 @@ def test_create_task_preserves_empty_channel_override(data_dir, monkeypatch):
     task_id = tasks.create_task(name="Web only", prompts=["Say hi"], channels=[])
 
     assert tasks.get_task(task_id)["channels"] == []
-
-
-def test_workflow_delivery_ui_source_contracts():
-    home_src = open("src/row_bot/ui/home.py", encoding="utf-8").read()
-    dialog_src = open("src/row_bot/ui/task_dialog.py", encoding="utf-8").read()
-
-    assert "Delivery defaults" in home_src
-    assert "ui.menu()" in home_src
-    assert "ui.checkbox" in home_src
-    assert "Web app always on" in home_src
-    assert "Web app always receives run status" in home_src
-    assert "multiple=True" not in home_src
-
-    assert "Use workflow default" in dialog_src
-    assert "Custom channels" in dialog_src
-    assert "Web app only" in dialog_src
-    assert "All channels" not in dialog_src
