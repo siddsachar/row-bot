@@ -150,3 +150,26 @@ def test_invalid_scope_never_opens_or_mutates_any_resource() -> None:
     selections = FolderSelections()
     with pytest.raises(ClientPlatformError, match="invalid_request"):
         selections.begin_exact(replace(_scope(), authority_grant=""))
+
+
+def test_custom_tool_grant_is_consumed_once_for_its_own_intent_and_session(tmp_path) -> None:
+    """Settings › Custom tools › Add from a folder: the desktop pick's exact grant (B170)."""
+    selected = tmp_path / "tool folder"
+    selected.mkdir()
+    selections = FolderSelections(clock=lambda: 10.0)
+    scope = replace(_scope(), intent="custom_tool", destination="custom-tools", conversation_id=None)
+    grant_id = selections.complete_exact(selections.begin_exact(scope), scope, selected, lambda: None)["grant_id"]
+    seen = []
+    # Another session, or a grant minted for a workspace, is refused.
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_custom_tool(grant_id, "session-2", seen.append)
+    authorized = selections.consume_exact_custom_tool(grant_id, "session-1", seen.append)
+    assert authorized.path == selected
+    assert seen == [scope, scope]
+    assert selections.consume_exact_custom_tool(grant_id, "session-1", seen.append) is None
+    workspace = replace(_scope(), intent="resource_setup", destination="workspace:existing_folder")
+    other = selections.complete_exact(selections.begin_exact(workspace), workspace, selected, lambda: None)["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_custom_tool(other, "session-1", seen.append)
+    # A legacy picker grant is not an exact one: the caller resolves it itself.
+    assert selections.consume_exact_custom_tool("unknown", "session-1", seen.append) is None

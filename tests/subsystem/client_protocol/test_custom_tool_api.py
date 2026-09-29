@@ -138,3 +138,48 @@ def test_custom_tool_library_is_refused_to_remote_sessions():
         _handshake, headers = bootstrap(client)
         response = client.get("/api/v1/custom-tools", headers=headers)
     assert response.status_code == 403 and response.json()["code"] == "owner_local_only"
+
+
+def test_add_from_a_folder_takes_the_desktop_folder_pick(tmp_path, monkeypatch):
+    """The desktop app's exact folder grant reaches the library once (B170)."""
+    from tests.subsystem.client_protocol.test_protocol_security import _native_proof, client_app
+    from row_bot.developer import client_custom_tool_library as library
+
+    snapshot = {"schema_version": 1, "tools": [], "drafts": [], "revision": "c" * 64}
+    seen = []
+
+    def execute(command, *, owner_id, validate, folder=None):
+        validate()
+        seen.append(folder)
+        return {"command_id": command["command_id"], "status": "completed", "summary": "Inspected.",
+                "snapshot": snapshot, "approval": None, "test": None}
+
+    monkeypatch.setattr(library, "execute_custom_tool_library", execute)
+    client, _service, _active = client_app()
+    with client:
+        proof, headers = _native_proof(client)
+
+        def pick(intent="custom_tool", destination="custom-tools"):
+            selected = client.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                                   json={**proof, "selection_kind": "folder", "intent_id": str(uuid4()),
+                                         "intent": intent, "conversation_id": None,
+                                         "destination": destination, "path": str(tmp_path)})
+            assert selected.status_code == 200, selected.text
+            return selected.json()["reference"]
+
+        def send(grant):
+            identity = str(uuid4())
+            return client.post("/api/v1/custom-tools/commands",
+                               headers={**headers, "Idempotency-Key": identity},
+                               json={"command_id": identity, "client_session_id": headers["X-Client-Session"],
+                                     "revision": "c" * 64, "action": "inspect", "payload": {},
+                                     "folder_grant": grant})
+
+        grant = pick()
+        inspected = send(grant)
+        assert inspected.status_code == 200, inspected.text
+        assert seen == [tmp_path]
+        # One pick, one use; a pick made for a code folder is not a tool folder.
+        assert send(grant).json()["code"] == "capability_revoked"
+        assert send(pick("resource_setup", "workspace:existing_folder")).json()["code"] == "capability_revoked"
+        assert seen == [tmp_path]

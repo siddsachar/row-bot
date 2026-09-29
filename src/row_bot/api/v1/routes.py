@@ -8766,7 +8766,28 @@ def create_router(
         if body.folder_grant:
             if body.action != "inspect":
                 raise ProtocolError("invalid_custom_tool_command", 422)
-            selected = await call(folder_selections.resolve, body.folder_grant, current.id)
+
+            def validate_native_folder(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            # The desktop app's pick is an exact grant; the older picker's
+            # grants are resolved as before.
+            selected = await call(
+                folder_selections.consume_exact_custom_tool,
+                body.folder_grant,
+                current.id,
+                validate_native_folder,
+            )
+            if selected is None:
+                selected = await call(folder_selections.resolve, body.folder_grant, current.id)
             folder = selected.path
         from row_bot.developer.client_custom_tool_library import execute_custom_tool_library
 

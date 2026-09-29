@@ -240,6 +240,37 @@ class FolderSelections:
         only the authenticated session and an authority revalidator.  ``None``
         means the identifier belongs to the retained legacy picker path.
         """
+        return self._consume_exact_for(
+            grant_id, session_id, validate,
+            intents={"resource_setup", "resource_continue"},
+            destinations={"workspace:existing_folder", "workspace:empty_folder"},
+        )
+
+    def consume_exact_custom_tool(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+    ) -> AuthorizedWorkspaceFolder | None:
+        """Consume the desktop pick behind Settings › Custom tools › Add from a folder.
+
+        Only a grant minted for that intent and destination in this session
+        is accepted, once.  ``None`` means a legacy picker grant.
+        """
+        exact = self._consume_exact_for(
+            grant_id, session_id, validate, intents={"custom_tool"}, destinations={"custom-tools"},
+        )
+        return None if exact is None else exact[0]
+
+    def _consume_exact_for(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+        *,
+        intents: set[str],
+        destinations: set[str],
+    ) -> tuple[AuthorizedWorkspaceFolder, FolderSelectionScope] | None:
         from row_bot.developer.client_workspace import AuthorizedWorkspaceFolder
         from row_bot.developer.review import scoped_workspace_path
 
@@ -251,9 +282,8 @@ class FolderSelections:
             scope = grant.scope
             if (
                 scope.session_id != session_id
-                or scope.intent not in {"resource_setup", "resource_continue"}
-                or scope.destination
-                not in {"workspace:existing_folder", "workspace:empty_folder"}
+                or scope.intent not in intents
+                or scope.destination not in destinations
             ):
                 raise ClientPlatformError("capability_revoked")
             validate(scope)
