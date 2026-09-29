@@ -871,11 +871,10 @@ def _custom_tool_builder_disabled_response(
     if not _looks_like_custom_tool_creation_request(user_input):
         return None
     return (
-        "Custom Tool Builder is disabled in Settings -> Utilities, so I can't "
+        "Custom Tool Builder is off in Settings -> Tools, so I can't "
         "create a Custom Tool from chat right now. I also won't use read_url or "
-        "shell commands as a workaround for this workflow. Enable Custom Tool "
-        "Builder, or open Developer -> Custom Tools -> New Custom Tool to do it "
-        "through the visual flow."
+        "shell commands as a workaround for this workflow. Turn on Custom Tool "
+        "Builder, or add the tool in Settings -> Tools -> Custom tools."
     )
 
 def _content_to_str(content) -> str:
@@ -1059,7 +1058,7 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "rate_limit" in s or "rate limit" in s or "429" in s:
         return "⚠️ Rate limit reached — please wait a moment and try again."
     if "invalid_api_key" in s or "incorrect api key" in s or "authentication" in s or "unauthorized" in s:
-        return "⚠️ Authentication failed — please verify your API key in Settings → API Keys."
+        return "⚠️ Authentication failed — please verify your API key in Settings → Providers."
     if "billing" in s:
         return "⚠️ Billing limit reached — please review your plan at the provider dashboard."
     if "context_length_exceeded" in s or "context length" in s or "maximum context" in s:

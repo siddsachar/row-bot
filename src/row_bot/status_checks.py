@@ -272,11 +272,11 @@ def check_tunnel() -> CheckResult:
         # The manager reports what this process is doing, including a start
         # that failed, never "Ready" while a wanted tunnel is down (B106).
         status_code, detail = tunnel_manager.status()
-        return CheckResult("Tunnel", status_code, detail, settings_tab="System")
+        return CheckResult("Tunnel", status_code, detail, settings_tab="Access")
     except Exception as exc:
         from row_bot.tunnel import describe_tunnel_error
         return CheckResult("Tunnel", "error", describe_tunnel_error(exc),
-                           settings_tab="System")
+                           settings_tab="Access")
 
 
 def check_gmail_oauth() -> CheckResult:
@@ -666,11 +666,11 @@ def check_search_tools() -> CheckResult:
         enabled = [tool for tool in available if _tool_reg.is_enabled(tool.name)]
         total = len(available)
         if not total:
-            return CheckResult("Search", "inactive", "No search tools", settings_tab="Search")
+            return CheckResult("Search", "inactive", "No search tools", settings_tab="Tools")
         status = "ok" if enabled else "warn"
-        return CheckResult("Search", status, f"{len(enabled)} / {total} enabled", settings_tab="Search")
+        return CheckResult("Search", status, f"{len(enabled)} / {total} enabled", settings_tab="Tools")
     except Exception as exc:
-        return CheckResult("Search", "error", str(exc), settings_tab="Search")
+        return CheckResult("Search", "error", str(exc), settings_tab="Tools")
 
 
 def check_tools() -> CheckResult:
@@ -680,10 +680,10 @@ def check_tools() -> CheckResult:
         n_enabled = len(_tool_reg.get_enabled_tools())
         n_total = len(_tool_reg.get_all_tools())
         if n_enabled:
-            return CheckResult("Tools", "ok", f"{n_enabled} / {n_total} enabled", settings_tab="Utilities")
-        return CheckResult("Tools", "error", f"0 / {n_total} enabled", settings_tab="Utilities")
+            return CheckResult("Tools", "ok", f"{n_enabled} / {n_total} enabled", settings_tab="Tools")
+        return CheckResult("Tools", "error", f"0 / {n_total} enabled", settings_tab="Tools")
     except Exception as exc:
-        return CheckResult("Tools", "error", str(exc), settings_tab="Utilities")
+        return CheckResult("Tools", "error", str(exc), settings_tab="Tools")
 
 
 def check_skills() -> CheckResult:

@@ -2,16 +2,16 @@
 Row-Bot – SMS Channel Adapter (Twilio)
 =======================================
 SMS/MMS channel using Twilio REST API for outbound.  Inbound messages
-arrive via a ``POST /sms`` route mounted on the main NiceGUI/Starlette
-app (same port as the web UI), so a single ngrok tunnel covers both.
+arrive via a ``POST /sms`` route mounted on the main app (same port as
+the web UI), so a single ngrok tunnel covers both.
 
 Setup:
     1. Create a Twilio account at https://www.twilio.com/
     2. Get your **Account SID** and **Auth Token** from the console
     3. Buy or use a Twilio phone number
-    4. Enable the main-app tunnel in Settings → System → Tunnel Settings
-       (or manually set the Twilio webhook to ``<public-url>/sms``)
-    5. Enter credentials in Settings → Channels → SMS
+    4. Enter credentials in Settings → Channels → SMS and start the channel:
+       it opens the main-app tunnel and registers ``<public-url>/sms`` with
+       Twilio (or set that webhook in Twilio yourself)
 
 Required keys (stored via api_keys):
     TWILIO_ACCOUNT_SID  – Twilio Account SID
@@ -382,7 +382,7 @@ def send_mms(phone: str, file_path: str, caption: str | None = None) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Inbound webhook handler (Starlette — mounted on main NiceGUI app)
+# Inbound webhook handler (Starlette — mounted on the main app)
 # ──────────────────────────────────────────────────────────────────────
 async def _handle_inbound_sms(request) -> Any:
     """Handle inbound SMS via Twilio webhook (POST /sms)."""
@@ -734,9 +734,9 @@ async def start_bot() -> bool:
                     _status_code, detail = tunnel_manager.status()
                     log.warning("SMS tunnel enabled but unavailable: %s", detail)
                     log.info(
-                        "Main-app tunnel not active — enable 'Expose task "
-                        "webhook endpoint' in Settings → System → Tunnel "
-                        "Settings, or set the Twilio webhook URL manually."
+                        "Main-app tunnel not active — check the public "
+                        "address in Settings → Devices & remote access, or "
+                        "set the Twilio webhook URL manually."
                     )
                     _webhook_public_url = None
             except ImportError:
@@ -840,7 +840,7 @@ class SMSChannel(Channel):
 
     @property
     def webhook_port(self) -> int | None:
-        return None  # /sms is mounted on the main NiceGUI app
+        return None  # /sms is mounted on the main app
 
     @property
     def needs_tunnel(self) -> bool:
@@ -853,10 +853,9 @@ class SMSChannel(Channel):
             "1. Create a [Twilio account](https://www.twilio.com/)\n"
             "2. Get your **Account SID** and **Auth Token** from the console\n"
             "3. Buy or use a Twilio phone number\n"
-            "4. Enable **Expose task webhook endpoint** in **Settings → System → Tunnel Settings**\n"
-            "   (the `/sms` webhook shares the main app's tunnel)\n"
-            "5. Paste credentials below and click **Save**\n"
-            "6. Click **▶️ Start** — Twilio webhook auto-registers"
+            "4. Paste credentials below and click **Save**\n"
+            "5. Click **▶️ Start**: the main app's tunnel opens and the `/sms`\n"
+            "   webhook registers with Twilio"
         )
 
     @property

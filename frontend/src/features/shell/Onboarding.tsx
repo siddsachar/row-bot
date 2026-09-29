@@ -512,7 +512,7 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
                 })}
               </ul>
               <p className="setup-more">
-                <Link to="/settings/system">
+                <Link to="/settings/data#migration">
                   Import from Hermes or OpenClaw
                 </Link>
                 <span aria-hidden>·</span>

@@ -74,8 +74,6 @@ AUTHENTICATED_ROUTE_PREFIXES: tuple[str, ...] = (
     "/api/designer",
     "/api/shell",
     "/api/terminal",
-    "/api/voice/local",
-    "/api/voice/realtime/client-secret",
 )
 
 
@@ -100,7 +98,7 @@ def is_browser_navigation(scope: Mapping[str, object]) -> bool:
     if scope.get("type") != "http" or _method(scope) not in {"GET", "HEAD"}:
         return False
     path = _path(scope)
-    if path.startswith(("/api/", "/_nicegui/", "/_media/", "/published/")):
+    if path.startswith(("/api/", "/published/")):
         return False
     accept = b",".join(_header_values(scope, b"accept")).decode(
         "latin-1", errors="ignore"

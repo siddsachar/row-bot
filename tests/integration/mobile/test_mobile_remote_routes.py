@@ -29,16 +29,16 @@ def _app(tmp_path):
     async def root():
         return {"ok": True, "surface": "root"}
 
-    @app.get("/_media/{path:path}")
-    async def media(path: str):  # noqa: ARG001
-        return JSONResponse({"private": "media"})
+    @app.get("/_buddy/{path:path}")
+    async def buddy_look(path: str):  # noqa: ARG001
+        return JSONResponse({"private": "buddy"})
 
     @app.get("/published/{path:path}")
     async def published(path: str):  # noqa: ARG001
         return JSONResponse({"private": "published"})
 
-    @app.post("/api/voice/realtime/client-secret")
-    async def voice_secret():
+    @app.post("/api/private/secret")
+    async def private_secret():
         return {"secret": "should-not-leak"}
 
     registration = register_access_routes(
@@ -94,9 +94,9 @@ def test_unpaired_remote_can_only_reach_minimal_connection_routes(tmp_path) -> N
     assert pair.headers["location"] == "/connect"
     assert root.status_code == 303
     assert root.headers["location"].startswith("/connect?next=")
-    assert remote.get("/_media/thread/file.png").status_code == 401
+    assert remote.get("/_buddy/look.png").status_code == 401
     assert remote.get("/published/page.html").status_code == 401
-    assert remote.post("/api/voice/realtime/client-secret").status_code == 401
+    assert remote.post("/api/private/secret").status_code == 401
 
 
 def test_forwarded_localhost_cannot_bypass_gate(tmp_path) -> None:
@@ -130,7 +130,7 @@ def test_compact_owner_claim_allows_private_routes_and_revoke_blocks_it(
     root = remote.get("/")
     assert root.status_code == 307
     assert root.headers["location"] == "/app-v2/"
-    assert remote.get("/_media/thread/file.png").status_code == 200
+    assert remote.get("/_buddy/look.png").status_code == 200
     assert remote.get("/published/page.html").status_code == 200
     assert service.inspect_invitation(invitation).status == "already_claimed"
 

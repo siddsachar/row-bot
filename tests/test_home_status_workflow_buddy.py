@@ -47,7 +47,7 @@ def test_home_status_has_aggregate_pills_for_current_settings_tabs():
     src = open("src/row_bot/status_checks.py", "r", encoding="utf-8").read()
 
     expected = {
-        "Search": "check_search_tools",
+        "Tools": "check_search_tools",
         "Skills": "check_skills",
         "Tracker": "check_tracker",
         "Buddy": "check_buddy",

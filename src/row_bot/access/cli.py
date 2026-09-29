@@ -399,7 +399,7 @@ def dispatch_access_command(
     stderr: TextIO | None = None,
     now: datetime | None = None,
 ) -> int:
-    """Execute an access subcommand without importing or starting NiceGUI."""
+    """Execute an access subcommand without starting the server."""
     output = stdout or sys.stdout
     error_output = stderr or sys.stderr
     command = str(getattr(args, "access_command", "") or "")

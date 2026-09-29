@@ -130,7 +130,7 @@ it('adds starter workflows only from an explicit click in resumed setup', async 
   );
   expect(
     screen.getByRole('link', { name: 'Import from Hermes or OpenClaw' }),
-  ).toHaveAttribute('href', '/settings/system');
+  ).toHaveAttribute('href', '/settings/data#migration');
 });
 
 it('retains the original command for recovery after an uncertain response', async () => {

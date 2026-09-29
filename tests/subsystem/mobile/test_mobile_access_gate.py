@@ -140,7 +140,7 @@ def test_recognized_forwarding_header_names_are_sorted_without_values() -> None:
 def test_local_http_bypasses_gate_for_sensitive_paths(tmp_path) -> None:
     gate = MobileAccessGate(_ok_app, store=MobileAuthStore(tmp_path / "mobile.db"))
 
-    messages = _run_http(gate, path="/_media/thread/file.png", client="127.0.0.1")
+    messages = _run_http(gate, path="/_buddy/look.png", client="127.0.0.1")
 
     assert _status(messages) == 200
 

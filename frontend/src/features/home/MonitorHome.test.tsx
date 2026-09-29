@@ -286,6 +286,40 @@ it('runs diagnosis only on click and presents bounded results with a retry', asy
   expect(healthTile('Model runtime')).toHaveTextContent('1 of 1 OK');
 });
 
+it('sends each check to the settings page that fixes it, by its name', async () => {
+  const run = vi
+    .fn<() => Promise<SystemDiagnosis>>()
+    .mockResolvedValue(
+      diagnosis(
+        check('Tunnel', 'warn', 'Not running', 'Access'),
+        check('Tools', 'ok', '12 / 14 enabled', 'Tools'),
+      ),
+    );
+  renderMonitor({ onRunDiagnosis: run });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+  await screen.findByText('Checked just now');
+
+  fireEvent.click(healthTile('Channels'));
+  const channels = screen.getByRole('dialog', { name: 'Channels' });
+  expect(
+    within(channels).getByRole('link', {
+      name: 'Open Devices & remote access settings',
+    }),
+  ).toHaveAttribute('href', '/settings/access');
+  fireEvent.click(
+    within(channels).getByRole('button', { name: 'Close health detail' }),
+  );
+
+  fireEvent.click(healthTile('MCP and tools'));
+  expect(
+    within(screen.getByRole('dialog', { name: 'MCP and tools' })).getByRole(
+      'link',
+      { name: 'Open Tools settings' },
+    ),
+  ).toHaveAttribute('href', '/settings/tools');
+});
+
 it('shows a safe diagnosis failure and allows an explicit retry', async () => {
   const run = vi
     .fn()

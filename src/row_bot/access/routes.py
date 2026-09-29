@@ -499,8 +499,7 @@ def build_access_router(
                 status_code=_claim_status(inspection.status),
                 headers=CONNECT_PAGE_HEADERS,
             )
-        # Pairing always enters the independent responsive client. The root
-        # path remains the default NiceGUI client for ordinary local launches.
+        # Pairing always enters the React client.
         next_path = REMOTE_CLIENT_PATH
         return HTMLResponse(
             _available_connect_page(

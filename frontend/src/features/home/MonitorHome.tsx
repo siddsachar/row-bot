@@ -41,6 +41,7 @@ import { clientError } from '../../api/errors';
 import { absoluteTime, parseTimestamp, relativeTime } from '../../ui/format';
 import { FAILED_RUN_STATUSES, When, plural, runStatus } from './home-format';
 import { Sparkline, Swimlane, type Lane } from './monitor-charts';
+import { settingsLeaves } from '../settings/model';
 
 export type MonitorAvailability =
   'available' | 'missing' | 'unavailable' | 'corrupt';
@@ -197,9 +198,7 @@ const TILES: {
     icon: Plug,
     match: (check) =>
       ['MCP', 'Plugins', 'Skills', 'Tools', 'Search'].includes(check.name) ||
-      ['MCP', 'Plugins', 'Skills', 'Utilities', 'Search'].includes(
-        check.settings_tab,
-      ),
+      ['MCP', 'Plugins', 'Skills', 'Tools'].includes(check.settings_tab),
   },
   {
     key: 'scheduler',
@@ -235,15 +234,19 @@ const SETTINGS_ROUTES: Record<string, string> = {
   MCP: 'mcp',
   Plugins: 'plugins',
   Skills: 'skills',
-  Utilities: 'tools',
-  Search: 'tools',
+  Tools: 'tools',
   Knowledge: 'knowledge',
   Documents: 'documents',
   Tracker: 'tracker',
   Buddy: 'buddy',
   Preferences: 'preferences',
   System: 'system',
+  Access: 'access',
 };
+
+function settingsLabel(route: string) {
+  return settingsLeaves.find((leaf) => leaf.id === route)?.label ?? route;
+}
 
 const CHECK_STATUS: Record<
   SystemDiagnosisCheck['status'],
@@ -1415,7 +1418,7 @@ export default function MonitorHome({
                           className="overview-section-link"
                           to={`/settings/${route}`}
                         >
-                          Open {check.settings_tab} settings
+                          Open {settingsLabel(route)} settings
                         </Link>
                       )}
                     </li>

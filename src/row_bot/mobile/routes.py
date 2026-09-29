@@ -171,7 +171,7 @@ async def mobile_offline(request: Request) -> HTMLResponse:  # noqa: ARG001
 async def mobile_service_worker(request: Request) -> PlainTextResponse:  # noqa: ARG001
     body = """const CACHE_NAME = 'row-bot-mobile-shell-v2';
 const SHELL_ASSETS = ['/mobile/offline', '/static/row_bot_glyph_256.png'];
-const PRIVATE_PREFIXES = ['/api/', '/_media', '/published', '/_buddy', '/_nicegui_ws', '/_nicegui/'];
+const PRIVATE_PREFIXES = ['/api/', '/published', '/_buddy'];
 const BYPASS_PATHS = ['/mobile/pair', '/mobile/service-worker.js'];
 
 self.addEventListener('install', (event) => {
