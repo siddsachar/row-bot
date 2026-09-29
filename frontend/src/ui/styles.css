@@ -5708,6 +5708,22 @@ details[open] > summary > .settings-disclosure-chevron {
   height: 100%;
 }
 
+.native-terminal-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.native-terminal-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
 .native-terminal-output {
   min-height: 12rem;
   flex: 1;

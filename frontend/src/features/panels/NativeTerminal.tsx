@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Eraser, Square } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import { useClientSelector, useRuntime } from '../../runtime';
-import { Button, EmptyState } from '../../ui/primitives';
+import {
+  Button,
+  EmptyState,
+  Hint,
+  IconButton,
+  Toolbar,
+} from '../../ui/primitives';
 
 const OUTPUT_LIMIT = 256 * 1024;
+// What Ctrl+C types in a terminal: the shell stops the running command
+// (ConPTY raises CTRL_C_EVENT, a Unix terminal sends SIGINT).
+const INTERRUPT = '\x03';
 
 export default function NativeTerminal({ visible }: { visible: boolean }) {
   const conversationId = useClientSelector(
@@ -25,9 +35,7 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
     void platform.openTerminal(conversationId).then(async (result) => {
       if (!alive) return;
       if (result.status !== 'ok') {
-        setError(
-          'The interactive terminal requires the trusted desktop window.',
-        );
+        setError('The terminal needs the Row-Bot desktop app.');
         return;
       }
       terminal = result.value.terminalId;
@@ -82,16 +90,28 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
     if (element) element.scrollTop = element.scrollHeight;
   }, [output]);
 
+  async function send(data: string) {
+    if (!terminalId) return;
+    try {
+      await controller.terminalInput(terminalId, data);
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!terminalId || !input) return;
     const value = input;
     setInput('');
-    try {
-      await controller.terminalInput(terminalId, `${value}\r`);
-    } catch (cause) {
-      setError(clientError(cause).message);
-    }
+    await send(`${value}\r`);
+  }
+
+  // Only what is shown goes: the read cursor stays, so old output never
+  // comes back on the next read.
+  function clear() {
+    setOutput('');
+    setTruncated(false);
   }
 
   if (!visible) return null;
@@ -102,16 +122,39 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
       className="native-terminal stack"
       aria-label="Interactive terminal"
     >
-      <div className="button-row">
-        <strong>Interactive terminal</strong>
-        <small>
-          {terminalId ? 'Connected to the local PTY' : 'Connecting…'}
-        </small>
+      <div className="native-terminal-header">
+        <div className="native-terminal-title">
+          <strong>Interactive terminal</strong>
+          <small>
+            {terminalId ? 'Terminal on this computer' : 'Connecting…'}
+          </small>
+        </div>
+        <Toolbar label="Terminal actions">
+          <Hint label="Stop" shortcut="Ctrl+C">
+            <Button
+              iconOnly
+              variant="ghost"
+              className="icon-action icon-action-sm"
+              aria-label="Stop the running command"
+              aria-keyshortcuts="Control+C"
+              disabled={!terminalId}
+              onClick={() => void send(INTERRUPT)}
+            >
+              <Square size={14} aria-hidden />
+            </Button>
+          </Hint>
+          <IconButton
+            size="sm"
+            label="Clear"
+            disabled={!output && !truncated}
+            onClick={clear}
+          >
+            <Eraser size={14} aria-hidden />
+          </IconButton>
+        </Toolbar>
       </div>
       {truncated && (
-        <p role="status">
-          Earlier terminal output was dropped to preserve bounds.
-        </p>
+        <p role="status">Some earlier output is no longer shown.</p>
       )}
       <pre ref={outputRef} className="native-terminal-output" tabIndex={0}>
         {output || 'Terminal output will appear here.'}
@@ -127,7 +170,24 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
           maxLength={16384}
           autoComplete="off"
           disabled={!terminalId}
+          aria-keyshortcuts="Control+C"
           onChange={(event) => setInput(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key.toLowerCase() !== 'c' ||
+              !event.ctrlKey ||
+              event.metaKey ||
+              event.altKey ||
+              event.shiftKey
+            )
+              return;
+            const field = event.currentTarget;
+            // Selected text copies as usual; otherwise Ctrl+C stops the
+            // running command, like a terminal. The typed line is kept.
+            if (field.selectionStart !== field.selectionEnd) return;
+            event.preventDefault();
+            void send(INTERRUPT);
+          }}
         />
         <Button type="submit" disabled={!terminalId || !input}>
           Send
