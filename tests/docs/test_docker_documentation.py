@@ -108,7 +108,7 @@ def test_public_guide_covers_secrets_source_build_and_vps_topology() -> None:
         "ROW_BOT_TRUSTED_PROXY_CIDRS=127.0.0.1/32",
         "inbound TCP 80/443",
         "do not expose 8080",
-        "WebSocket remains connected",
+        "event stream stays connected",
         "streamed response",
         "Reboot the VPS",
     ):

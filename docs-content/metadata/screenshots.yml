@@ -1,3 +1,8 @@
+# Committed public screenshots. `capture_real_ui_screenshots.py --validate-only`
+# checks every image here. The capture targets (route, capture_selector,
+# wait_for, actions, expected_text) were written for the retired client and
+# have been removed; automated capture refuses until each screenshot gets a
+# React target: a route under /app-v2/, a capture_selector and expected_text.
 desktop_defaults: &desktop
   status: required
   scenario: configured
@@ -5,7 +10,6 @@ desktop_defaults: &desktop
   source: isolated-demo-data
   review_status: approved
   public_asset: true
-  masks: ['[data-sensitive]']
 mobile_defaults: &mobile
   status: required
   scenario: mobile
@@ -13,481 +17,282 @@ mobile_defaults: &mobile
   source: isolated-demo-data
   review_status: approved
   public_asset: true
-  masks: ['[data-sensitive]']
 screenshots:
   first-launch-setup-wizard:
     <<: *desktop
     title: First-launch setup wizard
     scenario: first-run
     source: isolated-first-launch
-    route: /?docs_surface=first-launch-setup-wizard
-    capture_selector: '[data-docs-id="setup-wizard"]'
-    wait_for: '[data-docs-id="setup-wizard"]'
-    expected_text: [Welcome to Row-Bot, Connect your first model]
     output: first-launch-setup-wizard.png
     alt: First-launch Row-Bot setup showing local, subscription, API, and custom model connection routes.
     docs_pages: [/docs/getting-started/first-launch]
   setup-center:
     <<: *desktop
     title: Setup Center
-    route: /?dialog=setup-center
-    capture_selector: '[data-docs-id="setup-center"]'
-    wait_for: '[data-docs-id="setup-center"]'
-    expected_text: [Setup Center, Models]
     output: setup-center.png
     alt: Resumable Row-Bot Setup Center with core and optional configuration cards.
     docs_pages: [/docs/getting-started/first-launch]
   app-shell-overview:
     <<: *desktop
     title: Expanded desktop application shell
-    route: /?home_tab=Workflows
-    capture_selector: '[data-docs-id="app-shell"]'
-    wait_for: '[data-docs-id="home-panel-workflows"]'
-    expected_text: [Conversations, Workflows, Activity]
     output: app-shell-overview.png
     alt: Fully expanded Row-Bot desktop application with conversation sidebar, Home workspace, and Activity drawer.
     docs_pages: [/docs/app-shell/navigation]
   chat-main:
     <<: *desktop
     title: Chat conversation
-    route: /?docs_surface=chat-main&thread_id=docs-demo-chat
-    capture_selector: '[data-docs-id="chat-surface"]'
-    wait_for: '[data-docs-id="chat-surface"]'
-    expected_text: [Demo launch checklist, Summarize the launch checklist]
     output: chat-main.png
     alt: Row-Bot chat with a fictional launch-checklist conversation, composer controls, goal, and agent activity.
     docs_pages: [/docs/chat/]
   chat-model-picker:
     <<: *desktop
     title: Chat model picker
-    route: /?docs_surface=chat-main&thread_id=docs-demo-chat
-    actions:
-      - click_selector: '[data-docs-id="chat-model-picker"]'
-      - wait_for_text: Custom local endpoint
-    capture_selector: '[data-docs-id="chat-model-picker"]'
-    wait_for: '[data-docs-id="chat-model-picker"]'
-    expected_text: [Default, Ollama Local, Custom local endpoint]
     output: chat-model-picker.png
     alt: Open chat model picker showing provider-qualified local Quick Choices and the thread default.
     docs_pages: [/docs/chat/model-picker]
   chat-tool-trace:
     <<: *desktop
     title: Chat tool trace
-    route: /?docs_surface=chat-tool-trace&thread_id=docs-demo-chat
-    actions:
-      - click_text: filesystem.search
-    capture_selector: '[data-docs-id="tool-trace"]'
-    wait_for: '[data-docs-id="tool-trace"]'
-    expected_text: [filesystem.search]
     output: chat-tool-trace.png
     alt: Expanded Row-Bot tool trace containing inert results from the isolated demonstration workspace.
     docs_pages: [/docs/chat/tools-approvals-and-terminal]
   chat-approval:
     <<: *desktop
     title: Consequential action approval
-    route: /?docs_surface=chat-main&thread_id=docs-demo-chat&dialog=approval
-    capture_selector: '[data-docs-id="approval-dialog"]'
-    wait_for: '[data-docs-id="approval-dialog"]'
-    expected_text: [Confirmation Required, launch-summary.md, Reversible]
     output: chat-approval.png
     alt: Row-Bot confirmation dialog describing a reversible write to the isolated demo workspace with Approve and Deny controls.
     docs_pages: [/docs/privacy-safety/, /docs/chat/tools-approvals-and-terminal]
   chat-export:
     <<: *desktop
     title: Conversation export
-    route: /?docs_surface=chat-main&thread_id=docs-demo-chat&dialog=export
-    capture_selector: '[data-docs-id="export-dialog"]'
-    wait_for: '[data-docs-id="export-dialog"]'
-    expected_text: [MARKDOWN, PDF]
     output: chat-export.png
     alt: Row-Bot conversation export dialog with Markdown, plain-text, and PDF choices.
     docs_pages: [/docs/chat/]
   agent-profile-library:
     <<: *desktop
     title: Agent profile library
-    route: /?docs_surface=chat-main&thread_id=docs-demo-chat
-    actions:
-      - click_selector: '[data-docs-id="profile-library-toggle"]'
-      - wait_for_text: Research Guide
-    capture_selector: '[data-profile-library-drawer="1"]'
-    wait_for: '[data-profile-library-drawer="1"]'
-    expected_text: [Agent profiles, Research Guide, Project Coordinator]
     output: agent-profile-library.png
     alt: Open Agent profile library showing two fictional profiles and their capability summaries.
     docs_pages: [/docs/app-shell/agent-profiles]
   goal-and-agents:
     <<: *desktop
     title: Goal and delegated agents
-    route: /?docs_surface=chat-main&thread_id=docs-demo-chat
-    capture_selector: '[data-docs-id="app-shell"]'
-    wait_for: '[data-docs-id="chat-surface"]'
-    expected_text: [Prepare and verify the fictional launch checklist, Launch coordinator, Source reviewer]
     output: goal-and-agents.png
     alt: Row-Bot chat and Activity drawer showing an active goal with parent and child agent progress.
     docs_pages: [/docs/app-shell/agent-profiles]
   home-workflows:
     <<: *desktop
     title: Workflows Home tab
-    route: /?home_tab=Workflows
-    capture_selector: '[data-docs-id="home-panel-workflows"]'
-    wait_for: '[data-docs-id="home-panel-workflows"]'
-    expected_text: [Workflows, Morning Brief, Launch Summary]
     output: home-workflows.png
     alt: Workflows Home tab with scheduled, manual, completed, failed, and approval-pending demonstration states.
     docs_pages: [/docs/home/workflows, /docs/guides/workflows]
   workflow-editor:
     <<: *desktop
     title: Workflow editor
-    route: /?dialog=workflow-editor
-    capture_selector: '[data-docs-id="workflow-editor"]'
-    wait_for: '[data-docs-id="workflow-editor"]'
-    expected_text: [New Workflow, Approval]
     output: workflow-editor.png
     alt: New Workflow dialog showing prompts, schedule, delivery, agent profile, and approval controls.
     docs_pages: [/docs/guides/workflows]
   home-designer:
     <<: *desktop
     title: Designer Home tab
-    route: /?home_tab=Designer
-    capture_selector: '[data-docs-id="home-panel-designer"]'
-    wait_for: '[data-docs-id="home-panel-designer"]'
-    expected_text: [Designer, Community Workshop Deck]
     output: home-designer.png
     alt: Designer Home tab with a fictional two-page community workshop presentation.
     docs_pages: [/docs/home/designer]
   designer-editor:
     <<: *desktop
     title: Designer Studio editor
-    route: /?docs_surface=designer-editor
-    capture_selector: '[data-docs-id="designer-editor"]'
-    wait_for: '[data-docs-id="designer-editor"]'
-    expected_text: [Export]
     output: designer-editor.png
     alt: Designer Studio editor with chat, page navigation, and a rendered fictional workshop slide.
     docs_pages: [/docs/designer/]
   home-developer:
     <<: *desktop
     title: Developer Home tab
-    route: /?home_tab=Developer
-    capture_selector: '[data-docs-id="home-panel-developer"]'
-    wait_for: '[data-docs-id="home-panel-developer"]'
-    expected_text: [Developer, demo-release-notes]
     output: home-developer.png
     alt: Developer Home tab showing an isolated demonstration repository and Custom Tools entry point.
     docs_pages: [/docs/home/developer]
   developer-workspace:
     <<: *desktop
     title: Developer Studio workspace
-    route: /?docs_surface=developer-workspace
-    capture_selector: '[data-docs-id="developer-workspace"]'
-    wait_for: '[data-docs-id="developer-workspace"]'
-    expected_text: [demo-release-notes]
     output: developer-workspace.png
     alt: Developer Studio workspace showing an isolated Git repository, changed README, inspector, and chat.
     docs_pages: [/docs/developer/]
   home-knowledge:
     <<: *desktop
     title: Knowledge Home tab
-    route: /?home_tab=Knowledge
-    capture_selector: '[data-docs-id="home-panel-knowledge"]'
-    wait_for: '[data-docs-id="home-panel-knowledge"]'
-    expected_text: [Knowledge, 4 memories]
     output: home-knowledge.png
     alt: Knowledge graph Home tab with deterministic fictional entities, relations, and provenance.
     docs_pages: [/docs/knowledge/, /docs/home/knowledge]
   home-monitor:
     <<: *desktop
     title: Monitor Home tab
-    route: /?home_tab=Monitor
-    capture_selector: '[data-docs-id="home-panel-monitor"]'
-    wait_for: '[data-docs-id="home-panel-monitor"]'
-    expected_text: [System Monitor, Dream Cycle, Recent Logs]
     output: home-monitor.png
     alt: Monitor Home tab showing deterministic Knowledge, Dream Cycle, channel, and log status.
     docs_pages: [/docs/monitor/, /docs/home/monitor]
   settings-providers:
     <<: *desktop
     title: Providers settings
-    route: /?settings_tab=Providers
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Providers, Ollama Local, ChatGPT / Codex, OpenAI API]
     output: settings-providers.png
     alt: Providers settings presenting local, subscription, and API routes with equal visual weight and no credentials.
     docs_pages: [/docs/settings/providers]
   settings-models:
     <<: *desktop
     title: Models settings
-    route: /?settings_tab=Models
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Models, Defaults, Vision]
     output: settings-models.png
     alt: Models settings for default models, provider-qualified Quick Choices, and capability metadata.
     docs_pages: [/docs/settings/models]
   settings-knowledge:
     <<: *desktop
     title: Knowledge settings
-    route: /?settings_tab=Knowledge
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Knowledge, Wiki]
     output: settings-knowledge.png
     alt: Knowledge settings for memory, graph health, embeddings, document knowledge, and Wiki vault output.
     docs_pages: [/docs/settings/knowledge]
   settings-buddy:
     <<: *desktop
     title: Buddy settings
-    route: /?settings_tab=Buddy
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Buddy, Show Buddy]
     output: settings-buddy.png
     alt: Buddy settings for companion visibility, behaviour, appearance, and motion.
     docs_pages: [/docs/settings/buddy]
   settings-voice:
     <<: *desktop
     title: Voice settings
-    route: /?settings_tab=Voice
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Voice, Dictation]
     output: settings-voice.png
     alt: Voice settings for dictation, realtime conversation, read-aloud, providers, and diagnostics.
     docs_pages: [/docs/settings/voice]
   settings-system:
     <<: *desktop
     title: System settings
-    route: /?settings_tab=System
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [System, Remote Access]
     output: settings-system.png
     alt: System settings showing isolated filesystem, shell, browser, Remote Access, tunnel, logging, and update controls.
     docs_pages: [/docs/settings/system]
   settings-remote-access:
     <<: *desktop
     title: Remote Access settings
-    route: /?settings_tab=System
-    actions:
-      - scroll_into_view: '[data-docs-id="remote-access-settings"]'
-    capture_selector: '[data-docs-id="remote-access-settings"]'
-    wait_for: '[data-docs-id="remote-access-settings"]'
-    expected_text: [Remote Access, Invite a device, Tailscale, Local network]
     output: settings-remote-access.png
     alt: Remote Access settings showing protected device access, invitation creation, Tailscale Serve, and explicit local-network controls.
     docs_pages: [/docs/settings/system, /docs/operations/remote-access]
   remote-access-invitation:
     <<: *desktop
     title: Remote Access device invitation
-    route: /?settings_tab=System
-    actions:
-      - scroll_into_view: '[data-docs-id="remote-access-settings"]'
-      - click_text: Invite a device
-      - wait_for_selector: '[data-docs-id="remote-access-invitation"]'
-    capture_selector: '[data-docs-id="remote-access-invitation"]'
-    wait_for: '[data-docs-id="remote-access-invitation"]'
-    expected_text: [Invite a device, Desktop layout, Compact layout, full owner access, Connection route, Create invitation]
     output: remote-access-invitation.png
     alt: Device invitation dialog showing desktop and compact layout choices, full owner access disclosure, trusted and temporary lifetimes, and a live connection-route selector.
     docs_pages: [/docs/operations/remote-access, /docs/operations/docker, /docs/mobile-native/]
   settings-tracker:
     <<: *desktop
     title: Tracker settings
-    route: /?settings_tab=Tracker
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Tracker]
     output: settings-tracker.png
     alt: Tracker settings for local recurring activity, habit, symptom, and health-event records.
     docs_pages: [/docs/settings/tracker]
   settings-documents:
     <<: *desktop
     title: Documents settings
-    route: /?settings_tab=Documents
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Documents]
     output: settings-documents.png
     alt: Documents settings with fictional local document extraction, indexing, and search controls.
     docs_pages: [/docs/getting-started/first-launch, /docs/operations/docker, /docs/settings/documents]
   settings-tools:
     <<: *desktop
     title: Tools settings
-    route: /?settings_tab=Tools
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Tools, Capability loading, Auto-select external tools, DuckDuckGo]
     output: settings-search.png
     alt: Tools settings with automatic external capability loading, retrieval compression, and search tools with network activity disabled.
     docs_pages: [/docs/settings/tools]
   settings-skills:
     <<: *desktop
     title: Skills settings
-    route: /?settings_tab=Skills
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Skills, Browse Skills]
     output: settings-skills.png
     alt: Skills settings for reviewing, enabling, disabling, pinning, and browsing Smart Skills.
     docs_pages: [/docs/settings/skills]
   settings-accounts:
     <<: *desktop
     title: Accounts settings
-    route: /?settings_tab=Accounts
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Accounts, GitHub, Google]
     output: settings-accounts.png
     alt: Accounts settings showing disconnected GitHub, Google, and X integrations with no account identifiers.
     docs_pages: [/docs/settings/accounts]
   settings-channels:
     <<: *desktop
     title: Channels settings
-    route: /?settings_tab=Channels
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Channels, Telegram, WhatsApp]
     output: settings-channels.png
     alt: Channels settings with fictional Telegram, WhatsApp, Slack, and Discord adapters configured but stopped.
     docs_pages: [/docs/settings/channels, /docs/integrations/channels]
   settings-utilities:
     <<: *desktop
     title: Utilities settings
-    route: /?settings_tab=Utilities
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Utilities]
     output: settings-utilities.png
     alt: Utilities settings for local productivity tools and system integrations.
     docs_pages: [/docs/settings/utilities]
   settings-mcp:
     <<: *desktop
     title: MCP settings
-    route: /?settings_tab=MCP
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [MCP, Demo GitHub MCP, disabled]
     output: settings-mcp.png
     alt: MCP settings with two fictional external servers configured and disabled.
     docs_pages: [/docs/settings/mcp, /docs/integrations/mcp]
   settings-plugins:
     <<: *desktop
     title: Plugins settings
-    route: /?settings_tab=Plugins
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Plugin Center, Demo CRM Lookup]
     output: settings-plugins.png
     alt: Plugins settings with an inert local demonstration plugin and marketplace entry point.
     docs_pages: [/docs/settings/plugins, /docs/integrations/plugins]
   settings-preferences:
     <<: *desktop
     title: Preferences settings
-    route: /?settings_tab=Preferences
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Preferences, Assistant]
     output: settings-preferences.png
     alt: Preferences settings for assistant identity, launch behaviour, background intelligence, updates, and migration.
     docs_pages: [/docs/settings/preferences]
   skills-hub:
     <<: *desktop
     title: Browse Skills marketplace
-    route: /?dialog=skills-hub
-    capture_selector: '[data-docs-id="skills-hub"]'
-    wait_for: '[data-docs-id="skills-hub"]'
-    expected_text: [Browse Public Skills, Research Brief, Workflow Review]
     output: skills-hub.png
     alt: Offline Public Skills Hub fixture showing two reviewable demonstration skills and source status.
     docs_pages: [/docs/skills/]
   plugin-marketplace:
     <<: *desktop
     title: Plugin Marketplace
-    route: /?dialog=plugin-marketplace
-    capture_selector: '[data-docs-id="plugin-marketplace"]'
-    wait_for: '[data-docs-id="plugin-marketplace"]'
-    expected_text: [Plugin Marketplace, Demo CRM Lookup, Invoice Helper]
     output: plugin-marketplace.png
     alt: Offline Plugin Marketplace fixture showing verified and review-required example plugins without installing them.
     docs_pages: [/docs/integrations/plugins]
   mcp-add-server:
     <<: *desktop
     title: Add MCP server
-    route: /?dialog=mcp-add-server
-    capture_selector: '[data-docs-id="mcp-add-server"]'
-    wait_for: '[data-docs-id="mcp-add-server"]'
-    expected_text: [Add MCP Server]
     output: mcp-add-server.png
     alt: Blank Add MCP Server dialog showing transport and disabled configuration controls without starting a server.
     docs_pages: [/docs/integrations/mcp]
   mcp-marketplace:
     <<: *desktop
     title: Browse MCP server marketplace
-    route: /?dialog=mcp-marketplace
-    capture_selector: '[data-docs-id="mcp-marketplace"]'
-    wait_for: '[data-docs-id="mcp-marketplace"]'
-    expected_text: [Connect MCP Tools, GitHub MCP Server, Playwright MCP, Context7]
     output: mcp-marketplace.png
     alt: Offline MCP server marketplace showing bundled starter servers with publisher, transport, overlap, and risk labels.
     docs_pages: [/docs/integrations/mcp, /docs/extending/]
   mobile-chat-list:
     <<: *mobile
     title: Android chat list
-    route: /?mobile=1&mobile_view=chat
-    capture_selector: '[data-docs-id="mobile-shell"]'
-    wait_for: '[data-docs-id="mobile-shell"]'
-    expected_text: [Chat, Demo launch checklist, Research digest]
     output: mobile-chat-list.png
     alt: Android-sized Row-Bot owner view showing the fictional conversation list and bottom navigation.
     docs_pages: [/docs/mobile-native/]
   mobile-chat-detail:
     <<: *mobile
     title: Android chat detail
-    route: /?mobile=1&mobile_view=chat&thread_id=docs-demo-chat
-    capture_selector: '[data-docs-id="mobile-chat-detail"]'
-    wait_for: '[data-docs-id="mobile-chat-detail"]'
-    expected_text: [Demo launch checklist, Summarize the launch checklist]
     output: mobile-chat-detail.png
     alt: Android-sized Row-Bot chat detail with the fictional launch checklist and compact composer.
     docs_pages: [/docs/mobile-native/]
   mobile-activity:
     <<: *mobile
     title: Android Activity
-    route: /?mobile=1&mobile_view=activity
-    capture_selector: '[data-docs-id="mobile-shell"]'
-    wait_for: '[data-docs-id="mobile-shell"]'
-    expected_text: [Activity]
     output: mobile-activity.png
     alt: Android-sized Activity view showing active goals, delegated agents, approvals, and workflow status.
     docs_pages: [/docs/mobile-native/]
   mobile-workflows:
     <<: *mobile
     title: Android Workflows
-    route: /?mobile=1&mobile_view=workflows
-    capture_selector: '[data-docs-id="mobile-shell"]'
-    wait_for: '[data-docs-id="mobile-shell"]'
-    expected_text: [Workflows, Morning Brief, Launch Summary]
     output: mobile-workflows.png
     alt: Android-sized Workflows view with deterministic scheduled and approval-pending workflows.
     docs_pages: [/docs/mobile-native/]
   mobile-knowledge:
     <<: *mobile
     title: Android Knowledge
-    route: /?mobile=1&mobile_view=knowledge
-    capture_selector: '[data-docs-id="mobile-shell"]'
-    wait_for: '[data-docs-id="mobile-shell"]'
-    expected_text: [Knowledge]
     output: mobile-knowledge.png
     alt: Android-sized Knowledge view with local memory and graph entry points.
     docs_pages: [/docs/mobile-native/]
   mobile-settings:
     <<: *mobile
     title: Android Settings
-    route: /?mobile=1&settings_tab=Providers
-    capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-dialog"]'
-    expected_text: [Settings, Providers, Ollama Local]
     output: mobile-settings.png
     alt: Android-sized Providers settings showing local, subscription, and API connection routes without credentials.
     docs_pages: [/docs/mobile-native/]

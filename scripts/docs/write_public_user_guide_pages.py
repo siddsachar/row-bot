@@ -574,6 +574,10 @@ SETTINGS = {
 }
 
 
+# Settings reference sections are named after the React settings page.
+CONTROL_ANCHORS = {"knowledge": "memory", "utilities": "tools"}
+
+
 def settings_page(slug: str, meta: dict[str, object]) -> str:
     controls = "\n".join(f"- {item}" for item in meta["controls"])
     workflow = "\n".join(f"{idx}. {item}" for idx, item in enumerate(meta["workflow"], 1))
@@ -625,7 +629,7 @@ Open **Settings**, then choose **{meta['title'].split(': ', 1)[1]}** from the le
 
 ## Control-Level Reference
 
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#{slug}-controls) lists the visible controls found in the current application source, including defaults, allowed values when they are declared inline, dependencies, restart notes, security notes, and source locations.
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#{CONTROL_ANCHORS.get(slug, slug)}-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
 
 ## Troubleshooting
 

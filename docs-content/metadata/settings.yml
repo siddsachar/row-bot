@@ -1,91 +1,114 @@
-tabs:
-  Providers:
-    description: Connect hosted, subscription, local, cloud, and custom model providers.
-    docs_route: /docs/settings/providers
-    screenshot_id: settings-providers
-    source: src/row_bot/ui/settings.py
-  Models:
-    description: Pin model Quick Choices, choose defaults, and review catalog metadata.
-    docs_route: /docs/settings/models
-    screenshot_id: settings-models
-    source: src/row_bot/ui/settings.py
-  Documents:
-    description: Manage uploaded documents, document search, extraction, and vector
-      indexing.
-    docs_route: /docs/settings/documents
-    screenshot_id: settings-documents
-    source: src/row_bot/ui/settings.py
-  Tools:
-    description: Configure progressive external-tool loading, retrieval compression,
-      and search and knowledge tools.
-    docs_route: /docs/settings/tools
-    screenshot_id: settings-tools
-    source: src/row_bot/ui/settings.py
-  Skills:
-    description: Enable, disable, pin, browse, and review Smart Skills.
-    docs_route: /docs/settings/skills
-    screenshot_id: settings-skills
-    source: src/row_bot/ui/settings.py
-  System:
-    description: Configure Remote Access, workspace paths, shell/browser automation,
-      local networking, logging, and updates.
-    docs_route: /docs/settings/system
-    screenshot_id: settings-system
-    source: src/row_bot/ui/settings.py
-  Accounts:
-    description: Connect account-level integrations used by tools and setup flows.
-    docs_route: /docs/settings/accounts
-    screenshot_id: settings-accounts
-    source: src/row_bot/ui/settings.py
-  Utilities:
-    description: Configure built-in utility tools and system integrations.
-    docs_route: /docs/settings/utilities
-    screenshot_id: settings-utilities
-    source: src/row_bot/ui/settings.py
-  Tracker:
-    description: Configure habit and health tracker views, charts, and logged data.
-    docs_route: /docs/settings/tracker
-    screenshot_id: settings-tracker
-    source: src/row_bot/ui/settings.py
-  Knowledge:
-    description: Configure memory, document knowledge, graph review, embeddings, and
-      wiki export.
-    docs_route: /docs/settings/knowledge
-    screenshot_id: settings-knowledge
-    source: src/row_bot/ui/settings.py
-  Buddy:
+# Docs metadata for the React settings pages. Page ids, labels, groups and
+# searchable rows come from frontend/src/features/settings/model.ts; every page
+# there needs exactly one entry here (collect_inventory.py fails otherwise).
+pages:
+  preferences:
+    description: Set the assistant's name and personality, self-improvement, window
+      mode, and the Dream Cycle.
+    docs_route: /docs/settings/preferences
+    screenshot_id: settings-preferences
+  appearance:
+    description: Choose the theme, accent colour, density, and transparency, or reset
+      the panel layout.
+    docs_route: /docs/settings/preferences
+  buddy:
     description: Configure companion visibility, drag-to-undock overlay messaging,
       approvals, look, custom looks, and motion.
     docs_route: /docs/settings/buddy
     screenshot_id: settings-buddy
-    source: src/row_bot/ui/buddy.py
-  Voice:
-    description: Configure dictation, realtime talk, read-aloud, voice models, and
-      diagnostics.
+    dependencies: Desktop overlay behaviour depends on native-window support.
+  providers:
+    description: Connect hosted, subscription, local, cloud, and custom model providers.
+    docs_route: /docs/settings/providers
+    screenshot_id: settings-providers
+    security: Credentials are stored through the configured secret store; values are
+      not shown in this reference.
+  models:
+    description: Choose the default, vision, and image models, and pin models from the
+      catalog.
+    docs_route: /docs/settings/models
+    screenshot_id: settings-models
+  voice:
+    description: Configure realtime talk, dictation, the Whisper model size, and
+      read-aloud.
     docs_route: /docs/settings/voice
     screenshot_id: settings-voice
-    source: src/row_bot/ui/settings.py
-  Channels:
+    dependencies: Voice extras, provider credentials, and OS audio permissions may be
+      required.
+  knowledge:
+    description: Review the memory graph and configure Wiki vault export.
+    docs_route: /docs/settings/knowledge
+    screenshot_id: settings-knowledge
+  documents:
+    description: Upload documents and choose the embedding engine used for document
+      search.
+    docs_route: /docs/settings/documents
+    screenshot_id: settings-documents
+  tracker:
+    description: Turn the habit and health tracker on or off and manage its local
+      records.
+    docs_route: /docs/settings/tracker
+    screenshot_id: settings-tracker
+  tools:
+    description: Configure progressive external-tool loading, retrieval compression,
+      search and knowledge tools, built-in utility tools, and Custom Tools.
+    docs_route: /docs/settings/tools
+    screenshot_id: settings-tools
+  skills:
+    description: Review installed skills and discover public skills.
+    docs_route: /docs/settings/skills
+    screenshot_id: settings-skills
+  plugins:
+    description: Manage installed plugins and browse the plugin marketplace.
+    docs_route: /docs/settings/plugins
+    screenshot_id: settings-plugins
+    dependencies: Plugin-provided dependencies remain disabled until reviewed and
+      installed.
+    security: Review source, permissions, and provided capabilities before enabling.
+  mcp:
+    description: Add, import, enable, and troubleshoot external MCP servers and their
+      managed runtimes.
+    docs_route: /docs/settings/mcp
+    screenshot_id: settings-mcp
+    dependencies: The MCP extra and a compatible external server are required.
+    security: External servers can expose consequential tools; keep new servers
+      disabled until tested.
+  accounts:
+    description: Connect the GitHub, Google, and X accounts used by tools and setup
+      flows.
+    docs_route: /docs/settings/accounts
+    screenshot_id: settings-accounts
+    security: Connecting an account opens an external authorisation flow.
+  channels:
     description: Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and
       health checks.
     docs_route: /docs/settings/channels
     screenshot_id: settings-channels
-    source: src/row_bot/ui/settings.py
-  MCP:
-    description: Add, test, import, browse, enable, and troubleshoot external MCP
-      servers.
-    docs_route: /docs/settings/mcp
-    screenshot_id: settings-mcp
-    source: src/row_bot/ui/mcp_settings.py
-  Plugins:
-    description: Manage installed plugins, marketplace installs, and promoted Custom
-      Tools.
-    docs_route: /docs/settings/plugins
-    screenshot_id: settings-plugins
-    source: src/row_bot/plugins/ui_settings.py
-  Preferences:
-    description: Customize assistant identity, launch behavior, background intelligence,
-      updates, and migration.
-    docs_route: /docs/settings/preferences
-    screenshot_id: settings-preferences
-    source: src/row_bot/ui/settings.py
+    dependencies: The matching channel extra and third-party account configuration are
+      required.
+    security: Starting an adapter can receive or deliver real messages; review targets
+      first.
+  profiles:
+    description: Browse and edit the agent profile library used for delegation.
+    docs_route: /docs/app-shell/agent-profiles
+    screenshot_id: agent-profile-library
+  system:
+    description: Configure the workspace folder, shell access, browser and Computer
+      Use, file operations, and logging.
+    docs_route: /docs/settings/system
+    screenshot_id: settings-system
+    security: Filesystem, shell, browser, and Computer Use controls can widen local
+      access.
+  access:
+    description: Connect a phone or computer, review signed-in devices, and choose
+      network access or a public link.
+    docs_route: /docs/operations/remote-access
+    screenshot_id: settings-remote-access
+    security: Invitations grant full owner access; network access and public links
+      widen who can reach Row-Bot.
+  updates:
+    description: Choose the update channel and check for new versions.
+    docs_route: /docs/operations/
+  data:
+    description: Back up and restore Row-Bot data, or import from another assistant.
+    docs_route: /docs/operations/

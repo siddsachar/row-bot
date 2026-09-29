@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import ExitStack
 from html.parser import HTMLParser
 from pathlib import Path
@@ -49,13 +50,146 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert any(path["id"] == "threads_db" for path in inventory["data_paths"])
     assert any(rule["id"] == "approve" for rule in inventory["safety"])
     assert any(page["path"] == "index.mdx" for page in inventory["docs_pages"])
-    assert {item["tab"] for item in inventory["settings_controls"]} == {
-        "Accounts", "Buddy", "Channels", "Documents", "Knowledge", "MCP",
-        "Models", "Plugins", "Preferences", "Providers", "Skills", "Tools",
-        "System", "Tracker", "Utilities", "Voice",
-    }
+    controls = inventory["settings_controls"]
+    assert {row["page_id"] for row in controls} <= {page["id"] for page in inventory["settings"]}
+    assert all(
+        row["app_route"] == f"/app-v2/settings/{row['page_id']}#{row['anchor']}"
+        and row["source"] == f"frontend/src/features/settings/model.ts#{row['anchor']}"
+        for row in controls
+    )
     assert inventory["cli_options"]
     assert inventory["environment"]
+
+
+def test_inventory_sources_never_carry_line_numbers() -> None:
+    inventory = build_inventory()
+    sources = [
+        str(row.get("source") or "")
+        for section in inventory.values()
+        if isinstance(section, list)
+        for row in section
+        if isinstance(row, dict)
+    ]
+
+    assert len(sources) > 100
+    assert [source for source in sources if re.search(r"\.\w+:\d+", source)] == []
+    assert all(row["source"] == "src/row_bot/launcher.py" for row in inventory["cli_options"] if row["command"] == "row-bot")
+
+
+def _write_react_client(root: Path, model: str, settings: str, home: str, home_tabs: str) -> None:
+    files = {
+        "frontend/src/features/settings/model.ts": model,
+        "docs-content/metadata/settings.yml": settings,
+        "frontend/src/features/shell/Home.tsx": home,
+        "docs-content/metadata/home_tabs.yml": home_tabs,
+    }
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+_MODEL = """
+export const settingsGroups = [
+  { id: 'general', label: 'General', leaves: ['preferences'] },
+  // A trailing comment and comma must not matter.
+  { id: 'system', label: 'System', leaves: ['access'], },
+] as const;
+const leafLabels: Record<SettingsLeafId, string> = {
+  preferences: 'Preferences',
+  access: "Devices & remote access",
+};
+export const settingsKeywords: Record<SettingsLeafId, string> = {
+  preferences: 'identity',
+  'access': 'phone qr',
+};
+export const settingsRows: SettingsRow[] = [
+  { leaf: 'preferences', anchor: 'identity.name', label: 'Assistant name' },
+  /* block comment */
+  { leaf: 'access', anchor: 'devices', label: 'Your devices', keywords: 'sessions' },
+];
+"""
+_SETTINGS = """
+pages:
+  preferences: {description: Identity., docs_route: /docs/settings/preferences}
+  access: {description: Devices., docs_route: /docs/operations/remote-access, security: Owner access.}
+"""
+_HOME = "const homeTabs = ['overview', 'monitor'];\nexport default function Home() {}\n"
+_HOME_TABS = """
+tabs:
+  overview: {title: Overview, docs_route: /docs/home/, source: frontend/src/features/home/OverviewHome.tsx}
+  monitor: {title: Monitor, docs_route: /docs/home/monitor, source: frontend/src/features/home/MonitorHome.tsx}
+"""
+
+
+def test_settings_and_home_inventory_read_the_react_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.docs.collect_inventory as collector
+
+    _write_react_client(tmp_path, _MODEL, _SETTINGS, _HOME, _HOME_TABS)
+    monkeypatch.setattr(collector, "ROOT", tmp_path)
+
+    pages = collector.collect_settings()
+    assert [(page["id"], page["title"], page["category"]) for page in pages] == [
+        ("preferences", "Preferences", "General"),
+        ("access", "Devices & remote access", "System"),
+    ]
+    assert pages[1]["app_route"] == "/app-v2/settings/access"
+    assert pages[1]["security"] == "Owner access."
+    assert collector.collect_settings_controls() == [
+        {
+            "id": "preferences-identity-name",
+            "page_id": "preferences",
+            "page": "Preferences",
+            "category": "General",
+            "label": "Assistant name",
+            "anchor": "identity.name",
+            "keywords": "",
+            "app_route": "/app-v2/settings/preferences#identity.name",
+            "docs_route": "/docs/settings/preferences",
+            "source": "frontend/src/features/settings/model.ts#identity.name",
+        },
+        {
+            "id": "access-devices",
+            "page_id": "access",
+            "page": "Devices & remote access",
+            "category": "System",
+            "label": "Your devices",
+            "anchor": "devices",
+            "keywords": "sessions",
+            "app_route": "/app-v2/settings/access#devices",
+            "docs_route": "/docs/operations/remote-access",
+            "source": "frontend/src/features/settings/model.ts#devices",
+        },
+    ]
+    assert [(tab["id"], tab["app_route"]) for tab in collector.collect_home_tabs()] == [
+        ("overview", "/app-v2/?tab=overview"),
+        ("monitor", "/app-v2/?tab=monitor"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model", "settings", "home_tabs", "message"),
+    [
+        (_MODEL.replace("export const settingsRows", "const renamedRows"), _SETTINGS, _HOME_TABS, "settingsRows` not found"),
+        (_MODEL.replace("{ leaf: 'preferences', anchor: 'identity.name', label: 'Assistant name' },", "...extraRows,"), _SETTINGS, _HOME_TABS, "not a plain literal"),
+        (_MODEL.replace("leaf: 'access', anchor", "leaf: 'gone', anchor"), _SETTINGS, _HOME_TABS, "needs a known page"),
+        (_MODEL, _SETTINGS.replace("  access:", "  utilities:"), _HOME_TABS, "missing access; unknown utilities"),
+        (_MODEL, _SETTINGS, _HOME_TABS.replace("  monitor:", "  designer:"), "missing monitor; unknown designer"),
+    ],
+)
+def test_react_inventory_fails_loudly_when_the_client_and_metadata_disagree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: str, settings: str, home_tabs: str, message: str,
+) -> None:
+    import scripts.docs.collect_inventory as collector
+
+    _write_react_client(tmp_path, model, settings, _HOME, home_tabs)
+    monkeypatch.setattr(collector, "ROOT", tmp_path)
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        collector.collect_settings_controls()
+        collector.collect_home_tabs()
 
 
 def test_progressive_tools_and_skills_are_documented_at_public_entry_points() -> None:
@@ -87,8 +221,7 @@ def test_progressive_tools_and_skills_are_documented_at_public_entry_points() ->
     assert "parent task or child Agent" in skills
     assert "/docs/guides/progressive-tools-and-skills" in docs_index
     assert "Progressive external tools" in marketing
-    assert "Auto-select external tools (recommended)" in generated_controls
-    assert "Load all external tools" in generated_controls
+    assert "| Capability loading | external tools | `/app-v2/settings/tools#capability-loading` |" in generated_controls
 
 
 def test_reasoning_controls_are_documented_at_public_entry_points() -> None:
@@ -313,17 +446,16 @@ def test_screenshot_manifest_is_real_ui_and_safe() -> None:
     assert len(screenshots) >= 20
     assert len(required) >= 20
     assert all(shot["status"] in {"required", "deferred"} for shot in screenshots.values())
-    assert all(shot.get("alt") for shot in screenshots.values())
-    assert all(not shot.get("route", "").startswith("/docs-mode/surface/") for shot in screenshots.values())
+    assert all(
+        shot.get("alt") and shot.get("title") and shot.get("output") and shot.get("docs_pages")
+        for shot in screenshots.values()
+    )
     assert all("/docs-mode/" not in shot.get("route", "") for shot in screenshots.values())
-    assert all(shot.get("route", "/").startswith("/") for shot in required)
-    assert all(shot.get("capture_selector") for shot in required)
-    assert all(shot.get("expected_text") for shot in required)
+    # A capture target, when present, opens the React client; none may be partial.
+    assert all(capture._capture_target_problems(shot) == [] for shot in screenshots.values())
     assert all(shot.get("source") in {"isolated-demo-data", "isolated-first-launch"} for shot in required)
     expected_dimensions = {"desktop": (3840, 2160), "wide": (3840, 2160), "mobile": (390, 844)}
     assert all(shot.get("viewport") in expected_dimensions for shot in required)
-    assert screenshots["skills-hub"]["route"] == "/?dialog=skills-hub"
-    assert screenshots["mcp-marketplace"]["route"] == "/?dialog=mcp-marketplace"
     home_knowledge = screenshots["home-knowledge"]
     assert home_knowledge["capture_policy"] == "hand-curated"
     assert home_knowledge["dimension_policy"] == "flexible"
@@ -526,6 +658,42 @@ def test_authoritative_surface_map_has_one_outcome_per_surface() -> None:
             assert surface["screenshot_id"] in screenshots
 
 
+def test_capture_refuses_screenshots_without_a_react_target(monkeypatch) -> None:
+    import scripts.docs.capture_real_ui_screenshots as capture
+
+    def must_not_run(*_args, **_kwargs):
+        raise AssertionError("capture prepared a profile or launched the app")
+
+    monkeypatch.setattr(capture, "_safe_capture_data_dir", must_not_run)
+    monkeypatch.setattr(capture, "_launch_app", must_not_run)
+    retired = {
+        "title": "Providers settings",
+        "output": "settings-providers.png",
+        "route": "/?settings_tab=Providers",
+        "capture_selector": "main",
+        "expected_text": ["Providers"],
+    }
+    react = {**retired, "route": "/app-v2/settings/providers"}
+
+    assert capture._capture_target_problems(react) == []
+    assert capture._capture_target_problems({"title": "No target"}) == []
+    assert capture._capture_target_problems({"route": "/app-v2/?tab=monitor"}) == [
+        "capture target is missing capture_selector",
+        "capture target is missing expected_text",
+    ]
+    with pytest.raises(RuntimeError, match="React capture targets have not been written") as refused:
+        capture.capture(
+            {
+                "settings-providers": retired,
+                "home-monitor": {"title": "Monitor", "output": "home-monitor.png"},
+                "settings-models": {**react, "route": "/app-v2/settings/models"},
+            },
+            scenario="full",
+        )
+    assert "home-monitor, settings-providers." in str(refused.value)
+    assert "settings-models" not in str(refused.value)
+
+
 def test_capture_rejects_the_real_user_data_directory(tmp_path: Path, monkeypatch) -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
 
@@ -648,21 +816,18 @@ def test_authorized_real_capture_uses_stable_anchors_not_demo_text() -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
 
     selected = capture._real_data_shot({
-        "wait_for": '[data-docs-id="home-panel-workflows"]',
+        "route": "/app-v2/?tab=workflows",
+        "capture_selector": '[data-home-tab="workflows"]',
         "expected_text": ["Morning Brief"],
         "actions": [
-            {"click_selector": '[data-docs-id="profile-library-toggle"]'},
+            {"click_selector": 'button[aria-label="Agent profiles"]'},
             {"wait_for_text": "Research Guide"},
-            {"click_text": "filesystem.search"},
         ],
     })
 
-    assert selected["wait_for"] == '[data-docs-id="home-panel-workflows"]'
+    assert selected["capture_selector"] == '[data-home-tab="workflows"]'
     assert selected["expected_text"] == []
-    assert selected["actions"] == [
-        {"click_selector": '[data-docs-id="profile-library-toggle"]'},
-        {"click_selector": '[data-docs-id="tool-trace"]'},
-    ]
+    assert selected["actions"] == [{"click_selector": 'button[aria-label="Agent profiles"]'}]
 
 
 def test_capture_publication_atomically_replaces_an_existing_asset(
@@ -791,32 +956,18 @@ def test_authorized_marketing_capture_reads_but_never_writes_keyring(monkeypatch
     assert calls
 
 
-def test_real_home_and_settings_tabs_have_routes() -> None:
-    settings = yaml.safe_load((ROOT / "docs-content" / "metadata" / "settings.yml").read_text(encoding="utf-8"))["tabs"]
-    home = yaml.safe_load((ROOT / "docs-content" / "metadata" / "home_tabs.yml").read_text(encoding="utf-8"))["tabs"]
-    expected_settings = {
-        "Providers",
-        "Models",
-        "Documents",
-        "Tools",
-        "Skills",
-        "System",
-        "Accounts",
-        "Utilities",
-        "Tracker",
-        "Knowledge",
-        "Buddy",
-        "Voice",
-        "Channels",
-        "MCP",
-        "Plugins",
-        "Preferences",
-    }
-    expected_home = {"Workflows", "Designer", "Developer", "Knowledge", "Monitor"}
-    assert set(settings) == expected_settings
-    assert set(home) == expected_home
-    assert all(str(meta.get("docs_route", "")).startswith("/docs/") for meta in settings.values())
-    assert all(str(meta.get("docs_route", "")).startswith("/docs/") for meta in home.values())
+def test_react_settings_pages_and_home_tabs_have_docs_routes() -> None:
+    from scripts.docs.collect_inventory import collect_home_tabs, collect_settings
+
+    # Both collectors raise when the metadata and the React client disagree.
+    pages = collect_settings()
+    tabs = collect_home_tabs()
+
+    assert {"providers", "tools", "access", "data"} <= {page["id"] for page in pages}
+    assert {"overview", "workflows", "knowledge", "monitor"} <= {tab["id"] for tab in tabs}
+    assert all(page["description"] and page["docs_route"].startswith("/docs/") for page in pages)
+    assert all(tab["title"] and tab["docs_route"].startswith("/docs/") for tab in tabs)
+    assert all((ROOT / tab["source"]).is_file() for tab in tabs)
 
 
 def test_validator_rejects_fake_docs_screenshot_route(monkeypatch) -> None:

@@ -40,19 +40,19 @@ def test_remote_access_environment_is_in_generated_inventory() -> None:
     } <= variables
 
 
-def test_system_control_inventory_uses_current_remote_access_surface() -> None:
-    system_rows = [
-        row for row in collect_settings_controls() if row["tab"] == "System"
+def test_settings_inventory_uses_the_react_remote_access_page() -> None:
+    access_rows = [
+        row for row in collect_settings_controls() if row["page_id"] == "access"
     ]
-    labels = {row["label"] for row in system_rows}
-    sources = {row["source"].split(":", 1)[0] for row in system_rows}
 
-    assert {
-        "Invite a device",
-        "Trust address and create invitation",
-        "Check Tailscale status",
-        "Review private route",
-        "Allow local-network connections",
-    } <= labels
-    assert "src/row_bot/ui/remote_access_settings.py" in sources
-    assert "src/row_bot/ui/mobile_access_settings.py" not in sources
+    assert {"connect", "devices", "remote-access", "tunnel"} <= {
+        row["anchor"] for row in access_rows
+    }
+    assert all(
+        row["app_route"] == f"/app-v2/settings/access#{row['anchor']}"
+        and row["source"] == f"frontend/src/features/settings/model.ts#{row['anchor']}"
+        for row in access_rows
+    )
+    assert {row["docs_route"] for row in access_rows} == {
+        "/docs/operations/remote-access"
+    }

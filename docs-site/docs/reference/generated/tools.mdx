@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Tools
 
 <!-- generated-from: scripts/docs/collect_inventory.py -->
-<!-- inventory-hash: 8730e026e00876f4 -->
+<!-- inventory-hash: 6fb031c8614a18aa -->
 
 <GeneratedNotice source="scripts/docs/collect_inventory.py" />
 
@@ -24,6 +24,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | chart | chart_guide | Guidance for data visualisation and chart creation. | No tool-wide destructive classification | `tool_guides/chart_guide/SKILL.md` | `src/row_bot/tools/chart_tool.py` |
 | computer_use | computer_use_guide | Provider-neutral, self-gating Computer Use tool. | Operation-dependent approval | `tool_guides/computer_use_guide/SKILL.md` | `src/row_bot/tools/computer_use_tool.py` |
 | conversation_search | Conversation Search | Conversation Search tool - search past conversations by keyword | No tool-wide destructive classification |  | `src/row_bot/tools/conversation_search_tool.py` |
+| conversation_setup | Conversation Setup | Designs and code folders the assistant creates when the work needs one | Operation-dependent approval |  | `src/row_bot/tools/conversation_setup_tool.py` |
 | custom_tool_builder | custom_tool_builder_guide | Guidance for creating reusable Custom Tools from repos or folders. | No tool-wide destructive classification | `tool_guides/custom_tool_builder_guide/SKILL.md` | `src/row_bot/tools/custom_tool_builder_tool.py` |
 | developer | developer_guide | Guidance for using Developer Studio tools to inspect, edit, test, and review code workspaces safely. | Operation-dependent approval | `tool_guides/developer_guide/SKILL.md` | `src/row_bot/tools/developer_tool.py` |
 | documents | Documents | Document retrieval tool - searches the local FAISS vector store. | No tool-wide destructive classification |  | `src/row_bot/tools/documents_tool.py` |

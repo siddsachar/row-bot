@@ -1,34 +1,38 @@
 ---
 title: Settings
-description: Generated reference for settings tabs.
+description: Generated reference for the React settings pages.
 ---
 
 import GeneratedNotice from '@site/src/components/GeneratedNotice';
 
 # Settings
 
-<!-- generated-from: docs-content/metadata/settings.yml -->
-<!-- inventory-hash: 8730e026e00876f4 -->
+<!-- generated-from: frontend/src/features/settings/model.ts, docs-content/metadata/settings.yml -->
+<!-- inventory-hash: 6fb031c8614a18aa -->
 
-<GeneratedNotice source="docs-content/metadata/settings.yml" />
+<GeneratedNotice source="frontend/src/features/settings/model.ts, docs-content/metadata/settings.yml" />
 
-## Settings Tabs
+## Settings Pages
 
-| Tab | Description | Docs route | Screenshot |
-| --- | --- | --- | --- |
-| Providers | Connect hosted, subscription, local, cloud, and custom model providers. | [/docs/settings/providers](/docs/settings/providers) | settings-providers |
-| Models | Pin model Quick Choices, choose defaults, and review catalog metadata. | [/docs/settings/models](/docs/settings/models) | settings-models |
-| Documents | Manage uploaded documents, document search, extraction, and vector indexing. | [/docs/settings/documents](/docs/settings/documents) | settings-documents |
-| Tools | Configure progressive external-tool loading, retrieval compression, and search and knowledge tools. | [/docs/settings/tools](/docs/settings/tools) | settings-tools |
-| Skills | Enable, disable, pin, browse, and review Smart Skills. | [/docs/settings/skills](/docs/settings/skills) | settings-skills |
-| System | Configure Remote Access, workspace paths, shell/browser automation, local networking, logging, and updates. | [/docs/settings/system](/docs/settings/system) | settings-system |
-| Accounts | Connect account-level integrations used by tools and setup flows. | [/docs/settings/accounts](/docs/settings/accounts) | settings-accounts |
-| Utilities | Configure built-in utility tools and system integrations. | [/docs/settings/utilities](/docs/settings/utilities) | settings-utilities |
-| Tracker | Configure habit and health tracker views, charts, and logged data. | [/docs/settings/tracker](/docs/settings/tracker) | settings-tracker |
-| Knowledge | Configure memory, document knowledge, graph review, embeddings, and wiki export. | [/docs/settings/knowledge](/docs/settings/knowledge) | settings-knowledge |
-| Buddy | Configure companion visibility, drag-to-undock overlay messaging, approvals, look, custom looks, and motion. | [/docs/settings/buddy](/docs/settings/buddy) | settings-buddy |
-| Voice | Configure dictation, realtime talk, read-aloud, voice models, and diagnostics. | [/docs/settings/voice](/docs/settings/voice) | settings-voice |
-| Channels | Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks. | [/docs/settings/channels](/docs/settings/channels) | settings-channels |
-| MCP | Add, test, import, browse, enable, and troubleshoot external MCP servers. | [/docs/settings/mcp](/docs/settings/mcp) | settings-mcp |
-| Plugins | Manage installed plugins, marketplace installs, and promoted Custom Tools. | [/docs/settings/plugins](/docs/settings/plugins) | settings-plugins |
-| Preferences | Customize assistant identity, launch behavior, background intelligence, updates, and migration. | [/docs/settings/preferences](/docs/settings/preferences) | settings-preferences |
+| Group | Page | Description | Open in Row-Bot | Docs route | Screenshot |
+| --- | --- | --- | --- | --- | --- |
+| General | Preferences | Set the assistant's name and personality, self-improvement, window mode, and the Dream Cycle. | `/app-v2/settings/preferences` | [/docs/settings/preferences](/docs/settings/preferences) | settings-preferences |
+| General | Appearance | Choose the theme, accent colour, density, and transparency, or reset the panel layout. | `/app-v2/settings/appearance` | [/docs/settings/preferences](/docs/settings/preferences) |  |
+| General | Buddy | Configure companion visibility, drag-to-undock overlay messaging, approvals, look, custom looks, and motion. | `/app-v2/settings/buddy` | [/docs/settings/buddy](/docs/settings/buddy) | settings-buddy |
+| Models | Providers | Connect hosted, subscription, local, cloud, and custom model providers. | `/app-v2/settings/providers` | [/docs/settings/providers](/docs/settings/providers) | settings-providers |
+| Models | Models | Choose the default, vision, and image models, and pin models from the catalog. | `/app-v2/settings/models` | [/docs/settings/models](/docs/settings/models) | settings-models |
+| Models | Voice | Configure realtime talk, dictation, the Whisper model size, and read-aloud. | `/app-v2/settings/voice` | [/docs/settings/voice](/docs/settings/voice) | settings-voice |
+| Knowledge | Memory | Review the memory graph and configure Wiki vault export. | `/app-v2/settings/knowledge` | [/docs/settings/knowledge](/docs/settings/knowledge) | settings-knowledge |
+| Knowledge | Documents | Upload documents and choose the embedding engine used for document search. | `/app-v2/settings/documents` | [/docs/settings/documents](/docs/settings/documents) | settings-documents |
+| Knowledge | Tracker | Turn the habit and health tracker on or off and manage its local records. | `/app-v2/settings/tracker` | [/docs/settings/tracker](/docs/settings/tracker) | settings-tracker |
+| Capabilities | Tools | Configure progressive external-tool loading, retrieval compression, search and knowledge tools, built-in utility tools, and Custom Tools. | `/app-v2/settings/tools` | [/docs/settings/tools](/docs/settings/tools) | settings-tools |
+| Capabilities | Skills | Review installed skills and discover public skills. | `/app-v2/settings/skills` | [/docs/settings/skills](/docs/settings/skills) | settings-skills |
+| Capabilities | Plugins | Manage installed plugins and browse the plugin marketplace. | `/app-v2/settings/plugins` | [/docs/settings/plugins](/docs/settings/plugins) | settings-plugins |
+| Capabilities | MCP | Add, import, enable, and troubleshoot external MCP servers and their managed runtimes. | `/app-v2/settings/mcp` | [/docs/settings/mcp](/docs/settings/mcp) | settings-mcp |
+| Connections | Accounts | Connect the GitHub, Google, and X accounts used by tools and setup flows. | `/app-v2/settings/accounts` | [/docs/settings/accounts](/docs/settings/accounts) | settings-accounts |
+| Connections | Channels | Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks. | `/app-v2/settings/channels` | [/docs/settings/channels](/docs/settings/channels) | settings-channels |
+| Agents | Agent profiles | Browse and edit the agent profile library used for delegation. | `/app-v2/settings/profiles` | [/docs/app-shell/agent-profiles](/docs/app-shell/agent-profiles) | agent-profile-library |
+| System | System | Configure the workspace folder, shell access, browser and Computer Use, file operations, and logging. | `/app-v2/settings/system` | [/docs/settings/system](/docs/settings/system) | settings-system |
+| System | Devices & remote access | Connect a phone or computer, review signed-in devices, and choose network access or a public link. | `/app-v2/settings/access` | [/docs/operations/remote-access](/docs/operations/remote-access) | settings-remote-access |
+| System | Updates | Choose the update channel and check for new versions. | `/app-v2/settings/updates` | [/docs/operations/](/docs/operations/) |  |
+| System | Data | Back up and restore Row-Bot data, or import from another assistant. | `/app-v2/settings/data` | [/docs/operations/](/docs/operations/) |  |

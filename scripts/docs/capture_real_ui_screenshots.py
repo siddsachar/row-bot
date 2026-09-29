@@ -1,4 +1,11 @@
-"""Capture and validate real Row-Bot UI screenshots with Playwright."""
+"""Capture and validate real Row-Bot UI screenshots with Playwright.
+
+``--validate-only`` checks the committed images against the manifest. Capture
+needs a React capture target for every selected automated screenshot: a
+``route`` under ``/app-v2/``, a ``capture_selector`` and ``expected_text``.
+The manifest's targets were written for the retired client and have been
+removed, so capture refuses until the React targets are written.
+"""
 
 from __future__ import annotations
 
@@ -64,10 +71,32 @@ LAUNCH_SECRET_ENV = "ROW_BOT_LAUNCH_SECRET"
 SCREENSHOT_POLICY_FIELDS = frozenset(
     {"capture_policy", "dimension_policy", "curated_sha256"}
 )
+REACT_BASE = "/app-v2/"
+CAPTURE_TARGET_FIELDS = ("route", "capture_selector", "expected_text")
 
 
 def _is_hand_curated(shot: dict[str, Any]) -> bool:
     return str(shot.get("capture_policy") or "automated") == "hand-curated"
+
+
+def _capture_target_problems(shot: dict[str, Any]) -> list[str]:
+    """Problems with a screenshot's React capture target (none when it has no target)."""
+
+    if not any(shot.get(field) for field in CAPTURE_TARGET_FIELDS):
+        return []
+    problems = [
+        f"capture target is missing {field}"
+        for field in CAPTURE_TARGET_FIELDS
+        if not shot.get(field)
+    ]
+    route = str(shot.get("route") or "")
+    if route and not route.startswith(REACT_BASE):
+        problems.append(f"route {route} does not open the React client under {REACT_BASE}")
+    return problems
+
+
+def _has_capture_target(shot: dict[str, Any]) -> bool:
+    return all(shot.get(field) for field in CAPTURE_TARGET_FIELDS) and not _capture_target_problems(shot)
 
 
 def _sha256(path: Path) -> str:
@@ -329,19 +358,6 @@ def _write_dom_snapshot(page, shot_id: str, shot: dict[str, Any], selector: str)
                         clientHeight: el.clientHeight,
                         scrollHeight: el.scrollHeight,
                     })),
-                probes: ['[data-docs-id="settings-dialog"] .text-h5',
-                         '[data-docs-id="settings-dialog"] .nicegui-row',
-                         '[data-docs-id="settings-dialog"] .q-tab--active']
-                    .map(selector => {
-                        const el = document.querySelector(selector);
-                        if (!el) return {selector, missing: true};
-                        const rect = el.getBoundingClientRect();
-                        const style = getComputedStyle(el);
-                        return {selector, text: (el.innerText || '').slice(0, 120),
-                                rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
-                                display: style.display, visibility: style.visibility,
-                                opacity: style.opacity, color: style.color, zIndex: style.zIndex};
-                    }),
             })"""
         )
     except Exception:
@@ -388,12 +404,6 @@ def _run_action(page, action: dict[str, Any], base_url: str) -> None:
     elif "press" in action:
         target = action["press"] if isinstance(action["press"], dict) else {}
         page.locator(str(target.get("selector") or "body")).first.press(str(target.get("key") or "Enter"))
-    elif "open_settings_tab" in action:
-        page.goto(base_url + f"/?settings_tab={action['open_settings_tab']}", wait_until="networkidle", timeout=30_000)
-    elif "open_home_tab" in action:
-        page.goto(base_url + f"/?home_tab={action['open_home_tab']}", wait_until="networkidle", timeout=30_000)
-    elif "open_dialog" in action:
-        page.goto(base_url + f"/?dialog={action['open_dialog']}", wait_until="networkidle", timeout=30_000)
     elif "expand" in action:
         page.get_by_text(str(action["expand"]), exact=False).first.click(timeout=15_000)
     elif "scroll_into_view" in action:
@@ -428,14 +438,12 @@ def _capture_one(
         for action in shot.get("actions") or []:
             if isinstance(action, dict):
                 _run_action(page, action, base_url)
-        wait_for = str(shot.get("wait_for") or shot.get("capture_selector") or "[data-docs-id=\"app-shell\"]")
-        page.wait_for_selector(wait_for, timeout=20_000)
+        selector = str(shot["capture_selector"])
+        page.wait_for_selector(str(shot.get("wait_for") or selector), timeout=20_000)
         for text in shot.get("expected_text") or []:
             _wait_for_text(page, str(text))
-        selector = str(shot.get("capture_selector") or wait_for)
-        # Selecting a lower settings tab can let the browser scroll the outer
-        # document while bringing the active tab into view. Public captures
-        # should always include the application and dialog headers.
+        # Focusing a control lower on the page can scroll the outer document.
+        # Public captures should always include the application header.
         reset_outer_scroll = (
             "() => { const active = document.activeElement; if (active && active.blur) active.blur(); "
             "window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; }"
@@ -671,15 +679,11 @@ def _real_data_shot(shot: dict[str, Any]) -> dict[str, Any]:
     """Remove deterministic-demo assertions while retaining stable surface anchors."""
 
     selected = dict(shot)
-    actions: list[dict[str, Any]] = []
-    for action in shot.get("actions") or []:
-        if not isinstance(action, dict) or "wait_for_text" in action:
-            continue
-        if str(action.get("click_text") or "") == "filesystem.search":
-            actions.append({"click_selector": '[data-docs-id="tool-trace"]'})
-        else:
-            actions.append(dict(action))
-    selected["actions"] = actions
+    selected["actions"] = [
+        dict(action)
+        for action in shot.get("actions") or []
+        if isinstance(action, dict) and "wait_for_text" not in action
+    ]
     selected["expected_text"] = []
     return selected
 
@@ -749,6 +753,21 @@ def capture(
     }
     if not manifest:
         return _write_report(records, mode="capture")
+    untargeted = sorted(
+        shot_id
+        for shot_id, shot in manifest.items()
+        if isinstance(shot, dict)
+        and shot.get("status") != "deferred"
+        and not _has_capture_target(shot)
+    )
+    if untargeted:
+        raise RuntimeError(
+            "Screenshot capture is frozen: the React capture targets have not been written yet. "
+            f"Give each screenshot a route under {REACT_BASE}, a capture_selector and "
+            "expected_text in docs-content/metadata/screenshots.yml before capturing: "
+            + ", ".join(untargeted)
+            + ". Use --validate-only to check the committed images."
+        )
     data_dir, temp_dir = _safe_capture_data_dir(
         None if use_temp_data else data_dir,
         authorize_real_data=authorize_real_data,
@@ -854,17 +873,21 @@ def main() -> int:
     if args.validate_only:
         summary = validate_committed(manifest)
     else:
-        summary = capture(
-            manifest,
-            scenario=str(args.scenario or "full"),
-            timeout=args.timeout,
-            data_dir=Path(args.data_dir).resolve() if args.data_dir else None,
-            seed_demo_data=not bool(args.no_seed_demo_data),
-            use_temp_data=not bool(args.keep_demo_data),
-            source_filter=str(args.source_filter or "all"),
-            screenshot_ids=set(args.ids or []) or None,
-            authorize_real_data=bool(args.authorize_real_data_capture),
-        )
+        try:
+            summary = capture(
+                manifest,
+                scenario=str(args.scenario or "full"),
+                timeout=args.timeout,
+                data_dir=Path(args.data_dir).resolve() if args.data_dir else None,
+                seed_demo_data=not bool(args.no_seed_demo_data),
+                use_temp_data=not bool(args.keep_demo_data),
+                source_filter=str(args.source_filter or "all"),
+                screenshot_ids=set(args.ids or []) or None,
+                authorize_real_data=bool(args.authorize_real_data_capture),
+            )
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
     return 1 if summary.get("failed") else 0
 
 

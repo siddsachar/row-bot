@@ -1,26 +1,27 @@
+# Docs metadata for the React Home tabs. Tab ids come from `homeTabs` in
+# frontend/src/features/shell/Home.tsx and open at /app-v2/?tab=<id>; every tab
+# there needs exactly one entry here (collect_inventory.py fails otherwise).
 tabs:
-  Workflows:
+  overview:
+    title: Overview
+    docs_route: /docs/home/
+    source: frontend/src/features/home/OverviewHome.tsx
+  workflows:
+    title: Workflows
     docs_route: /docs/home/workflows
     screenshot_id: home-workflows
-    source: src/row_bot/ui/home.py
-    builder: build_home
-  Designer:
-    docs_route: /docs/home/designer
-    screenshot_id: home-designer
-    source: src/row_bot/ui/home.py
-    builder: build_home
-  Developer:
-    docs_route: /docs/home/developer
-    screenshot_id: home-developer
-    source: src/row_bot/ui/home.py
-    builder: build_home
-  Knowledge:
+    source: frontend/src/features/tasks/TaskLibrary.tsx
+  knowledge:
+    title: Knowledge
     docs_route: /docs/home/knowledge
     screenshot_id: home-knowledge
-    source: src/row_bot/ui/home.py
-    builder: build_home
-  Monitor:
+    source: frontend/src/features/home/KnowledgeHome.tsx
+  monitor:
+    title: Monitor
     docs_route: /docs/home/monitor
     screenshot_id: home-monitor
-    source: src/row_bot/ui/home.py
-    builder: build_home
+    source: frontend/src/features/home/MonitorHome.tsx
+  insights:
+    title: Insights
+    docs_route: /docs/home/
+    source: frontend/src/features/home/InsightsHome.tsx

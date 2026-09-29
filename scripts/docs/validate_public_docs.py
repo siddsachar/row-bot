@@ -22,10 +22,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from scripts.docs.capture_real_ui_screenshots import (  # noqa: E402
-    DOM_ROOT,
     OUTPUT_ROOT,
     SCREENSHOT_POLICY_FIELDS,
     _apply_screenshot_policies,
+    _capture_target_problems,
     _validate_image,
 )
 from scripts.docs.collect_inventory import build_inventory  # noqa: E402
@@ -118,7 +118,6 @@ def _scan_text(path: Path, text: str) -> list[str]:
         "setup_complete",
         "replacement screenshot",
         "captured from the app",
-        "captured from the nicegui",
     ]
     if path.is_relative_to(DOCS_ROOT) or path.name in {"llms.txt", "llms-full.txt"}:
         for phrase in forbidden_public_phrases:
@@ -149,7 +148,6 @@ def _validate_required_files(errors: list[str]) -> None:
         DOCS_ROOT / "index.mdx",
         METADATA_ROOT / "ui_surfaces.yml",
         METADATA_ROOT / "settings.yml",
-        METADATA_ROOT / "settings_tabs.yml",
         METADATA_ROOT / "home_tabs.yml",
         METADATA_ROOT / "dialogs.yml",
         METADATA_ROOT / "screenshots.yml",
@@ -167,7 +165,11 @@ def _validate_required_files(errors: list[str]) -> None:
 
 
 def _validate_generated_pages(errors: list[str]) -> None:
-    inventory = build_inventory()
+    try:
+        inventory = build_inventory()
+    except (OSError, ValueError) as exc:
+        errors.append(f"Could not collect the docs inventory: {exc}")
+        return
     errors.extend(check_pages(render_pages(inventory)))
 
 
@@ -177,7 +179,7 @@ def _validate_metadata(errors: list[str]) -> tuple[dict[str, Any], dict[str, Any
     screenshot_policies = _load_yaml(
         METADATA_ROOT / "screenshot_policies.yml"
     ).get("screenshots", {})
-    settings = _load_yaml(METADATA_ROOT / "settings.yml").get("tabs", {})
+    settings = _load_yaml(METADATA_ROOT / "settings.yml").get("pages", {})
     home_tabs = _load_yaml(METADATA_ROOT / "home_tabs.yml").get("tabs", {})
     guides = _load_yaml(METADATA_ROOT / "how_to_guides.yml").get("guides", {})
     if not isinstance(surfaces, dict):
@@ -230,7 +232,7 @@ def _validate_metadata(errors: list[str]) -> tuple[dict[str, Any], dict[str, Any
             )
     screenshots = _apply_screenshot_policies(screenshots, screenshot_policies)
     if not isinstance(settings, dict):
-        errors.append("settings.yml tabs must be a mapping")
+        errors.append("settings.yml pages must be a mapping")
         settings = {}
     if not isinstance(home_tabs, dict):
         errors.append("home_tabs.yml tabs must be a mapping")
@@ -247,14 +249,20 @@ def _validate_routes(errors: list[str], settings: dict[str, Any], home_tabs: dic
         route = str((guide or {}).get("route") or "")
         if not _route_exists(route, routes):
             errors.append(f"Guide {guide_id} route does not exist: {route}")
-    for tab, meta in settings.items():
-        route = str((meta or {}).get("docs_route") or "")
-        if route and not _route_exists(route, routes):
-            errors.append(f"Settings tab {tab} route does not exist: {route}")
+    for page, meta in settings.items():
+        meta = meta if isinstance(meta, dict) else {}
+        route = str(meta.get("docs_route") or "")
+        if not _route_exists(route, routes):
+            errors.append(f"Settings page {page} docs_route does not exist: {route}")
+        if not meta.get("description"):
+            errors.append(f"Settings page {page} is missing description")
     for tab, meta in home_tabs.items():
-        route = str((meta or {}).get("docs_route") or "")
-        if route and not _route_exists(route, routes):
-            errors.append(f"Home tab {tab} route does not exist: {route}")
+        meta = meta if isinstance(meta, dict) else {}
+        route = str(meta.get("docs_route") or "")
+        if not _route_exists(route, routes):
+            errors.append(f"Home tab {tab} docs_route does not exist: {route}")
+        if not meta.get("title"):
+            errors.append(f"Home tab {tab} is missing title")
     for path in _doc_pages():
         meta, _body = _split_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
         if not meta.get("title"):
@@ -263,23 +271,31 @@ def _validate_routes(errors: list[str], settings: dict[str, Any], home_tabs: dic
             errors.append(f"{_relative(path)} missing frontmatter description")
 
 
-def _source_and_dom_text() -> str:
-    parts: list[str] = []
-    source_roots = [
-        ROOT / "src" / "row_bot",
-        ROOT / "scripts" / "docs",
-        ROOT / "docs-content" / "metadata",
+def _metadata_sources() -> list[tuple[str, str, str]]:
+    """(metadata file, owner, repository path) for every source named in metadata."""
+
+    sources: list[tuple[str, str, str]] = []
+    listed = [
+        ("ui_surfaces.yml", "surfaces", "source_files"),
+        ("how_to_guides.yml", "guides", "sources"),
+        ("dialogs.yml", "dialogs", "source"),
+        ("home_tabs.yml", "tabs", "source"),
     ]
-    for root in source_roots:
-        if not root.exists():
-            continue
-        for path in sorted(root.rglob("*")):
-            if path.is_file() and path.suffix in {".py", ".yml", ".yaml", ".json"}:
-                parts.append(path.read_text(encoding="utf-8", errors="replace"))
-    if DOM_ROOT.exists():
-        for path in sorted(DOM_ROOT.glob("*.json")):
-            parts.append(path.read_text(encoding="utf-8", errors="replace"))
-    return "\n".join(parts)
+    for filename, section, field in listed:
+        entries = _load_yaml(METADATA_ROOT / filename).get(section, {})
+        for owner, meta in (entries.items() if isinstance(entries, dict) else []):
+            value = meta.get(field) if isinstance(meta, dict) else None
+            for source in value if isinstance(value, list) else [value] if value else []:
+                sources.append((filename, str(owner), str(source)))
+    return sources
+
+
+def _validate_source_paths(errors: list[str]) -> None:
+    for filename, owner, source in _metadata_sources():
+        # Strip an anchor or symbol suffix and a trailing directory glob.
+        path = source.split("#", 1)[0].removesuffix("/**").rstrip("/")
+        if not path or not (ROOT / path).exists():
+            errors.append(f"{filename} {owner} names a source that does not exist: {source}")
 
 
 def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screenshots: dict[str, Any]) -> None:
@@ -294,7 +310,6 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
     docs_text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in _doc_pages())
     component_ids = set(re.findall(r"<Screenshot\s+[^>]*id=\"([^\"]+)\"", docs_text, flags=re.DOTALL))
 
-    source_text = _source_and_dom_text()
     for screenshot_id, screenshot in screenshots.items():
         if not isinstance(screenshot, dict):
             errors.append(f"Screenshot {screenshot_id} must be a mapping")
@@ -344,15 +359,13 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
             )
         if not isinstance(screenshot.get("public_asset"), bool):
             errors.append(f"Screenshot {screenshot_id} public_asset must be true or false")
-        for required_key in ("title", "route", "capture_selector", "output", "docs_pages"):
+        for required_key in ("title", "output", "docs_pages"):
             if not screenshot.get(required_key):
                 errors.append(f"Screenshot {screenshot_id} is missing {required_key}")
-        selector = str(screenshot.get("capture_selector") or screenshot.get("wait_for") or "")
-        for docs_id in re.findall(r'data-docs-id=\"([^\"]+)\"', selector):
-            if docs_id not in source_text:
-                errors.append(f"Screenshot {screenshot_id} references data-docs-id {docs_id} not present in source or real DOM snapshots")
-        if status == "required" and not screenshot.get("expected_text"):
-            errors.append(f"Screenshot {screenshot_id} is missing expected_text")
+        errors.extend(
+            f"Screenshot {screenshot_id} {problem}"
+            for problem in _capture_target_problems(screenshot)
+        )
         output = OUTPUT_ROOT / str(screenshot.get("output") or f"{screenshot_id}.png")
         if status == "deferred":
             if not screenshot.get("reason"):
@@ -531,34 +544,11 @@ def validate() -> list[str]:
         errors.append(f"Could not parse docs metadata: {exc}")
         return errors
 
-    expected_settings_tabs = {
-        "Providers",
-        "Models",
-        "Knowledge",
-        "Buddy",
-        "Voice",
-        "System",
-        "Tracker",
-        "Documents",
-        "Tools",
-        "Skills",
-        "Accounts",
-        "Channels",
-        "Utilities",
-        "MCP",
-        "Plugins",
-        "Preferences",
-    }
-    missing_tabs = sorted(expected_settings_tabs - set(settings))
-    if missing_tabs:
-        errors.append("settings.yml missing tabs: " + ", ".join(missing_tabs))
-    expected_home_tabs = {"Workflows", "Designer", "Developer", "Knowledge", "Monitor"}
-    missing_home = sorted(expected_home_tabs - set(home_tabs))
-    if missing_home:
-        errors.append("home_tabs.yml missing tabs: " + ", ".join(missing_home))
-
+    # The collector checks that settings.yml and home_tabs.yml cover exactly the
+    # pages and tabs the React client defines.
     _validate_generated_pages(errors)
     _validate_routes(errors, settings, home_tabs, guides)
+    _validate_source_paths(errors)
     _validate_screenshots(errors, surfaces, screenshots)
     _validate_reference_links(errors)
     _validate_llms(errors)

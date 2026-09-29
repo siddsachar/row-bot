@@ -9,12 +9,14 @@ guides:
     title: Complete First Launch Setup
     route: /docs/getting-started/first-launch
     sources:
-    - src/row_bot/ui/setup_wizard.py
+    - frontend/src/features/shell/Onboarding.tsx
+    - frontend/src/features/shell/FirstRun.tsx
   create-workflow:
     title: Create A Workflow
     route: /docs/guides/workflows
     sources:
-    - src/row_bot/ui/home.py
+    - frontend/src/features/tasks/TaskLibrary.tsx
+    - frontend/src/features/tasks/TaskEditor.tsx
     - src/row_bot/tasks.py
     - bundled_skills/task_automation/SKILL.md
   use-designer:
@@ -35,14 +37,14 @@ guides:
     route: /docs/configuration/models-and-providers
     sources:
     - src/row_bot/providers/
-    - src/row_bot/ui/settings.py
-    - src/row_bot/ui/model_catalog.py
+    - frontend/src/features/settings/ModelsPanel.tsx
+    - frontend/src/features/settings/ModelCatalog.tsx
   use-chat:
     title: Use Chat And Approvals
     route: /docs/chat/
     sources:
-    - src/row_bot/ui/chat.py
-    - src/row_bot/ui/tool_trace.py
+    - frontend/src/features/shell/Conversation.tsx
+    - frontend/src/features/shell/TranscriptTrace.tsx
     - src/row_bot/tools/approval_gate.py
   control-model-reasoning:
     title: Control Model Reasoning
@@ -50,8 +52,8 @@ guides:
     sources:
     - src/row_bot/providers/reasoning.py
     - src/row_bot/providers/transports/reasoning_fallback.py
-    - src/row_bot/ui/chat_components.py
-    - src/row_bot/ui/mobile_chat.py
+    - frontend/src/features/shell/ComposerControls.tsx
+    - frontend/src/features/shell/ModelPicker.tsx
     - src/row_bot/channels/commands.py
   use-skills-plugins-mcp:
     title: Use Skills Plugins And MCP
@@ -72,7 +74,7 @@ guides:
     sources:
     - src/row_bot/launcher.py
     - src/row_bot/buddy/
-    - src/row_bot/ui/buddy.py
+    - frontend/src/features/buddy/BuddySurface.tsx
   review-privacy-safety:
     title: Review Privacy And Safety
     route: /docs/privacy-safety/
@@ -84,7 +86,7 @@ guides:
     title: Troubleshoot Row-Bot
     route: /docs/troubleshooting/
     sources:
-    - src/row_bot/ui/status_checks.py
+    - frontend/src/features/home/MonitorHome.tsx
     - src/row_bot/startup_diagnostics.py
     - scripts/smoke_app.py
   review-knowledge:
@@ -92,12 +94,12 @@ guides:
     route: /docs/knowledge/
     sources:
     - src/row_bot/knowledge_graph.py
-    - src/row_bot/ui/graph_panel.py
+    - frontend/src/features/home/KnowledgeHome.tsx
   review-monitor:
     title: Use Monitor
     route: /docs/monitor/
     sources:
-    - src/row_bot/ui/home.py
+    - frontend/src/features/home/MonitorHome.tsx
     - src/row_bot/startup_diagnostics.py
   use-profiles-goals-agents:
     title: Use Profiles Goals And Agents
@@ -123,16 +125,17 @@ guides:
     route: /docs/mobile-native/
     sources:
     - src/row_bot/access/
-    - src/row_bot/mobile/auth.py
-    - src/row_bot/ui/mobile.py
-    - src/row_bot/ui/remote_access_settings.py
+    - src/row_bot/mobile/store.py
+    - frontend/src/features/shell/layout.ts
+    - frontend/src/features/settings/AccessConnect.tsx
   configure-remote-access:
     title: Configure Remote Access And Server Mode
     route: /docs/operations/remote-access
     sources:
     - README.md
     - src/row_bot/access/
-    - src/row_bot/ui/remote_access_settings.py
+    - frontend/src/features/settings/AccessConnect.tsx
+    - frontend/src/features/settings/AccessNetwork.tsx
     - deploy/docker/README.md
   operate-docker-vps:
     title: Operate Row-Bot With Docker Or A VPS
@@ -156,7 +159,7 @@ guides:
     title: Connect External Accounts
     route: /docs/integrations/accounts
     sources:
-    - src/row_bot/ui/settings.py
+    - frontend/src/features/settings/AccountAuthControls.tsx
     - src/row_bot/github_account.py
   backup-and-recover:
     title: Back Up And Recover Row-Bot

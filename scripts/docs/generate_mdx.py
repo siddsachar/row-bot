@@ -117,12 +117,14 @@ def _providers(inv: dict[str, Any]) -> str:
 
 def _settings(inv: dict[str, Any]) -> str:
     return _section(
-        "Settings Tabs",
+        "Settings Pages",
         _record_table(
             inv.get("settings", []),
             [
-                ("title", "Tab"),
+                ("category", "Group"),
+                ("title", "Page"),
                 ("description", "Description"),
+                ("app_route", "Open in Row-Bot"),
                 ("docs_route", "Docs route"),
                 ("screenshot_id", "Screenshot"),
             ],
@@ -133,26 +135,31 @@ def _settings(inv: dict[str, Any]) -> str:
 def _settings_controls(inv: dict[str, Any]) -> str:
     rows = inv.get("settings_controls", [])
     sections = []
-    for tab in [row.get("title") for row in inv.get("settings", [])]:
-        tab_rows = [row for row in rows if row.get("tab") == tab]
-        sections.append(
-            _section(
-                f"{tab} Controls",
-                _record_table(
-                    tab_rows,
-                    [
-                        ("label", "Control"),
-                        ("control", "Type"),
-                        ("default", "Default"),
-                        ("allowed_values", "Allowed values"),
-                        ("effect", "Effect"),
-                        ("dependencies", "Dependencies"),
-                        ("restart", "Restart"),
-                        ("security", "Security"),
-                        ("source", "Source"),
-                    ],
-                ),
+    for page in inv.get("settings", []):
+        intro = [
+            f"Group: {_escape(page.get('category'))}. "
+            f"Open in Row-Bot: {_link(str(page.get('app_route') or ''))}. "
+            f"Guide: {_link(str(page.get('docs_route') or ''))}."
+        ]
+        for key, label in (("dependencies", "Dependencies"), ("security", "Security")):
+            if page.get(key):
+                intro.append(f"{label}: {_escape(page[key])}")
+        page_rows = [row for row in rows if row.get("page_id") == page.get("id")]
+        table = (
+            _record_table(
+                page_rows,
+                [
+                    ("label", "Setting"),
+                    ("keywords", "Search keywords"),
+                    ("app_route", "Open in Row-Bot"),
+                    ("source", "Source"),
+                ],
             )
+            if page_rows
+            else "_This page has no individually searchable settings._"
+        )
+        sections.append(
+            _section(f"{page.get('title')} Controls", "\n\n".join([*intro, table]))
         )
     return "\n\n".join(sections)
 
@@ -164,9 +171,9 @@ def _home_tabs(inv: dict[str, Any]) -> str:
             inv.get("home_tabs", []),
             [
                 ("title", "Tab"),
+                ("app_route", "Open in Row-Bot"),
                 ("docs_route", "Docs route"),
                 ("screenshot_id", "Screenshot"),
-                ("builder", "Builder"),
                 ("source", "Source"),
             ],
         ),
@@ -340,9 +347,9 @@ PAGE_DEFS = [
     ("index", "Reference Tables", "Compact lookup tables for Row-Bot features and settings.", "scripts/docs/generate_mdx.py", lambda inv: _generated_index()),
     ("tools", "Tools", "Generated reference for Row-Bot tools and tool guides.", "scripts/docs/collect_inventory.py", _tools),
     ("providers", "Providers", "Generated reference for model providers and provider risk labels.", "scripts/docs/collect_inventory.py", _providers),
-    ("settings", "Settings", "Generated reference for settings tabs.", "docs-content/metadata/settings.yml", _settings),
-    ("settings-controls", "Settings Controls", "Generated control-level settings reference with defaults, effects, dependencies, restart notes, and security notes.", "scripts/docs/collect_inventory.py", _settings_controls),
-    ("home-tabs", "Home Tabs", "Generated reference for Home tab coverage.", "docs-content/metadata/home_tabs.yml", _home_tabs),
+    ("settings", "Settings", "Generated reference for the React settings pages.", "frontend/src/features/settings/model.ts, docs-content/metadata/settings.yml", _settings),
+    ("settings-controls", "Settings Controls", "Generated reference for every searchable setting, with deep links, search keywords, dependency notes, and security notes.", "frontend/src/features/settings/model.ts", _settings_controls),
+    ("home-tabs", "Home Tabs", "Generated reference for Home tab coverage.", "frontend/src/features/shell/Home.tsx, docs-content/metadata/home_tabs.yml", _home_tabs),
     ("channels", "Channels", "Generated reference for messaging channels.", "scripts/docs/collect_inventory.py", _channels),
     ("skills", "Skills", "Generated reference for bundled skills and tool guides.", "scripts/docs/collect_inventory.py", _skills),
     ("mcp", "MCP", "Generated reference for recommended MCP servers.", "src/row_bot/mcp_client/recommended_servers.json", _mcp),
@@ -396,7 +403,7 @@ def load_inventory(path: Path | None) -> dict[str, Any]:
 def write_pages(pages: dict[Path, str]) -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     for path, text in pages.items():
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def check_pages(pages: dict[Path, str]) -> list[str]:

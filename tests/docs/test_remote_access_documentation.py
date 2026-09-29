@@ -39,7 +39,7 @@ def test_packaging_and_source_docs_cover_access_ownership() -> None:
     assert "does not bundle or install Tailscale" in installer
     assert "Docker image contains no" in installer
     assert "`src/row_bot/access/` owns" in layout
-    assert "`src/row_bot/ui/remote_access_settings.py`" in layout
+    assert "`frontend/src/features/settings/Access*.tsx`" in layout
     assert "`scripts/smoke_remote_access.py`" in layout
     assert "physical access database remains `mobile.db`" in layout
     assert "`tailscale_serve_ownership.json`" in layout
@@ -61,11 +61,13 @@ def test_public_docs_metadata_owns_remote_access_sources() -> None:
     assert guide["route"] == "/docs/operations/remote-access"
     assert "src/row_bot/access/" in guide["sources"]
     assert "deploy/docker/README.md" in guide["sources"]
-    assert (
-        "src/row_bot/ui/remote_access_settings.py"
-        in surfaces["settings_system"]["source_files"]
-    )
-    assert surfaces["settings_remote_access"]["screenshot_id"] == (
+    remote_access = surfaces["settings_remote_access"]
+    assert remote_access["app_route"] == "/app-v2/settings/access"
+    assert {
+        "frontend/src/features/settings/AccessConnect.tsx",
+        "src/row_bot/access/",
+    } <= set(remote_access["source_files"])
+    assert remote_access["screenshot_id"] == (
         "settings-remote-access"
     )
     assert surfaces["remote_access_invitation"]["screenshot_id"] == (
@@ -112,11 +114,6 @@ def test_remote_access_screenshots_are_public_and_linked() -> None:
     invitation = screenshots["remote-access-invitation"]
     assert settings["public_asset"] is True
     assert settings["source"] == "isolated-demo-data"
-    assert settings["capture_selector"] == (
-        '[data-docs-id="remote-access-settings"]'
-    )
     assert "/docs/operations/remote-access" in settings["docs_pages"]
-    assert invitation["capture_selector"] == (
-        '[data-docs-id="remote-access-invitation"]'
-    )
+    assert invitation["public_asset"] is True
     assert "/docs/mobile-native/" in invitation["docs_pages"]
