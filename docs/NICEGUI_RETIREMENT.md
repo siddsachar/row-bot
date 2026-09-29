@@ -28,7 +28,7 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | # | Area | Capability in NiceGUI | Verdict | What React gets | Phase | Status |
 |---|---|---|---|---|---|---|
 | 1 | Chat | Paste an image; drag and drop files into the chat | Keep | Paste and drag-and-drop into the composer, several files at once, limits stated | 11 | Shipped (Phase 11) |
-| 2 | Chat | Export a conversation as plain text and PDF (Markdown exists) | Simplify | Export as Markdown and PDF; plain text dropped because Markdown already reads as text | 13 | Open |
+| 2 | Chat | Export a conversation as plain text and PDF (Markdown exists) | Simplify | Export as Markdown and PDF; plain text dropped because Markdown already reads as text | 13 | Shipped (Phase 13) |
 | 3 | Chat | Slash commands with arguments (`/goal`, `/profile`, `/agent`, `/reasoning`, `/noskill`) | Simplify | Every command the slash palette lists works with its argument; the niche `/noskill` leaves the palette | 11 | Shipped (Phase 11) |
 | 4 | Chat | Goals continue on their own between turns | Keep | Goals continue after each turn up to their limit | 11 | Shipped (Phase 11) |
 | 5 | Chat | Goal detail: verifier reason, event log, the goal's approvals, linked agents | Simplify | A goal card: "Turn 3 of 10", the verifier's latest reason, Pause, Stop (approvals stay in the transcript, agents in Agents) | 11 | Shipped (Phase 11) |
@@ -44,10 +44,10 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 15 | Setup | Inline first-run model setup (local, API key, custom endpoint, validation, knowledge model, migration, priorities) | Simplify | First run: choose how Row-Bot thinks, pick a model, a quick test, then Home; vision follows the chat model; import offered only when detected; the rest stays in Setup Center | 10 | Shipped (Phase 10) |
 | 16 | Setup | ChatGPT/Codex device code and xAI sign-in inside setup | Keep | Device code (Copy, automatic polling) and xAI sign-in inside Setup | 10 | Shipped (Phase 10) |
 | 17 | Voice | Realtime voice diagnostics (latency, turn timing) | Drop | — | 10 | Closed (Phase 10): developer diagnostics, not a person's job; voice failures reach people through the error catalog with one fix |
-| 18 | Workflows | Duplicate a workflow | Keep | Duplicate workflow | 13 | Open |
-| 19 | Workflows | Insert-variable menu (`{{date}}`, step outputs) | Simplify | Typing `{{` in a prompt suggests variables and step outputs | 13 | Open |
-| 20 | Workflows | Webhook URL shown in the workflow after saving | Keep | The webhook URL with Copy in the workflow's trigger | 13 | Open |
-| 21 | Workflows | External channels multi-select | Keep | A checklist of the configured channels | 13 | Open |
+| 18 | Workflows | Duplicate a workflow | Keep | Duplicate workflow | 13 | Shipped (Phase 13) |
+| 19 | Workflows | Insert-variable menu (`{{date}}`, step outputs) | Simplify | Typing `{{` in a prompt suggests variables and step outputs | 13 | Shipped (Phase 13) |
+| 20 | Workflows | Webhook URL shown in the workflow after saving | Keep | The webhook URL with Copy in the workflow's trigger | 13 | Shipped (Phase 13) |
+| 21 | Workflows | External channels multi-select | Keep | A checklist of the configured channels | 13 | Shipped (Phase 13) |
 | 22 | Designer | Duplicate a design | Keep | Duplicate in the Design panel's ⋯ menu (and ⌘K): a "(copy)" bound beside the original, opened in its own panel | 12 | Shipped (Phase 12) |
 | 23 | Designer | Zero-state quick actions ("Draft 3 slides from a brief", …) | Drop | — | 12 | Closed by review: conversation-first creation and the welcome prompts replace them |
 | 24 | Designer | A separate design palette (Ctrl/Cmd+K) and Review shortcut | Drop | — | 12 | Closed by review: the global ⌘K lists the open design's commands (Present, Export, Share, Add a slide, Duplicate, Review; shipped in Phase 12) |
@@ -78,8 +78,8 @@ it), **Closed** (covered by something that already exists; nothing to build).
 | 49 | Remote | Access sessions renew every 12 hours | Keep | Automatic session renewal | 14 | Open |
 | 50 | Remote | Tailscale consent link, terms link, review checkbox, private address | Simplify | One confirmation, Tailscale's own consent page when it asks, the address with Copy | 14 | Open |
 | 51 | Remote | Active tunnels list with Copy | Simplify | One "Public" status line with the address, Copy and Stop | 14 | Open |
-| 52 | Remote | "Expose task webhook" switch | Simplify | Moves to the workflow's webhook trigger: "Make reachable from the internet" | 13 | Open |
-| 53 | Data | Migration: Browse buttons, default source paths, Select all / Clear all | Simplify | The source is detected (Browse only if not found); Select all / Clear all kept | 13 | Open |
+| 52 | Remote | "Expose task webhook" switch | Simplify | Moves to the workflow's webhook trigger: "Make reachable from the internet" | 13 | Shipped (Phase 13) |
+| 53 | Data | Migration: Browse buttons, default source paths, Select all / Clear all | Simplify | The source is detected (Browse only if not found); Select all / Clear all kept | 13 | Shipped (Phase 13) |
 
 ### Dropped, and why
 

@@ -354,10 +354,17 @@ Every page follows one anatomy (`features/settings/anatomy.tsx`):
 2. **Essentials** — flat `SettingsSection`s of rows. Saved fields render as
    rows (`Field layout="row"`: label and help on the left, the control on the
    right; the help describes the control rather than naming it). Switches carry
-   no On/Off text. A switch saves when flipped; selects, choices and text
-   fields keep an explicit Save and Revert. Either way the save is one
-   reviewed step (review and execute together). A row's Reset, Save and
-   Revert sit beside its control.
+   no On/Off text. Every change saves at once (decision 19): switches, selects
+   and choices when changed, text when the field is left or on Enter (Escape
+   puts the saved text back without sending anything). The save is one
+   reviewed step (review and execute together) and the row then reads
+   "Saved · Undo"; Undo sends the previous value. There is no Save or Revert.
+   A change that sends data somewhere new asks first in place (choosing cloud
+   embeddings: "Documents and memories will be sent to the cloud embedding
+   provider…"). Typed credentials (API keys, channel tokens, secret fields)
+   and entity editors (a custom endpoint, an MCP server, a plugin's
+   configuration, a skill, a knowledge entry) keep an explicit Save. A row's
+   Reset sits beside its control.
 3. **Lists** — entity rows: icon tile, name with a `StatusDot` in words, one
    meta line, one primary action and a named ⋯ menu (`More actions for …`) for
    rarer verbs. Lists search inline as you type (Enter searches at once)
@@ -374,6 +381,33 @@ Every page follows one anatomy (`features/settings/anatomy.tsx`):
    (e.g. removing a document) opens its Danger zone. Lists re-read after a
    confirmed change (document queue, MCP servers, skills), so a row never needs
    a manual refresh to show what just happened.
+
+Removals that are easy to regret say so with Undo in the notice for 12 s
+(`notify(message, tone, { label: 'Undo', run })`): removing a resource from a
+conversation ("Removed X from this conversation." · Undo adds it back) and
+dismissing an insight (Undo restores it).
+
+**Settings › Data** (decision 21) has three parts. *Back up and restore*
+(local owner on this computer only; other devices read that backups belong
+to this computer): Back up now writes one zip to the workspace's Backups
+folder in the background — conversations, memories, workflows, designs and
+settings, read through SQLite's backup API — and never keys, sign-ins,
+browser or channel sessions, caches, logs or runtime files; webhook secrets
+and MCP headers/env are blanked, and the archive's manifest lists what to set
+up again. The page shows the last backup time and Show in folder. Restore
+from backup is desktop-only: one picked .zip (a one-use grant, never a path)
+is checked (foreign, newer, unsafe or secret-bearing archives are refused),
+described with what to sign in to again, and staged only after "Restore on
+restart" confirms that exact review; a staged restore can be cancelled. On
+the next start, before anything opens the profile, the server moves the
+current profile aside into `before-restore-<time>`, moves the backup in and
+rolls back on any failure, and the page then lists what to sign in to again.
+*Import from another assistant* finds Hermes Agent or OpenClaw in its usual
+folder (`~/.hermes`, `~/.openclaw` and the older names; shown home-relative,
+never as a full path), or Browse picks the folder in the desktop app (a
+one-use grant; a rescan with other choices names the preview instead); the
+preview has Select all and Clear all over the items that can be imported.
+*Danger zone* points to removing documents and keeps deleting all tracker data.
 
 Values speak human: enums are translated (`humanizeToken`: "Router",
 "Private · on device", "HTTP", "Local process"), times are relative with the
@@ -431,8 +465,27 @@ tabs, and nothing is read before the workspace is connected.
   scheduler counts cron weekday numbers from Monday = 0, so the builder writes
   day names and describes numbered days as they actually fire. Every `task.*`
   command goes to `/tasks/commands`.
+  Phase 13: ▶ on a row shows one review line in place ("3 steps · Row-Bot
+  default · Blocks actions") with Run and Cancel; Run starts the run and opens
+  the live run drawer, which re-reads the followed run every 2 s and ends with
+  "Run finished · <status>". *Send results to* is "In this app" (always, not
+  a choice) plus a checklist of the configured channels prefilled from the
+  delivery defaults (`null` follows the defaults, `[]` is this app only; "Use
+  my defaults" goes back). Settings has an agent profile select and a model
+  combobox ("Default model" first). Typing `{{` in a prompt or step suggests
+  the date variables and earlier steps' results (`step.<id>.output`). A
+  webhook trigger shows its address with the secret masked and Copy (the real
+  address is read only when copied), "Not reachable from the internet", and
+  "Make reachable from the internet", which asks first because it opens the
+  whole app through the tunnel; the webhook secret is compared in constant
+  time and an empty one is refused. Duplicate workflow copies it without a
+  schedule or trigger. Leaving the editor with unsaved changes asks "Save your
+  changes first?"; deleting a workflow forgets its drafts; a one-off time that
+  has passed is refused ("That time has passed…").
 - **Knowledge** is a full-bleed sigma.js/graphology canvas (loaded as its own
-  `graph` chunk; without WebGL the List view is shown with a note). Nodes are
+  `graph` chunk; without WebGL the List view is shown with a note). Add memory
+  (the toolbar's + and the empty map; also Settings › Knowledge) opens the
+  knowledge editor blank. Nodes are
   circles sized by their number of links and coloured by type from a fixed,
   nine-hue palette plus a neutral Other (`--graph-1`…`--graph-9`,
   `--graph-other`), validated per theme for colour-vision-deficiency separation
