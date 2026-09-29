@@ -251,16 +251,6 @@ def update_insight_status(insight_id: str, new_status: str) -> bool:
     return False
 
 
-def dismiss_insight(insight_id: str) -> bool:
-    """Dismiss an insight (hides it from the UI)."""
-    return update_insight_status(insight_id, "dismissed")
-
-
-def pin_insight(insight_id: str) -> bool:
-    """Pin an insight (prevents auto-prune)."""
-    return update_insight_status(insight_id, "pinned")
-
-
 def get_insight_by_id(insight_id: str) -> Optional[dict]:
     """Look up a single insight by ID."""
     store = _load_store()
@@ -269,55 +259,6 @@ def get_insight_by_id(insight_id: str) -> Optional[dict]:
             return insight
     return None
 
-
-def apply_insight(insight_id: str) -> dict:
-    """Convert a backend-fixable insight into approval-gated proposal(s)."""
-    insight = get_insight_by_id(insight_id)
-    if not insight:
-        return {"ok": False, "message": "Insight not found", "action": None}
-
-    status = insight.get("status", "new")
-    if status in INACTIVE_STATUSES:
-        return {
-            "ok": False,
-            "message": f"Insight already {status}",
-            "action": None,
-        }
-
-    if insight.get("category") != "skill_proposal":
-        return {
-            "ok": False,
-            "message": "Only skill proposal insights can be converted from Apply; use Investigate or Report Issue for this insight.",
-            "action": None,
-        }
-
-    try:
-        from row_bot.evolution import ensure_proposals_for_insight
-
-        proposals = [
-            proposal
-            for proposal in ensure_proposals_for_insight(insight)
-            if proposal.get("proposal_type") in {"create_skill", "patch_skill"}
-        ]
-    except ValueError as exc:
-        return {"ok": False, "message": str(exc), "action": None}
-    except Exception as exc:
-        logger.warning("Failed to propose insight %s: %s", insight_id, exc, exc_info=True)
-        return {
-            "ok": False,
-            "message": f"Failed to create proposal: {exc}",
-            "action": None,
-        }
-
-    if not proposals:
-        return {"ok": False, "message": "No skill proposal could be generated", "action": None}
-
-    return {
-        "ok": True,
-        "message": f"Created {len(proposals)} proposal(s). Preview and approve before applying.",
-        "action": [proposal["id"] for proposal in proposals],
-        "proposals": proposals,
-    }
 
 def get_insights_meta() -> dict:
     """Return the meta section of the insights store."""

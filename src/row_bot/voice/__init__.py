@@ -451,6 +451,3 @@ def get_voice_service() -> VoiceService:
             _instance = VoiceService()
         return _instance
 
-
-def get_available_whisper_sizes() -> list[str]:
-    return ["tiny", "base", "small", "medium"]

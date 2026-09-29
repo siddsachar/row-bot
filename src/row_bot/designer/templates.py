@@ -1370,27 +1370,3 @@ def get_template(template_id: str) -> Template | None:
             return t
     return None
 
-
-def get_template_categories() -> list[str]:
-    """Return distinct template categories in display order."""
-    seen = []
-    for t in _init_templates():
-        if t.category not in seen:
-            seen.append(t.category)
-    return seen
-
-
-def get_templates_for_mode(mode: str) -> list[Template]:
-    """Return templates whose ``mode`` matches the given designer mode.
-
-    Phase 2.3.A — gallery filtering. Unknown / empty modes fall back to
-    the full list so callers that don't yet carry a mode (legacy paths)
-    still see every template. Blank starters are always included in
-    their own mode's slice; the generic ``blank_canvas`` alias surfaces
-    under ``deck`` only.
-    """
-
-    key = (mode or "").strip().lower()
-    if not key:
-        return list(_init_templates())
-    return [t for t in _init_templates() if (t.mode or "deck").lower() == key]

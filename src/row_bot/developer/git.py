@@ -94,10 +94,6 @@ def sanitize_branch_name(name: str) -> str:
     return text[:120]
 
 
-def suggest_feature_branch(base: str = "developer") -> str:
-    return f"feat/{sanitize_branch_name(base)}"
-
-
 def create_branch(path: str, branch_name: str) -> GitStatus:
     folder = pathlib.Path(path).expanduser()
     branch = sanitize_branch_name(branch_name)

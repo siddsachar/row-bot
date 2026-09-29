@@ -610,20 +610,6 @@ def estimate_text_tokens(text: str) -> int:
     return len(text or "") // 4
 
 
-def estimate_skill_tokens(name: str) -> int:
-    """Rough token estimate for one skill's own instructions.
-
-    This intentionally excludes auto-active tool guides and shared prompt
-    wrapper text. Use ``estimate_tokens`` when estimating the complete injected
-    skills prompt for an enabled skill set.
-    """
-    _ensure_skills_loaded()
-    skill = _skills_cache.get(name)
-    if not skill:
-        return 0
-    return estimate_text_tokens(skill.instructions)
-
-
 # ── Skill CRUD ───────────────────────────────────────────────────────────────
 
 
@@ -837,28 +823,6 @@ def delete_skill(name: str) -> bool:
     _save_config()
     logger.info("Deleted skill '%s'", name)
     return True
-
-
-@_serialized
-def duplicate_skill(name: str, new_name: Optional[str] = None) -> Optional[Skill]:
-    """Duplicate a skill (typically bundled) into the user skills folder."""
-    original = _skills_cache.get(name)
-    if not original:
-        return None
-
-    dup_name = new_name or f"{original.name}_custom"
-    dup_display = f"{original.display_name} (Custom)"
-
-    return create_skill(
-        name=dup_name,
-        display_name=dup_display,
-        icon=original.icon,
-        description=original.description,
-        instructions=original.instructions,
-        tags=list(original.tags),
-        activation=dict(original.activation),
-        enabled=True,
-    )
 
 
 def _client_file(path: pathlib.Path, *, maximum: int = 65536):

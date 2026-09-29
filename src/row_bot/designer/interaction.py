@@ -6,7 +6,8 @@ Injects JavaScript into the preview iframe to enable:
   3. Double-click text to edit inline (contenteditable)
   4. Text edits sent back via postMessage for HTML patching
 
-The parent listener is registered via NiceGUI's ui.run_javascript().
+The React client receives and validates these messages
+(frontend/src/features/panels/artifact-bridge.ts).
 """
 
 from __future__ import annotations
@@ -290,64 +291,8 @@ def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PARENT-SIDE MESSAGE LISTENER  (registered once per preview)
+# PARENT-SIDE MESSAGE VALIDATION
 # ═══════════════════════════════════════════════════════════════════════
-
-def get_parent_listener_js(callback_id: str, *, iframe_id: str = "") -> str:
-    """Return JS to register a window message listener that calls back into Python.
-
-    The callback_id is the NiceGUI element ID used for emitting events.
-    """
-    if not iframe_id:
-        return ""  # No ambient global receiver is a safe default.
-    return f"""
-    (function() {{
-        const frameId = {json.dumps(iframe_id)};
-        const callbackId = {json.dumps(callback_id)};
-        window.__rowBotDesignerListeners ||= new Map();
-        const previous = window.__rowBotDesignerListeners.get(frameId);
-        if (previous) previous();
-        let observer = null;
-        function cleanup() {{
-            window.removeEventListener('message', listener);
-            if (observer) observer.disconnect();
-            window.__rowBotDesignerListeners.delete(frameId);
-        }}
-        function listener(e) {{
-            const frame = document.getElementById(frameId);
-            const bridge = getElement(callbackId);
-            if (!frame || !bridge) {{
-                cleanup();
-                return;
-            }}
-            if (e.source !== frame.contentWindow || e.origin !== 'null') return;
-            var data = e.data;
-            if (!data || typeof data !== 'object' || Array.isArray(data)) return;
-            if (data.previewId !== frameId || data.revision !== frame.dataset.previewRevision ||
-                !data.capability || data.capability !== frame.dataset.previewCapability) return;
-            if (!['element-click','text-edit','edit-start','edit-cancel',
-                  'designer-undo-shortcut','designer-redo-shortcut'].includes(data.type)) return;
-            if (Object.keys(data).some(k => !['previewId','revision','capability','type','detail'].includes(k))) return;
-            if (data.detail !== undefined && (!data.detail || typeof data.detail !== 'object' || Array.isArray(data.detail))) return;
-            let size; try {{ size = JSON.stringify(data).length; }} catch (_) {{ return; }}
-            if (size > 16384) return;
-            const event = new Event('bridge_msg', {{bubbles:true}});
-            event.msgType = data.type;
-            event.detail = data.detail || {{}};
-            event.previewId = data.previewId;
-            event.revision = data.revision;
-            event.capability = data.capability;
-            bridge.dispatchEvent(event);
-        }}
-        window.__rowBotDesignerListeners.set(frameId, cleanup);
-        window.addEventListener('message', listener);
-        observer = new MutationObserver(() => {{
-            if (!document.getElementById(frameId) || !getElement(callbackId)) cleanup();
-        }});
-        observer.observe(document.body, {{childList:true, subtree:true}});
-    }})();
-    """
-
 
 def validate_bridge_event(data: object, *, preview_id: str, revision: str,
                           capability: str) -> bool:

@@ -356,23 +356,6 @@ def _requirement_from_mapping(raw: dict[str, Any]) -> RuntimeRequirement | None:
     return None
 
 
-def requirements_for_install(install: dict[str, Any] | None) -> list[RuntimeRequirement]:
-    install = install if isinstance(install, dict) else {}
-    if str(install.get("transport") or "stdio") != "stdio":
-        return []
-    command = str(install.get("command") or "").strip()
-    runtime_id = infer_runtime_id_for_command(command)
-    if not runtime_id:
-        return []
-    req = _requirement_from_id(runtime_id, commands=(command,), source="inferred")
-    requirements = [req] if req else []
-    if _looks_like_playwright_mcp(install):
-        browser_req = _requirement_from_id("playwright-chrome", source="inferred")
-        if browser_req:
-            requirements.append(browser_req)
-    return requirements
-
-
 def requirements_for_server(server_cfg: dict[str, Any] | None) -> list[RuntimeRequirement]:
     if not isinstance(server_cfg, dict):
         return []

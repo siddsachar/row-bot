@@ -543,23 +543,6 @@ def get_workspace_diff_stats(workspace_path: str) -> DiffStats:
     )
 
 
-def list_workspace_files(workspace_path: str, *, limit: int = 120) -> list[str]:
-    folder = pathlib.Path(workspace_path).expanduser().resolve()
-    skip = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
-    rows: list[str] = []
-    if not folder.is_dir():
-        return rows
-    for path in sorted(folder.rglob("*"), key=lambda item: item.relative_to(folder).as_posix().lower()):
-        rel_parts = set(path.relative_to(folder).parts)
-        if rel_parts & skip:
-            continue
-        if path.is_file():
-            rows.append(path.relative_to(folder).as_posix())
-            if len(rows) >= limit:
-                break
-    return rows
-
-
 def read_file_preview(workspace_path: str, file_path: str, *, max_chars: int = 20_000) -> str:
     folder = pathlib.Path(workspace_path).expanduser().resolve()
     clean = str(file_path or "").strip().replace("\\", "/")

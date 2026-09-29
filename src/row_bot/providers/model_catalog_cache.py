@@ -301,20 +301,6 @@ def schedule_model_catalog_refresh_jobs() -> None:
         logger.warning("Could not schedule model catalog cache refresh", exc_info=True)
 
 
-def cache_age_label(snapshot: CatalogCacheSnapshot | None = None) -> str:
-    snap = snapshot or read_model_catalog_cache()
-    if snap.generated_at <= 0:
-        return "Not cached yet"
-    age = snap.age_seconds
-    if age < 60:
-        return "Updated just now"
-    if age < 3600:
-        return f"Updated {int(age // 60)}m ago"
-    if age < 86400:
-        return f"Updated {int(age // 3600)}h ago"
-    return f"Updated {int(age // 86400)}d ago"
-
-
 def _refresh_cloud_cache(*, provider_id: str | None = None) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     import row_bot.models as models
 

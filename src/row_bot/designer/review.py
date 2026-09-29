@@ -19,8 +19,6 @@ from row_bot.designer.brand_lint import (
     apply_brand_repairs_to_html,
     _BRAND_AUTO_CATEGORIES,
 )
-from row_bot.designer.session import prepare_project_mutation
-from row_bot.designer.storage import save_project
 
 
 _SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3}
@@ -197,77 +195,6 @@ def _apply_to_page(project, idx: int, source: str, categories: list[str]) -> tup
     page.html = new_html
     page.thumbnail_b64 = None
     return True, changes
-
-
-def apply_fix(project, finding: dict) -> dict[str, Any]:
-    """Apply a safe fix for a single finding. Note: deterministic repairers
-    operate per-category on the full page, so this fixes every instance of
-    that category on that page, not only the one finding."""
-    if not finding.get("auto_fixable"):
-        return {"applied": False, "changes": [], "reason": "not auto-fixable"}
-    idx = int(finding["page_index"])
-    pages = getattr(project, "pages", None) or []
-    if not (0 <= idx < len(pages)):
-        return {"applied": False, "changes": [], "reason": "invalid page"}
-    source = finding["source"]
-    category = finding["category"]
-    prepare_project_mutation(project, f"review_fix_{source}_{category}_p{idx}")
-    ok, changes = _apply_to_page(project, idx, source, [category])
-    if not ok:
-        return {"applied": False, "changes": []}
-    project.manual_edits.append(
-        f"Review: applied {source}/{category} fix on page {idx + 1} "
-        f"({len(changes)} change(s))."
-    )
-    save_project(project)
-    return {"applied": True, "changes": changes}
-
-
-def apply_fixes_bulk(project, findings: list[dict]) -> dict[str, Any]:
-    """Apply all auto-fixable findings grouped by (page, source)."""
-    auto = [f for f in findings if f.get("auto_fixable")]
-    if not auto:
-        return {"applied": 0, "changes": [], "pages_touched": 0}
-
-    # group
-    by_page: dict[int, dict[str, set[str]]] = {}
-    for f in auto:
-        idx = int(f["page_index"])
-        src = f["source"]
-        by_page.setdefault(idx, {"critique": set(), "brand_lint": set()})[src].add(f["category"])
-
-    prepare_project_mutation(project, "review_fix_bulk")
-    total_changes: list[dict] = []
-    pages_touched = 0
-    pages = getattr(project, "pages", None) or []
-
-    for idx, by_src in by_page.items():
-        if not (0 <= idx < len(pages)):
-            continue
-        page_changed = False
-        for source in ("critique", "brand_lint"):
-            cats = sorted(by_src.get(source) or [])
-            if not cats:
-                continue
-            ok, changes = _apply_to_page(project, idx, source, cats)
-            if ok:
-                total_changes.extend(changes)
-                page_changed = True
-        if page_changed:
-            pages_touched += 1
-
-    if total_changes:
-        project.manual_edits.append(
-            f"Review: bulk-applied {len(total_changes)} safe fix(es) "
-            f"across {pages_touched} page(s)."
-        )
-        save_project(project)
-
-    return {
-        "applied": len(total_changes),
-        "changes": total_changes,
-        "pages_touched": pages_touched,
-    }
 
 
 def build_ai_fix_request(finding: dict) -> str:

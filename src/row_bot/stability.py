@@ -123,19 +123,6 @@ def log_performance_snapshot(label: str) -> None:
     _log_memory_snapshot(label=label)
 
 
-def record_ui_callback_error(context: str, exc: BaseException) -> pathlib.Path | None:
-    """Persist a UI callback/task exception with a short context label."""
-    logger.exception("UI callback failed: %s", context)
-    return _write_report(
-        "ui_callback",
-        f"UI callback failed: {context}",
-        exc_type=type(exc).__name__,
-        exc_message=str(exc),
-        stack="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-        extra={"context": context},
-    )
-
-
 def _sys_excepthook(
     exc_type: type[BaseException],
     exc: BaseException,

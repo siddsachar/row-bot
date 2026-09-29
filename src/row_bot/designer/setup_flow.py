@@ -38,14 +38,6 @@ def is_placeholder_project_name(name: str) -> bool:
     """True for names nobody chose: first-turn setup and blank starters."""
     name = name.strip()
     return name in {"", DEFAULT_PROJECT_NAME} or _PLACEHOLDER_NAME.fullmatch(name) is not None
-_INFERRED_OUTPUT_TYPES = {
-    "pitch_deck": "pitch deck",
-    "status_report": "status report",
-    "marketing_one_pager": "marketing one-pager",
-    "product_launch": "product launch presentation",
-    "social_media": "social media set",
-    "wireframe_kit": "wireframe kit",
-}
 
 # Phase 2.3.E — Canvas control shown in the setup dialog is scoped to
 # the selected mode so users don't get irrelevant options (e.g.
@@ -170,15 +162,6 @@ def default_project_name_for_template(template_id: str) -> str:
     if tmpl and not tmpl.id.startswith("blank_"):
         return tmpl.name
     return DEFAULT_PROJECT_NAME
-
-
-def infer_output_type_for_template(template_id: str) -> str:
-    """Return the implied output type for non-blank templates."""
-
-    tmpl = get_template(template_id) or get_template("blank_canvas")
-    if tmpl is None or tmpl.id.startswith("blank_"):
-        return ""
-    return _INFERRED_OUTPUT_TYPES.get(tmpl.id, tmpl.name.lower())
 
 
 def resolve_project_brand(

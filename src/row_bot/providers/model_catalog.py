@@ -89,16 +89,6 @@ def rows_for_surface(rows: Iterable[CatalogModelRow], surface: str) -> list[Cata
     return [row for row in rows if row.supports(surface)]
 
 
-def group_rows_by_provider(rows: Iterable[CatalogModelRow]) -> dict[str, list[CatalogModelRow]]:
-    grouped: dict[str, list[CatalogModelRow]] = {}
-    for row in rows:
-        grouped.setdefault(row.provider_id, []).append(row)
-    return {
-        provider_id: sorted(provider_rows, key=lambda row: row.display_name.lower())
-        for provider_id, provider_rows in sorted(grouped.items(), key=lambda item: _provider_sort_label(item[0], item[1]))
-    }
-
-
 def load_ollama_catalog_rows() -> list[dict[str, Any]]:
     from row_bot.models import list_local_models
     from row_bot.providers.ollama import ollama_catalog_rows
@@ -764,7 +754,3 @@ def _xai_oauth_model_infos() -> list[ModelInfo]:
     except Exception:
         return []
 
-
-def _provider_sort_label(provider_id: str, rows: list[CatalogModelRow]) -> tuple[str, str]:
-    label = rows[0].provider_display_name if rows else provider_id
-    return (label.lower(), provider_id)

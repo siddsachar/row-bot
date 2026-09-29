@@ -113,10 +113,6 @@ def set_buddy_placement_state(state: BuddyPlacementState) -> dict[str, Any]:
     return save_buddy_config(apply_placement_state(get_buddy_config(), state))
 
 
-def get_buddy_placement_state() -> BuddyPlacementState:
-    return placement_state_from_config(get_buddy_config())
-
-
 def reset_buddy_config() -> dict[str, Any]:
     return save_buddy_config(dict(_DEFAULT_CONFIG))
 

@@ -53,25 +53,6 @@ ORCHESTRATION_STATUS_LABELS = {
     "failed": "Failed",
     "stopped": "Stopped",
 }
-AGENT_MEMBER_STATUS_LABELS = {
-    "active": "Running",
-    "queued": "Queued",
-    "running": "Running",
-    "waiting_approval": "Needs approval",
-    "waiting_user": "Needs attention",
-    "paused": "Paused",
-    "completed": "Completed",
-    "completed_delivery_failed": "Completed; delivery failed",
-    "failed": "Failed",
-    "blocked": "Blocked",
-    "stopped": "Stopped",
-    "cleared": "Cleared",
-    "cancelled": "Cancelled",
-    "timed_out": "Timed out",
-    "interrupted": "Interrupted",
-    "retrying": "Retrying",
-    "retried": "Replaced",
-}
 TERMINAL_MEMBER_STATUSES = {
     "completed",
     "completed_delivery_failed",
@@ -319,16 +300,6 @@ def orchestration_status_label(status: str) -> str:
 
     clean = str(status or "").strip()
     return ORCHESTRATION_STATUS_LABELS.get(
-        clean,
-        clean.replace("_", " ").strip().title() or "Unknown",
-    )
-
-
-def agent_member_status_label(status: str) -> str:
-    """Return compact user-facing copy for a child Agent status."""
-
-    clean = str(status or "").strip()
-    return AGENT_MEMBER_STATUS_LABELS.get(
         clean,
         clean.replace("_", " ").strip().title() or "Unknown",
     )

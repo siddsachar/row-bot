@@ -1556,28 +1556,6 @@ def list_starred_cloud_models() -> list[str]:
     return [m for m in _cloud_model_cache if m in starred]
 
 
-def star_cloud_model(model_id: str) -> None:
-    """Add a model to the starred list."""
-    from row_bot.api_keys import get_cloud_config, set_cloud_config
-    from row_bot.providers.selection import add_quick_choice_for_model
-    starred = list(get_cloud_config().get("starred_models", []))
-    if model_id not in starred:
-        starred.append(model_id)
-        set_cloud_config("starred_models", starred)
-    add_quick_choice_for_model(model_id, source="legacy_starred_cloud")
-
-
-def unstar_cloud_model(model_id: str) -> None:
-    """Remove a model from the starred list."""
-    from row_bot.api_keys import get_cloud_config, set_cloud_config
-    from row_bot.providers.selection import remove_quick_choice_for_model
-    starred = list(get_cloud_config().get("starred_models", []))
-    if model_id in starred:
-        starred.remove(model_id)
-        set_cloud_config("starred_models", starred)
-    remove_quick_choice_for_model(model_id)
-
-
 def get_cloud_model_context(model_name: str) -> int:
     """Return the context window size for a cloud model.
 

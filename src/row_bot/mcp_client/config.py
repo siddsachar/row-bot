@@ -406,13 +406,6 @@ def upsert_server(name: str, server_config: dict[str, Any]) -> dict[str, Any]:
 
 
 @_configuration_mutation
-def delete_server(name: str) -> None:
-    cfg = load_config()
-    cfg.setdefault("servers", {}).pop(name, None)
-    save_config(cfg)
-
-
-@_configuration_mutation
 def set_server_enabled(name: str, enabled: bool) -> None:
     cfg = load_config()
     if name in cfg.get("servers", {}):
@@ -444,18 +437,6 @@ def set_tool_requires_approval(server_name: str, tool_name: str, requires: bool)
     else:
         approvals.discard(tool_name)
     tools_cfg["require_approval"] = sorted(approvals)
-    save_config(cfg)
-
-
-@_configuration_mutation
-def set_server_utility_enabled(server_name: str, utility: str, enabled: bool) -> None:
-    cfg = load_config()
-    server = cfg.get("servers", {}).get(server_name)
-    if not server:
-        return
-    if utility not in {"resources_enabled", "prompts_enabled"}:
-        raise ValueError(f"Unknown MCP utility toggle: {utility}")
-    server.setdefault("tools", {})[utility] = bool(enabled)
     save_config(cfg)
 
 

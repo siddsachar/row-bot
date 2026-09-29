@@ -23,21 +23,6 @@ from row_bot.designer.state import DesignerProject
 logger = logging.getLogger(__name__)
 
 
-def list_share_channels() -> list[dict]:
-    """Return lightweight metadata for all registered channels."""
-    channels = []
-    for channel in channel_registry.all_channels():
-        channels.append({
-            "name": channel.name,
-            "display_name": channel.display_name,
-            "configured": channel.is_configured(),
-            "running": channel.is_running(),
-            "photo_out": channel.capabilities.photo_out,
-            "document_out": channel.capabilities.document_out,
-        })
-    return channels
-
-
 def _resolve_target(channel, target: str | int | None):
     if target is not None and str(target).strip():
         return target

@@ -324,28 +324,6 @@ def load_asset_bytes(project_id: str, stored_name: str) -> Optional[bytes]:
         return None
 
 
-def delete_reference_bytes(project_id: str, stored_name: str) -> bool:
-    """Delete a persisted reference file. Returns True if removed."""
-    from row_bot.thread_cleanup import resolve_managed_path
-
-    path = resolve_managed_path(REFERENCES_DIR, _project_reference_dir(project_id) / stored_name)
-    if not path.exists():
-        return False
-    path.unlink()
-    return True
-
-
-def delete_asset_bytes(project_id: str, stored_name: str) -> bool:
-    """Delete a persisted asset file. Returns True if removed."""
-    from row_bot.thread_cleanup import resolve_managed_path
-
-    path = resolve_managed_path(ASSETS_DIR, _project_asset_dir(project_id) / stored_name)
-    if not path.exists():
-        return False
-    path.unlink()
-    return True
-
-
 def delete_project_references(project_id: str) -> bool:
     """Delete the entire persisted reference directory for a project."""
     from row_bot.thread_cleanup import resolve_managed_path
@@ -591,25 +569,6 @@ def delete_project(project_id: str) -> bool:
                 clean_project_id,
             )
     return deleted
-
-
-def delete_projects(project_ids: list[str]) -> tuple[int, list[tuple[str, str]]]:
-    """Delete several designer projects at once.
-
-    Wraps :func:`delete_project` so the JSON file, references dir, and
-    assets dir are all cleaned up per project. Returns
-    ``(deleted_count, failures)``. A project whose JSON was already
-    missing (returns False) is not counted.
-    """
-    deleted = 0
-    failures: list[tuple[str, str]] = []
-    for pid in project_ids:
-        try:
-            if delete_project(pid):
-                deleted += 1
-        except Exception as exc:
-            failures.append((pid, str(exc)))
-    return deleted, failures
 
 
 def _fork_thread_for_duplicate(

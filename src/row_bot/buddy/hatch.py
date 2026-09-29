@@ -144,15 +144,6 @@ def get_hatch_generation_status() -> dict[str, Any]:
         return _job_snapshot_unlocked()
 
 
-def mark_hatch_generation_status_seen(job_id: str) -> None:
-    """Mark a terminal Hatch job as handled by a UI surface."""
-
-    with _JOB_LOCK:
-        if _CURRENT_JOB.get("id") == job_id:
-            _CURRENT_JOB["settings_refresh_seen"] = True
-            _CURRENT_JOB["updated_at"] = time.time()
-
-
 def _update_hatch_job(job_id: str, **updates: Any) -> dict[str, Any]:
     with _JOB_LOCK:
         if _CURRENT_JOB.get("id") != job_id:

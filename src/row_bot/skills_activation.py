@@ -825,15 +825,6 @@ def remove_auto_loaded_skill(thread_id: str, skill_id: str) -> bool:
         return changed
 
 
-def clear_auto_loaded_skills(thread_id: str) -> None:
-    with _state_lock:
-        store = _load_store()
-        state = _thread_state(store, thread_id)
-        if state.get("auto_loaded"):
-            state["auto_loaded"] = []
-            _save_store(store)
-
-
 def delete_thread_activation_state(thread_id: str) -> None:
     """Remove durable skill activation data when its owning thread is deleted."""
 

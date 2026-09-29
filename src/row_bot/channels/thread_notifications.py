@@ -101,56 +101,6 @@ def append_parent_thread_message_once(
     return appended
 
 
-def append_agent_lifecycle_message_once(
-    run: Mapping[str, Any],
-    *,
-    source_generation_id: str = "",
-    orchestration_id: str = "",
-    required: bool = False,
-    wait_mode: bool = False,
-) -> bool:
-    """Persist one durable parent-transcript card for a delegated Agent Run."""
-
-    run_id = _clean_text(run.get("id"))
-    parent_thread_id = _clean_text(run.get("parent_thread_id"))
-    if not run_id or not parent_thread_id:
-        return False
-    profile = _clean_text(
-        run.get("profile_display_name")
-        or run.get("profile_slug")
-        or run.get("kind")
-        or "Agent"
-    )
-    profile = profile[:1].upper() + profile[1:] if profile else "Agent"
-    key = f"agent_lifecycle:{run_id}"
-    text = f"Started a {profile} agent for this. I'll keep this thread updated."
-    return append_parent_thread_message_once(
-        thread_id=parent_thread_id,
-        key=key,
-        text=text,
-        ui_metadata={
-            "agent_run_ids": [run_id],
-            "agent_run_refresh_key": "|".join(
-                [
-                    run_id,
-                    _clean_text(run.get("status")),
-                    _clean_text(run.get("updated_at")),
-                ]
-            ),
-            "agent_lifecycle": {
-                "kind": "delegated_agent_spawn",
-                "run_id": run_id,
-                "source_generation_id": _clean_text(source_generation_id),
-                "orchestration_id": _clean_text(orchestration_id),
-                "required": bool(required),
-                "wait_mode": bool(wait_mode),
-                "completion_summary_emitted": False,
-            },
-            "channel_notification_key": key,
-        },
-    )
-
-
 def notify_agent_run_approval(approval_or_id: Mapping[str, Any] | str) -> bool:
     """Publish a child approval to its parent checkpoint and bound channel."""
 

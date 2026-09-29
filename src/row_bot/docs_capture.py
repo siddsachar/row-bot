@@ -222,22 +222,6 @@ def docs_capture_provider_cards() -> list[dict[str, Any]]:
     ]
 
 
-def docs_capture_model_choices() -> list[dict[str, str]]:
-    """Return inert, display-only Quick Choices for screenshot capture."""
-    if not docs_capture_fake_provider_status():
-        return []
-    return [
-        {
-            "value": "model:ollama:llama3.1:8b",
-            "label": "Ollama Local · llama3.1:8b",
-        },
-        {
-            "value": "model:custom:demo-chat",
-            "label": "Custom local endpoint · demo-chat",
-        },
-    ]
-
-
 def docs_capture_demo_state_path(data_dir: Path | None = None) -> Path:
     root = data_dir or get_row_bot_data_dir()
     return root / DOCS_DEMO_STATE_FILE

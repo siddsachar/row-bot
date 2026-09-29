@@ -2310,25 +2310,6 @@ def delete_task(task_id: str, *, expected_revision: str | None = None,
             )
 
 
-@_schema_retry
-def delete_tasks(task_ids: list[str]) -> tuple[int, list[tuple[str, str]]]:
-    """Delete several tasks at once.
-
-    Wraps :func:`delete_task` in a loop so the scheduler-job removal,
-    pipeline state cleanup, and approval-request cancellation run for
-    every id. Returns ``(deleted_count, failures)``.
-    """
-    deleted = 0
-    failures: list[tuple[str, str]] = []
-    for tid in task_ids:
-        try:
-            delete_task(tid)
-            deleted += 1
-        except Exception as exc:
-            failures.append((tid, str(exc)))
-    return deleted, failures
-
-
 def duplicate_task(task_id: str, *, new_task_id: str | None = None,
                    validate: Callable[[], None] | None = None,
                    record_commit: Callable[[sqlite3.Connection, str], None] | None = None) -> str | None:
@@ -3078,15 +3059,6 @@ def get_running_tasks() -> dict[str, dict]:
     started_at, step_label, log}}`` for all in-flight task executions."""
     with _active_lock:
         return dict(_active_runs)
-
-
-def get_task_logs(thread_id: str, last_n: int = 15) -> list[str]:
-    """Return the last *last_n* log lines for a running task."""
-    with _active_lock:
-        info = _active_runs.get(thread_id)
-        if info:
-            return list(info.get("log", [])[-last_n:])
-    return []
 
 
 def stop_task(thread_id: str) -> bool:
@@ -6522,13 +6494,6 @@ def cancel_agent_run_approvals(agent_run_id: str) -> int:
         except Exception:
             logger.warning("Could not mark approval %s withdrawn on channels", approval_id, exc_info=True)
     return len(ids)
-
-
-def get_pending_approval_for_agent_run(agent_run_id: str) -> dict | None:
-    """Return the newest pending approval for a child Agent Run."""
-
-    rows = get_pending_approvals(agent_run_id=str(agent_run_id or ""))
-    return rows[0] if rows else None
 
 
 @_schema_retry

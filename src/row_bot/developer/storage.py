@@ -316,12 +316,6 @@ def add_or_update_local_workspace(path: str, *, repo_url: str = "") -> Developer
     return save_workspace(workspace)
 
 
-def list_clone_parent_folders() -> list[str]:
-    payload = _load_payload()
-    rows = [str(p) for p in payload.get("clone_parent_folders", []) if p]
-    return rows[:8]
-
-
 @_registry_mutation
 def remember_clone_parent_folder(path: str) -> None:
     resolved = str(pathlib.Path(path).expanduser().resolve())
@@ -542,10 +536,3 @@ def is_git_repository_root(path: str) -> bool:
         return False
     return bool(status.get("is_repo_root"))
 
-
-def workspace_updated_label(workspace: DeveloperWorkspace) -> str:
-    try:
-        dt = datetime.fromisoformat(workspace.updated_at)
-        return dt.strftime("%b %d, %H:%M")
-    except Exception:
-        return workspace.updated_at[:16] if workspace.updated_at else ""

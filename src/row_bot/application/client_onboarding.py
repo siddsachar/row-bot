@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Any, Callable
+from typing import Any
 from uuid import UUID, uuid4
 
 from row_bot.application.client_platform import ClientPlatformError
@@ -151,14 +151,6 @@ def read_onboarding() -> dict[str, Any]:
     migrate_legacy_presets()
     with _LOCK:
         return _snapshot(_read())
-
-
-def update_onboarding_config(change: Callable[[dict[str, Any]], bool | None]) -> None:
-    """Apply NiceGUI onboarding choices through the same atomic config owner."""
-    with _LOCK:
-        config = _read()
-        if change(config) is not False:
-            _save(config)
 
 
 def _save(config: dict[str, Any]) -> None:
