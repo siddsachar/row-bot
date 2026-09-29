@@ -312,6 +312,7 @@ _STATUS.update(
     {
         "owner_local_only": 403,
         "custom_tool_draft_unavailable": 404,
+        "custom_tool_unavailable": 404,
         "custom_tool_receipt_unavailable": 404,
         "custom_tool_revision_conflict": 409,
         "invalid_custom_tool_command": 422,
@@ -8593,6 +8594,55 @@ def create_router(
         if not (context.is_local_owner and context.direct_loopback):
             raise ProtocolError("owner_local_only", 403)
         return await import_authority(conversation_id, binding_id, request, current)
+
+    async def custom_tool_library_authority(request: Request, current: Any):
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("owner_local_only", 403)
+        return dispatch_validation(request, current)
+
+    @router.get("/custom-tools")
+    async def custom_tool_library(request: Request) -> JSONResponse:
+        current = await session(request)
+        validate = await custom_tool_library_authority(request, current)
+        from row_bot.developer.client_custom_tool_library import read_custom_tool_library
+
+        result = await call(read_custom_tool_library, validate=validate)
+        return await respond(request, dto.CustomToolLibrary, result)
+
+    @router.get("/custom-tools/commands/{command_id}")
+    async def custom_tool_library_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        validate = await custom_tool_library_authority(request, current)
+        from row_bot.developer.client_custom_tool_library import read_custom_tool_library_receipt
+
+        result = await call(
+            read_custom_tool_library_receipt, str(command_id), owner_id=current.id, validate=validate
+        )
+        return await respond(request, dto.CustomToolLibraryReceipt, result)
+
+    @router.post("/custom-tools/commands")
+    async def custom_tool_library_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.CustomToolLibraryCommand, 64 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        validate = await custom_tool_library_authority(request, current)
+        folder = None
+        if body.folder_grant:
+            if body.action != "inspect":
+                raise ProtocolError("invalid_custom_tool_command", 422)
+            selected = await call(folder_selections.resolve, body.folder_grant, current.id)
+            folder = selected.path
+        from row_bot.developer.client_custom_tool_library import execute_custom_tool_library
+
+        command = body.model_dump(mode="json", exclude={"folder_grant", "client_session_id"})
+        result = await call(
+            execute_custom_tool_library, command, owner_id=current.id, validate=validate, folder=folder
+        )
+        return await respond(request, dto.CustomToolLibraryReceipt, result)
 
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools")
     async def custom_tool_snapshot(

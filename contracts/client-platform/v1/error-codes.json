@@ -86,6 +86,7 @@
     "custom_tool_draft_unavailable": 404,
     "custom_tool_receipt_unavailable": 404,
     "custom_tool_revision_conflict": 409,
+    "custom_tool_unavailable": 404,
     "delivery_unavailable": 409,
     "dependency_unavailable": 503,
     "design_catalog_too_large": 413,

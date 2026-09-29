@@ -55,6 +55,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ProfilePage", "ProfileDetail", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
     "CustomToolSnapshot", "CustomToolCommand", "CustomToolReceipt",
+    "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
@@ -250,6 +251,9 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools", None, "CustomToolSnapshot"),
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands/{command_id}", None, "CustomToolReceipt"),
     ("post", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands", "CustomToolCommand", "CustomToolReceipt"),
+    ("get", "/custom-tools", None, "CustomToolLibrary"),
+    ("get", "/custom-tools/commands/{command_id}", None, "CustomToolLibraryReceipt"),
+    ("post", "/custom-tools/commands", "CustomToolLibraryCommand", "CustomToolLibraryReceipt"),
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
@@ -904,6 +908,12 @@ export const getCustomToolReceipt = (base: string, proof: SessionProof, conversa
   jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools/commands/${id(command)}`, 'CustomToolReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendCustomToolCommand = (base: string, proof: SessionProof, conversation: string, binding: string, command: CustomToolCommand, signal?: AbortSignal): Promise<CustomToolReceipt> =>
   jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools/commands`, 'CustomToolReceipt', proof, 'POST', validateWire('CustomToolCommand', command), command.command_id, signal);
+export const getCustomToolLibrary = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CustomToolLibrary> =>
+  jsonRequest(base, '/custom-tools', 'CustomToolLibrary', proof, 'GET', undefined, undefined, signal);
+export const getCustomToolLibraryReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<CustomToolLibraryReceipt> =>
+  jsonRequest(base, `/custom-tools/commands/${id(command)}`, 'CustomToolLibraryReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendCustomToolLibraryCommand = (base: string, proof: SessionProof, command: CustomToolLibraryCommand, signal?: AbortSignal): Promise<CustomToolLibraryReceipt> =>
+  jsonRequest(base, '/custom-tools/commands', 'CustomToolLibraryReceipt', proof, 'POST', validateWire('CustomToolLibraryCommand', command), command.command_id, signal);
 export const getInsights = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<InsightsSnapshot> =>
   jsonRequest(base, '/insights', 'InsightsSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getInsightReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<InsightReceipt> =>

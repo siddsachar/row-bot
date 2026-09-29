@@ -1,0 +1,258 @@
+{
+  "$defs": {
+    "CustomToolCommandView": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1024,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "command"
+      ],
+      "title": "CustomToolCommandView",
+      "type": "object"
+    },
+    "CustomToolLibraryDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CustomToolCommandView"
+          },
+          "maxItems": 32,
+          "title": "Commands",
+          "type": "array"
+        },
+        "created_tool_id": {
+          "maxLength": 128,
+          "title": "Created Tool Id",
+          "type": "string"
+        },
+        "folder": {
+          "maxLength": 256,
+          "title": "Folder",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "python_project": {
+          "title": "Python Project",
+          "type": "boolean"
+        },
+        "setup_ok": {
+          "title": "Setup Ok",
+          "type": "boolean"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "test_results": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CustomToolTestView"
+          },
+          "maxProperties": 32,
+          "title": "Test Results",
+          "type": "object"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "commands",
+        "warnings",
+        "test_results",
+        "python_project",
+        "setup_ok",
+        "status",
+        "created_tool_id",
+        "folder"
+      ],
+      "title": "CustomToolLibraryDraft",
+      "type": "object"
+    },
+    "CustomToolLibraryTool": {
+      "additionalProperties": false,
+      "properties": {
+        "available_in_chat": {
+          "title": "Available In Chat",
+          "type": "boolean"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CustomToolCommandView"
+          },
+          "maxItems": 32,
+          "title": "Commands",
+          "type": "array"
+        },
+        "draft_id": {
+          "maxLength": 128,
+          "title": "Draft Id",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "folder": {
+          "maxLength": 256,
+          "title": "Folder",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "enabled",
+        "available_in_chat",
+        "commands",
+        "folder",
+        "draft_id"
+      ],
+      "title": "CustomToolLibraryTool",
+      "type": "object"
+    },
+    "CustomToolTestView": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "ran": {
+          "title": "Ran",
+          "type": "boolean"
+        },
+        "returncode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Returncode"
+        },
+        "setup_hint": {
+          "maxLength": 1024,
+          "title": "Setup Hint",
+          "type": "string"
+        },
+        "stderr": {
+          "maxLength": 4000,
+          "title": "Stderr",
+          "type": "string"
+        },
+        "stdout": {
+          "maxLength": 4000,
+          "title": "Stdout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ran",
+        "ok",
+        "returncode",
+        "stdout",
+        "stderr",
+        "setup_hint"
+      ],
+      "title": "CustomToolTestView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a Tools \u203a Custom tools: every custom tool and unfinished draft.",
+  "properties": {
+    "drafts": {
+      "items": {
+        "$ref": "#/$defs/CustomToolLibraryDraft"
+      },
+      "maxItems": 32,
+      "title": "Drafts",
+      "type": "array"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "tools": {
+      "items": {
+        "$ref": "#/$defs/CustomToolLibraryTool"
+      },
+      "maxItems": 64,
+      "title": "Tools",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tools",
+    "drafts",
+    "revision"
+  ],
+  "title": "CustomToolLibrary",
+  "type": "object"
+}

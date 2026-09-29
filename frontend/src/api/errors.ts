@@ -1183,6 +1183,10 @@ const CATALOG: Record<string, Entry> = {
     'That custom tool draft is gone. Start again.',
     'review',
   ],
+  custom_tool_unavailable: [
+    'That custom tool is gone. Check the list.',
+    'review',
+  ],
   custom_tool_receipt_unavailable: [
     "Row-Bot can't find the earlier custom tool step. Check the tool before trying again.",
     'review',

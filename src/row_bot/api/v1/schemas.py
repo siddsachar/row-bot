@@ -3484,6 +3484,51 @@ class CustomToolReceipt(WireModel):
     snapshot: CustomToolSnapshot
 
 
+class CustomToolLibraryDraft(CustomToolDraftView):
+    folder: str = Field(max_length=256)
+
+
+class CustomToolLibraryTool(CustomToolView):
+    folder: str = Field(max_length=256)
+    draft_id: str = Field(max_length=128)
+
+
+class CustomToolLibrary(WireModel):
+    """Settings › Tools › Custom tools: every custom tool and unfinished draft."""
+    schema_version: Literal[1]
+    tools: list[CustomToolLibraryTool] = Field(max_length=64)
+    drafts: list[CustomToolLibraryDraft] = Field(max_length=32)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CustomToolApproval(WireModel):
+    """What the standard approval card shows before a test command runs once."""
+    command_name: str = Field(max_length=128)
+    command: str = Field(max_length=4096)
+    label: str = Field(max_length=64)
+    reason: str = Field(max_length=1024)
+    nonce: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CustomToolLibraryCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["inspect", "refine", "update", "create", "setup", "test", "enable", "promote", "remove"]
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=8)
+    # "Add from a folder": the desktop folder pick (never a path from the page).
+    folder_grant: OpaqueId | None = None
+
+
+class CustomToolLibraryReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain", "approval_required"]
+    summary: str = Field(max_length=1024)
+    snapshot: CustomToolLibrary
+    approval: CustomToolApproval | None = None
+    test: CustomToolTestView | None = None
+
+
 class InsightProposalView(WireModel):
     id: str = Field(max_length=128)
     title: str = Field(max_length=256)
