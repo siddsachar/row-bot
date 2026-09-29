@@ -205,7 +205,9 @@ test('Settings groups list every page, and search finds pages and rows', async (
   await screenshot(page, info, 'settings-category-deep-link-wide');
 
   // "/" focuses search; a page result navigates, a row result jumps to it.
-  await page.getByRole('heading', { name: 'Documents', level: 2 }).click();
+  await page
+    .getByRole('heading', { name: 'Documents', exact: true, level: 2 })
+    .click();
   await page.keyboard.press('/');
   const search = navigation.getByRole('searchbox', { name: 'Find a setting' });
   await expect(search).toBeFocused();
@@ -610,4 +612,37 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
   await assertNoOverflow(page);
   await accessibility(page, info, 'settings-keyboard-axe');
   await screenshot(page, info, 'settings-keyboard-focus-restored');
+});
+
+test('Leaving Tools takes its sections with it (B183)', async ({
+  browserName,
+  context,
+  page,
+}, info) => {
+  test.skip(
+    browserName !== 'chromium' || info.project.use.viewport!.width < 900,
+    'The settings link column exists from 900px.',
+  );
+  await blockFixtureServiceWorkers(context);
+  const duplicateKeys: string[] = [];
+  page.on('console', (message) => {
+    if (/same key/i.test(message.text())) duplicateKeys.push(message.text());
+  });
+  await page.goto(settingsPath('tools'));
+  await waitForSettings(page, 'Tools');
+  await expect(
+    page.getByRole('heading', { name: 'Custom tools', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Settings sections', exact: true })
+    .getByRole('link', { name: 'Data', exact: true })
+    .click();
+  await waitForSettings(page, 'Data');
+  await expect(
+    page.getByRole('heading', { name: 'Back up and restore', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Custom tools', exact: true }),
+  ).toHaveCount(0);
+  expect(duplicateKeys).toEqual([]);
 });

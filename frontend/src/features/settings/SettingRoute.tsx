@@ -487,8 +487,13 @@ export default function SettingRoute() {
             ) : (
               snapshotState
             )}
-            <CustomToolsSettings key={session} />
-            <ToolCatalog key={session} load={controller.cachedTools} />
+            {/* Siblings need distinct keys, or React keeps one of them
+                on the next page (B183). */}
+            <CustomToolsSettings key={`custom-tools:${session}`} />
+            <ToolCatalog
+              key={`tool-catalog:${session}`}
+              load={controller.cachedTools}
+            />
           </>
         ) : leaf.id === 'knowledge' ? (
           <>
