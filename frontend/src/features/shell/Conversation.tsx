@@ -159,7 +159,7 @@ export default function Conversation({
   headerMenu,
   onStartProfileChat,
 }: {
-  onPanel: (panel: PanelDescriptor) => void;
+  onPanel: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   completedDesignId?: string;
   onResourceOpened?: (bindingId: string) => void;
   /** A resource is being removed (Undo on its card): close its panels. */

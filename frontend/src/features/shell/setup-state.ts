@@ -32,7 +32,8 @@ const initial = (): SetupDraft => ({
   canvas: '16:9',
   name: '',
   brief: '',
-  generate: false,
+  // A brief means "draft it now" unless the person switches it off.
+  generate: true,
   commandId: null,
   receipt: null,
   generationId: null,

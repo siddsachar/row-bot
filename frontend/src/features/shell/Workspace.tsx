@@ -1613,7 +1613,9 @@ export default function Workspace() {
                       </ErrorState>
                     ) : null}
                     <Conversation
-                      onPanel={showPanel}
+                      onPanel={(panel, options) =>
+                        showPanel(panel, undefined, undefined, options)
+                      }
                       completedDesignId={
                         completedDesign?.conversation === conversationId
                           ? completedDesign.binding

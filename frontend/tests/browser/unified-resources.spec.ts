@@ -450,25 +450,15 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
   await setup
     .getByRole('textbox', { name: 'Brief (optional)', exact: true })
     .fill('fail first draft');
-  await setup
-    .getByRole('switch', {
-      name: /Generate first draft/,
-    })
-    .click();
-  await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
+  // A brief means "draft it now": Create makes the Deck and starts its
+  // first draft in one step, then the dialog closes (U35).
   await expect(
-    setup.getByRole('region', { name: 'First draft generation', exact: true }),
-  ).toBeVisible();
+    setup.getByRole('switch', { name: 'Draft it now', exact: true }),
+  ).toBeChecked();
+  await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
+  await expect(setup).toBeHidden();
   const before = await conversationState(page, conversation);
   expect(before.conversation.resource_bindings).toHaveLength(1);
-  expect(
-    (await fixtureState(page)).calls.filter(
-      (item) => item.conversation_id === conversation,
-    ),
-  ).toHaveLength(0);
-  await setup
-    .getByRole('button', { name: 'Generate first draft', exact: true })
-    .click();
   await expect
     .poll(
       async () =>
@@ -477,13 +467,6 @@ test('optional first-draft provider failure preserves the confirmed Deck and nev
           .at(-1)?.quiesced,
     )
     .toBe(true);
-  await setup
-    .getByRole('button', { name: 'Check generation', exact: true })
-    .click();
-  await expect(
-    setup.getByText('Generation request accepted.', { exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press('Escape');
   await leavePanels(page);
   await expect(
     page

@@ -710,7 +710,7 @@ it('reopens a lost setup response through its saved receipt without recreating t
   ).toBeInTheDocument();
 });
 
-it('shows actual controls and target before one explicit generation and keeps its receipt separate', async () => {
+it('creates a design and starts its first draft in one step (U35)', async () => {
   let rendered!: ReturnType<typeof view>;
   await act(async () => {
     rendered = view();
@@ -718,25 +718,25 @@ it('shows actual controls and target before one explicit generation and keeps it
   fireEvent.change(screen.getByLabelText('Brief (optional)'), {
     target: { value: 'First draft brief' },
   });
-  fireEvent.click(screen.getByRole('switch', { name: 'Generate first draft' }));
+  // A brief means "draft it now" unless switched off.
+  expect(screen.getByRole('switch', { name: 'Draft it now' })).toBeChecked();
+  mock.controller.intent
+    .mockImplementationOnce(async (_target, _kind, _payload, _revision, id) =>
+      result(id),
+    )
+    .mockImplementationOnce(
+      async (_target, _kind, _payload, _revision, id) => ({
+        command_id: id,
+        status: 'accepted',
+      }),
+    );
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
   });
-  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
-  expect(mock.controller.intent.mock.calls[0][1]).toBe('resource.setup');
-  mock.controller.intent.mockImplementation(
-    async (_target, _kind, _payload, _revision, id) => ({
-      command_id: id,
-      status: 'accepted',
-    }),
-  );
-  await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Generate first draft' }),
-    );
-  });
-  expect(mock.controller.workspaceFor).toHaveBeenCalledWith('conversation-a');
   expect(mock.controller.intent).toHaveBeenCalledTimes(2);
+  expect(mock.controller.intent.mock.calls[0][1]).toBe('resource.setup');
+  expect(mock.controller.intent.mock.calls[1][1]).toBe('conversation.submit');
+  expect(mock.controller.workspaceFor).toHaveBeenCalledWith('conversation-a');
   expect(mock.controller.intent.mock.calls[1][2]).toMatchObject({
     text: 'First draft brief',
     model_selection: { model_ref: 'fixture::shown-model' },
@@ -748,6 +748,8 @@ it('shows actual controls and target before one explicit generation and keeps it
       },
     ],
   });
+  // The dialog closes: the panel shows the draft being written.
+  expect(mock.overlay.close).toHaveBeenCalled();
   const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a'),
     saved = setupSessions.read(key);
   expect(saved.receipt?.resource_id).toBe('deck-a');
@@ -763,6 +765,43 @@ it('shows actual controls and target before one explicit generation and keeps it
   expect(
     screen.queryByRole('button', { name: 'Generate first draft' }),
   ).not.toBeInTheDocument();
+});
+
+it('creates without drafting when Draft it now is off', async () => {
+  await act(async () => {
+    view();
+  });
+  fireEvent.change(screen.getByLabelText('Brief (optional)'), {
+    target: { value: 'A brief for later' },
+  });
+  fireEvent.click(screen.getByRole('switch', { name: 'Draft it now' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
+  });
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.overlay.close).not.toHaveBeenCalled();
+});
+
+it('keeps the dialog, with the reason, when no model is ready to draft', async () => {
+  const ready = await mock.controller.workspaceFor('conversation-a');
+  mock.controller.workspaceFor.mockResolvedValue({
+    ...ready,
+    controls: { ...ready.controls, model_selection: null },
+  });
+  await act(async () => {
+    view();
+  });
+  fireEvent.change(screen.getByLabelText('Brief (optional)'), {
+    target: { value: 'First draft brief' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
+  });
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.overlay.close).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('region', { name: 'First draft generation' }),
+  ).toBeInTheDocument();
 });
 
 it.each([null, 'conversation-a'])(

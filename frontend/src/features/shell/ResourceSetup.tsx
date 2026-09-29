@@ -124,7 +124,7 @@ export default function ResourceSetup({
   initialEntry,
 }: {
   conversationId: string | null;
-  onPanel: (panel: PanelDescriptor) => void;
+  onPanel: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   initialEntry?: ResourceSetupEntry;
 }) {
   const { controller, platform } = useRuntime();
@@ -550,21 +550,27 @@ export default function ResourceSetup({
       return;
     }
     if (!conversationId) openConversation(result.conversation_id);
-    onPanel({
-      panel_kind:
-        result.resource_kind === 'artifact'
-          ? 'artifact.preview'
-          : 'workspace.inspector',
-      resource_kind: result.resource_kind!,
-      resource_ref: `${result.conversation_id}:${result.binding_id}`,
-      resource_revision: result.resource_revision ?? '',
-      title: (
-        name ||
-        selected?.name ||
-        folder?.name ||
-        (kind === 'artifact' ? artifactLabel : 'Coding workspace')
-      ).slice(0, 160),
-    });
+    // A design that was just made opens wide (U36).
+    const made =
+      result.setup_intent === 'create' && result.resource_kind === 'artifact';
+    onPanel(
+      {
+        panel_kind:
+          result.resource_kind === 'artifact'
+            ? 'artifact.preview'
+            : 'workspace.inspector',
+        resource_kind: result.resource_kind!,
+        resource_ref: `${result.conversation_id}:${result.binding_id}`,
+        resource_revision: result.resource_revision ?? '',
+        title: (
+          name ||
+          selected?.name ||
+          folder?.name ||
+          (kind === 'artifact' ? artifactLabel : 'Coding workspace')
+        ).slice(0, 160),
+      },
+      made ? { wide: true } : undefined,
+    );
   }
   async function reviewGeneration() {
     if (!receipt?.conversation_id || !confirmed || operation.current) return;
@@ -583,21 +589,25 @@ export default function ResourceSetup({
     }
     if (ready) await firstDraft(ready);
   }
+  /** Starts the first draft; true when the turn was accepted. */
   async function firstDraft(
     selectedReview: ConversationWorkspace | null = review,
-  ) {
+    // Right after creation the new receipt is not in this render yet.
+    created?: CommandReceipt,
+  ): Promise<boolean> {
     const current = setupSessions.read(scope);
+    const target = created ?? receipt;
     if (
       operation.current ||
       current.generationId ||
       !selectedReview ||
-      !receipt?.conversation_id ||
-      !confirmed ||
+      !target?.conversation_id ||
+      (!created && !confirmed) ||
       !brief.trim()
     )
-      return;
+      return false;
     const resource = selectedReview.resources.find(
-      (item) => item.binding.binding_id === receipt.binding_id,
+      (item) => item.binding.binding_id === target.binding_id,
     );
     if (
       !resource ||
@@ -607,7 +617,7 @@ export default function ResourceSetup({
         (action) => action.action === 'generate' && action.ready,
       )
     )
-      return;
+      return false;
     operation.current = true;
     setBusy(true);
     setError('');
@@ -615,7 +625,7 @@ export default function ResourceSetup({
     try {
       setupSessions.reserve(scope, identity, true);
       const result = await controller.intent(
-        receipt.conversation_id,
+        target.conversation_id,
         'conversation.submit',
         {
           submission_id: crypto.randomUUID(),
@@ -636,8 +646,10 @@ export default function ResourceSetup({
         identity,
       );
       setupSessions.confirm(scope, identity, result, true);
+      return result.status !== 'rejected';
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
+      return false;
     } finally {
       operation.current = false;
       if (alive.current) setBusy(false);
@@ -660,6 +672,7 @@ export default function ResourceSetup({
     setError('');
     const commandId = crypto.randomUUID();
     const initiating = capturePresentation();
+    let draftNow: CommandReceipt | null = null;
     try {
       const current = conversationId
         ? await controller.workspaceFor(conversationId)
@@ -724,11 +737,32 @@ export default function ResourceSetup({
           );
       }
       present(result, initiating);
+      draftNow =
+        mode === 'create' &&
+        kind === 'artifact' &&
+        generate &&
+        !!brief.trim() &&
+        result.status === 'completed' &&
+        !!result.conversation_id
+          ? result
+          : null;
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
     } finally {
       operation.current = false;
       if (alive.current) setBusy(false);
+    }
+    // Create and draft in one step (U35): the brief goes to the chosen model
+    // at once and the dialog closes, so the panel shows the draft being
+    // written. Without a ready model the dialog stays with the reason.
+    if (draftNow?.conversation_id && alive.current) {
+      try {
+        const ready = await controller.workspaceFor(draftNow.conversation_id);
+        if (alive.current) setReview(ready);
+        if (await firstDraft(ready, draftNow)) overlay.close();
+      } catch (cause) {
+        if (alive.current) setError(clientError(cause).message);
+      }
     }
   }
   async function continueSetup() {
@@ -1126,13 +1160,13 @@ export default function ResourceSetup({
               </Field>
               <label className="checkbox-row">
                 <Toggle
-                  label="Generate first draft"
-                  checked={generate}
+                  label="Draft it now"
+                  checked={generate && !!brief.trim()}
                   disabled={busy || !brief.trim()}
                   onChange={(e) => setGenerate(e.target.checked)}
                 />
-                Generate a first draft after creation, using this design as the
-                write target
+                Draft it now: Row-Bot writes the first draft from the brief with
+                your chosen model, and you watch it in the panel
               </label>
               {currentOptions ? (
                 <Disclosure className="setup-options" summary="Advanced">
