@@ -97,7 +97,10 @@ The public channel bridge is exposed from `plugins.api`:
 - `PluginAPI.register_webhook_route(...)`, `get_webhook_path(...)`, and
   `get_webhook_url(...)` register namespaced plugin webhooks under
   `/plugin-webhooks/{plugin_id}/{name}` without exposing Starlette or FastAPI
-  types to plugin code.
+  types to plugin code. These routes need no Row-Bot session (external services
+  call them through the tunnel), so the handler must authenticate every request
+  itself, for example by checking the service's signature or token, and refuse
+  anything it cannot verify.
 - Pairing and allowlist helpers on `PluginAPI` wrap the same channel auth store
   used by native channels.
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import re
 from typing import Mapping
 from row_bot.access.request_context import (
     ACCESS_CONTEXT_SCOPE_KEY,
@@ -48,6 +49,15 @@ PUBLIC_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/mobile/service-worker.js"),
         ("GET", "/static/row_bot_glyph_256.png"),
     }
+)
+# Callers with no Row-Bot session that prove themselves to the route instead:
+# Twilio signs every inbound SMS, and each plugin webhook handler checks its
+# service's own credentials. The plugin id and name follow plugins.webhooks.
+ROUTE_AUTHENTICATED_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {("POST", "/sms")}
+)
+PLUGIN_WEBHOOK_PATH = re.compile(
+    r"/plugin-webhooks/[a-z][a-z0-9\-]{1,63}/[a-z0-9][a-z0-9_-]{0,63}"
 )
 LAUNCHER_ONLY_PATHS = frozenset(
     {
@@ -129,6 +139,8 @@ class AccessPolicy:
             return RouteClassification(RouteKind.LAUNCHER)
         if path.startswith("/api/webhook/"):
             # Webhook task secrets remain authoritative at the route itself.
+            return RouteClassification(RouteKind.DELEGATED)
+        if (method, path) in ROUTE_AUTHENTICATED_HTTP_ROUTES or PLUGIN_WEBHOOK_PATH.fullmatch(path):
             return RouteClassification(RouteKind.DELEGATED)
         if (method, path) in PUBLIC_HTTP_ROUTES:
             return RouteClassification(

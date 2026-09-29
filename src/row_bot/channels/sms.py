@@ -384,6 +384,35 @@ def send_mms(phone: str, file_path: str, caption: str | None = None) -> None:
 # ──────────────────────────────────────────────────────────────────────
 # Inbound webhook handler (Starlette — mounted on the main app)
 # ──────────────────────────────────────────────────────────────────────
+async def _refuse_unsigned(request, client_ip: str) -> Any:
+    """Refuse an inbound SMS that Twilio didn't sign; None when the signature is valid.
+
+    ``/sms`` is reachable without a Row-Bot session (through the tunnel), so the
+    Twilio signature is its only credential: without a saved auth token or the
+    validator, nothing is trusted.
+    """
+    from starlette.responses import Response
+
+    try:
+        from twilio.request_validator import RequestValidator
+    except ImportError:
+        log.warning("Inbound SMS refused: the Twilio signature check is unavailable")
+        return Response("Service unavailable", status_code=503)
+    auth_token = _get_auth_token()
+    if not auth_token:
+        log.warning("Inbound SMS refused: no Twilio auth token is saved")
+        return Response("Forbidden", status_code=403)
+    signature = request.headers.get("X-Twilio-Signature", "")
+    validation_url = (
+        _webhook_public_url + "/sms" if _webhook_public_url else str(request.url)
+    )
+    params = dict(await request.form())
+    if not RequestValidator(auth_token).validate(validation_url, params, signature):
+        log.warning("Invalid Twilio signature from %s", client_ip)
+        return Response("Forbidden", status_code=403)
+    return None
+
+
 async def _handle_inbound_sms(request) -> Any:
     """Handle inbound SMS via Twilio webhook (POST /sms)."""
     from starlette.responses import Response
@@ -395,7 +424,10 @@ async def _handle_inbound_sms(request) -> Any:
         return Response("SMS channel not running", status_code=503)
 
     # ── Body size limit (1 MB) ───────────────────────────────────
-    content_length = int(request.headers.get("content-length", 0))
+    try:
+        content_length = int(request.headers.get("content-length", 0))
+    except ValueError:
+        return Response("", status_code=400)
     if content_length > 1_048_576:
         return Response("Payload too large", status_code=413)
 
@@ -409,26 +441,9 @@ async def _handle_inbound_sms(request) -> Any:
     hits.append(now)
 
     # ── Twilio signature validation ──────────────────────────────
-    insecure = os.environ.get("SMS_INSECURE_NO_SIGNATURE", "").lower() == "true"
-    if not insecure:
-        try:
-            from twilio.request_validator import RequestValidator
-            auth_token = _get_auth_token()
-            if auth_token:
-                validator = RequestValidator(auth_token)
-                signature = request.headers.get("X-Twilio-Signature", "")
-                validation_url = (
-                    _webhook_public_url + "/sms"
-                    if _webhook_public_url
-                    else str(request.url)
-                )
-                form = await request.form()
-                params = dict(form)
-                if not validator.validate(validation_url, params, signature):
-                    log.warning("Invalid Twilio signature from %s", client_ip)
-                    return Response("Forbidden", status_code=403)
-        except ImportError:
-            pass  # twilio.request_validator not available — skip
+    refusal = await _refuse_unsigned(request, client_ip)
+    if refusal is not None:
+        return refusal
 
     try:
         data = await request.form()

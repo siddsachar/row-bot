@@ -1133,7 +1133,7 @@ around that channel.
 - **WhatsApp** — Baileys bridge with QR pairing, inbound/outbound media, rich YouTube previews, Markdown-to-WhatsApp formatting, edit streaming, typing updates, split finals, and approval resume
 - **Discord** — DM-based edit streaming with typing keepalive, message splitting, fresh-send fallback, reactions, interactive approval buttons, slash-command integration, and media support
 - **Slack** — Socket Mode adapter with native stream APIs when supported, edit fallback, bounded retry-after handling, DM threading, Block Kit approvals, reactions, and file uploads
-- **SMS** — Twilio adapter with inbound webhook support, outbound SMS/MMS, tunnel-manager integration for public callbacks, message-safe final splitting, and YES/NO approvals; streaming remains off because SMS has no editable partial-message contract
+- **SMS** — Twilio adapter with inbound webhook support (refused unless Twilio's signature checks against the saved auth token), outbound SMS/MMS, tunnel-manager integration for public callbacks, message-safe final splitting, and YES/NO approvals; streaming remains off because SMS has no editable partial-message contract
 
 ### Delivery & Monitoring
 
@@ -1475,7 +1475,7 @@ modifying the core codebase.
 - **Native Plugin Center** — one Row-Bot-owned UI renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
 - **Custom Tool bridge** — promoted Custom Tools are registered through the plugin/tool surface as synthetic local tools so normal chat can use them without adding a separate extension mechanism
 - **Public channel API** — channel plugins receive public inbound/outbound dataclasses, attachment helpers, approval resume helpers, pairing/allowlist helpers, and generated webhook URLs through `plugins.api`
-- **Plugin webhooks** — `plugins/webhooks.py` registers namespaced webhook routes under `/plugin-webhooks/{plugin_id}/{name}` and disables them when the owning plugin is disabled, unloaded, uninstalled, or fails load
+- **Plugin webhooks** — `plugins/webhooks.py` registers namespaced webhook routes under `/plugin-webhooks/{plugin_id}/{name}` and disables them when the owning plugin is disabled, unloaded, uninstalled, or fails load; the routes need no Row-Bot session, so each handler authenticates its caller
 - **Bot Framework auth** — `plugins/bot_framework_auth.py` validates Bot Framework JWTs with OpenID/JWKS discovery, issuer/audience checks, and display-safe error reporting for channel plugins
 
 ---
@@ -1632,8 +1632,10 @@ initial presentation.
   untrusted forwarded identity
 - **Route policy** — public health/connect assets remain minimal, authenticated
   owner routes share one policy, access mutations require same origin, webhooks
-  retain route-owned secrets, and launcher operations remain direct-loopback
-  only behind a separate ephemeral control secret
+  retain route-owned secrets (task webhooks their secret, `POST /sms` Twilio's
+  signature, `/plugin-webhooks/…` the plugin handler's own check; none needs a
+  session), and launcher operations remain direct-loopback only behind a
+  separate ephemeral control secret
 - **Neutral connect flow** — unauthenticated pages disclose no instance name,
   route inventory, device list, or configured providers; successful claims
   remove invitation material from visible browser history before redirect
