@@ -8280,7 +8280,7 @@ def create_router(
 
     async def local_export(
         conversation_id: str, binding_id: str, export_id: str, request: Request
-    ):
+    ) -> tuple[str, Callable[[], None]]:
         """Saving and opening files on this computer: the local owner only."""
         current = await session(request, lane="mutation")
         context = await _context(request)
@@ -8725,7 +8725,9 @@ def create_router(
             raise ProtocolError("owner_local_only", 403)
         return await import_authority(conversation_id, binding_id, request, current)
 
-    async def custom_tool_library_authority(request: Request, current: Any):
+    async def custom_tool_library_authority(
+        request: Request, current: Any
+    ) -> Callable[[], None]:
         context = await _context(request)
         if not (context.is_local_owner and context.direct_loopback):
             raise ProtocolError("owner_local_only", 403)
