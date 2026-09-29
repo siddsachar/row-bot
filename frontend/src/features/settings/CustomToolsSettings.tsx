@@ -8,7 +8,7 @@ import type {
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
-import { Button, EntityRow, Toggle } from '../../ui/primitives';
+import { Button, EntityList, EntityRow, Toggle } from '../../ui/primitives';
 import { SettingsSection } from './anatomy';
 import { CommandApprovalCard } from '../shell/ApprovalCard';
 
@@ -242,7 +242,7 @@ export default function CustomToolsSettings() {
       {library && !tools.length && !drafts.length && (
         <p className="muted">No custom tools yet.</p>
       )}
-      <div className="settings-entity-list">
+      <EntityList label="Custom tools">
         {tools.map((tool) => {
           const target = { tool_id: tool.id };
           return (
@@ -343,7 +343,7 @@ export default function CustomToolsSettings() {
             />
           );
         })}
-      </div>
+      </EntityList>
       {error && (
         <p role="alert" className="settings-error">
           {error}

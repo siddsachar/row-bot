@@ -88,6 +88,10 @@ it('lists tools and unfinished drafts with their folders and states', async () =
   expect(screen.getByText('Off')).toBeInTheDocument();
   expect(screen.getByText('Draft — not set up yet')).toBeInTheDocument();
   expect(screen.getByRole('switch', { name: 'Use Weather' })).not.toBeChecked();
+  // One list of rows (no stray bullets from list items outside a list, B171).
+  const list = screen.getByRole('list', { name: 'Custom tools' });
+  expect(list.tagName).toBe('UL');
+  expect(list.querySelectorAll(':scope > li')).toHaveLength(2);
 });
 
 it('switches a tool on through the library command', async () => {
