@@ -352,6 +352,18 @@ _STATUS.update(
     }
 )
 _STATUS.update(
+    {
+        "invalid_computer_use_command": 422,
+        "computer_use_local_only": 403,
+        "computer_use_revision_conflict": 409,
+        "computer_use_inactive": 409,
+        "computer_use_busy": 409,
+        "computer_use_not_paused": 409,
+        "computer_use_resume_failed": 409,
+        "computer_use_outcome_uncertain": 409,
+    }
+)
+_STATUS.update(
     {"invalid_edit": 422, "element_unavailable": 409, "history_unavailable": 409}
 )
 _STATUS["invalid_preview_identity"] = 422
@@ -2540,6 +2552,86 @@ def create_router(
             validate_review=validate_review,
         )
         return await respond(request, dto.BrowserReceipt, result)
+
+    async def computer_control_authority(
+        conversation_id: str, request: Request, current: Any
+    ) -> Callable[[], None]:
+        # The picture and the controls are this computer's own screen: only
+        # the local owner on a direct loopback connection may see or use them.
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("computer_use_local_only", 403)
+        await readable_conversation(conversation_id)
+        access = dispatch_validation(request, current)
+
+        def validate() -> None:
+            from row_bot.runtime import admissions
+
+            access()
+            service._metadata(conversation_id)
+            if admissions.deletion_state(conversation_id) != "active":
+                raise ProtocolError("conversation_deleting", 409)
+
+        return validate
+
+    @router.get("/conversations/{conversation_id}/computer")
+    async def computer_use_snapshot(
+        conversation_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="observation")
+        validate = await computer_control_authority(conversation_id, request, current)
+        from row_bot.application.client_computer_controls import read_computer_controls
+
+        result = await call(
+            read_computer_controls, service, conversation_id, validate=validate
+        )
+        return await respond(request, dto.ComputerUseSnapshot, result)
+
+    @router.get("/conversations/{conversation_id}/computer/preview")
+    async def computer_use_preview(
+        conversation_id: str, request: Request, revision: str
+    ) -> JSONResponse:
+        current = await session(request, lane="observation")
+        validate = await computer_control_authority(conversation_id, request, current)
+        from row_bot.application.client_computer_controls import read_computer_preview
+
+        result = await call(
+            read_computer_preview,
+            service,
+            conversation_id,
+            revision,
+            validate=validate,
+        )
+        response = await respond(request, dto.ComputerUsePreview, result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @router.post("/conversations/{conversation_id}/computer/commands")
+    async def computer_use_command(
+        conversation_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="control")
+        validate = await computer_control_authority(conversation_id, request, current)
+        body = await _body(request, dto.ComputerUseCommand, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_computer_use_command", 422)
+        key = request.headers.get("idempotency-key", "")
+        if key != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_computer_controls import (
+            execute_computer_command,
+        )
+
+        result = await call(
+            execute_computer_command,
+            service,
+            body.model_dump(mode="json"),
+            conversation_id,
+            owner_id=current.id,
+            key=key,
+            validate=validate,
+        )
+        return await respond(request, dto.ComputerUseReceipt, result)
 
     @router.get("/conversations/{conversation_id}/open")
     async def open_conversation(conversation_id: str, request: Request) -> JSONResponse:

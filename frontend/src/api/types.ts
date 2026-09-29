@@ -157,6 +157,20 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserReceipt>;
+  computerUse?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ComputerUseSnapshot>;
+  computerUsePreview?(
+    conversation: string,
+    revision: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ComputerUsePreview>;
+  sendComputerUse?(
+    conversation: string,
+    command: Wire.ComputerUseCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.ComputerUseReceipt>;
   artifactExport?(
     conversation: string,
     binding: string,

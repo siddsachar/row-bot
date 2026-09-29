@@ -2893,6 +2893,47 @@ export class ClientController {
       this.browserCommandAttempts.delete(original.command_id);
     return result;
   };
+  /** The conversation's computer-use card; this computer's owner only. */
+  computerUse = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.computerUse?.(conversation, signal));
+  computerUsePreview = (
+    conversation: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.computerUsePreview?.(conversation, revision, signal),
+    );
+  /** Stop, Pause or Resume. Sending the same command id again only reads
+   * what the first one did. */
+  computerUseCommand = async (
+    conversation: string,
+    type: import('./types').ComputerUseCommand['type'],
+    commandId: string = crypto.randomUUID(),
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').ComputerUseCommand>(
+      'ComputerUseCommand',
+      {
+        command_id: commandId,
+        client_session_id: handshake.client_session_id,
+        type,
+      },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.sendComputerUse)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.sendComputerUse(conversation, command, signal);
+    });
+    if (
+      result.command_id !== commandId ||
+      result.action !== type ||
+      result.conversation_id !== conversation
+    )
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   goals = (
     conversation: string,
     query: string,

@@ -21,6 +21,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ConversationView", "ConversationPage", "ConversationActionSnapshot", "ConversationActionReviewRequest",
     "ConversationActionReview", "ConversationActionCommand", "ConversationActionReceipt",
     "BrowserControlSnapshot", "BrowserPreview", "BrowserReviewRequest", "BrowserReview", "BrowserReceipt",
+    "ComputerUseSnapshot", "ComputerUsePreview", "ComputerUseCommand", "ComputerUseReceipt",
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
@@ -105,6 +106,9 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/browser/review", "BrowserReviewRequest", "BrowserReview"),
     ("get", "/conversations/{conversation_id}/browser/commands/{command_id}", None, "BrowserReceipt"),
     ("post", "/conversations/{conversation_id}/browser/commands", "Command", "BrowserReceipt"),
+    ("get", "/conversations/{conversation_id}/computer", None, "ComputerUseSnapshot"),
+    ("get", "/conversations/{conversation_id}/computer/preview", None, "ComputerUsePreview"),
+    ("post", "/conversations/{conversation_id}/computer/commands", "ComputerUseCommand", "ComputerUseReceipt"),
     ("get", "/conversations/{conversation_id}/transcript", None, "TranscriptPage"),
     ("get", "/conversations/{conversation_id}/content/{message_id}", None, "LazyContent"),
     ("get", "/conversations/{conversation_id}/text/{message_id}", None, "LazyContent"),
@@ -520,7 +524,9 @@ const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number;
 async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
   if (!proof) return;
   const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path);
-  const observation = path.startsWith('/events') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path);
+  // Following a computer-use session (about once a second) is observation.
+  const observation = path.startsWith('/events') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
+    || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
   const voiceEvent = /\/voice\/realtime\/[^/]+\/event$/.test(path);
   const eventType = body && typeof body === 'object' && 'event' in body && body.event && typeof body.event === 'object' && 'type' in body.event ? body.event.type : undefined;
   const type = body && typeof body === 'object' && 'type' in body ? body.type : undefined;
@@ -528,6 +534,7 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   const operation = intent && typeof intent === 'object' && 'operation' in intent ? intent.operation : undefined;
   const mcpCleanup = operation === 'disconnect' && (type === 'mcp.runtime.control' || path === '/settings/mcp/runtime/review');
   const control = method === 'POST' && path.endsWith('/commands') && ['conversation.stop', 'agent.stop', 'approval.resolve', 'mcp.runtime.install.cancel', 'document.batch.pause', 'document.batch.cancel', 'document.job.cancel'].includes(String(type))
+    || method === 'POST' && /^\/conversations\/[^/]+\/computer\/commands$/.test(path)
     || method === 'DELETE' && /^\/uploads\/[^/]+$/.test(path);
   // Draft autosaves, uploads and ordinary commands consume one server bucket.
   // Stop/approval/cancel and ACK retain their independent admission paths.
@@ -944,6 +951,12 @@ export const getBrowserControlReceipt = (base: string, proof: SessionProof, conv
   jsonRequest(base, `/conversations/${id(conversation)}/browser/commands/${id(command)}`, 'BrowserReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendBrowserControl = (base: string, proof: SessionProof, conversation: string, command: Command, signal?: AbortSignal): Promise<BrowserReceipt> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/commands`, 'BrowserReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
+export const getComputerUse = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ComputerUseSnapshot> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/computer`, 'ComputerUseSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getComputerUsePreview = (base: string, proof: SessionProof, conversation: string, revision: string, signal?: AbortSignal): Promise<ComputerUsePreview> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/computer/preview` + query({revision}), 'ComputerUsePreview', proof, 'GET', undefined, undefined, signal);
+export const sendComputerUseCommand = (base: string, proof: SessionProof, conversation: string, command: ComputerUseCommand, signal?: AbortSignal): Promise<ComputerUseReceipt> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/computer/commands`, 'ComputerUseReceipt', proof, 'POST', validateWire('ComputerUseCommand', command), command.command_id, signal);
 export type ArtifactAuthoring = { previewId: string; capability: string };
 export const getArtifactPreview = (base: string, proof: SessionProof, conversation: string, binding: string, page_id?: string, known_revision?: string, signal?: AbortSignal, authoring?: ArtifactAuthoring): Promise<ArtifactPreview> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/preview` + query({page_id,known_revision,...(authoring ? {authoring:'true',preview_id:authoring.previewId,capability:authoring.capability} : {})}), 'ArtifactPreview', proof, 'GET', undefined, undefined, signal);
@@ -1564,7 +1577,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/transcribe"):
                 parameters.append({"name": "X-Dictation-Utterance", "in": "header", "required": True,
                                    "schema": {"type": "string", "format": "uuid"}})
-        if request in {"Command", "DreamRunCommand", "UploadCompletion"} or suffix == "/uploads":
+        if request in {"Command", "DreamRunCommand", "UploadCompletion", "ComputerUseCommand"} or suffix == "/uploads":
             parameters.append({"name": "Idempotency-Key", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":

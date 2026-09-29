@@ -145,6 +145,35 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  computerUse(conversation: string, signal?: AbortSignal) {
+    return wire.getComputerUse(this.base, this.session(), conversation, signal);
+  }
+  computerUsePreview(
+    conversation: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getComputerUsePreview(
+      this.base,
+      this.session(),
+      conversation,
+      revision,
+      signal,
+    );
+  }
+  sendComputerUse(
+    conversation: string,
+    command: wire.ComputerUseCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendComputerUseCommand(
+      this.base,
+      this.session(),
+      conversation,
+      command,
+      signal,
+    );
+  }
   dictationCapability(signal?: AbortSignal) {
     return wire.dictationCapability(this.base, this.session(), signal);
   }

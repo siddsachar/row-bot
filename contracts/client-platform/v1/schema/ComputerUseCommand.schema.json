@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "computer_use.stop",
+        "computer_use.pause",
+        "computer_use.resume"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "type"
+  ],
+  "title": "ComputerUseCommand",
+  "type": "object"
+}
