@@ -117,11 +117,12 @@ def test_a_headless_instance_is_opened_in_the_browser(data_dir) -> None:
     assert started == ["browser:8080"]
 
 
-def test_a_second_server_start_is_refused(data_dir, caplog) -> None:
+def test_a_second_server_start_is_refused_at_once(data_dir, caplog, monkeypatch) -> None:
     folder, started = data_dir
     first = _hold(folder)
     control = _control(lambda: True)
     _state(folder, phase="running", control=control)
+    monkeypatch.setattr(launcher, "_INSTANCE_WAIT_SECONDS", 60.0)
     try:
         with caplog.at_level("ERROR", logger="row_bot.launcher"), pytest.raises(SystemExit) as done:
             launcher.main(["--server", "--no-open"])

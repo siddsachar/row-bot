@@ -280,6 +280,8 @@ def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
         except (TypeError, ValueError):
             alive = False
         phase = str(state.get("phase") or "")
+        if alive and wants_server and phase in {"starting", "running"}:
+            break
         if alive and not wants_server and phase == "starting":
             logger.info("%s is starting; its window opens when it is ready.", APP_DISPLAY_NAME)
             return 0
