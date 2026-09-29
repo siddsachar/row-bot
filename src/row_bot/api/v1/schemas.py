@@ -3626,7 +3626,7 @@ class InsightCommand(WireModel):
     command_id: UUID
     client_session_id: UUID
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    action: Literal["pin", "unpin", "dismiss", "generate", "review_skills", "apply", "reject"]
+    action: Literal["pin", "unpin", "dismiss", "restore", "generate", "review_skills", "apply", "reject"]
     insight_id: str = Field(default="", max_length=128)
     proposal_id: str = Field(default="", max_length=128)
     reason: str = Field(default="", max_length=512)

@@ -27,7 +27,14 @@ type Overlay = {
 };
 type Task = Overlay & { opener: HTMLElement | null };
 export type NoticeTone = 'warning' | 'danger';
-type Notice = { id: number; message: string; tone?: NoticeTone };
+/** One action on a notice, e.g. Undo after an easy-to-regret removal. */
+export type NoticeAction = { label: string; onAction: () => void };
+type Notice = {
+  id: number;
+  message: string;
+  tone?: NoticeTone;
+  action?: NoticeAction;
+};
 let historyOwner = 0;
 
 /** Same-URL history entries let platform Back dismiss modal work first. */
@@ -91,8 +98,11 @@ const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
   close: (returnFocusTo?: HTMLElement | null) => void;
   dismiss: (key: string) => void;
-  /** A short notice; warnings and errors stay longer and are announced. */
-  notify: (message: string, tone?: NoticeTone) => void;
+  /**
+   * A short notice; warnings and errors stay longer and are announced. An
+   * action (Undo) keeps it up longer too and runs at most once.
+   */
+  notify: (message: string, tone?: NoticeTone, action?: NoticeAction) => void;
 } | null>(null);
 
 /** A single Radix modal focus/scroll scope; confirmation suspends a mounted task. */
@@ -161,11 +171,14 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       resumeFocus.current = null;
     }
   }, [confirmation]);
-  const notify = (message: string, tone?: NoticeTone) =>
+  const notify = (message: string, tone?: NoticeTone, action?: NoticeAction) =>
     setNotices((previous) =>
       previous.some((notice) => notice.message === message)
         ? previous
-        : [...previous, { id: nextNotice.current++, message, tone }].slice(-3),
+        : [
+            ...previous,
+            { id: nextNotice.current++, message, tone, action },
+          ].slice(-3),
     );
   return (
     <OverlayContext.Provider
@@ -288,8 +301,10 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                 className="toast"
                 key={notice.id}
                 data-tone={notice.tone}
-                type={notice.tone ? 'foreground' : 'background'}
-                duration={notice.tone ? 12000 : undefined}
+                type={
+                  notice.tone || notice.action ? 'foreground' : 'background'
+                }
+                duration={notice.tone || notice.action ? 12000 : undefined}
                 onOpenChange={(value) => {
                   if (!value)
                     setNotices((values) =>
@@ -298,6 +313,23 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                 }}
               >
                 <Toast.Description>{notice.message}</Toast.Description>
+                {notice.action && (
+                  <Toast.Action altText={notice.action.label} asChild>
+                    <Button
+                      variant="ghost"
+                      className="small"
+                      onClick={() => {
+                        const run = notice.action!.onAction;
+                        setNotices((values) =>
+                          values.filter((item) => item.id !== notice.id),
+                        );
+                        run();
+                      }}
+                    >
+                      {notice.action.label}
+                    </Button>
+                  </Toast.Action>
+                )}
                 <Toast.Close asChild>
                   <Button
                     iconOnly
@@ -517,6 +549,17 @@ export function Drawer({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+const noNotify = () => {};
+
+/** notify() where an OverlayProvider may be missing (then it does nothing). */
+export function useNotify(): (
+  message: string,
+  tone?: NoticeTone,
+  action?: NoticeAction,
+) => void {
+  return useContext(OverlayContext)?.notify ?? noNotify;
 }
 
 export function useOverlay() {

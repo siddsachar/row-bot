@@ -24,6 +24,7 @@ import type {
   WriteTarget,
 } from '../../api/types';
 import { clientError, rejectedBeforeRunning } from '../../api/errors';
+import { unbindWithUndo } from './resource-unbind';
 import { useClientState, useRuntime } from '../../runtime';
 import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
@@ -1862,16 +1863,12 @@ export default function Conversation({
       content: <SearchConversations conversationId={id} />,
     });
   }
+  // Easy to regret, so the notice offers Undo (decision 19).
   function unbindResource(resource: ResourceView) {
     if (!id || !state.conversation) return;
-    void controller
-      .intent(
-        id,
-        'conversation.unbind',
-        { binding_id: resource.binding.binding_id },
-        state.conversation.revision,
-      )
-      .catch((e) => setError(clientError(e).message));
+    void unbindWithUndo(controller, overlay.notify, id, resource).catch((e) =>
+      setError(clientError(e).message),
+    );
   }
   function deleteConversation() {
     if (!id || !state.conversation) return;

@@ -9,6 +9,7 @@ import type {
   InsightsSnapshot,
 } from '../../api/types';
 import InsightsHome from './InsightsHome';
+import { OverlayProvider } from '../../ui/overlays';
 
 const proposal: InsightProposalView = {
   id: 'proposal-test',
@@ -476,5 +477,37 @@ it('renders the skill library report as human rows, never raw JSON (B9)', async 
   expect(list.textContent).not.toMatch(/[{}"]|skill_names|overlap"/);
   expect(
     screen.getByText(/21 manual skills · 3 findings · 1 proposal/),
+  ).toBeVisible();
+});
+
+it('offers Undo after Dismiss and brings the insight back (decision 19)', async () => {
+  let current: InsightsSnapshot = withItems(insight);
+  const { controller, executeInsight } = controllerFor(current, (command) => {
+    current =
+      command.action === 'dismiss'
+        ? { ...withItems(), revision: 'r'.repeat(64) }
+        : withItems(insight);
+    return current;
+  });
+  render(
+    <OverlayProvider>
+      <InsightsHome controller={controller} />
+    </OverlayProvider>,
+  );
+  await screen.findByRole('heading', { name: 'Synthetic finding' });
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+  await screen.findByText(
+    'No active insights. New ones appear after analysis.',
+  );
+  await act(async () =>
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' })),
+  );
+  expect(executeInsight.mock.calls[1][0]).toMatchObject({
+    action: 'restore',
+    insight_id: 'ins-test',
+    revision: 'r'.repeat(64),
+  });
+  expect(
+    await screen.findByRole('heading', { name: 'Synthetic finding' }),
   ).toBeVisible();
 });

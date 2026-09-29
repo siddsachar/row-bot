@@ -10,7 +10,7 @@ from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
 
-_ACTIONS = frozenset({"pin", "unpin", "dismiss", "generate", "review_skills", "apply", "reject"})
+_ACTIONS = frozenset({"pin", "unpin", "dismiss", "restore", "generate", "review_skills", "apply", "reject"})
 
 
 def _text(value: object, maximum: int) -> str:
@@ -112,7 +112,7 @@ def execute_insight(
         raise ClientPlatformError("invalid_insight_command")
     insight_id = _text(command.get("insight_id"), 128)
     proposal_id = _text(command.get("proposal_id"), 128)
-    if action in {"pin", "unpin", "dismiss", "generate"} and not insight_id:
+    if action in {"pin", "unpin", "dismiss", "restore", "generate"} and not insight_id:
         raise ClientPlatformError("invalid_insight_command")
     if action in {"apply", "reject"} and not proposal_id:
         raise ClientPlatformError("invalid_insight_command")
@@ -137,6 +137,11 @@ def execute_insight(
     current = next((item for item in snapshot["items"] if item["id"] == insight_id), None)
     if action in {"pin", "unpin", "dismiss", "generate"} and current is None:
         raise ClientPlatformError("insight_unavailable")
+    if action == "restore":
+        # Undo after Dismiss: only a dismissed insight comes back.
+        dismissed = insights.get_insight_by_id(insight_id)
+        if current is not None or dismissed is None or dismissed.get("status") != "dismissed":
+            raise ClientPlatformError("insight_unavailable")
     if action in {"apply", "reject"}:
         proposal = evolution.get_proposal(proposal_id)
         if proposal is None or not any(
@@ -152,11 +157,11 @@ def execute_insight(
     )
     validate()
     succeeded = True
-    if action in {"pin", "unpin", "dismiss"}:
-        status = {"pin": "pinned", "unpin": "new", "dismiss": "dismissed"}[action]
+    if action in {"pin", "unpin", "dismiss", "restore"}:
+        status = {"pin": "pinned", "unpin": "new", "dismiss": "dismissed", "restore": "new"}[action]
         if not insights.update_insight_status(insight_id, status):
             raise ClientPlatformError("insight_unavailable")
-        summary = f"Insight {status}."
+        summary = "Insight restored." if action == "restore" else f"Insight {status}."
     elif action == "generate":
         source = insights.get_insight_by_id(insight_id)
         if source is None:

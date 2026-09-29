@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ClientController } from '../../api/controller';
 import { readRetainedCommand, retainCommand } from '../../api/retained-command';
 import type {
@@ -33,6 +33,7 @@ import {
   type Tone,
 } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import { useNotify } from '../../ui/overlays';
 
 type Action = InsightCommand['action'];
 
@@ -137,6 +138,7 @@ const ACTION_NOTICES: Partial<Record<Action, string>> = {
   pin: 'Pinned.',
   unpin: 'Unpinned.',
   dismiss: 'Dismissed.',
+  restore: 'Restored.',
 };
 
 function proposalType(value: string) {
@@ -198,6 +200,16 @@ export default function InsightsHome({
   const [snapshot, setSnapshot] = useState<InsightsSnapshot | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const notify = useNotify();
+  // The latest run(), so an Undo uses the current revision.
+  const runner = useRef<
+    | ((
+        action: Action,
+        insightId?: string,
+        proposalId?: string,
+      ) => Promise<void>)
+    | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pinned'>('all');
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -248,6 +260,12 @@ export default function InsightsHome({
           ? ACTION_NOTICES[action]
           : result.summary,
       );
+      // Dismissing is easy to regret: the notice offers Undo (decision 19).
+      if (action === 'dismiss' && result.status === 'completed')
+        notify('Insight dismissed.', undefined, {
+          label: 'Undo',
+          onAction: () => void runner.current?.('restore', insightId),
+        });
       if (result.status !== 'uncertain') remember('');
     } catch (cause) {
       setError(String(cause));
@@ -255,6 +273,7 @@ export default function InsightsHome({
       setBusy(false);
     }
   };
+  runner.current = run;
   const recover = async () => {
     if (!pending || busy) return;
     setBusy(true);

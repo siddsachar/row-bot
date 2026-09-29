@@ -208,3 +208,26 @@ def test_insight_api_checks_session_and_idempotency_key(workspace_api, monkeypat
     )
     assert accepted.status_code == 200, accepted.text
     assert len(calls) == 1
+
+
+def test_a_dismissed_insight_can_be_restored_once(isolated_insights):
+    """Undo after Dismiss (decision 19): restore brings a dismissed insight back."""
+    current, _proposal, _calls = isolated_insights
+
+    def act(action):
+        snapshot = owner.read_insights(validate=lambda: None)
+        return owner.execute_insight(
+            {"command_id": str(uuid4()), "revision": snapshot["revision"], "action": action,
+             "insight_id": "ins-test", "proposal_id": "", "reason": ""},
+            owner_id="owner", validate=lambda: None,
+        )
+
+    assert act("dismiss")["status"] == "completed"
+    assert current["status"] == "dismissed"
+    assert owner.read_insights(validate=lambda: None)["items"] == []
+    assert act("restore")["status"] == "completed"
+    assert current["status"] == "new"
+    assert [item["id"] for item in owner.read_insights(validate=lambda: None)["items"]] == ["ins-test"]
+    # Only a dismissed insight is restored; a shown one is left alone.
+    with pytest.raises(ClientPlatformError, match="insight_unavailable"):
+        act("restore")
