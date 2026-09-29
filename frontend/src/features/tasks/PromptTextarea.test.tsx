@@ -37,12 +37,12 @@ function type(box: HTMLTextAreaElement, text: string) {
 it('suggests variables after {{ and inserts the chosen one (parity row 19)', () => {
   const onValue = vi.fn();
   render(<Harness onValue={onValue} />);
-  const box = screen.getByRole('combobox', {
+  const box = screen.getByRole('textbox', {
     name: 'Prompt 1',
   }) as HTMLTextAreaElement;
-  expect(box).toHaveAttribute('aria-expanded', 'false');
+  expect(box).not.toHaveAttribute('aria-controls');
   type(box, 'News for {{d');
-  expect(box).toHaveAttribute('aria-expanded', 'true');
+  expect(box).toHaveAttribute('aria-controls');
   const list = screen.getByRole('listbox', { name: 'Variables' });
   expect(
     Array.from(list.querySelectorAll('[role=option]')).map(
@@ -52,7 +52,7 @@ it('suggests variables after {{ and inserts the chosen one (parity row 19)', () 
   fireEvent.keyDown(box, { key: 'ArrowDown' });
   fireEvent.keyDown(box, { key: 'Enter' });
   expect(onValue).toHaveBeenLastCalledWith('News for {{day}}');
-  expect(box).toHaveAttribute('aria-expanded', 'false');
+  expect(box).not.toHaveAttribute('aria-controls');
 });
 
 it('offers earlier steps by name and closes on Escape without changing the text', () => {
@@ -63,7 +63,7 @@ it('offers earlier steps by name and closes on Escape without changing the text'
       variables={[{ token: 'step.fetch.output', label: 'Result of Fetch' }]}
     />,
   );
-  const box = screen.getByRole('combobox', {
+  const box = screen.getByRole('textbox', {
     name: 'Prompt 1',
   }) as HTMLTextAreaElement;
   type(box, 'Use {{fe');
@@ -83,7 +83,7 @@ it('offers earlier steps by name and closes on Escape without changing the text'
 
 it('stays quiet once a variable is closed or in read-only prompts', () => {
   const { unmount } = render(<Harness />);
-  const box = screen.getByRole('combobox', {
+  const box = screen.getByRole('textbox', {
     name: 'Prompt 1',
   }) as HTMLTextAreaElement;
   type(box, 'On {{date}} summarize');

@@ -118,9 +118,9 @@ export default function PromptTextarea({
     <span className="prompt-field">
       <textarea
         {...rest}
-        role="combobox"
+        // A textarea keeps its textbox role (ARIA in HTML); the suggestion
+        // list is announced through autocomplete and the active option.
         aria-autocomplete="list"
-        aria-expanded={open}
         aria-controls={open ? `${id}-list` : undefined}
         aria-activedescendant={open ? `${id}-${active}` : undefined}
         value={value}
