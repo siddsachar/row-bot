@@ -32,13 +32,23 @@ _JOURNAL_MAX_ENTRIES = 100
 _INTERVAL_S = 2 * 3600  # 2 hours
 _IDLE_DELAY_S = 5 * 60
 
-# Thread IDs to exclude from background extraction (e.g. currently active
-# conversations).  Updated by the UI layer via ``set_active_thread``.
+# Thread IDs to exclude from background extraction: the conversation a client
+# opened last (``mark_conversation_open``).
 _active_threads: set[str] = set()
 _active_lock = threading.Lock()
 _activity_lock = threading.Lock()
 _last_activity_ts = time.monotonic()
 _idle_once_thread: threading.Thread | None = None
+_open_thread: str | None = None
+
+
+def mark_conversation_open(thread_id: str) -> None:
+    """A client opened *thread_id*: it replaces the conversation opened before
+    it as the one kept out of extraction."""
+    global _open_thread
+    with _active_lock:
+        previous, _open_thread = _open_thread, thread_id
+    set_active_thread(thread_id, previous_id=previous)
 
 
 def set_active_thread(thread_id: str | None, previous_id: str | None = None) -> None:

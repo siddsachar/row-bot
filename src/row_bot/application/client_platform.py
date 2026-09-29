@@ -121,7 +121,7 @@ class ClientPlatformService:
                         resume_pending: bool = False,
                         attachments: list[dict[str, Any]] | None = None,
                         note: str = "") -> Any:
-        """Single admission path for the API and retained NiceGUI producer."""
+        """Single admission path for every conversation turn."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -184,7 +184,12 @@ class ClientPlatformService:
                                  "platform_pass_id": handle.pass_id, "platform_segment_id": handle.segment_id})
             self.projection.publish(conversation_id, "generation.state", handle.view())
             self._publish_queue(conversation_id)
-            return handle
+        if not note:
+            # The person's own turn (not a server-started follow-up) keeps
+            # heavy background memory work waiting for idle.
+            from row_bot.memory_extraction import mark_user_activity
+            mark_user_activity("conversation turn")
+        return handle
 
     def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
