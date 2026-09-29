@@ -6,6 +6,8 @@ export type ConversationAction =
   | 'conversation.pin'
   | 'conversation.archive'
   | 'conversation.export';
+/** A conversation export: Markdown (the default) or PDF. */
+export type ExportFormat = 'markdown' | 'pdf';
 export type ConversationActionCapability = {
   available: boolean;
   code: string | null;
@@ -159,7 +161,8 @@ export type ConversationActionsProps = {
     conversation: NonNullable<ConversationActionReceipt['conversation']>,
   ) => void;
   initialPin?: boolean;
-  initialExport?: boolean;
+  /** Start this export as soon as the dialog opens (true means Markdown). */
+  initialExport?: boolean | ExportFormat;
 };
 
 function checkedSnapshot(
@@ -250,11 +253,14 @@ export default function ConversationActions({
         type: action,
         expected_revision: result.revision,
         payload: {
-          ...fields,
+          ...(action === 'conversation.export' ? {} : fields),
           checkpoint_revision: result.checkpoint_revision,
           action_digest: result.action_digest,
           ...(action === 'conversation.export'
-            ? { export_title: result.fields.title }
+            ? {
+                export_title: result.fields.title,
+                ...(fields.format === 'pdf' ? { export_format: 'pdf' } : {}),
+              }
             : {}),
         },
       };
@@ -388,8 +394,10 @@ export default function ConversationActions({
     initialPinRequested.current = true;
     requestInitialPin(initialPin);
   }, [initialPin, locked, state.snapshot]);
+  const exportAs = (format: ExportFormat) =>
+    requestReview('conversation.export', format === 'pdf' ? { format } : {});
   const requestInitialExport = useEffectEvent(() => {
-    void requestReview('conversation.export', {});
+    void exportAs(initialExport === 'pdf' ? 'pdf' : 'markdown');
   });
   useEffect(() => {
     if (
@@ -460,9 +468,15 @@ export default function ConversationActions({
             </Button>
             <Button
               disabled={locked || !state.snapshot.capabilities.export.available}
-              onClick={() => void requestReview('conversation.export', {})}
+              onClick={() => void exportAs('markdown')}
             >
-              Export
+              Export as Markdown
+            </Button>
+            <Button
+              disabled={locked || !state.snapshot.capabilities.export.available}
+              onClick={() => void exportAs('pdf')}
+            >
+              Export as PDF
             </Button>
           </div>
           {!state.snapshot.capabilities.archive.available && (

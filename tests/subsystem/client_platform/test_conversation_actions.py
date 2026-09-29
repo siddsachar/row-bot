@@ -244,3 +244,83 @@ def test_stale_revision_and_cross_target_receipt_fail_closed(isolated_service):
     assert read_conversation_action_receipt(
         isolated_service, second, command["command_id"], owner_id="local-owner", validate=lambda: None
     ) is None
+
+
+def _pdf_conversation():
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from row_bot import threads
+
+    conversation = threads.create_thread("PDF title", seed_default_skills=False)
+    threads.append_checkpoint_messages(
+        conversation,
+        [
+            SystemMessage(id="system", content="private system instruction"),
+            HumanMessage(id="user", content='Plan <img src="http://example.invalid/x.png"> <script>alert(1)</script>'),
+            AIMessage(id="assistant", content="Here is **the plan**:\n\n- first step\n- second step"),
+        ],
+    )
+    return conversation
+
+
+def test_pdf_export_is_the_reviewed_transcript_rendered_offline(isolated_service, monkeypatch):
+    """Parity row 2: the PDF holds the same saved transcript as the Markdown copy."""
+    pypdf = pytest.importorskip("pypdf")
+    pytest.importorskip("fpdf")
+    import io
+
+    from row_bot.application import conversation_pdf
+    from row_bot.application.attachments import read_attachment
+
+    pages: list[str] = []
+
+    def no_chromium(page_html: str) -> bytes:
+        pages.append(page_html)
+        raise RuntimeError("Chromium runtime not installed")
+
+    monkeypatch.setattr(conversation_pdf, "_render_chromium", no_chromium)
+    conversation = _pdf_conversation()
+    review = _review(isolated_service, conversation, "conversation.export", "0", {"format": "pdf"})
+    assert review["fields"] == {"title": "PDF title", "format": "pdf"}
+    assert "PDF copy" in review["summary"]
+    command = _command("conversation.export", review, {})
+    command["payload"]["export_format"] = "pdf"
+    exported = _execute(isolated_service, conversation, command)
+    assert exported["status"] == "completed", exported
+    assert exported["export"]["file_name"] == "conversation-export.pdf"
+    metadata, data = read_attachment(exported["export"]["attachment_ref"])
+    assert metadata["name"] == "conversation-export.pdf"
+    assert data.startswith(b"%PDF-")
+    text = "\n".join(page.extract_text() for page in pypdf.PdfReader(io.BytesIO(data)).pages)
+    assert "PDF title" in text and "the plan" in text and "second step" in text
+    assert "private system instruction" not in text
+    # The Chromium page it would have printed escapes every message.
+    [page_html] = pages
+    assert "<script>" not in page_html and "<img" not in page_html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page_html
+    assert "<strong>the plan</strong>" in page_html and "<li>second step</li>" in page_html
+    assert "default-src 'none'" in page_html
+
+
+def test_a_pdf_review_cannot_be_executed_as_markdown(isolated_service):
+    conversation = _pdf_conversation()
+    review = _review(isolated_service, conversation, "conversation.export", "0", {"format": "pdf"})
+    command = _command("conversation.export", review, {})
+    with pytest.raises(ConversationActionError, match="conversation_review_changed"):
+        _execute(isolated_service, conversation, command)
+    with pytest.raises(ConversationActionError, match="invalid_conversation_action"):
+        _review(isolated_service, conversation, "conversation.export", "0", {"format": "docx"})
+
+
+def test_pdf_export_says_so_when_no_pdf_renderer_is_installed(isolated_service, monkeypatch):
+    from row_bot.application import conversation_pdf
+
+    def unavailable(title: str, markdown: str) -> bytes:
+        raise conversation_pdf.PdfUnavailable
+
+    monkeypatch.setattr(conversation_pdf, "render_pdf", unavailable)
+    conversation = _pdf_conversation()
+    review = _review(isolated_service, conversation, "conversation.export", "0", {"format": "pdf"})
+    command = _command("conversation.export", review, {})
+    command["payload"]["export_format"] = "pdf"
+    with pytest.raises(ConversationActionError, match="conversation_export_pdf_unavailable"):
+        _execute(isolated_service, conversation, command)

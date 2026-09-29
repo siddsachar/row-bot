@@ -815,7 +815,9 @@ test('Conversation actions rename, pin, and export through one recoverable overl
     actions.getByRole('button', { name: 'Unpin', exact: true }),
   ).toBeVisible();
 
-  await actions.getByRole('button', { name: 'Export', exact: true }).click();
+  await actions
+    .getByRole('button', { name: 'Export as Markdown', exact: true })
+    .click();
   const downloadButton = actions.getByRole('button', {
     name: 'Download conversation export',
     exact: true,

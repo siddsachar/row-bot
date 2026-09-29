@@ -275,6 +275,10 @@ const CATALOG: Record<string, Entry> = {
     'This conversation is too large to export as one file.',
     'none',
   ],
+  conversation_export_pdf_unavailable: [
+    "PDF export isn't installed with this copy of Row-Bot. Export as Markdown instead.",
+    'none',
+  ],
   conversation_export_unconfirmed: [
     "Row-Bot couldn't confirm the export. Try again.",
     'retry',

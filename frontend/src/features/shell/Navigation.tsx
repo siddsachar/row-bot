@@ -15,6 +15,7 @@ import {
   ChevronRight,
   CircleAlert,
   Code2,
+  FileText,
   Home,
   Layers,
   Library,
@@ -423,7 +424,7 @@ export default function Navigation({
   function openActions(
     conversation: ConversationView,
     initialPin?: boolean,
-    initialExport = false,
+    initialExport: false | 'markdown' | 'pdf' = false,
   ) {
     const session = conversationActionsOwner?.get()?.get(conversation.id);
     if (!session) {
@@ -565,9 +566,15 @@ export default function Navigation({
                 onSelect: () => openActions(conversation),
               },
               {
-                label: 'Export',
+                label: 'Export as Markdown',
                 icon: <Upload size={16} />,
-                onSelect: () => openActions(conversation, undefined, true),
+                onSelect: () =>
+                  openActions(conversation, undefined, 'markdown'),
+              },
+              {
+                label: 'Export as PDF',
+                icon: <FileText size={16} />,
+                onSelect: () => openActions(conversation, undefined, 'pdf'),
               },
               {
                 label: 'Delete…',

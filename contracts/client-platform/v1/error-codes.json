@@ -88,6 +88,7 @@
     "conversation_action_unconfirmed": 409,
     "conversation_archive_unavailable": 409,
     "conversation_deleting": 409,
+    "conversation_export_pdf_unavailable": 503,
     "conversation_export_too_large": 413,
     "conversation_export_unconfirmed": 409,
     "conversation_review_changed": 409,

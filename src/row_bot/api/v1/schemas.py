@@ -167,11 +167,12 @@ class ConversationActionPinFields(WireModel):
 
 
 class ConversationActionExportFields(WireModel):
-    pass
+    format: Literal["markdown", "pdf"] | None = None
 
 
 class ConversationActionExportReviewFields(WireModel):
     title: str = Field(max_length=256)
+    format: Literal["pdf"] | None = None
 
 
 CONVERSATION_ACTION_REVIEW_PAYLOADS = {
@@ -241,6 +242,7 @@ class ConversationActionPinPayload(ConversationActionCommandBase):
 
 class ConversationActionExportPayload(ConversationActionCommandBase):
     export_title: str = Field(max_length=256)
+    export_format: Literal["markdown", "pdf"] | None = None
 
 
 CONVERSATION_ACTION_COMMAND_PAYLOADS = {
@@ -280,7 +282,7 @@ class ConversationActionConversation(WireModel):
 
 class ConversationActionExport(WireModel):
     attachment_ref: Reference
-    file_name: Literal["conversation-export.md"]
+    file_name: Literal["conversation-export.md", "conversation-export.pdf"]
     size_bytes: int = Field(ge=0, le=8 * 1024 * 1024)
     checkpoint_revision: str = Field(max_length=128)
 

@@ -267,6 +267,7 @@ _STATUS.update(
         "conversation_transcript_changed": 409,
         "conversation_action_unconfirmed": 409,
         "conversation_export_unconfirmed": 409,
+        "conversation_export_pdf_unavailable": 503,
         "conversation_export_too_large": 413,
         "conversation_state_unavailable": 503,
         "conversation_transcript_unavailable": 503,

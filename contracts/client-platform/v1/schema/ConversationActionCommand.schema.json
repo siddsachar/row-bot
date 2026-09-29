@@ -13,6 +13,22 @@
           "title": "Checkpoint Revision",
           "type": "string"
         },
+        "export_format": {
+          "anyOf": [
+            {
+              "enum": [
+                "markdown",
+                "pdf"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Export Format"
+        },
         "export_title": {
           "maxLength": 256,
           "title": "Export Title",

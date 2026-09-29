@@ -124,7 +124,12 @@ test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', 
     .getByRole('button', { name: 'Actions for A place for your ideas' })
     .click();
   await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Export' })).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Export as Markdown' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Export as PDF' }),
+  ).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
   await page.keyboard.press('Escape');
   await nav

@@ -145,7 +145,7 @@ it('creates and downloads the local export with one click', async () => {
   }));
   render(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
-  fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export as Markdown' }));
   await screen.findByText('Conversation export downloaded.');
   expect(props.execute.mock.calls[0][1].payload).toEqual({
     checkpoint_revision: 'checkpoint-7',
@@ -190,4 +190,34 @@ it('fences a retained action from a different conversation', () => {
     'belongs to another conversation',
   );
   expect(props.load).not.toHaveBeenCalled();
+});
+
+it('exports the same reviewed transcript as a PDF (parity row 2)', async () => {
+  const props = options();
+  props.execute.mockImplementationOnce(async (_id, command) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    action: command.type,
+    export: {
+      attachment_ref: 'conversation-1:export-2',
+      file_name: 'conversation-export.pdf',
+      size_bytes: 4321,
+      checkpoint_revision: 'checkpoint-7',
+    },
+  }));
+  render(<ConversationActions {...props} />);
+  await screen.findByDisplayValue('Saved conversation');
+  fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
+  await screen.findByText('Conversation export downloaded.');
+  expect(props.review.mock.calls[0][3]).toEqual({ format: 'pdf' });
+  expect(props.execute.mock.calls[0][1].payload).toEqual({
+    checkpoint_revision: 'checkpoint-7',
+    action_digest: 'a'.repeat(64),
+    export_title: 'Saved conversation',
+    export_format: 'pdf',
+  });
+  expect(props.download).toHaveBeenCalledWith(
+    'conversation-1:export-2',
+    'conversation-export.pdf',
+  );
 });
