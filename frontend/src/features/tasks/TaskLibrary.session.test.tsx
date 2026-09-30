@@ -103,6 +103,16 @@ function harness(items: TaskSummary[] = []) {
     taskRunReview,
     taskRuns,
     taskApprovals: vi.fn(),
+    taskRun: vi.fn(async (taskId: string, runId: string) => ({
+      id: runId,
+      task_id: taskId,
+      conversation_id: '',
+      status: 'running',
+      started_at: '2026-09-30T10:00:00Z',
+      finished_at: null,
+      steps_total: 2,
+      steps_done: 0,
+    })),
     taskEditor,
     command: vi.fn(),
   } as unknown as ClientController;
@@ -130,19 +140,21 @@ function harness(items: TaskSummary[] = []) {
   };
 }
 
-it('the actual workflow route resumes its draft after unmount and explicit editor close', async () => {
+it('opens a new workflow in the full-page editor and resumes its draft after unmount and close (B253)', async () => {
   const { controller, taskEditSessions, application } = harness();
   const first = render(application());
-  await screen.findByRole('button', { name: 'New workflow' });
-  // The saved list is loaded before the builder opens over it.
   await screen.findByText('No workflows yet');
   fireEvent.click(screen.getByRole('button', { name: 'New workflow' }));
+  // New opens on the page, where editing a saved workflow opens too.
+  const editor = screen.getByRole('region', { name: 'Workflow editor' });
   expect(
-    screen.getByRole('dialog', { name: 'New task/workflow' }),
+    within(editor).getByRole('heading', { level: 1, name: 'New workflow' }),
+  ).toHaveFocus();
+  expect(
+    within(editor).getByRole('form', { name: 'Create task' }),
   ).toBeVisible();
-  // The library stays mounted behind the builder rather than being replaced.
-  expect(document.querySelector('.workflow-library')).toBeInTheDocument();
-  expect(screen.getByText('No workflows yet')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.querySelector('.workflow-library')).toBeNull();
   fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), {
     target: { value: 'Retained workflow draft' },
   });
@@ -151,17 +163,19 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
   expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
     'Retained workflow draft',
   );
-  expect(
-    screen.getByRole('dialog', { name: 'New task/workflow' }),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('region', { name: 'Workflow editor' })).toBeVisible();
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Back to workflows' }),
+  );
   await screen.findByRole('region', { name: 'Continue editing workflows' });
+  expect(screen.getByRole('button', { name: 'New workflow' })).toHaveFocus();
   expect(
     screen.getByText('New workflow', { selector: 'strong' }),
   ).toBeVisible();
   expect(screen.queryByText(/session|\["task"/i)).toBeNull();
-  const resume = screen.getByRole('button', { name: 'Continue editing' });
-  await userEvent.click(resume);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Continue editing' }),
+  );
   expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
     'Retained workflow draft',
   );
@@ -170,12 +184,65 @@ it('the actual workflow route resumes its draft after unmount and explicit edito
     screen.queryByRole('region', { name: 'Continue editing workflows' }),
   ).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(
-    screen.queryByRole('dialog', { name: 'New task/workflow' }),
-  ).toBeNull();
-  expect(resume).toHaveFocus();
+  expect(screen.queryByRole('region', { name: 'Workflow editor' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'New workflow' })).toHaveFocus();
   expect(controller.command).not.toHaveBeenCalled();
   second.unmount();
+  act(() => taskEditSessions.dispose());
+});
+
+it('edits a saved workflow in the same full-page editor as New (B253)', async () => {
+  const { taskEditSessions, application, taskEditor } = harness([
+    {
+      id: 'task-1',
+      name: 'Morning digest',
+      description: '',
+      icon: '',
+      enabled: false,
+      notify_only: false,
+      step_count: 1,
+      schedule: null,
+      at: null,
+      last_run: null,
+      last_status: null,
+      conversation_id: null,
+      agent_profile_id: 'builtin:row_bot_default',
+      approval_mode: 'block',
+    },
+  ]);
+  taskEditor.mockResolvedValue({
+    id: 'task-1',
+    revision: 'f'.repeat(64),
+    advanced: false,
+    legacy_delivery: false,
+    fields: {
+      name: 'Morning digest',
+      description: '',
+      icon: '⚡',
+      prompts: ['Summarise the news'],
+      enabled: false,
+      schedule: null,
+      at: null,
+      notify_only: false,
+      notify_label: '',
+      channels: null,
+    },
+  } as unknown as EditorSnapshot);
+  const view = render(application());
+  await userEvent.click(
+    await screen.findByRole('button', {
+      name: 'Edit workflow: Morning digest',
+    }),
+  );
+  const editor = screen.getByRole('region', { name: 'Workflow editor' });
+  expect(
+    within(editor).getByRole('heading', { level: 1, name: 'Edit workflow' }),
+  ).toBeVisible();
+  expect(
+    await within(editor).findByRole('form', { name: 'Edit task' }),
+  ).toBeVisible();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  view.unmount();
   act(() => taskEditSessions.dispose());
 });
 
@@ -256,7 +323,7 @@ it('keeps the generic title when the task cannot be read, and never reopens a cl
   act(() => taskEditSessions.dispose());
 });
 
-it('Run on a row reviews in place first, without starting a run (U40)', async () => {
+it('Run on a row reviews and starts the reviewed request in one click (B254)', async () => {
   const { controller, taskEditSessions, application, taskRunReview } = harness([
     {
       id: 'task-1',
@@ -271,22 +338,41 @@ it('Run on a row reviews in place first, without starting a run (U40)', async ()
       last_run: null,
       last_status: null,
       conversation_id: null,
+      agent_profile_id: 'builtin:row_bot_default',
+      approval_mode: 'approve',
     },
   ]);
+  vi.mocked(controller.command).mockImplementation(
+    async (_target, command) => ({
+      command_id: command.command_id,
+      status: 'completed',
+      task_run_id: 'run-1',
+      task_run_reserved: true,
+    }),
+  );
   const view = render(application('/?tab=workflows'));
   await userEvent.click(
     await screen.findByRole('button', { name: 'Run workflow: Morning digest' }),
   );
-  const line = await screen.findByRole('group', {
-    name: 'Run Morning digest now?',
-  });
-  expect(within(line).getByRole('button', { name: 'Run' })).toBeInTheDocument();
   expect(taskRunReview).toHaveBeenCalledWith('task-1');
-  expect(screen.queryByRole('dialog', { name: 'Morning digest' })).toBeNull();
-  expect(screen.getByTestId('location')).toHaveTextContent(
-    /^\/\?tab=workflows$/,
+  // Execute carries the revisions the review returned; the server checks them.
+  await waitFor(() =>
+    expect(controller.command).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({
+        type: 'task.run',
+        payload: {
+          task_id: 'task-1',
+          task_revision: 'c'.repeat(64),
+          policy_revision: 'd'.repeat(64),
+        },
+      }),
+      expect.any(String),
+    ),
   );
-  expect(controller.command).not.toHaveBeenCalled();
+  expect(await screen.findByText('Run started.')).toBeInTheDocument();
+  expect(screen.queryByRole('group', { name: /now\?/ })).toBeNull();
+  expect(screen.queryByRole('dialog', { name: 'Morning digest' })).toBeNull();
   view.unmount();
   act(() => taskEditSessions.dispose());
 });

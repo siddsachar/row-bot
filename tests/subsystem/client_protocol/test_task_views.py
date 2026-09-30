@@ -126,6 +126,8 @@ def test_all_saved_pages_and_filters_preserve_ids_and_private_field_boundary(api
             "last_run",
             "last_status",
             "conversation_id",
+            "agent_profile_id",
+            "approval_mode",
             "recent_runs",
             "active_run",
             "next_run",
@@ -392,6 +394,9 @@ def test_response_and_sqlite_batches_remain_bounded_with_large_saved_metadata(
         "last_run",
         "last_status",
         "persistent_thread_id",
+        # The profile reference and approval mode a run starts with.
+        "agent_profile_id",
+        "safety_mode",
         # Saved run status, start time, id and step counts only.
         "recent_runs_json",
         "active_run_json",

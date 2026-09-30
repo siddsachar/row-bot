@@ -132,6 +132,8 @@ function task(overrides: Partial<TaskSummary> & { id: string }): TaskSummary {
     last_run: null,
     last_status: null,
     conversation_id: null,
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
     ...overrides,
   };
 }

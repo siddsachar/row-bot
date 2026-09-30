@@ -549,23 +549,18 @@
 .workflow-row + .workflow-row {
   border-top: 1px solid var(--border-hairline);
 }
-/* ▶ reviews in place (U40): the line wraps below the row's own controls. */
-.workflow-row:has(> .workflow-run-review) {
-  flex-wrap: wrap;
-}
-.workflow-run-review {
-  display: flex;
-  flex: 1 0 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
+/* What a run starts with (B254): quiet tags, Auto approvals stands out. */
+.workflow-row .workflow-metadata .workflow-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
   background: var(--surface-hover);
-  font-size: var(--text-13);
+  color: var(--text-secondary);
 }
-.workflow-run-review > span {
-  flex: 1 1 auto;
+.workflow-row .workflow-metadata .workflow-tag[data-attention='true'] {
+  background: var(--status-warning-background);
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
 }
 .workflow-row:hover {
   background: color-mix(in srgb, var(--surface-hover) 60%, transparent);
@@ -775,9 +770,6 @@
 }
 
 /* Workflow builder ------------------------------------------------------ */
-.dialog.workflow-builder-dialog {
-  width: min(1040px, calc(100vw - 32px));
-}
 .workflow-editor-view {
   gap: 16px;
 }

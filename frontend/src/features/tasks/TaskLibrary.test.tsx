@@ -36,6 +36,8 @@ function task(
     last_run: null,
     last_status: null,
     conversation_id: 'conversation-one',
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
     ...overrides,
   };
 }
@@ -1172,7 +1174,7 @@ it('duplicates a workflow from the row menu and says what it made (parity row 18
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
 
-it('runs from the row after one review line, then follows it in the drawer (U40)', async () => {
+it('starts a run in one click: it reviews, runs the reviewed request and shows Stop (B254)', async () => {
   const user = userEvent.setup();
   const reviewed = {
     task_id: 'Digest',
@@ -1184,27 +1186,129 @@ it('runs from the row after one review line, then follows it in the drawer (U40)
     steps_total: 3,
     conversation_id: null,
   };
-  const onReview = vi.fn(async () => reviewed);
-  const onRun = vi.fn(async () => {});
+  const order: string[] = [];
+  const onReview = vi.fn(async () => {
+    order.push('review');
+    return reviewed;
+  });
+  const onRun = vi.fn(async () => {
+    order.push('run');
+  });
   const runs = vi.fn();
-  const load = vi.fn(async () => pageOf([task('Digest', { enabled: true })]));
-  show(load, { onReview, onRun, onRuns: runs });
+  const idle = task('Digest', { enabled: true, notify_only: false });
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(pageOf([idle]))
+    .mockResolvedValue(
+      pageOf([
+        {
+          ...idle,
+          active_run: {
+            id: 'run-1',
+            status: 'running',
+            started_at: '2026-09-30T10:00:00Z',
+            steps_done: 0,
+            steps_total: 3,
+          },
+        },
+      ]),
+    );
+  show(load, { onReview, onRun, onRuns: runs, onStop: vi.fn() });
   await user.click(
     await screen.findByRole('button', { name: 'Run workflow: Digest' }),
   );
-  const line = await screen.findByRole('group', { name: 'Run Digest now?' });
-  expect(line).toHaveTextContent('3 steps · Row bot default · Blocks actions');
-  expect(onRun).not.toHaveBeenCalled();
-  await user.click(within(line).getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('group', { name: 'Run Digest now?' })).toBeNull();
-  await user.click(
-    screen.getByRole('button', { name: 'Run workflow: Digest' }),
-  );
-  await user.click(
-    within(
-      await screen.findByRole('group', { name: 'Run Digest now?' }),
-    ).getByRole('button', { name: 'Run' }),
-  );
+  expect(order).toEqual(['review', 'run']);
   expect(onRun).toHaveBeenCalledWith(reviewed);
-  expect(runs).toHaveBeenCalledWith('Digest', 'Digest');
+  expect(screen.queryByRole('group', { name: 'Run Digest now?' })).toBeNull();
+  // Once started, the row shows its live state and Stop; no drawer opens.
+  expect(
+    await screen.findByRole('button', {
+      name: 'Stop running workflow: Digest',
+    }),
+  ).toBeVisible();
+  expect(
+    within(row('Digest')).getByRole('button', { name: /Step 1\/3/ }),
+  ).toBeVisible();
+  expect(runs).not.toHaveBeenCalled();
+});
+
+it('names the profile and approvals a run uses on the row, with Auto approvals standing out (B254)', async () => {
+  show(
+    vi.fn(async () =>
+      pageOf([
+        task('Careful', { notify_only: false, approval_mode: 'approve' }),
+        task('Trusted', {
+          notify_only: false,
+          agent_profile_id: 'builtin:row_bot_research',
+          approval_mode: 'allow_all',
+        }),
+      ]),
+    ),
+  );
+  await screen.findByText('Careful');
+  const careful = within(row('Careful'));
+  expect(careful.getByText('Row bot default')).toBeVisible();
+  expect(careful.getByText('Asks before actions')).not.toHaveAttribute(
+    'data-attention',
+  );
+  const trusted = within(row('Trusted'));
+  expect(trusted.getByText('Row bot research')).toBeVisible();
+  expect(trusted.getByText('Auto approvals')).toHaveAttribute(
+    'data-attention',
+    'true',
+  );
+});
+
+it('follows a running row until its run ends, then reads the list again (B254)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const running = task('Digest', {
+    enabled: true,
+    notify_only: false,
+    active_run: {
+      id: 'run-1',
+      status: 'running',
+      started_at: '2026-09-30T10:00:00Z',
+      steps_done: 0,
+      steps_total: 3,
+    },
+  });
+  const load = vi.fn(async () => pageOf([running]));
+  const loadRun = vi
+    .fn()
+    .mockResolvedValueOnce({
+      id: 'run-1',
+      task_id: 'Digest',
+      conversation_id: 'conversation-one',
+      status: 'running',
+      started_at: '2026-09-30T10:00:00Z',
+      finished_at: null,
+      steps_total: 3,
+      steps_done: 2,
+    })
+    .mockResolvedValue({
+      id: 'run-1',
+      task_id: 'Digest',
+      conversation_id: 'conversation-one',
+      status: 'completed',
+      started_at: '2026-09-30T10:00:00Z',
+      finished_at: '2026-09-30T10:01:00Z',
+      steps_total: 3,
+      steps_done: 3,
+    });
+  show(load, { loadRun });
+  expect(
+    await screen.findByRole('button', { name: /Step 1\/3/ }),
+  ).toBeVisible();
+  await flush(2000);
+  expect(loadRun).toHaveBeenCalledWith(
+    'Digest',
+    'run-1',
+    expect.any(AbortSignal),
+  );
+  expect(
+    within(row('Digest')).getByRole('button', { name: /Step 3\/3/ }),
+  ).toBeVisible();
+  expect(load).toHaveBeenCalledTimes(1);
+  await flush(2000);
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });

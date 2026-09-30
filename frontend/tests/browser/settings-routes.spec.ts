@@ -27,7 +27,6 @@ const settingsRoutes = [
   ['mcp', 'MCP'],
   ['accounts', 'Accounts'],
   ['channels', 'Channels'],
-  ['profiles', 'Agent profiles'],
   ['system', 'System'],
   ['access', 'Devices & remote access'],
   ['updates', 'Updates'],
@@ -51,7 +50,6 @@ const aliases = [
   ['migration', 'data', 'Data'],
   ['search', 'tools', 'Tools'],
   ['utilities', 'tools', 'Tools'],
-  ['agent-profiles', 'profiles', 'Agent profiles'],
 ] as const;
 
 function settingsPath(id: string): string {
@@ -277,7 +275,7 @@ test('Settings shell preserves the exact owner order aliases history and reload'
     await expect(navigation).toBeVisible();
     await expect(navigation.getByRole('heading')).toHaveCount(0);
     const groups = navigation.getByRole('list');
-    await expect(groups).toHaveCount(7);
+    await expect(groups).toHaveCount(6);
     expect(
       await groups.evaluateAll((lists) =>
         lists.map((list) => list.getAttribute('aria-label')),
@@ -288,7 +286,6 @@ test('Settings shell preserves the exact owner order aliases history and reload'
       'Knowledge',
       'Capabilities',
       'Connections',
-      'Agents',
       'System',
     ]);
     await expect(navigation.getByRole('link')).toHaveText(expectedLabels);
@@ -315,6 +312,17 @@ test('Settings shell preserves the exact owner order aliases history and reload'
   await expect
     .poll(() => new URL(page.url()).pathname)
     .not.toContain('/settings');
+  // Agent profiles are the sidebar's Agents dialog: old links open it (B260).
+  for (const old of ['profiles', 'agent-profiles']) {
+    await navigateInApp(page, settingsPath(old));
+    const agents = page.getByRole('dialog', { name: 'Agent profiles' });
+    await expect(agents).toBeVisible();
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .not.toContain('/settings');
+    await page.keyboard.press('Escape');
+    await expect(agents).toHaveCount(0);
+  }
 
   await page.goto(settingsPath('providers'));
   await page.goto(settingsPath('models'));

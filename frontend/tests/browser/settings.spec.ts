@@ -195,7 +195,6 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'mcp',
     'accounts',
     'channels',
-    'profiles',
     'system',
     'access',
     'updates',
@@ -204,7 +203,6 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   const labels: Record<string, string> = {
     mcp: 'MCP',
     knowledge: 'Memory',
-    profiles: 'Agent profiles',
     access: 'Devices & remote access',
   };
   const label = (id: string) => labels[id] ?? id[0].toUpperCase() + id.slice(1);
@@ -218,8 +216,8 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   const settingsHeading = page
     .getByRole('region', { name: 'Settings', exact: true })
     .locator('.settings-pane-header h2');
-  // Seven named groups, every page listed (no collapsed categories).
-  await expect(settingsNavigation.getByRole('list')).toHaveCount(7);
+  // Six named groups, every page listed (no collapsed categories).
+  await expect(settingsNavigation.getByRole('list')).toHaveCount(6);
   await expect(settingsNavigation.getByRole('link')).toHaveCount(leaves.length);
   for (const id of leaves) {
     await page.goto(`/app-v2/settings/${id}`);

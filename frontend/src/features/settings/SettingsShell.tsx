@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { Field, Input, Kbd } from '../../ui/primitives';
 import {
+  agentProfileLibrary,
+  searchFindsAgentProfiles,
   searchSettings,
   searchSettingsRows,
   settingsGroups,
@@ -84,7 +86,6 @@ const descriptions: Record<string, string> = {
   mcp: 'External MCP servers, their tools, permissions and runtimes.',
   accounts: 'GitHub, Google and X accounts, without exposing credentials.',
   channels: 'Messaging platforms Row-Bot can talk through.',
-  profiles: 'Profiles for delegated agents: built-in and your own.',
   system: 'Workspace folder, shell, browser, files and logs.',
   access:
     'Use Row-Bot on a phone or another computer, and see what is signed in.',
@@ -147,6 +148,7 @@ export default function SettingsShell({
   const searching = Boolean(query.trim());
   const pages = searching ? searchSettings(query) : [];
   const rows = searching ? searchSettingsRows(query) : [];
+  const profileLibrary = searching && searchFindsAgentProfiles(query);
   const leafLabel = (id: string) =>
     settingsLeaves.find((item) => item.id === id)?.label ?? id;
   return (
@@ -240,7 +242,7 @@ export default function SettingsShell({
                   </ul>
                 </div>
               )}
-              {rows.length > 0 && (
+              {(rows.length > 0 || profileLibrary) && (
                 <div className="settings-nav-group">
                   <span className="settings-nav-label" aria-hidden>
                     Settings
@@ -258,10 +260,23 @@ export default function SettingsShell({
                         </Link>
                       </li>
                     ))}
+                    {profileLibrary && (
+                      // The sidebar's Agents dialog (B260).
+                      <li>
+                        <Link
+                          to={agentProfileLibrary.href}
+                          onClick={() => setQuery('')}
+                        >
+                          <SettingIcon id="profiles" size={16} />
+                          <span>{agentProfileLibrary.label}</span>
+                          <small aria-hidden>Agents</small>
+                        </Link>
+                      </li>
+                    )}
                   </ul>
                 </div>
               )}
-              {!pages.length && !rows.length && (
+              {!pages.length && !rows.length && !profileLibrary && (
                 <p className="muted settings-no-results">No settings found.</p>
               )}
             </div>

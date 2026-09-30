@@ -397,7 +397,7 @@ test('Phase 4 explicit workflow run records history and opens the unified conver
   await page.goto('/app-v2/?tab=workflows');
   await searchWorkflows(page, 'Phase 4 saved task 104');
   await expect(workflowCards(page)).toHaveCount(1);
-  // ▶ reviews in the row (U40); Run starts it and the drawer follows it.
+  // ▶ reviews and starts the run in one click (B254); Run history follows it.
   const card = workflowCards(page).first();
   await card
     .getByRole('button', {
@@ -405,14 +405,18 @@ test('Phase 4 explicit workflow run records history and opens the unified conver
       exact: true,
     })
     .click();
-  const line = card.getByRole('group', {
-    name: 'Run Phase 4 saved task 104 now?',
-    exact: true,
-  });
-  await expect(line).toContainText('Reminder');
-  await screenshot(page, info, 'workflow-run-review');
-  await accessibility(page, info, 'workflow-run-review');
-  await line.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByText('Run started.')).toBeVisible();
+  await screenshot(page, info, 'workflow-run-started');
+  await accessibility(page, info, 'workflow-run-started');
+  await card
+    .getByRole('button', {
+      name: 'More actions for Phase 4 saved task 104',
+      exact: true,
+    })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Run history', exact: true })
+    .click();
   const runs = page.getByRole('region', {
     name: 'Task runs and approvals',
     exact: true,
@@ -524,7 +528,7 @@ test('Phase 4 Settings discovers passive tools with source filters and unknown r
   await expect(page.getByText('No matching cached tools')).toBeVisible();
 });
 
-test('workflow rows and create dialog fit, retain drafts, and restore focus', async ({
+test('workflow rows and the new-workflow editor fit, retain drafts, and restore focus', async ({
   page,
 }, info) => {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -555,26 +559,24 @@ test('workflow rows and create dialog fit, retain drafts, and restore focus', as
     exact: true,
   });
   await create.click();
-  const dialog = page.getByRole('dialog', { name: 'New task/workflow' });
-  const editor = dialog.getByRole('form', { name: 'Create task' });
+  // New opens in the same full-page editor as Edit (B253).
+  const view = page.getByRole('region', { name: 'Workflow editor' });
+  const editor = view.getByRole('form', { name: 'Create task' });
   await expect(editor).toBeVisible();
-  await expect(card).toHaveCount(1);
-  const bounds = (await dialog.boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(bounds.x).toBeGreaterThanOrEqual(0);
-  expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
-  expect(bounds.y).toBeGreaterThanOrEqual(0);
-  expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+  await expect(
+    view.getByRole('heading', { level: 1, name: 'New workflow' }),
+  ).toBeFocused();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await editor
     .getByRole('textbox', { name: 'Name', exact: true })
     .fill(`Slice 5 workflow ${info.project.name}`);
   await editor
     .getByRole('textbox', { name: 'Prompt 1', exact: true })
     .fill('Summarize synthetic sample only');
-  await screenshot(page, info, 'slice5-create-dialog');
+  await screenshot(page, info, 'slice5-create-editor');
   await assertNoOverflow(page);
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
+  await view.getByRole('button', { name: 'Back to workflows' }).click();
+  await expect(view).toHaveCount(0);
   await expect(create).toBeFocused();
   const recovery = page.getByRole('region', {
     name: 'Continue editing workflows',
@@ -585,7 +587,7 @@ test('workflow rows and create dialog fit, retain drafts, and restore focus', as
     editor.getByRole('textbox', { name: 'Name', exact: true }),
   ).toHaveValue(`Slice 5 workflow ${info.project.name}`);
   await editor.getByRole('button', { name: 'Save task' }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(view).toHaveCount(0);
   await expect(create).toBeFocused();
   await page
     .getByRole('searchbox', { name: 'Search workflows' })

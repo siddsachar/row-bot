@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_PROFILE_SETTINGS,
   resolveSetting,
   searchSettings,
   searchSettingsRows,
@@ -20,7 +21,6 @@ describe('settings navigation metadata', () => {
       'Knowledge',
       'Capabilities',
       'Connections',
-      'Agents',
       'System',
     ]);
     expect(new Set(settingsLeaves.map((leaf) => leaf.id)).size).toBe(
@@ -44,7 +44,6 @@ describe('settings navigation metadata', () => {
       'MCP',
       'Accounts',
       'Channels',
-      'Agent profiles',
       'System',
       'Devices & remote access',
       'Updates',
@@ -54,6 +53,12 @@ describe('settings navigation metadata', () => {
     // goals, which belong to one conversation and open its Context instead.
     expect(resolveSetting('goals')).toBeUndefined();
     expect(THREAD_SETTINGS.has('goals')).toBe(true);
+    // Agent profiles are the sidebar's Agents dialog now; their old links
+    // open it (B260).
+    for (const id of ['profiles', 'agent-profiles']) {
+      expect(resolveSetting(id)).toBeUndefined();
+      expect(AGENT_PROFILE_SETTINGS.has(id)).toBe(true);
+    }
     for (const id of [
       'providers',
       'models',
@@ -85,8 +90,6 @@ describe('settings navigation metadata', () => {
       ['Migration', 'data'],
       ['Search', 'tools'],
       ['utilities', 'tools'],
-      ['agent-profiles', 'profiles'],
-      ['profiles', 'profiles'],
     ])
       expect(resolveSetting(alias)?.id).toBe(target);
     expect(settingsHref('utilities')).toBe('/settings/tools#built-in-tools');

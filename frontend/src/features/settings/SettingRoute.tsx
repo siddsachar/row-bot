@@ -1,12 +1,17 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
-import { resolveSetting, settingsHref, THREAD_SETTINGS } from './model';
+import {
+  AGENT_PROFILE_SETTINGS,
+  resolveSetting,
+  settingsHref,
+  THREAD_SETTINGS,
+} from './model';
 import Preferences from './Preferences';
 import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
@@ -32,7 +37,6 @@ import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
 import ChannelSettings from './ChannelSettings';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
-import GoalProfileSettings from './GoalProfileSettings';
 import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
@@ -76,6 +80,17 @@ const snapshotPages: Partial<Record<string, SettingsPage>> = {
   knowledge: 'knowledge',
 };
 
+/**
+ * Settings › Agent profiles became the sidebar's Agents dialog (B260): an
+ * old link opens that dialog over the workspace.
+ */
+function AgentProfilesMoved() {
+  const open = useWorkspaceActions()?.openAgentProfiles;
+  const openDialog = useEffectEvent(() => open?.(null));
+  useEffect(() => openDialog(), []);
+  return <Navigate to="/" replace />;
+}
+
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
   const [search] = useSearchParams();
@@ -99,11 +114,9 @@ export default function SettingRoute() {
     channelOwner,
     pluginOwner,
     skillsOwner,
-    goalProfileOwner,
     knowledgeOwner,
   } = useRuntime();
   const state = useClientState();
-  const workspaceActions = useWorkspaceActions();
   const session = state.handshake?.client_session_id ?? '';
   const settingsDrafts = useRef({
     session,
@@ -194,6 +207,8 @@ export default function SettingRoute() {
       />
     );
   }
+  if (AGENT_PROFILE_SETTINGS.has(setting.toLowerCase()))
+    return <AgentProfilesMoved />;
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
@@ -689,28 +704,6 @@ export default function SettingRoute() {
               receipt: controller.skillReceipt,
             }}
           />
-        ) : leaf.id === 'profiles' && goalProfileOwner?.get() ? (
-          <div data-setting-anchor="profile-library">
-            <GoalProfileSettings
-              profilesOnly
-              session={goalProfileOwner.get()!}
-              loadProfiles={({ query, scope, cursor }, signal) =>
-                controller.profiles(query, scope, cursor, signal)
-              }
-              loadProfile={controller.profile}
-              reviewProfile={controller.reviewProfile}
-              executeProfile={(command, review) =>
-                controller.executeProfile({
-                  ...command,
-                  payload: {
-                    ...command.payload,
-                    review_id: review.review_id,
-                  },
-                })
-              }
-              onStartProfileChat={workspaceActions?.startProfileChat}
-            />
-          </div>
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-documents-flow">
             {settingsSnapshot && mutation ? (

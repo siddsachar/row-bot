@@ -358,11 +358,9 @@
 /* ------------------------------------------------------------- dialogs */
 
 /* Tablets keep ordinary dialogs and the palette as centred cards; only large
-   tasks (the workflow builder, an expanded chart) take the whole screen. */
+   tasks (an expanded chart) take the whole screen. */
 @media (min-width: 768px) and (max-width: 1023px) {
-  .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(
-      .workflow-builder-dialog
-    ):not(.chart-dialog) {
+  .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(.chart-dialog) {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);

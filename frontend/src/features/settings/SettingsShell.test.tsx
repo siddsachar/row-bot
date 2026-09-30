@@ -180,3 +180,23 @@ it('keeps the anchor search from scrolling when motion is reduced', () => {
     screen.getByText('Reset layout row').closest('details'),
   ).toHaveAttribute('open');
 });
+
+it('has no Agents group; search still finds the Agent profile library, whose link opens the Agents dialog (B260)', async () => {
+  const user = userEvent.setup();
+  show('/settings/providers');
+  const navigation = screen.getByRole('navigation', {
+    name: 'Settings sections',
+  });
+  expect(within(navigation).queryByRole('list', { name: 'Agents' })).toBeNull();
+  expect(
+    within(navigation).queryByRole('link', { name: 'Agent profiles' }),
+  ).toBeNull();
+  await user.type(
+    screen.getByRole('searchbox', { name: 'Find a setting' }),
+    'agent profile',
+  );
+  const rows = screen.getByRole('list', { name: 'Matching settings' });
+  expect(
+    within(rows).getByRole('link', { name: /Agent profile library/ }),
+  ).toHaveAttribute('href', '/settings/profiles');
+});

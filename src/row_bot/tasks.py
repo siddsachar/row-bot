@@ -1811,7 +1811,8 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
     """Yield bounded saved task metadata from one SQLite read snapshot.
 
     Prompt and step counts are calculated in SQLite. Their contents, delivery
-    destinations, approval tokens and runtime configuration are absent. This
+    destinations, approval tokens and runtime configuration are absent, apart
+    from the saved profile reference and approval mode a run starts with. This
     never starts a task or loads its channels.
     """
     conn = _get_conn()
@@ -1821,6 +1822,8 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
             "SELECT t.id, substr(t.name, 1, 256) AS name, "
             "substr(t.description, 1, 2048) AS description, "
             "substr(t.icon, 1, 32) AS icon, t.enabled, t.notify_only, "
+            "substr(t.agent_profile_id, 1, 128) AS agent_profile_id, "
+            "substr(t.safety_mode, 1, 32) AS safety_mode, "
             "CASE WHEN json_valid(t.steps) AND json_type(t.steps)='array' "
             "AND json_array_length(t.steps)>0 THEN json_array_length(t.steps) "
             "WHEN json_valid(t.prompts) AND json_type(t.prompts)='array' "

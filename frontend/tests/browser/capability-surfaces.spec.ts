@@ -224,14 +224,17 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
   await page.goto(`/app-v2/settings/goals?conversation=${conversation}`);
   await expect(page).toHaveURL(`/app-v2/conversations/${conversation}`);
 
-  await openSettingThroughCommands(page, {
-    label: 'Agent profiles',
-    path: '/app-v2/settings/profiles',
-  });
-  const owner = page.getByRole('region', {
-    name: 'Goals and Agent Profiles',
-    exact: true,
-  });
+  // Agent profiles live in the sidebar's Agents dialog, which the commands
+  // open too (B260).
+  await headerAction(page, 'Workspace commands');
+  await page
+    .getByRole('dialog', { name: 'Workspace commands', exact: true })
+    .getByRole('searchbox', { name: 'Find a workspace command', exact: true })
+    .fill('Agent profiles');
+  await page.keyboard.press('Enter');
+  const owner = page
+    .getByRole('dialog', { name: 'Agent profiles', exact: true })
+    .getByRole('region', { name: 'Goals and Agent Profiles', exact: true });
   const profiles = owner.getByRole('region', {
     name: 'Agent Profiles',
     exact: true,

@@ -1340,6 +1340,9 @@ class TaskSummary(WireModel):
     last_run: str | None = Field(max_length=80)
     last_status: str | None = Field(max_length=80)
     conversation_id: OpaqueId | None
+    # The profile and approval mode a run starts with (B254).
+    agent_profile_id: str = Field(max_length=128)
+    approval_mode: str = Field(max_length=64)
     # Saved history (newest first) and the saved schedule's next fire time.
     recent_runs: list[TaskRunDigest] = Field(default_factory=list, max_length=10)
     active_run: TaskActiveRun | None = None

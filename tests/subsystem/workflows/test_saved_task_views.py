@@ -256,6 +256,30 @@ def test_summary_counts_advanced_steps_without_returning_step_contents(saved):
     assert "PRIVATE_STEP" not in json.dumps(asdict(row))
 
 
+def test_summary_names_the_profile_and_approvals_a_run_starts_with(saved):
+    """The row shows what one click runs with (B254): the saved profile or the
+    default one, and the workflow's approval mode or the global default."""
+    tasks, seed = saved
+    seed(3)
+    tasks.set_global_approval_mode("approve")
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "UPDATE tasks SET agent_profile_id='builtin:row_bot_research', "
+            "safety_mode='allow_all' WHERE id='task-000'"
+        )
+        conn.execute("UPDATE tasks SET safety_mode='block' WHERE id='task-001'")
+        conn.commit()
+    finally:
+        conn.close()
+    rows = task_views.list_saved_tasks().items
+    assert [(row.agent_profile_id, row.approval_mode) for row in rows] == [
+        ("builtin:row_bot_research", "allow_all"),
+        ("builtin:row_bot_default", "block"),
+        ("builtin:row_bot_default", "approve"),
+    ]
+
+
 def test_summary_uses_zero_steps_for_malformed_saved_json(saved):
     tasks, seed = saved
     seed()

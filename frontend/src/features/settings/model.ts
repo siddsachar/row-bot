@@ -1,5 +1,5 @@
 /**
- * Settings navigation: seven groups ordered by how often people visit them.
+ * Settings navigation: six groups ordered by how often people visit them.
  * Leaf ids are stable deep links; legacy ids and pages that moved redirect to
  * their new home, optionally to one row on that page (`#anchor`). Goals
  * belong to one conversation, so `goals` leaves Settings for the thread's
@@ -23,7 +23,6 @@ export const settingsGroups = [
     leaves: ['tools', 'skills', 'plugins', 'mcp'],
   },
   { id: 'connections', label: 'Connections', leaves: ['accounts', 'channels'] },
-  { id: 'agents', label: 'Agents', leaves: ['profiles'] },
   {
     id: 'system',
     label: 'System',
@@ -50,7 +49,6 @@ const leafLabels: Record<SettingsLeafId, string> = {
   mcp: 'MCP',
   accounts: 'Accounts',
   channels: 'Channels',
-  profiles: 'Agent profiles',
   system: 'System',
   access: 'Devices & remote access',
   updates: 'Updates',
@@ -74,7 +72,6 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   mcp: 'servers model context protocol connectors runtimes',
   accounts: 'github google gmail calendar x twitter oauth',
   channels: 'telegram discord slack sms whatsapp messaging',
-  profiles: 'agents personas delegation',
   system: 'shell browser computer use workspace folder logging files',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
@@ -115,7 +112,6 @@ export const settingsRedirects: Record<
   backup: { leaf: 'data', anchor: 'backup' },
   search: { leaf: 'tools', anchor: 'search-tools' },
   utilities: { leaf: 'tools', anchor: 'built-in-tools' },
-  'agent-profiles': { leaf: 'profiles' },
   theme: { leaf: 'appearance' },
   update: { leaf: 'updates' },
   'remote-access': { leaf: 'access' },
@@ -125,6 +121,17 @@ export const settingsRedirects: Record<
 
 /** Former Settings pages that now live in a conversation's Context card. */
 export const THREAD_SETTINGS = new Set(['goals']);
+
+/**
+ * Settings › Agent profiles duplicated the sidebar's Agents dialog (B260):
+ * its old links, and search for it, open that dialog instead.
+ */
+export const AGENT_PROFILE_SETTINGS = new Set(['profiles', 'agent-profiles']);
+export const agentProfileLibrary = {
+  label: 'Agent profile library',
+  keywords: 'agents profiles personas delegation',
+  href: '/settings/profiles',
+};
 
 export function resolveSetting(value: string) {
   const key = value.toLowerCase();
@@ -374,11 +381,6 @@ export const settingsRows: SettingsRow[] = [
   },
   { leaf: 'accounts', anchor: 'x', label: 'X account', keywords: 'twitter' },
   {
-    leaf: 'profiles',
-    anchor: 'profile-library',
-    label: 'Agent profile library',
-  },
-  {
     leaf: 'system',
     anchor: 'workspace-folder',
     label: 'Workspace folder',
@@ -462,4 +464,12 @@ export function searchSettingsRows(query: string) {
 
 export function settingsRowHref(row: SettingsRow) {
   return `/settings/${row.leaf}#${row.anchor}`;
+}
+
+/** Whether every word of a search names the Agent profile library. */
+export function searchFindsAgentProfiles(query: string) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text =
+    `${agentProfileLibrary.label} ${agentProfileLibrary.keywords}`.toLowerCase();
+  return words.length > 0 && words.every((word) => text.includes(word));
 }

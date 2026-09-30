@@ -68,6 +68,8 @@ function task(
     last_run: null,
     last_status: null,
     conversation_id: null,
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
     ...extra,
   };
 }

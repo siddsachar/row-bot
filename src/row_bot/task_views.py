@@ -44,6 +44,11 @@ class TaskSummary:
     last_run: str | None
     last_status: str | None
     conversation_id: str | None
+    # What a run starts with: the saved profile (or the default one) and the
+    # workflow's approval mode (or the global default); a profile can only
+    # make approvals stricter.
+    agent_profile_id: str
+    approval_mode: str
     # Saved run history and schedule, never live probes. `next_run` is derived
     # from the saved schedule for the returned page only.
     recent_runs: tuple[TaskRunDigest, ...] = ()
@@ -152,6 +157,7 @@ def list_saved_tasks(
     digest = hashlib.sha256()
     items = []
     total = 0
+    default_approval = tasks.get_global_approval_mode()
     rows = tasks.iter_task_summary_snapshot()
     try:
         for row in rows:
@@ -171,6 +177,10 @@ def list_saved_tasks(
                 row["last_run"] or None,
                 row["last_status"] or None,
                 _identity(row["persistent_thread_id"]),
+                row["agent_profile_id"] or tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+                tasks.legacy_safety_mode_to_approval_mode(row["safety_mode"])
+                if row["safety_mode"]
+                else default_approval,
                 _recent_runs(row.get("recent_runs_json")),
                 _active_run(row.get("active_run_json")),
             )

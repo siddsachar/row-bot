@@ -76,6 +76,16 @@
           ],
           "default": null
         },
+        "agent_profile_id": {
+          "maxLength": 128,
+          "title": "Agent Profile Id",
+          "type": "string"
+        },
+        "approval_mode": {
+          "maxLength": 64,
+          "title": "Approval Mode",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -207,7 +217,9 @@
         "at",
         "last_run",
         "last_status",
-        "conversation_id"
+        "conversation_id",
+        "agent_profile_id",
+        "approval_mode"
       ],
       "title": "TaskSummary",
       "type": "object"

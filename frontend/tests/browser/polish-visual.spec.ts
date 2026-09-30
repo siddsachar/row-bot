@@ -96,17 +96,14 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
   await expect(editor).toBeVisible();
-  // Creation opens in a dialog since the workflow cards pass.
-  const dialog = page.getByRole('dialog', {
-    name: 'New task/workflow',
-    exact: true,
-  });
-  await expect(dialog).toContainText('New task/workflow');
-  await expect(dialog.getByRole('heading').first()).toBeVisible();
+  // Creation opens in the full-page editor, as editing does (B253).
+  const view = page.getByRole('region', { name: 'Workflow editor' });
+  const heading = view.getByRole('heading', { level: 1, name: 'New workflow' });
+  await expect(heading).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-phone');
   await page.setViewportSize({ width: 720, height: 900 });
-  await dialog.getByRole('heading').first().scrollIntoViewIfNeeded();
+  await heading.scrollIntoViewIfNeeded();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-200-percent-reflow');
   await page.goto('/app-v2/settings/providers');
@@ -145,7 +142,6 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
     'mcp',
     'accounts',
     'channels',
-    'profiles',
     'system',
     'access',
     'updates',
@@ -153,7 +149,6 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
   ];
   const headings: Record<string, string> = {
     knowledge: 'Memory',
-    profiles: 'Agent profiles',
     access: 'Devices & remote access',
   };
   for (const viewport of [viewports[0], viewports[3]]) {

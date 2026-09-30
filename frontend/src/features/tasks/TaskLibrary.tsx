@@ -32,6 +32,7 @@ import {
 import type {
   TaskDeliverySnapshot,
   TaskRunReview,
+  TaskRunSummary,
   TaskSummary,
   TaskSummaryPage,
 } from '../../api/types';
@@ -58,7 +59,7 @@ import {
   Toggle,
   type MenuAction,
 } from '../../ui/primitives';
-import { Drawer, ModalTask, useOverlay } from '../../ui/overlays';
+import { Drawer, useOverlay } from '../../ui/overlays';
 import {
   FAILED_RUN_STATUSES,
   When,
@@ -123,6 +124,28 @@ function isRunning(task: TaskSummary) {
   return Boolean(
     task.active_run || task.last_status?.toLowerCase() === 'running',
   );
+}
+
+// Run states that are still going (the saved summary's active run), and how
+// often a running row re-reads its run.
+const LIVE_RUN_STATUSES = new Set([
+  'starting',
+  'running',
+  'resuming',
+  'paused',
+  'waiting_approval',
+  'stopping',
+]);
+const FOLLOW_MS = 2000;
+
+// What a run starts with, as the row's tags (B254).
+function profileTag(id: string) {
+  return humanizeToken(id.replace(/^builtin:/, ''));
+}
+function approvalTag(mode: string) {
+  if (mode === 'approve') return 'Asks before actions';
+  if (mode === 'allow_all') return 'Auto approvals';
+  return 'Blocks actions';
 }
 
 function DeliveryDefaults({
@@ -246,6 +269,7 @@ export function SavedTasks({
   onDuplicate,
   onReview,
   onRun,
+  loadRun,
   onDelete,
   onBulkDelete,
   onStop,
@@ -265,9 +289,15 @@ export function SavedTasks({
   onToggleEnabled?: (id: string, enabled: boolean) => void | Promise<void>;
   /** Copy a workflow (no schedule or trigger); resolves to the copy's name. */
   onDuplicate?: (id: string) => Promise<string>;
-  /** ▶ reviews in the row (U40), then Run starts the reviewed request. */
+  /** ▶ reviews and at once starts the reviewed request (B254). */
   onReview?: (id: string) => Promise<TaskRunReview>;
   onRun?: (review: TaskRunReview) => Promise<void>;
+  /** Re-read a running row's run so the row stays live. */
+  loadRun?: (
+    taskId: string,
+    runId: string,
+    signal?: AbortSignal,
+  ) => Promise<TaskRunSummary>;
   onDelete?: (id: string) => void | Promise<void>;
   onBulkDelete?: (ids: readonly string[]) => void | Promise<void>;
   onStop?: (id: string) => void | Promise<void>;
@@ -301,11 +331,6 @@ export function SavedTasks({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [action, setAction] = useState('');
   const [actionError, setActionError] = useState('');
-  const [reviewing, setReviewing] = useState<{
-    id: string;
-    name: string;
-    review?: TaskRunReview;
-  } | null>(null);
   const actionRef = useRef('');
   const epoch = useRef(0);
   const more = useRef<AbortController | null>(null);
@@ -389,6 +414,57 @@ export function SavedTasks({
     reload,
     refreshToken,
   ]);
+  // A running row re-reads its run every couple of seconds so its progress
+  // stays live (B254); once the run ends the list is read again.
+  const followKey = (page?.items ?? [])
+    .flatMap((task) =>
+      task.active_run && LIVE_RUN_STATUSES.has(task.active_run.status)
+        ? [`${task.id}\n${task.active_run.id}`]
+        : [],
+    )
+    .join('\n\n');
+  useEffect(() => {
+    if (!followKey || !loadRun) return;
+    const abort = new AbortController();
+    const runs = followKey.split('\n\n').map((pair) => pair.split('\n'));
+    const timer = window.setInterval(() => {
+      for (const [taskId, runId] of runs)
+        loadRun(taskId, runId, abort.signal).then(
+          (run) => {
+            if (abort.signal.aborted) return;
+            if (!LIVE_RUN_STATUSES.has(run.status)) {
+              setReload((value) => value + 1);
+              return;
+            }
+            setPage(
+              (current) =>
+                current && {
+                  ...current,
+                  items: current.items.map((item) =>
+                    item.active_run?.id === runId
+                      ? {
+                          ...item,
+                          active_run: {
+                            ...item.active_run,
+                            status: run.status,
+                            steps_done: run.steps_done,
+                            steps_total: run.steps_total,
+                          },
+                        }
+                      : item,
+                  ),
+                },
+            );
+          },
+          // A missed read is tried again on the next tick.
+          () => {},
+        );
+    }, FOLLOW_MS);
+    return () => {
+      abort.abort();
+      window.clearInterval(timer);
+    };
+  }, [followKey, loadRun]);
   async function invoke(
     key: string,
     callback: () => void | Promise<void>,
@@ -798,6 +874,23 @@ export function SavedTasks({
                         <span>
                           {schedule === 'Manual' ? 'Run manually' : schedule}
                         </span>
+                        {!task.notify_only && (
+                          <>
+                            <span className="workflow-tag">
+                              {profileTag(task.agent_profile_id)}
+                            </span>
+                            <span
+                              className="workflow-tag"
+                              data-attention={
+                                task.approval_mode === 'allow_all'
+                                  ? 'true'
+                                  : undefined
+                              }
+                            >
+                              {approvalTag(task.approval_mode)}
+                            </span>
+                          </>
+                        )}
                       </p>
                     </div>
                     <span className="workflow-next">
@@ -879,19 +972,12 @@ export function SavedTasks({
                                   onRuns?.(task.id, task.name);
                                   return;
                                 }
-                                setReviewing({ id: task.id, name: task.name });
-                                setActionError('');
-                                onReview(task.id).then(
-                                  (review) =>
-                                    setReviewing((current) =>
-                                      current?.id === task.id
-                                        ? { ...current, review }
-                                        : current,
-                                    ),
-                                  (cause: unknown) => {
-                                    setReviewing(null);
-                                    setActionError(clientError(cause).message);
-                                  },
+                                // One click (B254): execute carries the
+                                // revisions the review returned.
+                                void invoke(
+                                  `run:${task.id}`,
+                                  async () => onRun(await onReview(task.id)),
+                                  'Run started.',
                                 );
                               }}
                             >
@@ -920,46 +1006,6 @@ export function SavedTasks({
                         </Menu>
                       )}
                     </div>
-                    {reviewing?.id === task.id && (
-                      <div
-                        role="group"
-                        aria-label={`Run ${task.name} now?`}
-                        className="workflow-run-review"
-                      >
-                        {reviewing.review ? (
-                          <span>{reviewLine(reviewing.review)}</span>
-                        ) : (
-                          <span className="home-caption">Checking…</span>
-                        )}
-                        <Button
-                          variant="primary"
-                          className="small"
-                          disabled={!reviewing.review || Boolean(action)}
-                          onClick={() => {
-                            const { review, id, name } = reviewing;
-                            if (!review || !onRun) return;
-                            void invoke(
-                              `run:${id}`,
-                              async () => {
-                                await onRun(review);
-                                setReviewing(null);
-                                onRuns?.(id, name);
-                              },
-                              'Run started.',
-                            );
-                          }}
-                        >
-                          <Play size={14} aria-hidden /> Run
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="small"
-                          onClick={() => setReviewing(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    )}
                   </li>
                 );
               })}
@@ -978,23 +1024,6 @@ export function SavedTasks({
       )}
     </section>
   );
-}
-
-// One line of what a run will use: steps, profile and approvals (U40).
-function reviewLine(review: TaskRunReview) {
-  const steps = review.notify_only
-    ? 'Reminder'
-    : `${review.steps_total} ${review.steps_total === 1 ? 'step' : 'steps'}`;
-  const profile =
-    humanizeToken(review.agent_profile_id.replace(/^builtin:/, '')) ||
-    'Default profile';
-  const approvals =
-    review.approval_mode === 'approve'
-      ? 'Asks before actions'
-      : review.approval_mode === 'allow_all'
-        ? 'Auto approvals'
-        : 'Blocks actions';
-  return `${steps} · ${profile} · ${approvals}`;
 }
 
 const noTaskSubscription = () => () => {};
@@ -1135,6 +1164,12 @@ export default function TaskLibrary() {
     editorHeading.current?.scrollIntoView?.({ block: 'start' });
     editorHeading.current?.focus({ preventScroll: true });
   }, [selectedTaskId]);
+  // Leaving a new workflow's editor puts focus back on New workflow.
+  const leftNew = useRef(false);
+  useEffect(() => {
+    if (!selected && leftNew.current) createButton.current?.focus();
+    leftNew.current = selectedTaskId === '';
+  }, [selected, selectedTaskId]);
   const close = () => taskEditSessions?.close();
   const saved = () => {
     taskEditSessions?.discard();
@@ -1268,10 +1303,11 @@ export default function TaskLibrary() {
         />
       </EditorFrame>
     );
-  if (selected?.session.kind === 'task' && selected.session.taskId)
+  // New and Edit share the full-page editor (B253).
+  if (selected?.session.kind === 'task')
     return (
       <EditorFrame
-        title="Edit workflow"
+        title={selected.session.taskId ? 'Edit workflow' : 'New workflow'}
         label="Workflow editor"
         onBack={close}
         headingRef={editorHeading}
@@ -1305,30 +1341,6 @@ export default function TaskLibrary() {
     );
   return (
     <div className="workflow-home">
-      <ModalTask
-        open={selected?.session.kind === 'task' && !selected.session.taskId}
-        title="New task/workflow"
-        description="Name it, add steps, and choose when it runs. Saving never starts a run."
-        ariaLabel="New task/workflow"
-        className="workflow-builder-dialog"
-        dismissible={!selected?.session.getMeta().busy}
-        fallbackFocusTo={createButton.current}
-        onOpenChange={(open) => {
-          if (!open) close();
-        }}
-      >
-        {selected?.session.kind === 'task' && !selected.session.taskId && (
-          <TaskEditor
-            session={selected.session}
-            load={controller.taskEditor}
-            create={selected.edits.create}
-            save={selected.edits.save}
-            onSaved={saved}
-            onCancel={close}
-            deliveryChannels={delivery?.channels ?? []}
-          />
-        )}
-      </ModalTask>
       {sessions.capacity && (
         <p role="alert" className="workflow-capacity">
           Eight workflows already have unsaved or unresolved changes. Continue
@@ -1425,6 +1437,7 @@ export default function TaskLibrary() {
         onRun={async (review) => {
           await execution.run(review);
         }}
+        loadRun={controller.taskRun}
         onDelete={deleteTask}
         onBulkDelete={deleteTasks}
         onStop={stopTask}

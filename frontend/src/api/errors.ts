@@ -49,7 +49,6 @@ const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');
 const DREAM = open('preferences', 'Dream Cycle', 'dream-cycle');
 const DOCUMENTS = open('documents', 'Documents', 'document-upload');
-const PROFILES = open('profiles', 'Agent profiles', 'profile-library');
 const BUDDY = open('buddy', 'Buddy', 'buddy-look');
 const MIGRATION = open('data', 'Import', 'migration');
 const UPDATES = open('updates', 'Updates', 'updates.channel');
@@ -924,7 +923,6 @@ const CATALOG: Record<string, Entry> = {
   task_settings_profile_unavailable: [
     "The chosen agent profile isn't available. Choose another.",
     'review',
-    PROFILES,
   ],
   task_settings_read_unconfirmed: [
     "The settings were saved, but couldn't be read back. Try the save again.",
@@ -2052,7 +2050,6 @@ const CATALOG: Record<string, Entry> = {
   profile_operation_unconfirmed: [
     "Row-Bot couldn't confirm the profile change. Check the profile before trying again.",
     'review',
-    PROFILES,
   ],
   profile_read_only: [
     "Built-in profiles can't be changed. Duplicate it first.",
@@ -2075,7 +2072,6 @@ const CATALOG: Record<string, Entry> = {
   profile_unavailable: [
     "The chosen profile isn't available. Choose another profile.",
     'review',
-    PROFILES,
   ],
 
   // Knowledge, documents, wiki and Dream Cycle

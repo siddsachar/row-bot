@@ -1726,6 +1726,18 @@ export default function Workspace() {
                               void creation.newChat(draft, undefined, {
                                 send: false,
                               }),
+                            openAgentProfiles: (returnFocusTo) => {
+                              const session = goalProfileOwner?.get();
+                              if (session)
+                                openAgentProfiles({
+                                  overlay,
+                                  controller,
+                                  session,
+                                  returnFocusTo,
+                                  onStartProfileChat: (profile) =>
+                                    void creation.newChat('', profile),
+                                });
+                            },
                             compactControls: desktop
                               ? undefined
                               : {

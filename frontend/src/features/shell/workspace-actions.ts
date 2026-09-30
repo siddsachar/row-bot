@@ -7,6 +7,8 @@ type WorkspaceActions = {
   startProfileChat?: (profile: ProfileSummary) => void;
   /** Start a new chat with this text waiting in the composer (never sent). */
   newChat?: (draft?: string) => void;
+  /** Open the sidebar's Agents dialog (the reusable agent profiles). */
+  openAgentProfiles?: (returnFocusTo: HTMLElement | null) => void;
   /**
    * Below desktop width a routed page that has its own header carries the
    * navigation toggle and Workspace commands there, so phones and tablets
