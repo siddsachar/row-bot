@@ -186,7 +186,8 @@ class TerminalBridge:
         """Return current PTY status: 'running', 'stopped', or 'restarting'."""
         if self.is_running:
             return "running"
-        return self._status
+        # A shell that ended by itself (``exit``) has stopped.
+        return "stopped" if self._status == "running" else self._status
 
     def read_output(self, lines: int = 50) -> str:
         """Return the last *lines* of cleaned terminal output.
@@ -206,6 +207,15 @@ class TerminalBridge:
             return  # already running
 
         self._validate_size(cols, rows)
+        # A shell that ended by itself leaves its reader and PTY behind.
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            self._reader_task = None
+        if self._pty is not None:
+            try:
+                self._pty.close()
+            except Exception:
+                logger.debug("Closing an ended PTY failed", exc_info=True)
         self._pty = self._pty_factory(cols=cols, rows=rows, cwd=cwd)
         self._running = True
         self._status = "running"
@@ -255,12 +265,16 @@ class TerminalBridge:
     async def _reader_loop(self) -> None:
         """Continuously read PTY output and distribute to callbacks."""
         while self._running and self._pty is not None:
+            pty = self._pty
             try:
                 data = await asyncio.get_event_loop().run_in_executor(
-                    None, self._pty.read, 65536
+                    None, pty.read, 65536
                 )
 
                 if not data:
+                    # The shell ended by itself (``exit``): nothing more comes.
+                    if not pty.is_alive():
+                        break
                     await asyncio.sleep(0.02)
                     continue
 

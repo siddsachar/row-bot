@@ -192,6 +192,46 @@ def test_disconnect_detaches_client_but_global_pty_lives_until_shutdown() -> Non
     assert not bridge.is_running
 
 
+def test_a_shell_that_exits_reads_as_stopped_and_opening_again_starts_a_new_one() -> None:
+    """``exit`` ends the shell: reads say so and the next open starts afresh (B248)."""
+    created: list[FakePty] = []
+
+    def factory(**kwargs):
+        created.append(FakePty(**kwargs))
+        return created[-1]
+
+    bridge = TerminalBridge(pty_factory=factory)
+    bridge.start()
+    client = bridge.open_native_client(
+        _authority(), authorize=lambda _: True,
+        local_owner=True, direct_loopback=True,
+    )
+    assert client.read()["status"] == "running"
+    created[0].alive = False
+    assert client.read()["status"] == "stopped"
+    bridge.start()
+    assert len(created) == 2 and created[0].close_count == 1
+    assert client.read()["status"] == "running"
+
+
+def test_the_reader_stops_when_the_shell_has_ended() -> None:
+    import asyncio
+
+    bridge, pty = _running_bridge()
+    pty.alive = False
+    reads = []
+
+    def read(_size: int) -> str:
+        reads.append(_size)
+        if len(reads) == 3:
+            bridge._running = False  # a reader that keeps going ends here
+        return ""
+
+    pty.read = read
+    asyncio.run(bridge._reader_loop())
+    assert len(reads) == 1
+
+
 def test_output_callback_can_disconnect_itself_without_deadlock() -> None:
     bridge, _ = _running_bridge()
     seen = []
