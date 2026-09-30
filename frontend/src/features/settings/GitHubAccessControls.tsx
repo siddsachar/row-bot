@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, LogIn, RefreshCcw, Globe2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   GitHubAccessCommand,
   GitHubAccessReceipt,
@@ -7,7 +6,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
-import { Button, CompactAction } from '../../ui/primitives';
+import { Button } from '../../ui/primitives';
 
 type Owner = {
   load: () => Promise<GitHubAccessSnapshot>;
@@ -30,14 +29,29 @@ function saved(): GitHubAccessCommand | null {
   }
 }
 
-export function GitHubAccessControls({
-  owner,
-  onChanged,
-}: {
-  owner: Owner;
-  /** An action finished: the page reloads what it shows (B263). */
-  onChanged?: () => void;
-}) {
+const STARTED =
+  'Finish signing in to GitHub in the window that opened, then check GitHub.';
+
+/** GitHub's actions, for its row on the Accounts page (B263). */
+export type GitHubAccess = {
+  snapshot: GitHubAccessSnapshot | null;
+  /** GitHub actions only run on the local owner device. */
+  localOnly: boolean;
+  /** An action is running or its outcome is still being checked. */
+  locked: boolean;
+  send: (action: GitHubAccessCommand['action']) => void;
+  /** Progress and outcomes, for under the row. */
+  feedback: ReactNode;
+};
+
+/**
+ * GitHub's reviewed actions: Check, sign in or refresh through the GitHub
+ * CLI, and public access. Nothing is contacted until one is chosen.
+ */
+export function useGitHubAccess(
+  owner: Owner,
+  onChanged?: () => void,
+): GitHubAccess {
   const changed = useRef(onChanged);
   useEffect(() => {
     changed.current = onChanged;
@@ -75,9 +89,7 @@ export function GitHubAccessControls({
           if (cancelled) return;
           setSnapshot(result.snapshot);
           setNotice(
-            result.phase === 'started'
-              ? 'Complete GitHub CLI authentication on this computer, then check GitHub.'
-              : 'GitHub access checked.',
+            result.phase === 'started' ? STARTED : 'GitHub access checked.',
           );
           sessionStorage.removeItem(pendingKey);
           setPending(null);
@@ -117,9 +129,7 @@ export function GitHubAccessControls({
       changed.current?.();
       setError('');
       setNotice(
-        result.phase === 'started'
-          ? 'Complete GitHub CLI authentication on this computer, then check GitHub.'
-          : 'GitHub access checked.',
+        result.phase === 'started' ? STARTED : 'GitHub access checked.',
       );
     } catch (cause) {
       setError(clientError(cause).message);
@@ -151,7 +161,7 @@ export function GitHubAccessControls({
       changed.current?.();
       setNotice(
         result.phase === 'started'
-          ? 'Complete GitHub CLI authentication on this computer, then check GitHub.'
+          ? STARTED
           : action === 'anonymous'
             ? 'Public sources will use anonymous access when needed.'
             : 'GitHub access checked.',
@@ -176,76 +186,21 @@ export function GitHubAccessControls({
     }
   }
 
-  if (localOnly)
-    return (
-      <p className="muted">
-        GitHub account actions are available on the local owner device.
-      </p>
-    );
-  return (
-    <div className="stack" aria-label="GitHub account access">
-      {snapshot && (
-        <>
-          <p role="status">
-            {snapshot.connected
-              ? 'Connected'
-              : snapshot.anonymous_ok
-                ? 'Anonymous public access'
-                : snapshot.state.replaceAll('_', ' ')}{' '}
-            ·{' '}
-            {snapshot.credential_source === 'none'
-              ? 'No saved token'
-              : snapshot.credential_source.replaceAll('_', ' ')}
-          </p>
-          {snapshot.remaining != null && (
-            <p>API requests remaining: {snapshot.remaining}</p>
-          )}
-          <div className="actions">
-            <CompactAction
-              label="Check GitHub access"
-              disabled={busy || !!pending}
-              onClick={() => void send('check')}
-            >
-              <CheckCircle2 size={17} aria-hidden />
-            </CompactAction>
-            {snapshot.cli_installed && (
-              <>
-                <CompactAction
-                  label="Connect GitHub CLI"
-                  disabled={busy || !!pending}
-                  onClick={() => void send('cli_login')}
-                >
-                  <LogIn size={17} aria-hidden />
-                </CompactAction>
-                <CompactAction
-                  label="Refresh GitHub CLI authentication"
-                  disabled={busy || !!pending}
-                  onClick={() => void send('cli_refresh')}
-                >
-                  <RefreshCcw size={17} aria-hidden />
-                </CompactAction>
-              </>
-            )}
-            <CompactAction
-              label="Use anonymous public access"
-              disabled={busy || !!pending}
-              onClick={() => void send('anonymous')}
-            >
-              <Globe2 size={17} aria-hidden />
-            </CompactAction>
-          </div>
-          {!snapshot.cli_installed && (
-            <p className="muted">
-              GitHub CLI is unavailable on this computer. A saved token can
-              still be checked above.
-            </p>
-          )}
-        </>
-      )}
+  const quiet = !pending && !error && !notice;
+  const feedback = localOnly ? (
+    <p className="muted">
+      GitHub account actions are available on the local owner device.
+    </p>
+  ) : quiet ? null : (
+    <>
       {pending && (
-        <div role="status" className="actions">
-          <span>Checking the original GitHub action.</span>
-          <Button onClick={() => void recover()} disabled={busy}>
+        <div role="status" className="action-cluster">
+          <span>Checking what happened to the last GitHub action.</span>
+          <Button
+            className="small"
+            onClick={() => void recover()}
+            disabled={busy}
+          >
             Check original action
           </Button>
         </div>
@@ -253,20 +208,31 @@ export function GitHubAccessControls({
       {error && (
         <p role="alert">
           {error}{' '}
-          <Button variant="ghost" onClick={() => void refresh()}>
+          <Button className="settings-link" onClick={() => void refresh()}>
             Refresh status
           </Button>
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-    </div>
+    </>
   );
+  return {
+    snapshot,
+    localOnly,
+    locked: busy || Boolean(pending),
+    send: (action) => void send(action),
+    feedback,
+  };
 }
 
-export default function ConnectedGitHubAccessControls({
+/** GitHub's actions through this app's controller, for its row. */
+export default function ConnectedGitHubAccess({
   onChanged,
+  children,
 }: {
+  /** An action finished: the page reloads what it shows (B263). */
   onChanged?: () => void;
+  children: (access: GitHubAccess) => ReactNode;
 }) {
   const { controller } = useRuntime();
   const owner = useRef<Owner>({
@@ -274,5 +240,6 @@ export default function ConnectedGitHubAccessControls({
     send: (command) => controller.githubAccessCommand(command),
     receipt: (commandId) => controller.githubAccessReceipt(commandId),
   });
-  return <GitHubAccessControls owner={owner.current} onChanged={onChanged} />;
+  const access = useGitHubAccess(owner.current, onChanged);
+  return children(access);
 }

@@ -53,18 +53,21 @@ export function CopyValue({ value, label }: { value: string; label: string }) {
  */
 export function ConnectSheet({
   title,
+  titleHidden = false,
   intro,
   steps,
   children,
 }: {
   title: string;
+  /** The surrounding disclosure already names the steps ("How to set up X"). */
+  titleHidden?: boolean;
   intro?: ReactNode;
   steps: ConnectStep[];
   children?: ReactNode;
 }) {
   return (
     <section className="connect-sheet" aria-label={title}>
-      <h4>{title}</h4>
+      <h4 className={titleHidden ? 'visually-hidden' : undefined}>{title}</h4>
       {intro && <p className="settings-help">{intro}</p>}
       <ol className="connect-steps">
         {steps.map((step, index) => (

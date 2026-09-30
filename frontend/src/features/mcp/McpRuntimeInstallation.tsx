@@ -1,13 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { RefreshCw, X } from 'lucide-react';
 import { clientError } from '../../api/errors';
-import {
-  Button,
-  EntityList,
-  EntityRow,
-  IconButton,
-  type Tone,
-} from '../../ui/primitives';
+import { Button, StatusDot, type Tone } from '../../ui/primitives';
 
 export type RuntimeArchive = {
   version: string;
@@ -408,6 +401,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
 export type McpRuntimeInstallationSession = ReturnType<
   typeof createMcpRuntimeInstallationSession
 >;
+export type RuntimeInstallationState = State;
 
 const NAMES: Record<string, string> = { node: 'Node.js', uv: 'uv' };
 const STAGES: Record<string, string> = {
@@ -432,20 +426,29 @@ function working(state: State) {
   );
 }
 
-/** What the row says: status as a dot and plain words, and its one action. */
-function describe(state: State): {
+/**
+ * What the runtime's chip says: status as a dot and plain words, and its one
+ * action. A system copy is used first (`requirements.py` looks on PATH before
+ * Row-Bot's own copy), so when one is found nothing is offered here; Row-Bot's
+ * own copy is only on request, from the Runtimes row's ⋯ (B262).
+ */
+export function describeRuntime(state: RuntimeInstallationState): {
   tone: Tone;
   label: string;
   action: 'install' | 'retry' | null;
   installing: boolean;
+  /** A system copy is in use and Row-Bot's own copy can be installed. */
+  ownCopy: boolean;
 } {
   const snapshot = state.snapshot;
   const running = state.chain || (!!state.original && !terminal(state.result));
+  const idle = { installing: false, ownCopy: false };
   if (running || (snapshot?.active_command_id && !terminal(state.result))) {
     const stage = state.cancel
       ? 'Stopping'
       : (STAGES[state.result?.installation.stage ?? ''] ?? 'Starting');
     return {
+      ...idle,
       tone: 'info',
       label: `Installing · ${stage}`,
       action: null,
@@ -453,50 +456,80 @@ function describe(state: State): {
     };
   }
   if (!snapshot)
-    return {
-      tone: 'neutral',
-      label: 'Checking…',
-      action: null,
-      installing: false,
-    };
+    return { ...idle, tone: 'neutral', label: 'Checking…', action: null };
   if (snapshot.availability === 'recovery_required')
     return {
+      ...idle,
       tone: 'info',
       label: 'Installing in another window',
       action: null,
-      installing: false,
     };
   if (snapshot.installed)
     return {
+      ...idle,
       tone: 'success',
       label: snapshot.version
         ? `Installed v${snapshot.version.replace(/^v/, '')}`
         : 'Installed',
       action: null,
-      installing: false,
     };
+  const system = snapshot.system_available === true;
   if (failed(state.result))
     return {
+      ...idle,
       tone: 'danger',
-      label: 'Failed',
+      label: 'Install failed',
       action: 'retry',
-      installing: false,
+    };
+  if (system)
+    return {
+      ...idle,
+      tone: 'success',
+      label: 'System copy',
+      action: null,
+      ownCopy: true,
     };
   if (snapshot.availability === 'unavailable')
     return {
+      ...idle,
       tone: 'warning',
       label: 'Needs reinstalling',
       action: 'install',
-      installing: false,
     };
   return {
+    ...idle,
     tone: 'neutral',
     label: 'Not installed',
     action: 'install',
-    installing: false,
   };
 }
 
+export function runtimeName(runtimeId: string) {
+  return NAMES[runtimeId] ?? runtimeId;
+}
+
+/** The line under the Runtimes row for one runtime: a problem or the system copy. */
+export function RuntimeInstallationNote({
+  session,
+}: {
+  session: McpRuntimeInstallationSession;
+}) {
+  const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const name = runtimeName(state.runtimeId);
+  const view = describeRuntime(state);
+  const text = state.message
+    ? `${name}: ${state.message}`
+    : view.ownCopy
+      ? `System ${name} found; servers use it.`
+      : '';
+  return text ? (
+    <span className="settings-row-status-line" role="status">
+      {text}
+    </span>
+  ) : null;
+}
+
+/** One runtime as a compact chip: name, status and its one action. */
 export function McpRuntimeInstallation({
   session,
   callbacks,
@@ -539,71 +572,61 @@ export function McpRuntimeInstallation({
       document.removeEventListener('visibilitychange', changed);
     };
   }, [session, callbacks, state.refresh]);
-  if (!state.active) return <p>Sign in again to manage runtimes.</p>;
-  const name = NAMES[state.runtimeId] ?? state.runtimeId;
-  const view = describe(state);
+  const name = runtimeName(state.runtimeId);
+  if (!state.active)
+    return (
+      <span className="settings-mcp-runtime-chip">
+        Sign in again to manage {name}.
+      </span>
+    );
+  const view = describeRuntime(state);
   const canCancel =
     view.installing &&
     !!(state.original?.command_id ?? state.snapshot?.active_command_id) &&
     state.result?.installation.quiesced !== true &&
     !state.cancel;
-  const blocked =
+  return (
+    <span
+      className="settings-mcp-runtime-chip"
+      role="group"
+      aria-label={`${name} runtime`}
+    >
+      <strong>{name}</strong>
+      <StatusDot
+        tone={view.tone}
+        label={view.label}
+        pulse={view.installing}
+        showLabel
+      />
+      {view.action && (
+        <Button
+          className="settings-link"
+          aria-label={`${view.action === 'retry' ? 'Retry' : 'Install'} ${name}`}
+          disabled={runtimeBlocked(state)}
+          onClick={() => void session.install(callbacks)}
+        >
+          {view.action === 'retry' ? 'Retry' : 'Install'}
+        </Button>
+      )}
+      {canCancel && (
+        <Button
+          className="settings-link"
+          aria-label={`Cancel ${name} install`}
+          disabled={state.cancelling}
+          onClick={() => void session.cancel(callbacks)}
+        >
+          Cancel
+        </Button>
+      )}
+    </span>
+  );
+}
+
+/** A new install can't start: one is being checked, or recovered elsewhere. */
+export function runtimeBlocked(state: RuntimeInstallationState) {
+  return (
     state.busy ||
     !state.snapshot?.resource_revision ||
-    state.snapshot.availability === 'recovery_required';
-  const system = state.snapshot?.system_available === true;
-  return (
-    <section
-      className="settings-mcp-runtime"
-      aria-label={`${state.runtimeId} managed runtime installation`}
-    >
-      <EntityList label={`${name} runtime`}>
-        <EntityRow
-          title={name}
-          status={{ tone: view.tone, label: view.label }}
-          meta={
-            system && !state.snapshot?.installed
-              ? `System ${name} found; local servers can use it`
-              : undefined
-          }
-          action={
-            <>
-              {view.action && (
-                <Button
-                  variant={system ? 'secondary' : 'primary'}
-                  disabled={blocked}
-                  onClick={() => void session.install(callbacks)}
-                >
-                  {view.action === 'retry' ? 'Retry' : 'Install'}
-                </Button>
-              )}
-              {canCancel && (
-                <IconButton
-                  size="sm"
-                  label="Cancel install"
-                  disabled={state.cancelling}
-                  onClick={() => void session.cancel(callbacks)}
-                >
-                  <X size={15} aria-hidden />
-                </IconButton>
-              )}
-              <IconButton
-                size="sm"
-                label={`Check ${name} again`}
-                disabled={state.reading}
-                onClick={() => session.refresh()}
-              >
-                <RefreshCw size={15} aria-hidden />
-              </IconButton>
-            </>
-          }
-        />
-      </EntityList>
-      {state.message && (
-        <p role="status" className="settings-help">
-          {state.message}
-        </p>
-      )}
-    </section>
+    state.snapshot.availability === 'recovery_required'
   );
 }

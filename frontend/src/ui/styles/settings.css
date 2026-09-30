@@ -811,15 +811,6 @@
   margin: 0;
   font-size: var(--type-size-metadata);
 }
-.settings-page-content .settings-control-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0;
-}
-.settings-page-content .settings-control-grid > * + * {
-  border-top: 1px solid var(--border-hairline);
-}
-
 /* Row lists: icon, name + one meta line, then a control or count. ------- */
 .settings-row-list {
   display: grid;
@@ -1877,59 +1868,6 @@
   box-shadow: none;
 }
 
-/* MCP servers: entity rows. ---------------------------------------------- */
-.settings-page-content .settings-mcp-server-list {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-panel);
-  background: var(--surface);
-  list-style: none;
-}
-.settings-page-content .settings-mcp-server-list > li.settings-mcp-server-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 10px 8px 10px 14px;
-  border: 0;
-  border-top: 1px solid var(--border-hairline);
-  border-radius: 0;
-  background: none;
-}
-.settings-page-content
-  .settings-mcp-server-list
-  > li.settings-mcp-server-row:first-child {
-  border-top: 0;
-}
-.settings-page-content .settings-mcp-server-summary {
-  gap: 2px;
-}
-.settings-page-content .settings-mcp-server-summary strong {
-  color: var(--text-primary);
-  font-size: var(--text-14);
-  font-weight: var(--weight-semibold);
-}
-.settings-page-content .settings-mcp-server-summary small {
-  color: var(--text-muted);
-  font-size: var(--type-size-metadata);
-}
-.settings-page-content .settings-mcp-server-summary .field-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  color: var(--text-muted);
-  font-size: var(--type-size-metadata);
-}
-.settings-page-content .settings-mcp-server-actions {
-  flex-wrap: nowrap;
-  gap: 6px;
-}
 .settings-page-content .capability-page > .settings-list-toolbar {
   margin-bottom: 2px;
 }
@@ -3382,14 +3320,6 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
-/* A managed runtime: one status row, its message right under it (B262). */
-.settings-mcp-runtime {
-  display: grid;
-  gap: 6px;
-}
-.settings-mcp-runtime > p {
-  margin: 0;
-}
 .settings-mcp-pair {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
@@ -4571,5 +4501,340 @@
 @media (pointer: coarse) {
   .settings-chip {
     height: 36px;
+  }
+}
+
+/* ======================================================================= */
+/* Settings › MCP (B262): switches and runtimes, the servers list with one  */
+/* action per row, the Add server dialog and a server's details drawer.    */
+/* ======================================================================= */
+.settings-mcp-runtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--settings-control, 32px);
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  white-space: nowrap;
+}
+.settings-mcp-runtime-chip > strong {
+  font-weight: var(--weight-semibold);
+}
+.settings-mcp-runtime-chip .status-indicator {
+  font-size: inherit;
+}
+.settings-mcp-server .settings-row-label {
+  flex-wrap: wrap;
+  column-gap: 10px;
+  row-gap: 2px;
+}
+.settings-mcp-server .settings-row-label .status-indicator {
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+.settings-mcp-server-name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+button.settings-mcp-server-name:hover {
+  text-decoration: underline;
+}
+.settings-mcp-server-problem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--status-danger-background);
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.settings-mcp-server-problem > svg {
+  flex: none;
+}
+.settings-mcp-server-problem > span {
+  flex: 1 1 16rem;
+}
+.settings-mcp-note,
+.settings-mcp-empty,
+.settings-mcp-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 10px 16px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.settings-mcp-note > p {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+.settings-group-surface > .settings-mcp-note {
+  margin-top: -1px;
+  border-top: 1px solid var(--border-hairline);
+}
+.settings-mcp-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.settings-mcp-search > .input {
+  width: 200px;
+  max-width: 100%;
+  min-height: 28px;
+  height: 28px;
+  padding-block: 0;
+  font-size: var(--text-13);
+}
+.settings-mcp-search.is-wide {
+  display: flex;
+}
+.settings-mcp-search.is-wide > .input {
+  flex: 1 1 auto;
+  width: auto;
+  min-height: 32px;
+  height: 32px;
+}
+.settings-mcp-add-dialog .dialog-body {
+  display: grid;
+  gap: 14px;
+}
+.settings-mcp-add-dialog .segmented {
+  justify-self: start;
+}
+.settings-mcp-browse,
+.settings-mcp-form {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.settings-mcp-browse > p,
+.settings-mcp-form > small {
+  margin: 0;
+}
+.settings-mcp-directory {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  list-style: none;
+}
+.settings-mcp-directory > li + li {
+  border-top: 1px solid var(--border-hairline);
+}
+.settings-mcp-directory-entry {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.settings-mcp-directory-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-mcp-directory-text > p,
+.settings-mcp-directory-text > small {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.settings-mcp-directory-text > p {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.settings-mcp-directory-text .settings-mcp-note {
+  padding: 4px 0 0;
+}
+.settings-mcp-directory .settings-mcp-sign-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--status-warning-text);
+  font-weight: var(--weight-medium);
+}
+.settings-mcp-preview > summary {
+  width: fit-content;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+.settings-mcp-preview[open] {
+  display: grid;
+  gap: 8px;
+}
+.settings-mcp-pair > .icon-action {
+  justify-self: end;
+}
+.settings-mcp-dialog-foot {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+/* A server's details: a side drawer (a sheet on a phone) of quiet groups. */
+.drawer-panel.settings-mcp-drawer {
+  width: min(440px, calc(100vw - 24px));
+}
+.settings-mcp-drawer .drawer-body {
+  --settings-control: 32px;
+  --settings-select-width: 100%;
+  container: settings-page / inline-size;
+}
+.settings-mcp-details,
+.settings-mcp-policy {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.settings-mcp-policy > p,
+.settings-mcp-details > p {
+  margin: 0;
+}
+.settings-mcp-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+.settings-mcp-tool-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--text-muted);
+}
+.settings-mcp-tool-search > .input {
+  flex: 1 1 auto;
+  min-height: 32px;
+  height: 32px;
+}
+.settings-mcp-catalog-head,
+.settings-mcp-catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: var(--text-13);
+}
+.settings-mcp-catalog-head > p,
+.settings-mcp-catalog-actions > p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-secondary);
+}
+.settings-mcp-catalog-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-mcp-catalog-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 10px 16px;
+  font-size: var(--text-13);
+}
+.settings-mcp-catalog-list > li > span {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+@media (pointer: coarse) {
+  .settings-mcp-search > .input,
+  .settings-mcp-search.is-wide > .input,
+  .settings-mcp-tool-search > .input {
+    min-height: 44px;
+    height: 44px;
+  }
+  .settings-mcp-drawer .drawer-body {
+    --settings-control: 44px;
+  }
+}
+@container settings-page (max-width: 560px) {
+  .settings-mcp-runtimes > .settings-row-control {
+    justify-content: flex-start;
+  }
+  .settings-group-meta:has(.settings-mcp-search) {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .settings-mcp-search > .input {
+    width: auto;
+    flex: 1 1 8rem;
+  }
+}
+
+/* ======================================================================= */
+/* Settings › Accounts (B263): one row per account with one status, its    */
+/* switches as sub-rows and its setup guide folded under it.               */
+/* ======================================================================= */
+.settings-account-row .settings-row-label {
+  flex-wrap: wrap;
+  column-gap: 10px;
+  row-gap: 2px;
+}
+.settings-account-row .settings-row-label .status-indicator {
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+.settings-account-confirm {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--status-danger-background);
+  font-size: var(--text-13);
+}
+.settings-account-confirm > p {
+  margin: 0;
+}
+.settings-page-content
+  .settings-account-guide.settings-group-disclosure
+  > .disclosure-summary {
+  padding-inline-start: 62px;
+}
+.settings-account-guide .connect-sheet {
+  padding: 4px 16px 16px 62px;
+}
+.settings-account-guide .connect-steps > li + li {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+}
+@container settings-page (max-width: 560px) {
+  .settings-page-content
+    .settings-account-guide.settings-group-disclosure
+    > .disclosure-summary {
+    padding-inline-start: 16px;
+  }
+  .settings-account-guide .connect-sheet {
+    padding-inline-start: 16px;
   }
 }

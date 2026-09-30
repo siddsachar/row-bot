@@ -1391,6 +1391,8 @@ def p4_runtime_installation(x_fixture_token: str = Header(default="")) -> dict:
         destination.write_bytes(data)
     requirements.resolve_managed_runtime_plan = resolve
     requirements._download = download
+    # No system copy, whatever this machine has: the page offers its one Install.
+    requirements.system_runtime_available = lambda runtime_id: False
     return {'calls': list(_installation_fixture)}
 
 

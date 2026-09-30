@@ -876,17 +876,9 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
     return response.json();
   };
   await page.goto('/app-v2/settings/mcp');
-  // Managed runtimes live behind the MCP page's Advanced disclosure.
-  const runtimes = page.locator('details', {
-    has: page.locator('summary', { hasText: 'Managed runtimes' }),
-  });
-  const expandRuntimes = async () => {
-    if (!(await runtimes.evaluate((node) => (node as HTMLDetailsElement).open)))
-      await runtimes.locator('summary').first().click();
-  };
-  await expandRuntimes();
-  const runtime = page.getByRole('region', {
-    name: 'node managed runtime installation',
+  // Runtimes are one status row at the top of the MCP page (B262).
+  const runtime = page.getByRole('group', {
+    name: 'Node.js runtime',
     exact: true,
   });
   await expect(
@@ -895,7 +887,9 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
   expect((await saved()).calls).toEqual([]);
   // One Install: the server reviews the metadata resolution and then the
   // pinned archive, and the row follows it until it is installed.
-  await runtime.getByRole('button', { name: 'Install', exact: true }).click();
+  await runtime
+    .getByRole('button', { name: 'Install Node.js', exact: true })
+    .click();
   await expect(
     runtime.getByText('Installed v1.2.3', { exact: true }),
   ).toBeVisible();
@@ -910,7 +904,6 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
     path: '/app-v2/settings/mcp',
     headingName: 'MCP',
   });
-  await expandRuntimes();
   // The installed state is read again, not repeated, after navigation.
   await expect(
     runtime.getByText('Installed v1.2.3', { exact: true }),
@@ -929,8 +922,11 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
       `runtime-installation-installed-${appearance}`,
     );
   }
-  await runtime
-    .getByRole('button', { name: 'Check Node.js again', exact: true })
+  await page
+    .getByRole('button', { name: 'More runtime actions', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Check again', exact: true })
     .click();
   expect((await saved()).calls).toEqual(['resolve', 'download']);
 });
@@ -1637,14 +1633,19 @@ test('MCP tested tools retain their review and accept the saved catalog without 
     (await page.request.post('/__p4_fixture/mcp-catalog', { headers })).ok(),
   ).toBe(true);
   await page.goto('/app-v2/settings/mcp');
+  // A server's details open in a drawer from its name (B262).
   await page
     .getByRole('button', {
-      name: 'Connection Synthetic lifecycle',
+      name: 'Synthetic lifecycle details',
       exact: true,
     })
     .click();
-  const connection = page.getByRole('region', {
-    name: 'MCP connection',
+  const details = page.getByRole('dialog', {
+    name: 'Synthetic lifecycle',
+    exact: true,
+  });
+  const connection = details.getByRole('region', {
+    name: 'Connection',
     exact: true,
   });
   // Test is reviewed by the server and runs in one step.
@@ -1655,16 +1656,16 @@ test('MCP tested tools retain their review and accept the saved catalog without 
       { exact: true },
     ),
   ).toBeVisible();
-  const catalog = page.getByRole('region', {
+  const catalog = details.getByRole('region', {
     name: 'Accept tested MCP tools',
     exact: true,
   });
   await expect(
-    catalog.getByText('3 matching tested tools.', { exact: true }),
+    catalog.getByText('3 tools found.', { exact: true }),
   ).toBeVisible();
   await expect(
     catalog.getByRole('listitem').filter({ hasText: 'delete_record' }),
-  ).toContainText('Disabled after acceptance. Approval required.');
+  ).toContainText('Stays off until you turn it on · asks first');
   // The tested catalog is retained by its owner across navigation.
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
@@ -1677,7 +1678,7 @@ test('MCP tested tools retain their review and accept the saved catalog without 
     .click();
   await expect(
     catalog.getByText(
-      'Tested tools accepted. Review saved tool permissions before connecting; no server was retested or started.',
+      'Tools accepted. Check their switches under Tools before you connect; nothing was retested or started.',
       { exact: true },
     ),
   ).toBeVisible();
@@ -1709,14 +1710,13 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
   await page.goto('/app-v2/settings/mcp');
   await page
     .getByRole('button', {
-      name: 'Connection Synthetic lifecycle',
+      name: 'Synthetic lifecycle details',
       exact: true,
     })
     .click();
-  const connection = page.getByRole('region', {
-    name: 'MCP connection',
-    exact: true,
-  });
+  const connection = page
+    .getByRole('dialog', { name: 'Synthetic lifecycle', exact: true })
+    .getByRole('region', { name: 'Connection', exact: true });
   // Test, Connect and Disconnect are reviewed by the server and run in one
   // step; the connection owner retains the outcome across navigation.
   await connection.getByRole('button', { name: 'Test', exact: true }).click();
@@ -1736,7 +1736,7 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
     .getByRole('button', { name: 'Connect', exact: true })
     .click();
   await expect(
-    connection.getByText('Connected.', { exact: true }),
+    connection.getByText('Connected', { exact: true }),
   ).toBeVisible();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
@@ -1748,11 +1748,26 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
     .getByRole('button', { name: 'Disconnect', exact: true })
     .click();
   await expect(
-    connection.getByText('Connection cleanup completed.', { exact: true }),
+    connection.getByText('Disconnected.', { exact: true }),
   ).toBeVisible();
   await expect(
     connection.getByRole('button', { name: 'Connect', exact: true }),
   ).toBeEnabled();
+  // The server's row follows with one action by state (B262).
+  await page
+    .getByRole('button', { name: 'Close server details', exact: true })
+    .click();
+  const connect = page.getByRole('button', {
+    name: 'Connect Synthetic lifecycle',
+    exact: true,
+  });
+  const disconnect = page.getByRole('button', {
+    name: 'Disconnect Synthetic lifecycle',
+    exact: true,
+  });
+  await connect.click();
+  await disconnect.click();
+  await expect(connect).toBeVisible();
 });
 
 test('MCP saved permissions preserve mandatory approval and apply explicit reviewed access changes', async ({
@@ -1766,65 +1781,48 @@ test('MCP saved permissions preserve mandatory approval and apply explicit revie
   });
   expect(seeded.ok()).toBe(true);
   await page.goto('/app-v2/settings/mcp');
-  // Global permissions live behind their own disclosure; each change is
-  // reviewed by the server and saved in one step.
-  const disclosure = page.locator('details', {
-    has: page.locator('summary', { hasText: 'Saved MCP permissions' }),
-  });
-  await disclosure.locator('summary').click();
-  const globals = disclosure.getByRole('region', {
-    name: 'Saved MCP permissions',
+  // "Use MCP servers" is the page's first switch; each change is reviewed by
+  // the server and saved in one step (B262).
+  const useMcp = page.getByRole('switch', {
+    name: 'Use MCP servers',
     exact: true,
   });
-  await globals
-    .getByRole('button', { name: 'Disable MCP access', exact: true })
-    .click();
-  await expect(globals.getByText(/Permission saved/)).toBeVisible();
+  await expect(useMcp).toBeChecked();
+  await useMcp.click();
+  await expect(useMcp).toBeEnabled();
+  await expect(useMcp).not.toBeChecked();
   await page
     .getByRole('button', {
-      name: 'Connection Synthetic lifecycle',
+      name: 'Synthetic lifecycle details',
       exact: true,
     })
     .click();
   const permissions = page
-    .getByRole('region', { name: 'Saved MCP permissions', exact: true })
-    .last();
-  await expect(
-    permissions.getByRole('button', {
-      name: 'Disable delete_record approval',
-      exact: true,
-    }),
-  ).toBeDisabled();
-  for (const action of [
-    'Disable Server access',
-    'Disable read_record access',
-    'Enable read_record approval',
-    'Enable Resource access',
-    'Enable Prompt access',
-  ]) {
-    await permissions
-      .getByRole('button', { name: action, exact: true })
-      .click();
+    .getByRole('dialog', { name: 'Synthetic lifecycle', exact: true })
+    .getByRole('region', { name: 'Saved MCP permissions', exact: true });
+  const locked = permissions.getByRole('switch', {
+    name: 'Ask before delete_record runs',
+    exact: true,
+  });
+  await expect(locked).toBeChecked();
+  await expect(locked).toBeDisabled();
+  for (const [name, after] of [
+    ['Server access', false],
+    ['Use read_record', false],
+    ['Ask before read_record runs', true],
+    ['Resource access', true],
+    ['Prompt access', true],
+  ] as const) {
+    const control = permissions.getByRole('switch', { name, exact: true });
+    await control.click();
     await expect(permissions.getByText(/Permission saved/)).toBeVisible();
+    await expect(control).toBeEnabled();
     await permissions
       .getByRole('button', { name: 'Refresh permissions', exact: true })
       .click();
-    await expect(
-      permissions.getByText('Saved permissions: available.', { exact: true }),
-    ).toBeVisible();
+    if (after) await expect(control).toBeChecked();
+    else await expect(control).not.toBeChecked();
   }
-  await expect(
-    permissions.getByRole('group', { name: 'Server access', exact: true }),
-  ).toContainText('Disabled');
-  await expect(
-    permissions.getByRole('group', { name: 'read_record access', exact: true }),
-  ).toContainText('Disabled');
-  await expect(
-    permissions.getByRole('group', {
-      name: 'read_record approval',
-      exact: true,
-    }),
-  ).toContainText('Enabled');
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);

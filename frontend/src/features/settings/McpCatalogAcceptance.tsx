@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { Button, Field, Input } from '../../ui/primitives';
+import { Button, Input } from '../../ui/primitives';
 import type {
   McpConfigurationReceipt,
   McpConfigurationReview,
@@ -133,8 +133,13 @@ export type McpCatalogAcceptanceProps = {
     review: McpCatalogReview,
   ) => Promise<McpConfigurationReceipt>;
 };
+/** What a tested tool does once its catalog is accepted. */
 const label = (value: boolean | null) =>
-  value === null ? 'Unknown' : value ? 'Enabled' : 'Disabled';
+  value === null
+    ? 'Unknown after you accept'
+    : value
+      ? 'On after you accept'
+      : 'Stays off until you turn it on';
 const CATALOG_STATES: Record<string, string> = {
   accepted: 'These tools are accepted.',
   stale:
@@ -338,7 +343,7 @@ export default function McpCatalogAcceptance({
             ? { ...current.page, availability: 'accepted' }
             : null,
           message:
-            'Tested tools accepted. Review saved tool permissions before connecting; no server was retested or started.',
+            'Tools accepted. Check their switches under Tools before you connect; nothing was retested or started.',
         });
         mcpRevision.saved(session);
       } else if (result.status === 'rejected') {
@@ -362,81 +367,102 @@ export default function McpCatalogAcceptance({
       });
     }
   };
+  const total = state.page?.total ?? null;
   return (
-    <section aria-label="Accept tested MCP tools" className="settings-section">
-      <h3>Tested tools</h3>
-      <p>
-        Review the saved result of this Test. Reading or accepting it does not
-        reconnect or retest the server.
-      </p>
-      {state.page && (
-        <p>
-          {state.page.total === null
-            ? 'Tool count unavailable.'
-            : `${state.page.total} matching tested tools.`}
-        </p>
-      )}
-      {state.page?.manual_selection_required && (
-        <p role="status">
-          This server overlaps native capabilities or requires extra review. New
-          tools remain disabled until individually enabled.
-        </p>
-      )}
-      {state.page && !available && (
-        <p role="status">
-          {CATALOG_STATES[state.page.availability] ??
-            'These tested tools can’t be accepted right now.'}
-        </p>
-      )}
-      <Field label="Filter tested tools">
-        <Input
-          value={state.query}
-          maxLength={128}
-          disabled={locked}
-          onChange={(event) => session.update({ query: event.target.value })}
-        />
-      </Field>
-      <div className="button-row">
-        <Button disabled={locked} onClick={() => void read(state.query)}>
-          First page
-        </Button>
-        <Button
-          disabled={locked || !state.page?.next_cursor}
-          onClick={() =>
-            void read(state.filter, state.page?.next_cursor ?? undefined)
-          }
-        >
-          Next page
-        </Button>
-      </div>
-      <ul>
-        {state.page?.items.map((tool) => (
-          <li key={tool.tool_id}>
-            <strong>{tool.name}</strong> — {label(tool.enabled_after_accept)}{' '}
-            after acceptance.{' '}
-            {tool.requires_approval
-              ? 'Approval required.'
-              : 'Existing approval policy applies.'}
-          </li>
-        ))}
-      </ul>
-      <div className="button-row">
-        <Button
-          disabled={locked || !available}
-          onClick={() => void requestReview()}
-        >
-          Accept tools
-        </Button>
-        {state.pending && (
+    <section
+      aria-label="Accept tested MCP tools"
+      className="settings-group settings-mcp-catalog"
+    >
+      <header className="settings-group-head">
+        <h3>Tested tools</h3>
+        <p>Found by the last Test; accepting doesn’t retest the server.</p>
+      </header>
+      <div className="settings-group-surface">
+        <div className="settings-divided settings-mcp-catalog-head">
+          {state.page && (
+            <p>
+              {total === null
+                ? 'Tool count unavailable.'
+                : `${total} ${total === 1 ? 'tool' : 'tools'} found.`}
+            </p>
+          )}
+          {state.page?.manual_selection_required && (
+            <p role="status">
+              Some of its tools overlap Row-Bot’s own or need a closer look. New
+              tools stay off until you turn each one on.
+            </p>
+          )}
+          {state.page && !available && (
+            <p role="status">
+              {CATALOG_STATES[state.page.availability] ??
+                'These tested tools can’t be accepted right now.'}
+            </p>
+          )}
+          {((total ?? 0) > 8 || state.filter) && (
+            <Input
+              type="search"
+              aria-label="Filter tested tools"
+              placeholder="Filter tools"
+              value={state.query}
+              maxLength={128}
+              disabled={locked}
+              onChange={(event) =>
+                session.update({ query: event.target.value })
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void read(state.query);
+              }}
+            />
+          )}
+        </div>
+        <ul className="settings-mcp-catalog-list">
+          {state.page?.items.map((tool) => (
+            <li key={tool.tool_id} className="settings-divided">
+              <strong>{tool.name}</strong>
+              <span>
+                {label(tool.enabled_after_accept)}
+                {tool.requires_approval ? ' · asks first' : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="settings-divided settings-mcp-catalog-actions">
           <Button
-            disabled={!state.active || Boolean(state.busy)}
-            onClick={() => void save(state.pending)}
+            variant="primary"
+            disabled={locked || !available}
+            onClick={() => void requestReview()}
           >
-            Check original acceptance
+            Accept tools
           </Button>
-        )}
+          {state.pending && (
+            <Button
+              disabled={!state.active || Boolean(state.busy)}
+              onClick={() => void save(state.pending)}
+            >
+              Check original acceptance
+            </Button>
+          )}
+          {(state.cursor ||
+            state.page?.next_cursor ||
+            state.filter ||
+            (!state.page && state.message)) && (
+            <>
+              <Button disabled={locked} onClick={() => void read(state.query)}>
+                First page
+              </Button>
+              <Button
+                disabled={locked || !state.page?.next_cursor}
+                onClick={() =>
+                  void read(state.filter, state.page?.next_cursor ?? undefined)
+                }
+              >
+                Next page
+              </Button>
+            </>
+          )}
+          {state.message && <p role="status">{state.message}</p>}
+        </div>
       </div>
-      {state.message && <p role="status">{state.message}</p>}
     </section>
   );
 }

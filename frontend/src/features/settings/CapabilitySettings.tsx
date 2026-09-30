@@ -1,29 +1,46 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  Bug,
-  FileJson,
+  Activity,
+  AlertCircle,
+  Braces,
+  Globe2,
+  LayoutGrid,
+  Lock,
   MoreHorizontal,
+  PanelRight,
   Pencil,
   Plus,
   RefreshCw,
+  RotateCw,
   Search,
+  SquareTerminal,
   TextCursorInput,
   Trash2,
+  X,
 } from 'lucide-react';
 import { ModalTask } from '../../ui/overlays';
 import { clientError } from '../../api/errors';
 import {
   Button,
   Field,
+  IconButton,
   Input,
   Menu,
-  Select,
+  Segmented,
   StatusDot,
 } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
-import { SettingsSummary, SummaryChip } from './anatomy';
+import {
+  SettingsAdvanced,
+  SettingsGroup,
+  SettingsItem,
+  SettingsPageMenu,
+  SettingsStatus,
+  StatusLine,
+} from './anatomy';
 import type { AddConnectStep } from './mcp-add-connect';
 import { mcpRevision, reviewFresh } from './mcp-revision';
+import { useServerAction, type McpServerRuntime } from './McpConnections';
 
 export type McpConfigurationPage = {
   schema_version: 1;
@@ -124,6 +141,8 @@ type State = {
    */
   origin: string;
   active: boolean;
+  /** A server waiting for the Remove confirmation (its row or details). */
+  removing: { server_id: string; name: string } | null;
 };
 
 /** The authenticated runtime owns this session; unmount never disposes a command. */
@@ -139,6 +158,7 @@ export function createCapabilitySettingsSession() {
     message: '',
     origin: 'page',
     active: true,
+    removing: null,
   };
   const listeners = new Set<() => void>();
   const aborters = new Set<AbortController>();
@@ -156,6 +176,9 @@ export function createCapabilitySettingsSession() {
       };
     },
     update,
+    /** Asks to remove a saved server; the page shows the confirmation. */
+    confirmRemove: (server_id: string, name: string) =>
+      update({ removing: { server_id, name } }),
     beginRead: () => {
       const abort = new AbortController();
       if (!state.active) abort.abort();
@@ -190,6 +213,7 @@ export function createCapabilitySettingsSession() {
         message: 'Sign in again to manage MCP settings.',
         origin: 'page',
         active: false,
+        removing: null,
       };
       listeners.forEach((notify) => notify());
     },
@@ -199,7 +223,12 @@ export type CapabilitySettingsSession = ReturnType<
   typeof createCapabilitySettingsSession
 >;
 export type CapabilitySettingsProps = {
+  /** Opens a saved server's details (connection, tools, permissions). */
   onConnection?: (serverId: string, name: string) => void;
+  /** A saved server was removed (its details close). */
+  onRemoved?: (serverId: string) => void;
+  /** Runs a row's connection command (B262); without it rows offer Details. */
+  runtime?: McpServerRuntime;
   /**
    * "Add and connect" (U53): after saving a new server, Test it, accept its
    * tools, turn it on and connect, reporting each step.
@@ -295,19 +324,20 @@ function PairRows({
               )
             }
           />
-          <Button
-            variant="ghost"
-            aria-label={`Remove ${singular} ${index + 1}`}
+          <IconButton
+            size="sm"
+            label={`Remove ${singular} ${index + 1}`}
             onClick={() => onChange(rows.filter((_, at) => at !== index))}
           >
-            Remove
-          </Button>
+            <X size={15} aria-hidden />
+          </IconButton>
         </div>
       ))}
       <Button
-        className="small"
+        className="settings-link"
         onClick={() => onChange([...rows, { key: '', value: '' }])}
       >
+        <Plus size={14} aria-hidden />
         Add {singular}
       </Button>
     </div>
@@ -384,8 +414,190 @@ const STEP_WORDS: Record<AddConnectStep, string> = {
   connect: 'Connecting…',
 };
 
+type DirectoryEntry = Awaited<
+  ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
+>['items'][number];
+type AddMode = 'browse' | 'manual' | 'json';
+
+function transportLabel(transport: string) {
+  return transport === 'stdio'
+    ? 'On this computer'
+    : transport === 'streamable_http'
+      ? 'HTTP'
+      : transport === 'sse'
+        ? 'SSE'
+        : 'Unknown type';
+}
+
+/** One saved server: status in words, one action by state, the rest in ⋯. */
+function ServerRow({
+  server,
+  mcpEnabled,
+  runtime,
+  locked,
+  canSave,
+  onDetails,
+  onEdit,
+  onRename,
+  onRemove,
+  onSettled,
+}: {
+  server: McpConfigurationPage['items'][number];
+  mcpEnabled: boolean | null;
+  runtime?: McpServerRuntime;
+  locked: boolean;
+  canSave: boolean;
+  onDetails?: () => void;
+  onEdit: () => void;
+  onRename: () => void;
+  onRemove: () => void;
+  onSettled: () => void;
+}) {
+  const action = useServerAction(runtime, server, mcpEnabled, onSettled);
+  const missing = (server.requirements ?? []).filter(
+    (requirement) => !requirement.available,
+  );
+  const uses = (server.requirements ?? []).filter(
+    (requirement) => requirement.available,
+  );
+  const Icon = server.transport === 'stdio' ? SquareTerminal : Globe2;
+  return (
+    <SettingsItem
+      className="settings-mcp-server"
+      icon={<Icon size={16} aria-hidden />}
+      tone={server.transport === 'stdio' ? '4' : '2'}
+      bind={false}
+      label={
+        <>
+          {onDetails ? (
+            <button
+              type="button"
+              className="settings-mcp-server-name"
+              aria-label={`${server.name} details`}
+              onClick={onDetails}
+            >
+              {server.name}
+            </button>
+          ) : (
+            <span className="settings-mcp-server-name">{server.name}</span>
+          )}
+          <StatusDot {...action.status} showLabel />
+        </>
+      }
+      help={[
+        transportLabel(server.transport),
+        server.tool_count == null
+          ? ''
+          : `${server.tool_count} ${server.tool_count === 1 ? 'tool' : 'tools'}`,
+        ...uses.map((requirement) => `uses ${requirement.label}`),
+      ]
+        .filter(Boolean)
+        .join(' · ')}
+      status={
+        missing.length > 0 ? (
+          <StatusLine tone="warning">
+            {missing
+              .map((requirement) =>
+                requirement.source === 'unknown'
+                  ? `Couldn’t check ${requirement.label}`
+                  : requirement.installable
+                    ? `Needs ${requirement.label}; install it under Runtimes`
+                    : `Needs ${requirement.label}; set it up on this computer`,
+              )
+              .join(' · ')}
+          </StatusLine>
+        ) : undefined
+      }
+      control={
+        action.primary && (
+          <Button
+            variant={action.primary.tone === 'quiet' ? 'ghost' : 'secondary'}
+            aria-label={`${action.primary.label} ${server.name}`}
+            disabled={action.primary.disabled}
+            onClick={action.primary.run}
+          >
+            {action.primary.tone === 'retry' && (
+              <RotateCw size={14} aria-hidden />
+            )}
+            {action.primary.label}
+          </Button>
+        )
+      }
+      trailing={
+        <Menu
+          label={`More actions for ${server.name}`}
+          iconOnly
+          variant="ghost"
+          className="icon-action icon-action-sm"
+          actions={[
+            ...(onDetails
+              ? [
+                  {
+                    label: 'Details',
+                    icon: <PanelRight size={16} />,
+                    onSelect: onDetails,
+                  },
+                ]
+              : []),
+            ...(action.test
+              ? [
+                  {
+                    label: 'Test connection',
+                    icon: <Activity size={16} />,
+                    onSelect: action.test,
+                  },
+                ]
+              : []),
+            {
+              label: 'Edit settings…',
+              icon: <Pencil size={16} />,
+              disabled: locked,
+              onSelect: onEdit,
+            },
+            {
+              label: 'Rename…',
+              icon: <TextCursorInput size={16} />,
+              disabled: locked,
+              onSelect: onRename,
+            },
+            {
+              label: 'Remove server…',
+              icon: <Trash2 size={16} />,
+              danger: true,
+              disabled: locked || !canSave,
+              onSelect: onRemove,
+            },
+          ]}
+        >
+          <MoreHorizontal size={16} aria-hidden />
+        </Menu>
+      }
+    >
+      {action.message && (
+        <div className="settings-mcp-server-problem" role="status">
+          <AlertCircle size={14} aria-hidden />
+          <span>{action.message}</span>
+          {onDetails && (
+            <Button className="settings-link" onClick={onDetails}>
+              Open details
+            </Button>
+          )}
+        </div>
+      )}
+    </SettingsItem>
+  );
+}
+
+/**
+ * Settings › MCP › Servers (B262): the saved servers first, each with one
+ * action by state and the rest in its ⋯; Add server opens one dialog
+ * (Browse, Manual, Paste JSON) that ends by opening the new server's
+ * details. Every save is the same reviewed configuration command as before.
+ */
 export default function CapabilitySettings({
   onConnection,
+  onRemoved,
+  runtime,
   addAndConnect,
   session,
   load,
@@ -397,33 +609,25 @@ export default function CapabilitySettings({
   // Set by "Add and connect" for the save it starts.
   const connectAfterSave = useRef(false);
   const [connecting, setConnecting] = useState('');
-  const [editorOpen, setEditorOpen] = useState(session.hasRetained());
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [mode, setMode] = useState<AddMode>(() =>
+    session.getSnapshot().draft.operation === 'import'
+      ? 'json'
+      : searchDirectory
+        ? 'browse'
+        : 'manual',
+  );
+  const [searchOpen, setSearchOpen] = useState(false);
   const [directoryQuery, setDirectoryQuery] = useState('');
   const [directoryResult, setDirectoryResult] = useState<Awaited<
     ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
   > | null>(null);
   const [directoryBusy, setDirectoryBusy] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<{
-    server_id: string;
-    name: string;
-  } | null>(null);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  // Add server and Import config open the editor with its first field focused.
-  const [focusField, setFocusField] = useState<'name' | 'import' | null>(null);
-  const nameField = useRef<HTMLInputElement>(null);
-  const importField = useRef<HTMLTextAreaElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   useEffect(() => () => clearTimeout(searchTimer.current), []);
-  useEffect(() => {
-    if (!focusField || !editorOpen) return;
-    const field = (focusField === 'name' ? nameField : importField).current;
-    field?.scrollIntoView?.({ block: 'center' });
-    field?.focus({ preventScroll: true });
-    setFocusField(null);
-  }, [focusField, editorOpen]);
   // Another MCP panel saved: read the saved servers again for the new revision.
   useEffect(
     () =>
@@ -455,11 +659,19 @@ export default function CapabilitySettings({
     !/^[A-Za-z0-9][A-Za-z0-9 _().-]{0,127}$/.test(draft.name);
   // A new server needs its name and command (or address) before saving.
   const incomplete =
-    draft.operation === 'add' && (!draft.name.trim() || !draft.launch.trim());
-  const canSave =
+    (draft.operation === 'add' &&
+      (!draft.name.trim() || !draft.launch.trim())) ||
+    (draft.operation === 'import' && !draft.imported.trim());
+  const canSave = Boolean(
     state.active &&
     page?.revision &&
-    ['available', 'missing'].includes(page.availability);
+    ['available', 'missing'].includes(page.availability),
+  );
+  const hasDraft = Object.entries(draft).some(
+    ([key, value]) =>
+      JSON.stringify(value) !==
+      JSON.stringify(emptyDraft()[key as keyof Draft]),
+  );
   useEffect(() => {
     const current = session.getSnapshot();
     if (!current.active || current.page || current.busy) return;
@@ -512,6 +724,13 @@ export default function CapabilitySettings({
     } finally {
       session.endRead(abort);
     }
+  };
+  /** Reads the list again (after a save or a row's command), keeping the message. */
+  const reread = async () => {
+    const current = session.getSnapshot();
+    await refresh(current.filter, current.cursor);
+    if (current.message && !session.getSnapshot().message)
+      session.update({ message: current.message });
   };
   const edit = (patch: Partial<Draft>) =>
     session.update({
@@ -578,7 +797,7 @@ export default function CapabilitySettings({
           busy: '',
           message: (cause as { code?: string } | null)?.code
             ? clientError(cause).message
-            : 'The settings could not be validated. Check the fields and refresh saved settings.',
+            : 'The settings could not be validated. Check the fields and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -624,20 +843,23 @@ export default function CapabilitySettings({
         result.status === 'completed' &&
         result.mcp_configuration?.status === 'saved'
       ) {
-        const deleted = attempt.command.payload.intent.operation === 'delete';
+        const intent = attempt.command.payload.intent;
+        const deleted = intent.operation === 'delete';
+        const added =
+          intent.operation === 'add' || intent.operation === 'import';
         session.update({
           pending: null,
           draft: emptyDraft(),
           busy: '',
+          // The dialog closes; the outcome shows above the list.
+          origin: 'list',
           page: page
             ? {
                 ...page,
                 revision: null,
                 items: deleted
                   ? page.items.filter(
-                      (item) =>
-                        item.server_id !==
-                        attempt.command.payload.intent.server_id,
+                      (item) => item.server_id !== intent.server_id,
                     )
                   : page.items,
                 total:
@@ -645,24 +867,28 @@ export default function CapabilitySettings({
               }
             : null,
           message: deleted
-            ? 'Server deleted. Its connection is stopped or no longer running.'
-            : 'Saved. It stays turned off until you connect it.',
+            ? 'Server removed. Its connection is stopped or no longer running.'
+            : added
+              ? 'Added. It stays turned off until you connect it.'
+              : 'Saved. It stays turned off until you connect it.',
         });
+        setDialogOpen(false);
         mcpRevision.saved(session);
+        if (deleted && intent.server_id) onRemoved?.(intent.server_id);
         // Show the saved list as it is now; keep the outcome message.
-        const refreshKeepingMessage = async () => {
-          const saved = session.getSnapshot().message;
-          await refresh(session.getSnapshot().filter);
-          if (!session.getSnapshot().message)
-            session.update({ message: saved });
-        };
-        await refreshKeepingMessage();
+        await reread();
         const serverId = (
           result.mcp_configuration as { server_ids?: string[] } | undefined
         )?.server_ids?.[0];
+        const nameOf = (id: string) =>
+          session
+            .getSnapshot()
+            .page?.items.find((item) => item.server_id === id)?.name ??
+          (typeof intent.fields?.name === 'string'
+            ? intent.fields.name
+            : 'New server');
         if (connectAfterSave.current && addAndConnect && serverId && !deleted) {
           connectAfterSave.current = false;
-          const name = attempt.command.payload.intent.fields?.name;
           try {
             const done = await addAndConnect(serverId, (step) =>
               setConnecting(STEP_WORDS[step]),
@@ -672,20 +898,21 @@ export default function CapabilitySettings({
             });
           } catch (cause) {
             session.update({
-              message: `Saved. ${
+              message: `Added. ${
                 cause instanceof Error && cause.message
                   ? cause.message
                   : clientError(cause).message
-              } Finish in the server's connection below.`,
+              } Finish in its details.`,
             });
           } finally {
             setConnecting('');
             // Its tools were accepted and it was turned on: other panels read again.
             mcpRevision.saved(session);
-            await refreshKeepingMessage();
-            if (typeof name === 'string') onConnection?.(serverId, name);
+            await reread();
           }
         }
+        // Adding ends by opening the new server's details (B262).
+        if (added && serverId) onConnection?.(serverId, nameOf(serverId));
       } else if (result.mcp_configuration?.code === 'mcp_cleanup_incomplete') {
         session.update({
           busy: '',
@@ -716,22 +943,27 @@ export default function CapabilitySettings({
     }
   };
   // The message (and Check original save) sits next to what was clicked; if
-  // that place is gone (a new directory search), it shows at the top.
+  // that place is gone (the dialog closed, a new directory search), it shows
+  // above the list, or at the top while the list can't be read.
   const shown = new Set([
-    'editor',
-    ...(page
+    ...(page ? ['list'] : []),
+    ...(dialogOpen
       ? [
-          'list',
+          'editor',
           ...(directoryResult?.items ?? []).map(
             (entry) => `directory:${entry.source}:${entry.id}`,
           ),
         ]
       : []),
   ]);
-  const origin = shown.has(state.origin) ? state.origin : 'page';
+  const origin = shown.has(state.origin)
+    ? state.origin
+    : page
+      ? 'list'
+      : 'page';
   const note = (at: string) =>
     origin === at && (state.message || pending) ? (
-      <>
+      <div className="settings-mcp-note">
         {state.message && <p role="status">{state.message}</p>}
         {pending && (
           <Button
@@ -741,158 +973,268 @@ export default function CapabilitySettings({
             Check original save
           </Button>
         )}
-      </>
+      </div>
     ) : null;
+  const chooseMode = (next: AddMode) => {
+    setMode(next);
+    const current = session.getSnapshot().draft;
+    if (next === 'json' && current.operation !== 'import')
+      session.update({ draft: { ...current, operation: 'import' } });
+    if (next !== 'json' && current.operation === 'import')
+      session.update({ draft: { ...current, operation: 'add' } });
+  };
+  const openAdd = () => {
+    const current = session.getSnapshot().draft;
+    if (current.operation === 'edit' || current.operation === 'rename') {
+      session.update({ draft: emptyDraft(), reviewed: null, message: '' });
+      chooseMode(searchDirectory ? 'browse' : 'manual');
+    } else if (current.operation === 'import') chooseMode('json');
+    else if (hasDraft) chooseMode('manual');
+    setDialogOpen(true);
+  };
+  const openEditor = (
+    operation: 'edit' | 'rename',
+    server: McpConfigurationPage['items'][number],
+  ) => {
+    session.update({
+      draft: {
+        ...emptyDraft(),
+        operation,
+        serverId: server.server_id,
+        name: operation === 'rename' ? server.name : '',
+        transport: server.transport === 'unknown' ? 'stdio' : server.transport,
+      },
+      reviewed: null,
+      message: '',
+    });
+    setDialogOpen(true);
+  };
+  const editing = draft.operation === 'edit' || draft.operation === 'rename';
+  const editedName =
+    page?.items.find((item) => item.server_id === draft.serverId)?.name ??
+    'server';
+  const total = page ? (page.total ?? page.items.length) : 0;
+  const connectedCount =
+    page?.items.filter((server) => server.connection_present).length ?? 0;
+  const tools =
+    page?.items.reduce(
+      (sum, server) =>
+        sum +
+        (server.enabled && server.connection_present
+          ? (server.tool_count ?? 0)
+          : 0),
+      0,
+    ) ?? 0;
+  // A search field once the list is long; before that an icon opens one.
+  const manyServers = total > 6;
+  const searchShown = manyServers || searchOpen || Boolean(state.query);
+  const directoryItems: DirectoryEntry[] = directoryResult?.items ?? [];
+  const tab = editing ? 'manual' : mode;
   return (
     <section
       aria-label="MCP configuration"
-      className="settings-section capability-page"
+      className="settings-section capability-page settings-mcp-page"
     >
       {page && (
         <>
-          <SettingsSummary>
-            <span
-              className="settings-summary-group"
-              role="status"
-              aria-label="MCP summary"
-            >
-              <SummaryChip tone={page.enabled ? 'success' : undefined}>
-                MCP{' '}
-                {page.enabled === null
-                  ? 'status unknown'
-                  : page.enabled
-                    ? 'enabled'
-                    : 'disabled'}
-              </SummaryChip>
-              <SummaryChip>
-                {
-                  page.items.filter((server) => server.connection_present)
-                    .length
-                }{' '}
-                connected
-              </SummaryChip>
-              <SummaryChip>
-                {page.items.reduce(
-                  (total, server) =>
-                    total +
-                    (server.enabled && server.connection_present
-                      ? (server.tool_count ?? 0)
-                      : 0),
-                  0,
-                )}{' '}
-                enabled tools
-              </SummaryChip>
-              <SummaryChip>{page.total ?? 'Unknown'} saved servers</SummaryChip>
-            </span>
-          </SettingsSummary>
-          {page.availability === 'recovery_required' && (
-            <p role="status">
-              An interrupted save requires recovery before new changes.
-            </p>
-          )}
-          {note('page')}
-          <form
-            className="settings-list-toolbar settings-mcp-primary-actions"
-            role="search"
-            aria-label="Search saved servers"
-            data-setting-anchor="mcp-servers"
-            onSubmit={(event) => {
-              event.preventDefault();
-              clearTimeout(searchTimer.current);
-              void refresh(state.query);
-            }}
+          <SettingsStatus
+            tone={
+              page.enabled === false
+                ? undefined
+                : connectedCount
+                  ? 'success'
+                  : 'neutral'
+            }
+            more={[
+              connectedCount
+                ? `${tools} ${tools === 1 ? 'tool' : 'tools'} available`
+                : '',
+            ]}
           >
-            <label className="settings-inline-search">
-              <span className="visually-hidden">Search saved servers</span>
-              <Search size={14} aria-hidden />
-              <Input
-                type="search"
-                placeholder="Search saved servers"
-                value={state.query}
-                disabled={locked}
-                maxLength={128}
-                onChange={(event) => {
-                  const query = event.target.value;
-                  session.update({ query });
-                  clearTimeout(searchTimer.current);
-                  searchTimer.current = setTimeout(
-                    () => void refresh(query),
-                    350,
-                  );
-                }}
+            {page.enabled === false
+              ? 'MCP is off'
+              : total === 0
+                ? 'No servers yet'
+                : `${connectedCount} of ${total} ${total === 1 ? 'server' : 'servers'} connected`}
+          </SettingsStatus>
+          <SettingsPageMenu
+            label="More MCP actions"
+            actions={[
+              {
+                label: 'Refresh',
+                icon: <RefreshCw size={16} />,
+                disabled: Boolean(busy) || !state.active,
+                onSelect: () => void refresh(),
+              },
+            ]}
+          />
+          <SettingsGroup
+            title="Servers"
+            anchor="mcp-servers"
+            className="settings-mcp-servers"
+            meta={
+              <>
+                {searchShown ? (
+                  <form
+                    className="settings-mcp-search"
+                    role="search"
+                    aria-label="Search servers"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      clearTimeout(searchTimer.current);
+                      void refresh(state.query);
+                    }}
+                  >
+                    <Search size={14} aria-hidden />
+                    <Input
+                      type="search"
+                      aria-label="Search servers"
+                      placeholder="Search servers"
+                      value={state.query}
+                      disabled={locked}
+                      maxLength={128}
+                      autoFocus={searchOpen && !manyServers}
+                      onBlur={() => {
+                        if (!state.query) setSearchOpen(false);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Escape' || manyServers) return;
+                        event.preventDefault();
+                        session.update({ query: '' });
+                        setSearchOpen(false);
+                        if (state.filter) void refresh('');
+                      }}
+                      onChange={(event) => {
+                        const query = event.target.value;
+                        session.update({ query });
+                        clearTimeout(searchTimer.current);
+                        searchTimer.current = setTimeout(
+                          () => void refresh(query),
+                          350,
+                        );
+                      }}
+                    />
+                  </form>
+                ) : (
+                  <IconButton
+                    size="sm"
+                    label="Search servers"
+                    disabled={locked || total === 0}
+                    onClick={() => setSearchOpen(true)}
+                  >
+                    <Search size={15} aria-hidden />
+                  </IconButton>
+                )}
+                <Button
+                  variant="primary"
+                  className="small"
+                  disabled={locked}
+                  onClick={openAdd}
+                >
+                  <Plus size={15} aria-hidden />
+                  Add server
+                </Button>
+              </>
+            }
+          >
+            {page.availability === 'recovery_required' && (
+              <p role="status" className="settings-divided settings-mcp-empty">
+                An interrupted save requires recovery before new changes.
+              </p>
+            )}
+            {hasDraft && !dialogOpen && (
+              <p className="settings-divided settings-mcp-empty">
+                {editing
+                  ? `Unsaved changes to ${editedName}.`
+                  : 'You have an unsaved server.'}{' '}
+                <Button
+                  className="settings-link"
+                  onClick={() => (editing ? setDialogOpen(true) : openAdd())}
+                >
+                  Continue
+                </Button>
+                {!pending && (
+                  <Button
+                    className="settings-link"
+                    disabled={locked}
+                    onClick={() =>
+                      session.update({
+                        draft: emptyDraft(),
+                        reviewed: null,
+                        message: '',
+                      })
+                    }
+                  >
+                    Discard
+                  </Button>
+                )}
+              </p>
+            )}
+            {note('list')}
+            {connecting && (
+              <p role="status" className="settings-divided settings-mcp-empty">
+                {connecting}
+              </p>
+            )}
+            {page.items.map((server) => (
+              <ServerRow
+                key={server.server_id}
+                server={server}
+                mcpEnabled={page.enabled}
+                runtime={runtime}
+                locked={locked}
+                canSave={canSave}
+                onDetails={
+                  onConnection
+                    ? () => onConnection(server.server_id, server.name)
+                    : undefined
+                }
+                onEdit={() => openEditor('edit', server)}
+                onRename={() => openEditor('rename', server)}
+                onRemove={() =>
+                  session.confirmRemove(server.server_id, server.name)
+                }
+                onSettled={() => void reread()}
               />
-            </label>
-            <Button
-              variant="primary"
-              disabled={locked}
-              onClick={() => {
-                session.update({
-                  draft: emptyDraft(),
-                  reviewed: null,
-                  message: '',
-                });
-                setEditorOpen(true);
-                setFocusField('name');
-              }}
-            >
-              <Plus size={15} aria-hidden />
-              Add server
-            </Button>
-            <Menu
-              label="More MCP actions"
-              iconOnly
-              variant="ghost"
-              className="icon-action icon-action-md"
-              actions={[
-                {
-                  label: 'Import config',
-                  icon: <FileJson size={16} />,
-                  disabled: locked,
-                  onSelect: () => {
-                    session.update({
-                      draft: { ...emptyDraft(), operation: 'import' },
-                      reviewed: null,
-                      message: '',
-                    });
-                    setEditorOpen(true);
-                  },
-                  afterClose: () => setFocusField('import'),
-                },
-                {
-                  label: 'Refresh',
-                  icon: <RefreshCw size={16} />,
-                  disabled: Boolean(busy) || !state.active,
-                  onSelect: () => void refresh(),
-                },
-                {
-                  label: diagnosticsOpen
-                    ? 'Hide MCP diagnostics'
-                    : 'MCP diagnostics',
-                  icon: <Bug size={16} />,
-                  onSelect: () => setDiagnosticsOpen((value) => !value),
-                },
-              ]}
-            >
-              <MoreHorizontal size={18} aria-hidden />
-            </Menu>
-          </form>
-          {diagnosticsOpen && (
-            <section className="card stack" aria-label="MCP diagnostics">
-              <h3>MCP diagnostics</h3>
+            ))}
+            {page.items.length === 0 && (
+              <p className="settings-divided settings-mcp-empty">
+                {state.filter
+                  ? 'No saved servers match.'
+                  : 'Add a server to give Row-Bot new tools.'}
+              </p>
+            )}
+            {(state.cursor || page.next_cursor) && (
+              <div className="action-cluster settings-divided settings-mcp-pages">
+                <Button
+                  disabled={locked || !state.cursor}
+                  onClick={() => void refresh(state.filter)}
+                >
+                  First page
+                </Button>
+                <Button
+                  disabled={locked || !page.next_cursor}
+                  onClick={() =>
+                    void refresh(state.filter, page.next_cursor ?? undefined)
+                  }
+                >
+                  Next page
+                </Button>
+              </div>
+            )}
+          </SettingsGroup>
+          <SettingsAdvanced meta="Diagnostics">
+            <section className="stack" aria-label="MCP diagnostics">
               <p>
                 Saved configuration:{' '}
-                {humanizeToken(page.availability).toLowerCase()}. Global access:{' '}
+                {humanizeToken(page.availability).toLowerCase()}. MCP:{' '}
                 {page.enabled === null
                   ? 'unknown'
                   : page.enabled
-                    ? 'enabled'
-                    : 'disabled'}
-                .
-              </p>
-              <p>
-                {page.total ?? 'Unknown'} configured servers;{' '}
-                {page.items.length} on this page. Refresh to recheck connection
-                status.
+                    ? 'on'
+                    : 'off'}
+                . {page.total ?? 'Unknown'} saved servers; {page.items.length}{' '}
+                on this page.
               </p>
               {page.items.map((server) => (
                 <p key={server.server_id}>
@@ -907,330 +1249,209 @@ export default function CapabilitySettings({
                 </p>
               ))}
             </section>
-          )}
-          {searchDirectory && (
-            <details className="settings-supplemental-disclosure">
-              <summary>
-                <span>
-                  <strong>Browse MCP servers</strong>
-                  <small>
-                    Imported servers stay turned off until you connect them
-                  </small>
-                </span>
-              </summary>
-              <div className="stack settings-supplemental-content">
-                <p>
-                  Directory information is from third parties and is not audited
-                  by Row-Bot. Search contacts public directories only when you
-                  click Search.
-                </p>
-                <Field label="Search MCP directory">
-                  <Input
-                    value={directoryQuery}
-                    maxLength={128}
-                    disabled={locked || directoryBusy}
-                    onChange={(event) => setDirectoryQuery(event.target.value)}
-                  />
-                </Field>
-                <Button
-                  disabled={locked || directoryBusy}
-                  onClick={() => void search()}
-                >
-                  Search directories
-                </Button>
-                {directoryBusy && <p role="status">Searching directory…</p>}
-                {directoryError && <p role="alert">{directoryError}</p>}
-                {directoryResult && (
-                  <p role="status">
-                    {directoryResult.items.length}{' '}
-                    {humanizeToken(directoryResult.mode).toLowerCase()} results
-                  </p>
-                )}
-                {directoryResult?.items.map((entry) => (
-                  <article
-                    className="card stack"
-                    key={`${entry.source}:${entry.id}`}
-                    aria-label={entry.name}
-                  >
-                    <strong>{entry.name}</strong>
-                    <p>{entry.description || 'No description provided.'}</p>
-                    <small>
-                      {humanizeToken(entry.source)} ·{' '}
-                      {entry.publisher || 'Publisher unknown'} ·{' '}
-                      {humanizeToken(entry.transport)} ·{' '}
-                      {entry.risk_level
-                        ? `${humanizeToken(entry.risk_level).toLowerCase()} risk`
-                        : 'Risk unknown'}
-                      {entry.requires_auth && !entry.sign_in_required
-                        ? ' · Account required'
-                        : ''}
-                    </small>
-                    <details>
-                      <summary>Configuration preview</summary>
-                      <pre className="text-preview">{entry.import_json}</pre>
-                    </details>
-                    {entry.sign_in_required ? (
-                      // Browser sign-in (OAuth) isn't supported yet (B262).
-                      <p className="settings-help">
-                        <strong>Needs sign-in (not supported yet)</strong>
-                        <br />
-                        This server signs in through the browser, which Row-Bot
-                        can’t do yet, so it couldn’t connect.
-                      </p>
-                    ) : (
-                      <Button
-                        aria-label={`Import ${entry.name}`}
-                        disabled={locked || !canSave}
-                        onClick={() =>
-                          void requestReview(
-                            {
-                              operation: 'import',
-                              import_json: entry.import_json,
-                            },
-                            `directory:${entry.source}:${entry.id}`,
-                          )
-                        }
-                      >
-                        Import
-                      </Button>
-                    )}
-                    {note(`directory:${entry.source}:${entry.id}`)}
-                  </article>
-                ))}
-                {directoryResult?.items.length === 0 && (
-                  <p>
-                    No matching servers found. Try another query or add one
-                    manually.
-                  </p>
-                )}
-              </div>
-            </details>
-          )}
-          {note('list')}
-          <ul className="settings-results settings-mcp-server-list">
-            {page.items.map((server) => (
-              <li className="settings-mcp-server-row" key={server.server_id}>
-                <div className="settings-mcp-server-summary">
-                  <span className="settings-provider-title">
-                    <strong>{server.name}</strong>
-                    <StatusDot
-                      tone={
-                        server.connection_present
-                          ? 'success'
-                          : server.enabled
-                            ? 'info'
-                            : 'neutral'
-                      }
-                      label={
-                        server.enabled === null
-                          ? 'Enablement unknown'
-                          : server.connection_present
-                            ? 'Connected'
-                            : server.enabled
-                              ? 'Enabled'
-                              : 'Disabled'
-                      }
-                      showLabel
-                    />
-                  </span>
-                  <small>
-                    {[
-                      humanizeToken(server.transport),
-                      server.tool_count == null
-                        ? 'tool count unknown'
-                        : `${server.tool_count} ${server.tool_count === 1 ? 'tool' : 'tools'}`,
-                      server.runtime_status
-                        ? humanizeToken(server.runtime_status).toLowerCase()
-                        : 'runtime status unknown',
-                      `configured: ${server.configured_fields.join(', ') || 'none'}`,
-                    ].join(' · ')}
-                  </small>
-                  {server.requirements && server.requirements.length > 0 && (
-                    <div
-                      className="stack"
-                      aria-label={`${server.name} requirements`}
-                    >
-                      {server.requirements.map((requirement) => (
-                        <div key={requirement.id} className="field-row">
-                          <span>
-                            {requirement.label}:{' '}
-                            {requirement.available
-                              ? `Available (${requirement.source})`
-                              : requirement.source === 'unknown'
-                                ? 'Status unavailable'
-                                : 'Missing'}
-                          </span>
-                          {!requirement.available &&
-                            requirement.installable && (
-                              <Button
-                                onClick={() => {
-                                  const controls = document.getElementById(
-                                    'managed-mcp-runtimes',
-                                  ) as HTMLDetailsElement | null;
-                                  if (controls) {
-                                    controls.open = true;
-                                    controls.scrollIntoView({
-                                      block: 'nearest',
-                                    });
-                                  }
-                                }}
-                              >
-                                Open {requirement.label} installer
-                              </Button>
-                            )}
-                          {!requirement.available &&
-                            !requirement.installable && (
-                              <small>
-                                {requirement.source === 'unknown'
-                                  ? 'Refresh to check again.'
-                                  : 'Set up this runtime, then refresh the server.'}
-                              </small>
-                            )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="settings-mcp-server-actions">
-                  {onConnection && (
-                    <Button
-                      aria-label={`Connection ${server.name}`}
-                      onClick={() =>
-                        onConnection(server.server_id, server.name)
-                      }
-                    >
-                      Connection
-                    </Button>
-                  )}
-                  <Menu
-                    label={`More actions for ${server.name}`}
-                    iconOnly
-                    variant="ghost"
-                    className="icon-action icon-action-sm"
-                    actions={[
-                      {
-                        label: `Edit ${server.name}`,
-                        icon: <Pencil size={16} />,
-                        disabled: locked,
-                        onSelect: () => {
-                          session.update({
-                            draft: {
-                              ...emptyDraft(),
-                              operation: 'edit',
-                              serverId: server.server_id,
-                              transport:
-                                server.transport === 'unknown'
-                                  ? 'stdio'
-                                  : server.transport,
-                            },
-                            reviewed: null,
-                          });
-                          setEditorOpen(true);
-                        },
-                      },
-                      {
-                        label: `Rename ${server.name}`,
-                        icon: <TextCursorInput size={16} />,
-                        disabled: locked,
-                        onSelect: () => {
-                          session.update({
-                            draft: {
-                              ...emptyDraft(),
-                              operation: 'rename',
-                              serverId: server.server_id,
-                              name: server.name,
-                            },
-                            reviewed: null,
-                          });
-                          setEditorOpen(true);
-                        },
-                      },
-                      {
-                        label: `Delete ${server.name}`,
-                        icon: <Trash2 size={16} />,
-                        danger: true,
-                        disabled: locked || !canSave,
-                        onSelect: () =>
-                          setDeleteTarget({
-                            server_id: server.server_id,
-                            name: server.name,
-                          }),
-                      },
-                    ]}
-                  >
-                    <MoreHorizontal size={16} aria-hidden />
-                  </Menu>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {(state.cursor || page.next_cursor) && (
-            <div className="action-cluster">
-              <Button
-                disabled={locked || !state.cursor}
-                onClick={() => void refresh(state.filter)}
-              >
-                First page
-              </Button>
-              <Button
-                disabled={locked || !page.next_cursor}
-                onClick={() =>
-                  void refresh(state.filter, page.next_cursor ?? undefined)
-                }
-              >
-                Next page
-              </Button>
-            </div>
-          )}
+          </SettingsAdvanced>
         </>
       )}
-      <details
-        className="settings-supplemental-disclosure settings-mcp-editor"
-        open={editorOpen}
-        onToggle={(event) => setEditorOpen(event.currentTarget.open)}
+      <ModalTask
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title={
+          draft.operation === 'edit'
+            ? `Edit ${editedName}`
+            : draft.operation === 'rename'
+              ? `Rename ${editedName}`
+              : 'Add a server'
+        }
+        description={
+          editing
+            ? 'Saving leaves it turned off until you connect it again.'
+            : 'Browse a directory, fill in the details, or paste a configuration.'
+        }
+        className="settings-mcp-add-dialog"
       >
-        <summary>
-          <span>
-            <strong>Server configuration</strong>
-            <small>
-              {draft.operation === 'import'
-                ? 'Import saved JSON'
-                : `${draft.operation} without connecting`}
-            </small>
-          </span>
-        </summary>
-        <fieldset disabled={locked || !canSave}>
-          <legend>Save server settings</legend>
-          <Field label="Operation">
-            <Select
-              value={draft.operation}
-              onChange={(event) =>
-                edit({ operation: event.target.value as Draft['operation'] })
-              }
+        {!editing && (
+          <Segmented
+            label="How to add a server"
+            value={mode}
+            onChange={chooseMode}
+            options={[
+              ...(searchDirectory
+                ? [
+                    {
+                      value: 'browse' as const,
+                      label: 'Browse',
+                      icon: <LayoutGrid size={14} aria-hidden />,
+                    },
+                  ]
+                : []),
+              {
+                value: 'manual' as const,
+                label: 'Manual',
+                icon: <Pencil size={14} aria-hidden />,
+              },
+              {
+                value: 'json' as const,
+                label: 'Paste JSON',
+                icon: <Braces size={14} aria-hidden />,
+              },
+            ]}
+          />
+        )}
+        {tab === 'browse' && searchDirectory ? (
+          <div className="stack settings-mcp-browse">
+            <form
+              className="settings-mcp-search is-wide"
+              role="search"
+              aria-label="Search the MCP directory"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void search();
+              }}
             >
-              <option value="add">Add</option>
-              <option value="edit" disabled={!draft.serverId}>
-                Edit selected server
-              </option>
-              <option value="rename" disabled={!draft.serverId}>
-                Rename selected server
-              </option>
-              <option value="import">Import JSON</option>
-            </Select>
-          </Field>
-          {draft.operation === 'import' ? (
-            <Field label="Server import JSON">
+              <Search size={14} aria-hidden />
+              <Input
+                type="search"
+                aria-label="Search the MCP directory"
+                placeholder="Search servers"
+                data-initial-focus
+                value={directoryQuery}
+                maxLength={128}
+                disabled={locked || directoryBusy}
+                onChange={(event) => setDirectoryQuery(event.target.value)}
+              />
+              <Button
+                type="submit"
+                className="small"
+                disabled={locked || directoryBusy}
+              >
+                Search
+              </Button>
+            </form>
+            <p className="settings-help">
+              From public directories; searching contacts them. Row-Bot hasn’t
+              checked these servers, and new ones start off until you test them.
+            </p>
+            {directoryBusy && <p role="status">Searching…</p>}
+            {directoryError && <p role="alert">{directoryError}</p>}
+            {directoryItems.length > 0 && (
+              <ul className="settings-mcp-directory">
+                {directoryItems.map((entry) => {
+                  const key = `directory:${entry.source}:${entry.id}`;
+                  return (
+                    <li key={key}>
+                      <article
+                        className="settings-mcp-directory-entry"
+                        aria-label={entry.name}
+                      >
+                        <span className="settings-row-icon" aria-hidden>
+                          {entry.transport === 'stdio' ? (
+                            <SquareTerminal size={16} />
+                          ) : (
+                            <Globe2 size={16} />
+                          )}
+                        </span>
+                        <div className="settings-mcp-directory-text">
+                          <strong>{entry.name}</strong>
+                          <p>{entry.description || 'No description given.'}</p>
+                          <small>
+                            {[
+                              entry.publisher || 'Publisher unknown',
+                              entry.transport === 'stdio'
+                                ? 'on this computer'
+                                : 'online',
+                              entry.risk_level
+                                ? `${humanizeToken(entry.risk_level).toLowerCase()} risk`
+                                : 'risk unknown',
+                              entry.requires_auth && !entry.sign_in_required
+                                ? 'needs a key'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </small>
+                          {entry.sign_in_required && (
+                            // Browser sign-in (OAuth) isn't supported yet (B262).
+                            <small className="settings-mcp-sign-in">
+                              <Lock size={12} aria-hidden />
+                              Needs sign-in (not supported yet)
+                            </small>
+                          )}
+                          <details className="settings-mcp-preview">
+                            <summary>Configuration</summary>
+                            <pre className="text-preview">
+                              {entry.import_json}
+                            </pre>
+                          </details>
+                          {note(key)}
+                        </div>
+                        {!entry.sign_in_required && (
+                          <Button
+                            className="small"
+                            aria-label={`Add ${entry.name}`}
+                            disabled={locked || !canSave}
+                            onClick={() =>
+                              void requestReview(
+                                {
+                                  operation: 'import',
+                                  import_json: entry.import_json,
+                                },
+                                key,
+                              )
+                            }
+                          >
+                            Add
+                          </Button>
+                        )}
+                      </article>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {directoryResult && directoryItems.length === 0 && (
+              <p>No matching servers. Try other words or add one manually.</p>
+            )}
+          </div>
+        ) : tab === 'json' ? (
+          <fieldset
+            className="stack settings-mcp-form"
+            disabled={locked || !canSave}
+          >
+            <Field label="Server configuration (JSON)">
               <textarea
-                ref={importField}
                 className="input"
-                rows={6}
+                rows={8}
+                data-initial-focus
+                placeholder={'{ "mcpServers": { … } }'}
                 value={draft.imported}
                 maxLength={131072}
                 onChange={(event) => edit({ imported: event.target.value })}
               />
             </Field>
-          ) : (
-            <>
+            <small className="settings-help">
+              A standard mcpServers block. Each server in it is added turned
+              off.
+            </small>
+            <div className="action-cluster">
+              <Button
+                variant="primary"
+                disabled={incomplete}
+                onClick={() => {
+                  connectAfterSave.current = false;
+                  void requestReview();
+                }}
+              >
+                Add from JSON
+              </Button>
+            </div>
+            {note('editor')}
+          </fieldset>
+        ) : (
+          <fieldset
+            className="stack settings-mcp-form"
+            disabled={locked || !canSave}
+          >
+            {draft.operation !== 'edit' && (
               <Field
                 label={
                   draft.operation === 'rename'
@@ -1239,83 +1460,93 @@ export default function CapabilitySettings({
                 }
               >
                 <Input
-                  ref={nameField}
+                  data-initial-focus
                   value={draft.name}
                   maxLength={128}
-                  disabled={draft.operation === 'edit'}
                   aria-invalid={nameInvalid || undefined}
                   onChange={(event) => edit({ name: event.target.value })}
                 />
               </Field>
-              {nameInvalid && (
-                // The rule the server applies, said before saving (U53).
-                <small role="alert" className="settings-dialog-error">
-                  A server name starts with a letter or number and uses letters,
-                  numbers, spaces and _ ( ) . - only.
-                </small>
-              )}
-              {draft.operation !== 'rename' && (
-                <>
-                  <Field label="Transport">
-                    <Select
-                      value={draft.transport}
-                      onChange={(event) =>
-                        edit({ transport: event.target.value })
-                      }
-                    >
-                      <option value="stdio">Local command</option>
-                      <option value="streamable_http">HTTP</option>
-                      <option value="sse">SSE</option>
-                    </Select>
-                  </Field>
-                  <Field
-                    label={
-                      draft.transport === 'stdio' ? 'New command' : 'New URL'
+            )}
+            {nameInvalid && (
+              // The rule the server applies, said before saving (U53).
+              <small role="alert" className="settings-dialog-error">
+                A server name starts with a letter or number and uses letters,
+                numbers, spaces and _ ( ) . - only.
+              </small>
+            )}
+            {draft.operation !== 'rename' && (
+              <>
+                <Segmented
+                  label="Where it runs"
+                  value={draft.transport}
+                  onChange={(transport) => edit({ transport })}
+                  options={[
+                    { value: 'stdio', label: 'This computer' },
+                    { value: 'streamable_http', label: 'HTTP' },
+                    { value: 'sse', label: 'SSE' },
+                  ]}
+                />
+                <Field
+                  label={
+                    draft.transport === 'stdio'
+                      ? draft.operation === 'edit'
+                        ? 'New command'
+                        : 'Command'
+                      : draft.operation === 'edit'
+                        ? 'New address'
+                        : 'Address'
+                  }
+                >
+                  <Input
+                    data-initial-focus={draft.operation === 'edit' || undefined}
+                    value={draft.launch}
+                    maxLength={16384}
+                    autoComplete="off"
+                    placeholder={
+                      draft.transport === 'stdio'
+                        ? 'npx'
+                        : 'https://example.com/mcp'
                     }
-                  >
-                    <Input
-                      value={draft.launch}
-                      maxLength={16384}
+                    onChange={(event) => edit({ launch: event.target.value })}
+                  />
+                </Field>
+                {draft.transport === 'stdio' && (
+                  <Field label="Arguments (one per line)">
+                    <textarea
+                      className="input"
+                      rows={3}
+                      value={draft.arguments}
+                      maxLength={65536}
                       autoComplete="off"
-                      onChange={(event) => edit({ launch: event.target.value })}
+                      onChange={(event) =>
+                        edit({ arguments: event.target.value })
+                      }
                     />
                   </Field>
-                  {draft.transport === 'stdio' && (
-                    <Field label="Arguments (one per line)">
-                      <textarea
-                        className="input"
-                        rows={3}
-                        value={draft.arguments}
-                        maxLength={65536}
-                        autoComplete="off"
-                        onChange={(event) =>
-                          edit({ arguments: event.target.value })
-                        }
-                      />
-                    </Field>
-                  )}
-                  <PairRows
-                    label={
+                )}
+                <PairRows
+                  label={
+                    draft.transport === 'stdio'
+                      ? 'Environment variables'
+                      : 'Headers'
+                  }
+                  rows={draft.transport === 'stdio' ? draft.env : draft.headers}
+                  onChange={(rows) =>
+                    edit(
                       draft.transport === 'stdio'
-                        ? 'Environment variables'
-                        : 'Headers'
-                    }
-                    rows={
-                      draft.transport === 'stdio' ? draft.env : draft.headers
-                    }
-                    onChange={(rows) =>
-                      edit(
-                        draft.transport === 'stdio'
-                          ? { env: rows }
-                          : { headers: rows },
-                      )
-                    }
-                    hint={
-                      draft.operation === 'edit'
-                        ? 'Values stay hidden. Leave empty to keep the saved ones.'
-                        : 'Values stay hidden; use them for keys and tokens.'
-                    }
-                  />
+                        ? { env: rows }
+                        : { headers: rows },
+                    )
+                  }
+                  hint={
+                    draft.operation === 'edit'
+                      ? 'Values stay hidden. Leave empty to keep the saved ones.'
+                      : 'Values stay hidden; use them for keys and tokens.'
+                  }
+                />
+                <details className="settings-mcp-preview">
+                  <summary>More settings</summary>
                   <Field label="Additional settings (JSON)">
                     <textarea
                       className="input"
@@ -1330,67 +1561,77 @@ export default function CapabilitySettings({
                     Rarely needed: cwd, connect_timeout, tool_timeout,
                     output_limit. Omitted values stay saved.
                   </small>
-                </>
+                </details>
+              </>
+            )}
+            <div className="action-cluster">
+              {draft.operation === 'add' && addAndConnect && (
+                <Button
+                  variant="primary"
+                  disabled={nameInvalid || incomplete}
+                  onClick={() => {
+                    connectAfterSave.current = true;
+                    void requestReview();
+                  }}
+                >
+                  Add and connect
+                </Button>
               )}
-            </>
-          )}
-          <div className="action-cluster">
-            {draft.operation === 'add' && addAndConnect && (
               <Button
-                variant="primary"
+                variant={
+                  draft.operation === 'add' && addAndConnect
+                    ? 'secondary'
+                    : 'primary'
+                }
                 disabled={nameInvalid || incomplete}
                 onClick={() => {
-                  connectAfterSave.current = true;
+                  connectAfterSave.current = false;
                   void requestReview();
                 }}
               >
-                Add and connect
+                {draft.operation === 'add'
+                  ? 'Add turned off'
+                  : draft.operation === 'rename'
+                    ? 'Rename'
+                    : 'Save'}
               </Button>
-            )}
-            <Button
-              variant={
-                draft.operation === 'add' && addAndConnect
-                  ? 'secondary'
-                  : 'primary'
-              }
-              disabled={nameInvalid || incomplete}
-              onClick={() => {
-                connectAfterSave.current = false;
-                void requestReview();
-              }}
-            >
-              Save Disabled
-            </Button>
-          </div>
-          {connecting && <p role="status">{connecting}</p>}
-        </fieldset>
-        {note('editor')}
-      </details>
+            </div>
+            {connecting && <p role="status">{connecting}</p>}
+            {note('editor')}
+          </fieldset>
+        )}
+        {!editing && (
+          <p className="settings-help settings-mcp-dialog-foot">
+            Adding opens the server’s details next.
+          </p>
+        )}
+      </ModalTask>
       <ModalTask
-        open={deleteTarget !== null}
+        open={state.removing !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          if (!open) session.update({ removing: null });
         }}
-        title="Delete MCP server"
-        description="This removes the saved configuration and stops its connection."
+        title={`Remove ${state.removing?.name ?? 'server'}?`}
+        description="This deletes its saved settings and keys and stops its connection."
       >
-        <p>{deleteTarget?.name}</p>
         <div className="button-row">
-          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button onClick={() => session.update({ removing: null })}>
+            Cancel
+          </Button>
           <Button
             variant="danger"
-            disabled={locked}
+            disabled={locked || !canSave}
             onClick={() => {
-              if (!deleteTarget) return;
-              const target = deleteTarget;
-              setDeleteTarget(null);
+              const target = session.getSnapshot().removing;
+              if (!target) return;
+              session.update({ removing: null });
               void requestReview(
                 { operation: 'delete', server_id: target.server_id },
                 'list',
               );
             }}
           >
-            Delete server
+            Remove server
           </Button>
         </div>
       </ModalTask>

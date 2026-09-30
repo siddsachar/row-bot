@@ -87,8 +87,8 @@ const descriptions: Record<string, string> = {
   tools: 'Search, research and built-in tools the assistant can use.',
   skills: 'Reusable instructions: installed skills and public ones.',
   plugins: 'Installed plugins and the plugin marketplace.',
-  mcp: 'External MCP servers, their tools, permissions and runtimes.',
-  accounts: 'GitHub, Google and X accounts, without exposing credentials.',
+  mcp: 'Tools from MCP servers, on this computer or online.',
+  accounts: 'Services Row-Bot can use for you. Keys stay in your keychain.',
   channels: 'Messaging platforms Row-Bot can talk through.',
   system: 'Where Row-Bot works on this computer, and what it may do there.',
   access:

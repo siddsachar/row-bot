@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import {
   Activity,
+  AtSign,
   BarChart3,
   BookOpen,
   AppWindow,
   Calculator,
   CalendarClock,
-  ChevronDown,
+  CheckCircle2,
   Cloud,
   Download,
   CloudSun,
@@ -21,18 +22,21 @@ import {
   Hammer,
   Import,
   ListChecks,
+  Mail,
   Mic,
   MonitorCog,
   MousePointerClick,
   Network,
   RefreshCw,
   RotateCcw,
+  RotateCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   SquareTerminal,
   Square,
   Play,
+  Unlink,
   Volume2,
   Wrench,
 } from 'lucide-react';
@@ -52,9 +56,11 @@ import { ModalTask, useNotify } from '../../ui/overlays';
 import ConnectedUpdateControls from './UpdateControls';
 import ConnectedMigrationControls from './MigrationControls';
 import ConnectedDataBackup from './DataBackup';
-import ConnectedGitHubAccessControls from './GitHubAccessControls';
-import ConnectedAccountAuthControls from './AccountAuthControls';
-import { ConnectSheet } from './ConnectSheet';
+import ConnectedGitHubAccess, {
+  type GitHubAccess,
+} from './GitHubAccessControls';
+import ConnectedAccountAuth, { type AccountAuth } from './AccountAuthControls';
+import { ConnectSheet, type ConnectStep } from './ConnectSheet';
 import { ACCOUNT_LINKS } from './connect-guides';
 import type {
   SettingsMutationReceipt,
@@ -64,12 +70,15 @@ import type {
 } from '../../api/types';
 import {
   Button,
+  Disclosure,
   IconButton,
   Input,
   Segmented,
   Select,
+  StatusDot,
   Toggle,
   type SegmentedOption,
+  type Tone,
 } from '../../ui/primitives';
 import {
   absoluteTime,
@@ -267,20 +276,6 @@ function savedStateLabel(value: string | null | undefined) {
   return value
     .replaceAll('_', ' ')
     .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
-}
-function accountStateLabel(value: string) {
-  return (
-    {
-      not_configured: 'Not configured',
-      not_authenticated: 'Not authenticated',
-      connected: 'Connected',
-      invalid: 'Reconnect needed',
-      configured_unchecked: 'Configured · not checked',
-      saved_unchecked: 'Saved · not checked',
-      expired: 'Expired',
-      unavailable: 'Unavailable',
-    }[value] ?? savedStateLabel(value)
-  );
 }
 function formattedDateTime(value: string | null) {
   if (!value) return 'Never';
@@ -3300,361 +3295,695 @@ function reloadAccounts(mutation: SettingsMutationIO) {
   // A failed reload keeps the page as it was; the action's own result shows.
   mutation.refreshSnapshot?.().then(mutation.onSnapshot, () => undefined);
 }
-/** A usable sign-in is saved, checked or not. */
-function tokenSaved(account: SettingsSnapshot['accounts']['x']) {
-  return ['saved_unchecked', 'connected'].includes(
-    account.authentication_state,
+
+type AccountItem = SettingsSnapshot['accounts']['github'];
+type AccountState =
+  'connected' | 'reconnect' | 'unchecked' | 'not_connected' | 'unavailable';
+/**
+ * One status per account (B263), from the saved snapshot, which reports
+ * what the last Check found. Google's Gmail and Calendar are one account.
+ */
+function accountState(states: AccountItem['authentication_state'][]) {
+  if (states.some((state) => state === 'invalid' || state === 'expired'))
+    return 'reconnect';
+  if (states.includes('connected')) return 'connected';
+  if (
+    states.some(
+      (state) =>
+        state === 'saved_unchecked' || state === 'configured_unchecked',
+    )
+  )
+    return 'unchecked';
+  if (states.every((state) => state === 'unavailable')) return 'unavailable';
+  return 'not_connected';
+}
+const ACCOUNT_STATES: Record<AccountState, { tone: Tone; label: string }> = {
+  connected: { tone: 'success', label: 'Connected' },
+  reconnect: { tone: 'warning', label: 'Needs reconnecting' },
+  unchecked: { tone: 'info', label: 'Not checked yet' },
+  not_connected: { tone: 'neutral', label: 'Not connected' },
+  unavailable: { tone: 'neutral', label: 'Status unavailable' },
+};
+/** A sign-in exists (checked or not), so its setup guide is folded away. */
+function signedIn(state: AccountState) {
+  return state !== 'not_connected' && state !== 'unavailable';
+}
+
+/** Check (or Reconnect when a sign-in expired) and a quiet Disconnect. */
+function AccountActions({
+  name,
+  state,
+  locked,
+  onCheck,
+  onReconnect,
+  onDisconnect,
+}: {
+  name: string;
+  state: AccountState;
+  locked: boolean;
+  onCheck: () => void;
+  onReconnect?: () => void;
+  onDisconnect?: () => void;
+}) {
+  if (state === 'not_connected') return null;
+  return (
+    <>
+      {state === 'reconnect' && onReconnect ? (
+        <Button
+          aria-label={`Reconnect ${name}`}
+          disabled={locked}
+          onClick={onReconnect}
+        >
+          <RotateCw size={14} aria-hidden />
+          Reconnect
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          aria-label={`Check ${name}`}
+          disabled={locked}
+          onClick={onCheck}
+        >
+          <CheckCircle2 size={14} aria-hidden />
+          Check
+        </Button>
+      )}
+      {onDisconnect && state !== 'unavailable' && (
+        <Button
+          variant="ghost"
+          aria-label={`Disconnect ${name}`}
+          disabled={locked}
+          onClick={onDisconnect}
+        >
+          <Unlink size={14} aria-hidden />
+          Disconnect
+        </Button>
+      )}
+    </>
   );
 }
 
-function AccountPanel({
+/**
+ * One account (B263): a row with one status, who and how, and labelled
+ * actions; its switches as sub-rows; and its setup guide, folded away once
+ * signed in.
+ */
+function AccountRow({
+  anchor,
+  name,
+  icon,
+  tone,
+  state,
+  meta,
+  actions,
+  feedback,
+  guide,
+  guideOpen,
+  children,
+}: {
+  anchor: string;
+  name: string;
+  icon: ReactNode;
+  tone: NonNullable<Parameters<typeof SettingsItem>[0]['tone']>;
+  state: AccountState;
+  meta: ReactNode;
+  actions?: ReactNode;
+  feedback?: ReactNode;
+  guide: ConnectStep[];
+  /** Open the guide although the account is signed in (nothing else fixes it). */
+  guideOpen?: boolean;
+  children?: ReactNode;
+}) {
+  const done = signedIn(state);
+  return (
+    <div className="settings-account" data-setting-anchor={anchor}>
+      <SettingsItem
+        icon={icon}
+        tone={tone}
+        bind={false}
+        className="settings-account-row"
+        label={
+          <>
+            {name}
+            <StatusDot {...ACCOUNT_STATES[state]} showLabel />
+          </>
+        }
+        help={meta}
+        control={actions}
+      >
+        {feedback}
+      </SettingsItem>
+      {children}
+      <Disclosure
+        className="settings-group-disclosure settings-divided settings-account-guide"
+        summary={`How to set up ${name}`}
+        meta={`${done ? 'Done · ' : ''}${guide.length} steps`}
+        defaultOpen={!done || guideOpen}
+      >
+        <ConnectSheet title={`Connect ${name}`} titleHidden steps={guide} />
+      </Disclosure>
+    </div>
+  );
+}
+
+/**
+ * An account's access switch as a sub-row, with "5 of 5 actions · Choose":
+ * the operations are chosen in a small dialog (B263).
+ */
+function AccessSwitch({
+  mutation,
+  field,
   label,
-  icon: Icon,
+  help,
+  value,
+  lists,
+}: {
+  mutation: SettingsMutationIO;
+  field: string;
+  label: string;
+  help: string;
+  value: boolean | null;
+  lists: { field: string; label: string; value: string[]; options: string[] }[];
+}) {
+  const [choosing, setChoosing] = useState(false);
+  const total = lists.reduce((sum, list) => sum + list.options.length, 0);
+  const on = lists.reduce(
+    (sum, list) =>
+      sum + list.options.filter((option) => list.value.includes(option)).length,
+    0,
+  );
+  const status = (
+    <StatusLine
+      action={
+        <Button
+          className="settings-link"
+          aria-label={`Choose ${label.toLowerCase()} actions`}
+          onClick={() => setChoosing(true)}
+        >
+          Choose
+        </Button>
+      }
+    >
+      {on} of {total} actions
+    </StatusLine>
+  );
+  return (
+    <>
+      {value === null ? (
+        <SettingsItem sub label={label} help={help} status={status} />
+      ) : (
+        <SwitchSetting
+          mutation={mutation}
+          field={field}
+          label={label}
+          hint={help}
+          value={value}
+          row={{ sub: true, status }}
+        />
+      )}
+      <ModalTask
+        open={choosing}
+        onOpenChange={setChoosing}
+        title={`${label}: actions`}
+        description="Row-Bot uses only the actions ticked here. Sending, posting and deleting still ask first."
+      >
+        <div className="stack">
+          {lists.map((list) => (
+            <ChoiceListSetting
+              key={list.field}
+              mutation={mutation}
+              field={list.field}
+              label={list.label}
+              value={list.value}
+              options={list.options}
+            />
+          ))}
+        </div>
+      </ModalTask>
+    </>
+  );
+}
+
+/** Opens the system file picker for Google's sign-in file. */
+function SignInFileButton({
+  disabled,
+  onFile,
+}: {
+  disabled: boolean;
+  onFile: (file: File | undefined) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept=".json,application/json"
+        className="visually-hidden"
+        tabIndex={-1}
+        aria-hidden
+        onChange={(event) => {
+          onFile(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      <Button
+        aria-label="Choose Google sign-in file"
+        disabled={disabled}
+        onClick={() => input.current?.click()}
+      >
+        Choose file…
+      </Button>
+    </>
+  );
+}
+
+function GitHubAccount({
   account,
   mutation,
-  prefix,
-  showActions = false,
+  access,
 }: {
-  label: string;
-  icon: Icon;
-  account: SettingsSnapshot['accounts']['github'];
+  account: AccountItem;
   mutation: SettingsMutationIO;
-  prefix: 'github' | 'x';
-  showActions?: boolean;
+  access: GitHubAccess | null;
 }) {
-  const status =
-    prefix === 'github' && account.authentication_state === 'not_configured'
-      ? 'Not connected'
-      : accountStateLabel(account.authentication_state);
+  const state = accountState([account.authentication_state]);
+  const usable = access && !access.localOnly && access.snapshot;
+  const source = access?.snapshot?.credential_source;
+  const how =
+    source === 'github_cli'
+      ? 'Through the GitHub CLI on this computer'
+      : account.credential?.source === 'environment' || source === 'environment'
+        ? 'With a token from your environment'
+        : account.credential?.configured || source === 'keyring'
+          ? 'With a token in your keychain'
+          : '';
+  // Without the CLI a sign-in that stopped working is fixed in the guide.
+  const cli = access?.snapshot?.cli_installed === true;
   return (
-    <details className="settings-account-panel" data-setting-anchor={prefix}>
-      <summary>
-        <Icon size={18} aria-hidden />
-        <strong>{label}</strong>
-        <span>{status}</span>
-        <ChevronDown
-          className="settings-disclosure-chevron"
-          size={17}
-          aria-hidden
-        />
-      </summary>
-      <div className="stack settings-account-content">
-        {prefix === 'github' ? (
-          // GitHub's connect sheet (parity row 45).
-          <ConnectSheet
-            title="Connect GitHub"
-            steps={[
-              {
-                id: 'token',
-                text: 'Sign in with the GitHub CLI (gh auth login) on this computer, or create a fine-grained token for the repositories Row-Bot should use.',
-                link: {
-                  href: ACCOUNT_LINKS.githubToken,
-                  label: 'Create a token',
-                },
-              },
-              {
-                id: 'paste',
-                text: 'If you made a token, paste it here. It stays in your keychain.',
-                done: account.credential?.configured === true,
-                children: (
-                  <SecretSetting
-                    mutation={mutation}
-                    field="github.credential"
-                    label="GitHub token"
-                    configured={account.credential?.configured ?? false}
-                    source={account.credential?.source}
-                    fingerprint={account.credential?.fingerprint}
-                  />
-                ),
-              },
-              {
-                id: 'check',
-                text: 'Check that Row-Bot can reach GitHub with it.',
-                done: account.authentication_state === 'connected',
-                children: showActions ? (
-                  <ConnectedGitHubAccessControls
-                    onChanged={() => reloadAccounts(mutation)}
-                  />
-                ) : null,
-              },
-            ]}
+    <AccountRow
+      anchor="github"
+      name="GitHub"
+      icon={<GitBranch size={16} aria-hidden />}
+      tone="neutral"
+      state={state}
+      meta={
+        signedIn(state)
+          ? [how, state === 'reconnect' ? 'its sign-in stopped working' : '']
+              .filter(Boolean)
+              .join(' · ')
+          : 'Issues, pull requests and code. Public repositories work without it.'
+      }
+      actions={
+        usable && (
+          <AccountActions
+            name="GitHub"
+            state={state}
+            locked={access.locked}
+            onCheck={() => access.send('check')}
+            onReconnect={cli ? () => access.send('cli_refresh') : undefined}
           />
-        ) : (
-          // X's connect sheet, with the callback address to register.
-          <ConnectSheet
-            title="Connect X"
-            steps={[
-              {
-                id: 'app',
-                text: 'In the X developer portal, create a project and an app, and turn on OAuth 2.0 with read and write access.',
-                link: {
-                  href: ACCOUNT_LINKS.xPortal,
-                  label: 'Open the developer portal',
-                },
-              },
-              ...(account.callback_url
-                ? [
-                    {
-                      id: 'callback',
-                      text: 'Add this callback address to the app’s OAuth settings:',
-                      copy: {
-                        value: account.callback_url,
-                        label: 'X callback address',
-                      },
-                    },
-                  ]
-                : []),
-              {
-                id: 'keys',
-                text: 'Paste its client ID and client secret.',
-                done: account.configured,
-                children: (
-                  <>
-                    <SecretSetting
-                      mutation={mutation}
-                      field="x.client_id"
-                      label="X client ID"
-                      configured={account.configured}
-                      source={account.credential?.source}
-                    />
-                    <SecretSetting
-                      mutation={mutation}
-                      field="x.client_secret"
-                      label="X client secret"
-                      configured={account.credential?.configured ?? false}
-                      source={account.credential?.source}
-                      fingerprint={account.credential?.fingerprint}
-                    />
-                  </>
-                ),
-              },
-              {
-                id: 'authenticate',
-                text: 'Authenticate X in your browser.',
-                done: tokenSaved(account),
-                children: showActions ? (
-                  <ConnectedAccountAuthControls
-                    account="x"
-                    onChanged={() => reloadAccounts(mutation)}
-                  />
-                ) : null,
-              },
-            ]}
-          />
-        )}
-        <Facts>
-          <Fact
-            label="Configuration"
-            value={configuredLabel(account.configured)}
-          />
-          <Fact
-            label="Credential source"
-            value={
-              account.credential?.source
-                ? savedStateLabel(account.credential.source)
-                : 'Not saved'
-            }
-          />
-        </Facts>
-        {prefix === 'x' && account.enabled != null && (
-          <SwitchSetting
-            mutation={mutation}
-            field={`${prefix}.enabled`}
-            label={`Enable ${label}`}
-            value={account.enabled}
-          />
-        )}
-        {prefix === 'x' && (
-          <>
-            <ChoiceListSetting
+        )
+      }
+      feedback={access?.feedback}
+      guideOpen={state === 'reconnect' && !cli}
+      guide={[
+        {
+          id: 'token',
+          text: 'Sign in with the GitHub CLI on this computer, or create a fine-grained token for the repositories Row-Bot should use.',
+          link: {
+            href: ACCOUNT_LINKS.githubToken,
+            label: 'Create a token',
+          },
+          children: usable && cli && (
+            <div className="action-cluster">
+              <Button
+                className="small"
+                disabled={access.locked}
+                onClick={() => access.send('cli_login')}
+              >
+                Sign in with the GitHub CLI
+              </Button>
+            </div>
+          ),
+        },
+        {
+          id: 'paste',
+          text: 'If you made a token, paste it here. It stays in your keychain.',
+          done: account.credential?.configured === true,
+          children: (
+            <SecretSetting
               mutation={mutation}
-              field="x.read_operations"
-              label="Read operations"
-              value={account.read_operations}
-              options={[
-                'x_search',
-                'x_read_tweet',
-                'x_timeline',
-                'x_mentions',
-                'x_user_info',
-              ]}
+              field="github.credential"
+              label="GitHub token"
+              configured={account.credential?.configured ?? false}
+              source={account.credential?.source}
+              fingerprint={account.credential?.fingerprint}
             />
-            <ChoiceListSetting
-              mutation={mutation}
-              field="x.post_operations"
-              label="Post operations"
-              value={account.post_operations}
-              options={['x_post_tweet', 'x_reply', 'x_quote', 'x_delete_tweet']}
-            />
-            <ChoiceListSetting
-              mutation={mutation}
-              field="x.engage_operations"
-              label="Engage operations"
-              value={account.engage_operations}
-              options={[
-                'x_like',
-                'x_unlike',
-                'x_repost',
-                'x_unrepost',
-                'x_bookmark',
-                'x_unbookmark',
-              ]}
-            />
-          </>
-        )}
-        <p className="settings-help">
-          Authentication is started only by an explicit account action. Opening
-          this panel never contacts the account provider.
-        </p>
-      </div>
-    </details>
+          ),
+        },
+        {
+          id: 'check',
+          text: 'Check that Row-Bot can reach GitHub. No account? Public repositories work without one.',
+          done: state === 'connected',
+          children: usable && (
+            <div className="action-cluster">
+              {!signedIn(state) && (
+                <Button
+                  className="small"
+                  disabled={access.locked}
+                  onClick={() => access.send('check')}
+                >
+                  Check GitHub
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                className="small"
+                disabled={access.locked}
+                onClick={() => access.send('anonymous')}
+              >
+                Use public access only
+              </Button>
+            </div>
+          ),
+        },
+      ]}
+    />
   );
 }
 
-function GoogleAccountPanel({
+function GoogleAccount({
   gmail,
   calendar,
   mutation,
-  showActions = false,
+  auth,
 }: {
-  gmail: SettingsSnapshot['accounts']['gmail'];
-  calendar: SettingsSnapshot['accounts']['calendar'];
+  gmail: AccountItem;
+  calendar: AccountItem;
   mutation: SettingsMutationIO;
-  showActions?: boolean;
+  auth: AccountAuth | null;
 }) {
-  const status =
-    gmail.authentication_state === calendar.authentication_state
-      ? gmail.authentication_state === 'expired'
-        ? 'Token issue'
-        : accountStateLabel(gmail.authentication_state)
-      : `Gmail: ${accountStateLabel(gmail.authentication_state)} · Calendar: ${accountStateLabel(calendar.authentication_state)}`;
+  const state = accountState([
+    gmail.authentication_state,
+    calendar.authentication_state,
+  ]);
+  const configured = gmail.configured || calendar.configured;
+  const usable = auth && !auth.localOnly && auth.snapshot;
   return (
-    <details className="settings-account-panel" data-setting-anchor="google">
-      <summary>
-        <FileKey size={18} aria-hidden />
-        <strong>Google (Gmail &amp; Calendar)</strong>
-        <span>{status}</span>
-        <ChevronDown
-          className="settings-disclosure-chevron"
-          size={17}
-          aria-hidden
-        />
-      </summary>
-      <div className="stack settings-account-content">
-        <ConnectSheet
-          title="Connect Google"
-          steps={[
-            {
-              id: 'apis',
-              text: 'In Google Cloud, create a project and turn on the Gmail API and the Google Calendar API.',
-              link: {
-                href: ACCOUNT_LINKS.googleLibrary,
-                label: 'Open the API library',
-              },
-            },
-            {
-              id: 'consent',
-              text: 'Set up the OAuth consent screen and add yourself as a test user.',
-              link: {
-                href: ACCOUNT_LINKS.googleConsent,
-                label: 'Open the consent screen',
-              },
-            },
-            {
-              id: 'client',
-              text: 'Create an OAuth client ID of type Desktop app and download its JSON file.',
-              link: {
-                href: ACCOUNT_LINKS.googleCredentials,
-                label: 'Open credentials',
-              },
-              done: gmail.configured || calendar.configured,
-            },
-            {
-              id: 'authenticate',
-              text: 'Choose that file here, then authenticate Google in your browser.',
-              done: tokenSaved(gmail) || tokenSaved(calendar),
-              children: showActions ? (
-                <ConnectedAccountAuthControls
-                  account="google"
-                  onChanged={() => reloadAccounts(mutation)}
-                />
-              ) : null,
-            },
-          ]}
-        />
-        <div className="settings-control-grid">
-          {gmail.enabled != null && (
-            <SwitchSetting
-              mutation={mutation}
-              field="gmail.enabled"
-              label="Gmail"
-              value={gmail.enabled}
-            />
-          )}
-          {calendar.enabled != null && (
-            <SwitchSetting
-              mutation={mutation}
-              field="calendar.enabled"
-              label="Calendar"
-              value={calendar.enabled}
-            />
-          )}
-        </div>
-        <ChoiceListSetting
-          mutation={mutation}
-          field="gmail.operations"
-          label="Gmail operations"
-          value={gmail.operations}
-          options={[
-            'search_gmail',
-            'get_gmail_message',
-            'get_gmail_thread',
-            'create_gmail_draft',
-            'send_gmail_message',
-          ]}
-        />
-        <ChoiceListSetting
-          mutation={mutation}
-          field="calendar.operations"
-          label="Calendar operations"
-          value={calendar.operations}
-          options={[
-            'get_current_datetime',
-            'search_events',
-            'create_calendar_event',
-            'create_calendar_events',
-            'update_calendar_event',
-            'move_calendar_event',
-            'delete_calendar_event',
-          ]}
-        />
-        <Facts>
-          <Fact
-            label="Credentials file"
-            value={
-              gmail.configured || calendar.configured
-                ? 'Configured locally'
-                : 'Not configured'
-            }
+    <AccountRow
+      anchor="google"
+      name="Google"
+      icon={<Mail size={16} aria-hidden />}
+      tone="5"
+      state={state}
+      meta={
+        state === 'reconnect'
+          ? 'Gmail and Calendar · the sign-in expired or was turned down'
+          : state === 'unchecked'
+            ? 'Gmail and Calendar · signed in; Check confirms it works'
+            : signedIn(state)
+              ? 'Gmail and Calendar'
+              : 'Gmail and Calendar. Sending and changes always ask first.'
+      }
+      actions={
+        usable && (
+          <AccountActions
+            name="Google"
+            state={state}
+            locked={auth.locked}
+            onCheck={auth.check}
+            onReconnect={configured ? auth.start : undefined}
+            onDisconnect={auth.disconnect}
           />
-          <Fact
-            label="Gmail configuration"
-            value={configuredLabel(gmail.configured)}
-          />
-          <Fact
-            label="Calendar configuration"
-            value={configuredLabel(calendar.configured)}
-          />
-        </Facts>
-        <p className="settings-help">
-          Credential locations stay local and are never returned to this page.
-          Choose a client file or start authentication on the local owner
-          device.
-        </p>
-      </div>
-    </details>
+        )
+      }
+      feedback={auth?.feedback}
+      guide={[
+        {
+          id: 'apis',
+          text: 'In Google Cloud, create a project and turn on the Gmail API and the Google Calendar API.',
+          link: {
+            href: ACCOUNT_LINKS.googleLibrary,
+            label: 'Open the API library',
+          },
+        },
+        {
+          id: 'consent',
+          text: 'Set up the OAuth consent screen and add yourself as a test user.',
+          link: {
+            href: ACCOUNT_LINKS.googleConsent,
+            label: 'Open the consent screen',
+          },
+        },
+        {
+          id: 'client',
+          text: 'Create an OAuth client ID of type Desktop app, download its file and choose it under Google sign-in file.',
+          link: {
+            href: ACCOUNT_LINKS.googleCredentials,
+            label: 'Open credentials',
+          },
+          done: configured,
+        },
+        {
+          id: 'authenticate',
+          text: 'Sign in to Google in your browser.',
+          done: signedIn(state),
+          children: usable && (
+            <div className="action-cluster">
+              <Button
+                variant="primary"
+                className="small"
+                disabled={auth.locked || !configured}
+                onClick={auth.start}
+              >
+                Sign in with Google
+              </Button>
+            </div>
+          ),
+        },
+      ]}
+    >
+      <AccessSwitch
+        mutation={mutation}
+        field="gmail.enabled"
+        label="Gmail access"
+        help="Search, read and draft email. Sending always asks first."
+        value={gmail.enabled}
+        lists={[
+          {
+            field: 'gmail.operations',
+            label: 'Gmail actions',
+            value: gmail.operations,
+            options: [
+              'search_gmail',
+              'get_gmail_message',
+              'get_gmail_thread',
+              'create_gmail_draft',
+              'send_gmail_message',
+            ],
+          },
+        ]}
+      />
+      <AccessSwitch
+        mutation={mutation}
+        field="calendar.enabled"
+        label="Calendar access"
+        help="See and add events. Moving or deleting asks first."
+        value={calendar.enabled}
+        lists={[
+          {
+            field: 'calendar.operations',
+            label: 'Calendar actions',
+            value: calendar.operations,
+            options: [
+              'get_current_datetime',
+              'search_events',
+              'create_calendar_event',
+              'create_calendar_events',
+              'update_calendar_event',
+              'move_calendar_event',
+              'delete_calendar_event',
+            ],
+          },
+        ]}
+      />
+      <SettingsItem
+        sub
+        label="Google sign-in file"
+        help="The Desktop app file from your Google Cloud project. Its location stays on this computer."
+        bind={false}
+        control={
+          <>
+            <span className="settings-folder-chip">
+              <FileKey size={14} aria-hidden />
+              <span>{configured ? 'File saved' : 'No file yet'}</span>
+            </span>
+            {usable && (
+              <SignInFileButton
+                disabled={auth.locked}
+                onFile={auth.importFile}
+              />
+            )}
+          </>
+        }
+      />
+    </AccountRow>
   );
 }
+
+function XAccount({
+  account,
+  mutation,
+  auth,
+}: {
+  account: AccountItem;
+  mutation: SettingsMutationIO;
+  auth: AccountAuth | null;
+}) {
+  const state = accountState([account.authentication_state]);
+  const usable = auth && !auth.localOnly && auth.snapshot;
+  return (
+    <AccountRow
+      anchor="x"
+      name="X"
+      icon={<AtSign size={16} aria-hidden />}
+      tone="neutral"
+      state={state}
+      meta={
+        state === 'reconnect'
+          ? 'The sign-in expired or was turned down'
+          : state === 'unchecked'
+            ? 'Signed in; Check confirms it works'
+            : 'Post and read on X for you. Posting always asks first.'
+      }
+      actions={
+        usable && (
+          <AccountActions
+            name="X"
+            state={state}
+            locked={auth.locked}
+            onCheck={auth.check}
+            onReconnect={account.configured ? auth.start : undefined}
+            onDisconnect={auth.disconnect}
+          />
+        )
+      }
+      feedback={auth?.feedback}
+      guide={[
+        {
+          id: 'app',
+          text: 'In the X developer portal, create a project and an app, with OAuth 2.0 read and write turned on.',
+          link: {
+            href: ACCOUNT_LINKS.xPortal,
+            label: 'Open the developer portal',
+          },
+        },
+        ...(account.callback_url
+          ? [
+              {
+                id: 'callback',
+                text: 'Add this callback address to the app’s sign-in settings.',
+                copy: {
+                  value: account.callback_url,
+                  label: 'X callback address',
+                },
+              },
+            ]
+          : []),
+        {
+          id: 'keys',
+          text: 'Paste the app’s client ID and secret.',
+          done: account.configured,
+          children: (
+            <>
+              <SecretSetting
+                mutation={mutation}
+                field="x.client_id"
+                label="X client ID"
+                configured={account.configured}
+                source={account.credential?.source}
+              />
+              <SecretSetting
+                mutation={mutation}
+                field="x.client_secret"
+                label="X client secret"
+                configured={account.credential?.configured ?? false}
+                source={account.credential?.source}
+                fingerprint={account.credential?.fingerprint}
+              />
+            </>
+          ),
+        },
+        {
+          id: 'authenticate',
+          text: 'Sign in to X in your browser.',
+          done: signedIn(state),
+          children: usable && (
+            <div className="action-cluster">
+              <Button
+                variant="primary"
+                className="small"
+                disabled={auth.locked || !account.configured}
+                onClick={auth.start}
+              >
+                Connect X
+              </Button>
+            </div>
+          ),
+        },
+      ]}
+    >
+      <AccessSwitch
+        mutation={mutation}
+        field="x.enabled"
+        label="X access"
+        help="Search, read and post on X. Posting and deleting ask first."
+        value={account.enabled}
+        lists={[
+          {
+            field: 'x.read_operations',
+            label: 'Read',
+            value: account.read_operations,
+            options: [
+              'x_search',
+              'x_read_tweet',
+              'x_timeline',
+              'x_mentions',
+              'x_user_info',
+            ],
+          },
+          {
+            field: 'x.post_operations',
+            label: 'Post',
+            value: account.post_operations,
+            options: ['x_post_tweet', 'x_reply', 'x_quote', 'x_delete_tweet'],
+          },
+          {
+            field: 'x.engage_operations',
+            label: 'Engage',
+            value: account.engage_operations,
+            options: [
+              'x_like',
+              'x_unlike',
+              'x_repost',
+              'x_unrepost',
+              'x_bookmark',
+              'x_unbookmark',
+            ],
+          },
+        ]}
+      />
+    </AccountRow>
+  );
+}
+
+/**
+ * Settings › Accounts (B263): GitHub, Google and X, each one row with one
+ * status and labelled actions. Opening the page reads the saved state only;
+ * no token is refreshed and no account is contacted until an action is
+ * chosen.
+ */
 export function AccountsSnapshotPanel({
   snapshot,
   mutation,
@@ -3666,51 +3995,83 @@ export function AccountsSnapshotPanel({
 }) {
   if (snapshot.availability !== 'available')
     return (
-      <Section
-        title="Accounts"
-        description="Saved account settings are unavailable."
-        icon={FileKey}
-      >
-        <StateChip warning>Account settings unavailable</StateChip>
-      </Section>
+      <SettingsStatus tone="warning">
+        Saved account settings are unavailable
+      </SettingsStatus>
     );
   // Gmail and Calendar share one Google sign-in, so Google counts once.
-  const connected = [
-    [snapshot.github],
-    [snapshot.gmail, snapshot.calendar],
-    [snapshot.x],
-  ].filter((account) =>
-    account.some((part) => part.authentication_state === 'connected'),
-  ).length;
+  const states = [
+    accountState([snapshot.github.authentication_state]),
+    accountState([
+      snapshot.gmail.authentication_state,
+      snapshot.calendar.authentication_state,
+    ]),
+    accountState([snapshot.x.authentication_state]),
+  ];
+  const count = (state: AccountState) =>
+    states.filter((item) => item === state).length;
+  const changed = () => reloadAccounts(mutation);
   return (
     <div className="stack settings-snapshot-page settings-accounts-page">
-      <SettingsSummary>
-        <SummaryChip tone={connected ? 'success' : undefined}>
-          {connected} connected
-        </SummaryChip>
-      </SettingsSummary>
-      <AccountPanel
-        label="GitHub"
-        icon={GitBranch}
-        account={snapshot.github}
-        mutation={mutation}
-        prefix="github"
-        showActions={showActions}
-      />
-      <GoogleAccountPanel
-        gmail={snapshot.gmail}
-        calendar={snapshot.calendar}
-        mutation={mutation}
-        showActions={showActions}
-      />
-      <AccountPanel
-        label="X (Twitter)"
-        icon={Network}
-        account={snapshot.x}
-        mutation={mutation}
-        prefix="x"
-        showActions={showActions}
-      />
+      <SettingsStatus
+        tone={count('connected') ? 'success' : 'neutral'}
+        more={[
+          count('reconnect') ? `${count('reconnect')} needs reconnecting` : '',
+          count('unchecked') ? `${count('unchecked')} not checked yet` : '',
+          count('not_connected')
+            ? `${count('not_connected')} not connected`
+            : '',
+        ]}
+      >
+        {count('connected')} connected
+      </SettingsStatus>
+      <SettingsGroup label="Accounts" className="settings-accounts">
+        {showActions ? (
+          <ConnectedGitHubAccess onChanged={changed}>
+            {(access) => (
+              <GitHubAccount
+                account={snapshot.github}
+                mutation={mutation}
+                access={access}
+              />
+            )}
+          </ConnectedGitHubAccess>
+        ) : (
+          <GitHubAccount
+            account={snapshot.github}
+            mutation={mutation}
+            access={null}
+          />
+        )}
+        {showActions ? (
+          <ConnectedAccountAuth account="google" onChanged={changed}>
+            {(auth) => (
+              <GoogleAccount
+                gmail={snapshot.gmail}
+                calendar={snapshot.calendar}
+                mutation={mutation}
+                auth={auth}
+              />
+            )}
+          </ConnectedAccountAuth>
+        ) : (
+          <GoogleAccount
+            gmail={snapshot.gmail}
+            calendar={snapshot.calendar}
+            mutation={mutation}
+            auth={null}
+          />
+        )}
+        {showActions ? (
+          <ConnectedAccountAuth account="x" onChanged={changed}>
+            {(auth) => (
+              <XAccount account={snapshot.x} mutation={mutation} auth={auth} />
+            )}
+          </ConnectedAccountAuth>
+        ) : (
+          <XAccount account={snapshot.x} mutation={mutation} auth={null} />
+        )}
+      </SettingsGroup>
     </div>
   );
 }

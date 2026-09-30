@@ -22,8 +22,11 @@ import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
-import CapabilitySettings from './CapabilitySettings';
-import McpFacadeControls from './McpFacadeControls';
+import CapabilitySettings, {
+  type CapabilitySettingsSession,
+} from './CapabilitySettings';
+import McpFacadeControls, { type McpFacadeSession } from './McpFacadeControls';
+import { McpGlobalSwitch } from './McpPolicyControls';
 import {
   addAndConnect,
   turnOnServer,
@@ -32,7 +35,7 @@ import {
 } from './mcp-add-connect';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
-import McpConnectionsPanel from './McpConnections';
+import McpConnectionsPanel, { type McpConnections } from './McpConnections';
 import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
@@ -465,82 +468,13 @@ export default function SettingRoute() {
             openExternal={(url) => void platform.openExternal(url)}
           />
         ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
-          <>
-            {mcpChatOwner?.get() && (
-              // "Enable in chat" for external MCP tools (B130).
-              <McpFacadeControls
-                session={mcpChatOwner.get()!}
-                load={(signal) => controller.mcpChat(signal)}
-                review={(payload, signal) =>
-                  controller.reviewMcpChat(payload, signal)
-                }
-                execute={(command, review) =>
-                  controller.executeMcpChat(command, review)
-                }
-              />
-            )}
-            <CapabilitySettings
-              session={capabilitySettingsOwner.get()!}
-              load={({ query, cursor }, signal) =>
-                controller.mcpConfiguration(query, cursor, signal)
-              }
-              review={controller.reviewMcpConfiguration}
-              execute={controller.executeMcpConfiguration}
-              searchDirectory={controller.searchMcpDirectory}
-              onConnection={(id, name) =>
-                mcpConnectionsOwner?.get()?.select(id, name)
-              }
-              addAndConnect={(serverId, onStep) =>
-                addAndConnect(
-                  {
-                    runtime: (id) => controller.mcpRuntime(id),
-                    reviewRuntime: (payload) =>
-                      controller.reviewMcpRuntime(payload),
-                    executeRuntime: (command, review) =>
-                      controller.executeMcpRuntime(command, review),
-                    catalog: (query) => controller.mcpTestedCatalog(query),
-                    reviewCatalog: (body) => controller.reviewMcpCatalog(body),
-                    policy: (query) => controller.mcpPolicy(query),
-                    reviewPolicy: (body) => controller.reviewMcpPolicy(body),
-                    executeConfiguration: (command, review) =>
-                      controller.executeMcpConfiguration(command, review),
-                  } as AddConnectApi,
-                  serverId,
-                  onStep,
-                )
-              }
-            />
-            {mcpConnectionsOwner?.get() && (
-              <McpConnectionsPanel
-                catalog={{
-                  load: controller.mcpTestedCatalog,
-                  review: controller.reviewMcpCatalog,
-                  execute: controller.executeMcpConfiguration,
-                }}
-                owner={mcpConnectionsOwner.get()!}
-                load={controller.mcpRuntime}
-                review={controller.reviewMcpRuntime}
-                execute={controller.executeMcpRuntime}
-                policy={{
-                  load: controller.mcpPolicy,
-                  review: controller.reviewMcpPolicy,
-                  execute: controller.executeMcpConfiguration,
-                }}
-                turnOn={(serverId) =>
-                  turnOnServer(
-                    {
-                      policy: (query) => controller.mcpPolicy(query),
-                      reviewPolicy: (body) => controller.reviewMcpPolicy(body),
-                      executeConfiguration: (command, review) =>
-                        controller.executeMcpConfiguration(command, review),
-                    } as TurnOnApi,
-                    serverId,
-                  )
-                }
-              />
-            )}
-            <RuntimeInstallations />
-          </>
+          // B262: the switches and runtimes first, then the servers (their
+          // details open in a drawer).
+          <McpSettings
+            capability={capabilitySettingsOwner.get()!}
+            chat={mcpChatOwner?.get() ?? null}
+            connections={mcpConnectionsOwner?.get() ?? null}
+          />
         ) : leaf.id === 'tools' ? (
           <>
             {settingsSnapshot && mutation ? (
@@ -929,5 +863,116 @@ function DataDangerZone({
         <TrackerDangerAction mutation={mutation} />
       ) : null}
     </SettingsDangerZone>
+  );
+}
+
+/**
+ * Settings › MCP (B262): "Use MCP servers", "Offer MCP tools in chats" and
+ * the runtimes in one group, then the saved servers; a server's details
+ * (connection, tools, permissions) open in a drawer. Each control runs the
+ * same reviewed command as before.
+ */
+function McpSettings({
+  capability,
+  chat,
+  connections,
+}: {
+  capability: CapabilitySettingsSession;
+  chat: McpFacadeSession | null;
+  connections: McpConnections | null;
+}) {
+  const { controller } = useRuntime();
+  const turnOn = (serverId: string) =>
+    turnOnServer(
+      {
+        policy: (query) => controller.mcpPolicy(query),
+        reviewPolicy: (body) => controller.reviewMcpPolicy(body),
+        executeConfiguration: (command, review) =>
+          controller.executeMcpConfiguration(command, review),
+      } as TurnOnApi,
+      serverId,
+    );
+  const policy = {
+    load: controller.mcpPolicy,
+    review: controller.reviewMcpPolicy,
+    execute: controller.executeMcpConfiguration,
+  };
+  return (
+    <>
+      <SettingsGroup label="MCP" className="settings-mcp-switches">
+        {connections && (
+          <McpGlobalSwitch {...policy} session={connections.globalPolicy} />
+        )}
+        {chat && (
+          <McpFacadeControls
+            session={chat}
+            load={(signal) => controller.mcpChat(signal)}
+            review={(payload, signal) =>
+              controller.reviewMcpChat(payload, signal)
+            }
+            execute={(command, review) =>
+              controller.executeMcpChat(command, review)
+            }
+          />
+        )}
+        <RuntimeInstallations />
+      </SettingsGroup>
+      <CapabilitySettings
+        session={capability}
+        load={({ query, cursor }, signal) =>
+          controller.mcpConfiguration(query, cursor, signal)
+        }
+        review={controller.reviewMcpConfiguration}
+        execute={controller.executeMcpConfiguration}
+        searchDirectory={controller.searchMcpDirectory}
+        onConnection={(id, name) => connections?.select(id, name)}
+        onRemoved={() => connections?.close()}
+        runtime={
+          connections
+            ? {
+                owner: connections,
+                load: controller.mcpRuntime,
+                review: controller.reviewMcpRuntime,
+                execute: controller.executeMcpRuntime,
+                turnOn,
+              }
+            : undefined
+        }
+        addAndConnect={(serverId, onStep) =>
+          addAndConnect(
+            {
+              runtime: (id) => controller.mcpRuntime(id),
+              reviewRuntime: (payload) => controller.reviewMcpRuntime(payload),
+              executeRuntime: (command, review) =>
+                controller.executeMcpRuntime(command, review),
+              catalog: (query) => controller.mcpTestedCatalog(query),
+              reviewCatalog: (body) => controller.reviewMcpCatalog(body),
+              policy: (query) => controller.mcpPolicy(query),
+              reviewPolicy: (body) => controller.reviewMcpPolicy(body),
+              executeConfiguration: (command, review) =>
+                controller.executeMcpConfiguration(command, review),
+            } as AddConnectApi,
+            serverId,
+            onStep,
+          )
+        }
+      />
+      {connections && (
+        <McpConnectionsPanel
+          catalog={{
+            load: controller.mcpTestedCatalog,
+            review: controller.reviewMcpCatalog,
+            execute: controller.executeMcpConfiguration,
+          }}
+          owner={connections}
+          load={controller.mcpRuntime}
+          review={controller.reviewMcpRuntime}
+          execute={controller.executeMcpRuntime}
+          policy={policy}
+          turnOn={turnOn}
+          onRemove={(id, name) => capability.confirmRemove(id, name)}
+        />
+      )}
+    </>
   );
 }

@@ -1,5 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { Button, Toggle } from '../../ui/primitives';
+import { RefreshCw } from 'lucide-react';
+import { Button, IconButton, Toggle } from '../../ui/primitives';
+import { SettingsItem, StatusLine } from './anatomy';
 
 export type NativeMcpState = {
   schema_version: 1;
@@ -269,58 +271,70 @@ export default function McpFacadeControls({
       });
     }
   };
+  const saved = state.snapshot?.saved_enabled ?? null;
+  const effective = state.snapshot?.effective_enabled ?? null;
+  // "Offer MCP tools in chats" (B262): the page's second switch. It only
+  // changes which tools chats see, never a server's connection.
   return (
-    <section aria-label="MCP chat access" className="settings-section">
-      <h3>External MCP tools in chat</h3>
-      <p>
-        This switch controls chat tool exposure. Server connections and saved
-        server permissions are managed separately.
-      </p>
-      <p>
-        Saved access: {label(state.snapshot?.saved_enabled ?? null)}. Current
-        chat access: {label(state.snapshot?.effective_enabled ?? null)}.
-      </p>
-      {state.snapshot && !available && (
-        <p role="status">
-          Chat access cannot be changed:{' '}
-          {state.snapshot.availability.replaceAll('_', ' ')}.
-        </p>
-      )}
-      <div className="button-row">
-        <Button disabled={locked} onClick={() => void read()}>
-          Refresh chat access
-        </Button>
-        <label className="settings-knowledge-switch">
-          <span>Enable in chat</span>
-          <Toggle
-            label="Enable in chat"
-            checked={state.draft ?? state.snapshot?.saved_enabled ?? false}
-            disabled={locked || !available}
-            onChange={(event) => {
-              session.update({
-                draft: event.target.checked,
-                reviewed: null,
-                message: '',
-              });
-              void requestReview();
-            }}
-          />
-        </label>
-      </div>
-      {state.draft !== null && (
-        <p>Proposed chat access: {label(state.draft)}.</p>
-      )}
-      <div className="button-row">
-        {state.pending && (
-          <Button
-            disabled={!state.active || Boolean(state.busy)}
-            onClick={() => void save(state.pending)}
+    <SettingsItem
+      label="Offer MCP tools in chats"
+      help="Chats can call tools from connected servers. Tools that change things ask first."
+      layout="inline"
+      anchor="mcp-chat-tools"
+      bind={false}
+      status={
+        state.snapshot && !available ? (
+          <StatusLine
+            tone="warning"
+            more={[saved === null ? 'status unknown' : '']}
           >
-            Check original save
-          </Button>
-        )}
-      </div>
+            Can’t be changed right now:{' '}
+            {state.snapshot.availability.replaceAll('_', ' ')}
+          </StatusLine>
+        ) : saved !== null && effective !== null && saved !== effective ? (
+          <StatusLine tone="warning">
+            Saved {label(saved).toLowerCase()}, but chats have it{' '}
+            {label(effective).toLowerCase()} right now
+          </StatusLine>
+        ) : undefined
+      }
+      control={
+        <Toggle
+          label="Offer MCP tools in chats"
+          checked={state.draft ?? saved ?? false}
+          disabled={locked || !available}
+          onChange={(event) => {
+            session.update({
+              draft: event.target.checked,
+              reviewed: null,
+              message: '',
+            });
+            void requestReview();
+          }}
+        />
+      }
+      trailing={
+        !state.snapshot || !available ? (
+          <IconButton
+            size="sm"
+            label="Refresh chat access"
+            disabled={locked}
+            onClick={() => void read()}
+          >
+            <RefreshCw size={15} aria-hidden />
+          </IconButton>
+        ) : undefined
+      }
+    >
+      {state.pending && (
+        <Button
+          disabled={!state.active || Boolean(state.busy)}
+          onClick={() => void save(state.pending)}
+        >
+          Check original save
+        </Button>
+      )}
       {state.message && <p role="status">{state.message}</p>}
-    </section>
+    </SettingsItem>
   );
 }

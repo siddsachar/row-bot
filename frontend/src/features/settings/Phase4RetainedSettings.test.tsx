@@ -1377,11 +1377,12 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   tracker.unmount();
 
   const accounts = renderSetting('accounts');
-  expect(accounts.container.querySelectorAll('details')).toHaveLength(3);
-  expect(
-    accounts.container.querySelectorAll('.settings-disclosure-chevron'),
-  ).toHaveLength(3);
-  fireEvent.click(screen.getByText('GitHub'));
+  // One row per account with one status (B263); each setup guide folds.
+  expect(accounts.container.querySelectorAll('.settings-account')).toHaveLength(
+    3,
+  );
+  expect(screen.getByText('Not checked yet')).toBeVisible();
+  fireEvent.click(screen.getByText('How to set up GitHub'));
   expect(screen.queryByLabelText('GitHub token')).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'Replace or remove GitHub token' }),
@@ -1390,16 +1391,16 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
     'type',
     'password',
   );
-  fireEvent.click(screen.getByText('Google (Gmail & Calendar)'));
-  expect(screen.getByLabelText('Gmail')).toBeChecked();
-  expect(screen.getByLabelText('Calendar')).not.toBeChecked();
+  expect(screen.getByLabelText('Gmail access')).toBeChecked();
+  expect(screen.getByLabelText('Calendar access')).not.toBeChecked();
   expect(accounts.container.textContent).not.toMatch(
     /[A-Z]:\\|\/Users\/|\/home\//,
   );
-  expect(screen.getByText('Credentials file')).toBeVisible();
-  fireEvent.click(screen.getByText('X (Twitter)'));
+  expect(screen.getByText('Google sign-in file')).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Choose x access actions' }),
+  );
   expect(screen.getByText('Search posts')).toBeVisible();
-  expect(screen.getByText('Saved · not checked')).toBeVisible();
   accounts.unmount();
 
   renderSetting('utilities');
@@ -1484,12 +1485,11 @@ it('updates the Accounts header after Check without reloading the page (B263)', 
   );
   expect(screen.getByText('0 connected')).toBeVisible();
   const googleRow = screen
-    .getByText('Google (Gmail & Calendar)')
-    .closest('summary')!;
-  expect(within(googleRow).getByText('Saved · not checked')).toBeVisible();
-  fireEvent.click(googleRow);
+    .getByText('Google', { selector: '.settings-row-label' })
+    .closest('.settings-row') as HTMLElement;
+  expect(within(googleRow).getByText('Not checked yet')).toBeVisible();
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Check Google account token' }),
+    await within(googleRow).findByRole('button', { name: 'Check Google' }),
   );
   // Gmail and Calendar are one Google account in the count.
   expect(await screen.findByText('1 connected')).toBeVisible();

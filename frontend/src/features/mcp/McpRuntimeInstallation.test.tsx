@@ -9,6 +9,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   createMcpRuntimeInstallationSession,
   McpRuntimeInstallation,
+  RuntimeInstallationNote,
+  type McpRuntimeInstallationSession,
   type RuntimeInstallationCallbacks,
   type RuntimeInstallationCommand,
   type RuntimeInstallationReceipt,
@@ -119,14 +121,31 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
+/** The runtime's chip and its line under the Runtimes row. */
+function Runtime({
+  session,
+  callbacks,
+}: {
+  session: McpRuntimeInstallationSession;
+  callbacks: RuntimeInstallationCallbacks;
+}) {
+  return (
+    <>
+      <McpRuntimeInstallation session={session} callbacks={callbacks} />
+      <RuntimeInstallationNote session={session} />
+    </>
+  );
+}
 
 it('reads passively, then one Install resolves and installs the pinned archive', async () => {
   const { session, callbacks } = options();
-  render(<McpRuntimeInstallation session={session} callbacks={callbacks} />);
+  render(<Runtime session={session} callbacks={callbacks} />);
   await waitFor(() => expect(callbacks.load).toHaveBeenCalledOnce());
   expect(callbacks.execute).not.toHaveBeenCalled();
   expect(screen.getByText('Not installed')).toBeVisible();
-  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Install Node.js' }),
+  );
   await waitFor(() => expect(callbacks.execute).toHaveBeenCalledTimes(2));
   expect(callbacks.execute.mock.calls[0][0].type).toBe('mcp.runtime.resolve');
   expect(callbacks.execute.mock.calls[1][0].type).toBe('mcp.runtime.install');
@@ -168,12 +187,12 @@ it('keeps checking an install past 30 reads until it is installed', async () => 
       return command.type === 'mcp.runtime.install' ? running : done;
     },
   );
-  render(<McpRuntimeInstallation session={session} callbacks={callbacks} />);
+  render(<Runtime session={session} callbacks={callbacks} />);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Install Node.js' }));
     await vi.advanceTimersByTimeAsync(0);
   });
   expect(screen.getByText(/Installing · Downloading/)).toBeVisible();
@@ -188,7 +207,7 @@ it('keeps checking an install past 30 reads until it is installed', async () => 
   });
   expect(reads).toBeGreaterThan(40);
   expect(screen.getByText('Installed v1.2.3')).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Install' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Install Node.js' })).toBeNull();
 });
 
 it('shows a failed install as final and Retry starts a new one', async () => {
@@ -213,12 +232,14 @@ it('shows a failed install as final and Retry starts a new one', async () => {
       return result;
     },
   );
-  render(<McpRuntimeInstallation session={session} callbacks={callbacks} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
-  expect(await screen.findByText('Failed')).toBeVisible();
+  render(<Runtime session={session} callbacks={callbacks} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Install Node.js' }),
+  );
+  expect(await screen.findByText('Install failed')).toBeVisible();
   expect(screen.getByText(/didn’t finish/)).toBeVisible();
   expect(session.hasRetained()).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry Node.js' }));
   await waitFor(() => expect(callbacks.execute).toHaveBeenCalledTimes(4));
   expect(callbacks.execute.mock.calls[2][0].type).toBe('mcp.runtime.resolve');
 });
@@ -226,8 +247,11 @@ it('shows a failed install as final and Retry starts a new one', async () => {
 it('says when a system runtime is found without starting anything', async () => {
   const { session, callbacks } = options();
   callbacks.load.mockResolvedValue({ ...snapshot, system_available: true });
-  render(<McpRuntimeInstallation session={session} callbacks={callbacks} />);
+  render(<Runtime session={session} callbacks={callbacks} />);
   expect(await screen.findByText(/System Node\.js found/)).toBeVisible();
+  // The system copy is used; Row-Bot's own copy isn't pushed on the chip.
+  expect(screen.getByText('System copy')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Install Node.js' })).toBeNull();
   expect(callbacks.execute).not.toHaveBeenCalled();
 });
 
@@ -242,14 +266,12 @@ it('retains an uncertain original across full remount and recovers only its rece
   await session.run(callbacks);
   const original = session.getSnapshot().original;
   expect(session.hasRetained()).toBe(true);
-  const view = render(
-    <McpRuntimeInstallation session={session} callbacks={callbacks} />,
-  );
+  const view = render(<Runtime session={session} callbacks={callbacks} />);
   await waitFor(() =>
     expect(session.getSnapshot().result?.status).toBe('completed'),
   );
   view.unmount();
-  render(<McpRuntimeInstallation session={session} callbacks={callbacks} />);
+  render(<Runtime session={session} callbacks={callbacks} />);
   await waitFor(() =>
     expect(callbacks.receipt).toHaveBeenCalledWith(
       original?.command_id,
@@ -359,9 +381,7 @@ it('pauses observation while hidden and never overlaps blocked status reads', as
   const visibility = vi
     .spyOn(document, 'visibilityState', 'get')
     .mockReturnValue('hidden');
-  const view = render(
-    <McpRuntimeInstallation session={session} callbacks={callbacks} />,
-  );
+  const view = render(<Runtime session={session} callbacks={callbacks} />);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5000);
   });

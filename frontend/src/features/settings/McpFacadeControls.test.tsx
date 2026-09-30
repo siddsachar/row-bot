@@ -51,7 +51,9 @@ function options() {
   };
 }
 async function toggle() {
-  const control = await screen.findByRole('switch', { name: 'Enable in chat' });
+  const control = await screen.findByRole('switch', {
+    name: 'Offer MCP tools in chats',
+  });
   await waitFor(() => expect(control).toBeEnabled());
   fireEvent.click(control);
 }
@@ -59,11 +61,14 @@ async function toggle() {
 it('mount reads only and distinguishes saved access from connection management', async () => {
   const props = options();
   render(<McpFacadeControls {...props} />);
-  await screen.findByText(
-    'Saved access: Disabled. Current chat access: Disabled.',
-  );
+  // One switch, with what it does; connections are managed elsewhere.
+  const control = await screen.findByRole('switch', {
+    name: 'Offer MCP tools in chats',
+  });
+  await waitFor(() => expect(control).toBeEnabled());
+  expect(control).not.toBeChecked();
   expect(
-    screen.getByText(/Server connections and saved server permissions/),
+    screen.getByText(/Chats can call tools from connected servers/),
   ).toBeVisible();
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
@@ -97,7 +102,9 @@ it('preserves the original uncertain command across full remount and checks only
   const original = props.execute.mock.calls[0];
   rendered.unmount();
   rendered = render(<McpFacadeControls {...props} />);
-  expect(screen.getByRole('switch', { name: 'Enable in chat' })).toBeDisabled();
+  expect(
+    screen.getByRole('switch', { name: 'Offer MCP tools in chats' }),
+  ).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
   await screen.findByText(
     'Chat access saved. Server connections were not changed.',
@@ -165,11 +172,11 @@ it.each(['unavailable', 'registration_unavailable', 'recovery_required'])(
       effective_enabled: null,
     });
     render(<McpFacadeControls {...props} />);
-    await screen.findByText(
-      'Saved access: Unknown. Current chat access: Unknown.',
-    );
+    // Unknown is never shown as off: the switch is locked and says why.
+    await screen.findByText(/Can’t be changed right now/);
+    expect(screen.getByText('status unknown')).toBeVisible();
     expect(
-      screen.getByRole('switch', { name: 'Enable in chat' }),
+      screen.getByRole('switch', { name: 'Offer MCP tools in chats' }),
     ).toBeDisabled();
     expect(props.review).not.toHaveBeenCalled();
   },
