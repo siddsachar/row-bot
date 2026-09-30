@@ -578,9 +578,6 @@
   gap: 4px;
   margin-inline-start: auto;
 }
-.overview-need-actions .button.primary.icon-action {
-  color: var(--accent-on-solid);
-}
 .overview-need-actions > :is(.agent-controls-status, .approval-decision-done) {
   margin: 0;
   color: var(--text-muted);

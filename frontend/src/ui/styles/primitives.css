@@ -206,6 +206,12 @@ time {
   color: var(--text-primary);
   background: var(--surface-hover);
 }
+/* A filled icon action (Approve) keeps the accent fill and a legible glyph. */
+.button.primary.icon-action,
+.button.primary.icon-action:hover:not(:disabled) {
+  background: var(--accent-solid);
+  color: var(--accent-on-solid);
+}
 .button.icon-action:disabled {
   background: transparent;
   color: var(--text-disabled);
