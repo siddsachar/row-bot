@@ -61,6 +61,7 @@ import AccessConnect from './AccessConnect';
 import AccessDevices from './AccessDevices';
 import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
+import { pickSettingsFolder } from './settings-folder';
 import {
   DocumentEmbeddingSnapshot,
   DocumentModelSetting,
@@ -761,7 +762,9 @@ export default function SettingRoute() {
                 snapshot={settingsSnapshot}
                 mutation={mutation}
                 selectedConversationId={state.selectedConversationId}
-                pickFolder={controller.pickFolder}
+                pickFolder={(signal) =>
+                  pickSettingsFolder(platform, controller, signal)
+                }
                 showAccountActions
                 writeClipboard={platform.writeClipboard}
                 accessNetwork={

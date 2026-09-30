@@ -1,6 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { X } from 'lucide-react';
 import type { ClientController } from '../../api';
+import { clientError } from '../../api/errors';
+import type { ClientPlatform } from '../../platform';
+import { pickSettingsFolder } from '../settings/settings-folder';
 import type { WikiSettingsSnapshot, WikiTidySummary } from '../../api/types';
 import {
   Button,
@@ -75,7 +78,10 @@ export interface WikiReview {
 }
 
 /** Keep the authorized folder grant inside the authenticated owner, never presentation state. */
-export function createWikiSettingsSession(controller: ClientController) {
+export function createWikiSettingsSession(
+  controller: ClientController,
+  platform: () => ClientPlatform,
+) {
   let folderGrant: string | undefined;
   const requireGrant = () => {
     if (!folderGrant) throw { code: 'folder_selection_required' };
@@ -107,8 +113,9 @@ export function createWikiSettingsSession(controller: ClientController) {
         throw error;
       }
     },
+    // Picked in the desktop window: the server can't show a picker (B280).
     chooseVault: async () => {
-      const result = await controller.pickFolder();
+      const result = await pickSettingsFolder(platform(), controller);
       if (result.status === 'selected' && result.grant_id) {
         folderGrant = result.grant_id;
         return result.name ?? 'Authorized folder';
@@ -308,11 +315,20 @@ export class WikiSettingsSession {
   };
   chooseVault = async () => {
     if (!this.io.chooseVault || this.state.pending || this.state.busy) return;
-    await this.read(async () => {
-      const authorizedFolder = await this.io.chooseVault!();
-      if (authorizedFolder) this.set({ authorizedFolder });
+    this.set({ busy: true, error: null });
+    let authorizedFolder: string | undefined;
+    try {
+      authorizedFolder = await this.io.chooseVault();
+    } catch (cause) {
+      // Say why no folder opened (the desktop app, reconnecting) (B280).
+      this.set({ busy: false, error: clientError(cause).message });
+      return;
+    }
+    this.set({
+      busy: false,
+      ...(authorizedFolder ? { authorizedFolder } : {}),
     });
-    await this.load();
+    if (authorizedFolder) await this.load();
   };
   canChooseVault = () => Boolean(this.io.chooseVault);
   canOpenFolder = () => Boolean(this.io.openFolder);

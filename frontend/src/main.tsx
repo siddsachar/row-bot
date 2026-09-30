@@ -293,7 +293,7 @@ async function start() {
     () => createDocumentProcessingSession(controller),
   );
   const wikiOwner = createAuthenticatedEditorOwner(controller, () =>
-    createWikiSettingsSession(controller),
+    createWikiSettingsSession(controller, () => platform),
   );
   const channelOwner = createAuthenticatedEditorOwner(
     controller,

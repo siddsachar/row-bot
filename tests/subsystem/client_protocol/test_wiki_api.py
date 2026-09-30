@@ -96,6 +96,44 @@ def test_local_owner_can_open_only_the_configured_folder_through_typed_result(ap
     assert calls == [True]
 
 
+def test_a_vault_picked_in_the_desktop_window_is_claimed_once_as_a_folder_grant(tmp_path):
+    """The desktop server runs apart from its window, so Browse picks there (B280)."""
+    from tests.subsystem.client_protocol.test_protocol_security import _native_proof
+
+    vault = tmp_path / "Private Vault"
+    vault.mkdir()
+    local, _service, _active = client_app()
+    remote, _remote_service, _remote_active = client_app(remote=True)
+    with local, remote:
+        _handshake, remote_headers = bootstrap(remote)
+        denied = remote.post("/api/v1/resources/folder-selection/claim", headers=remote_headers,
+                             json={"reference": "x" * 43})
+        assert denied.status_code == 403
+        proof, headers = _native_proof(local)
+
+        def pick(intent: str, destination: str) -> str:
+            picked = local.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                                json={**proof, "selection_kind": "folder", "intent_id": str(uuid4()),
+                                      "intent": intent, "conversation_id": None,
+                                      "destination": destination, "path": str(vault)})
+            assert picked.status_code == 200, picked.text
+            return picked.json()["reference"]
+
+        reference = pick("settings_folder", "settings")
+        claimed = local.post("/api/v1/resources/folder-selection/claim", headers=headers,
+                             json={"reference": reference})
+        assert claimed.status_code == 200, claimed.text
+        assert claimed.json()["status"] == "selected" and claimed.json()["name"] == "Private Vault"
+        assert str(vault) not in claimed.text
+        again = local.post("/api/v1/resources/folder-selection/claim", headers=headers,
+                           json={"reference": reference})
+        assert again.status_code == 409
+        # A pick made for something else is never a setting's folder.
+        other = local.post("/api/v1/resources/folder-selection/claim", headers=headers,
+                           json={"reference": pick("migration_source", "migration")})
+        assert other.status_code != 200
+
+
 def test_remote_authenticated_owner_cannot_open_a_desktop_folder():
     client, _service, _active = client_app(remote=True)
     with client:

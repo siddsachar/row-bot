@@ -1198,6 +1198,14 @@ const CATALOG: Record<string, Entry> = {
     'review',
   ],
   folder_selection_required: ['Choose a folder first.', 'review'],
+  folder_picker_requires_desktop: [
+    'Choose the folder in the Row-Bot desktop app.',
+    'none',
+  ],
+  native_reconnecting: [
+    'Desktop features are reconnecting. Try again in a moment.',
+    'retry',
+  ],
   git_push_failed: [
     "Git couldn't push. Check the remote and your access, then try again.",
     'retry',

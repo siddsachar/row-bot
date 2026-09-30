@@ -111,6 +111,29 @@ class FolderSelections:
         path = scoped_workspace_path(Path(path))
         if not path.is_dir():
             raise ClientPlatformError("invalid_resource")
+        return self._grant(session_id, path)
+
+    def claim_exact(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+        *,
+        intent: str,
+        destination: str,
+    ) -> dict | None:
+        """A folder picked in the desktop window for a setting, as a session grant.
+
+        The desktop server has no window of its own, so a setting's folder
+        (the wiki vault, the workspace folder) is picked through the window's
+        exact chooser; its one-use reference becomes the same short-lived
+        grant ``pick`` gives. ``None`` means the reference is unknown.
+        """
+        path = self.consume_exact_path(
+            grant_id, session_id, validate, intent=intent, destination=destination, kind="folder")
+        return None if path is None else self._grant(session_id, path)
+
+    def _grant(self, session_id: str, path: Path) -> dict:
         with self._lock:
             self._prune()
             if len(self._values) >= 128:

@@ -92,7 +92,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "TaskGraphFields", "TaskGraphStepEdit", "TaskGraphSnapshot",
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
-    "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
+    "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
     "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView",
     "Notice", "NoticePage", "NoticeFrame")}
 
@@ -424,6 +424,7 @@ OPERATIONS = (
     ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
+    ("post", "/resources/folder-selection/claim", "FolderGrantClaim", "FolderGrantView"),
     ("get", "/resources/setup/deck", None, "DeckSetupOptions"),
     ("get", "/resources/setup/artifact/{mode}", None, "ArtifactSetupOptions"),
     ("get", "/resources/library/{kind}", None, "ResourceChoicePage"),
@@ -869,6 +870,8 @@ export const refreshModelCameras = (base: string, proof: SessionProof, signal?: 
   jsonRequest(base, '/settings/models/cameras/refresh', 'ModelCameraList', proof, 'POST', undefined, undefined, signal);
 export const pickFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<FolderGrantView> =>
   jsonRequest(base, '/resources/folder-selection', 'FolderGrantView', proof, 'POST', undefined, undefined, signal);
+export const claimFolder = (base: string, proof: SessionProof, body: FolderGrantClaim, signal?: AbortSignal): Promise<FolderGrantView> =>
+  jsonRequest(base, '/resources/folder-selection/claim', 'FolderGrantView', proof, 'POST', validateWire('FolderGrantClaim', body), undefined, signal);
 export const getWikiStatus = (base: string, proof: SessionProof, folder_grant?: string, signal?: AbortSignal): Promise<WikiStatus> =>
   jsonRequest(base, '/settings/wiki' + query({folder_grant}), 'WikiStatus', proof, 'GET', undefined, undefined, signal);
 export const openWikiFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<WikiOpenFolderResult> =>

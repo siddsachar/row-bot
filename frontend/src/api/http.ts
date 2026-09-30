@@ -2351,6 +2351,9 @@ export class HttpTransport implements ClientTransport {
   pickFolder(signal?: AbortSignal) {
     return wire.pickFolder(this.base, this.session(), signal);
   }
+  claimFolder(reference: string, signal?: AbortSignal) {
+    return wire.claimFolder(this.base, this.session(), { reference }, signal);
+  }
   prepareArtifactShare(
     conversation: string,
     binding: string,

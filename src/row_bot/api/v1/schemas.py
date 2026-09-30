@@ -7239,6 +7239,12 @@ class ResourceChoicePage(WireModel):
     next_cursor: Cursor | None = None
 
 
+class FolderGrantClaim(WireModel):
+    """A desktop window's one-use folder reference for a setting (B280)."""
+
+    reference: OpaqueId
+
+
 class FolderGrantView(WireModel):
     status: Literal["selected", "cancelled", "unavailable"]
     grant_id: OpaqueId | None = None

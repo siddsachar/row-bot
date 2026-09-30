@@ -129,6 +129,10 @@ than a renderer-supplied absolute path. Registration accepts an existing folder
 and saves registry metadata. It performs no Git initialization, cloning,
 worktree creation, dependency installation, process launch or source write.
 Browser-only hosts without a native picker report capability unavailable.
+The desktop server runs apart from its window, so a setting's folder (the wiki
+vault, the workspace folder) is picked in the desktop window as a one-use
+`settings_folder` reference, exchanged at
+`POST /api/v1/resources/folder-selection/claim` for the same short-lived grant.
 
 New empty workspace is a distinct `empty_folder` setup action. Select an
 authorized existing parent and a valid new folder name; opening setup remains

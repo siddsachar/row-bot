@@ -1578,11 +1578,13 @@ def create_router(
                 {"reference": value["grant_id"], "kind": "folder"},
             )
 
-        exact_picks = {("restore_backup", "data-restore"): "file", ("migration_source", "migration"): "folder"}
+        exact_picks = {("restore_backup", "data-restore"): "file", ("migration_source", "migration"): "folder",
+                       ("settings_folder", "settings"): "folder"}
         wanted = exact_picks.get((body.intent, body.destination))
         if wanted is not None and body.conversation_id is None:
             # Settings › Data: a backup to restore (one .zip) or the old app's
-            # folder to import from, granted by reference.
+            # folder to import from; a setting's folder (the wiki vault, the
+            # workspace folder, B280); each granted by reference.
             if body.selection_kind != wanted or (wanted == "file" and selected.suffix.lower() != ".zip"):
                 raise ProtocolError("invalid_command", 422)
             native_intent = await call(folder_selections.begin_exact, scope)
@@ -4019,6 +4021,37 @@ def create_router(
         result = await call(
             folder_selections.pick, current.id, dispatch_validation(request, current)
         )
+        return await respond(request, dto.FolderGrantView, result)
+
+    @router.post("/resources/folder-selection/claim")
+    async def claim_folder(request: Request) -> JSONResponse:
+        # The desktop server has no window, so a setting's folder is picked in
+        # the desktop window and its one-use reference claimed here (B280).
+        current = await session(request, lane="mutation")
+        require_native_local(request, await _context(request))
+        body = await _body(request, dto.FolderGrantClaim, 1024)
+
+        def validate_native_folder(scope: Any) -> None:
+            if not security.authorize_native_grant(
+                scope.authority_grant,
+                session_id=scope.session_id,
+                policy_revision=scope.policy_revision,
+                instance_id=scope.instance_id,
+                window_id=scope.window_id,
+                window_epoch=scope.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        result = await call(
+            folder_selections.claim_exact,
+            body.reference,
+            current.id,
+            validate_native_folder,
+            intent="settings_folder",
+            destination="settings",
+        )
+        if result is None:
+            raise ProtocolError("capability_revoked", 409)
         return await respond(request, dto.FolderGrantView, result)
 
     async def wiki_scope(

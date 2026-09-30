@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import { clientError } from '../../api/errors';
 import type { WikiSettingsSnapshot } from '../../api/types';
 import WikiSettings, {
   WikiSettingsSession,
@@ -108,6 +109,20 @@ it('selects an authorized vault explicitly before exposing article controls', as
   await screen.findByText('Reviewed article');
   expect(io.chooseVault).toHaveBeenCalledTimes(1);
   expect(io.articles).toHaveBeenCalledTimes(1);
+});
+
+it('says why Browse opened no folder instead of failing silently (B280)', async () => {
+  const { io, session } = setup(false);
+  vi.mocked(io.chooseVault!).mockRejectedValueOnce(
+    clientError({ code: 'folder_picker_requires_desktop' }),
+  );
+  render(<WikiSettings session={session} />);
+  await screen.findByText(/Select an authorized vault/);
+  fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Choose the folder in the Row-Bot desktop app.',
+  );
+  expect(io.articles).not.toHaveBeenCalled();
 });
 
 it('shows an editable display path but requires Browse authority before Apply', async () => {

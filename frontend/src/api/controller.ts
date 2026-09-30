@@ -4781,6 +4781,9 @@ export class ClientController {
   ) => this.query(() => this.transport.artifactSetup?.(mode, signal));
   pickFolder = (signal?: AbortSignal) =>
     this.query(() => this.transport.pickFolder?.(signal));
+  /** A setting's folder picked in the desktop window, as a session grant (B280). */
+  claimFolder = (reference: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.claimFolder?.(reference, signal));
   artifactPreview = (
     conversation: string,
     binding: string,

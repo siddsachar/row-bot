@@ -1349,6 +1349,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactSetupOptions>;
   pickFolder?(signal?: AbortSignal): Promise<Wire.FolderGrantView>;
+  claimFolder?(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.FolderGrantView>;
   artifactShareChannels?(
     cursor?: string,
     signal?: AbortSignal,
