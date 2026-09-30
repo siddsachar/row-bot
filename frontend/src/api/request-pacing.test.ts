@@ -7,6 +7,8 @@ import {
   cancelUpload,
   cancelSubscriptionProbe,
   reviewMcpRuntime,
+  readNativeTerminal,
+  writeNativeTerminal,
   type ConversationRenameCommand,
   type SessionProof,
 } from '../../../contracts/client-platform/v1/typescript/client';
@@ -136,6 +138,59 @@ it('shares one bounded mutation budget across autosaves and commands while Stop,
   await vi.advanceTimersByTimeAsync(3001);
   await settled;
   expect(fetcher).toHaveBeenCalledTimes(15);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('sends typed terminal keys and the reads that echo them on their own budget (B248)', async () => {
+  vi.useFakeTimers();
+  const proof: SessionProof = {
+    client_session_id: crypto.randomUUID(),
+    csrf_token: 'synthetic'.repeat(8),
+  };
+  const fetcher = vi.fn(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.endsWith('/input')
+        ? { ok: true }
+        : url.includes('/native/terminals/')
+          ? {
+              cursor: 0,
+              latest: 0,
+              truncated: false,
+              frames: [],
+              status: 'running',
+            }
+          : {
+              conversation_id: 'conversation-a',
+              revision: '1',
+              text: '',
+              attachments: [],
+            },
+  }));
+  vi.stubGlobal('fetch', fetcher);
+  // Sixty keys, each followed by a read of its echo, go out at once.
+  const typed = Promise.all(
+    Array.from({ length: 60 }, (_, index) =>
+      Promise.all([
+        writeNativeTerminal('', proof, 'terminal-a', { data: String(index) }),
+        readNativeTerminal('', proof, 'terminal-a', index),
+      ]),
+    ),
+  );
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(fetcher).toHaveBeenCalledTimes(120);
+  await typed;
+  // Drafts and commands keep their whole budget.
+  await Promise.all(
+    Array.from({ length: 8 }, () =>
+      saveDraft('', proof, 'conversation-a', {
+        expected_revision: '1',
+        text: '',
+        attachment_refs: [],
+      }),
+    ),
+  );
+  expect(fetcher).toHaveBeenCalledTimes(128);
   expect(vi.getTimerCount()).toBe(0);
 });
 

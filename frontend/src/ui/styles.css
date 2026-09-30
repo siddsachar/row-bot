@@ -5456,56 +5456,6 @@ details[open] > summary > .settings-disclosure-chevron {
     box-shadow: none;
   }
 }
-.native-terminal {
-  min-height: 0;
-  height: 100%;
-}
-
-.native-terminal-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.native-terminal-title {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.native-terminal-output {
-  min-height: 12rem;
-  flex: 1;
-  overflow: auto;
-  margin: 0;
-  padding: 0.875rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  background: #10131a;
-  color: #f4f6fb;
-  font: 0.875rem/1.45 var(--font-mono);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.native-terminal-input {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  align-items: end;
-}
-
-.native-terminal-input label {
-  grid-column: 1 / -1;
-}
-
-.native-terminal-input input {
-  min-height: 44px;
-}
 .settings-break-word {
   overflow-wrap: anywhere;
 }

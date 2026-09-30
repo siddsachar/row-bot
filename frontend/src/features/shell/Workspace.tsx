@@ -100,7 +100,11 @@ import {
 } from '../panels/panel-requests';
 import { designCommandSets } from '../panels/design-commands';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
-import NativeTerminal from '../panels/NativeTerminal';
+import {
+  TERMINAL_MIN_HEIGHT,
+  TerminalSlot,
+  useTerminalDock,
+} from '../panels/terminal-dock';
 import { WorkspaceActionsContext } from './workspace-actions';
 import { openAgentProfiles } from './agent-profiles';
 import { useBackgroundNotices } from './background-notices';
@@ -115,11 +119,9 @@ function panelIcon(descriptor: PanelDescriptor): LucideIcon {
     ? Palette
     : descriptor.panel_kind === 'workspace.inspector'
       ? Code2
-      : descriptor.panel_kind === 'native.terminal'
-        ? SquareTerminal
-        : descriptor.panel_kind === 'browser.live'
-          ? Globe
-          : BookOpen;
+      : descriptor.panel_kind === 'browser.live'
+        ? Globe
+        : BookOpen;
 }
 
 /** The sheet header names the kind; the panel itself shows the resource. */
@@ -128,11 +130,22 @@ function panelKindLabel(descriptor: PanelDescriptor): string {
     ? 'Design'
     : descriptor.panel_kind === 'workspace.inspector'
       ? 'Developer'
-      : descriptor.panel_kind === 'native.terminal'
-        ? 'Terminal'
-        : descriptor.panel_kind === 'browser.live'
-          ? 'Browser'
-          : descriptor.title;
+      : descriptor.panel_kind === 'browser.live'
+        ? 'Browser'
+        : descriptor.title;
+}
+
+/** Ctrl+` toggles the terminal: Control on every platform, as in VS Code. */
+function terminalShortcut(event: globalThis.KeyboardEvent): boolean {
+  return (
+    !event.isComposing &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !event.repeat &&
+    event.code === 'Backquote'
+  );
 }
 
 /** Keyboard shortcut match: Mod is Command on macOS and Control elsewhere. */
@@ -252,8 +265,6 @@ function PanelContent({
     <ResourcePanel panel={panel} visible={visible} />
   ) : panel.descriptor.panel_kind === 'browser.live' ? (
     <BrowserPanel visible={visible} />
-  ) : panel.descriptor.panel_kind === 'native.terminal' ? (
-    <NativeTerminal visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -315,6 +326,18 @@ export default function Workspace() {
     conversationId ?? 'home',
   );
   const creation = useNewChat();
+  // The desktop terminal (B249): a dock under the conversation, a
+  // full-screen sheet on phones. Closing it keeps the session.
+  const terminal = useTerminalDock();
+  const terminalRef = usePanelRef();
+  const terminalSlot = useRef<HTMLDivElement>(null);
+  const terminalButton = useRef<HTMLButtonElement>(null);
+  const terminalFocusReturn = useRef(false);
+  const terminalAvailable =
+    Boolean(conversationId) &&
+    Boolean(
+      state.handshake?.application_capabilities?.includes('native:terminal'),
+    );
   useBackgroundNotices();
   useApprovalNotices(conversationId);
   const connectionAction =
@@ -453,6 +476,13 @@ export default function Workspace() {
   // Phones get one 48px conversation header (back, title, ⋯); tablets keep
   // their icon actions in the same single row.
   const phone = layout.widthClass === 'phone';
+  const terminalDocked = terminalAvailable && terminal.open && !phone;
+  const terminalSheet = terminalAvailable && terminal.open && phone;
+  // The conversation keeps at least 30% of the height.
+  const terminalMax = Math.max(
+    TERMINAL_MIN_HEIGHT,
+    Math.round(layout.height * 0.7),
+  );
   const sidePanels = layout.panels.filter(
     (panel) =>
       panel.placement === 'side' &&
@@ -726,10 +756,6 @@ export default function Workspace() {
         resource_kind: resource.binding.kind,
         resource_revision: resource.resource_revision,
       })),
-      ...(conversationId &&
-      state.handshake?.application_capabilities?.includes('native:terminal')
-        ? [{ panel_kind: 'native.terminal', title: 'Interactive terminal' }]
-        : []),
     ];
     const commands: PaletteCommand[] = [
       {
@@ -843,6 +869,24 @@ export default function Workspace() {
               run: () => {
                 overlay.close();
                 setContextToggle((count) => count + 1);
+              },
+            },
+          ]
+        : []),
+      ...(terminalAvailable
+        ? [
+            {
+              id: 'toggle-terminal',
+              label: 'Toggle terminal',
+              keywords:
+                'interactive terminal shell console command line prompt powershell',
+              icon: <SquareTerminal size={16} />,
+              shortcut: 'Ctrl+`',
+              run: () => {
+                const opening = !terminal.open;
+                toggleTerminal();
+                // Closing, the palette gives focus to the terminal instead.
+                overlay.close(opening ? terminalSlot.current : undefined);
               },
             },
           ]
@@ -961,6 +1005,10 @@ export default function Workspace() {
       if (!conversationId || !desktop || homeOpen || routeOpen) return;
       event.preventDefault();
       setContextToggle((count) => count + 1);
+    } else if (terminalShortcut(event)) {
+      if (!terminalAvailable) return;
+      event.preventDefault();
+      toggleTerminal();
     }
   });
   useEffect(() => {
@@ -994,6 +1042,53 @@ export default function Workspace() {
     sideRef,
     bottomRef,
   ]);
+  useEffect(() => {
+    terminalRef.current?.resize(terminalDocked ? terminal.height : 0);
+  }, [terminalDocked, terminal.height, terminalRef]);
+  // Closed from inside, the terminal gives focus back to its button (the
+  // conversation on phones).
+  useEffect(() => {
+    if (terminal.open || !terminalFocusReturn.current) return;
+    terminalFocusReturn.current = false;
+    (terminalButton.current ?? document.getElementById('conversation'))?.focus({
+      preventScroll: true,
+    });
+  }, [terminal.open]);
+  function closeTerminal(returnFocus?: boolean) {
+    terminalFocusReturn.current =
+      returnFocus ??
+      Boolean(
+        document.activeElement instanceof HTMLElement &&
+        document.activeElement.closest('.terminal-slot'),
+      );
+    terminal.hide();
+  }
+  function toggleTerminal() {
+    if (terminal.open) closeTerminal();
+    else terminal.show();
+  }
+  // Dragged shut, the dock closes; otherwise it keeps its new height.
+  function settleTerminal(pixels: number | undefined) {
+    if (pixels === undefined || !Number.isFinite(pixels)) return;
+    if (pixels < 0.5) closeTerminal();
+    else if (pixels >= TERMINAL_MIN_HEIGHT - 0.5) terminal.resize(pixels);
+  }
+  function terminalKeyResize(event: KeyboardEvent) {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter'].includes(event.key))
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Enter') return closeTerminal(true);
+    const step =
+      (event.shiftKey ? 48 : 16) * (event.key === 'ArrowUp' ? 1 : -1);
+    terminal.resize(
+      event.key === 'Home'
+        ? TERMINAL_MIN_HEIGHT
+        : event.key === 'End'
+          ? terminalMax
+          : Math.min(terminalMax, terminal.height + step),
+    );
+  }
   const update = (action: (previous: PanelLayout) => PanelLayout) =>
     setLayout(action);
   function settleResize(
@@ -1384,13 +1479,10 @@ export default function Workspace() {
       resource_kind: resource.binding.kind,
       resource_revision: resource.resource_revision,
     })),
-    ...(state.handshake?.application_capabilities?.includes('native:terminal')
-      ? [{ panel_kind: 'native.terminal', title: 'Interactive terminal' }]
-      : []),
     ...(import.meta.env.VITE_ENABLE_FIXTURES === '1' ? samplePanels : []),
   ];
-  const panelActions = (label: (title: string) => string): MenuAction[] =>
-    panelChoices.map((panel) => {
+  const panelActions = (label: (title: string) => string): MenuAction[] => [
+    ...panelChoices.map((panel) => {
       const Icon = panelIcon(panel);
       return {
         label: label(panel.title),
@@ -1398,7 +1490,20 @@ export default function Workspace() {
         onSelect: (opener: HTMLButtonElement | null) =>
           showPanel(panel, opener),
       };
-    });
+    }),
+    // The terminal opens in its own dock, not as a panel (B249).
+    ...(terminalAvailable
+      ? [
+          {
+            label: label('Interactive terminal'),
+            icon: <SquareTerminal size={16} />,
+            shortcut: 'Ctrl+`',
+            onSelect: () => terminal.show(),
+            afterClose: () => terminalSlot.current?.focus(),
+          },
+        ]
+      : []),
+  ];
   const openPanelMenu = (
     <Menu
       label="Open panel"
@@ -1411,6 +1516,17 @@ export default function Workspace() {
     >
       <Columns3 size={16} aria-hidden />
     </Menu>
+  );
+  const terminalToggle = terminalAvailable && (
+    <IconButton
+      ref={terminalButton}
+      label="Terminal"
+      shortcut="Ctrl+`"
+      pressed={terminal.open}
+      onClick={toggleTerminal}
+    >
+      <SquareTerminal size={16} aria-hidden />
+    </IconButton>
   );
   // The phone header's ⋯: search first, then every panel this thread has.
   const phoneMenu: MenuAction[] = [
@@ -1581,6 +1697,8 @@ export default function Workspace() {
                     openPanelRef.current?.focus({ preventScroll: true });
                   update((previous) => settleResize(previous, 'bottom', size));
                 }
+                if (meta.isUserInteraction && terminalDocked)
+                  settleTerminal(terminalRef.current?.getSize().inPixels);
               }}
             >
               <Panel id="conversation-pane" minSize={desktop ? 240 : 0}>
@@ -1591,7 +1709,9 @@ export default function Workspace() {
                     data-testid="conversation-workspace"
                     className="conversation"
                     aria-label="Conversation"
-                    hidden={homeOpen || routeOpen || Boolean(compact)}
+                    hidden={
+                      homeOpen || routeOpen || Boolean(compact) || terminalSheet
+                    }
                   >
                     <div className="conversation-heading">
                       {/* Announced, not drawn: the sidebar footer shows a
@@ -1645,10 +1765,14 @@ export default function Workspace() {
                       contextToggle={contextToggle}
                       headerActions={
                         desktop ? (
-                          openPanelMenu
+                          <>
+                            {terminalToggle}
+                            {openPanelMenu}
+                          </>
                         ) : phone ? undefined : (
                           <>
                             {commandsButton}
+                            {terminalToggle}
                             {openPanelMenu}
                           </>
                         )
@@ -1670,7 +1794,7 @@ export default function Workspace() {
                       }
                     />
                   )}
-                  {compact && !routeOpen && (
+                  {compact && !routeOpen && !terminalSheet && (
                     <section
                       className="compact-tab panel-sheet"
                       aria-label="Compact panel"
@@ -1715,6 +1839,15 @@ export default function Workspace() {
                         <PanelContent panel={compact} visible />
                       </div>
                     </section>
+                  )}
+                  {terminalSheet && (
+                    <div className="compact-tab panel-sheet">
+                      <TerminalSlot
+                        open
+                        focusKey={terminal.focusKey}
+                        onClose={() => closeTerminal()}
+                      />
+                    </div>
                   )}
                   {routeOpen && (
                     <div
@@ -1780,6 +1913,30 @@ export default function Workspace() {
                 collapsedSize={0}
               >
                 {bottomVisible && dock(bottomPanels, 'bottom')}
+              </Panel>
+              {terminalDocked && (
+                <Separator
+                  className="resize-handle horizontal"
+                  aria-label="Resize terminal"
+                  onKeyDownCapture={terminalKeyResize}
+                />
+              )}
+              <Panel
+                id="terminal-pane"
+                panelRef={terminalRef}
+                minSize={phone ? 0 : TERMINAL_MIN_HEIGHT}
+                maxSize={phone ? 0 : terminalMax}
+                defaultSize={0}
+                collapsible
+                collapsedSize={0}
+                groupResizeBehavior="preserve-pixel-size"
+              >
+                <TerminalSlot
+                  ref={terminalSlot}
+                  open={terminalDocked}
+                  focusKey={terminal.focusKey}
+                  onClose={() => closeTerminal()}
+                />
               </Panel>
             </Group>
           </Panel>

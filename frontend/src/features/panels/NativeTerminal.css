@@ -1,0 +1,93 @@
+/*
+ * The desktop terminal (B248, B249): one compact header over an xterm.js
+ * screen, in the bottom dock under the conversation or a phone sheet. The
+ * screen uses the code colours of the current theme; xterm's own rules come
+ * from @xterm/xterm/css/xterm.css, bundled with this chunk.
+ */
+.terminal-slot {
+  height: 100%;
+  min-height: 0;
+}
+.terminal-slot:focus {
+  outline: none;
+}
+.native-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--code-background);
+}
+.native-terminal-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 6px 2px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.panel-sheet .native-terminal-header {
+  min-height: 48px;
+  padding-top: calc(2px + env(safe-area-inset-top));
+}
+.native-terminal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-13);
+}
+.native-terminal-title > svg {
+  color: var(--text-muted);
+}
+.native-terminal-status {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.native-terminal-actions {
+  margin-left: auto;
+}
+.native-terminal-actions .icon-action {
+  color: var(--text-muted);
+}
+.native-terminal-notice {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.native-terminal-notice[role='alert'] {
+  color: var(--status-danger-text);
+}
+.native-terminal .empty-state {
+  flex: 1 1 auto;
+}
+.native-terminal-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.native-terminal-screen[hidden] {
+  display: none;
+}
+/* Padding on xterm's own element, which the fit addon subtracts; it shows
+   the dock's colour instead of xterm's black legacy viewport. */
+.native-terminal-screen .xterm {
+  height: 100%;
+  padding: 6px 0 0 12px;
+}
+.native-terminal-screen .xterm .xterm-viewport {
+  background-color: transparent;
+}

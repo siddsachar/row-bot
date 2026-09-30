@@ -55,8 +55,9 @@ accepts a combined response of at most 2 MiB, including the separately bounded
 The client
 starts observation from its signed subscription snapshot after opening. A
 visibility return or snapshot reset refreshes metadata and resources. Bounded
-view, observation and acknowledgement rate limits are separate from command and
-Stop/approval reserves, so navigation cannot exhaust those controls.
+view, observation, acknowledgement and desktop-terminal rate limits are separate
+from command and Stop/approval reserves, so navigation and typing in the
+terminal cannot exhaust those controls.
 
 Panels register bundled renderers in `features/panels/model.ts`. A
 `PanelDescriptor` contains `panel_kind`, `title`, and optional `resource_ref`,

@@ -1754,7 +1754,7 @@ def create_router(
         cursor: int = 0,
         max_bytes: int = 65536,
     ) -> JSONResponse:
-        current = await session(request, lane="observation")
+        current = await session(request, lane="terminal")
         try:
             value = await call(
                 terminal_client(terminal_id, current).read, cursor, max_bytes
@@ -1765,7 +1765,7 @@ def create_router(
 
     @router.post("/native/terminals/{terminal_id}/input")
     async def native_terminal_input(terminal_id: str, request: Request) -> JSONResponse:
-        current = await session(request, lane="control")
+        current = await session(request, lane="terminal")
         body = await _body(request, dto.NativeTerminalInput, 32768)
         try:
             await call(terminal_client(terminal_id, current).input, body.data)
@@ -1777,7 +1777,7 @@ def create_router(
     async def native_terminal_resize(
         terminal_id: str, request: Request
     ) -> JSONResponse:
-        current = await session(request, lane="control")
+        current = await session(request, lane="terminal")
         body = await _body(request, dto.NativeTerminalResize, 4096)
         try:
             await call(

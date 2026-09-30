@@ -28,6 +28,10 @@ const SYNTAX_MODULES =
 const GRAPH_MODULES =
   /\/node_modules\/(?:sigma|graphology|graphology-[\w-]+|events)\//;
 
+// xterm.js, its fit addon and stylesheet: a lazy `terminal` chunk loaded
+// when the desktop terminal dock first opens.
+const TERMINAL_MODULES = /\/node_modules\/@xterm\//;
+
 // Dev-only same-loopback proxy. Production access policy is untouched.
 const loopbackProxy: ProxyOptions = {
   target: backend.origin,
@@ -105,6 +109,7 @@ export default defineConfig({
             return undefined;
           if (SYNTAX_MODULES.test(id)) return 'syntax';
           if (GRAPH_MODULES.test(id)) return 'graph';
+          if (TERMINAL_MODULES.test(id)) return 'terminal';
           if (id.includes('/node_modules/')) return 'vendor';
           if (id.includes('/contracts/client-platform/')) return 'protocol';
         },

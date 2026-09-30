@@ -70,13 +70,6 @@ export const panelRegistry = {
     capabilities: ['browser_navigate'],
     compact: 'tab',
   },
-  'native.terminal': {
-    title: 'Interactive terminal',
-    resourceKinds: [],
-    requiresResource: false,
-    capabilities: [],
-    compact: 'tab',
-  },
   'fake.info': {
     title: 'Sample information',
     resourceKinds: [],
@@ -527,6 +520,8 @@ export function restoreLayout(
             !/^panel-\d{1,15}$/.test(item.instance_id) ||
             ids.has(item.instance_id) ||
             !isPanelDescriptor(item.descriptor) ||
+            // The terminal moved to its own dock (B249).
+            item.descriptor.panel_kind === 'native.terminal' ||
             !['side', 'bottom'].includes(item.placement) ||
             !['visible', 'collapsed'].includes(item.visibility) ||
             (item.presentationKey !== undefined &&

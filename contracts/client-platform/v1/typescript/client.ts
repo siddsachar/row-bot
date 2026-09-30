@@ -1012,10 +1012,12 @@ async function pace(proof: SessionProof | undefined, path: string, method: strin
   // Draft autosaves, uploads and ordinary commands consume one server bucket.
   // Stop/approval/cancel and ACK retain their independent admission paths.
   if (control || mcpCleanup || type === 'provider.subscription.cancel' || type === 'buddy.cancel' || /\/settings\/providers\/subscriptions\/(?:starts|probes)\/[^/]+\/cancel$/.test(path) || method === 'DELETE' && path === '/settings/providers/subscriptions/flows' || /^\/subscriptions\/[^/]+\/ack$/.test(path) || /\/voice\/(?:talk|realtime)\/[^/]+\/(?:stop|heartbeat)$/.test(path)) return;
-  const lane = observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
+  // The desktop terminal sends each typed key and reads its echo (B248).
+  const terminal = method !== 'DELETE' && /^\/native\/terminals\/[^/?]+(?:\/(?:input|resize))?(?:\?|$)/.test(path);
+  const lane = terminal ? 'terminal' : observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
   let lanes = budgets.get(proof);
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
-  const [capacity, rate] = lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
+  const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
   let bucket = lanes.get(lane);
   if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0}; lanes.set(lane,bucket); }
   if (bucket.waiting >= 128) throw {code:'rate_limited'};

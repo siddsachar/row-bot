@@ -156,6 +156,18 @@ describe('typed presentation-only panel registry', () => {
       Number.isSafeInteger(openPanel(safe, samplePanels[0]).nextInstance),
     ).toBe(true);
   });
+  it('drops a terminal saved as a side panel: the terminal has its own dock (B249)', () => {
+    let state = openPanel(createPanelLayout(), {
+      panel_kind: 'native.terminal',
+      title: 'Interactive terminal',
+    });
+    state = openPanel(state, samplePanels[0]);
+    const restored = restoreLayout(persistLayout(state), 1440, 900);
+    expect(restored.panels.map((panel) => panel.descriptor.title)).toEqual([
+      'Workspace notes',
+    ]);
+    expect(restored.activePanelId).toBe(restored.panels[0].instance_id);
+  });
   it('preserves Back to conversation across compact refresh while retaining panels', () => {
     const opened = openPanel(createPanelLayout(390, 844), samplePanels[1]);
     const conversation = focusPanel(opened, null);

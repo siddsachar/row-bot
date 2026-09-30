@@ -67,7 +67,7 @@ BROWSER_NIGHTLY_SPECS = (
     "capability-surfaces", "conversation-layout", "media", "message-content",
     "navigation", "panels", "persistence", "polish-visual", "resources",
     "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
-    "theme", "visual-alignment", "voice", "workflows",
+    "terminal", "theme", "visual-alignment", "voice", "workflows",
 )
 BROWSER_UNIFIED_SPECS = (
     "unified-history", "unified-panels", "unified-quality", "unified-recovery",
@@ -82,7 +82,7 @@ BROWSER_DEDICATED_PROJECTS = tuple(f"--project=chromium-{name}" for name in (
 BROWSER_PHONE_SPECS = (
     "capability-surfaces", "conversation-layout", "message-content", "overlays",
     "polish-foundation", "polish-visual", "settings-models", "settings-providers",
-    "settings-routes", "settings", "shell", "sidebar", "theme",
+    "settings-routes", "settings", "shell", "sidebar", "terminal", "theme",
     "unified-panels", "unified-quality", "visual-alignment",
 )
 # Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
