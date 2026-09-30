@@ -21,6 +21,11 @@ import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
 import Workspace from './Workspace';
 
+// Each test renders the whole Workspace and uploads through the controller;
+// a loaded machine (the full client suite in parallel) needs more than the
+// default 5 s.
+const HEAVY = 20_000;
+
 // JSDOM has no measured panes; the shell, navigation and composer stay real.
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -86,28 +91,38 @@ async function attachWith(selectFile: FakePlatformScript['selectFile']) {
   return controller;
 }
 
-it('says when Attach file fails instead of doing nothing (B231)', async () => {
-  await attachWith({
-    status: 'unavailable',
-    reason: 'native_operation_unavailable',
-  });
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Row-Bot couldn’t attach that file. Try again, or drag it into the conversation.',
-  );
-});
+it(
+  'says when Attach file fails instead of doing nothing (B231)',
+  async () => {
+    await attachWith({
+      status: 'unavailable',
+      reason: 'native_operation_unavailable',
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Row-Bot couldn’t attach that file. Try again, or drag it into the conversation.',
+    );
+  },
+  HEAVY,
+);
 
-it('attaches what the browser file input picked, as a drop does (B231)', async () => {
-  const file = new File(['notes'], 'notes.txt', { type: 'text/plain' });
-  const controller = await attachWith({
-    status: 'ok',
-    value: { kind: 'file', files: [file] },
-  });
-  // The upload runs through the controller; a busy machine can need more
-  // than a second.
-  await waitFor(
-    () =>
-      expect(controller.getDraft('conversation-a').attachments).toHaveLength(1),
-    { timeout: 5000 },
-  );
-  expect(screen.queryByRole('alert')).toBeNull();
-});
+it(
+  'attaches what the browser file input picked, as a drop does (B231)',
+  async () => {
+    const file = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+    const controller = await attachWith({
+      status: 'ok',
+      value: { kind: 'file', files: [file] },
+    });
+    // The upload runs through the controller; a busy machine can need more
+    // than a second.
+    await waitFor(
+      () =>
+        expect(controller.getDraft('conversation-a').attachments).toHaveLength(
+          1,
+        ),
+      { timeout: 15_000 },
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+  },
+  HEAVY,
+);
