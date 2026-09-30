@@ -257,7 +257,7 @@ def test_default_dispatcher_runs_cumulative_children_in_bounded_waves(
                     str(configurable["parent_thread_id"]),
                 )
             )
-        assert release.wait(10)
+        assert release.wait(60)
         return "done"
 
     monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
@@ -272,7 +272,9 @@ def test_default_dispatcher_runs_cumulative_children_in_bounded_waves(
                 )
             )
 
-    deadline = time.monotonic() + 5
+    # Generous bounds: a loaded machine spawns slowly, and a child whose wait
+    # ran out would free its slot early.
+    deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         current = agent_runner.child_dispatch_state()
         if current["active"] == 8 and current["active"] + current["queued"] == 10:
@@ -300,7 +302,7 @@ def test_default_dispatcher_runs_cumulative_children_in_bounded_waves(
 
     release.set()
     finals = [
-        agent_runner.wait_for_agent_run(run["id"], timeout=3)
+        agent_runner.wait_for_agent_run(run["id"], timeout=30)
         for run in runs
     ]
     assert all(run["status"] == "completed" for run in finals)

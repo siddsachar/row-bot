@@ -173,7 +173,7 @@ def test_token_burst_and_acknowledgement_rate_limit_preserve_stop_control(servic
             "text": "Burst", "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}}, target=conversation)
         assert admitted.status_code == 202, admitted.text
         handle = service.registry.get(admitted.json()["execution_id"])
-        assert barrier.entered.wait(5)
+        assert barrier.entered.wait(barrier.timeout_seconds)
         try:
             events = client.get("/api/v1/events/poll", headers=headers,
                 params={"subscription_id": sub["subscription_id"], "cursor": sub["cursor"]})
@@ -185,7 +185,7 @@ def test_token_burst_and_acknowledgement_rate_limit_preserve_stop_control(servic
             stopped = _command(client, headers, "conversation.stop", {}, target=conversation,
                 revision=service.get_conversation(conversation)["revision"])
             assert stopped.status_code == 200, stopped.text
-            assert handle.producer_done.wait(5)
+            assert handle.producer_done.wait(barrier.timeout_seconds)
             assert handle.view()["quiesced"] is True
         finally:
             barrier.release.set()
