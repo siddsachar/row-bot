@@ -197,10 +197,14 @@ export function Hint({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // Opened by keyboard focus, the label stays until blur; it must not catch
+  // a click meant for a control it covers (a hover label stays hoverable).
+  const [fromFocus, setFromFocus] = useState(false);
   const focusOwned = useRef(false);
   const pointerDown = useRef(false);
   const dismiss = () => {
     focusOwned.current = false;
+    setFromFocus(false);
     setOpen(false);
   };
   return (
@@ -219,6 +223,7 @@ export function Hint({
           onFocus={() => {
             if (!pointerDown.current) {
               focusOwned.current = true;
+              setFromFocus(true);
               setOpen(true);
             }
           }}
@@ -244,6 +249,7 @@ export function Hint({
           <div className="tooltip-layer">
             <Tooltip.Content
               className="tooltip"
+              data-origin={fromFocus ? 'focus' : 'pointer'}
               sideOffset={6}
               collisionPadding={12}
               onEscapeKeyDown={dismiss}

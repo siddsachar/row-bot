@@ -1153,6 +1153,11 @@ small {
   box-shadow: var(--shadow-overlay);
   overflow-wrap: anywhere;
 }
+/* A label opened by keyboard focus stays until blur: clicks go through it to
+   whatever it covers. A hover label stays hoverable (WCAG 1.4.13). */
+.tooltip[data-origin='focus'] {
+  pointer-events: none;
+}
 .menu {
   padding: 4px;
   min-width: 200px;
