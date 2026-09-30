@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 import threading
 
 import playwright.sync_api
+import pytest
 
+from row_bot.browser import runtime as runtime_module
 from row_bot.browser import service as service_module
 from row_bot.browser.runtime import BrowserRuntimeReadiness
 from row_bot.browser.service import BrowserSession
@@ -107,6 +110,7 @@ def test_selected_installed_channel_succeeds_without_probe_launch(monkeypatch, t
     assert chromium.calls[0]["proxy"]["server"] == "http://127.0.0.1:43123"
     assert "--proxy-bypass-list=<-loopback>" in chromium.calls[0]["args"]
     assert "--start-maximized" in chromium.calls[0]["args"]
+    assert all("bypass_csp" not in call for call in chromium.calls)
     assert chromium.context.route_handler is not None
     assert chromium.context.websocket_handler is not None
 
@@ -124,6 +128,29 @@ def test_channel_failure_falls_back_once_to_ready_matching_managed_chromium(monk
     assert len(chromium.calls) == 2
     assert chromium.calls[0]["channel"] == "chrome"
     assert chromium.calls[1]["executable_path"] == "C:/synthetic/chrome.exe"
+    assert all("bypass_csp" not in call for call in chromium.calls)
+
+
+def test_a_missing_browser_runtime_fails_closed_without_installing(monkeypatch, tmp_path) -> None:
+    def no_hidden_install(*_args, **_kwargs):
+        pytest.fail("the browser never installs a runtime on its own")
+
+    chromium = _Chromium(fail_channel=False)
+    missing = BrowserRuntimeReadiness(False, "missing", "missing")
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright", lambda: _Starter(_Playwright(chromium)))
+    monkeypatch.setattr(service_module, "PROFILE_DIR", tmp_path / "profile")
+    monkeypatch.setattr(service_module, "_installed_channel", lambda: None)
+    monkeypatch.setattr(service_module, "check_packaged_browser_runtime", lambda: missing)
+    monkeypatch.setattr(service_module, "check_managed_browser_runtime", lambda: missing)
+    monkeypatch.setattr(service_module, "ensure_profile_engine", lambda *args: None)
+    monkeypatch.setattr(service_module, "PinnedNetworkProxy", _Proxy)
+    monkeypatch.setattr(runtime_module, "install_managed_browser_runtime", no_hidden_install)
+    monkeypatch.setattr(runtime_module, "_default_runner", no_hidden_install)
+    monkeypatch.setattr(subprocess, "Popen", no_hidden_install)
+
+    with pytest.raises(RuntimeError, match="Managed Chromium is not installed"):
+        BrowserSession()._launch_context()
+    assert chromium.calls == []
 
 
 class _OwnedPage:

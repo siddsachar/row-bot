@@ -1,6 +1,5 @@
 import importlib
 from types import SimpleNamespace
-from pathlib import Path
 
 import pytest
 
@@ -50,27 +49,6 @@ def test_workflow_drafts_round_trip_and_delete(data_dir, monkeypatch):
     assert tasks.get_workflow_draft(None) is None
     assert tasks.get_workflow_draft(task_id) is None
 
-
-def test_stability_source_contracts_are_wired():
-    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
-    discord_src = Path("src/row_bot/channels/discord_channel.py").read_text(encoding="utf-8")
-
-    assert "setup_stability_monitoring()" in app_src
-    assert 'app.add_route("/api/launcher-shutdown"' in app_src
-    assert 'app.add_route("/api/startup-state"' in app_src
-    assert "async def _cleanup_runtime" in app_src
-    assert "_ch_registry.all_channels()" in app_src
-    assert "await asyncio.wait_for(_ch.stop(), timeout=10)" in app_src
-    assert "os._exit(0)" in app_src
-    assert "_is_transient_stream_disconnect" in agent_src
-    assert "provider stream disconnected" in agent_src
-    assert "start_performance_monitor()" in app_src
-    assert "schedule_idle_extraction" in app_src
-    assert "cleanup_old_checkpoints" in app_src
-    assert '_ch_config.set("tunnel", "tunnel_main_app", _main_app_tunnel)' in app_src
-    assert "Tunnel auto-start skipped:" in app_src
-    assert "install_asyncio_exception_handler(loop)" in discord_src
 
 def test_provider_qualified_cloud_defaults_validate_after_refresh(monkeypatch):
     import row_bot.models as models

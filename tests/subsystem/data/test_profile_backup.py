@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import subprocess
+import sys
+import textwrap
 import zipfile
 from contextlib import closing
 from datetime import datetime
@@ -211,14 +215,48 @@ def test_cancel_drops_a_staged_restore_without_touching_the_profile(tmp_path):
     assert (target / "tools_config.json").read_text(encoding="utf-8") == "{}"
 
 
-def test_the_server_applies_a_pending_restore_before_it_opens_the_profile():
-    """Source contract: the start hook runs before any other Row-Bot import in the server."""
-    source = (Path(__file__).resolve().parents[3] / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
-    source = source.replace("\r\n", "\n")
-    hook = source.index("apply_on_start()")
-    first_import = min(source.index(line) for line in ("\nfrom row_bot.brand", "\nfrom row_bot.data_paths"))
-    assert hook < first_import
-    assert 'if __name__ == "__main__":\n    from row_bot.profile_restore import apply_on_start' in source
+# Runs the real root app.py as __main__ with uvicorn.run faked: no server starts.
+_SERVER_START_PROBE = textwrap.dedent('''
+    import json, runpy, sys
+    import uvicorn
+    import row_bot.profile_restore as restore
+    seen = {}
+    real = restore.apply_pending
+    def spy(*args, **kwargs):
+        seen["loaded"] = sorted(m for m in sys.modules if m == "row_bot" or m.startswith("row_bot."))
+        return real(*args, **kwargs)
+    restore.apply_pending = spy
+    def fake_run(app, **kwargs):
+        print(json.dumps({"host": kwargs["host"], "proxy_headers": kwargs["proxy_headers"], **seen}))
+        raise SystemExit(0)
+    uvicorn.run = fake_run
+    runpy.run_path("app.py", run_name="__main__")
+''')
+
+
+@pytest.mark.slow
+def test_the_server_start_restores_first_and_listens_on_loopback(tmp_path):
+    source = _profile(tmp_path)
+    archive = Path(backup.create_backup(source, tmp_path / "Backups")["path"])
+    target = tmp_path / "other"
+    target.mkdir()
+    _db(target / "threads.db", ["CREATE TABLE threads(id TEXT, title TEXT)",
+                                "INSERT INTO threads VALUES ('t9', 'Current conversation')"])
+    backup.stage_restore(archive, target, source_name=archive.name)
+    env = {**os.environ, "ROW_BOT_DATA_DIR": str(target), "ROW_BOT_TEST_MODE": "1"}
+    env.pop("ROW_BOT_HOST", None)
+
+    result = subprocess.run([sys.executable, "-c", _SERVER_START_PROBE], cwd=Path(__file__).resolve().parents[3],
+                            env=env, capture_output=True, text=True, timeout=120)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report["host"] == "127.0.0.1"
+    assert report["proxy_headers"] is False
+    # Nothing that opens the profile was loaded when the restore ran.
+    assert report["loaded"] == ["row_bot", "row_bot.brand", "row_bot.data_paths", "row_bot.profile_restore",
+                                "row_bot.version"]
+    assert _rows(target / "threads.db", "SELECT title FROM threads") == [("Kept conversation",)]
 
 
 def test_an_older_backup_with_files_now_left_out_still_restores_without_them(tmp_path):

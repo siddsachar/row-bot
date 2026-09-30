@@ -59,19 +59,3 @@ def test_provider_summary_distinguishes_unknown_from_verified_empty(monkeypatch)
 
     assert "ChatGPT / Codex: configured (external_cli), catalog count unknown" in summary
     assert "OpenRouter: configured (keyring), 0 catalog model(s)" in summary
-
-
-def test_dream_prompt_forbids_empty_catalog_from_unknown_counts():
-    from row_bot.prompts import DREAM_INSIGHTS_PROMPT
-
-    assert "models=unknown" in DREAM_INSIGHTS_PROMPT
-    assert "verified empty count" in DREAM_INSIGHTS_PROMPT
-
-
-def test_dream_prompt_classifies_followup_observability_evidence():
-    from row_bot.prompts import DREAM_INSIGHTS_PROMPT
-
-    assert "low `ui_flushes`" in DREAM_INSIGHTS_PROMPT
-    assert "Quick Choice option loading" in DREAM_INSIGHTS_PROMPT
-    assert "`.payload` and `.components` suffixes are budget" in DREAM_INSIGHTS_PROMPT
-    assert "ResizeObserver loop completed with" in DREAM_INSIGHTS_PROMPT

@@ -879,16 +879,3 @@ def test_stream_graph_logs_provider_call_segments_around_tool_result(caplog):
     assert "'end_reason': 'complete'" in message
     assert "'tool_gap_ms':" in message
     assert "'first_answer_token_ms':" in message
-
-
-def test_forced_agent_surfaces_are_wired_in_callers():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    tasks = (root / "src" / "row_bot" / "tasks.py").read_text(encoding="utf-8")
-    approval = (root / "src" / "row_bot" / "channels" / "approval.py").read_text(encoding="utf-8")
-
-    assert '"runtime_surface": "workflow"' in tasks
-    assert '"runtime_mode": "agent"' in tasks
-    assert '"runtime_surface": "approval"' in approval
-    assert '"runtime_mode": "agent"' in approval

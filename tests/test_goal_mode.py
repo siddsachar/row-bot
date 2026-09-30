@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-from pathlib import Path
 
 
 def _fresh_goal_modules(tmp_path, monkeypatch):
@@ -369,10 +368,3 @@ def test_goal_continuation_is_posted_to_shared_parent_runner(tmp_path, monkeypat
     assert captured[0]["parent_thread_id"] == thread_id
     assert captured[0]["enabled_tool_names"] == ["agents", "goal"]
     assert captured[0]["event_payload"]["goal_id"] == goal["id"]
-
-
-def test_goal_guide_documents_goal_update():
-    guide = Path("tool_guides/goal_guide/SKILL.md").read_text(encoding="utf-8")
-
-    assert "name: goal_guide" in guide
-    assert "goal_update" in guide

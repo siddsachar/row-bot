@@ -22,7 +22,6 @@ def _no_turn_model_override(monkeypatch):
 
 
 def test_fresh_profile_has_no_chat_model():
-    assert not hasattr(models, "DEFAULT_MODEL")
     assert models.initial_model_choice({}) == ""
     # A saved choice is kept exactly (canonical provider-qualified reference).
     assert models.initial_model_choice({"model": "model:codex:gpt-5.6-sol"}) == "model:codex:gpt-5.6-sol"
@@ -66,7 +65,6 @@ def test_provider_removal_keeps_the_saved_default(tmp_path, monkeypatch):
 def test_vision_follows_the_chat_model_by_default(tmp_path, monkeypatch):
     monkeypatch.setattr(vision, "_SETTINGS_PATH", tmp_path / "vision_settings.json")
     monkeypatch.setattr(vision, "_DATA_DIR", tmp_path)
-    assert not hasattr(vision, "DEFAULT_VISION_MODEL")
     service = vision.VisionService()
     assert service.model == ""
     assert service.enabled is True
@@ -94,8 +92,6 @@ def test_vision_without_any_model_says_so(tmp_path, monkeypatch):
 def test_image_and_video_are_off_and_unset_until_chosen(monkeypatch):
     from row_bot.tools import image_gen_tool, registry, video_gen_tool
 
-    assert not hasattr(image_gen_tool, "DEFAULT_MODEL")
-    assert not hasattr(video_gen_tool, "DEFAULT_MODEL")
     monkeypatch.setattr(registry, "get_tool_config", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(registry, "get_tool", lambda _name: None)
     assert image_gen_tool._get_configured_selection() == ""

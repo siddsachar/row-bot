@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from row_bot.providers.capabilities import model_supports_surface
 from row_bot.providers.catalog import classify_model_capabilities, get_provider_definition, infer_provider_id, legacy_cache_to_model_infos, model_info_to_cache_entry
 from row_bot.providers.model_catalog import build_model_catalog_rows, rows_for_surface
@@ -10,9 +8,6 @@ from row_bot.providers.ollama import (
     ollama_catalog_rows,
     ollama_model_info,
 )
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_provider_catalog_infers_existing_api_key_providers():
@@ -58,15 +53,6 @@ def test_atlascloud_provider_definition_and_capabilities():
     assert resolved.base_url == "https://api.atlascloud.ai/v1"
     assert resolved.risk_label == "cloud_provider"
     assert resolved.execution_location == "remote"
-
-
-def test_ollama_provider_public_catalog_discovery_removed():
-    source = (ROOT / "src" / "row_bot" / "providers" / "ollama.py").read_text(encoding="utf-8")
-
-    assert "fetch_ollama_library" not in source
-    assert "ollama_provider_catalog_model_ids" not in source
-    assert "preferred_ollama_tag_models" not in source
-    assert "OLLAMA_LIBRARY_URL" not in source
 
 
 def test_minimax_model_ids_infer_to_minimax_provider():

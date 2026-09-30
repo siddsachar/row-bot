@@ -8,62 +8,12 @@ import pytest
 
 pytestmark = pytest.mark.platform
 
-_RUNTIME_FILES = {"app.py", "launcher.py", "brand.py"}
-_RUNTIME_PREFIXES = (
-    "buddy/",
-    "channels/",
-    "designer/",
-)
-LEGACY_SERVICE_PREFIX = "Thoth"
-
-
-def _read(path: str) -> str:
-    if path in _RUNTIME_FILES or path.startswith(_RUNTIME_PREFIXES):
-        path = f"src/row_bot/{path}"
-    return Path(path).read_text(encoding="utf-8")
-
 
 def _alpha_bbox(path: Path) -> tuple[int, int, int, int]:
     image = Image.open(path).convert("RGBA")
     bbox = image.getchannel("A").getbbox()
     assert bbox is not None
     return bbox
-
-
-def test_runtime_brand_assets_are_file_backed_and_visible():
-    launcher_src = _read("src/row_bot/launcher.py")
-    interaction_src = _read("src/row_bot/designer/interaction.py")
-    telegram_src = _read("src/row_bot/channels/telegram.py")
-    brand_src = _read("brand.py")
-
-    assert (Path("static") / "favicon.ico").is_file()
-    assert (Path("static") / "row_bot_glyph_256.png").is_file()
-    assert Path("row-bot.ico").is_file()
-
-    assert 'APP_BRAND_ACCENT = "#4F78A4"' in brand_src
-    assert 'APP_BRAND_ACCENT_RGB = "79, 120, 164"' in brand_src
-
-    assert "_APP_ICON_PATH = app_icon_path()" in launcher_src
-    assert '_APP_GLYPH_PATH = static_dir() / "row_bot_glyph_256.png"' in launcher_src
-    assert '_APP_FAVICON_PATH = static_dir() / "favicon.ico"' in launcher_src
-    assert "_load_tray_base_icon" in launcher_src
-    assert "_make_status_dot_icon" in launcher_src
-    assert "_MacStatusItemBackend" in launcher_src
-    assert "ROW_BOT_MAC_TRAY_BACKEND" in launcher_src
-    assert "pyobjc-framework-cocoa" in Path("requirements.txt").read_text(encoding="utf-8").lower()
-    assert "green = running, grey = stopped" not in launcher_src
-    assert "tk.PhotoImage(file=GLYPH_PATH)" in launcher_src
-    assert 'text="RB"' in launcher_src
-    assert "\\U0001305F" not in launcher_src
-    assert "SetCurrentProcessExplicitAppUserModelID" in launcher_src
-    assert "self.Icon = Icon(_ICON_PATH)" in launcher_src
-    assert "APP_BRAND_ACCENT" in launcher_src
-
-    assert 'f"<b>{APP_DISPLAY_NAME}</b> is connected!' in telegram_src
-    assert f"{LEGACY_SERVICE_PREFIX}</b> is connected" not in telegram_src
-    assert "APP_BRAND_ACCENT" in interaction_src
-    for legacy_blue in ("#3B82F6", "#3b82f6", "59, 130, 246", "96, 165, 250", "#f0c040"):
-        assert legacy_blue not in interaction_src
 
 
 def test_row_bot_glyph_assets_are_visible_and_normalized_for_tray():

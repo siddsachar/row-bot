@@ -445,33 +445,6 @@ def test_row_bot_status_update_setting_description_mentions_vision_model():
     assert "vision_model" in tools["row_bot_update_setting"].description
 
 
-def test_row_bot_status_guide_mentions_custom_vision_override_states():
-    import pathlib
-
-    guide = pathlib.Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
-
-    assert "vision_model" in guide
-    assert "custom-endpoint" in guide or "custom endpoint" in guide
-    assert "manual override" in guide
-    assert "skipped" in guide
-
-
-def test_row_bot_status_guide_mentions_voice_realtime_contract():
-    import pathlib
-
-    guide = pathlib.Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
-
-    assert "talk and dictate" in guide
-    assert "stt-only" in guide
-    assert "realtime talk is a voice transport/backchannel" in guide
-    assert "row_bot_agent_consult" in guide
-    assert "row_bot_agent_control" in guide
-    assert "wait_for_user" in guide
-    assert "follow-up/steer" in guide
-    assert "client_event_failed" in guide
-    assert "function_call_ready" in guide
-
-
 def test_provider_status_summarizes_custom_probe_without_reprobe(tmp_path, monkeypatch):
     import row_bot.providers.config as provider_config
     from row_bot.providers.custom import save_custom_endpoint

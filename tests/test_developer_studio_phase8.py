@@ -810,29 +810,3 @@ def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_pat
     assert install_path.exists()
     assert plugin_registry.get_manifest(promoted.promoted_plugin_id) is None
     assert capsules.list_capsules()[0].promoted_plugin_id == ""
-
-
-def test_custom_tool_builder_sources_are_wired():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    capsules_source = (root / "src" / "row_bot" / "developer" / "tool_capsules.py").read_text(encoding="utf-8")
-    tool_source = (root / "src" / "row_bot" / "tools" / "developer_tool.py").read_text(encoding="utf-8")
-    global_tool_source = (root / "src" / "row_bot" / "tools" / "custom_tool_builder_tool.py").read_text(encoding="utf-8")
-    guide_source = (root / "tool_guides" / "custom_tool_builder_guide" / "SKILL.md").read_text(encoding="utf-8")
-
-    assert "generate_and_register_capsule" in capsules_source
-    assert "custom_tool_builder" in capsules_source
-    assert 'name="custom_tool_builder"' in global_tool_source
-    assert "Use `custom_tool_builder` for lifecycle state" in guide_source
-    assert 'action="setup"' in guide_source
-    assert "isolated .venv" in global_tool_source
-    assert "Shell can help with extra read-only inspection" in guide_source
-    assert "Do not use shell to manually register" in guide_source
-    assert "CUSTOM_TOOL_DRAFTS_PATH" in capsules_source
-    assert 'name="developer_custom_tool_builder"' not in tool_source
-    assert 'name="developer_inspect_custom_tool_source"' not in tool_source
-    assert 'name="developer_create_custom_tool"' not in tool_source
-    assert 'name="developer_test_custom_tool"' not in tool_source
-    assert 'name="developer_enable_custom_tool"' not in tool_source
-    assert 'name="developer_promote_custom_tool"' not in tool_source

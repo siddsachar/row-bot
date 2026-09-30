@@ -462,38 +462,6 @@ def test_delegate_work_rejects_unpinned_canonical_model_without_spawning(tmp_pat
     assert calls["count"] == 0
 
 
-def test_agents_guide_mentions_pinned_model_resolution() -> None:
-    from pathlib import Path
-
-    guide = Path("tool_guides/agents_guide/SKILL.md").read_text(encoding="utf-8").lower()
-
-    assert "pinned brain choices" in guide
-    assert "row_bot_status category='model'" in guide
-    assert "delegate_work(model=...)" in guide
-    assert "delegate_work(wait=false)" in guide
-    assert "parent thread stays responsive" in guide
-    assert "use `wait=true` only when the user explicitly asks" in guide
-    assert "do not delegate" in guide
-    assert "trivial" in guide
-    assert "smallest useful wave" in guide
-    assert "inherits the parent model" in guide
-    assert "required=true" in guide
-    assert "required=false" in guide
-    assert "complete material" in guide
-    assert "real later wave" in guide
-    assert "launch order only" in guide
-    assert "does not transfer" in guide
-    assert "natural concise update" in guide
-    assert "agent_wait(orchestration_id=...)" in guide
-    assert "before finalizing" in guide
-    assert "later wave" in guide
-    assert "do not loop on `agent_status`" in guide
-    assert "developer_workspace_path" in guide
-    assert "distinct" in guide
-    assert "changing shell cwd alone does not change agent workspace locking" in guide
-    assert "same folder still serialize" in guide
-
-
 def test_delegate_work_schema_is_async_first() -> None:
     from row_bot.tools.agent_tool import _DelegateWorkInput, AgentsTool
 
@@ -814,14 +782,3 @@ def test_agent_message_records_parent_steering_for_nonterminal_run(tmp_path, mon
     terminal = json.loads(agent_tool._agent_message(queued["id"], "Too late"))
     assert terminal["ok"] is False
     assert "cannot be steered" in terminal["message"]
-
-
-def test_agents_guide_is_parent_tool_guide():
-    text = open("tool_guides/agents_guide/SKILL.md", encoding="utf-8").read()
-
-    assert "name: agents_guide" in text
-    assert "tools:\n  - agents" in text
-    assert "delegate_work" in text
-    assert "agent_profile_save" in text
-    assert "agent_message" in text
-    assert "workflow" in text

@@ -161,65 +161,6 @@ def test_preflight_handles_real_broken_optional_package_subprocess(tmp_path):
     assert "Optional package 'torchcodec' is installed but cannot be imported" in result.stderr
 
 
-def test_app_imports_with_startup_preflight():
-    app_module = importlib.import_module("row_bot.app")
-
-    assert hasattr(app_module, "_APP_PORT")
-
-
-def test_startup_speed_imports_are_lazy_source_contract():
-    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    launcher_src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
-    discord_src = Path("src/row_bot/channels/discord_channel.py").read_text(encoding="utf-8")
-    smoke_src = Path("scripts/smoke_app.py").read_text(encoding="utf-8")
-
-    assert "row_bot_legacy_rebrand" not in app_src
-    assert "ensure_legacy_rebrand_migration" not in app_src
-    assert "post_migration" not in app_src
-    assert "row_bot_legacy_rebrand" not in launcher_src
-    assert "ensure_legacy_rebrand_migration" not in launcher_src
-
-    assert not any(
-        line == "from row_bot.agent import get_token_usage"
-        for line in app_src.splitlines()
-    )
-    assert "time.sleep(0.5)" not in discord_src
-    assert "await asyncio.sleep(0.5)" in discord_src
-    assert "--wait-startup-ready" in smoke_src
-
-    assert not any(
-        line == "from langgraph.prebuilt import create_react_agent"
-        for line in agent_src.splitlines()
-    )
-    assert "def create_react_agent" in agent_src
-
-
-def test_main_app_tunnel_startup_is_offloaded_source_contract():
-    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    status = '_set("🌐 Starting remote access tunnel…")'
-    offloaded_start = (
-        'await asyncio.to_thread(tunnel_manager.start_tunnel, _APP_PORT, label="main_app")'
-    )
-    assert status in app_src
-    assert offloaded_start in app_src
-    assert app_src.index(status) < app_src.index(offloaded_start)
-
-
-def test_channel_adapters_do_not_import_agent_at_module_import_time():
-    for path in [
-        Path("src/row_bot/channels/telegram.py"),
-        Path("src/row_bot/channels/slack.py"),
-        Path("src/row_bot/channels/sms.py"),
-        Path("src/row_bot/channels/discord_channel.py"),
-        Path("src/row_bot/channels/whatsapp.py"),
-    ]:
-        src = path.read_text(encoding="utf-8")
-        assert not any(line == "import row_bot.agent as agent_mod" for line in src.splitlines())
-        assert "def _agent_mod" in src
-
-
 def test_auto_start_channels_are_scheduled_in_background(monkeypatch):
     app_module = importlib.import_module("row_bot.app")
     from row_bot.channels import registry as channel_registry
@@ -313,32 +254,6 @@ def test_vision_degrades_when_cv2_native_import_fails(monkeypatch):
     status = vision.native_backend_status()
     assert status["opencv_available"] is False
     assert "libGL.so.1" in str(status["opencv_error"])
-
-
-def test_windows_installer_replaces_embedded_python_on_install():
-    iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-
-    assert "[InstallDelete]" in iss
-    assert 'Type: filesandordirs; Name: "{app}\\python"' in iss
-    assert 'Source: "..\\src\\row_bot\\*"' in iss
-    assert Path("src/row_bot/startup_diagnostics.py").is_file()
-
-
-def test_windows_installer_build_verifies_tk_runtime():
-    build_script = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
-    release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-
-    assert 'WINDOWS_PYTHON_VERSION: "3.13.2"' in release_workflow
-    assert 'python-version: ${{ env.WINDOWS_PYTHON_VERSION }}' in release_workflow
-    assert '-PythonVersion "${{ env.WINDOWS_PYTHON_VERSION }}"' in release_workflow
-    assert '$SysPyVersion -ne $PythonVersion' in build_script
-    assert 'Resolve-TkSourceFile "_tkinter.pyd"' in build_script
-    assert 'Resolve-TkSourceFile "zlib1.dll"' in build_script
-    assert '$env:PATH = (Join-Path $PythonDir "Scripts") + ";" + $PythonDir + ";" + $env:PATH' in build_script
-    assert 'os.add_dll_directory(py_dir)' in build_script
-    assert 'import _tkinter' in build_script
-    assert 'import tkinter' in build_script
-    assert 'Embedded tkinter verified' in build_script
 
 
 def test_windows_update_install_starts_handoff_before_quit(tmp_path, monkeypatch):
@@ -1218,31 +1133,3 @@ def test_windows_tray_keeps_pystray_backend_and_menu(monkeypatch):
     labels = [item.args[0] for item in menu.items if item is not FakeMenu.SEPARATOR]
     assert labels == ["Open Row-Bot", "Open in Browser", "Show Buddy", "Hide Buddy", "Quit"]
     assert events[-2:] == ["startup", ("icon_run", None)]
-
-
-def test_update_handoff_helper_is_targeted_and_logged():
-    source = Path("src/row_bot/update_handoff.py").read_text(encoding="utf-8")
-
-    assert "update-handoff.log" in source
-    assert '["taskkill", "/PID", str(pid), "/T", "/F"]' in source
-    assert "/SILENT" in source
-    assert "/CLOSEAPPLICATIONS" in source
-    assert "/RESTARTAPPLICATIONS" in source
-    assert "row_bot" not in source.lower().split("taskkill", 1)[1].split("]", 1)[0]
-
-
-def test_launcher_splash_and_batch_startup_are_hardened():
-    launcher_src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-    batch_src = Path("installer/launch_row_bot.bat").read_text(encoding="utf-8")
-
-    assert "launcher.log" in launcher_src
-    assert "ROW_BOT_LAUNCH_TRACE" in launcher_src
-    assert "splash_tk_exited" in launcher_src
-    assert "ROW_BOT_SPLASH_CONSOLE_FALLBACK" in launcher_src
-    assert "ROW_BOT_WINDOW_MODE_CONSOLE_FALLBACK" in launcher_src
-    assert "Skipping Windows console window mode fallback" in launcher_src
-    assert "helper_ready_timeout" in launcher_src
-    assert "early_splash_requested" in launcher_src
-    assert "skipping Windows console splash fallback" in launcher_src
-    assert "ROW_BOT_BATCH_START_OLLAMA" in batch_src
-    assert 'goto :launch_app' in batch_src

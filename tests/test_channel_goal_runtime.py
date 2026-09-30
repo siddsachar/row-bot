@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from pathlib import Path
 
 
 def _fresh_channel_goal_modules(tmp_path, monkeypatch):
@@ -221,38 +220,3 @@ def test_channel_goal_approval_denial_blocks_goal(tmp_path, monkeypatch):
     blocked = goals.get_current_goal(thread_id, include_terminal=True)
     assert blocked["status"] == "blocked"
     assert "denied" in blocked["last_reason"].lower()
-
-
-def test_channel_adapters_use_shared_goal_runtime():
-    root = Path("src/row_bot/channels")
-    runtime_src = (root / "runtime.py").read_text(encoding="utf-8")
-    assert "def prepare_channel_goal_start" in runtime_src
-    assert "def format_goal_started_ack" in runtime_src
-    assert "def run_channel_goal_sync" in runtime_src
-    assert "async def run_channel_goal_async" in runtime_src
-    assert "def resolve_goal_approval_for_config" in runtime_src
-    assert "def continue_channel_goal_after_turn_sync" in runtime_src
-    assert "async def continue_channel_goal_after_turn_async" in runtime_src
-
-    for filename in ("sms.py", "whatsapp.py"):
-        src = (root / filename).read_text(encoding="utf-8")
-        assert "finalize_channel_orchestration(" not in src
-        assert "prepare_channel_goal_start" in src
-        assert "format_goal_started_ack" in src
-        assert "run_channel_goal_sync" in src
-        assert src.index("format_goal_started_ack") < src.index("run_channel_goal_sync")
-        assert "resolve_goal_approval_for_config" in src
-        assert "continue_channel_goal_after_turn_sync" in src
-        assert "ch_commands.dispatch" in src
-        assert src.index("prepare_channel_goal_start") < src.index("ch_commands.dispatch")
-
-    for filename in ("telegram.py", "slack.py", "discord_channel.py"):
-        src = (root / filename).read_text(encoding="utf-8")
-        assert "finalize_channel_orchestration(" not in src
-        assert "prepare_channel_goal_start" in src
-        assert "format_goal_started_ack" in src
-        assert "run_channel_goal_async" in src
-        assert src.index("format_goal_started_ack") < src.index("run_channel_goal_async")
-        assert "resolve_goal_approval_for_config" in src
-        assert "continue_channel_goal_after_turn_async" in src
-        assert "ch_commands.dispatch" in src or "cmd_goal" in src

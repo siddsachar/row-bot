@@ -7,8 +7,6 @@ from types import SimpleNamespace
 
 import yaml
 
-from scripts.run_test_matrix import TIER_COMMANDS
-
 
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
@@ -182,41 +180,14 @@ def test_lockfile_and_generated_requirements_are_committed():
     )
 
 
-def test_dependabot_uses_uv_for_python_updates():
-    dependabot = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
-    updates = dependabot["updates"]
-    ecosystems = {entry["package-ecosystem"]: entry for entry in updates}
-
-    assert "uv" in ecosystems
-    assert "pip" not in ecosystems
-    assert ecosystems["uv"]["directory"] == "/"
-    assert ecosystems["uv"]["labels"] == ["dependencies", "python"]
-    assert ecosystems["github-actions"]["labels"] == ["dependencies", "github-actions"]
-
-
 def test_payload_manifest_includes_dependency_provenance_files():
     import scripts.app_payload_manifest as manifest
 
     assert {"pyproject.toml", "uv.lock", "requirements.txt"} <= set(manifest.ROOT_FILES)
 
 
-def test_ci_security_and_installer_dependency_hooks_are_wired():
-    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+def test_osv_scanner_scans_all_four_lockfiles():
     osv = ROOT / ".github/workflows/osv-scanner.yml"
-    windows_build = (ROOT / "installer/build_installer.ps1").read_text(encoding="utf-8")
-    mac_build = (ROOT / "installer/build_mac_app.sh").read_text(encoding="utf-8")
-    linux_build = (ROOT / "installer/build_linux_app.sh").read_text(encoding="utf-8")
-    legacy_deps = (ROOT / "installer/install_deps.bat").read_text(encoding="utf-8")
-    windows_installer = (ROOT / "installer/row_bot_setup.iss").read_text(encoding="utf-8")
-
-    assert "uv sync --locked --all-extras --group test" in ci
-    assert "uv lock --check" in release and "export_locked_requirements.py --check" in release
-    # Every pull request checks that uv.lock and requirements.txt are current.
-    assert "scripts/run_test_matrix.py quality" in ci
-    assert {"lock-check", "requirements-check"} <= set(TIER_COMMANDS["quality"])
-    assert osv.is_file()
-    assert "OSV" in osv.read_text(encoding="utf-8")
     security_workflow = yaml.load(osv.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     lockfiles = {
         "uv.lock",
@@ -231,14 +202,6 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
     )
     arguments = scan["with"]["scan-args"].splitlines()
     assert {f"--lockfile={path}" for path in lockfiles} <= set(arguments)
-
-    for source in (windows_build, mac_build, linux_build, legacy_deps):
-        assert "locked Python packages from requirements.txt" in source
-        assert "verify_runtime_dependencies.py" in source
-        assert " all" in source
-
-    assert 'Source: "..\\pyproject.toml"' in windows_installer
-    assert 'Source: "..\\uv.lock"' in windows_installer
 
 
 def test_runtime_verifier_presence_checks_pystray_on_headless_linux(monkeypatch):

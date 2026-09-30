@@ -82,16 +82,6 @@ def test_phase0_bare_custom_looking_model_currently_resolves_to_ollama(tmp_path,
     assert resolved.provider_id == "ollama"
 
 
-def test_phase3_telegram_model_command_stores_canonical_ref():
-    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
-
-    assert "canonicalize_model_selection(model_id, \"channels\")" in source
-    assert 'config["configurable"]["model_override"] = canonical.ref' in source
-    assert "_set_thread_model_override(tid, canonical.ref)" in source
-    assert 'config["configurable"]["model_override"] = model_id' not in source
-    assert "visible_choices = choices[:12]" in source
-
-
 def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "threads"))
     import row_bot.threads as threads
@@ -130,26 +120,6 @@ def test_telegram_refresh_thread_model_override_syncs_cached_config(tmp_path, mo
     })
 
     assert "model_override" not in refreshed["configurable"]
-
-
-def test_telegram_message_flow_refreshes_cached_model_override_before_agent_run():
-    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
-    message_flow = source.split("async def _run_agent_for_message", 1)[1].split(
-        "executor_future = loop.run_in_executor", 1
-    )[0]
-
-    assert "config = _refresh_thread_model_override(config)" in message_flow
-    assert 'context.chat_data["thread_config"] = config' in message_flow
-
-
-def test_telegram_approval_resume_refreshes_cached_model_override_before_agent_run():
-    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
-    callback_flow = source.split('approved = query.data == "interrupt_approve"', 1)[1].split(
-        "interrupt_ids = _extract_interrupt_ids", 1
-    )[0]
-
-    assert 'config = _refresh_thread_model_override(pending["config"])' in callback_flow
-    assert 'context.chat_data["thread_config"] = config' in callback_flow
 
 
 def test_phase0_workflow_delivery_status_is_separate_from_routing(tmp_path, monkeypatch):
@@ -300,10 +270,6 @@ def test_phase4_explicit_workflow_model_failure_does_not_pop_override(tmp_path, 
     assert f"selected_ref={ref}" in message
     assert "provider_id=custom_openai_lmstudio" in message
     assert "runtime_model=qwen3.6-35b-a3b" in message
-
-    source = pathlib.Path("src/row_bot/tasks.py").read_text(encoding="utf-8")
-    assert '.pop("model_override")' not in source
-    assert ".pop('model_override')" not in source
 
 
 def test_phase4_failed_custom_workflow_does_not_retry_default_provider(tmp_path, monkeypatch):
@@ -456,64 +422,6 @@ def test_phase6_shared_model_command_ambiguous_bare_fails_clearly(tmp_path, monk
     assert "Ambiguous model selection" in response
     assert "model:custom_openai_lmstudio:qwen3.6-35b-a3b" in response
     assert "model:custom_openai_llamacpp:qwen3.6-35b-a3b" in response
-
-
-def test_phase7_telegram_message_runtime_uses_channel_auto():
-    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
-
-    assert "def build_channel_runtime_config" in source
-    assert 'build_channel_runtime_config(config, "message")' in source
-    run_body = source.split("def _run_agent_sync", 1)[1].split("def _resume_agent_sync", 1)[0]
-    assert '"runtime_surface": "approval"' not in run_body
-    assert '"runtime_mode": "agent"' not in run_body
-
-
-def test_phase7_telegram_approval_resume_uses_approval_agent():
-    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
-    resume_body = source.split("def _resume_agent_sync", 1)[1].split("async def _send_html", 1)[0]
-
-    assert 'build_channel_runtime_config(config, "approval")' in resume_body
-    helper_body = source.split("def build_channel_runtime_config", 1)[1].split("def _run_agent_sync", 1)[0]
-    assert 'runtime_surface = "approval"' in helper_body
-    assert 'runtime_mode = "agent"' in helper_body
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "src/row_bot/channels/slack.py",
-        "src/row_bot/channels/discord_channel.py",
-        "src/row_bot/channels/whatsapp.py",
-        "src/row_bot/channels/sms.py",
-    ],
-)
-def test_phase8_other_channel_message_runtime_uses_channel_auto(path):
-    source = pathlib.Path(path).read_text(encoding="utf-8")
-
-    assert "def build_channel_runtime_config" in source
-    assert 'build_channel_runtime_config(config, "message")' in source
-    run_body = source.split("def _run_agent_sync", 1)[1].split("def _resume_agent_sync", 1)[0]
-    assert '"runtime_surface": "approval"' not in run_body
-    assert '"runtime_mode": "agent"' not in run_body
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "src/row_bot/channels/slack.py",
-        "src/row_bot/channels/discord_channel.py",
-        "src/row_bot/channels/whatsapp.py",
-        "src/row_bot/channels/sms.py",
-    ],
-)
-def test_phase8_other_channel_approval_runtime_stays_agent(path):
-    source = pathlib.Path(path).read_text(encoding="utf-8")
-    helper_body = source.split("def build_channel_runtime_config", 1)[1].split("def _run_agent_sync", 1)[0]
-    resume_body = source.split("def _resume_agent_sync", 1)[1]
-
-    assert 'runtime_surface = "approval"' in helper_body
-    assert 'runtime_mode = "agent"' in helper_body
-    assert 'build_channel_runtime_config(config, "approval")' in resume_body
 
 
 def test_phase9_legacy_model_diagnostics_are_read_only(tmp_path, monkeypatch):

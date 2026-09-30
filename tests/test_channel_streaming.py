@@ -1,5 +1,4 @@
 import asyncio
-from pathlib import Path
 import queue
 
 
@@ -168,20 +167,3 @@ def test_telegram_send_html_splits_plain_text_fallback():
     assert len(sent) >= 3
     assert all(len(text) <= MAX_TG_MESSAGE_LEN for text, _kwargs in sent)
     assert all("parse_mode" not in kwargs for _text, kwargs in sent)
-
-
-def test_channel_runtime_marks_stream_capable_adapters_and_leaves_sms_nonstreaming():
-    streaming_paths = [
-        "src/row_bot/channels/telegram.py",
-        "src/row_bot/channels/slack.py",
-        "src/row_bot/channels/discord_channel.py",
-        "src/row_bot/channels/whatsapp.py",
-    ]
-    for path in streaming_paths:
-        source = Path(path).read_text(encoding="utf-8")
-        assert '"channel_streaming": purpose != "approval"' in source
-        assert "assemble_agent_answer" in source
-
-    sms_source = Path("src/row_bot/channels/sms.py").read_text(encoding="utf-8")
-    assert '"channel_streaming": False' in sms_source
-    assert "assemble_agent_answer" not in sms_source

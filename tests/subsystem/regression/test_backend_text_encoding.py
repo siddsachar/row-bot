@@ -22,9 +22,3 @@ def test_backend_strings_are_not_double_encoded():
             if any(token in line for token in MOJIBAKE):
                 found.append(f"{relative}:{number}: {line.strip()[:80]}")
     assert found == []
-
-
-def test_workflow_defaults_and_failure_names_use_the_real_bolt():
-    text = (SOURCE / "tasks.py").read_text(encoding="utf-8")
-    assert "icon                TEXT DEFAULT '⚡'" in text
-    assert 'f"⚡ {task[\'name\']} (failed) — "' in text

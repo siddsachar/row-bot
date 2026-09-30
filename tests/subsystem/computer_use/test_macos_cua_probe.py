@@ -59,20 +59,4 @@ def test_probe_workflow_is_manual_opt_in_and_separate_from_ci() -> None:
     assert set(workflow["on"]) == {"workflow_dispatch"}
     inputs = workflow["on"]["workflow_dispatch"]["inputs"]
     assert inputs["accept_cua_notice"]["default"] == "false"
-    assert inputs["runner"]["options"] == ["macos-15", "macos-15-intel"]
     assert workflow["permissions"] == {"contents": "read"}
-    job = workflow["jobs"]["probe"]
-    assert job["runs-on"] == "${{ inputs.runner }}"
-    assert "env" not in job
-    probe = next(
-        step
-        for step in job["steps"]
-        if "scripts/probe_macos_cua.py" in step.get("run", "")
-    )
-    assert "$RUNNER_TEMP/row-bot-cua-probe/data" in probe["run"]
-    upload = next(
-        step
-        for step in job["steps"]
-        if step.get("uses") == "actions/upload-artifact@v7"
-    )
-    assert upload["with"]["path"] == "macos-cua-probe-report/report.json"

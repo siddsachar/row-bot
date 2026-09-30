@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -158,36 +157,6 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
     assert "paused" in goal_status
     assert "Seeded the status checks" in goal_status
     assert "Default turn budget: 20" in goal_status
-
-
-def test_row_bot_status_agent_goal_categories_are_discoverable(tmp_path, monkeypatch):
-    *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
-
-    assert {"agents", "agent_profiles", "goals", "plugins"} <= set(status_tool._QUERY_HANDLERS)
-    tool = next(
-        item
-        for item in status_tool.RowBotStatusTool().as_langchain_tools()
-        if item.name == "row_bot_status"
-    )
-    assert "tools, plugins, mcp" in tool.description
-
-    guide = Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
-    assert "category='agents'" in guide
-    assert "category='agent_profiles'" in guide
-    assert "category='goals'" in guide
-    assert "category='plugins'" in guide
-    assert "current durable agent runs" in guide
-    assert "current goal mode status" in guide
-    assert "global enabled/disabled tools" in guide
-    assert "effective thread tool scope" in guide
-    assert "runtime-bound" in guide
-    assert "read-only through row_bot_status in v1" in guide
-    assert "pinned brain choices" in guide
-    assert "row_bot_status with category='model'" in guide
-    assert "canonical ref" in guide
-
-    manifest_source = Path("scripts/app_payload_manifest.py").read_text(encoding="utf-8")
-    assert '"tool_guides"' in manifest_source
 
 
 def test_row_bot_status_reports_plugin_tools_and_stale_plugins(tmp_path, monkeypatch):

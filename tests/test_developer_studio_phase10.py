@@ -431,20 +431,6 @@ def test_custom_tool_request_allows_builder_when_enabled(monkeypatch):
     ) is None
 
 
-def test_developer_inspector_snapshot_is_ui_free_and_fingerprinted():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    snapshot_source = (root / "src" / "row_bot" / "developer" / "inspector_snapshot.py").read_text(encoding="utf-8")
-
-    assert "from nicegui import ui" not in snapshot_source
-    assert "from nicegui" not in snapshot_source
-    assert "def refresh_snapshot_now" not in snapshot_source
-    assert "fingerprint" in snapshot_source
-    assert "previous.fingerprint == snapshot.fingerprint" in snapshot_source
-    assert "_get_thread_approval_mode" in snapshot_source
-
-
 def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
     storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
     import row_bot.developer.inspector_snapshot as inspector_snapshot
@@ -459,36 +445,6 @@ def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
     second = inspector_snapshot.refresh_snapshot_for_tests(workspace.id, thread_id)
 
     assert first.version == second.version
-
-
-def test_developer_guidance_is_shell_aware_and_generic():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    context_source = (root / "src" / "row_bot" / "developer" / "agent_context.py").read_text(encoding="utf-8")
-    guide_source = (root / "tool_guides" / "developer_guide" / "SKILL.md").read_text(encoding="utf-8")
-
-    assert "Command shell:" in context_source
-    assert "PowerShell" in context_source
-    assert "python - <<'PY'" in context_source
-    assert "preserve unrelated formatting" in context_source
-    assert "nbformat validation" in context_source
-    assert "developer_create_branch" in context_source
-    assert "developer_commit_changes" in context_source
-    assert "developer_push_current_branch" in context_source
-    assert "Match the workspace shell" in guide_source
-    assert "Do not add language-specific assumptions" in guide_source
-
-
-def test_developer_context_is_hidden_system_context():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    agent_source = (root / "src" / "row_bot" / "agent.py").read_text(encoding="utf-8")
-
-    assert "_developer_context_var" in agent_source
-    assert '"turn.developer_context"' in agent_source
-    assert "ephemeral_section" in agent_source
 
 
 def test_developer_patch_rejects_path_traversal(tmp_path, monkeypatch):

@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-import ast
 import json
 import os
 import time
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.subsystem]
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _entity(**overrides: Any) -> dict[str, Any]:
@@ -169,7 +165,7 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
     assert (wiki_stack["vault"] / "wiki" / "index.md").exists()
 
 
-def test_wiki_cleanup_preserves_raw_and_conversations_and_status_uses_knowledge_tab(
+def test_wiki_cleanup_preserves_raw_and_conversations(
     wiki_stack: dict[str, Any],
 ) -> None:
     wiki_vault = wiki_stack["wiki_vault"]
@@ -192,17 +188,6 @@ def test_wiki_cleanup_preserves_raw_and_conversations_and_status_uses_knowledge_
     assert (vault / "wiki" / "index.md").read_text(encoding="utf-8") == "master"
     assert (vault / "raw" / "upload.pdf").exists()
     assert (vault / "conversations" / "chat.md").exists()
-
-    kg_source = (REPO_ROOT / "src" / "row_bot" / "knowledge_graph.py").read_text(encoding="utf-8")
-    delete_all = kg_source.split("def delete_all_entities", 1)[1].split("\ndef ", 1)[0]
-    assert "wiki_vault" in delete_all
-    assert "clear_wiki_folder" in delete_all
-
-    status_checks_source = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
-    ast.parse(status_checks_source)
-
-    assert 'settings_tab="Memory"' not in status_checks_source
-    assert 'settings_tab="Knowledge"' in status_checks_source
 
 
 def test_wiki_vault_parse_check_sync_import_and_batch_sync(wiki_stack: dict[str, Any]) -> None:
@@ -288,7 +273,7 @@ def test_wiki_tool_contract_and_removed_search_tool(wiki_stack: dict[str, Any]) 
     assert "Wiki Vault Status" in stats_tool.invoke({})
 
 
-def test_knowledge_editability_hybrid_search_and_status_wiring(wiki_stack: dict[str, Any]) -> None:
+def test_knowledge_editability_and_hybrid_search(wiki_stack: dict[str, Any]) -> None:
     kg = wiki_stack["kg"]
     memory = wiki_stack["memory"]
     memory_tool = wiki_stack["memory_tool"]
@@ -350,11 +335,3 @@ def test_knowledge_editability_hybrid_search_and_status_wiring(wiki_stack: dict[
         "aliases",
         "tags",
     }
-
-    prompts_src = (REPO_ROOT / "src" / "row_bot" / "prompts.py").read_text(encoding="utf-8")
-    status_checks_src = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
-    ast.parse(status_checks_src)
-
-    assert "wiki_search" not in prompts_src
-    assert "check_vault_sync" in status_checks_src
-    assert "edited in vault" in status_checks_src

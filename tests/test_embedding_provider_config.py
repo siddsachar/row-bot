@@ -114,71 +114,6 @@ def test_nomic_dependency_is_explicit():
     assert embedding_config.LOCAL_MODELS["nomic-v1.5"]["required_packages"] == ["einops"]
 
 
-def test_packaged_builds_verify_required_runtime_imports():
-    verifier = Path("scripts/verify_runtime_dependencies.py").read_text(encoding="utf-8")
-    windows_build = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
-    mac_build = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
-    linux_build = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
-    legacy_deps = Path("installer/install_deps.bat").read_text(encoding="utf-8")
-    windows_installer = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-
-    for group in (
-        "core",
-        "voice",
-        "designer",
-        "browser",
-        "channels",
-        "mcp",
-        "developer",
-        "local-embeddings",
-        "media",
-        "all",
-        "embeddings",
-        "providers",
-        "tools",
-        "youtube",
-    ):
-        assert f'"{group}"' in verifier
-    assert '"sentence_transformers"' in verifier
-    assert '"langchain_huggingface"' in verifier
-    assert '"httpx"' in verifier
-    assert '"google.genai"' in verifier
-    assert '"youtube_transcript_api"' in verifier
-    assert "verify_runtime_dependencies.py" in windows_build
-    assert "verify_runtime_dependencies.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\sentence_transformers\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_huggingface\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\transformers\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\torch\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\httpx\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\keyring\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_ollama\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_openai\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_anthropic\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_google_genai\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_openrouter\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\langchain_xai\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\google\\genai\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\openai\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\mcp\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\youtube_search\\__init__.py" in windows_installer
-    assert "build\\python\\Lib\\site-packages\\youtube_transcript_api\\__init__.py" in windows_installer
-    assert "verify_runtime_dependencies.py\"" in mac_build
-    assert "verify_runtime_dependencies.py\"" in linux_build
-    assert "verify_runtime_dependencies.py\" all" in mac_build
-    assert "verify_runtime_dependencies.py\" all" in linux_build
-    assert "verify_runtime_dependencies.py\" embeddings" not in mac_build
-    assert "verify_runtime_dependencies.py\" embeddings" not in linux_build
-    assert "Assembled app runtime dependencies verified" in mac_build
-    assert "Assembled Linux runtime dependencies verified" in linux_build
-    assert "ROW_BOT_INSTALL_ROOT=\"$RESOURCES\"" in mac_build
-    unsafe_tests_cleanup = "find \"$PYTHON_PREFIX/lib\" -type d -name 'tests'"
-    assert unsafe_tests_cleanup not in mac_build
-    assert unsafe_tests_cleanup not in linux_build
-    assert "verify_runtime_dependencies.py\" embeddings" not in legacy_deps
-    assert "verify_runtime_dependencies.py\" all >>" in legacy_deps
-
-
 def test_startup_diagnostics_reports_required_embedding_packages(monkeypatch):
     import row_bot.startup_diagnostics as startup_diagnostics
 
@@ -620,23 +555,3 @@ def test_markdown_loader_uses_builtin_encoding_fallback(case_dir):
 
     assert pages
     assert "Cafe notes" in pages[0].page_content
-    assert "autodetect_encoding" not in Path("src/row_bot/documents.py").read_text(encoding="utf-8")
-
-
-def test_embedding_overhaul_source_contracts_are_wired():
-    root = Path(".")
-    documents_src = (root / "src" / "row_bot" / "documents.py").read_text(encoding="utf-8")
-    extraction_src = (root / "src" / "row_bot" / "document_extraction.py").read_text(encoding="utf-8")
-    memory_src = (root / "src" / "row_bot" / "memory_extraction.py").read_text(encoding="utf-8")
-    installer_src = (root / "installer" / "row_bot_setup.iss").read_text(encoding="utf-8")
-
-    assert "get_embedding_provider()" in documents_src
-    assert "DocumentVectorStoreFacade" in documents_src
-    assert "legacy compatibility" in documents_src
-    assert "rebuild_vector_store_from_vault" in documents_src
-    assert "iter_document_chunks" in documents_src
-    assert "iter_chunk_batches" in documents_src
-    assert 'release_document_embedding_resources("document extraction complete")' in extraction_src
-    assert 'release_embedding_resources("memory extraction complete")' in memory_src
-    assert "embedding_config.py" in installer_src
-    assert "embedding_providers.py" in installer_src

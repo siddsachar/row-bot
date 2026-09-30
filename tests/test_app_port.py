@@ -1,4 +1,3 @@
-from pathlib import Path
 import json
 from types import SimpleNamespace
 
@@ -29,7 +28,6 @@ def test_get_app_port_defaults_and_validates_env():
 
 
 def test_get_app_host_defaults_and_preserves_explicit_values():
-    assert app_port.DEFAULT_APP_HOST == "127.0.0.1"
     assert app_port.parse_app_host(None) == "127.0.0.1"
     assert app_port.parse_app_host("") == "127.0.0.1"
     assert app_port.parse_app_host("   ") == "127.0.0.1"
@@ -44,15 +42,6 @@ def test_get_app_host_uses_only_current_environment_name():
     assert app_port.get_app_host(environ={}) == "127.0.0.1"
     assert app_port.get_app_host(environ={app_port.ROW_BOT_HOST_ENV: " 0.0.0.0 "}) == "0.0.0.0"
     assert app_port.get_app_host(environ={_LEGACY_HOST_ENV: "0.0.0.0"}) == "127.0.0.1"
-
-
-def test_app_always_passes_shared_effective_host_to_the_server():
-    source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "_APP_HOST = get_app_host()" in source
-    assert "host=_APP_HOST" in source
-    assert 'if _APP_HOST:' not in source
-    assert '_app_boot_event("startup_shell_ready", host=_APP_HOST, port=_APP_PORT)' in source
 
 
 def test_launcher_host_precedence_is_cli_then_environment_then_loopback(monkeypatch):
@@ -395,20 +384,6 @@ def test_row_bot_process_stop_closes_parent_log_handle(monkeypatch, tmp_path):
     assert log_handle.closed
 
 
-def test_launcher_shutdown_source_contracts_are_wired():
-    src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
-
-    assert "/api/launcher-shutdown" in src
-    assert "def _close_log_handle" in src
-    assert "self._close_log_handle()" in src
-    assert '["taskkill", "/PID", str(proc.pid), "/T", "/F"]' in src
-    assert "_GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0" in src
-    assert "_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0" in src
-    assert "_QUIT_WATCHDOG_TIMEOUT = 75.0" in src
-    assert "graceful shutdown completed in" in src
-    assert "mark_shutdown(reason)" in Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-
 def test_launcher_display_detection_on_headless_linux(monkeypatch):
     monkeypatch.setattr(launcher.sys, "platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)
@@ -441,18 +416,6 @@ def test_designer_publish_uses_active_app_port(monkeypatch):
     assert calls == [("get_url", 8126)]
     assert base_url == "http://127.0.0.1:8126"
     assert is_public is False
-
-
-def test_port_consumers_no_longer_lookup_main_tunnel_on_literal_8080():
-    sms_source = Path("src/row_bot/channels/sms.py").read_text(encoding="utf-8")
-    app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "app_port = get_app_port()" in sms_source
-    assert "tunnel_manager.get_url(app_port)" in sms_source
-    assert "tunnel_manager.start_tunnel(app_port, label=\"sms\")" in sms_source
-    assert "get_url(8080)" not in sms_source
-    assert "/api/launcher-ping" in app_source
-    assert '"port": _APP_PORT' in app_source
 
 
 def test_plugin_loader_preserves_public_plugin_api_import(monkeypatch):

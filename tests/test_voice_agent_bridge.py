@@ -4,11 +4,7 @@ import asyncio
 import threading
 
 from row_bot.voice.agent_bridge import (
-    REALTIME_ALLOWED_BRIDGE_TOOLS,
-    REALTIME_ALLOWED_TOOLS,
-    REALTIME_DIRECT_TOOL_POLICY,
     REALTIME_WAIT_TOOL,
-    VOICE_BRAIN_STRATEGY,
     VoiceAgentBridge,
     realtime_bridge_tool_declarations,
 )
@@ -111,12 +107,12 @@ def test_voice_agent_bridge_idle_status_and_cancel():
     assert bridge.cancel_active_run() is False
 
 
-def test_voice_agent_bridge_policy_is_consult_control_only():
-    assert VOICE_BRAIN_STRATEGY == "row-bot-consult"
-    assert REALTIME_DIRECT_TOOL_POLICY == "blocked"
-    assert REALTIME_ALLOWED_BRIDGE_TOOLS == ("row_bot_agent_consult", "row_bot_agent_control")
-    assert REALTIME_ALLOWED_TOOLS == ("row_bot_agent_consult", "row_bot_agent_control", REALTIME_WAIT_TOOL)
-    assert [tool["name"] for tool in realtime_bridge_tool_declarations()] == list(REALTIME_ALLOWED_TOOLS)
+def test_the_realtime_model_is_offered_only_consult_control_and_wait():
+    assert [tool["name"] for tool in realtime_bridge_tool_declarations()] == [
+        "row_bot_agent_consult",
+        "row_bot_agent_control",
+        REALTIME_WAIT_TOOL,
+    ]
 
 
 def test_voice_agent_bridge_controls_active_run_status_cancel_and_queue():

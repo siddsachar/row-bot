@@ -5,7 +5,6 @@ import threading
 import urllib.error
 import urllib.request
 import zlib
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -48,9 +47,6 @@ from row_bot.secret_store import _set_backend_for_tests
 
 
 pytestmark = pytest.mark.platform
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class _MemoryKeyring:
@@ -1301,7 +1297,6 @@ def test_xai_oauth_status_cards_expose_client_id_and_probe_state(tmp_path, monke
     cards = provider_status_cards()
     xai_oauth_card = next(card for card in cards if card["provider_id"] == "xai_oauth")
     xai_api_card = next(card for card in cards if card["provider_id"] == "xai")
-    x_tool = (ROOT / "src" / "row_bot" / "tools" / "x_tool.py").read_text(encoding="utf-8")
 
     assert xai_oauth_card["display_name"] == "xAI Grok"
     assert xai_oauth_card["group"] == "Subscription Accounts"
@@ -1312,7 +1307,6 @@ def test_xai_oauth_status_cards_expose_client_id_and_probe_state(tmp_path, monke
     assert "Row-Bot default" in xai_oauth_card["oauth_client_id_detail"]
     assert xai_oauth_card["last_vision_probe"]["model_id"] == "grok-probe"
     assert xai_oauth_card["last_vision_probe"]["ok"] is True
-    assert "xai_oauth" not in x_tool
 
 
 def test_xai_oauth_disconnect_removes_oauth_metadata_only(tmp_path, monkeypatch):

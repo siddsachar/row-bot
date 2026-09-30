@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import importlib
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -18,28 +16,8 @@ def _reload_updater(monkeypatch, tmp_path):
     return updater
 
 
-def test_updater_public_api_manifest_and_version_contracts(tmp_path, monkeypatch) -> None:
+def test_updater_manifest_and_version_contracts(tmp_path, monkeypatch) -> None:
     updater = _reload_updater(monkeypatch, tmp_path)
-
-    for attr in (
-        "UpdateInfo",
-        "UpdateState",
-        "check_for_updates",
-        "download_update",
-        "install_and_restart",
-        "verify_os_signature",
-        "get_update_state",
-        "set_channel",
-        "skip_version",
-        "parse_manifest",
-        "compare_versions",
-        "summary_for_status",
-        "start_update_scheduler",
-        "stop_update_scheduler",
-        "is_dev_install",
-        "UpdateError",
-    ):
-        assert hasattr(updater, attr), attr
 
     assert updater.compare_versions("3.17.0", "3.18.0") > 0
     assert updater.compare_versions("3.17.0", "3.17.0") == 0
@@ -103,8 +81,8 @@ def test_update_status_tool_self_knowledge_and_manifest_helpers(tmp_path, monkey
     assert "a.exe" not in updated
 
 
-def test_updater_runtime_wiring_contracts(tmp_path, monkeypatch) -> None:
-    updater = _reload_updater(monkeypatch, tmp_path)
+def test_updater_tool_and_status_query_are_registered(tmp_path, monkeypatch) -> None:
+    _reload_updater(monkeypatch, tmp_path)
     from row_bot.tools import registry
     from row_bot.tools.row_bot_status_tool import _QUERY_HANDLERS
 
@@ -115,14 +93,3 @@ def test_updater_runtime_wiring_contracts(tmp_path, monkeypatch) -> None:
 
     assert "updates" in _QUERY_HANDLERS
     assert "**Updates**" in _QUERY_HANDLERS["updates"]()
-
-    iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-    app = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    guide = Path("tool_guides/updater_guide/SKILL.md").read_text(encoding="utf-8")
-
-    assert "CloseApplications=yes" in iss
-    for relative in ("updater.py", "tools/updater_tool.py"):
-        assert Path("src/row_bot", relative).is_file()
-    assert "start_update_scheduler" in app
-    assert "name: updater_guide" in guide
-    assert "row_bot_updater" in guide

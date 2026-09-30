@@ -114,6 +114,11 @@ COMMANDS: dict[str, CommandSpec] = {
         "ruff-safety", "uv", "run", "--group", "lint", "ruff", "check", ".",
         "--select", "E9,F63,F7,F82", "--output-format=github",
     ),
+    # Product code never deserializes with pickle or an unsafe yaml loader.
+    "ruff-deserialization": _cmd(
+        "ruff-deserialization", "uv", "run", "--group", "lint", "ruff", "check", "src", "app.py", "launcher.py",
+        "--select", "S301,S506", "--output-format=github",
+    ),
     "dependency-requirements": _cmd(
         "dependency-requirements", "uv", "run", "python", "scripts/dependency_requirements.py", env=TEST_ENV,
     ),
@@ -182,6 +187,7 @@ QUALITY = (
     "lock-check",
     "requirements-check",
     "ruff-safety",
+    "ruff-deserialization",
     "dependency-requirements",
     "client-platform-boundaries",
     "client-platform-contracts",
@@ -204,7 +210,7 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "pr": (*QUALITY, "client-foundation", "runtime-deps", "python", "app-smoke"),
     "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
     "deterministic": ("deterministic",),
-    "fast": ("ruff-safety", "client-platform-boundaries", "client-platform-contracts", "contracts"),
+    "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts", "contracts"),
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
     "subsystem": ("subsystem",),

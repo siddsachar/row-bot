@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import sqlite3
-from pathlib import Path
 
 from row_bot.access.models import (
     AccessDevice,
@@ -12,7 +11,6 @@ from row_bot.access.models import (
 )
 from row_bot.access.service import (
     AccessService,
-    SESSION_REFRESH_POLL_INTERVAL,
     TRUSTED_SESSION_RENEWAL_WINDOW,
     TRUSTED_SESSION_TTL,
 )
@@ -204,23 +202,3 @@ def test_renewal_persists_across_service_reopen_without_secret_material(
     assert all(claim.session_token not in repr(row) for row in audit_rows)
     assert all(claim.session.token_hash not in repr(row) for row in audit_rows)
     assert all(claim.session.token_salt not in repr(row) for row in audit_rows)
-
-
-def test_react_client_keeps_a_trusted_access_session_renewed() -> None:
-    """B137: the React client renews its access session as the NiceGUI page did.
-
-    Only a browser signed in with an access session renews (the owner on this
-    computer has none), with the same bounded, same-origin request, and it
-    stops for good once the server says the session has ended.
-    """
-    renewal = Path("frontend/src/api/access-renewal.ts").read_text(encoding="utf-8")
-    entry = Path("frontend/src/main.tsx").read_text(encoding="utf-8")
-
-    assert SESSION_REFRESH_POLL_INTERVAL == timedelta(hours=12)
-    assert "keepAccessSessionRenewed(" in entry
-    assert "'/api/access/session'" in renewal
-    assert "authentication_kind === 'session'" in renewal
-    assert "'/api/access/session/refresh'" in renewal
-    assert "credentials: 'same-origin'" in renewal
-    assert "12 * 60 * 60 * 1000" in renewal
-    assert "response.status === 401 || response.status === 403" in renewal

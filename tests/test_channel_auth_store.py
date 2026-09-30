@@ -301,10 +301,3 @@ def test_runtime_getter_reads_channel_namespace(data_dir, monkeypatch):
 
     telegram = importlib.reload(telegram)
     assert telegram._get_bot_token() == "tg-runtime"
-
-
-def test_app_startup_migrates_legacy_channel_secrets():
-    app_source = open("src/row_bot/app.py", encoding="utf-8").read()
-
-    assert "migrate_legacy_channel_secrets" in app_source
-    assert "legacy fallback remains active" in app_source

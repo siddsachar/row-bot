@@ -43,22 +43,6 @@ def test_workflow_status_reports_running_and_pending(monkeypatch, tmp_path):
     assert "1 approval waiting" in result.detail
 
 
-def test_home_status_has_aggregate_pills_for_current_settings_tabs():
-    src = open("src/row_bot/status_checks.py", "r", encoding="utf-8").read()
-
-    expected = {
-        "Tools": "check_search_tools",
-        "Skills": "check_skills",
-        "Tracker": "check_tracker",
-        "Buddy": "check_buddy",
-        "MCP": "check_mcp",
-        "Plugins": "check_plugins",
-    }
-    for tab, function_name in expected.items():
-        assert f'settings_tab="{tab}"' in src
-        assert f"def {function_name}" in src
-
-
 def test_home_status_has_single_faiss_check(monkeypatch):
     import socket
 

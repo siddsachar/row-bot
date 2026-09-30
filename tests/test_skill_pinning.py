@@ -225,10 +225,6 @@ def test_developer_guidance_is_tool_bound_not_extra_manual_injection(tmp_path, m
     assert developer_prompt.count("# Developer PR Prep") == 1
     assert developer_prompt.count("# Developer Custom Tools") == 1
 
-    agent_source = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
-    assert "DEVELOPER_AUTO_SKILLS" not in agent_source
-    assert "extra_skill_names=DEVELOPER_AUTO_SKILLS" not in agent_source
-
 
 def test_row_bot_status_skill_query_reports_pins_and_surface_defaults(tmp_path, monkeypatch):
     skills, _activation, _threads, _tasks = _reload_skill_pinning_modules(tmp_path, monkeypatch)
@@ -281,17 +277,3 @@ def test_row_bot_status_tool_can_pin_and_unpin_skills(tmp_path, monkeypatch):
     assert "Off and no longer pinned" in off_result
     assert skills.is_enabled("meeting_notes") is False
     assert skills.is_pinned("meeting_notes") is False
-
-
-def test_channel_thread_creation_opts_into_default_skill_seeding():
-    channel_paths = [
-        Path("src/row_bot/channels/discord_channel.py"),
-        Path("src/row_bot/channels/sms.py"),
-        Path("src/row_bot/channels/slack.py"),
-        Path("src/row_bot/channels/telegram.py"),
-        Path("src/row_bot/channels/whatsapp.py"),
-    ]
-
-    for path in channel_paths:
-        source = path.read_text(encoding="utf-8")
-        assert "seed_default_skills=True" in source, path

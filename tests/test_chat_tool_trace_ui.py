@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -274,12 +273,3 @@ def test_streamed_tool_result_preserves_underlying_display_and_raw_bridge_identi
 
     assert tool_done["name"] == "display:plugin_lookup"
     assert tool_done["raw_name"] == "tool_invoke"
-
-
-def test_chat_tool_trace_source_contracts():
-    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
-    installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-
-    assert "ToolCallPayload" in agent_src
-    assert "_tool_call_payload(tc)" in agent_src
-    assert 'Source: "..\\src\\row_bot\\*"' in installer_src

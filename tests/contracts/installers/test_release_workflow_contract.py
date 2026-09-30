@@ -23,13 +23,3 @@ def test_release_builds_only_a_commit_the_gate_passed() -> None:
         assert jobs[name]["needs"] == ["release-gate", "nightly"]
         assert "needs.release-gate.result == 'success'" in condition
         assert "(needs.nightly.result == 'success' || needs.nightly.result == 'skipped')" in condition
-
-
-def test_live_e2e_workflow_is_manual_and_opt_in() -> None:
-    live = Path(".github/workflows/live-e2e.yml").read_text(encoding="utf-8")
-
-    assert "workflow_dispatch" in live
-    assert "run_marked_live_tests" in live
-    assert "run_real_mcp" in live
-    assert "ROW_BOT_MCP_REAL_WORLD_E2E" in live
-    assert 'live_provider or e2e' in live

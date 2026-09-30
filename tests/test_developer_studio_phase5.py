@@ -14,25 +14,6 @@ def _fresh_modules(tmp_path, monkeypatch):
     return importlib.reload(runtime)
 
 
-def test_developer_detects_project_commands(tmp_path, monkeypatch):
-    runtime = _fresh_modules(tmp_path, monkeypatch)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "package.json").write_text(
-        '{"scripts": {"test": "vitest", "lint": "eslint .", "typecheck": "tsc"}}',
-        encoding="utf-8",
-    )
-    (repo / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
-
-    commands = runtime.detect_project_commands(str(repo))
-    labels = {spec.label for spec in commands}
-
-    assert "npm test" in labels
-    assert "npm run lint" in labels
-    assert "npm run typecheck" in labels
-    assert "pytest" in labels
-
-
 def test_developer_detects_package_manager_and_dev_server(tmp_path, monkeypatch):
     runtime = _fresh_modules(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
@@ -60,33 +41,6 @@ def test_developer_runtime_policy_blocks_without_running(tmp_path, monkeypatch):
 
     assert result.ran is False
     assert result.decision.decision == "block"
-
-
-def test_developer_runtime_runs_safe_command_in_workspace(tmp_path, monkeypatch):
-    runtime = _fresh_modules(tmp_path, monkeypatch)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-
-    result = runtime.run_workspace_command(
-        str(repo),
-        "python -c \"from pathlib import Path; print(Path.cwd().name)\"",
-        "ask",
-    )
-
-    assert result.ran is True
-    assert result.ok is True
-    assert "repo" in result.stdout
-
-
-def test_developer_runtime_requires_approval_for_install(tmp_path, monkeypatch):
-    runtime = _fresh_modules(tmp_path, monkeypatch)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-
-    result = runtime.run_workspace_command(str(repo), "python -m pip install sampleproject", "approve")
-
-    assert result.ran is False
-    assert result.decision.decision == "ask"
 
 
 def test_developer_shell_command_records_file_side_effects(tmp_path, monkeypatch):

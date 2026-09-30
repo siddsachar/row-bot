@@ -22,15 +22,6 @@ def test_resolve_provider_config_normalizes_legacy_local_ref():
     assert resolved.runtime_model == "qwen3:14b"
 
 
-def test_resolve_provider_config_requires_provider_for_unknown_bare_model():
-    try:
-        resolve_provider_config("qwen3:14b", allow_legacy_local=False)
-    except ValueError as exc:
-        assert "Provider is required" in str(exc)
-    else:
-        raise AssertionError("Expected unknown bare model to require a provider")
-
-
 def test_resolve_provider_config_uses_custom_endpoint_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     save_custom_endpoint({

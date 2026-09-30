@@ -83,7 +83,6 @@ def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tm
             and Path(handler.baseFilename).parent == logging_config.get_log_dir()
         ]
         assert len(file_handlers) == 1
-        assert logging_config._RETENTION_DAYS == 7
 
         logger = logging.getLogger("row_bot.test.logging_contract")
         logger.warning("visible persistent log entry")
@@ -100,7 +99,7 @@ def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tm
         _detach_file_handler(logging_config)
 
 
-def test_logging_health_and_startup_wiring_contracts() -> None:
+def test_logging_health_check_is_registered() -> None:
     from row_bot.status_checks import ALL_CHECKS, check_logging
 
     result = check_logging()
@@ -108,7 +107,3 @@ def test_logging_health_and_startup_wiring_contracts() -> None:
     assert result.status in {"ok", "warn", "error", "inactive"}
     assert result.settings_tab == "System"
     assert check_logging in ALL_CHECKS
-
-    app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "setup_file_logging()" in app_source

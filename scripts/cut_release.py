@@ -83,21 +83,6 @@ def main() -> None:
         r'placeholder: v\d+\.\d+\.\d+',
         f'placeholder: v{version}',
     )
-    replace_once(
-        ROOT / "tests" / "test_brand_constants.py",
-        r'assert __version__ == "[^"]+"',
-        f'assert __version__ == "{version}"',
-    )
-    replace_once(
-        ROOT / "tests" / "test_brand_constants.py",
-        r'assert brand\.APP_USER_AGENT == "Row-Bot/[^"]+"',
-        f'assert brand.APP_USER_AGENT == "Row-Bot/{version}"',
-    )
-    replace_once(
-        ROOT / "tests" / "test_brand_constants.py",
-        r'assert brand\.UPDATER_USER_AGENT == "Row-Bot-Updater/[^"]+"',
-        f'assert brand.UPDATER_USER_AGENT == "Row-Bot-Updater/{version}"',
-    )
 
     print(f"Prepared release version {version}")
     print("Next steps:")

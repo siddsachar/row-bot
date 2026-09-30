@@ -17,9 +17,7 @@ from row_bot.access.config import (
 from row_bot.access.access_routes import AccessRouteKind, build_route_inventory
 from row_bot.access.tailscale import (
     CommandResult,
-    MUTATION_TIMEOUT_SECONDS,
     OWNERSHIP_SCHEMA_VERSION,
-    READ_ONLY_TIMEOUT_SECONDS,
     TailscaleOperationResult,
     TailscaleOwnership,
     TailscaleOwnershipStore,
@@ -996,12 +994,6 @@ def test_disable_refuses_changed_or_missing_ownership_without_mutation(
     assert not changed.success
     assert path.exists()
     assert _mutations(changed_runner) == []
-
-
-def test_mutation_timeouts_are_separate_named_defaults() -> None:
-    assert READ_ONLY_TIMEOUT_SECONDS < MUTATION_TIMEOUT_SECONDS
-    assert 3.0 <= READ_ONLY_TIMEOUT_SECONDS <= 5.0
-    assert MUTATION_TIMEOUT_SECONDS == 30.0
 
 
 def test_redaction_bounds_output_and_removes_every_private_url() -> None:

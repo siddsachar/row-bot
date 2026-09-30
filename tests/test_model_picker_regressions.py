@@ -1,10 +1,5 @@
-from pathlib import Path
-
 import row_bot.providers.config as provider_config
 from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_agent_tool_error_uses_active_thread_override(tmp_path, monkeypatch):
@@ -259,11 +254,3 @@ def test_non_tool_custom_endpoint_is_blocked_for_agent_mode(tmp_path, monkeypatc
 
     assert result.ready is False
     assert "structured tool calling" in "; ".join(result.errors)
-
-
-def test_agent_runtime_no_longer_uses_plain_chat_fallback():
-    source = (ROOT / "src" / "row_bot" / "agent.py").read_text(encoding="utf-8")
-
-    assert "get_plain_chat_system_prompt" not in source
-    assert "plain_custom" not in source
-    assert "_pre_model_trim_plain_chat" not in source

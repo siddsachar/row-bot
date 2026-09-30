@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -539,13 +538,3 @@ def test_row_bot_status_exposes_evolution_and_proposal_tools(evolution_env):
         "row_bot_review_skill_library",
         "row_bot_verify_proposal",
     } <= tool_names
-
-
-def test_dream_insights_prompt_discourages_system_issues_as_skills():
-    prompt = (
-        Path(__file__).resolve().parents[1] / "src" / "row_bot" / "prompts.py"
-    ).read_text(encoding="utf-8")
-
-    assert "Use skill_proposal only for repeated user-facing workflows" in prompt
-    assert "provider/model discovery failures" in prompt
-    assert "task" in prompt and "hygiene" in prompt

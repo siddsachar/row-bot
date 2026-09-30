@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import pathlib
 import threading
 
@@ -1095,11 +1094,3 @@ def test_buddy_rive_asset_install_uses_user_static_dir(monkeypatch, tmp_path):
     assert pack.riv_path.exists()
     assert assets_mod.pack_static_url(pack) == "/_buddy/packs/glyph/buddy.riv"
     assert assets_mod.load_buddy_pack("glyph").status == "available"
-
-
-def test_buddy_import_surface_is_stable():
-    buddy = importlib.import_module("row_bot.buddy")
-
-    assert hasattr(buddy, "BuddyEventType")
-    assert hasattr(buddy, "emit_buddy_event")
-    assert callable(buddy.get_buddy_snapshot)

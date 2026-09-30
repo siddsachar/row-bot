@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 import concurrent.futures
-from pathlib import Path
 import logging
 
 import pytest
@@ -1012,22 +1011,3 @@ def test_action_receipt_log_includes_only_safe_classification_fields(
     assert "verdict=verify_fresh_state" in logs[0]
     assert "next_step=capture_same_target" in logs[0]
     assert "Synthetic" not in logs[0]
-
-
-def test_computer_use_guide_encodes_the_bounded_driver_ladder() -> None:
-    guide = Path("tool_guides/computer_use_guide/SKILL.md").read_text(
-        encoding="utf-8"
-    ).casefold()
-
-    assert "start with `delivery_mode=auto`" in guide
-    assert "explicit `delivery_mode=foreground`" in guide
-    assert "prior structured recommendation" in guide
-    assert "fresh exact-target" in guide
-    assert "suspected_noop" in guide
-    assert "degraded" in guide
-    assert "`px`" in guide
-    assert "screenshot-grounded" in guide
-    assert "`page`" in guide
-    assert "unsupported" in guide
-    assert "never replay" in guide
-    assert "one" in guide

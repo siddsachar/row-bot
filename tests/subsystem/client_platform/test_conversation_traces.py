@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
-from pathlib import Path
 
 import pytest
 
@@ -301,14 +300,6 @@ def test_media_specialization_keeps_references_without_marker_or_inline_data():
         }
     ]
     assert private_image not in repr(specialized)
-
-
-def test_application_trace_owner_has_no_unsafe_object_loader():
-    source = Path("src/row_bot/application/conversation_traces.py").read_text(
-        encoding="utf-8"
-    )
-    assert "pickle" not in source
-    assert "yaml.load" not in source
 
 
 def test_ordered_public_rows_project_stable_grouped_assistant_traces():

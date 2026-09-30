@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tomllib
 from pathlib import Path
 
 import row_bot.launcher as launcher
@@ -54,22 +53,6 @@ def _windows_installer_sources() -> set[str]:
 def _windows_source_covers_dir(sources: set[str], directory: str) -> bool:
     prefix = _win_source_path(directory + "/")
     return any(source.startswith(prefix) for source in sources)
-
-
-def _read_root_wrapper_source(relative_path: str) -> str:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from pathlib import Path; import sys; sys.stdout.write(Path(sys.argv[1]).read_text(encoding='utf-8'))",
-            relative_path,
-        ],
-        text=True,
-        capture_output=True,
-        check=True,
-        timeout=20,
-    )
-    return result.stdout
 
 
 def test_linux_asset_selection(monkeypatch):
@@ -157,21 +140,6 @@ def test_windows_asset_selection_accepts_legacy_setup_name(monkeypatch):
     assert info.sha256 == "d" * 64
 
 
-def test_root_launch_entrypoints_remain_source_compatible():
-    manifest = app_payload_manifest.build_manifest(Path("."))
-    app_src = _read_root_wrapper_source("app.py")
-    launcher_src = _read_root_wrapper_source("launcher.py")
-    app_impl_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "app.py" in manifest["root_python_files"]
-    assert "launcher.py" in manifest["root_python_files"]
-    assert 'runpy.run_module("row_bot.app", run_name="__main__")' in app_src
-    assert 'if __name__ in {"__main__", "__mp_main__"}:' in app_impl_src
-    assert "uvicorn.run(" in app_impl_src
-    assert "from row_bot.launcher import main" in launcher_src
-    assert 'if __name__ == "__main__":\n    main()' in launcher_src
-
-
 def test_app_payload_manifest_declares_required_runtime_payload():
     manifest = app_payload_manifest.build_manifest(Path("."))
     payload_dirs = set(manifest["payload_dirs"])
@@ -192,27 +160,6 @@ def test_app_payload_manifest_declares_required_runtime_payload():
 
     for relative_path in app_payload_manifest.app_payload_paths(Path(".")):
         assert Path(relative_path).exists(), f"manifest path missing: {relative_path}"
-
-
-def test_mac_and_linux_builders_copy_from_app_payload_manifest():
-    linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
-    mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
-
-    for builder in (linux_builder, mac_builder):
-        assert "scripts/app_payload_manifest.py" in builder
-        assert 'mkdir -p "$(dirname "$APP_SRC/$pkg")"' in builder
-        assert 'mkdir -p "$(dirname "$APP_SRC/$dir")"' in builder
-        for category in (
-            "root_python_files",
-            "root_files",
-            "runtime_script_files",
-            "payload_dirs",
-            "asset_dirs",
-        ):
-            assert f"--category {category}" in builder
-
-    assert "--category linux_icon_candidates" in linux_builder
-    assert "--category mac_icon_source_candidates" in mac_builder
 
 
 def test_windows_installer_payload_matches_app_manifest_contract():
@@ -304,37 +251,6 @@ def test_linux_tarball_installs_into_xdg_tree(monkeypatch, tmp_path):
     assert (xdg / "row-bot" / "releases" / "3.21.0" / "install_info.json").exists()
     desktop_text = (xdg / "applications" / "ai.row-bot.RowBot.desktop").read_text(encoding="utf-8")
     assert f"Exec={launcher_path}" in desktop_text
-
-
-def test_linux_build_script_declares_expected_package_contract():
-    script = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
-    requirements = Path("requirements.txt").read_text(encoding="utf-8")
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    manifest = app_payload_manifest.build_manifest(Path("."))
-
-    assert "unknown-linux-gnu-install_only" in script
-    assert 'PACKAGE_NAME="Row-Bot-${VERSION}-Linux-${PACKAGE_ARCH}"' in script
-    assert 'TARBALL="$DIST_DIR/${PACKAGE_NAME}.tar.gz"' in script
-    assert 'while [ -L "$SOURCE" ]; do' in script
-    assert 'TARGET="$(readlink "$SOURCE")"' in script
-    assert 'ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"' in script
-    assert "--browser --no-tray" in script
-    assert "share/applications/ai.row-bot.RowBot.desktop" in script
-    assert "install_kind\": \"xdg-user-tarball" in script
-    assert "LAUNCH_CMD=\"row-bot\"" in script
-    assert "ROW_BOT_SUPPRESS_INSTALL_PATH_HINT" in script
-    assert "export PATH=\"$HOME/.local/bin:$PATH\"" in script
-    assert "Run: $LAUNCH_CMD" in script
-    assert "# This file is generated from pyproject.toml and uv.lock." in requirements
-    assert "numpy==" in requirements
-    assert "numpy>=1.26,<2.3" in pyproject["project"]["dependencies"]
-    assert "scripts/check_linux_native_baseline.py" in script
-    assert "Checking native CPU baselines" in script
-    assert "src/row_bot" in manifest["payload_dirs"]
-    for package in REQUIRED_RUNTIME_PACKAGES:
-        assert Path("src/row_bot", package).is_dir()
-    for category in ("root_python_files", "root_files", "runtime_script_files", "payload_dirs", "asset_dirs"):
-        assert f"--category {category}" in script
 
 
 def test_linux_native_baseline_check_blocks_x86_v2_metadata():
@@ -434,27 +350,97 @@ def test_linux_launcher_resolves_installed_symlink_chain(tmp_path):
     assert "args=launcher.py --browser --no-tray" in default_result.stdout
 
 
-def test_linux_one_line_installer_declares_verified_release_contract():
-    script = Path("installer/install-linux.sh").read_text(encoding="utf-8")
-    legacy_repo = "siddsachar/" + "Th" + "oth"
+def _linux_uninstaller() -> str:
+    script = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
+    start = script.index("<<'UNINSTALL'\n") + len("<<'UNINSTALL'\n")
+    return script[start:script.index("\nUNINSTALL\n", start)] + "\n"
 
-    assert "siddsachar/row-bot" in script
-    assert legacy_repo not in script
-    assert "api.github.com/repos/${REPO}" in script
-    assert "releases/latest" in script
-    assert "releases/tags/v${REQUESTED_VERSION#v}" in script
-    assert "Row-Bot-{re.escape(tag)}-Linux-{re.escape(arch)}" in script
-    assert "Row-Bot-[0-9A-Za-z][0-9A-Za-z.-]*-Linux-" in script
-    assert "row-bot-update-manifest" in script
-    assert "sha256sum -c" in script
-    assert "bash \"$PACKAGE_ROOT/install.sh\"" in script
-    assert "ROW_BOT_SUPPRESS_INSTALL_PATH_HINT=1 bash \"$PACKAGE_ROOT/install.sh\"" in script
-    assert "META_FILE" in script
-    assert "x86_64" in script
-    assert "aarch64" in script
-    assert "LAUNCH_CMD=\"row-bot\"" in script
-    assert "Run: ${LAUNCH_CMD}" in script
-    assert "export PATH=\"$HOME/.local/bin:$PATH\"" in script
+
+# Never on Windows: bash there can be WSL's, which ignores this env and would act on a real home.
+# Kept in the PR lane (well under a second on Linux): it guards the profile on uninstall.
+@pytest.mark.skipif(os.name == "nt" or not shutil.which("bash"), reason="runs the generated POSIX uninstaller")
+def test_the_linux_uninstaller_removes_the_app_and_leaves_the_profile(tmp_path):
+    home, xdg = tmp_path / "home", tmp_path / "xdg"
+    profile = home / ".row-bot"
+    profile.mkdir(parents=True)
+    (profile / "threads.db").write_text("keep", encoding="utf-8")
+    (xdg / "row-bot" / "releases" / "1.0.0").mkdir(parents=True)
+    (xdg / "applications").mkdir(parents=True)
+    (xdg / "applications" / "ai.row-bot.RowBot.desktop").write_text("x", encoding="utf-8")
+    (xdg / "other-app").mkdir()
+    (xdg / "other-app" / "data").write_text("keep", encoding="utf-8")
+    (home / ".local" / "bin").mkdir(parents=True)
+    (home / ".local" / "bin" / "row-bot").write_text("x", encoding="utf-8")
+    script = tmp_path / "uninstall.sh"
+    script.write_text(_linux_uninstaller(), encoding="utf-8")
+
+    result = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=20,
+                            env={"HOME": str(home), "XDG_DATA_HOME": str(xdg), "PATH": "/usr/bin:/bin"})
+
+    assert result.returncode == 0, result.stderr
+    assert (profile / "threads.db").read_text(encoding="utf-8") == "keep"
+    assert (xdg / "other-app" / "data").read_text(encoding="utf-8") == "keep"
+    assert not (xdg / "row-bot").exists()
+    assert not (home / ".local" / "bin" / "row-bot").exists()
+    assert not (xdg / "applications" / "ai.row-bot.RowBot.desktop").exists()
+
+
+_FAKE_CURL = """#!/usr/bin/env bash
+out=""; url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2;;
+    -H|--retry|--connect-timeout) shift 2;;
+    -*) shift;;
+    *) url="$1"; shift;;
+  esac
+done
+case "$url" in
+  https://api.github.com/*) cp "$FIXTURE/release.json" "$out";;
+  https://example.invalid/*) cp "$FIXTURE/${url##*/}" "$out";;
+  *) exit 22;;
+esac
+"""
+
+
+# Kept in the PR lane (well under a second on Linux): it guards the release checksum check.
+@pytest.mark.skipif(sys.platform != "linux" or not shutil.which("sha256sum"), reason="runs install-linux.sh")
+@pytest.mark.parametrize("digest_ok", [True, False])
+def test_the_one_line_installer_installs_only_a_verified_package(tmp_path, digest_ok):
+    import hashlib
+    import io
+    import platform
+
+    arch = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}[platform.machine().lower()]
+    name = f"Row-Bot-9.9.9-Linux-{arch}"
+    fixture, bin_dir, home = tmp_path / "fixture", tmp_path / "bin", tmp_path / "home"
+    for folder in (fixture, bin_dir, home):
+        folder.mkdir()
+    marker = tmp_path / "installed"
+    tarball = fixture / f"{name}.tar.gz"
+    with tarfile.open(tarball, "w:gz") as archive:
+        data = b'#!/usr/bin/env bash\ntouch "$MARKER"\n'
+        info = tarfile.TarInfo(f"{name}/install.sh")
+        info.size = len(data)
+        info.mode = 0o755
+        archive.addfile(info, io.BytesIO(data))
+    digest = hashlib.sha256(tarball.read_bytes()).hexdigest() if digest_ok else "0" * 64
+    (fixture / "release.json").write_text(json.dumps({
+        "tag_name": "v9.9.9",
+        "assets": [{"name": tarball.name, "browser_download_url": f"https://example.invalid/{tarball.name}"}],
+        "body": f"<!-- row-bot-update-manifest -->\n```manifest\n{tarball.name}: sha256={digest}\n```\n",
+    }), encoding="utf-8")
+    curl = bin_dir / "curl"
+    curl.write_text(_FAKE_CURL, encoding="utf-8")
+    curl.chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "TMPDIR": str(tmp_path),
+           "FIXTURE": str(fixture), "MARKER": str(marker)}
+
+    result = subprocess.run(["bash", "installer/install-linux.sh", "9.9.9"], env=env,
+                            capture_output=True, text=True, timeout=60)
+
+    assert (result.returncode == 0) is digest_ok, result.stdout + result.stderr
+    assert marker.exists() is digest_ok
 
 
 def test_thread_list_initializes_missing_thread_meta(monkeypatch, tmp_path):
@@ -506,33 +492,6 @@ def test_the_linux_package_smoke_never_touches_a_real_profile():
         assert artifact in release and artifact in manifest
 
 
-def test_release_scripts_use_source_layout_version_file():
-    from row_bot.version import __version__
-
-    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-    cut_release = Path("scripts/cut_release.py").read_text(encoding="utf-8")
-    windows_builder = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
-    linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
-    mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
-    mac_zip_builder = Path("installer/build_mac_release.sh").read_text(encoding="utf-8")
-    mac_launcher = Path("Start Row-Bot.command").read_text(encoding="utf-8")
-
-    assert "src/row_bot/version.py" in release
-    assert 'VERSION="$ROW_BOT_VERSION"' in release
-    assert "from version import __version__" not in release
-    assert '"src" / "row_bot" / "version.py"' in cut_release
-    assert '"installer" / "install_deps.bat"' in cut_release
-    assert '"Start Row-Bot.command"' in cut_release
-    assert '"tests" / "test_brand_constants.py"' in cut_release
-    assert 'Join-Path $ProjectRoot "src\\row_bot\\version.py"' in windows_builder
-    for script in (linux_builder, mac_builder, mac_zip_builder):
-        assert '$PROJECT_DIR/src/row_bot/version.py' in script
-        assert '$PROJECT_DIR/version.py' not in script
-    assert '$PROJECT_DIR/src/row_bot/version.py' in mac_launcher
-    assert '$PROJECT_DIR/version.py' not in mac_launcher
-    assert f'ROW_BOT_VERSION="{__version__}"' in mac_launcher
-
-
 @pytest.mark.slow
 def test_release_manifest_script_uses_brand_contract():
     from row_bot.brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
@@ -557,31 +516,3 @@ def test_release_manifest_script_uses_brand_contract():
 
 def test_v4_is_newer_than_latest_v3_for_update_checks():
     assert updater.compare_versions("3.23.1", "4.0.0") > 0
-
-
-def test_packagers_exclude_tests_directory():
-    windows_installer = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-    linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
-    mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
-    manifest = app_payload_manifest.build_manifest(Path("."))
-
-    assert 'Source: "..\\tests' not in windows_installer
-    assert 'DestDir: "{app}\\app\\tests' not in windows_installer
-    assert "OutputBaseFilename=Row-Bot-{#MyAppVersion}-Windows-x64" in windows_installer
-    assert " tests" not in linux_builder
-    assert " tests" not in mac_builder
-    assert not any(name.startswith("test_") for name in manifest["root_python_files"])
-    assert not any(name.endswith("_test.py") for name in manifest["root_python_files"])
-    assert not any(name.endswith("_harness.py") for name in manifest["root_python_files"])
-    assert set(manifest["payload_dirs"]) == {"src/row_bot"}
-    for package in REQUIRED_RUNTIME_PACKAGES:
-        assert Path("src/row_bot", package).is_dir()
-    assert {"static", "sounds", "bundled_skills", "tool_guides"} <= set(manifest["asset_dirs"])
-    for builder in (linux_builder, mac_builder):
-        assert "scripts/app_payload_manifest.py" in builder
-        assert "--category payload_dirs" in builder
-        assert "--category asset_dirs" in builder
-    assert "--exclude='node_modules'" in linux_builder
-    assert "--exclude='node_modules'" in mac_builder
-    assert "Linux package payload contains test or harness artifacts" in linux_builder
-    assert "macOS app payload contains test or harness artifacts" in mac_builder
