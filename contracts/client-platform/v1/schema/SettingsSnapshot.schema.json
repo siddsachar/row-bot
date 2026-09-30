@@ -1997,6 +1997,17 @@
           "title": "Path State",
           "type": "string"
         },
+        "tidy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WikiTidySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "vault_path": {
           "maxLength": 4096,
           "title": "Vault Path",
@@ -2012,6 +2023,49 @@
         "conversations"
       ],
       "title": "WikiSettingsSnapshot",
+      "type": "object"
+    },
+    "WikiTidySummary": {
+      "additionalProperties": false,
+      "description": "The vault's one-time naming tidy: readable articles, hashed copies moved.",
+      "properties": {
+        "date": {
+          "maxLength": 32,
+          "title": "Date",
+          "type": "string"
+        },
+        "folder": {
+          "maxLength": 512,
+          "title": "Folder",
+          "type": "string"
+        },
+        "moved": {
+          "minimum": 0,
+          "title": "Moved",
+          "type": "integer"
+        },
+        "review": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Review",
+          "type": "array"
+        },
+        "tidied": {
+          "minimum": 0,
+          "title": "Tidied",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "date",
+        "tidied",
+        "moved",
+        "folder"
+      ],
+      "title": "WikiTidySummary",
       "type": "object"
     }
   },

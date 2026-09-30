@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import sqlite3
 import sys
+import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -26,6 +30,8 @@ def _edited_article(stack, *, legacy=False):
     else:
         path = wiki.export_entity(entity)
     path.write_bytes(path.read_bytes() + b"\r\nVault edit for explicit review.\r\n")
+    edited_later = time.time() + 60  # a hand edit happens after the export
+    os.utime(path, (edited_later, edited_later))
     return entity, path
 
 
@@ -88,7 +94,7 @@ def test_guarded_import_refuses_a_path_outside_the_managed_folder(wiki_stack):
 
 
 @pytest.mark.parametrize(
-    "change", [None, "vault", "database", "same-timestamp-property"]
+    "change", [None, "recall", "vault", "database", "same-timestamp-property"]
 )
 def test_captured_guards_accept_only_the_reviewed_versions(wiki_stack, change):
     wiki, kg = wiki_stack["wiki_vault"], wiki_stack["kg"]
@@ -99,8 +105,12 @@ def test_captured_guards_accept_only_the_reviewed_versions(wiki_stack, change):
     elif change == "database":
         kg.update_entity(entity["id"], "Later database content")
     elif change == "same-timestamp-property":
-        kg.touch_recalled([entity["id"]])
+        with closing(sqlite3.connect(kg.DB_PATH)) as conn:
+            conn.execute("UPDATE entities SET properties=? WHERE id=?", ('{"status": "archived"}', entity["id"]))
+            conn.commit()
         assert kg.get_entity(entity["id"])["updated_at"] == entity["updated_at"]
+    elif change == "recall":  # a recall is not a knowledge change
+        kg.touch_recalled([entity["id"]])
     before = kg.get_entity(entity["id"])
     ok = wiki.import_from_vault(
         entity["id"],
@@ -108,8 +118,9 @@ def test_captured_guards_accept_only_the_reviewed_versions(wiki_stack, change):
         expected_db_revision=review["expected_db_revision"],
         expected_vault_hash=review["expected_vault_hash"],
     )
-    assert ok is (change is None)
-    if change is None:
+    accepted = change in {None, "recall"}
+    assert ok is accepted
+    if accepted:
         assert (
             "Vault edit for explicit review"
             in kg.get_entity(entity["id"])["description"]

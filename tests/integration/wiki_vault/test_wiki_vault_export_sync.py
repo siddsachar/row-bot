@@ -39,7 +39,7 @@ def test_wiki_vault_filename_frontmatter_and_markdown_rendering(wiki_stack: dict
     assert len(wiki_vault._safe_filename("x" * 200)) <= 120
 
     entity = _entity()
-    assert wiki_vault._entity_md_path(entity).name == wiki_vault._entity_filename(entity["id"]) + ".md"
+    assert wiki_vault._entity_md_path(entity).name == "Bob.md"
     assert "person" in str(wiki_vault._entity_md_path(entity))
 
     frontmatter = wiki_vault._render_frontmatter(entity)
@@ -141,7 +141,7 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
 
     type_index = wiki_vault._render_type_index("person", [bob, tiny])
     assert "# Person" in type_index
-    assert f"[[{wiki_vault._entity_filename(bob['id'])}|Bob]]" in type_index
+    assert "[[Bob]]" in type_index
     assert "## Quick Notes" in type_index
     assert "**Tiny**" in type_index
 

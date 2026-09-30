@@ -324,3 +324,40 @@ it('shows the saved wiki vault and counts without authorizing or mutating it', a
     screen.getByRole('link', { name: 'Browse or create knowledge' }),
   ).toHaveAttribute('href', '/app-v2/settings/knowledge');
 });
+
+it('reports the one-time vault tidy until it is dismissed', async () => {
+  localStorage.clear();
+  const snapshot: WikiSettingsSnapshot = {
+    availability: 'available',
+    enabled: true,
+    vault_path: 'C:/Synthetic/Vault',
+    path_state: 'available',
+    articles: 660,
+    conversations: 0,
+    tidy: {
+      date: '2026-09-30',
+      tidied: 660,
+      moved: 660,
+      folder: 'raw/.row-bot-retired/hashed-names-2026-09-30',
+      review: ['wiki/person/Erin.md'],
+    },
+  };
+  const first = render(
+    <WikiSettings compact session={setup().session} snapshot={snapshot} />,
+  );
+  fireEvent.click(await screen.findByText(/Tidied 660 articles/));
+  expect(
+    screen.getByText('raw/.row-bot-retired/hashed-names-2026-09-30'),
+  ).toBeVisible();
+  expect(screen.getByText(/Nothing was deleted/)).toBeVisible();
+  expect(screen.getByText('wiki/person/Erin.md')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+  expect(screen.queryByText(/Tidied 660 articles/)).toBeNull();
+  first.unmount();
+
+  render(
+    <WikiSettings compact session={setup().session} snapshot={snapshot} />,
+  );
+  await screen.findByText('Reviewed article');
+  expect(screen.queryByText(/Tidied 660 articles/)).toBeNull();
+});

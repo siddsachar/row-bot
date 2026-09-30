@@ -35,7 +35,7 @@ def test_candidate_retrieval_is_no_touch_and_keyword_fallback_finds_exact_subjec
     kg, _mem, _policy, _extraction = _fresh_memory_modules(tmp_path, monkeypatch)
 
     target = kg.save_entity("fact", "Rosebud Code", "The user's code word is rosebud.", source="test")
-    other = kg.save_entity("fact", "Unrelated", "The user likes green tea.", source="test")
+    kg.save_entity("fact", "Unrelated", "The user likes green tea.", source="test")
 
     candidates = kg.retrieve_memory_candidates(
         "what is my Rosebud Code",
@@ -45,12 +45,10 @@ def test_candidate_retrieval_is_no_touch_and_keyword_fallback_finds_exact_subjec
 
     assert [c["id"] for c in candidates][:1] == [target["id"]]
     assert "keyword" in candidates[0]["retrieval_debug"]["sources"]
-    assert "recalled_at" not in _props(kg.get_entity(target["id"]))
-    assert "recalled_at" not in _props(kg.get_entity(other["id"]))
+    assert kg.recall_stamps() == {}
 
     kg.touch_recalled([target["id"]])
-    assert "recalled_at" in _props(kg.get_entity(target["id"]))
-    assert "recalled_at" not in _props(kg.get_entity(other["id"]))
+    assert set(kg.recall_stamps()) == {target["id"]}
 
 
 def test_fts_search_and_rebuild_are_no_touch(tmp_path, monkeypatch):
@@ -64,7 +62,7 @@ def test_fts_search_and_rebuild_are_no_touch(tmp_path, monkeypatch):
     hits = kg.fts_search_entities("Cerulean Pin")
 
     assert [hit["id"] for hit in hits] == [target["id"]]
-    assert "recalled_at" not in _props(kg.get_entity(target["id"]))
+    assert kg.recall_stamps() == {}
 
 
 def test_lexical_seed_expands_graph_without_semantic_seed(tmp_path, monkeypatch):
@@ -83,7 +81,7 @@ def test_lexical_seed_expands_graph_without_semantic_seed(tmp_path, monkeypatch)
     assert any(c["id"] == project["id"] for c in candidates)
     graph_hit = next(c for c in candidates if c["id"] == deadline["id"])
     assert "graph" in graph_hit["retrieval_debug"]["sources"]
-    assert "recalled_at" not in _props(kg.get_entity(deadline["id"]))
+    assert kg.recall_stamps() == {}
 
 
 def test_punctuated_exact_subject_outranks_shorter_parent_subject(tmp_path, monkeypatch):
@@ -131,13 +129,13 @@ def test_graph_enhanced_recall_preserves_touching_wrapper_behavior(tmp_path, mon
     results = kg.graph_enhanced_recall("Secret Alias", threshold=0.99, max_results=5)
 
     assert any(r["id"] == target["id"] for r in results)
-    assert "recalled_at" in _props(kg.get_entity(target["id"]))
+    assert target["id"] in kg.recall_stamps()
 
 
 def test_explicit_memory_search_touches_only_filtered_results(tmp_path, monkeypatch):
     kg, _mem, _policy, _extraction = _fresh_memory_modules(tmp_path, monkeypatch)
     shown = kg.save_entity("fact", "Rosebud Code", "The user's code word is rosebud.", source="test")
-    hidden = kg.save_entity("person", "Rosebud Person", "A person with the same keyword.", source="test")
+    kg.save_entity("person", "Rosebud Person", "A person with the same keyword.", source="test")
 
     import row_bot.tools.memory_tool as memory_tool
 
@@ -145,8 +143,7 @@ def test_explicit_memory_search_touches_only_filtered_results(tmp_path, monkeypa
 
     assert "Rosebud Code" in result
     assert "Rosebud Person" not in result
-    assert "recalled_at" in _props(kg.get_entity(shown["id"]))
-    assert "recalled_at" not in _props(kg.get_entity(hidden["id"]))
+    assert set(kg.recall_stamps()) == {shown["id"]}
 
 
 def test_memory_policy_selects_concrete_memory_and_rejects_resource_without_anchor(tmp_path, monkeypatch):
@@ -170,7 +167,7 @@ def test_memory_policy_selects_concrete_memory_and_rejects_resource_without_anch
     assert decision.allowed is True
     assert decision.selected[0]["id"] == target["id"]
     assert decision.trace["selected_count"] >= 1
-    assert "recalled_at" not in _props(kg.get_entity(target["id"]))
+    assert kg.recall_stamps() == {}
 
     monkeypatch.setattr(kg, "retrieve_memory_candidates", lambda *args, **kwargs: [
         {**kg.get_entity(resource["id"]), "score": 0.99, "lexical_score": 0.99, "decay_multiplier": 1.0, "via": "keyword", "relations": []}

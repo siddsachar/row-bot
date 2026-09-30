@@ -783,11 +783,13 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
         "updated_at": 128,
     }
 
+    limits = {**columns, "recalled_at": 128}
+
     def build(row):
-        value = {key: row[key] for key in columns}
+        value = {key: row[key] for key in limits}
         if any(
-            not isinstance(value[key], str) or len(value[key]) > columns[key]
-            for key in columns
+            not isinstance(value[key], str) or len(value[key]) > limits[key]
+            for key in limits
         ):
             raise ValueError("Invalid saved detail")
         return _RawValue(json.dumps(value, ensure_ascii=True, separators=(",", ":")))
@@ -795,10 +797,21 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
     selected = ",".join(
         f'substr("{key}",1,{limit + 1}) "{key}"' for key, limit in columns.items()
     )
+
+    def select(_conn, tables):
+        # Recall stamps are kept apart from the saved memory (B257).
+        recalled = (
+            "COALESCE((SELECT substr(recalled_at,1,129) FROM knowledge_recall_stamps"
+            " WHERE entity_id=entities.id),'')"
+            if "knowledge_recall_stamps" in tables
+            else "''"
+        )
+        return f"SELECT {selected},{recalled} recalled_at,1 matched FROM entities WHERE id=?"
+
     page = _read(
         get_memory_db_path(create_parent=False),
         {"entities": " ".join(columns)},
-        f"SELECT {selected},1 matched FROM entities WHERE id=?",
+        select,
         (entity_id,),
         build,
         _RawPage,
@@ -812,6 +825,8 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
     if not page.items:
         return _empty_detail("missing")
     entity = json.loads(page.items[0].value)
+    # A recall is not an edit: the stamp stays out of the detail's revision.
+    recalled_at = entity.pop("recalled_at")
     props = _safe_properties(entity["properties"])
     status = str(props.get("status") or "active").lower()
     if status not in _ENTITY_STATUSES:
@@ -952,7 +967,7 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
         entity["updated_at"],
         _bounded_text(props.get("last_user_modified_at"), 128),
         _bounded_text(props.get("last_evolved_at"), 128),
-        _bounded_text(props.get("recalled_at"), 128),
+        _bounded_text(recalled_at, 128),
         recall_count,
         _bounded_text(props.get("review_reason"), 1024),
         _bounded_text(props.get("superseded_by"), 128),

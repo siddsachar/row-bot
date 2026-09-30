@@ -1,7 +1,15 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { X } from 'lucide-react';
 import type { ClientController } from '../../api';
-import type { WikiSettingsSnapshot } from '../../api/types';
-import { Button, Field, Input, Toggle } from '../../ui/primitives';
+import type { WikiSettingsSnapshot, WikiTidySummary } from '../../api/types';
+import {
+  Button,
+  Disclosure,
+  Field,
+  IconButton,
+  Input,
+  Toggle,
+} from '../../ui/primitives';
 import { AppLink } from '../../ui/app-link';
 
 export type WikiAction =
@@ -513,6 +521,7 @@ export default function WikiSettings({
           </p>
         </div>
       </header>
+      {snapshot?.tidy && <WikiTidyNotice tidy={snapshot.tidy} />}
       {snapshot && !compact && <WikiSnapshotSummary snapshot={snapshot} />}
       {snapshot && compact && (
         <>
@@ -779,6 +788,61 @@ export default function WikiSettings({
         </div>
       )}
     </section>
+  );
+}
+
+const TIDY_SEEN_KEY = 'row-bot.wiki-tidy-seen';
+
+/** The vault's one-time tidy back to readable names, shown until dismissed. */
+function WikiTidyNotice({ tidy }: { tidy: WikiTidySummary }) {
+  const [seen, setSeen] = useState(() => {
+    try {
+      return localStorage.getItem(TIDY_SEEN_KEY) === tidy.date;
+    } catch {
+      return false;
+    }
+  });
+  if (seen) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem(TIDY_SEEN_KEY, tidy.date);
+    } catch {
+      // Private windows may refuse storage; it then stays hidden for this page.
+    }
+    setSeen(true);
+  };
+  const review = tidy.review ?? [];
+  return (
+    <div className="settings-wiki-tidy">
+      <Disclosure
+        summary={
+          <>
+            Tidied {tidy.tidied.toLocaleString()} articles ·{' '}
+            <span className="settings-wiki-tidy-toggle">Show moved files</span>
+          </>
+        }
+      >
+        <p>
+          {tidy.moved.toLocaleString()} old copies moved to{' '}
+          <code>{tidy.folder}</code> in the vault. Nothing was deleted.
+        </p>
+        {review.length > 0 && (
+          <>
+            <p>Kept as they were, for your review:</p>
+            <ul>
+              {review.map((path) => (
+                <li key={path}>
+                  <code>{path}</code>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Disclosure>
+      <IconButton label="Dismiss" size="sm" onClick={dismiss}>
+        <X size={14} aria-hidden />
+      </IconButton>
+    </div>
   );
 }
 

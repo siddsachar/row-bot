@@ -247,7 +247,6 @@ def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved)
                         "evidence": [f"Evidence {index}" for index in range(10)],
                         "last_user_modified_at": "user-time",
                         "last_evolved_at": "evolved-time",
-                        "recalled_at": "recall-time",
                     }
                 ),
             ),
@@ -281,6 +280,13 @@ def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved)
     assert len(detail.relations) == 5 and detail.relation_count == 7
     assert detail.evidence == ("Evidence 0", "Evidence 1", "Evidence 2")
     assert "private" not in json.dumps(asdict(detail))
+    assert detail.last_recalled_at == ""
+
+    # A recall shows when it happened without invalidating a reviewed edit.
+    saved.touch_recalled(["entity-0001"])
+    recalled = views.read_saved_entity_detail("entity-0001")
+    assert recalled.last_recalled_at
+    assert recalled.revision == detail.revision
 
     with sqlite3.connect(saved.DB_PATH) as conn:
         conn.execute("UPDATE entities SET properties='not-json' WHERE id='entity-0001'")

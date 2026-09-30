@@ -571,7 +571,7 @@ def test_recalled_entity_removes_unchanged_generated_article(stack):
     kg = stack["kg"]
     before = doc["article"].read_bytes()
     kg._touch_recalled([doc["entity"]["id"]])
-    assert kg.get_entity(doc["entity"]["id"])["properties"] != doc["entity"]["properties"]
+    assert doc["entity"]["id"] in kg.recall_stamps()
     assert doc["article"].read_bytes() == before
     result = stack["docs"].remove_document_details(doc["job"].id)
     assert result["status"] == "complete" and result["derived_entities_removed"] == 1

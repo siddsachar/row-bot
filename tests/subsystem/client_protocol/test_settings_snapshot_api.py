@@ -344,6 +344,35 @@ def _execute(
     )
 
 
+def test_snapshot_reports_the_wiki_vault_tidy_once_it_ran(api):
+    client, headers, data, _ = api
+    snapshot = SettingsSnapshot.model_validate(client.get(BASE, headers=headers).json())
+    assert snapshot.wiki.tidy is None
+    folder = "raw/.row-bot-retired/hashed-names-2026-09-30"
+    _write(
+        data / "saved-vault" / "wiki" / ".row-bot-ownership.json",
+        {
+            "version": 1,
+            "files": {},
+            "naming": 2,
+            "tidy": {
+                "date": "2026-09-30",
+                "folder": folder,
+                "tidied": 2,
+                "adopted": 1,
+                "moved": [
+                    {"from": f"wiki/person/entity-{n}.md", "to": f"{folder}/person/entity-{n}.md"}
+                    for n in "ab"
+                ],
+                "review": [{"relative": "wiki/person/Erin.md", "reason": "edited"}],
+            },
+        },
+    )
+    tidy = SettingsSnapshot.model_validate(client.get(BASE, headers=headers).json()).wiki.tidy
+    assert (tidy.date, tidy.tidied, tidy.moved, tidy.folder) == ("2026-09-30", 2, 2, folder)
+    assert tidy.review == ["wiki/person/Erin.md"]
+
+
 def test_snapshot_is_closed_masked_and_does_not_write(api):
     client, headers, data, _ = api
     before = _tree(data)

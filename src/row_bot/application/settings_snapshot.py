@@ -896,6 +896,25 @@ def _wiki(root: Path) -> dict[str, Any]:
         "path_state": path_state,
         "articles": articles,
         "conversations": conversations,
+        "tidy": _wiki_tidy(vault) if vault is not None and path_state == "available" else None,
+    }
+
+
+def _wiki_tidy(vault: Path) -> dict[str, Any] | None:
+    """The vault's one-time naming tidy, as its ownership manifest records it."""
+    manifest = _mapping(_read_json(vault / "wiki" / ".row-bot-ownership.json", default={}))
+    report = _mapping(manifest.get("tidy"))
+    moved = report.get("moved") if isinstance(report.get("moved"), list) else []
+    review = report.get("review") if isinstance(report.get("review"), list) else []
+    tidied = report.get("tidied") if type(report.get("tidied")) is int and report["tidied"] >= 0 else 0
+    if not (tidied or moved or review):
+        return None
+    return {
+        "date": _text(report.get("date"), 32),
+        "tidied": tidied,
+        "moved": len(moved),
+        "folder": _text(report.get("folder"), 512),
+        "review": [_text(_mapping(item).get("relative"), 512) for item in review[:50]],
     }
 
 

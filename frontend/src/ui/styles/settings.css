@@ -2310,6 +2310,21 @@
 .settings-page-content .settings-wiki-actions .button {
   min-height: 30px;
 }
+.settings-wiki-tidy {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.settings-wiki-tidy > .disclosure {
+  flex: 1;
+  min-width: 0;
+}
+.settings-wiki-tidy .settings-wiki-tidy-toggle {
+  color: var(--text-muted);
+}
+.settings-wiki-tidy code {
+  overflow-wrap: anywhere;
+}
 .settings-page-content .settings-knowledge-lifecycle .status-chip {
   background: none;
 }

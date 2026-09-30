@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sqlite3
+from contextlib import closing
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -62,3 +65,34 @@ def test_fresh_knowledge_graph_uses_isolated_data_dir(tmp_path, monkeypatch) -> 
     assert kg.DB_PATH.startswith(str(tmp_path))
     assert kg.count_entities() == 1
     assert kg.get_entity(entity["id"])["subject"] == "Row-Bot"
+
+
+def test_recall_stamps_move_out_of_saved_properties_and_keep_decay_order(tmp_path, monkeypatch) -> None:
+    from tests.fixtures.knowledge_graph import fresh_knowledge_graph
+
+    kg = fresh_knowledge_graph(tmp_path, monkeypatch)
+    old = (datetime.now() - timedelta(days=120)).isoformat()
+    recent = (datetime.now() - timedelta(days=1)).isoformat()
+    # Saved by an earlier version, which kept the recall stamp in properties.
+    with closing(sqlite3.connect(kg.DB_PATH)) as conn:
+        for entity_id, subject, properties in (
+            ("recalled", "Harbor lighthouse", {"status": "active", "recalled_at": recent}),
+            ("forgotten", "Harbor ferry", {"status": "active"}),
+        ):
+            conn.execute(
+                "INSERT INTO entities(id,entity_type,subject,description,properties,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (entity_id, "fact", subject, f"{subject} notes about the harbor.", json.dumps(properties), old, old),
+            )
+        conn.commit()
+
+    kg = fresh_knowledge_graph(tmp_path, monkeypatch)  # the next start migrates
+
+    assert json.loads(kg.get_entity("recalled")["properties"]) == {"status": "active"}
+    assert kg.get_entity("recalled")["updated_at"] == old
+    assert kg.recall_stamps(["recalled", "forgotten"]) == {"recalled": recent}
+    ranked = kg.retrieve_memory_candidates("harbor", threshold=0.99)
+    assert [candidate["id"] for candidate in ranked] == ["recalled", "forgotten"]
+    assert [candidate["decay_multiplier"] for candidate in ranked] == [1.0, 0.7]
+    kg.delete_entity("recalled")
+    assert kg.recall_stamps() == {}

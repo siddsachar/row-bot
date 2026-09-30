@@ -846,6 +846,16 @@ class KnowledgeSettingsSnapshot(WireModel):
     status_counts: KnowledgeStatusCounts = Field(default_factory=KnowledgeStatusCounts)
 
 
+class WikiTidySummary(WireModel):
+    """The vault's one-time naming tidy: readable articles, hashed copies moved."""
+
+    date: str = Field(max_length=32)
+    tidied: int = Field(ge=0)
+    moved: int = Field(ge=0)
+    folder: str = Field(max_length=512)
+    review: list[Annotated[str, StringConstraints(max_length=512)]] = Field(default_factory=list, max_length=50)
+
+
 class WikiSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     enabled: bool
@@ -853,6 +863,7 @@ class WikiSettingsSnapshot(WireModel):
     path_state: Literal["available", "missing", "not_local", "unavailable"]
     articles: int = Field(ge=0)
     conversations: int = Field(ge=0)
+    tidy: WikiTidySummary | None = None
 
 
 class DocumentEmbeddingSettingsSnapshot(WireModel):
