@@ -268,6 +268,15 @@ end. Loaded history sits in an `aria-live="off"` wrapper inside the log.
   / Not now) instead of a generic approval, and an account or channel it needs
   is a Connect card that opens its Settings page. Nothing is created from a
   message's wording, and a design opens by itself only when a turn changed it.
+- A folder the person already has or a repository to clone (`use_code_folder`,
+  `clone_repository`) never takes a path from the model. A folder they added
+  before is used by its exact name; otherwise the turn waits on a folder card
+  ("Use an existing folder" with Choose folder, "Which code folder?" listing
+  the matches, or the repository's address with Choose where) that picks
+  through the desktop picker and Add resource's own setup, clone and recovery
+  path, then the turn goes on in the folder: "Using code folder …" with Open
+  and Undo, which only takes it out of the conversation. A browser says to
+  choose the folder in the desktop app or with Add resource.
 - While Row-Bot uses the computer (Cua) in a conversation, a computer-use
   card sits in the turn: "Using your computer · <app>" with a status dot, the
   latest picture (in memory only, read by revision, `no-store`, hidden while

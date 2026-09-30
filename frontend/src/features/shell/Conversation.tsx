@@ -2214,6 +2214,15 @@ export default function Conversation({
         state.conversation.revision,
       );
     },
+    // A folder the person had or cloned leaves this conversation only; its
+    // files stay, and the notice offers Undo (B277).
+    remove: async (bindingId) => {
+      const bound = resources.find(
+        (item) => item.binding.binding_id === bindingId,
+      );
+      if (id && bound)
+        await unbindWithUndo(controller, overlay.notify, id, bound);
+    },
     // The connection's own connect sheet opens (Phase 15); email is Gmail.
     connect: (page, target) =>
       navigate(
@@ -3024,6 +3033,7 @@ export default function Conversation({
                           computer.checked && (
                             <ApprovalCard
                               id={generation.approval_id}
+                              conversationId={id}
                               hint={
                                 approvalEvent?.event.type ===
                                 'approval.required'

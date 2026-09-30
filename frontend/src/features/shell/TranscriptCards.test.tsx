@@ -46,6 +46,7 @@ function actions(resource: ResourceView | null = view): CardActions {
     open: vi.fn(),
     rename: vi.fn(async () => {}),
     undo: vi.fn(async () => {}),
+    remove: vi.fn(async () => {}),
     connect: vi.fn(),
   };
 }
@@ -141,6 +142,42 @@ it('a renamed card that is undone reads removed under the new name', () => {
   ).toBeVisible();
 });
 
+it('a folder the person had reads Using, and Undo only takes it out of the chat (B277)', async () => {
+  const folder: TranscriptCard = {
+    kind: 'resource',
+    resourceKind: 'code',
+    name: 'tide-app',
+    bindingId: 'binding-c',
+    resourceId: 'workspace-c',
+    bound: true,
+  };
+  const value = actions({ ...view, title: 'tide-app' });
+  const shown = renderCards(value, [folder]);
+  expect(
+    screen.getByRole('group', { name: 'Using code folder tide-app' }),
+  ).toHaveTextContent('Using code folder tide-app');
+  expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull();
+  const undo = screen.getByRole('button', { name: 'Undo' });
+  expect(undo).toHaveAttribute(
+    'title',
+    'Stop using this folder in this conversation; its files stay',
+  );
+  await act(async () => {
+    fireEvent.click(undo);
+  });
+  expect(value.remove).toHaveBeenCalledWith('binding-c');
+  expect(value.undo).not.toHaveBeenCalled();
+  value.resource = vi.fn(() => undefined);
+  shown.rerender(
+    <CardActionsContext.Provider value={{ ...value }}>
+      <TranscriptCards cards={[folder]} />
+    </CardActionsContext.Provider>,
+  );
+  expect(
+    screen.getByRole('group', { name: 'No longer using code folder tide-app' }),
+  ).toBeVisible();
+});
+
 it('offers Connect for an account the work needs', () => {
   const value = actions();
   renderCards(value, [
@@ -216,4 +253,25 @@ it('hoists cards from a turn’s traces and from live tool activity', () => {
   ] as unknown as EventRecord[];
   expect(liveCards(activity, new Set())).toHaveLength(1);
   expect(liveCards(activity, new Set(['resource:binding-b']))).toHaveLength(0);
+  const bound = [
+    {
+      event: {
+        type: 'tool.activity',
+        payload: {
+          state: 'tool_done',
+          specialization: { ...specialization, kind: 'resource_bound' },
+        },
+      },
+    },
+  ] as unknown as EventRecord[];
+  expect(liveCards(bound, new Set())).toEqual([
+    {
+      kind: 'resource',
+      resourceKind: 'code',
+      name: 'Tiny date app',
+      bindingId: 'binding-b',
+      resourceId: 'workspace-a',
+      bound: true,
+    },
+  ]);
 });

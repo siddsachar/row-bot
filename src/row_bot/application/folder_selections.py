@@ -241,11 +241,13 @@ class FolderSelections:
         The complete scope comes from the server-owned grant.  Callers supply
         only the authenticated session and an authority revalidator.  ``None``
         means the identifier belongs to the retained legacy picker path.
+        A clone's parent folder is picked for ``workspace:clone_repository``.
         """
         return self._consume_exact_for(
             grant_id, session_id, validate,
             intents={"resource_setup", "resource_continue"},
-            destinations={"workspace:existing_folder", "workspace:empty_folder"},
+            destinations={"workspace:existing_folder", "workspace:empty_folder",
+                          "workspace:clone_repository"},
         )
 
     def consume_exact_custom_tool(

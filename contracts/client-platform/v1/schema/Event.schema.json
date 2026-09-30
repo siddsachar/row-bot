@@ -145,6 +145,36 @@
       "title": "AgentActivityEvent",
       "type": "object"
     },
+    "ApprovalFolderChoice": {
+      "additionalProperties": false,
+      "description": "A registered code folder a folder card offers (never its path).",
+      "properties": {
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "revision": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "name"
+      ],
+      "title": "ApprovalFolderChoice",
+      "type": "object"
+    },
     "ApprovalRequired": {
       "additionalProperties": false,
       "properties": {
@@ -331,10 +361,22 @@
     },
     "ApprovalSetup": {
       "additionalProperties": false,
-      "description": "An approval that turns on something the work needs (a setup card).",
+      "description": "An approval that sets up something the work needs (a setup card).\n\n``tool`` turns a tool on; ``folder`` and ``clone`` pause the turn while\nthe person picks a code folder, or where to clone ``repo_url``, through\nAdd resource's picker and setup path (B277).",
       "properties": {
+        "folders": {
+          "items": {
+            "$ref": "#/$defs/ApprovalFolderChoice"
+          },
+          "maxItems": 8,
+          "title": "Folders",
+          "type": "array"
+        },
         "kind": {
-          "const": "tool",
+          "enum": [
+            "tool",
+            "folder",
+            "clone"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -342,6 +384,12 @@
           "maxLength": 120,
           "minLength": 1,
           "title": "Label",
+          "type": "string"
+        },
+        "repo_url": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Repo Url",
           "type": "string"
         }
       },
@@ -2415,6 +2463,7 @@
             "delegated_agent",
             "media",
             "resource_created",
+            "resource_bound",
             "setup_needed"
           ],
           "title": "Kind",

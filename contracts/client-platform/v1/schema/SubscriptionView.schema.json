@@ -460,6 +460,7 @@
             "delegated_agent",
             "media",
             "resource_created",
+            "resource_bound",
             "setup_needed"
           ],
           "title": "Kind",

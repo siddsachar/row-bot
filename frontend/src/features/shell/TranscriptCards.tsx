@@ -10,9 +10,11 @@ import { Button, Input } from '../../ui/primitives';
 
 /**
  * Cards the assistant leaves in a turn (decision 12): a design or code folder
- * it created, with Open · Rename · Undo, and a Connect card for an account or
- * channel the work needs. Each comes from its tool's reviewed specialization,
- * live from `tool.activity` and settled from the turn's traces.
+ * it created, with Open · Rename · Undo, a code folder the person had or
+ * cloned (B277), with Open · Undo (it only leaves this conversation), and a
+ * Connect card for an account or channel the work needs. Each comes from its
+ * tool's reviewed specialization, live from `tool.activity` and settled from
+ * the turn's traces.
  */
 export type TranscriptCard =
   | {
@@ -21,6 +23,8 @@ export type TranscriptCard =
       name: string;
       bindingId: string;
       resourceId: string;
+      /** Brought in rather than created: Undo removes it from the chat. */
+      bound?: boolean;
     }
   | {
       kind: 'connect';
@@ -36,7 +40,7 @@ type Specialization = NonNullable<
 export function cardOf(value: Specialization | null | undefined) {
   if (!value) return null;
   if (
-    value.kind === 'resource_created' &&
+    (value.kind === 'resource_created' || value.kind === 'resource_bound') &&
     (value.resource_kind === 'design' || value.resource_kind === 'code') &&
     value.binding_id
   )
@@ -46,6 +50,7 @@ export function cardOf(value: Specialization | null | undefined) {
       name: value.display_name ?? '',
       bindingId: value.binding_id,
       resourceId: value.resource_id ?? '',
+      ...(value.kind === 'resource_bound' ? { bound: true } : {}),
     } satisfies TranscriptCard;
   if (
     value.kind === 'setup_needed' &&
@@ -103,6 +108,8 @@ export type CardActions = {
   open: (resource: ResourceView) => void;
   rename: (bindingId: string, name: string) => Promise<void>;
   undo: (bindingId: string) => Promise<void>;
+  /** Takes a folder the person had out of this conversation; files stay. */
+  remove: (bindingId: string) => Promise<void>;
   /** Opens that connection's connect sheet (its page, at its anchor). */
   connect: (page: 'accounts' | 'channels', target: string) => void;
 };
@@ -131,6 +138,9 @@ function ResourceCard({
   if (resource?.title) lastTitle.current = resource.title;
   const noun = NOUN[card.resourceKind];
   const Icon = card.resourceKind === 'design' ? Palette : FolderCode;
+  const [verb, gone] = card.bound
+    ? ['Using', 'No longer using']
+    : ['Created', 'Removed'];
   async function run(work: () => Promise<void>) {
     setBusy(true);
     try {
@@ -159,12 +169,12 @@ function ResourceCard({
         data-kind="resource"
         data-state="removed"
         role="group"
-        aria-label={`Removed ${noun} ${lastTitle.current}`}
+        aria-label={`${gone} ${noun} ${lastTitle.current}`}
       >
         <Icon className="transcript-card-icon" aria-hidden />
         <div className="transcript-card-text">
           <span>
-            Removed {noun} <strong>{lastTitle.current}</strong>
+            {gone} {noun} <strong>{lastTitle.current}</strong>
           </span>
         </div>
       </div>
@@ -174,7 +184,7 @@ function ResourceCard({
       className="transcript-card"
       data-kind="resource"
       role="group"
-      aria-label={`Created ${noun} ${title}`}
+      aria-label={`${verb} ${noun} ${title}`}
     >
       <Icon className="transcript-card-icon" aria-hidden />
       <div className="transcript-card-text">
@@ -199,7 +209,7 @@ function ResourceCard({
           />
         ) : (
           <span>
-            Created {noun} <strong>{title}</strong>
+            {verb} {noun} <strong>{title}</strong>
           </span>
         )}
       </div>
@@ -210,27 +220,34 @@ function ResourceCard({
         >
           Open
         </Button>
-        <Button
-          variant="ghost"
-          disabled={busy || renaming || !resource}
-          onClick={() => {
-            committed.current = false;
-            setName(title);
-            setRenaming(true);
-          }}
-        >
-          Rename
-        </Button>
+        {!card.bound && (
+          <Button
+            variant="ghost"
+            disabled={busy || renaming || !resource}
+            onClick={() => {
+              committed.current = false;
+              setName(title);
+              setRenaming(true);
+            }}
+          >
+            Rename
+          </Button>
+        )}
         <Button
           variant="ghost"
           disabled={busy || !resource}
           title={
-            card.resourceKind === 'design'
-              ? 'Delete this design'
-              : 'Delete this code folder and its files'
+            card.bound
+              ? 'Stop using this folder in this conversation; its files stay'
+              : card.resourceKind === 'design'
+                ? 'Delete this design'
+                : 'Delete this code folder and its files'
           }
           onClick={() =>
-            actions && void run(() => actions.undo(card.bindingId))
+            actions &&
+            void run(() =>
+              (card.bound ? actions.remove : actions.undo)(card.bindingId),
+            )
           }
         >
           Undo

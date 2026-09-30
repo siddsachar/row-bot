@@ -463,6 +463,27 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "folder fixture" in text:
+        # The work needs a folder the person has: use_code_folder pauses the
+        # turn on a folder card (B277) where they pick it.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "folder-card")
+        thread = call["conversation_id"]
+        identity = f"folder:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "use_code_folder", "args": {}}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "use_code_folder", "args": {}}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "use_code_folder", "label": "Use an existing folder",
+                                 "description": "Choose the folder on this computer; Row-Bot adds it and "
+                                                "works only inside it. Its files and Git history stay as they are.",
+                                 "args": {}, "setup": {"kind": "folder", "label": "Use an existing folder",
+                                                       "folders": []}}]
+        finally:
+            call["quiesced"] = True
+        return
     if "connect fixture" in text:
         # The work needs an account: request_connection leaves a Connect card.
         from row_bot.threads import append_checkpoint_messages

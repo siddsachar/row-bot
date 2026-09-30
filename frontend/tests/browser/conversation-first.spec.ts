@@ -45,6 +45,29 @@ test('a tool the work needs asks to be turned on, in the chat', async ({
   ).toBeVisible();
 });
 
+test('a folder the work needs is chosen on a card in the chat (B277)', async ({
+  page,
+}, testInfo) => {
+  await newConversation(page);
+  await send(page, 'Work on my tide app folder fixture');
+  const card = page.getByRole('complementary', {
+    name: 'Use an existing folder',
+    exact: true,
+  });
+  // A browser can't pick a folder on this computer: the card says where to.
+  await expect(card).toContainText(
+    'Choose the folder in the Row-Bot desktop app, or add it with Add resource, then Continue.',
+  );
+  await expect(
+    card.getByRole('button', { name: 'Choose folder', exact: true }),
+  ).toHaveCount(0);
+  await screenshot(page, testInfo, 'folder-card');
+  await card.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(
+    page.getByText('Synthetic approval resumed.', { exact: true }),
+  ).toBeVisible();
+});
+
 test('an account the work needs shows a Connect card that opens its connect sheet', async ({
   page,
 }, testInfo) => {

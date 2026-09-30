@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Power, ShieldAlert, ShieldCheck } from 'lucide-react';
-import type { ApprovalView } from '../../api/types';
+import type { ApprovalSetup, ApprovalView } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import FolderSetupCard from './FolderSetupCard';
 import { WaitingSince } from './InPlaceApproval';
 import {
   approvalAction,
@@ -18,7 +19,7 @@ type Hint_ = {
   action_label?: string;
   reason?: string;
   risk_class?: string;
-  setup?: { kind: 'tool'; label: string } | null;
+  setup?: ApprovalSetup | null;
 };
 
 /** A notice's approval that is no longer waiting. */
@@ -134,17 +135,21 @@ function editableTarget(target: EventTarget | null) {
  *
  * Turning on a tool the work needs is a setup card instead (decision 12):
  * "Turn on Web search?" with Turn on (⌘↵) / Not now, in place of sending
- * the person to Settings.
+ * the person to Settings. A code folder the work needs is a folder card
+ * (B277), answered only once the person has picked the folder.
  */
 export default function ApprovalCard({
   id,
   hint,
+  conversationId,
   onAllowInChat,
   onResolved,
   notice = false,
 }: {
   id: string;
   hint?: Hint_;
+  /** The conversation a folder card binds the picked folder to. */
+  conversationId?: string;
   onAllowInChat?: () => Promise<void>;
   /** After the decision was accepted (a delegated agent's thread re-reads). */
   onResolved?: () => void;
@@ -194,7 +199,10 @@ export default function ApprovalCard({
       setBusy(false);
     }
   }
-  const ready = Boolean(view) && !busy && !resolution && !notice;
+  const setup = view?.setup ?? hint?.setup ?? null;
+  // A folder card never answers without a picked folder, so no shortcut.
+  const folderCard = setup?.kind === 'folder' || setup?.kind === 'clone';
+  const ready = Boolean(view) && !busy && !resolution && !notice && !folderCard;
   useEffect(() => {
     if (!ready) return;
     const key = (event: KeyboardEvent) => {
@@ -216,13 +224,24 @@ export default function ApprovalCard({
   const action = view?.action_label || hint?.action_label || '';
   const risk = view?.risk_class || hint?.risk_class || 'unknown';
   const argument = keyArgument(view?.safe_argument_summary);
-  const setup = view?.setup ?? hint?.setup ?? null;
   if (answered)
     return (
       <p className="approval-card-answered">
         <ShieldCheck aria-hidden />
         This request was answered.
       </p>
+    );
+  if (setup && (setup.kind === 'folder' || setup.kind === 'clone'))
+    return (
+      <FolderSetupCard
+        setup={{ ...setup, kind: setup.kind }}
+        reason={view?.reason || hint?.reason || ''}
+        conversationId={notice ? undefined : conversationId}
+        ready={Boolean(view) && !busy && !resolution}
+        resolution={resolution}
+        error={error}
+        onDecide={(decision) => resolve(decision)}
+      />
     );
   if (setup)
     return (

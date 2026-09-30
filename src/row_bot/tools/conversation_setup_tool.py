@@ -10,6 +10,16 @@ is bound for the turn (a turn captures its bindings when it starts).
 the usual approval (shown as a "Turn on Developer tools" card) instead of
 letting files land loosely in the workspace. ``request_connection`` shows a
 "Connect …" card for an account or channel the work needs.
+
+``use_code_folder`` and ``clone_repository`` bring in a folder the person
+already has or a repository (B277). The model never gives a path: a folder the
+person registered before is bound by its exact name through the same binding
+Add resource's reuse list makes; anything else pauses the turn on a card where
+the person picks the folder (or the parent to clone into) with the same picker
+and reviewed ``resource.setup`` path as Add resource. Their answer resumes the
+turn, which captures the new binding when it starts again, so the work goes on
+in the folder at once. A tool re-runs from the top when its turn resumes, so a
+folder already bound is always read first.
 """
 
 from __future__ import annotations
@@ -60,8 +70,16 @@ GUIDANCE = (
     "in the chat or the app only. If the conversation already has a code folder or the design they "
     "mean, keep working in it. After creating one, end your reply with one short sentence: the work "
     "continues by itself in the next step, where the new folder or design is available. Never write "
-    "a project's files loosely into the workspace folder."
+    "a project's files loosely into the workspace folder. EXISTING FOLDERS AND REPOSITORIES: when "
+    "they want you to work on a folder or project they already have, call use_code_folder (with its "
+    "name if they gave one); when they give a Git repository to clone or work on, call "
+    "clone_repository with its URL. Never run git clone in the shell and never ask for a folder "
+    "path: the person chooses the folder on a card, and you work only in the conversation's code "
+    "folder."
 )
+# A name that reads as a path is never used: the person picks folders.
+_PATH_LIKE = re.compile(r"[\\/]|^~|^[A-Za-z]:")
+_MAX_FOLDER_CHOICES = 8
 
 
 def declined(label: str) -> str:
@@ -289,6 +307,184 @@ def request_connection(service: Connection, reason: str = "") -> str:
     })
 
 
+_NOTHING_CHOSEN = ("The person didn't choose a folder, so nothing was added. Don't ask again or reach a "
+                   "folder another way (such as the shell) unless they ask; answer in the chat.")
+
+
+def _bound_folder(conversation_id: str, asked: str = "") -> str | None:
+    """The conversation's code folder as a card, and how the work goes on in it."""
+    existing = _existing(conversation_id, "workspace")
+    if existing is None:
+        return None
+    from row_bot.conversation_resources import current_execution_context
+
+    binding, descriptor = existing
+    title = descriptor.title
+    context = current_execution_context()
+    note = ""
+    if asked and asked.casefold() != title.casefold():
+        note = (f" A conversation works in one code folder: to use “{asked}” instead, the person "
+                f"removes “{title}” under Context › Working on first.")
+    if context is not None and binding in context.bindings:
+        # Bound before this turn (or its resumed part) started: usable now.
+        step = "It is ready now: continue the person's request in it with the Developer tools."
+    elif _continue_after(
+        conversation_id,
+        "[Continue in the code folder]\n"
+        f"The code folder “{title}” is now bound to this conversation. Continue the person's request "
+        "now: work in it with the Developer tools, then say briefly what you did.",
+        f"Continuing in {title}",
+    ):
+        step = ("Stop here and end this reply with one short sentence. The work continues by itself in "
+                "the next step, where the code folder is available.")
+    else:
+        step = "It is ready. Continue in your next reply."
+    return _json({
+        "ok": True,
+        "kind": "resource_bound",
+        "resource_kind": "code",
+        "resource_id": binding.resource_id,
+        "binding_id": binding.binding_id,
+        "name": title,
+        "display_summary": f"Using code folder “{title}”",
+        "next": f"This conversation works in the code folder “{title}”.{note} {step}",
+    })
+
+
+def _registered_folders() -> list[Any]:
+    """The code folders Add resource's reuse list offers, available ones only."""
+    from row_bot.developer.client_workspace import list_workspace_choices
+
+    folders: list[Any] = []
+    cursor = None
+    while True:
+        page = list_workspace_choices(cursor, limit=100)
+        folders.extend(item for item in page.items if item.available)
+        cursor = page.next_cursor
+        if not cursor:
+            return folders
+
+
+def _named(name: str, folders: list[Any]) -> tuple[list[Any], list[Any]]:
+    """Folders called exactly ``name`` (any case), else those whose name contains it."""
+    wanted = name.casefold()
+    names = [(" ".join(folder.name.split()).casefold(), folder) for folder in folders]
+    exact = [folder for text, folder in names if text == wanted]
+    return exact, ([] if exact else [folder for text, folder in names if wanted in text])
+
+
+def _ask_developer_tools() -> str | None:
+    if _turn_on("developer", "Developer tools", "Row-Bot needs Developer tools to work in a code "
+                "folder. Turning them on lets Row-Bot create, edit and run code in folders you give "
+                "it; you can turn them off in Settings › Tools."):
+        return None
+    return _json({"ok": False, "kind": "setup_declined",
+                  "error": declined("Developer tools") + " Answer in the chat and do not reach the "
+                           "folder another way (such as the shell)."})
+
+
+def use_code_folder(name: str = "") -> str:
+    """Work in a code folder the person already has: bound by name, else picked on a card."""
+    conversation_id = _conversation_id()
+    if not conversation_id:
+        return _json({"ok": False, "error": "No conversation is active."})
+    asked = _clean_name(name, "")
+    if _PATH_LIKE.search(asked):
+        asked = ""
+    bound = _bound_folder(conversation_id, asked)
+    if bound is not None:
+        return bound
+    refused = _ask_developer_tools()
+    if refused is not None:
+        return refused
+    exact, partial = _named(asked, _registered_folders()) if asked else ([], [])
+    if len(exact) == 1:
+        folder = exact[0]
+        payload = {"kind": "workspace", "intent": "add", "resource_id": folder.resource_id,
+                   "expected_resource_revision": folder.revision}
+        try:
+            result = _setup(conversation_id, _command_id(conversation_id, "use", folder.resource_id), payload)
+        except Exception as error:
+            logger.warning("use_code_folder failed for %s: %s", conversation_id, error)
+            result = {}
+        bound = _bound_folder(conversation_id, asked) if result.get("status") == "completed" else None
+        return bound or _json({"ok": False, "error": f"The code folder “{folder.name}” couldn't be added. "
+                                                     "Tell the person and offer Add resource."})
+    choices = (exact or partial)[:_MAX_FOLDER_CHOICES]
+    if len(exact) > 1:
+        reason = f"More than one code folder is called “{asked}”. Choose the one to work in."
+    elif choices:
+        reason = f"No code folder is called exactly “{asked}”. Choose one of these, or another folder."
+    elif asked:
+        reason = (f"No code folder is called “{asked}” yet. Choose the folder on this computer; Row-Bot "
+                  "adds it and works only inside it.")
+    else:
+        reason = ("Choose the folder on this computer; Row-Bot adds it and works only inside it. Its "
+                  "files and Git history stay as they are.")
+    from langgraph.types import interrupt
+
+    interrupt({
+        "tool": "use_code_folder",
+        "label": "Use an existing folder",
+        "description": reason,
+        "args": {"name": asked} if asked else {},
+        "setup": {"kind": "folder", "label": "Use an existing folder",
+                  "folders": [{"resource_id": folder.resource_id, "name": folder.name,
+                               "revision": folder.revision} for folder in choices]},
+    })
+    # The card binds what the person picked before the turn goes on.
+    return _bound_folder(conversation_id, asked) or _json({"ok": False, "kind": "setup_declined",
+                                                           "error": _NOTHING_CHOSEN})
+
+
+def clone_repository(repo_url: str = "") -> str:
+    """Clone a repository into a folder the person chooses on a card, and work in it."""
+    conversation_id = _conversation_id()
+    if not conversation_id:
+        return _json({"ok": False, "error": "No conversation is active."})
+    from row_bot.developer.client_clone import CloneCreationError, source_name
+    from row_bot.developer.storage import get_workspace
+
+    try:
+        source, folder_name = source_name(str(repo_url or "").strip())
+    except CloneCreationError:
+        return _json({"ok": False, "kind": "invalid_repository",
+                      "error": "Row-Bot can't clone that. It needs a Git repository address starting "
+                               "https://, ssh:// or git@, with no user name, password or token in it. "
+                               "Ask the person for the repository's address."})
+
+    def cloned() -> str | None:
+        existing = _existing(conversation_id, "workspace")
+        if existing is None:
+            return None
+        workspace = get_workspace(existing[0].resource_id)
+        if workspace is not None and workspace.repo_url == source:
+            return _bound_folder(conversation_id)
+        return _json({"ok": False, "kind": "existing",
+                      "error": f"This conversation already has the code folder “{existing[1].title}”. A "
+                               "conversation works in one code folder: clone in a new conversation, or "
+                               "keep working in this one."})
+
+    done = cloned()
+    if done is not None:
+        return done
+    refused = _ask_developer_tools()
+    if refused is not None:
+        return refused
+    from langgraph.types import interrupt
+
+    interrupt({
+        "tool": "clone_repository",
+        "label": f"Clone {folder_name}",
+        "description": (f"Row-Bot downloads it into a new folder “{folder_name}” inside the folder you "
+                        "choose, with this computer's own Git sign-in. Nothing else there changes."),
+        "args": {"repo_url": source},
+        "setup": {"kind": "clone", "label": folder_name, "repo_url": source},
+    })
+    # The card clones through Add resource's reviewed path and binds the result.
+    return cloned() or _json({"ok": False, "kind": "setup_declined", "error": _NOTHING_CHOSEN})
+
+
 class _DesignInput(BaseModel):
     design_type: DesignType = Field(
         default="deck",
@@ -309,6 +505,16 @@ class _ConnectionInput(BaseModel):
     reason: str = Field(default="", description="One short sentence on why it is needed.")
 
 
+class _UseFolderInput(BaseModel):
+    name: str = Field(default="", description="The folder's name as the person calls it, e.g. “tide-app”; "
+                                               "empty to let them choose. Never a path.")
+
+
+class _CloneInput(BaseModel):
+    repo_url: str = Field(description="The repository's address, e.g. "
+                                      "“https://github.com/owner/project.git” or “git@github.com:owner/project.git”.")
+
+
 class ConversationSetupTool(BaseTool):
     @property
     def name(self) -> str:
@@ -320,15 +526,17 @@ class ConversationSetupTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return ("Create a design or a code folder for this conversation when the work needs one, "
-                "or ask the person to connect an account.")
+        return ("Create a design or a code folder for this conversation when the work needs one, use a "
+                "folder the person already has, clone a repository, or ask the person to connect an "
+                "account.")
 
     @property
     def enabled_by_default(self) -> bool:
         return True
 
     def execute(self, query: str) -> str:
-        return "Use create_design, create_code_folder or request_connection."
+        return ("Use create_design, create_code_folder, use_code_folder, clone_repository or "
+                "request_connection.")
 
     def as_langchain_tools(self) -> list:
         return [
@@ -351,9 +559,32 @@ class ConversationSetupTool(BaseTool):
                     "build or make an app, site, script or other code project. It appears as a card "
                     "with Open, Rename and Undo; the building continues by itself in the next step. "
                     "Not for questions, a short snippet in the chat, workflows, or results they want "
-                    "in the chat or app only."
+                    "in the chat or app only, and not for a folder they already have."
                 ),
                 args_schema=_CodeFolderInput,
+            ),
+            StructuredTool.from_function(
+                func=use_code_folder,
+                name="use_code_folder",
+                description=(
+                    "Work on a folder or project the person already has, in this conversation. With "
+                    "its name, a code folder they added before with exactly that name is used at once; "
+                    "otherwise they get a card to pick it (or choose the folder on this computer) and "
+                    "the work goes on in it. Use this instead of asking for a path or reading folders "
+                    "with the shell."
+                ),
+                args_schema=_UseFolderInput,
+            ),
+            StructuredTool.from_function(
+                func=clone_repository,
+                name="clone_repository",
+                description=(
+                    "Clone a Git repository the person names (an https://, ssh:// or git@ address) and "
+                    "work in it in this conversation. They get a card with the address and choose where "
+                    "it goes; the clone uses this computer's own Git sign-in and the work goes on in it. "
+                    "Use this instead of git clone in the shell."
+                ),
+                args_schema=_CloneInput,
             ),
             StructuredTool.from_function(
                 func=request_connection,

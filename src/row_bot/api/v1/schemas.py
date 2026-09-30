@@ -6188,11 +6188,26 @@ class TranscriptDelta(WireModel):
     public_text_delta: Annotated[str, StringConstraints(max_length=60000)]
 
 
-class ApprovalSetup(WireModel):
-    """An approval that turns on something the work needs (a setup card)."""
+class ApprovalFolderChoice(WireModel):
+    """A registered code folder a folder card offers (never its path)."""
 
-    kind: Literal["tool"]
+    resource_id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=120)
+    revision: str = Field(default="", max_length=128)
+
+
+class ApprovalSetup(WireModel):
+    """An approval that sets up something the work needs (a setup card).
+
+    ``tool`` turns a tool on; ``folder`` and ``clone`` pause the turn while
+    the person picks a code folder, or where to clone ``repo_url``, through
+    Add resource's picker and setup path (B277).
+    """
+
+    kind: Literal["tool", "folder", "clone"]
     label: str = Field(min_length=1, max_length=120)
+    repo_url: str = Field(default="", max_length=2048)
+    folders: list[ApprovalFolderChoice] = Field(default_factory=list, max_length=8)
 
 
 class ToolActivity(WireModel):
@@ -6683,7 +6698,9 @@ class TraceMediaReference(WireModel):
 
 
 class TraceSpecialization(WireModel):
-    kind: Literal["skill_load", "delegated_agent", "media", "resource_created", "setup_needed"]
+    kind: Literal[
+        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+    ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
     source: str = Field(default="", max_length=180)
@@ -6693,7 +6710,8 @@ class TraceSpecialization(WireModel):
     media_kind: str = Field(default="", max_length=64)
     media: list[TraceMediaReference] = Field(default_factory=list, max_length=8)
     error_code: str = Field(default="", max_length=80)
-    # resource_created: the card's Open / Rename / Undo act on this binding.
+    # resource_created: the card's Open / Rename / Undo act on this binding;
+    # resource_bound (a folder the person had or cloned): Open / Undo.
     resource_kind: Literal["", "design", "code"] = ""
     resource_id: str = Field(default="", max_length=256)
     binding_id: str = Field(default="", max_length=256)

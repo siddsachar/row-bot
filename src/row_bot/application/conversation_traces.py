@@ -25,9 +25,16 @@ TraceStatus = Literal[
 ]
 TraceGroupKind = Literal["generic", "browser", "computer"]
 TraceSpecializationKind = Literal[
-    "skill_load", "delegated_agent", "media", "resource_created", "setup_needed"
+    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
 ]
-CARD_SPECIALIZATIONS = frozenset({"resource_created", "setup_needed"})
+CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed"})
+# A design or code folder a turn created, or a folder it brought in (B277).
+_RESOURCE_CARDS: dict[tuple[str, str], TraceSpecializationKind] = {
+    ("create_design", "resource_created"): "resource_created",
+    ("create_code_folder", "resource_created"): "resource_created",
+    ("use_code_folder", "resource_bound"): "resource_bound",
+    ("clone_repository", "resource_bound"): "resource_bound",
+}
 _CONNECTION_PAGES = {
     "google": "accounts", "github": "accounts", "x": "accounts",
     "telegram": "channels", "slack": "channels", "discord": "channels",
@@ -545,17 +552,18 @@ def _media_specialization(result: Any) -> TraceSpecialization | None:
 
 
 def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpecialization | None:
-    """A created design or code folder, or a connection the work needs."""
+    """A created (or brought-in) design or code folder, or a connection the work needs."""
     if not payload or payload.get("ok") is not True:
         return None
-    if name in {"create_design", "create_code_folder"} and payload.get("kind") == "resource_created":
+    card = _RESOURCE_CARDS.get((name, str(payload.get("kind"))))
+    if card:
         kind = str(payload.get("resource_kind") or "")
         binding = _clean_text(payload.get("binding_id"), MAX_IDENTIFIER_CHARS)
         resource = _clean_text(payload.get("resource_id"), MAX_IDENTIFIER_CHARS)
         display = _clean_text(payload.get("name"), 180)
         if kind not in {"design", "code"} or not binding or not resource or not display:
             return None
-        return TraceSpecialization(kind="resource_created", display_name=display, resource_kind=kind,
+        return TraceSpecialization(kind=card, display_name=display, resource_kind=kind,
                                    resource_id=resource, binding_id=binding)
     if name == "request_connection" and payload.get("kind") == "setup_needed":
         target = _clean_text(payload.get("target"), 64)

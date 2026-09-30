@@ -1150,6 +1150,38 @@
 .approval-card[data-kind='setup'] .approval-card-icon {
   color: var(--accent-solid);
 }
+/* The registered folders a folder card offers (B277): one row each. */
+.folder-setup-choices {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.folder-setup-choices .button {
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-align: start;
+}
+.folder-setup-choices .button svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+.folder-setup-card .approval-card-status progress {
+  width: 100%;
+}
+@media (pointer: coarse) {
+  .folder-setup-choices .button {
+    min-height: 44px;
+  }
+}
 
 /* ---------------------------------------------- cards the assistant leaves */
 

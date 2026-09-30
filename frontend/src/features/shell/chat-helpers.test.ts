@@ -106,6 +106,18 @@ describe('tool activity', () => {
     expect(stepVerb('request_connection', 'blocked')).toBe(
       "Didn't ask to connect",
     );
+    expect(stepVerb('use_code_folder', 'pending')).toBe(
+      'Opening a code folder',
+    );
+    expect(stepVerb('use_code_folder', 'cancelled')).toBe(
+      "Didn't open a code folder",
+    );
+    expect(stepVerb('clone_repository', 'succeeded')).toBe(
+      'Cloned a repository',
+    );
+    expect(stepVerb('clone_repository', 'failed')).toBe(
+      "Couldn't clone a repository",
+    );
     expect(stepVerb('row_bot_update_setting', 'pending')).toBe(
       'Changing a setting',
     );
