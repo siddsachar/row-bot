@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  ArrowLeft,
   Cpu,
   MoreHorizontal,
   PanelRight,
@@ -7,6 +8,7 @@ import {
   Share,
   TextSearch,
 } from 'lucide-react';
+import { AppLink } from '../../ui/app-link';
 import { IconButton, Menu, type MenuAction } from '../../ui/primitives';
 
 /** The server keeps at most 120 characters of a title (B135). */
@@ -14,9 +16,11 @@ export const TITLE_LIMIT = 120;
 
 /**
  * The conversation header: the title (click to rename), the current model as
- * a chip, and icon actions for find, share/export and the context panel. On
- * phones it is one 48px row: `leading` (back to the conversation list), the
- * title and a ⋯ menu that holds every other action (`menuActions` first).
+ * a chip, and icon actions for find, share/export and Conversation details.
+ * On phones it is one 48px row: `leading` (back to the conversation list),
+ * the title and a ⋯ menu that holds every other action (`menuActions` first).
+ * A delegated agent's conversation links back to its parent before the title
+ * (above it on phones, B242).
  */
 export default function ConversationHeader({
   title,
@@ -31,6 +35,7 @@ export default function ConversationHeader({
   actions,
   leading,
   menuActions,
+  breadcrumb,
   children,
 }: {
   title: string;
@@ -39,9 +44,9 @@ export default function ConversationHeader({
   model?: string;
   onFind?: () => void;
   onShare?: () => void;
-  /** Shows or hides the Context card, or opens its sheet on compact layouts. */
+  /** Shows or hides Conversation details, or opens its sheet when compact. */
   onContext?: () => void;
-  /** Whether Context is on screen (desktop); undefined for a sheet. */
+  /** Whether the details are on screen (desktop); undefined for a sheet. */
   contextPressed?: boolean;
   contextDisabled?: boolean;
   /** Workspace-owned icon actions (Open panel). */
@@ -53,6 +58,11 @@ export default function ConversationHeader({
    * entries (search, panels) come first.
    */
   menuActions?: MenuAction[];
+  /**
+   * A delegated agent's conversation: the way back to its parent, and the
+   * agent's icon shown before the title on wide layouts.
+   */
+  breadcrumb?: { to: string; title: string; icon?: ReactNode };
   /** Rare, urgent actions such as checking a pending receipt. */
   children?: ReactNode;
 }) {
@@ -106,7 +116,7 @@ export default function ConversationHeader({
         ...(onContext
           ? [
               {
-                label: 'Context',
+                label: 'Conversation details',
                 icon: <PanelRight size={16} />,
                 disabled: contextDisabled,
                 onSelect: onContext,
@@ -141,7 +151,30 @@ export default function ConversationHeader({
       data-layout={phone ? 'phone' : leading ? 'compact' : undefined}
     >
       {leading}
-      <div className="conversation-title-block">
+      <div
+        className="conversation-title-block"
+        data-breadcrumb={breadcrumb ? 'true' : undefined}
+      >
+        {breadcrumb && (
+          <>
+            <AppLink
+              className="conversation-breadcrumb"
+              to={breadcrumb.to}
+              aria-label={`Back to ${breadcrumb.title}`}
+            >
+              <ArrowLeft size={14} aria-hidden />
+              <span>{breadcrumb.title}</span>
+            </AppLink>
+            {!phone && (
+              <>
+                <span className="conversation-breadcrumb-separator" aria-hidden>
+                  /
+                </span>
+                {breadcrumb.icon}
+              </>
+            )}
+          </>
+        )}
         {editing ? (
           <input
             ref={input}
@@ -221,7 +254,7 @@ export default function ConversationHeader({
         {!phone && actions}
         {!phone && onContext && (
           <IconButton
-            label="Context"
+            label="Conversation details"
             data-context-toggle=""
             shortcut={contextPressed === undefined ? undefined : 'Mod+.'}
             pressed={contextPressed}

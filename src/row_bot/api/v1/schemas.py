@@ -6652,6 +6652,7 @@ class TraceAgentReference(WireModel):
     run_id: str = Field(min_length=1, max_length=256)
     display_name: str = Field(max_length=256)
     status: str = Field(max_length=64)
+    profile_id: str = Field(default="", max_length=256)
 
 
 class TraceMediaReference(WireModel):
@@ -7148,11 +7149,13 @@ class DelegatedRun(WireModel):
     name: str = Field(max_length=256)
     status: str = Field(max_length=80)
     summary: str = Field(max_length=4096)
+    profile_id: str = Field(default="", max_length=256)
 
 
 class DelegatedActivityView(WireModel):
     conversation_id: OpaqueId
     parent_conversation_id: OpaqueId | None = None
+    parent_title: str | None = Field(default=None, max_length=256)
     own_run: DelegatedRun | None = None
     items: list[DelegatedRun] = Field(max_length=50)
     next_cursor: str | None = Field(default=None, max_length=2048)

@@ -22,10 +22,7 @@ import {
   Globe,
   MoreHorizontal,
   Palette,
-  Search,
-  Target,
   Settings2,
-  Terminal,
   Trash2,
   Unlink,
 } from 'lucide-react';
@@ -48,14 +45,14 @@ type Props = {
   suggestions: ClientPanelSuggestion[];
   ready: boolean;
   connectionStatus: ClientStatus;
-  terminalAvailable: boolean;
-  compactHeading?: boolean;
   agents: ReactNode;
   /** Hide the Agents section while the conversation has no delegated work. */
   agentsEmpty?: boolean;
   /** Delegated agents queued, running or waiting; they are never hidden (B30). */
   agentsLive?: number;
-  /** A child conversation keeps its way back to the parent (in Agents) open. */
+  /** Of those, the agents working now (the rest wait for the person). */
+  agentsWorking?: number;
+  /** A delegated agent's own conversation: the section is "This agent" (B242). */
   childConversation?: boolean;
   outputs?: { id: string; reference: string; mime: string }[];
   completedDesignId?: string;
@@ -65,11 +62,9 @@ type Props = {
   onAddResource: () => void;
   onOpenResource: (resource: ResourceView) => void;
   onUnbindResource: (resource: ResourceView) => void;
-  onFind: () => void;
   onManageConversation: () => void;
   onManageBrowser: () => void;
   onDeleteConversation: () => void;
-  onOpenTerminal: () => void;
   onOpenSuggestion: (suggestion: ClientPanelSuggestion) => void;
   onDismissSuggestion: (suggestion: ClientPanelSuggestion) => void;
 };
@@ -88,11 +83,10 @@ export default function ConversationContextRail({
   suggestions,
   ready,
   connectionStatus,
-  terminalAvailable,
-  compactHeading = false,
   agents,
   agentsEmpty = false,
   agentsLive = 0,
+  agentsWorking = 0,
   childConversation = false,
   outputs = [],
   completedDesignId,
@@ -102,11 +96,9 @@ export default function ConversationContextRail({
   onAddResource,
   onOpenResource,
   onUnbindResource,
-  onFind,
   onManageConversation,
   onManageBrowser,
   onDeleteConversation,
-  onOpenTerminal,
   onOpenSuggestion,
   onDismissSuggestion,
 }: Props) {
@@ -124,8 +116,8 @@ export default function ConversationContextRail({
   const [savedOutputs, setSavedOutputs] = useState<Record<string, string>>({});
   const [writerStatus, setWriterStatus] = useState('');
   // Live agents open the Agents section (B30), and a child conversation opens
-  // it for its way back to the parent. Otherwise the reader's choice carries
-  // across conversations; it reopens when work starts after settling.
+  // it to show its own agent. Otherwise the reader's choice carries across
+  // conversations; it reopens when work starts after settling.
   const [agentsExpanded, setAgentsExpanded] = useState(
     agentsLive > 0 || childConversation,
   );
@@ -296,24 +288,30 @@ export default function ConversationContextRail({
     return () => request.abort();
   }, [controller, conversationId, ready, resources]);
 
+  const writerShown = writerQueued || writerStatus === 'queued';
+  const agentsFirst = !agentsEmpty && (agentsLive > 0 || childConversation);
+  // No title row (B221): the ⋯ menu and Add resource share the first shown
+  // section's heading row.
+  const first = !ready
+    ? 'status'
+    : agentsFirst
+      ? 'agents'
+      : writerShown
+        ? 'writer'
+        : resources.length || loading
+          ? 'resources'
+          : suggestions.length || outputs.length
+            ? 'outputs'
+            : 'goal';
+  const firstMark = (section: typeof first) =>
+    first === section ? 'true' : undefined;
   return (
     <aside
       className="conversation-context-rail"
-      aria-label="Conversation context"
+      aria-label="Conversation details"
     >
       <header className="context-rail-heading">
-        <div>
-          <h2 className={compactHeading ? 'visually-hidden' : undefined}>
-            Context
-          </h2>
-          {!ready && (
-            <small role="status" className="muted">
-              {connectionStatus === 'loading' || connectionStatus === 'ready'
-                ? 'Loading context'
-                : `Context ${connectionStatus}`}
-            </small>
-          )}
-        </div>
+        <h2 className="visually-hidden">Conversation details</h2>
         <div className="context-rail-actions">
           <Menu
             label="Conversation actions"
@@ -355,8 +353,23 @@ export default function ConversationContextRail({
       </header>
 
       <div className="context-rail-body">
-        {(writerQueued || writerStatus === 'queued') && (
-          <p className="context-writer-status" role="status">
+        {!ready && (
+          <p
+            role="status"
+            className="muted context-rail-status"
+            data-first={firstMark('status')}
+          >
+            {connectionStatus === 'loading' || connectionStatus === 'ready'
+              ? 'Loading details'
+              : `Details ${connectionStatus}`}
+          </p>
+        )}
+        {writerShown && (
+          <p
+            className="context-writer-status"
+            role="status"
+            data-first={firstMark('writer')}
+          >
             Checkout busy · Waiting for the other coding run
             <Button variant="ghost" onClick={onCancelWait}>
               Cancel wait
@@ -369,6 +382,7 @@ export default function ConversationContextRail({
           className="context-rail-section"
           aria-labelledby="context-resources"
           hidden={!resources.length && !loading}
+          data-first={firstMark('resources')}
         >
           <h3 id="context-resources">Working on</h3>
           {loading && !Object.keys(summaries).length && (
@@ -435,6 +449,7 @@ export default function ConversationContextRail({
           <section
             className="context-rail-section"
             aria-labelledby="context-outputs"
+            data-first={firstMark('outputs')}
           >
             <h3 id="context-outputs">Outputs</h3>
             {outputs.slice(-20).map((output) => (
@@ -553,39 +568,49 @@ export default function ConversationContextRail({
           </section>
         )}
 
-        <ContextGoal
-          conversationId={conversationId}
-          activity={turnActivity}
-          running={turnRunning}
-          onStopTurn={onStopTurn}
-          ready={ready && settled}
-          compose={composeGoal}
-          onComposeDone={() => setComposeGoal(false)}
-          io={{
-            load: (conversation, signal) =>
-              controller.goals(conversation, '', undefined, signal),
-            review: controller.reviewGoal,
-            execute: controller.executeGoal,
-          }}
-        />
+        <div className="context-goal-host" data-first={firstMark('goal')}>
+          <ContextGoal
+            conversationId={conversationId}
+            activity={turnActivity}
+            running={turnRunning}
+            onStopTurn={onStopTurn}
+            ready={ready && settled}
+            compose={composeGoal}
+            onCompose={() => setComposeGoal(true)}
+            onComposeDone={() => setComposeGoal(false)}
+            io={{
+              load: (conversation, signal) =>
+                controller.goals(conversation, '', undefined, signal),
+              review: controller.reviewGoal,
+              execute: controller.executeGoal,
+            }}
+          />
+        </div>
 
         {/* Kept mounted while empty so delegated work can reveal it; live
-            work moves it to the top by order, without remounting it. */}
+            work (or a child's own agent) moves it to the top by order,
+            without remounting it. */}
         <div
           className="context-agents-slot"
           hidden={agentsEmpty}
-          data-live={agentsLive > 0 ? 'true' : undefined}
+          data-first={firstMark('agents')}
         >
           <Disclosure
             className="context-rail-section context-agents"
-            summary="Agents"
+            summary={childConversation ? 'This agent' : 'Agents'}
             meta={
-              agentsLive > 0 ? (
+              agentsWorking > 0 ? (
                 <StatusDot
                   tone="accent"
                   pulse
                   showLabel
-                  label={`${agentsLive} active`}
+                  label={`${agentsWorking} working`}
+                />
+              ) : agentsLive > 0 ? (
+                <StatusDot
+                  tone="warning"
+                  showLabel
+                  label={`${agentsLive} waiting`}
                 />
               ) : undefined
             }
@@ -595,38 +620,6 @@ export default function ConversationContextRail({
             {agents}
           </Disclosure>
         </div>
-
-        <Disclosure
-          className="context-rail-section context-utilities"
-          summary="Utilities"
-        >
-          <div className="context-utility-list">
-            <Button
-              variant="ghost"
-              onClick={onFind}
-              title="Find in conversation"
-            >
-              <Search size={16} aria-hidden /> Find in conversation
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!ready}
-              onClick={() => setComposeGoal(true)}
-              title="Give this conversation an objective to work toward"
-            >
-              <Target size={16} aria-hidden /> Set a goal
-            </Button>
-            {terminalAvailable && (
-              <Button
-                variant="ghost"
-                title="Open the trusted desktop terminal."
-                onClick={onOpenTerminal}
-              >
-                <Terminal size={16} aria-hidden /> Interactive terminal
-              </Button>
-            )}
-          </div>
-        </Disclosure>
       </div>
     </aside>
   );

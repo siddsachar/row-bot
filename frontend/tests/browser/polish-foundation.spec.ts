@@ -275,16 +275,21 @@ test('the context rail hides empty sections and keeps Connected quiet (B7)', asy
   await openFixture(page);
   await composerFixture(page, 1);
   const rail = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
   await expect(rail).toBeVisible();
   await expect(rail.getByRole('heading', { name: 'Working on' })).toHaveCount(
     0,
   );
   await expect(rail.locator('summary', { hasText: 'Agents' })).toBeHidden();
-  const utilities = rail.locator('summary', { hasText: 'Utilities' });
-  await expect(utilities).toBeVisible();
-  await expect(utilities.locator('.disclosure-chevron')).toBeVisible();
+  // No Utilities (B223): Find and the terminal live in the header; the Goal
+  // section always shows.
+  await expect(rail.locator('summary', { hasText: 'Utilities' })).toHaveCount(
+    0,
+  );
+  const goal = rail.locator('summary', { hasText: 'Goal' });
+  await expect(goal).toBeVisible();
+  await expect(goal.locator('.disclosure-chevron')).toBeVisible();
   const status = page.locator('.connection-status.connected');
   await expect(status).toHaveText('Connected');
   expect(

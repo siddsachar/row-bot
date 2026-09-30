@@ -828,13 +828,75 @@
 
 /* --------------------------------------------------------------- Context */
 
-/* Context is a small floating glass card: content height, rounded, with a
-   translucent frosted fill. Wide chats give it a column; narrow ones float
-   it over the conversation. Reduced transparency makes it opaque. */
+/* Conversation details is a small floating glass card: content height,
+   rounded, with a translucent frosted fill. Wide chats keep it pinned open;
+   narrow ones float it over the conversation on demand. Reduced
+   transparency makes it opaque. */
 .chat-workspace {
   position: relative;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 316px);
   gap: 0;
+}
+/* Wide chats (B221): the card floats pinned open under the header's buttons,
+   its right edge on the last button's, left of the transcript's scrollbar
+   (which stays at the app's edge) and above the composer. The reading
+   column stays centred, then moves left and narrows so nothing runs under
+   the card; the composer, the Latest pill and errors follow the column. */
+.chat-workspace.details-wide {
+  --details-width: 316px;
+  --details-edge: 24px;
+  --details-top: 44px;
+  --details-space: calc(var(--details-width) + var(--details-edge) + 16px);
+  --column: calc(var(--chat-column) + 2 * var(--chat-gutter));
+  /* Room for the speaker markers hanging left of the column (B271). */
+  --column-min: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.details-wide .chat-content > .conversation-heading {
+  padding-inline-end: var(--details-edge);
+}
+.details-wide .transcript > .transcript-content {
+  --basis: 100%;
+}
+.details-wide > .composer,
+.details-wide .latest-pill,
+.details-wide .chat-error {
+  /* Outside the transcript, whose scrollbar is not part of the column. */
+  --basis: calc(100% - var(--transcript-scrollbar, 0px));
+}
+.details-wide .transcript > .transcript-content,
+.details-wide > .composer,
+.details-wide .latest-pill,
+.details-wide .chat-error {
+  --column-left: max(0px, (var(--basis) - var(--column)) / 2);
+  --column-width: min(var(--column), var(--basis));
+}
+.details-open .transcript > .transcript-content,
+.details-open > .composer,
+.details-open .latest-pill,
+.details-open .chat-error {
+  --column-left: clamp(
+    var(--column-min),
+    (var(--basis) - var(--column)) / 2,
+    var(--basis) - var(--column) - var(--details-space)
+  );
+  --column-width: min(
+    var(--column),
+    var(--basis) - var(--details-space) - var(--column-min)
+  );
+}
+.details-wide .transcript > .transcript-content,
+.details-wide > .composer {
+  width: var(--column-width);
+  max-width: none;
+  margin-inline: var(--column-left) auto;
+}
+.details-wide .latest-pill {
+  left: calc(var(--column-left) + var(--column-width) / 2);
+}
+.details-wide .chat-error {
+  width: calc(var(--column-width) - 2 * var(--chat-gutter));
+  margin-inline: calc(var(--column-left) + var(--chat-gutter)) auto;
 }
 .context-card {
   display: flex;
@@ -862,12 +924,22 @@
 .context-card[hidden] {
   display: none;
 }
-.context-card-docked {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+.context-card-pinned {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
   align-self: start;
-  max-height: calc(100% - 16px);
-  margin: 8px 8px 8px 0;
+  z-index: 30;
+  width: var(--details-width);
+  max-height: calc(100% - var(--details-top) - 8px);
+  margin: var(--details-top) var(--details-edge) 0 0;
+}
+.context-card-pinned,
+.context-card-floating {
+  box-shadow:
+    inset 0 1px 0 var(--surface-highlight),
+    0 2px 8px -2px var(--shadow-color),
+    0 24px 56px -16px var(--shadow-color);
 }
 .context-card-floating {
   position: absolute;
@@ -876,10 +948,6 @@
   right: 12px;
   width: min(316px, calc(100% - 24px));
   max-height: calc(100% - 64px);
-  box-shadow:
-    inset 0 1px 0 var(--surface-highlight),
-    0 2px 8px -2px var(--shadow-color),
-    0 24px 56px -16px var(--shadow-color);
 }
 :root[data-opaque='true'] .context-card {
   background: var(--surface-raised);
@@ -905,7 +973,7 @@
     box-shadow: none;
   }
 }
-/* The compact Context sheet adopts the same host (Conversation). */
+/* The compact details sheet adopts the same host (Conversation). */
 .context-sheet-slot {
   display: flex;
   flex: 1 1 auto;
@@ -921,6 +989,7 @@
   min-height: 0;
 }
 .conversation-context-rail {
+  position: relative;
   grid-column: auto;
   grid-row: auto;
   align-self: stretch;
@@ -938,14 +1007,36 @@
   box-shadow: none;
   overflow: hidden;
 }
+/* No title row: the ⋯ menu and Add resource share the first section's
+   heading row (B221). */
 .context-rail-heading {
+  position: absolute;
+  /* Centred on the first heading's 28px row (which starts 10px down). */
+  top: calc(24px - var(--control-size) / 2);
+  right: 8px;
+  z-index: 1;
   align-items: center;
-  min-height: 32px;
 }
-.context-rail-heading h2 {
-  font-size: var(--text-13);
-  line-height: var(--leading-13);
-  font-weight: var(--weight-semibold);
+.context-rail-body > p[data-first],
+.context-rail-body > [data-first] > h3,
+.context-rail-body > [data-first] > details > .disclosure-summary,
+.context-rail-body
+  > [data-first]
+  > .context-goal-slot
+  > details
+  > .disclosure-summary {
+  margin-inline-end: calc(2 * var(--control-size) + 4px);
+}
+.context-rail-body > [data-first] > h3 {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.context-rail-status {
+  margin: 0;
+  min-height: 28px;
+  font-size: var(--text-12);
+  line-height: 28px;
 }
 .context-rail-body {
   display: flex;
@@ -957,16 +1048,20 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
-.context-agents-slot[data-live] {
+.context-rail-body > [data-first] {
   order: -1;
 }
 .context-rail-section {
   padding-block: 10px;
   border-top: 1px solid var(--border-hairline);
 }
-.context-rail-section:first-of-type,
-.context-agents-slot[data-live] > .context-rail-section {
+.context-rail-section:first-of-type {
   margin-top: 0;
+}
+.context-rail-body > .context-rail-section[data-first],
+.context-rail-body > [data-first] > .context-rail-section,
+.context-rail-body > [data-first] > .context-goal-slot > .context-rail-section {
+  padding-top: 0;
   border-top: 0;
 }
 .context-rail-section h3 {
@@ -979,7 +1074,7 @@
   text-transform: none;
 }
 .context-agents > summary,
-.context-utilities > summary {
+.context-goal > summary {
   min-height: 28px;
   color: var(--text-muted);
   font-size: var(--text-12);
@@ -987,6 +1082,9 @@
 }
 .context-agents .disclosure-meta {
   margin-inline-start: auto;
+}
+.context-agents > .disclosure-body {
+  padding: 2px 0 4px;
 }
 
 /* Working on: full-title cards with a type tile. */
@@ -1438,63 +1536,172 @@
   background: transparent;
 }
 
-/* Delegated agents in Context: dense rows, name left, status right. */
-.context-agents .delegated-run-list {
-  gap: 2px;
-}
-.context-agents .delegated-run-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 2px;
+/* Delegated agents (B240): one line each, icon, name, status as a dot and a
+   word. Message and Stop sit inside the row on hover and focus, in place of
+   the status (always on touch). Finished agents fold into one line. */
+.agent-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  margin: 0;
   padding: 0;
-  border: 0;
-  background: transparent;
+  list-style: none;
 }
-.context-agents .delegated-run-item > .button:not(.icon-button) {
+.agent-row-line {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 32px;
-  padding: 6px 8px;
-  border: 0;
+  align-items: center;
   border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
-  text-align: start;
-  white-space: normal;
+  transition: background-color var(--motion-popover) var(--ease-out);
 }
-.context-agents .delegated-run-item > .button:not(.icon-button):hover {
+.agent-row-line:is(:hover, :focus-within) {
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
-.context-agents .delegated-run-name {
-  display: -webkit-box;
+.agent-row-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 8px 4px 6px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  font: var(--weight-medium) var(--text-13) / var(--leading-13) var(--font-sans);
+  text-align: start;
+}
+button.agent-row-main {
+  cursor: pointer;
+}
+button.agent-row-main:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.agent-row-name {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: var(--text-primary);
-  font-size: var(--text-13);
-  line-height: var(--leading-13);
-  font-weight: var(--weight-medium);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.context-agents .delegated-run-state {
+.agent-row:is([data-state='done'], [data-state='stopped']) .agent-row-name {
+  color: var(--text-secondary);
+  font-weight: var(--weight-regular);
+}
+.agent-status {
   flex: none;
-  color: var(--text-muted);
   font-size: var(--text-12);
-  line-height: var(--leading-13);
+  line-height: var(--leading-12);
+}
+.agent-status[data-tone='warning'] .status-indicator-label {
+  color: var(--status-warning-text);
+}
+.agent-status[data-tone='danger'] .status-indicator-label {
+  color: var(--status-danger-text);
+}
+/* Stopped: a hollow ring, the person's own choice rather than a result. */
+.agent-status[data-tone='neutral'] .status-indicator-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+}
+.agent-row-actions {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  display: none;
+  transform: translateY(-50%);
+}
+.agent-row-line:is(:hover, :focus-within) .agent-row-actions {
+  display: flex;
+}
+.agent-row-line:is(:hover, :focus-within):has(.agent-row-actions)
+  .agent-status {
+  visibility: hidden;
+}
+/* This agent, in its own conversation: its controls always in view. */
+.agent-list-own .agent-row-line {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+.agent-list-own .agent-row-actions {
+  position: static;
+  display: flex;
+  transform: none;
+  padding-right: 2px;
+}
+.agent-list-own .agent-row-line:is(:hover, :focus-within) .agent-status {
+  visibility: visible;
+}
+.agent-list-own .agent-row-main {
+  padding-right: 4px;
+}
+.agent-row > .agent-message {
+  padding: 6px 8px 8px;
+}
+.agent-row > .agent-controls-status {
+  padding: 0 8px 6px;
+}
+.agent-fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px 4px 9px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  font: var(--weight-medium) var(--text-12) / var(--leading-12) var(--font-sans);
+  cursor: pointer;
+}
+.agent-fold-toggle > svg:first-child {
+  flex: none;
+  color: var(--status-success-text);
+}
+.agent-fold-toggle > span {
+  flex: 1;
+  text-align: start;
+}
+.agent-fold-toggle:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+.agent-fold-chevron {
+  flex: none;
+  transition: transform var(--motion-popover) var(--ease-out);
+}
+.agent-fold-toggle[aria-expanded='true'] .agent-fold-chevron {
+  transform: rotate(90deg);
+}
+.agent-fold > .agent-list {
+  margin-top: 1px;
+}
+@media (hover: none) {
+  .agent-row-actions {
+    position: static;
+    display: flex;
+    transform: none;
+  }
+  .agent-row-line:is(:hover, :focus-within):has(.agent-row-actions)
+    .agent-status {
+    visibility: visible;
+  }
+  .agent-row-main {
+    min-height: 44px;
+  }
+  .agent-fold-toggle {
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-row-line,
+  .agent-fold-chevron {
+    transition: none;
+  }
 }
 
-/* Inside a delegated agent's thread: its name, status, Stop and Message. */
-.delegated-own-run {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 8px;
-  margin-bottom: 8px;
-}
-.delegated-own-run .agent-controls {
-  grid-column: 1 / -1;
-}
 /* Interrupted agent work: a line with Resume and Dismiss (B220). */
 .delegated-interrupted {
   display: flex;
@@ -1509,15 +1716,6 @@
 }
 .delegated-interrupted > .agent-controls-status {
   flex-basis: 100%;
-}
-.agent-controls {
-  display: grid;
-  gap: 6px;
-}
-.agent-controls .button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
 }
 .agent-message {
   display: grid;
@@ -1565,12 +1763,35 @@
   background: var(--surface-overlay);
 }
 
-/* Context › Goal: the conversation's objective, progress and controls. -- */
+/* Conversation details › Goal: the objective, progress and controls. ---- */
 .context-goal-body,
 .context-goal-form {
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+/* No goal: one line and a small Set a goal (B223). */
+.context-goal-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.button.context-goal-set {
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+@media (pointer: coarse) {
+  .button.context-goal-set {
+    min-height: var(--control-size);
+  }
 }
 .context-goal-objective {
   margin: 0;

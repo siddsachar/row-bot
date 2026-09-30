@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
+import { AgentAvatar } from '../../ui/AgentAvatar';
 import { TranscriptMessage } from './TranscriptMessage';
+import { SpeakersContext, type Speakers } from './TurnMarker';
 
 const mock = vi.hoisted(() => ({
   messageText: vi.fn(),
@@ -72,4 +74,79 @@ it('keeps Read aloud and says what is missing without a voice (U28)', () => {
     'Read aloud needs a voice installed on this device.',
   );
   vi.unstubAllGlobals();
+});
+
+const reply = {
+  id: 'assistant:2',
+  message_id: 'm2',
+  role: 'assistant',
+  blocks: [{ id: 'b', type: 'markdown', text: 'Here is the plan.' }],
+  tool_call_ids: [],
+  tool_call_id: '',
+} as unknown as TranscriptRow;
+const ask = {
+  ...reply,
+  id: 'user:1',
+  message_id: 'm1',
+  role: 'user',
+} as unknown as TranscriptRow;
+
+function speaking(speakers: Speakers, row: TranscriptRow, turnStart: boolean) {
+  return (
+    <SpeakersContext.Provider value={speakers}>
+      <TranscriptMessage
+        row={row}
+        conversationId="conversation-a"
+        turnStart={turnStart}
+      />
+    </SpeakersContext.Provider>
+  );
+}
+
+it('marks only a turn’s first row, decoratively, keeping the author in its name (B271)', () => {
+  const speakers = { buddy: 'blob:buddy-a', agent: null };
+  const { rerender } = render(speaking(speakers, reply, false));
+  const message = screen.getByRole('article', { name: 'Row-Bot message' });
+  expect(message.querySelector('.turn-marker')).toBeNull();
+  rerender(speaking(speakers, reply, true));
+  const lead = message.querySelector('.turn-lead')!;
+  expect(lead).toHaveAttribute('aria-hidden', 'true');
+  expect(lead.querySelector('img')).toHaveAttribute('src', 'blob:buddy-a');
+  rerender(speaking(speakers, ask, true));
+  const mine = screen.getByRole('article', { name: 'You message' });
+  expect(mine.querySelector('.turn-marker-user svg')).not.toBeNull();
+  expect(mine.querySelector('img')).toBeNull();
+});
+
+it('draws the selected Buddy’s still, following a change of pack (B271)', () => {
+  const { rerender } = render(
+    speaking({ buddy: 'blob:pack-a', agent: null }, reply, true),
+  );
+  const image = () =>
+    screen
+      .getByRole('article', { name: 'Row-Bot message' })
+      .querySelector('.turn-marker img');
+  expect(image()).toHaveAttribute('src', 'blob:pack-a');
+  rerender(speaking({ buddy: 'blob:pack-b', agent: null }, reply, true));
+  expect(image()).toHaveAttribute('src', 'blob:pack-b');
+});
+
+it('gives an agent’s replies its own icon in its conversation (B271)', () => {
+  render(
+    speaking(
+      { buddy: 'blob:pack-a', agent: { seed: 'profile-7', name: 'Scan' } },
+      reply,
+      true,
+    ),
+  );
+  const marker = screen
+    .getByRole('article', { name: 'Row-Bot message' })
+    .querySelector('.turn-marker')!;
+  expect(marker.querySelector('img')).toBeNull();
+  const expected = render(<AgentAvatar seed="profile-7" />)
+    .container.querySelector('.agent-avatar')!
+    .getAttribute('data-avatar');
+  expect(
+    marker.querySelector('.agent-avatar')?.getAttribute('data-avatar'),
+  ).toBe(expected);
 });

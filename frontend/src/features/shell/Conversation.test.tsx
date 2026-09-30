@@ -13,13 +13,17 @@ import type {
   CommandReceipt,
   ConversationView as ConversationRow,
   ConversationWorkspace,
+  DelegatedActivityView,
+  DelegatedRun,
   ModelChoice,
   SearchPage,
   Snapshot,
   TranscriptPage,
   TranscriptRow,
 } from '../../api/types';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { commandReceipts } from './command-receipts';
+import { ContextHostContext, useContextHostOwner } from './context-host';
 import ConversationView, { isNarrowChat, Media } from './Conversation';
 import useNewChat from './useNewChat';
 import SearchConversations from './SearchConversations';
@@ -91,10 +95,13 @@ const mock = vi.hoisted(() => ({
   computerUse: vi.fn(),
   computerUsePreview: vi.fn(),
   computerUseCommand: vi.fn(),
+  delegatedPage: vi.fn(),
+  delegatedRun: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
   useLocation: () => ({ key: mock.routeKey }),
+  useInRouterContext: () => false,
 }));
 vi.mock('../../runtime', () => {
   const runtime = {
@@ -137,16 +144,10 @@ vi.mock('../../runtime', () => {
       executeConversationAction: mock.executeConversationAction,
       searchLibrary: mock.searchLibrary,
       download: mock.download,
-      delegatedActivity: async (conversationId: string) => ({
-        conversation_id: conversationId,
-        parent_conversation_id: null,
-        items: [],
-        next_cursor: null,
-        has_more: false,
-      }),
-      delegatedRun: async () => {
-        throw new Error('No delegated run in this fixture');
-      },
+      delegatedActivity: (conversationId: string) =>
+        mock.delegatedPage(conversationId),
+      delegatedRun: (conversationId: string, runId: string) =>
+        mock.delegatedRun(conversationId, runId),
     },
     platform: {
       discover: mock.platformDiscover,
@@ -211,6 +212,18 @@ beforeEach(() => {
     mock.state.selectedConversationId = id;
     mock.state.conversation = { id, title: id, revision: '1', pinned: false };
   });
+  mock.delegatedPage.mockImplementation(
+    async (conversationId: string): Promise<DelegatedActivityView> => ({
+      conversation_id: conversationId,
+      parent_conversation_id: null,
+      items: [],
+      next_cursor: null,
+      has_more: false,
+    }),
+  );
+  mock.delegatedRun.mockRejectedValue(
+    new Error('No delegated run in this fixture'),
+  );
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -612,8 +625,11 @@ it('renders assistant Markdown safely and copies only the visible canonical text
     within(message).getByText('<script>never markup</script>'),
   ).toBeVisible();
   expect(message.querySelector('script')).toBeNull();
-  // No per-turn "Row-Bot" label or call count: the activity row carries tools.
-  expect(within(message).queryByText('Row-Bot')).toBeNull();
+  // No call count: the activity row carries tools. The author is in the
+  // message's name; its turn marker is decorative (B271).
+  expect(
+    within(message).getByText('Row-Bot').closest('[aria-hidden="true"]'),
+  ).not.toBeNull();
   expect(within(message).getByText('Paged content')).toBeVisible();
   await act(async () =>
     fireEvent.click(
@@ -682,7 +698,7 @@ it('keeps the context rail quiet: empty Working on and Agents sections stay hidd
   await act(async () => conversation());
 
   const rail = screen.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
   // Delegated activity has loaded with nothing to show.
   await waitFor(() =>
@@ -696,9 +712,8 @@ it('keeps the context rail quiet: empty Working on and Agents sections stay hidd
   expect(
     within(rail).getByText('Agents', { selector: 'summary' }),
   ).not.toBeVisible();
-  expect(
-    within(rail).getByText('Utilities', { selector: 'summary' }),
-  ).toBeVisible();
+  // The goal always shows; Find and the terminal live in the header (B223).
+  expect(within(rail).getByText('Goal', { selector: 'summary' })).toBeVisible();
   expect(
     within(rail).getByRole('button', { name: 'Add resource' }),
   ).toBeVisible();
@@ -715,42 +730,7 @@ it('keeps the context rail quiet: empty Working on and Agents sections stay hidd
   ).not.toBeInTheDocument();
 });
 
-it('enables terminal only for an authorized pywebview platform', async () => {
-  idleConversation();
-  mock.state.handshake.application_capabilities = ['native:terminal'];
-  mock.platformDiscover.mockResolvedValue({
-    status: 'ok',
-    value: {
-      kind: 'pywebview',
-      platform: 'windows',
-      capabilities: ['terminal_open'],
-      instanceId: mock.state.handshake.instance_id,
-      windowId: 'synthetic-window',
-      epoch: 1,
-    },
-  });
-  await act(async () => conversation());
-
-  fireEvent.click(screen.getByText('Utilities', { selector: 'summary' }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Interactive terminal' }),
-    ).toBeEnabled(),
-  );
-});
-
-it('keeps terminal denied when only the application capability is present', async () => {
-  idleConversation();
-  mock.state.handshake.application_capabilities = ['native:terminal'];
-  await act(async () => conversation());
-
-  await waitFor(() => expect(mock.platformDiscover).toHaveBeenCalled());
-  expect(
-    screen.queryByRole('button', { name: 'Interactive terminal' }),
-  ).not.toBeInTheDocument();
-});
-
-it('uses one persistent Context entry point for the compact sheet', async () => {
+it('uses one persistent Conversation details entry point for the compact sheet', async () => {
   idleConversation();
   let rendered!: ReturnType<typeof render>;
   await act(async () => {
@@ -758,21 +738,23 @@ it('uses one persistent Context entry point for the compact sheet', async () => 
   });
 
   expect(
-    screen.queryByRole('complementary', { name: 'Conversation context' }),
+    screen.queryByRole('complementary', { name: 'Conversation details' }),
   ).not.toBeInTheDocument();
   mock.state.loadingConversation = true;
   rendered.rerender(<ConversationView onPanel={vi.fn()} compactContext />);
-  expect(screen.getByRole('button', { name: 'Context' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Context' }));
+  const toggle = () =>
+    screen.getByRole('button', { name: 'Conversation details' });
+  expect(toggle()).toBeDisabled();
+  fireEvent.click(toggle());
   expect(mock.open).not.toHaveBeenCalled();
   mock.state.loadingConversation = false;
   rendered.rerender(<ConversationView onPanel={vi.fn()} compactContext />);
-  expect(screen.getByRole('button', { name: 'Context' })).toBeEnabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Context' }));
+  expect(toggle()).toBeEnabled();
+  fireEvent.click(toggle());
   expect(mock.open.mock.lastCall?.[0]).toMatchObject({
     kind: 'sheet',
     key: 'conversation-context',
-    title: 'Conversation context',
+    title: 'Conversation details',
   });
 });
 
@@ -2790,4 +2772,277 @@ it('removes a default skill from this chat with Undo in the notice (B236)', asyn
     '1',
     expect.any(String),
   );
+});
+
+function HostedConversation() {
+  const { host, parking } = useContextHostOwner();
+  return (
+    <ContextHostContext.Provider value={host}>
+      <ConversationView onPanel={vi.fn()} />
+      <div ref={parking} hidden />
+    </ContextHostContext.Provider>
+  );
+}
+
+it('pins Conversation details open in a wide chat, beside the column, until its toggle hides it (B221)', async () => {
+  idleConversation();
+  localStorage.removeItem('row-bot.context-hidden.v1');
+  await act(async () => {
+    render(<HostedConversation />);
+  });
+  const workspace = document.querySelector('.chat-workspace')!;
+  const details = screen.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  // It floats pinned open (no column of its own) and the column moves aside.
+  expect(details.closest('.context-card')).toHaveClass('context-card-pinned');
+  expect(workspace).toHaveClass('details-wide', 'details-open');
+  const toggle = screen.getByRole('button', { name: 'Conversation details' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(toggle);
+  expect(workspace).toHaveClass('details-wide');
+  expect(workspace).not.toHaveClass('details-open');
+  expect(details).not.toBeVisible();
+  expect(localStorage.getItem('row-bot.context-hidden.v1')).toBe('1');
+  fireEvent.click(toggle);
+  expect(workspace).toHaveClass('details-open');
+  expect(details).toBeVisible();
+  expect(localStorage.getItem('row-bot.context-hidden.v1')).toBeNull();
+});
+
+const row = (
+  id: string,
+  role: 'user' | 'assistant',
+  text: string,
+  extra: Partial<TranscriptRow> = {},
+) =>
+  ({
+    id,
+    message_id: id,
+    role,
+    blocks: [{ type: 'text', text }],
+    ...extra,
+  }) as unknown as TranscriptRow;
+
+function settledRows(rows: TranscriptRow[]) {
+  mock.state.projection = {
+    rows,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: false,
+      status: 'completed',
+    },
+  } as unknown as Snapshot;
+}
+
+const avatarOf = (seed: string) =>
+  render(<AgentAvatar seed={seed} />)
+    .container.querySelector('.agent-avatar')!
+    .getAttribute('data-avatar');
+
+it('marks each turn’s start with its speaker, never a follow-up (B271)', async () => {
+  idleConversation();
+  settledRows([
+    row('u1', 'user', 'Plan the launch.'),
+    row('a1', 'assistant', 'Here is a plan.'),
+    row('a2', 'assistant', 'And a timeline.'),
+    row('u2', 'user', 'Thanks.'),
+    row('a3', 'assistant', 'Glad to help.'),
+  ]);
+  await act(async () => {
+    conversation();
+  });
+  const marked = screen
+    .getAllByRole('article')
+    .map((article) => [
+      article.getAttribute('data-row-id'),
+      article.querySelector('.turn-marker-user')
+        ? 'you'
+        : article.querySelector('.turn-marker-buddy')
+          ? 'buddy'
+          : '',
+    ]);
+  expect(marked).toEqual([
+    ['u1', 'you'],
+    ['a1', 'buddy'],
+    ['a2', ''],
+    ['u2', 'you'],
+    ['a3', 'buddy'],
+  ]);
+});
+
+it('links an agent’s own conversation back to its parent and marks its replies with its icon (B242, B271)', async () => {
+  idleConversation();
+  mock.state.conversation = {
+    id: 'conversation-a',
+    title: 'Pricing scan',
+    revision: '1',
+    pinned: false,
+    parent_conversation_id: 'parent-a',
+  } as typeof mock.state.conversation;
+  settledRows([
+    row('u1', 'user', 'Also cover euros.'),
+    row('a1', 'assistant', 'Adding an EU column.'),
+  ]);
+  const own: DelegatedRun = {
+    run_id: 'run-own',
+    parent_conversation_id: 'parent-a',
+    child_conversation_id: 'conversation-a',
+    name: 'Pricing scan',
+    status: 'running',
+    summary: '',
+    profile_id: 'profile-7',
+  };
+  mock.delegatedPage.mockImplementation(async (conversationId: string) => ({
+    conversation_id: conversationId,
+    parent_conversation_id: 'parent-a',
+    parent_title: 'Q4 launch plan',
+    own_run: own,
+    items: [],
+    next_cursor: null,
+    has_more: false,
+  }));
+  await act(async () => {
+    conversation();
+  });
+  const back = await screen.findByRole('link', {
+    name: 'Back to Q4 launch plan',
+  });
+  expect(back).toHaveAttribute('href', '/app-v2/conversations/parent-a');
+  const reply = screen.getByRole('article', { name: 'Row-Bot message' });
+  const icon = reply.querySelector('.turn-marker .agent-avatar');
+  // The same icon as the card's "This agent" row and the breadcrumb.
+  expect(icon?.getAttribute('data-avatar')).toBe(
+    avatarOf(agentSeed('profile-7', 'run-own')),
+  );
+  expect(
+    document
+      .querySelector('header.conversation-heading .agent-avatar')
+      ?.getAttribute('data-avatar'),
+  ).toBe(icon?.getAttribute('data-avatar'));
+  // The person's own follow-up keeps the person marker.
+  expect(
+    screen
+      .getByRole('article', { name: 'You message' })
+      .querySelector('.turn-marker-user'),
+  ).not.toBeNull();
+});
+
+it('shows the agents a turn started as stubs that update in place and open each agent (B241)', async () => {
+  idleConversation();
+  const started = {
+    group_id: 'group-agents',
+    name: 'delegate_work',
+    kind: 'generic',
+    group_order: 0,
+    status: 'succeeded',
+    counts: { succeeded: 2 },
+    items: ['run-1', 'run-2'].map((runId, index) => ({
+      item_id: `call-${index}`,
+      group_id: 'group-agents',
+      call_id: `call-${index}`,
+      result_message_id: `result-${index}`,
+      call_order: index,
+      group_order: 0,
+      canonical_name: 'delegate_work',
+      group_name: 'delegate_work',
+      group_kind: 'generic',
+      status: 'succeeded',
+      safe_input: '',
+      safe_summary: '',
+      summary_truncated: false,
+      content_ref: '',
+      specialization: {
+        kind: 'delegated_agent',
+        agent_runs: [
+          {
+            run_id: runId,
+            display_name: index ? 'Launch email' : 'Pricing scan',
+            status: 'queued',
+            profile_id: index ? '' : 'profile-7',
+          },
+        ],
+      },
+    })),
+  } as unknown as NonNullable<TranscriptRow['traces']>[number];
+  settledRows([
+    row('u1', 'user', 'Get the launch moving.'),
+    row('a1', 'assistant', 'I started two agents.', { traces: [started] }),
+  ]);
+  const feed = (pricing: string, email: string): DelegatedActivityView => ({
+    conversation_id: 'conversation-a',
+    parent_conversation_id: null,
+    items: [
+      {
+        run_id: 'run-1',
+        parent_conversation_id: 'conversation-a',
+        child_conversation_id: 'child-1',
+        name: 'Pricing scan',
+        status: pricing,
+        summary: '',
+        profile_id: 'profile-7',
+      },
+      {
+        run_id: 'run-2',
+        parent_conversation_id: 'conversation-a',
+        child_conversation_id: 'child-2',
+        name: 'Launch email',
+        status: email,
+        summary: 'The model could not be reached.',
+        profile_id: '',
+      },
+    ],
+    next_cursor: null,
+    has_more: false,
+  });
+  mock.delegatedPage.mockResolvedValue(feed('running', 'running'));
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const stubs = screen.getByRole('list', { name: 'Agents started' });
+  expect(
+    await within(stubs).findByRole('button', { name: 'Pricing scan, Working' }),
+  ).toBeVisible();
+  expect(
+    within(stubs).getByRole('button', { name: 'Launch email, Working' }),
+  ).toBeVisible();
+  // One row for the agents started together, each with the panel's icon.
+  expect(
+    within(stubs)
+      .getByRole('button', { name: /^Pricing scan/ })
+      .querySelector('.agent-avatar')
+      ?.getAttribute('data-avatar'),
+  ).toBe(avatarOf(agentSeed('profile-7', 'run-1')));
+
+  // The feed moves on: the same stubs change in place.
+  mock.delegatedPage.mockResolvedValue(feed('completed', 'failed'));
+  mock.state.activity = [
+    {
+      event: {
+        type: 'agent.activity',
+        event_id: 'agent-event-1',
+        payload: { run_id: 'run-2', status: 'failed' },
+      },
+    },
+  ] as unknown as typeof mock.state.activity;
+  mock.version++;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(
+    await within(stubs).findByRole('button', { name: 'Pricing scan, Done' }),
+  ).toBeVisible();
+  const failed = within(stubs).getByRole('button', {
+    name: 'Launch email, Failed',
+  });
+  // A failed stub says why.
+  expect(failed).toHaveAttribute(
+    'aria-description',
+    'The model could not be reached.',
+  );
+  expect(within(stubs).getAllByRole('listitem')).toHaveLength(2);
+  await act(async () => fireEvent.click(failed));
+  expect(mock.selectConversation).toHaveBeenCalledWith('child-2');
 });

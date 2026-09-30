@@ -30,6 +30,12 @@
           "title": "Parent Conversation Id",
           "type": "string"
         },
+        "profile_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Profile Id",
+          "type": "string"
+        },
         "run_id": {
           "maxLength": 128,
           "minLength": 1,
@@ -118,6 +124,19 @@
       ],
       "default": null,
       "title": "Parent Conversation Id"
+    },
+    "parent_title": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Title"
     }
   },
   "required": [

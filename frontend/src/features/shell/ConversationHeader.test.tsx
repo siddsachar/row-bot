@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import ConversationHeader, { TITLE_LIMIT } from './ConversationHeader';
 
@@ -84,7 +85,9 @@ it('is one phone row: back, title and a ⋯ that holds every action', async () =
   ).toBeVisible();
   // Icon actions and the model chip fold away; the title stays.
   expect(screen.queryByRole('button', { name: 'Find' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Context' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Conversation details' }),
+  ).toBeNull();
   expect(screen.queryByText('Local model')).toBeNull();
   const more = screen.getByRole('button', { name: 'Conversation menu' });
   await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
@@ -93,12 +96,14 @@ it('is one phone row: back, title and a ⋯ that holds every action', async () =
   ).toEqual([
     'Workspace commands',
     'Find in conversation',
-    'Context',
+    'Conversation details',
     'Share or export',
     'Rename conversation',
   ]);
   await act(async () =>
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Context' })),
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Conversation details' }),
+    ),
   );
   expect(onContext).toHaveBeenCalledTimes(1);
 });
@@ -129,3 +134,62 @@ it('keeps focus in the title field when Rename is chosen from the phone menu', a
     screen.getByRole('textbox', { name: 'Conversation title' }),
   ).toBeInTheDocument();
 });
+
+it('names the details toggle "Conversation details" (B221)', () => {
+  const onContext = vi.fn();
+  render(
+    <ConversationHeader
+      title="Trip ideas"
+      canRename={false}
+      onRename={vi.fn(async () => {})}
+      onContext={onContext}
+      contextPressed
+    />,
+  );
+  const toggle = screen.getByRole('button', { name: 'Conversation details' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(toggle);
+  expect(onContext).toHaveBeenCalledOnce();
+});
+
+function Opened() {
+  return <p>Opened {useParams().id}</p>;
+}
+
+it.each([
+  ['desktop', undefined],
+  ['phone', []],
+])(
+  'links an agent’s conversation back to its parent by title (%s, B242)',
+  async (_layout, menuActions) => {
+    render(
+      <MemoryRouter initialEntries={['/conversations/child-a']}>
+        <Routes>
+          <Route
+            path="/conversations/child-a"
+            element={
+              <ConversationHeader
+                title="Competitor pricing scan"
+                canRename={false}
+                onRename={vi.fn(async () => {})}
+                breadcrumb={{
+                  to: '/conversations/parent-a',
+                  title: 'Q4 launch plan',
+                }}
+                menuActions={menuActions}
+              />
+            }
+          />
+          <Route path="/conversations/:id" element={<Opened />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const back = screen.getByRole('link', { name: 'Back to Q4 launch plan' });
+    expect(back).toHaveTextContent('Q4 launch plan');
+    expect(back).toHaveAttribute('href', '/conversations/parent-a');
+    back.focus();
+    expect(back).toHaveFocus();
+    fireEvent.click(back);
+    expect(await screen.findByText('Opened parent-a')).toBeVisible();
+  },
+);

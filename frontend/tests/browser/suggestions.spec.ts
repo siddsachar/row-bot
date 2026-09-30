@@ -69,9 +69,9 @@ test('an advisory panel waits for explicit open and preserves conversation focus
   expect((await readLayout(page)).panels).toHaveLength(0);
   await expect(focus).toBeFocused();
   if (testInfo.project.use.viewport!.width < 1024)
-    await headerAction(page, 'Context');
+    await headerAction(page, 'Conversation details');
   const context = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
   await expect(
     context.getByText('QA suggested notes', { exact: true }),

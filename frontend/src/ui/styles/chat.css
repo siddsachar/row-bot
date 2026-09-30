@@ -157,6 +157,68 @@
   gap: 2px;
   margin-inline-start: auto;
 }
+/* A delegated agent's conversation: the way back before the title, and the
+   agent's icon (B242). On phones the way back sits small above the title. */
+.conversation-breadcrumb {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  min-height: 28px;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+.conversation-breadcrumb > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-breadcrumb > svg {
+  flex: none;
+}
+.conversation-breadcrumb:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+.conversation-breadcrumb:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.conversation-breadcrumb-separator {
+  flex: none;
+  margin-inline-end: 4px;
+  color: var(--border-control);
+  font-size: var(--text-15);
+}
+.conversation-title-block > .agent-avatar {
+  margin-inline-end: 4px;
+}
+.conversation-heading[data-layout='phone']
+  .conversation-title-block[data-breadcrumb] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.conversation-heading[data-layout='phone']
+  .conversation-title-block[data-breadcrumb]
+  > h1 {
+  max-width: 100%;
+}
+.conversation-heading[data-layout='phone'] .conversation-breadcrumb {
+  max-width: 100%;
+  min-height: 20px;
+  margin-inline-start: -4px;
+  padding: 0 4px;
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
 
 /* ------------------------------------------------------------ transcript */
 
@@ -169,6 +231,7 @@
   padding: 8px 0 32px;
   font-size: var(--type-size-reading);
   line-height: var(--type-line-reading);
+  container: transcript / inline-size;
 }
 .transcript:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -192,6 +255,191 @@
   border-radius: 999px;
   color: var(--text-muted);
   font-size: var(--text-12);
+}
+
+/* Speaker markers (B271): one small round marker where a speaker's turn
+   begins. Beside a wide column it hangs in the gutter, so the text keeps its
+   place; a narrow transcript puts Row-Bot's in a small line with its name
+   above the reply and the person's beside the bubble. Decorative. */
+.message > .turn-lead {
+  position: absolute;
+  top: 1px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.message-assistant > .turn-lead {
+  left: -32px;
+}
+.message-user > .turn-lead {
+  top: 10px;
+  right: -32px;
+}
+.turn-author {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.turn-marker {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  overflow: hidden;
+  border-radius: 50%;
+}
+.turn-marker-buddy {
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--border-hairline);
+}
+.turn-marker-buddy > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* A pack's still: frame the character, not its backdrop. */
+.turn-marker-buddy[data-still] > img {
+  transform: scale(1.45) translateY(4%);
+}
+.turn-marker-user {
+  background: color-mix(in srgb, var(--accent-solid) 16%, var(--surface));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--accent-solid) 26%, transparent);
+  color: var(--accent-solid);
+}
+.turn-marker-user > svg {
+  width: 14px;
+  height: 14px;
+}
+.turn-marker > .agent-avatar {
+  width: 100%;
+  height: 100%;
+}
+@container transcript (max-width: 831px) {
+  .turn-marker {
+    width: 18px;
+    height: 18px;
+  }
+  .turn-marker-user > svg {
+    width: 12px;
+    height: 12px;
+  }
+  .message-assistant > .turn-lead {
+    position: static;
+    margin: 0 0 4px;
+  }
+  .message-assistant > .turn-lead > .turn-author {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    color: var(--text-muted);
+    font-size: var(--text-12);
+    line-height: var(--leading-12);
+    font-weight: var(--weight-medium);
+  }
+  .message-user:has(> .turn-lead) {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .message-user:has(> .turn-lead) > .transcript-content {
+    margin-inline-start: 0;
+  }
+  .message-user > .turn-lead {
+    position: static;
+    margin-top: 12px;
+  }
+}
+
+/* Agents a turn started (B241): one row of small stubs, live in place. */
+.agent-stubs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-stub {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: var(--weight-medium) var(--text-12) / var(--leading-12) var(--font-sans);
+  cursor: pointer;
+}
+.agent-stub:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.agent-stub:disabled {
+  cursor: default;
+}
+.agent-stub:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.agent-stub-name {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-stub-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+}
+.agent-stub-status > svg {
+  width: 12px;
+  height: 12px;
+}
+.agent-stub-status[data-state='done'] > svg {
+  color: var(--status-success-text);
+}
+.agent-stub-status[data-state='failed'] {
+  color: var(--status-danger-text);
+}
+.agent-stub-status[data-state='waiting'] {
+  color: var(--status-warning-text);
+}
+.agent-stub-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.agent-stub-status[data-state='working'] > .agent-stub-dot {
+  color: var(--accent-solid);
+}
+.agent-stub-dot[data-pulse='true'] {
+  animation: status-pulse 1.8s var(--ease-standard) infinite;
+}
+.agent-stub-status[data-state='stopped'] > .agent-stub-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+@media (pointer: coarse) {
+  .agent-stub {
+    min-height: 44px;
+  }
 }
 
 /* Turns. User turns are right-aligned bubbles; assistant turns are prose. */
@@ -2876,7 +3124,8 @@
   .activity-spinner,
   .message[data-streaming] .message-text > *,
   .message[data-streaming] .message-text > :is(p, ul, ol):last-child::after,
-  .latest-pill {
+  .latest-pill,
+  .agent-stub-dot[data-pulse='true'] {
     animation: none;
   }
 }

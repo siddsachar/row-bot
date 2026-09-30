@@ -54,6 +54,23 @@ def test_deleting_parent_denied_and_deleted_child_history_unavailable(service, m
         read_activity(service, parent)
 
 
+def test_agent_rows_carry_their_profile_and_a_child_names_its_parent(service):
+    """B240/B242: one icon per agent profile; the child's header links back by title."""
+    from row_bot import threads, agent_runs
+    from row_bot.application.delegated_activity import read_activity
+    parent, child = [threads.create_thread(name, seed_default_skills=False) for name in ("Q4 launch plan", "Child")]
+    profiled = agent_runs.create_agent_run(parent_thread_id=parent, thread_id=child, display_name="Pricing scan",
+                                           status="running", profile_snapshot_json={"id": "profile-7"})
+    plain = agent_runs.create_agent_run(parent_thread_id=parent, display_name="Email draft", status="queued")
+    items = {item["run_id"]: item for item in read_activity(service, parent)["items"]}
+    assert items[profiled["id"]]["profile_id"] == "profile-7"
+    assert items[plain["id"]]["profile_id"] == ""
+    own = read_activity(service, child)
+    assert own["own_run"]["profile_id"] == "profile-7"
+    assert (own["parent_conversation_id"], own["parent_title"]) == (parent, "Q4 launch plan")
+    assert read_activity(service, parent)["parent_title"] is None
+
+
 def test_child_pages_complete_and_cursor_cannot_cross_parent(service):
     from row_bot import threads, agent_runs
     from row_bot.application.delegated_activity import read_activity

@@ -113,16 +113,8 @@ function specialization(item: TranscriptTraceItem) {
         {value.newly_active ? ' activated' : ' already active'}
       </p>
     );
-  if (value.kind === 'delegated_agent')
-    return (
-      <ul className="trace-specialization" aria-label="Delegated agent runs">
-        {(value.agent_runs ?? []).map((run) => (
-          <li key={run.run_id}>
-            {run.display_name} · {run.status}
-          </li>
-        ))}
-      </ul>
-    );
+  // The agents a turn started show as live stubs under the turn (B241).
+  if (value.kind === 'delegated_agent') return null;
   // Generated media renders once, inline with the answer (B22); the step
   // only says what it produced.
   const count = (value.media ?? []).length;

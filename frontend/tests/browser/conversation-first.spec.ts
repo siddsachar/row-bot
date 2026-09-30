@@ -164,29 +164,32 @@ test('a delegated agent can be messaged and stopped from Agents', async ({
     // lists it, as the runner's own events do in the app.
     await reloadDocument(page);
     await expect(composer(page)).toBeVisible();
-    // A live agent opens the Agents section by itself (B30).
-    const child = (await revealContext(page)).getByRole('button', {
-      name: 'Synthetic child',
+    // A live agent opens the Agents section by itself (B30), one line with
+    // its status in words; Message and Stop sit inside its row (B240).
+    const card = await revealContext(page);
+    const child = card.getByRole('button', {
+      name: 'Synthetic child, Working',
       exact: true,
     });
     await expect(child).toBeVisible();
-    await child.click();
-    const detail = page.getByRole('dialog', { name: 'Synthetic child' });
-    await expect(detail.getByRole('status').first()).toHaveText(
-      /Status\s+Working/,
-    );
-    await detail.getByRole('button', { name: 'Message', exact: true }).click();
-    await detail
+    await child.hover();
+    await card
+      .getByRole('button', { name: 'Message Synthetic child', exact: true })
+      .click();
+    await card
       .getByRole('textbox', { name: 'Message to Synthetic child' })
       .fill('Also cover the evening tides.');
-    await detail
+    await card
       .getByRole('button', { name: 'Send to agent', exact: true })
       .click();
     await expect(
-      detail.getByText('Message sent. The agent reads it at its next step.'),
+      page.getByText('Message sent. The agent reads it at its next step.'),
     ).toBeVisible();
     await screenshot(page, testInfo, 'agent-message-sent');
-    await detail.getByRole('button', { name: 'Stop', exact: true }).click();
+    await child.hover();
+    await card
+      .getByRole('button', { name: 'Stop Synthetic child', exact: true })
+      .click();
     await expect
       .poll(
         async () =>

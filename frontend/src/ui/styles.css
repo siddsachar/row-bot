@@ -441,8 +441,7 @@ svg {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.context-resource-list,
-.context-utility-list {
+.context-resource-list {
   display: grid;
   gap: 6px;
   margin: 0;
@@ -525,17 +524,12 @@ svg {
   align-items: center;
   margin-block: 6px;
 }
-.context-utility-list > .button {
-  width: 100%;
-  justify-content: flex-start;
-}
 .context-rail-actions {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 .context-agents > summary,
-.context-utilities > summary,
 .conversation-browser > details > summary,
 .resource-advanced > summary {
   min-height: 40px;
@@ -545,8 +539,7 @@ svg {
   color: var(--text-secondary);
   font-weight: 600;
 }
-.context-agents > summary,
-.context-utilities > summary {
+.context-agents > summary {
   font-size: var(--type-size-label);
 }
 .conversation-browser > details {
@@ -4325,7 +4318,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .home-title-block,
 .home-item-copy,
 .search-result-copy,
-.delegated-run-detail,
 .voice-session-summary {
   display: grid;
   min-width: 0;
@@ -4333,8 +4325,6 @@ details[open] > summary > .settings-disclosure-chevron {
 }
 .home-group-header,
 .home-secondary-actions,
-.activity-heading,
-.delegated-run-summary,
 .voice-recovery,
 .buddy-hatch-actions,
 .buddy-preference-actions {
@@ -4374,8 +4364,7 @@ details[open] > summary > .settings-disclosure-chevron {
 .home-resource-item,
 .home-conversation-item,
 .nav-conversation-item,
-.search-results > li,
-.delegated-run-list > li {
+.search-results > li {
   min-width: 0;
   list-style: none;
 }
@@ -4433,7 +4422,6 @@ details[open] > summary > .settings-disclosure-chevron {
 .delegated-activity {
   min-width: 0;
 }
-.delegated-run-list,
 .buddy-look-list {
   display: grid;
   gap: 8px;
@@ -4441,19 +4429,8 @@ details[open] > summary > .settings-disclosure-chevron {
   padding: 0;
   margin: 0;
 }
-.delegated-run-item {
-  padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
-}
-.delegated-run-name,
-.activity-heading {
+.delegated-run-name {
   font-weight: 600;
-}
-.delegated-run-status,
-.delegated-run-state {
-  color: var(--text-secondary);
 }
 .draft-comparison-grid {
   display: grid;

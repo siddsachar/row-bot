@@ -36,7 +36,16 @@ def _public(service: Any, run: dict) -> dict:
         "name": str(run.get("display_name") or "Delegated task")[:256],
         "status": str(run.get("status") or "unknown")[:64],
         "summary": str(run.get("summary") or "")[:4096],
+        # Its icon follows the profile it runs as (B240).
+        "profile_id": str(run.get("profile_id") or "")[:256],
     }
+
+
+def _title(service: Any, conversation_id: str) -> str | None:
+    """The conversation's title while it is open to navigation, else None."""
+    if not _available(service, conversation_id):
+        return None
+    return str(service._metadata(conversation_id).get("name") or "")[:256]
 
 
 def read_run(service: Any, conversation_id: str, run_id: str) -> dict:
@@ -147,7 +156,7 @@ def read_activity(service: Any, conversation_id: str, *, cursor: str | None = No
     # Read only public columns from the existing owner, with a stable keyset.
     with closing(agent_runs._get_conn()) as conn:
         rows = conn.execute(
-            "SELECT id,parent_thread_id,thread_id,display_name,status,substr(summary,1,4096) AS summary "
+            "SELECT id,parent_thread_id,thread_id,display_name,status,substr(summary,1,4096) AS summary,profile_id "
             "FROM agent_runs WHERE parent_thread_id=? AND kind='subagent' AND id>? ORDER BY id LIMIT 51",
             (conversation_id, after),
         ).fetchall()
@@ -156,9 +165,12 @@ def read_activity(service: Any, conversation_id: str, *, cursor: str | None = No
     items = [_public(service, dict(row)) for row in rows[:50]]
     _require(service, conversation_id)
     own = own_run if own_run and own_run.get("kind") == "subagent" and parent else None
+    parent_title = _title(service, parent)
     return {
         "conversation_id": conversation_id,
-        "parent_conversation_id": parent if _available(service, parent) else None,
+        "parent_conversation_id": parent if parent_title is not None else None,
+        # The child's header links back to it by name (B242).
+        "parent_title": parent_title,
         # A child thread's own run, so its Stop and Message sit with it.
         "own_run": _public(service, own) if own else None,
         "items": items,

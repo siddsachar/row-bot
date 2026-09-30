@@ -13,6 +13,7 @@ import type { TranscriptRow, TranscriptTraceGroup } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import { Button, CopyGlyph, IconButton } from '../../ui/primitives';
+import { AgentStubs } from './AgentStubs';
 import ApprovalCard from './ApprovalCard';
 import { MediaPreview } from './MediaPreview';
 import {
@@ -24,11 +25,14 @@ import {
 import TranscriptTrace from './TranscriptTrace';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import { TranscriptCards, type TranscriptCard } from './TranscriptCards';
+import type { TracedAgent } from './transcript-model';
+import { TurnMarker } from './TurnMarker';
 import { RECOVERY_LABELS, turnError, type RecoveryAction } from './turn-errors';
 
 const NO_BLOCKS: TranscriptRow['blocks'] = [];
 const NO_MEDIA: GeneratedMedia[] = [];
 const NO_CARDS: TranscriptCard[] = [];
+const NO_AGENTS: TracedAgent[] = [];
 
 export type GeneratedMedia = {
   reference: string;
@@ -76,6 +80,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   embeds = NO_BLOCKS,
   media = NO_MEDIA,
   cards = NO_CARDS,
+  agents = NO_AGENTS,
+  turnStart = false,
   latest = false,
   streaming = false,
   onRetry,
@@ -95,6 +101,10 @@ export const TranscriptMessage = memo(function TranscriptMessage({
   media?: GeneratedMedia[];
   /** A design or code folder the turn created, a connection it needs. */
   cards?: TranscriptCard[];
+  /** Agents the turn started, shown as live stubs (B241). */
+  agents?: TracedAgent[];
+  /** This row begins a speaker's turn: it carries their marker (B271). */
+  turnStart?: boolean;
   /** The newest assistant turn keeps its actions visible. */
   latest?: boolean;
   /** Text is still arriving for this row. */
@@ -248,6 +258,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
       data-empty={hasText ? undefined : 'true'}
       tabIndex={-1}
     >
+      {turnStart && row.role !== 'tool' && <TurnMarker role={row.role} />}
       <div className="transcript-content">
         {row.content_status && row.content_status !== 'inline' && (
           <small className="message-delivery-state">
@@ -297,6 +308,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
         {hasActivity && (
           <TranscriptTrace conversation={conversationId!} groups={traces!} />
         )}
+        <AgentStubs agents={agents} />
         {!!embeds.length && (
           <div className="message-embeds">
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />

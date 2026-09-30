@@ -156,18 +156,20 @@ test('Goals live in the conversation and Agent Profiles in Settings, both review
     page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
   ).toBeVisible();
 
-  // A goal belongs to this thread: it is set and shown in Context. The
-  // header Context button is a toggle, so reveal the card only when hidden.
+  // A goal belongs to this thread: it is set and shown in Conversation
+  // details. The header toggle hides it, so reveal the card only when hidden.
   const context = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
   const revealContext = async () => {
     await expect(composer(page)).toBeVisible();
-    if (!(await context.isVisible())) await headerAction(page, 'Context');
+    if (!(await context.isVisible()))
+      await headerAction(page, 'Conversation details');
     await expect(context).toBeVisible();
   };
   await revealContext();
-  await context.locator('summary', { hasText: 'Utilities' }).click();
+  // The Goal section always shows; without a goal it offers Set a goal (B223).
+  await expect(context.getByText('No goal', { exact: true })).toBeVisible();
   await context
     .getByRole('button', { name: 'Set a goal', exact: true })
     .click();
@@ -334,7 +336,7 @@ test('retained settings expose real capability state without leaving the unified
     path: '/app-v2/settings/system',
   });
   await expect(
-    page.getByRole('heading', { name: 'Workspace Folder' }),
+    page.getByRole('heading', { name: 'Workspace', exact: true }),
   ).toBeVisible();
   await visualCheck(page, info, 'retained-system-settings');
   await page.reload();

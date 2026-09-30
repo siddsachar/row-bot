@@ -207,7 +207,7 @@ test('real artifact stays unchanged for sixty seconds and one hundred reopen cyc
   const cycles: { cycle: number; mounted: number }[] = [];
   // With every panel closed, the Deck reopens from Context's Working on list.
   const reopen = page
-    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('complementary', { name: 'Conversation details' })
     .getByRole('button', { name: 'Lifecycle Deck Design', exact: true });
   for (let index = 0; index < 100; index++) {
     await reopen.click();

@@ -1,13 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleStop, MessageSquare, Play, X } from 'lucide-react';
+import {
+  ChevronRight,
+  CircleCheck,
+  CircleStop,
+  MessageSquare,
+  Play,
+  X,
+} from 'lucide-react';
 import type {
   ConversationView,
   DelegatedActivityView,
   DelegatedRun,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, IconButton, Skeleton } from '../../ui/primitives';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
+import { Button, Hint, IconButton, Skeleton } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
+import {
+  AGENT_STATE_WORDS,
+  agentLive,
+  agentState,
+  AgentStatus,
+} from './agent-status';
 
 /**
  * Agent work of a conversation that a restart or a failed step cut off and
@@ -43,11 +57,18 @@ type Props = {
   resumeWork?: () => Promise<void>;
   /** Close the interrupted work without running it. */
   dismissWork?: () => Promise<void>;
-  compact?: boolean;
   /** Reports whether there is anything to show once a load settles. */
   onContentChange?: (hasContent: boolean) => void;
-  /** Reports how many delegated agents are queued, running or waiting. */
-  onLiveChange?: (live: number) => void;
+  /**
+   * Reports how many delegated agents are still going (queued, running or
+   * waiting) and how many of those are working, once a page settles.
+   */
+  onLiveChange?: (counts: { live: number; working: number }) => void;
+  /**
+   * Reports each settled first page: its agents' live status feeds the
+   * transcript's stubs, its parent the header's way back (B241, B242).
+   */
+  onFirstPage?: (page: DelegatedActivityView) => void;
   /** Keeps recent first-page reads across remounts of this section. */
   recentRead?: RecentReads;
 };
@@ -84,154 +105,6 @@ export function recentReads(limit = 8): RecentReads {
       }
     },
   };
-}
-
-const ACTIVE_STATES = new Set([
-  'queued',
-  'starting',
-  'running',
-  'waiting',
-  'waiting_approval',
-  'waiting_user',
-  'paused',
-  'interrupted',
-  'stopping',
-]);
-
-const STATUS_WORDS: Record<string, string> = {
-  queued: 'Queued',
-  starting: 'Starting',
-  running: 'Working',
-  waiting: 'Waiting',
-  waiting_approval: 'Waiting for approval',
-  waiting_user: 'Needs you',
-  paused: 'Paused',
-  interrupted: 'Interrupted',
-  stopping: 'Stopping',
-  completed: 'Done',
-  completed_delivery_failed: 'Done · not delivered',
-  failed: 'Failed',
-  stopped: 'Stopped',
-  blocked: 'Blocked',
-  timed_out: 'Timed out',
-  cancelled: 'Cancelled',
-};
-
-/** A run's status in words ("running" reads "Working"). */
-export function runStatus(status: string) {
-  return STATUS_WORDS[status] ?? status.replaceAll('_', ' ');
-}
-
-/**
- * Stop and Message for a delegated agent that is still going. A message is
- * read at the agent's next step; Stop ends it (parity row 9).
- */
-export function AgentControls({
-  run,
-  stopRun,
-  messageRun,
-  onChanged,
-}: {
-  run: DelegatedRun;
-  stopRun?: Props['stopRun'];
-  messageRun?: Props['messageRun'];
-  onChanged?: () => void;
-}) {
-  const [writing, setWriting] = useState(false);
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
-  if (!ACTIVE_STATES.has(run.status) || (!stopRun && !messageRun)) return null;
-  async function act(work: () => Promise<void>, done: string) {
-    setBusy(true);
-    setError('');
-    try {
-      await work();
-      setStatus(done);
-      onChanged?.();
-    } catch (cause) {
-      setError(clientError(cause).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="agent-controls">
-      {writing && messageRun ? (
-        <form
-          className="agent-message"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = text.trim();
-            if (!value) return;
-            void act(async () => {
-              await messageRun(run.run_id, value);
-              setText('');
-              setWriting(false);
-            }, 'Message sent. The agent reads it at its next step.');
-          }}
-        >
-          <label>
-            <span>Message to {run.name}</span>
-            <textarea
-              className="input"
-              rows={2}
-              maxLength={16000}
-              autoFocus
-              value={text}
-              disabled={busy}
-              onChange={(event) => setText(event.target.value)}
-            />
-          </label>
-          <div className="button-row">
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => setWriting(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={busy || !text.trim()}
-            >
-              Send to agent
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <div className="button-row">
-          {messageRun && (
-            <Button disabled={busy} onClick={() => setWriting(true)}>
-              <MessageSquare size={14} aria-hidden /> Message
-            </Button>
-          )}
-          {stopRun && run.status !== 'stopping' && (
-            <Button
-              disabled={busy}
-              onClick={() =>
-                void act(() => stopRun(run.run_id), 'Stop requested.')
-              }
-            >
-              <CircleStop size={14} aria-hidden /> Stop
-            </Button>
-          )}
-        </div>
-      )}
-      {status && (
-        <p role="status" className="agent-controls-status">
-          {status}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="agent-controls-status">
-          {error}
-        </p>
-      )}
-    </div>
-  );
 }
 
 /** "Agent work was interrupted" with Resume and Dismiss (B220). */
@@ -291,133 +164,195 @@ export function InterruptedWorkControls({
   );
 }
 
-function RunDetail({
-  runId,
-  loadRun,
-  openConversation,
+/**
+ * One agent on one line (B240): its icon, its name (the full name on hover),
+ * its status as a dot and a word. Message and Stop sit inside the row while it
+ * is still going (on hover and focus; always on touch). Clicking the row opens
+ * the agent's conversation; the status word stays in its accessible name.
+ */
+function AgentRow({
+  run,
+  onOpen,
   stopRun,
   messageRun,
-  close,
+  onChanged,
 }: {
-  runId: string;
-  loadRun: Props['loadRun'];
-  openConversation: Props['openConversation'];
+  run: DelegatedRun;
+  /** Absent for the conversation's own agent: it is already open. */
+  onOpen?: () => void;
   stopRun?: Props['stopRun'];
   messageRun?: Props['messageRun'];
-  close: () => void;
+  onChanged: () => void;
 }) {
-  const [run, setRun] = useState<DelegatedRun | null>(null);
-  const [error, setError] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  const [opening, setOpening] = useState(false);
-  const alive = useRef(false);
-  const loader = useRef(loadRun);
-  loader.current = loadRun;
-  useEffect(() => {
-    alive.current = true;
-    const request = new AbortController();
-    setError(false);
-    void loader
-      .current(runId, request.signal)
-      .then((result) => {
-        if (!request.signal.aborted) setRun(result);
-      })
-      .catch(() => {
-        if (!request.signal.aborted) setError(true);
-      });
-    return () => {
-      alive.current = false;
-      request.abort();
-    };
-  }, [runId, attempt]);
-  async function openChild() {
-    if (opening) return;
-    setOpening(true);
+  const { notify } = useOverlay();
+  const [writing, setWriting] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const state = agentState(run.status);
+  const live = agentLive(state);
+  const canStop = live && stopRun && run.status !== 'stopping';
+  const canMessage = live && messageRun;
+  async function act(work: () => Promise<void>, done?: string) {
+    setBusy(true);
+    setError('');
     try {
-      const fresh = await loader.current(runId);
-      if (!alive.current) return;
-      setRun(fresh);
-      if (fresh.child_conversation_id) {
-        await openConversation(fresh.child_conversation_id);
-        if (alive.current) close();
-      }
-    } catch {
-      if (alive.current) setError(true);
+      await work();
+      if (done) notify(done);
+      onChanged();
+    } catch (cause) {
+      setError(clientError(cause).message);
     } finally {
-      if (alive.current) setOpening(false);
+      setBusy(false);
     }
   }
-  return (
+  const content = (
     <>
+      <AgentAvatar seed={agentSeed(run.profile_id, run.run_id)} size={20} />
+      <span className="agent-row-name">{run.name}</span>
+      <AgentStatus state={state} />
+    </>
+  );
+  const label = `${run.name}, ${AGENT_STATE_WORDS[state]}`;
+  return (
+    <li className="agent-row" data-state={state}>
+      <div className="agent-row-line">
+        {onOpen ? (
+          <Hint label={run.name}>
+            <button
+              type="button"
+              className="agent-row-main"
+              aria-label={label}
+              onClick={onOpen}
+            >
+              {content}
+            </button>
+          </Hint>
+        ) : (
+          <span className="agent-row-main" role="group" aria-label={label}>
+            {content}
+          </span>
+        )}
+        {(canMessage || canStop) && (
+          <span
+            className="agent-row-actions"
+            role="group"
+            aria-label={`${run.name} actions`}
+          >
+            {canMessage && (
+              <IconButton
+                size="sm"
+                label={`Message ${run.name}`}
+                pressed={writing}
+                disabled={busy}
+                onClick={() => setWriting((value) => !value)}
+              >
+                <MessageSquare size={15} aria-hidden />
+              </IconButton>
+            )}
+            {canStop && (
+              <IconButton
+                size="sm"
+                label={`Stop ${run.name}`}
+                disabled={busy}
+                onClick={() => void act(() => stopRun(run.run_id))}
+              >
+                <CircleStop size={15} aria-hidden />
+              </IconButton>
+            )}
+          </span>
+        )}
+      </div>
+      {writing && canMessage && (
+        <form
+          className="agent-message"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = text.trim();
+            if (!value) return;
+            void act(async () => {
+              await messageRun(run.run_id, value);
+              setText('');
+              setWriting(false);
+            }, 'Message sent. The agent reads it at its next step.');
+          }}
+        >
+          <label>
+            <span>Message to {run.name}</span>
+            <textarea
+              className="input"
+              rows={2}
+              maxLength={16000}
+              autoFocus
+              value={text}
+              disabled={busy}
+              onChange={(event) => setText(event.target.value)}
+            />
+          </label>
+          <div className="button-row">
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setWriting(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={busy || !text.trim()}
+            >
+              Send to agent
+            </Button>
+          </div>
+        </form>
+      )}
       {error && (
-        <p role="alert">
-          This agent's details didn't load.{' '}
-          <Button onClick={() => setAttempt((value) => value + 1)}>
-            Try again
-          </Button>
+        <p role="alert" className="agent-controls-status">
+          {error}
         </p>
       )}
-      {!run && !error && <Skeleton label="Loading agent" />}
-      {run && (
-        <div className="delegated-run-detail">
-          <p role="status" className="delegated-run-status">
-            <span className="eyebrow">Status</span> {runStatus(run.status)}
-          </p>
-          <p className="delegated-run-summary">
-            {run.summary || 'Nothing to report yet.'}
-          </p>
-          <AgentControls
-            run={run}
-            stopRun={stopRun}
-            messageRun={messageRun}
-            onChanged={() => setAttempt((value) => value + 1)}
-          />
-          {run.child_conversation_id ? (
-            <Button
-              disabled={opening || error}
-              onClick={() => void openChild()}
-            >
-              Open full thread
-            </Button>
-          ) : (
-            <p>Its thread isn't available.</p>
-          )}
-        </div>
-      )}
-    </>
+    </li>
   );
 }
 
+/** "2 done · 1 stopped": finished agents fold under the live ones. */
+function foldLabel(runs: DelegatedRun[]) {
+  const done = runs.filter((run) => agentState(run.status) === 'done').length;
+  const stopped = runs.length - done;
+  return [done && `${done} done`, stopped && `${stopped} stopped`]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+const ORDER = { working: 0, waiting: 0, failed: 1, done: 2, stopped: 2 };
+
 export default function DelegatedActivity(props: Props) {
   const ready = props.ready ?? true;
-  const overlay = useOverlay();
+  const { notify } = useOverlay();
   const callbacks = useRef(props);
   callbacks.current = props;
   const [page, setPage] = useState<DelegatedActivityView | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [foldOpen, setFoldOpen] = useState(false);
   const ticket = useRef(0);
   const continuation = useRef<AbortController | null>(null);
   const [laterPage, setLaterPage] = useState(false);
-  const dismiss = useRef(overlay.dismiss);
-  dismiss.current = overlay.dismiss;
-  const key = `delegated-${props.conversationId}`;
-  useEffect(
-    () => () => {
-      dismiss.current(key);
-    },
-    [key],
-  );
+  useEffect(() => setFoldOpen(false), [props.conversationId]);
   useEffect(() => {
     const current = ++ticket.current;
     if (!ready) {
       setLoading(false);
       setError(false);
       setPage(null);
-      dismiss.current(key);
       return;
     }
+    const settle = (result: DelegatedActivityView) => {
+      setPage(result);
+      callbacks.current.onFirstPage?.(result);
+    };
     const readKey = `${props.conversationId}\u0000${props.refreshKey}`;
     const recent =
       attempt === 0 ? callbacks.current.recentRead?.get(readKey) : null;
@@ -428,15 +363,15 @@ export default function DelegatedActivity(props: Props) {
     ) {
       setLoading(false);
       setError(false);
-      setPage(recent.page);
+      settle(recent.page);
       setLaterPage(false);
       return;
     }
     const request = new AbortController();
     setLoading(true);
     setError(false);
-    // A refresh keeps the last page (and a control's "Message sent") in
-    // place; only another conversation starts from nothing (B163).
+    // A refresh keeps the last page in place; only another conversation
+    // starts from nothing (B163).
     setPage((previous) =>
       previous?.conversation_id === props.conversationId ? previous : null,
     );
@@ -445,7 +380,7 @@ export default function DelegatedActivity(props: Props) {
       .loadPage(undefined, request.signal)
       .then((result) => {
         if (!request.signal.aborted && current === ticket.current) {
-          setPage(result);
+          settle(result);
           callbacks.current.recentRead?.set({
             key: readKey,
             page: result,
@@ -461,7 +396,7 @@ export default function DelegatedActivity(props: Props) {
           typeof cause === 'object' &&
           (cause as { code?: unknown }).code === 'capability_unavailable'
         )
-          setPage({
+          settle({
             conversation_id: callbacks.current.conversationId,
             parent_conversation_id: null,
             items: [],
@@ -481,7 +416,7 @@ export default function DelegatedActivity(props: Props) {
       // eslint-disable-next-line react-hooks/exhaustive-deps
       ++ticket.current;
     };
-  }, [props.conversationId, props.refreshKey, attempt, ready, key]);
+  }, [props.conversationId, props.refreshKey, attempt, ready]);
   async function more() {
     if (loading || !page?.next_cursor) return;
     const current = ticket.current;
@@ -505,28 +440,58 @@ export default function DelegatedActivity(props: Props) {
         setLoading(false);
     }
   }
-  const items = [...(page?.items ?? [])].sort((left, right) => {
-    const leftActive = ACTIVE_STATES.has(left.status) ? 0 : 1;
-    const rightActive = ACTIVE_STATES.has(right.status) ? 0 : 1;
-    return leftActive - rightActive;
-  });
+  async function open(run: DelegatedRun) {
+    const conversation = props.conversationId;
+    try {
+      // A queued agent may have its conversation by now: ask again.
+      const target =
+        run.child_conversation_id ??
+        (await callbacks.current.loadRun(run.run_id)).child_conversation_id;
+      if (callbacks.current.conversationId !== conversation) return;
+      if (target) await callbacks.current.openConversation(target);
+      else notify("This agent's conversation isn't available yet.", 'warning');
+    } catch (cause) {
+      notify(clientError(cause).message, 'danger');
+    }
+  }
+  const refresh = () => setAttempt((value) => value + 1);
+  const items = [...(page?.items ?? [])].sort(
+    (left, right) =>
+      ORDER[agentState(left.status)] - ORDER[agentState(right.status)],
+  );
+  // Live and failed agents stay in view; done and stopped ones fold.
+  const shown = items.filter((run) => ORDER[agentState(run.status)] < 2);
+  const folded = items.filter((run) => ORDER[agentState(run.status)] === 2);
   const hasContent =
     error ||
     laterPage ||
     Boolean(props.interrupted) ||
-    Boolean(page?.parent_conversation_id) ||
+    Boolean(page?.own_run) ||
     Boolean(page?.items.length);
   useEffect(() => {
     // Keep the last answer while a refresh is in flight to avoid flicker.
     if (!loading || hasContent) callbacks.current.onContentChange?.(hasContent);
   }, [hasContent, loading]);
-  const live = page
-    ? page.items.filter((run) => ACTIVE_STATES.has(run.status)).length
+  const states = page ? page.items.map((run) => agentState(run.status)) : null;
+  const live = states ? states.filter(agentLive).length : null;
+  const working = states
+    ? states.filter((state) => state === 'working').length
     : null;
   useEffect(() => {
     // Only a settled page reports; a refresh in flight keeps the last count.
-    if (live !== null) callbacks.current.onLiveChange?.(live);
-  }, [live]);
+    if (live !== null && working !== null)
+      callbacks.current.onLiveChange?.({ live, working });
+  }, [live, working]);
+  const row = (run: DelegatedRun) => (
+    <AgentRow
+      key={run.run_id}
+      run={run}
+      onOpen={() => void open(run)}
+      stopRun={props.stopRun}
+      messageRun={props.messageRun}
+      onChanged={refresh}
+    />
+  );
   return (
     <section
       aria-label="Delegated tasks"
@@ -548,42 +513,26 @@ export default function DelegatedActivity(props: Props) {
             resumable={props.interrupted.resumable}
             resumeWork={props.resumeWork}
             dismissWork={props.dismissWork}
-            onChanged={() => setAttempt((value) => value + 1)}
+            onChanged={refresh}
           />
         </div>
       )}
       {page?.own_run && (
-        // Inside a delegated agent's own thread: its status, Stop and Message.
-        <div className="delegated-own-run" aria-label="This agent" role="group">
-          <span className="delegated-run-name">{page.own_run.name}</span>
-          <span className="delegated-run-state">
-            {runStatus(page.own_run.status)}
-          </span>
-          <AgentControls
+        // Inside a delegated agent's own conversation: this agent, with its
+        // Message and Stop always in view (B242).
+        <ul className="agent-list agent-list-own" aria-label="This agent">
+          <AgentRow
             run={page.own_run}
             stopRun={props.stopRun}
             messageRun={props.messageRun}
-            onChanged={() => setAttempt((value) => value + 1)}
+            onChanged={refresh}
           />
-        </div>
-      )}
-      {page?.parent_conversation_id && (
-        <Button
-          onClick={() =>
-            void callbacks.current
-              .openConversation(page.parent_conversation_id!)
-              .catch(() => setError(true))
-          }
-        >
-          Back to parent conversation
-        </Button>
+        </ul>
       )}
       {error && (
         <p role="alert">
           Delegated tasks could not be loaded.{' '}
-          <Button onClick={() => setAttempt((value) => value + 1)}>
-            Retry delegated tasks
-          </Button>
+          <Button onClick={refresh}>Retry delegated tasks</Button>
         </p>
       )}
       {loading && !page && <Skeleton label="Loading delegated tasks" />}
@@ -591,61 +540,28 @@ export default function DelegatedActivity(props: Props) {
         <p className="muted">No delegated agents in this conversation.</p>
       )}
       {!!items.length && (
-        <>
-          {!props.compact && (
-            <header className="activity-heading">
-              <h2>Delegated tasks</h2>
-              <span className="muted">{items.length} on this page</span>
-            </header>
+        <ul className="agent-list">
+          {shown.map(row)}
+          {folded.length > 0 && (
+            <li className="agent-fold">
+              <button
+                type="button"
+                className="agent-fold-toggle"
+                aria-expanded={foldOpen}
+                onClick={() => setFoldOpen((value) => !value)}
+              >
+                <CircleCheck size={14} aria-hidden />
+                <span>{foldLabel(folded)}</span>
+                <ChevronRight
+                  className="agent-fold-chevron"
+                  size={14}
+                  aria-hidden
+                />
+              </button>
+              {foldOpen && <ul className="agent-list">{folded.map(row)}</ul>}
+            </li>
           )}
-          <ul className="delegated-run-list">
-            {items.map((run) => (
-              <li className="delegated-run-item" key={run.run_id}>
-                <Button
-                  variant="ghost"
-                  aria-label={run.name}
-                  onClick={() =>
-                    overlay.open({
-                      key,
-                      title: run.name,
-                      description: 'What this agent is doing and has found.',
-                      content: (
-                        <RunDetail
-                          runId={run.run_id}
-                          loadRun={props.loadRun}
-                          openConversation={props.openConversation}
-                          stopRun={props.stopRun}
-                          messageRun={props.messageRun}
-                          close={() => dismiss.current(key)}
-                        />
-                      ),
-                    })
-                  }
-                >
-                  <span className="delegated-run-name">{run.name}</span>
-                  <span className="delegated-run-state">
-                    {runStatus(run.status)}
-                  </span>
-                </Button>
-                {props.stopRun &&
-                  ACTIVE_STATES.has(run.status) &&
-                  run.status !== 'stopping' && (
-                    <IconButton
-                      size="sm"
-                      label={`Stop ${run.name}`}
-                      onClick={() =>
-                        void props.stopRun!(run.run_id)
-                          .then(() => setAttempt((value) => value + 1))
-                          .catch(() => setError(true))
-                      }
-                    >
-                      <CircleStop size={14} aria-hidden />
-                    </IconButton>
-                  )}
-              </li>
-            ))}
-          </ul>
-        </>
+        </ul>
       )}
       {page?.has_more && (
         <Button disabled={loading} onClick={() => void more()}>
@@ -653,9 +569,7 @@ export default function DelegatedActivity(props: Props) {
         </Button>
       )}
       {laterPage && (
-        <Button onClick={() => setAttempt((value) => value + 1)}>
-          Return to first delegated tasks
-        </Button>
+        <Button onClick={refresh}>Return to first delegated tasks</Button>
       )}
     </section>
   );

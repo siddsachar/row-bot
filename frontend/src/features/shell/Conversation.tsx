@@ -15,6 +15,7 @@ import type {
   AttachmentView,
   ClientError,
   ConversationComposer,
+  DelegatedActivityView,
   ErrorAction,
   PanelDescriptor,
   ResourceView,
@@ -98,6 +99,10 @@ import {
 } from './attachment-limits';
 import ApprovalCard from './ApprovalCard';
 import ChatEmpty from './ChatEmpty';
+import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
+import { SpeakersContext, TurnMarker, type Speakers } from './TurnMarker';
+import { useBuddyStill } from '../buddy/BuddyStill';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { ComputerUseCard, useComputerUse } from './ComputerUseCard';
 import { registerPromptSender } from './composer-bridge';
 import ConversationHeader from './ConversationHeader';
@@ -108,6 +113,7 @@ import {
   answerStreaming,
   buildTranscript,
   liveMedia,
+  turnStarts,
 } from './transcript-model';
 import {
   CardActionsContext,
@@ -148,6 +154,32 @@ const FIELD_SIZING =
 
 /** Below this composer width the composer is a single line. */
 const SINGLE_LINE_COMPOSER = 480;
+
+/**
+ * What the transcript's rows share: card actions, who speaks (B271) and the
+ * delegated feed its agent stubs follow (B241).
+ */
+function TranscriptContexts({
+  cardActions,
+  speakers,
+  delegatedRuns,
+  children,
+}: {
+  cardActions: CardActions;
+  speakers: Speakers;
+  delegatedRuns: DelegatedRuns;
+  children: ReactNode;
+}) {
+  return (
+    <CardActionsContext.Provider value={cardActions}>
+      <SpeakersContext.Provider value={speakers}>
+        <DelegatedRunsContext.Provider value={delegatedRuns}>
+          {children}
+        </DelegatedRunsContext.Provider>
+      </SpeakersContext.Provider>
+    </CardActionsContext.Provider>
+  );
+}
 
 export default function Conversation({
   onPanel,
@@ -215,32 +247,18 @@ export default function Conversation({
   const [agentsLive, setAgentsLive] = useState<{
     conversation: string | null;
     live: number;
-  }>({ conversation: null, live: 0 });
+    working: number;
+  }>({ conversation: null, live: 0, working: 0 });
   const liveAgents = agentsLive.conversation === id ? agentsLive.live : 0;
+  const workingAgents = agentsLive.conversation === id ? agentsLive.working : 0;
   const [recentDelegatedRead] = useState(() => recentReads());
-  const terminalAdvertised = Boolean(
-    state.handshake?.application_capabilities?.includes('native:terminal'),
-  );
-  const [terminalAvailable, setTerminalAvailable] = useState(false);
-  useEffect(() => {
-    let current = true;
-    setTerminalAvailable(false);
-    if (!terminalAdvertised) return () => void (current = false);
-    void platform
-      .discover()
-      .then((result) => {
-        if (!current) return;
-        setTerminalAvailable(
-          result.status === 'ok' &&
-            result.value.kind === 'pywebview' &&
-            result.value.capabilities.includes('terminal_open'),
-        );
-      })
-      .catch(() => {
-        if (current) setTerminalAvailable(false);
-      });
-    return () => void (current = false);
-  }, [platform, state.handshake?.instance_id, terminalAdvertised]);
+  // The latest first page of delegated activity: the transcript's agent
+  // stubs, the header's way back and an agent's own icon come from it.
+  const [delegated, setDelegated] = useState<{
+    conversation: string | null;
+    page: DelegatedActivityView | null;
+  }>({ conversation: null, page: null });
+  const delegatedPage = delegated.conversation === id ? delegated.page : null;
   const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
   const [voiceExposure, setVoiceExposure] = useState({
     key: '',
@@ -442,18 +460,19 @@ export default function Conversation({
   // Compact layouts show Context as a sheet that adopts the same mounted
   // host, so it stays live (agents, goal, resources) while it is open.
   const sheetHosted = Boolean(contextHost) && compactPlacement;
-  // Context is a small floating card. A wide chat gives it a column of its
-  // own (hidden only on request); a narrow one floats it over the chat on
-  // demand. Panels such as Design keep the full-height right region.
+  // Conversation details is a small floating card. A wide chat keeps it
+  // pinned open under the header's buttons (hidden only on request) and moves
+  // the reading column aside for it (B221); a narrow one floats it over the
+  // chat on demand. Panels such as Design keep the full-height right region.
   const [contextHidden, setContextHiddenState] = useState(readContextHidden);
   const [floatingOpen, setFloatingOpen] = useState(false);
   const floatingContext = hosted && narrowChat;
+  const pinnedContext = hosted && !narrowChat;
   const cardActive =
     Boolean(id) && hosted && (floatingContext ? floatingOpen : !contextHidden);
-  const inlineContext = cardActive && !floatingContext;
-  // The chat is one column unless the docked card takes its own.
+  // Without a host, a wide chat still gives the card a column of its own.
   const compactContext = hosted
-    ? !inlineContext
+    ? floatingContext
     : compactPlacement || narrowChat;
   useEffect(() => setFloatingOpen(false), [id]);
   useEffect(() => {
@@ -501,6 +520,23 @@ export default function Conversation({
   }, []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptContentRef = useRef<HTMLDivElement>(null);
+  // The composer and the Latest pill follow the transcript's reading column,
+  // which the transcript's own scrollbar narrows (B221).
+  useLayoutEffect(() => {
+    const transcript = transcriptRef.current;
+    const workspace = chatWorkspaceRef.current;
+    if (!transcript || !workspace) return;
+    const measure = () =>
+      workspace.style.setProperty(
+        '--transcript-scrollbar',
+        `${transcript.offsetWidth - transcript.clientWidth}px`,
+      );
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(transcript);
+    return () => observer.disconnect();
+  }, []);
   const followingLatest = useRef(true);
   // The transcript's size when it was last pinned to the latest row.
   const pinnedGeometry = useRef<{
@@ -965,7 +1001,9 @@ export default function Conversation({
           state.conversation.revision,
         );
         clear();
-        overlay.notify('Agent started. Follow it in Context › Agents.');
+        overlay.notify(
+          'Agent started. Follow it in Conversation details › Agents.',
+        );
       }
       setError('');
     } catch (cause) {
@@ -1924,14 +1962,26 @@ export default function Conversation({
   async function recover() {
     if (pendingSubmit) await dispatch();
   }
+  async function openDelegatedConversation(target: string) {
+    if (controller.getSnapshot().selectedConversationId !== id) return;
+    await controller.selectConversation(target);
+    if (
+      controller.getSnapshot().selectedConversationId === target &&
+      controller.getSnapshot().conversation?.id === target
+    ) {
+      navigate(`/conversations/${target}`);
+      // After navigating (B17): the compact sheet it was opened from closes.
+      overlay.dismiss('conversation-context');
+    }
+  }
   const delegatedActivity = id ? (
     <DelegatedActivity
-      compact
       conversationId={id}
       onContentChange={(present) =>
         setAgentsContent({ conversation: id, present })
       }
-      onLiveChange={(live) => setAgentsLive({ conversation: id, live })}
+      onLiveChange={(counts) => setAgentsLive({ conversation: id, ...counts })}
+      onFirstPage={(page) => setDelegated({ conversation: id, page })}
       recentRead={recentDelegatedRead}
       ready={Boolean(state.handshake) && state.status === 'ready'}
       refreshKey={
@@ -1978,15 +2028,7 @@ export default function Conversation({
           controller.getSnapshot().conversation?.revision ?? '0',
         );
       }}
-      openConversation={async (target) => {
-        if (controller.getSnapshot().selectedConversationId !== id) return;
-        await controller.selectConversation(target);
-        if (
-          controller.getSnapshot().selectedConversationId === target &&
-          controller.getSnapshot().conversation?.id === target
-        )
-          navigate(`/conversations/${target}`);
-      }}
+      openConversation={openDelegatedConversation}
     />
   ) : (
     <p className="muted">Agents appear after a conversation is created.</p>
@@ -2052,11 +2094,10 @@ export default function Conversation({
       )}
       ready={contextReady}
       connectionStatus={state.status}
-      terminalAvailable={terminalAvailable}
-      compactHeading={hosted ? false : compactContext}
       agents={delegatedActivity}
       agentsEmpty={agentsEmpty}
       agentsLive={liveAgents}
+      agentsWorking={workingAgents}
       childConversation={Boolean(
         state.conversation?.id === id &&
         state.conversation.parent_conversation_id,
@@ -2069,17 +2110,9 @@ export default function Conversation({
       onAddResource={() => setup()}
       onOpenResource={resourcePanel}
       onUnbindResource={unbindResource}
-      onFind={findConversation}
       onManageConversation={manageConversation}
       onManageBrowser={manageBrowser}
       onDeleteConversation={deleteConversation}
-      onOpenTerminal={() =>
-        onPanel({
-          panel_kind: 'native.terminal',
-          title: 'Interactive terminal',
-          required_capabilities: ['native:terminal'],
-        })
-      }
       onOpenSuggestion={(suggestion) => {
         onPanel(suggestion.descriptor);
         controller.dismissSuggestion(suggestion);
@@ -2206,6 +2239,7 @@ export default function Conversation({
     }
   // Actions show once per assistant turn (its last row) and copy the turn.
   const turns = useMemo(() => {
+    const starts = turnStarts(items);
     const ends: boolean[] = [];
     const texts: (string | undefined)[] = [];
     let start = 0;
@@ -2232,7 +2266,7 @@ export default function Conversation({
       );
       if (end) start = index + 1;
     });
-    return { ends, texts };
+    return { starts, ends, texts };
   }, [items]);
   const newChatRef = useRef(onNewChat);
   useLayoutEffect(() => {
@@ -2328,6 +2362,67 @@ export default function Conversation({
     !items.at(-1)?.row.note &&
     Boolean(lastUserText) &&
     pending?.conversation !== id;
+  // A delegated agent's own conversation: its icon, its replies, and the
+  // way back to its parent in the header (B242, B271).
+  const ownRun = delegatedPage?.own_run ?? null;
+  const ownSeed = ownRun ? agentSeed(ownRun.profile_id, ownRun.run_id) : '';
+  const buddyStill = useBuddyStill(id);
+  const speakers = useMemo(
+    () => ({
+      buddy: buddyStill,
+      agent: ownRun ? { seed: ownSeed, name: ownRun.name } : null,
+    }),
+    [buddyStill, ownRun, ownSeed],
+  );
+  const breadcrumb =
+    delegatedPage?.parent_conversation_id &&
+    typeof delegatedPage.parent_title === 'string'
+      ? {
+          to: `/conversations/${delegatedPage.parent_conversation_id}`,
+          title: delegatedPage.parent_title || 'Untitled conversation',
+          icon: ownSeed ? <AgentAvatar seed={ownSeed} size={20} /> : undefined,
+        }
+      : undefined;
+  // The agents a turn started update in place from the feed (B241).
+  const openAgentRun = useCallback(
+    async (runId: string) => {
+      if (!id) return;
+      try {
+        const target =
+          delegatedPage?.items.find((run) => run.run_id === runId)
+            ?.child_conversation_id ??
+          (await controller.delegatedRun(id, runId)).child_conversation_id;
+        if (target) await openDelegatedConversation(target);
+        else
+          overlay.notify(
+            "This agent's conversation isn't available yet.",
+            'warning',
+          );
+      } catch (cause) {
+        overlay.notify(clientError(cause).message, 'danger');
+      }
+    },
+    // openDelegatedConversation reads the latest snapshot itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [controller, delegatedPage, id, overlay],
+  );
+  const delegatedRuns = useMemo(
+    () => ({
+      runs: new Map(
+        (delegatedPage?.items ?? []).map((run) => [run.run_id, run]),
+      ),
+      settled: Boolean(delegatedPage),
+      open: (runId: string) => void openAgentRun(runId),
+    }),
+    [delegatedPage, openAgentRun],
+  );
+  // The message awaiting confirmation and the live reply continue or begin
+  // a speaker's turn after the last row (B271).
+  const pendingShown =
+    pending?.conversation === id &&
+    !rows.some((row) => row.message_id === pending.id);
+  const lastRow = items.at(-1)?.row;
+  const lastSpeaker = lastRow && !lastRow.note ? lastRow.role : null;
   const listedTitle = state.conversations.find((item) => item.id === id)?.title;
   const title =
     listedTitle || state.conversation?.title || 'Start a conversation';
@@ -2546,7 +2641,7 @@ export default function Conversation({
       key: 'conversation-context',
       // Full height on phones, a side sheet on tablets (responsive.css).
       className: 'context-sheet',
-      title: 'Conversation context',
+      title: 'Conversation details',
       description: '',
       content: sheetHosted ? (
         <ContextSlot active className="context-sheet-slot" host={contextHost} />
@@ -2655,9 +2750,13 @@ export default function Conversation({
       }[generation.status] ?? '')
     : '';
   return (
-    <CardActionsContext.Provider value={cardActions}>
+    <TranscriptContexts
+      cardActions={cardActions}
+      speakers={speakers}
+      delegatedRuns={delegatedRuns}
+    >
       <div
-        className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
+        className={`chat-workspace${compactContext ? ' compact-context' : ''}${pinnedContext ? ' details-wide' : ''}${pinnedContext && cardActive ? ' details-open' : ''}`}
         ref={chatWorkspaceRef}
       >
         <div
@@ -2665,7 +2764,7 @@ export default function Conversation({
           ref={chatContentRef}
           role="region"
           tabIndex={0}
-          aria-label="Conversation details"
+          aria-label="Chat"
         >
           <ConversationHeader
             title={title}
@@ -2684,6 +2783,7 @@ export default function Conversation({
             actions={headerActions}
             leading={headerLeading}
             menuActions={headerMenu}
+            breadcrumb={breadcrumb}
           >
             {missingReceipt &&
               (missingReceipt.key === steeringKey ||
@@ -2783,6 +2883,8 @@ export default function Conversation({
                             embeds={item.embeds}
                             media={item.media}
                             cards={item.cards}
+                            agents={item.agents}
+                            turnStart={turns.starts[index]}
                             toolbar={turns.ends[index]}
                             copyText={turns.texts[index]}
                             onRecover={recoverTurn}
@@ -2804,6 +2906,8 @@ export default function Conversation({
                         embeds={item.embeds}
                         media={item.media}
                         cards={item.cards}
+                        agents={item.agents}
+                        turnStart={turns.starts[index]}
                         latest={index === lastAssistant && !turnInFlight}
                         toolbar={turns.ends[index]}
                         copyText={turns.texts[index]}
@@ -2839,21 +2943,21 @@ export default function Conversation({
                   onOpen={(target) => navigate(`/conversations/${target}`)}
                 />
               )}
-              {pending?.conversation === id &&
-                !rows.some((row) => row.message_id === pending.id) && (
-                  <article
-                    className="message message-user message-pending"
-                    aria-label="You message awaiting confirmation"
-                    data-message-id={pending.id}
-                  >
-                    <div className="transcript-content">
-                      <div className="message-text">{pending.text}</div>
-                      <small className="message-delivery-state">
-                        Awaiting confirmation
-                      </small>
-                    </div>
-                  </article>
-                )}
+              {pendingShown && (
+                <article
+                  className="message message-user message-pending"
+                  aria-label="You message awaiting confirmation"
+                  data-message-id={pending.id}
+                >
+                  {lastSpeaker !== 'user' && <TurnMarker role="user" />}
+                  <div className="transcript-content">
+                    <div className="message-text">{pending.text}</div>
+                    <small className="message-delivery-state">
+                      Awaiting confirmation
+                    </small>
+                  </div>
+                </article>
+              )}
               {id &&
                 !state.history &&
                 (isRunning ||
@@ -2864,6 +2968,9 @@ export default function Conversation({
                   (generation?.approval_id &&
                     generation.status === 'waiting_approval')) && (
                   <div className="message message-assistant message-live">
+                    {(pendingShown || lastSpeaker !== 'assistant') && (
+                      <TurnMarker role="assistant" />
+                    )}
                     <div className="transcript-content">
                       <TranscriptTrace
                         conversation={id}
@@ -3246,7 +3353,10 @@ export default function Conversation({
                   composerStateReason ? 'message-composer-state' : undefined
                 }
                 onChange={(e) => {
-                  controller.setDraft(id, { ...draft, text: e.target.value });
+                  controller.setDraft(id, {
+                    ...draft,
+                    text: e.target.value,
+                  });
                   setComposerCursor(
                     e.target.selectionStart ?? e.target.value.length,
                   );
@@ -3606,12 +3716,12 @@ export default function Conversation({
         {hosted ? (
           <ContextSlot
             active={cardActive}
-            className={`context-card ${floatingContext ? 'context-card-floating' : 'context-card-docked'}`}
+            className={`context-card ${floatingContext ? 'context-card-floating' : 'context-card-pinned'}`}
           />
         ) : (
           !compactContext && contextRail
         )}
       </div>
-    </CardActionsContext.Provider>
+    </TranscriptContexts>
   );
 }

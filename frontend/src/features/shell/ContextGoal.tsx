@@ -150,6 +150,7 @@ export default function ContextGoal({
   ready,
   io,
   compose,
+  onCompose,
   onComposeDone,
   onStopTurn,
   now: suppliedNow,
@@ -162,6 +163,8 @@ export default function ContextGoal({
   ready: boolean;
   io: ContextGoalIO;
   compose: boolean;
+  /** Open the goal composer (Set a goal, shown while there is no goal). */
+  onCompose: () => void;
   onComposeDone: () => void;
   /** Stop the running turn (Stop ends the goal and what it is doing). */
   onStopTurn?: () => void;
@@ -294,7 +297,6 @@ export default function ContextGoal({
     page?.items.filter(
       (goal) => goal.id !== current?.id || goal.status === 'cleared',
     ) ?? [];
-  if (!started && !compose && !earlier.length) return null;
   const state = current ? goalState(current, running) : null;
   const maxTurns =
     typedTurns ??
@@ -467,7 +469,18 @@ export default function ContextGoal({
           </form>
         )}
         {!started && !compose && (
-          <p className="context-goal-meta">No goal is running.</p>
+          // Always shown (B223): the one place to set a goal from.
+          <div className="context-goal-empty">
+            <span>No goal</span>
+            <Button
+              className="context-goal-set"
+              disabled={!ready}
+              title="Give this conversation an objective to work toward"
+              onClick={onCompose}
+            >
+              <Target size={14} aria-hidden /> Set a goal
+            </Button>
+          </div>
         )}
         {earlier.length > 0 && (
           <details className="context-goal-history">

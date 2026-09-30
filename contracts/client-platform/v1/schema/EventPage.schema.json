@@ -2735,6 +2735,12 @@
           "title": "Display Name",
           "type": "string"
         },
+        "profile_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Profile Id",
+          "type": "string"
+        },
         "run_id": {
           "maxLength": 256,
           "minLength": 1,

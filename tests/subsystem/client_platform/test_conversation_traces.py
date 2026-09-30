@@ -280,6 +280,38 @@ def test_agent_specialization_is_deduped_bounded_and_private_field_free():
     assert private not in repr(specialized)
 
 
+def test_started_agents_keep_their_profile_with_the_turn():
+    """B240/B241: the turn's agent stubs pick the same icon as Agents."""
+    run = {
+        "id": "run-1",
+        "display_name": "Pricing scan",
+        "status": "queued",
+        "profile": {"id": "profile-7", "slug": "researcher", "display_name": "Researcher"},
+    }
+    records = [
+        {
+            "row": {"id": "assistant:checkpoint:parent", "message_id": "parent", "role": "assistant", "blocks": []},
+            "tool_calls": [{"id": "call-start", "name": "delegate_work"}],
+        },
+        {
+            "row": {
+                "id": "tool:checkpoint:result",
+                "message_id": "result",
+                "role": "tool",
+                "tool_call_id": "call-start",
+                "blocks": [{"type": "text", "text": json.dumps({"ok": True, "run": run})}],
+            }
+        },
+    ]
+
+    parent = project_assistant_row_traces(records)[0]
+    item = parent["traces"][0]["items"][0]
+
+    assert item["specialization"]["agent_runs"] == [
+        {"run_id": "run-1", "display_name": "Pricing scan", "status": "queued", "profile_id": "profile-7"}
+    ]
+
+
 def test_media_specialization_keeps_references_without_marker_or_inline_data():
     private_image = "a" * 20000
     result = {

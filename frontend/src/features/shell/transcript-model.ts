@@ -16,7 +16,58 @@ export type TranscriptItem = {
   media: GeneratedMedia[];
   /** Designs and code folders the turn created, connections it needs. */
   cards: TranscriptCard[];
+  /** Agents the turn started, one stub each (B241). */
+  agents: TracedAgent[];
 };
+
+/** An agent a turn started, as the turn stored it (B241). */
+export type TracedAgent = {
+  run_id: string;
+  name: string;
+  /** Its status when the turn recorded it; the live feed supersedes it. */
+  status: string;
+  profile_id: string;
+};
+
+/** The tools that start agents; the others only look at existing ones. */
+const STARTS_AGENTS = new Set(['delegate_work', 'agent_retry']);
+
+/** The agents a turn started, once each, in the order it started them. */
+export function tracedAgents(groups: TranscriptTraceGroup[]): TracedAgent[] {
+  const agents = new Map<string, TracedAgent>();
+  for (const group of groups)
+    for (const item of group.items) {
+      if (
+        item.specialization?.kind !== 'delegated_agent' ||
+        !STARTS_AGENTS.has(item.canonical_name)
+      )
+        continue;
+      for (const run of item.specialization.agent_runs ?? [])
+        agents.set(run.run_id, {
+          run_id: run.run_id,
+          name: run.display_name,
+          status: run.status,
+          profile_id: run.profile_id ?? '',
+        });
+    }
+  return [...agents.values()];
+}
+
+/**
+ * Where a speaker's turn begins (B271): a person's message after anything
+ * else, the first reply after it. Follow-up rows of the same turn (more
+ * activity, the next block of the reply) do not begin one.
+ */
+export function turnStarts(items: readonly TranscriptItem[]): boolean[] {
+  return items.map((item, index) => {
+    const previous = items[index - 1];
+    return (
+      !previous ||
+      previous.row.role !== item.row.role ||
+      Boolean(previous.row.note)
+    );
+  });
+}
 
 function hasContent(row: TranscriptRow) {
   return (
@@ -90,6 +141,7 @@ export function buildTranscript(
       embeds: charts.get(row.id) ?? [],
       media: tracedMedia(traces),
       cards: tracedCards(traces),
+      agents: tracedAgents(traces),
     };
     const content = hasContent(row);
     const previous = items.at(-1);
@@ -117,6 +169,7 @@ export function buildTranscript(
             !previous.cards.some((known) => cardKey(known) === cardKey(card)),
         ),
       ];
+      previous.agents = tracedAgents(previous.traces);
       continue;
     }
     if (

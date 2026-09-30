@@ -541,11 +541,12 @@ export async function captureActualResourcePanels(
 ): Promise<void> {
   const desktop = page.viewportSize()!.width >= 1024;
   const context = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
-  // Context is inline on desktop, a header button on tablets and an item in
-  // the header's menu on phones; reveal it only when hidden.
-  if (!(await context.isVisible())) await headerAction(page, 'Context');
+  // Conversation details is pinned open on desktop, a header button on
+  // tablets and an item in the header's menu on phones; reveal it if hidden.
+  if (!(await context.isVisible()))
+    await headerAction(page, 'Conversation details');
   await context.getByRole('button', { name: `${deck} Design` }).click();
   const preview = page.getByRole('region', {
     name: 'Design preview',
@@ -637,9 +638,10 @@ export async function captureActualResourcePanels(
       .getByRole('button', { name: 'Back to conversation', exact: true })
       .click();
   }
-  if (!(await context.isVisible())) await headerAction(page, 'Context');
+  if (!(await context.isVisible()))
+    await headerAction(page, 'Conversation details');
   await page
-    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('complementary', { name: 'Conversation details' })
     .getByRole('button', { name: 'Phase 1 workspace Developer' })
     .click();
   const inspector = page.getByRole('region', {
@@ -724,8 +726,8 @@ export async function clickNewChat(page: Page): Promise<void> {
 }
 
 /**
- * Shows the Context card's controls: already inline on desktop, the header
- * Context button on tablets, the header menu's Context on phones.
+ * Shows the Conversation details card's controls: already pinned open on a
+ * wide desktop chat, its header toggle on tablets, the header menu on phones.
  */
 export async function revealContextControl(
   page: Page,
@@ -733,9 +735,12 @@ export async function revealContextControl(
 ): Promise<void> {
   const control = page.getByRole('button', { name, exact: true });
   const card = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
-  const context = page.getByRole('button', { name: 'Context', exact: true });
+  const context = page.getByRole('button', {
+    name: 'Conversation details',
+    exact: true,
+  });
   const menu = page.getByRole('button', {
     name: 'Conversation menu',
     exact: true,
@@ -748,7 +753,7 @@ export async function revealContextControl(
     else {
       await menu.click();
       await page
-        .getByRole('menuitem', { name: 'Context', exact: true })
+        .getByRole('menuitem', { name: 'Conversation details', exact: true })
         .click();
     }
   }
@@ -756,15 +761,18 @@ export async function revealContextControl(
 }
 
 /**
- * Shows the Context card and returns it: inline on a wide desktop chat, the
- * header Context button when a panel narrows it or on tablets, the header
- * menu's Context on phones.
+ * Shows the Conversation details card and returns it: pinned open on a wide
+ * desktop chat, the header toggle when a panel narrows it or on tablets, the
+ * header menu on phones.
  */
 export async function revealContext(page: Page): Promise<Locator> {
   const card = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
-  const context = page.getByRole('button', { name: 'Context', exact: true });
+  const context = page.getByRole('button', {
+    name: 'Conversation details',
+    exact: true,
+  });
   const menu = page.getByRole('button', {
     name: 'Conversation menu',
     exact: true,
@@ -775,7 +783,7 @@ export async function revealContext(page: Page): Promise<Locator> {
     else {
       await menu.click();
       await page
-        .getByRole('menuitem', { name: 'Context', exact: true })
+        .getByRole('menuitem', { name: 'Conversation details', exact: true })
         .click();
     }
   }
@@ -783,10 +791,10 @@ export async function revealContext(page: Page): Promise<Locator> {
   return card;
 }
 
-/** Closes the Context sheet or floating card when it covers the chat. */
+/** Closes the details sheet or floating card when it covers the chat. */
 export async function dismissContext(page: Page): Promise<void> {
   const sheet = page.getByRole('dialog').filter({
-    has: page.getByRole('complementary', { name: 'Conversation context' }),
+    has: page.getByRole('complementary', { name: 'Conversation details' }),
   });
   if (await sheet.isVisible()) {
     await page.keyboard.press('Escape');

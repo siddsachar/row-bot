@@ -16,7 +16,6 @@ import {
   reloadDocument,
   releaseProducer,
   revealContext,
-  revealContextControl,
 } from './unified-helpers';
 
 function summarizeFixtureFailure(error: unknown) {
@@ -336,8 +335,8 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       ),
     ).toHaveCount(1);
     await expect(composer(page)).toHaveValue('Never consumed unsent draft');
-    // Delegated agents are listed under the Context card's Agents disclosure
-    // (a sheet on tablets and phones).
+    // Delegated agents are listed under Conversation details › Agents (a
+    // sheet on tablets and phones); a finished one folds into "1 done".
     const agents = (await revealContext(page))
       .locator('details', {
         has: page.locator('summary', { hasText: 'Agents' }),
@@ -349,25 +348,18 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       ))
     )
       await agents.locator('summary').first().click();
-    await agents
-      .getByRole('button', { name: 'Synthetic child', exact: true })
-      .click();
-    const childDetail = page.getByRole('dialog', {
-      name: 'Synthetic child',
+    await agents.getByRole('button', { name: '1 done', exact: true }).click();
+    // Its status is in words, and a finished agent offers no Stop or Message.
+    const child = agents.getByRole('button', {
+      name: 'Synthetic child, Done',
       exact: true,
     });
+    await expect(child).toBeVisible();
     await expect(
-      childDetail.getByText('Synthetic child result', { exact: true }),
-    ).toBeVisible();
-    // Delegated status lives with the agent in Context, in words.
-    await expect(childDetail.getByRole('status')).toHaveText(/Status\s+Done/);
-    // A finished agent offers no Stop or Message.
-    await expect(
-      childDetail.getByRole('button', { name: 'Stop', exact: true }),
+      agents.getByRole('button', { name: 'Stop Synthetic child', exact: true }),
     ).toHaveCount(0);
-    await childDetail
-      .getByRole('button', { name: 'Open full thread', exact: true })
-      .click();
+    // Its row opens its conversation (B240).
+    await child.click();
     await expect(page).toHaveURL(
       new RegExp(`/conversations/${completed.child_conversation_id}$`),
     );
@@ -375,10 +367,8 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       page.getByText('Synthetic delegated objective', { exact: true }),
     ).toBeVisible();
     await composer(page).fill('Independent child draft');
-    await revealContextControl(page, 'Back to parent conversation');
-    await page
-      .getByRole('button', { name: 'Back to parent conversation', exact: true })
-      .click();
+    // The way back is the header's breadcrumb, on phones too (B242).
+    await page.getByRole('link', { name: /^Back to / }).click();
     await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
     await expect(composer(page)).toHaveValue('Never consumed unsent draft');
     expect(

@@ -261,6 +261,30 @@ time {
   white-space: nowrap;
 }
 
+/* AgentAvatar (B240): a glyph on a 15% disc of the agent's tint. The stroke
+   keeps one visual weight at every size. */
+.agent-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--agent-size);
+  height: var(--agent-size);
+  border-radius: 50%;
+  color: var(--agent-tint);
+  background: color-mix(in srgb, var(--agent-tint) 15%, var(--surface));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--agent-tint) 24%, transparent);
+}
+.agent-avatar > svg {
+  width: 78%;
+  height: 78%;
+  overflow: visible;
+}
+.agent-avatar > svg * {
+  vector-effect: non-scaling-stroke;
+  stroke-width: var(--agent-stroke);
+}
+
 /* Segmented ------------------------------------------------------------- */
 .segmented {
   display: inline-flex;

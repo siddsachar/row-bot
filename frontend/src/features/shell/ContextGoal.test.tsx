@@ -73,6 +73,7 @@ function show(
     compose = false,
     running = false,
     activity = 'a',
+    onCompose = vi.fn(),
     onComposeDone = vi.fn(),
     onStopTurn = vi.fn(),
   } = {},
@@ -85,6 +86,7 @@ function show(
       ready
       io={api}
       compose={compose}
+      onCompose={onCompose}
       onComposeDone={onComposeDone}
       onStopTurn={onStopTurn}
     />
@@ -113,11 +115,31 @@ it('says Working only while a turn runs, never while idle (B123)', () => {
   expect(goalTurn({ ...goal, max_turns: 0 }, false)).toBe('Turn 3');
 });
 
-it('shows nothing without a goal until one is being set', async () => {
+it('always shows the Goal section: "No goal" and Set a goal open the composer (B223)', async () => {
   const api = io(page([]));
-  const { container } = show(api);
+  const onCompose = vi.fn();
+  show(api, { onCompose });
   await waitFor(() => expect(api.load).toHaveBeenCalledOnce());
-  expect(container).toBeEmptyDOMElement();
+  expect(screen.getByText('Goal', { selector: 'summary' })).toBeVisible();
+  expect(screen.getByText('No goal')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Set a goal' }));
+  expect(onCompose).toHaveBeenCalledOnce();
+});
+
+it('waits for the conversation before a goal can be set', () => {
+  render(
+    <ContextGoal
+      conversationId="conversation-a"
+      activity="a"
+      running={false}
+      ready={false}
+      io={io(page([]))}
+      compose={false}
+      onCompose={vi.fn()}
+      onComposeDone={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Set a goal' })).toBeDisabled();
 });
 
 it('shows the turn, the latest reason, and pauses in one reviewed step', async () => {
@@ -255,7 +277,7 @@ it('keeps earlier goals in the thread after the current one ends', async () => {
     current_revision: 'none',
   });
   show(api);
-  expect(await screen.findByText('No goal is running.')).toBeVisible();
+  expect(await screen.findByText('No goal')).toBeVisible();
   fireEvent.click(screen.getByText('Earlier goals'));
   expect(screen.getByText('Draft the launch checklist')).toBeVisible();
   expect(screen.getByText(/Done · 3 of 10 turns/)).toBeVisible();
@@ -301,6 +323,7 @@ it('shows the time running and the tokens used, with the time limit (B244)', asy
       ready
       io={io(page([{ ...running, turns_used: 7, max_turns: 0 }]))}
       compose={false}
+      onCompose={vi.fn()}
       onComposeDone={vi.fn()}
       now={now}
     />,

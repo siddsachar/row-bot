@@ -149,14 +149,14 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
     0,
   );
   const context = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
   await context
     .getByRole('button', { name: /Landing page.*Developer/ })
     .click();
   await expect(page.getByRole('region', { name: 'Side panels' })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Context', exact: true }),
+    page.getByRole('button', { name: 'Conversation details', exact: true }),
   ).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'code-detail-dark-desktop');
@@ -202,7 +202,7 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
     page.getByText('Folder is not a Git repository').first(),
   ).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Context', exact: true }),
+    page.getByRole('button', { name: 'Conversation details', exact: true }),
   ).toBeVisible();
   await screenshot(page, testInfo, 'code-detail-light-desktop');
   await page.setViewportSize({ width: 980, height: 800 });
@@ -213,7 +213,7 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
   await expect(narrowBack).toBeVisible();
   await narrowBack.click();
   await expect(
-    page.getByRole('button', { name: 'Context', exact: true }),
+    page.getByRole('button', { name: 'Conversation details', exact: true }),
   ).toBeVisible();
   await screenshot(page, testInfo, 'code-narrow-desktop');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -227,10 +227,12 @@ test('React Context and detail remain usable across desktop, narrow, mobile, lig
     .getByRole('button', { name: 'Conversation menu', exact: true })
     .focus();
   await page.keyboard.press('Enter');
-  await page.getByRole('menuitem', { name: 'Context', exact: true }).click();
+  await page
+    .getByRole('menuitem', { name: 'Conversation details', exact: true })
+    .click();
   await expect(
     page
-      .getByRole('complementary', { name: 'Conversation context' })
+      .getByRole('complementary', { name: 'Conversation details' })
       .getByRole('button', { name: /Landing page.*Developer/ }),
   ).toBeVisible();
   await screenshot(page, testInfo, 'context-light-mobile');

@@ -132,7 +132,7 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await expect(palette).toHaveCount(0);
   await draft.fill('');
   const card = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
   await expect(card).toBeVisible();
   const height = await card.evaluate((element) => ({
@@ -180,7 +180,11 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await expect
     .poll(() => body.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(0);
-  await expect(card.getByRole('heading', { name: 'Context' })).toBeVisible();
+  // No visible title (B221): the card's actions stay in its top row while
+  // its sections scroll.
+  await expect(
+    card.getByRole('button', { name: 'Conversation actions' }),
+  ).toBeVisible();
   const anchor = await card.evaluate((element) => ({
     cardTop: element.getBoundingClientRect().top,
     headingTop: element
@@ -252,4 +256,98 @@ test('context card and composer stay compact through panels, narrowing, keyboard
   await expect(page.getByRole('menuitem', { name: /^Mode\b/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await screenshot(page, info, 'slice6-zoom-200');
+});
+
+test('Conversation details floats beside the reading column at desktop widths (B221)', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.name !== 'chromium-desktop',
+    'One focused Chromium layout pass',
+  );
+  await openFixture(page);
+  await page.evaluate(() => {
+    const { controller } = (window as FixtureWindow).__ROW_BOT_FIXTURE__;
+    const projection = controller.getSnapshot().projection!;
+    const base = projection.rows[0];
+    const text =
+      'A long synthetic line about tides and harbours that wraps across the whole reading column. '.repeat(
+        6,
+      );
+    const rows = Array.from({ length: 24 }, (_, index) => ({
+      ...base,
+      id: `b221-${index}`,
+      message_id: `b221-${index}`,
+      role: index % 2 ? ('assistant' as const) : ('user' as const),
+      blocks: [{ id: `b221-${index}-text`, type: 'markdown' as const, text }],
+    }));
+    (controller as unknown as { update(patch: unknown): void }).update({
+      history: null,
+      projection: { ...projection, rows },
+    });
+  });
+  const card = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  const toggle = page.getByRole('button', {
+    name: 'Conversation details',
+    exact: true,
+  });
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(card).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    const layout = await page.evaluate(() => {
+      const box = (element: Element) => element.getBoundingClientRect();
+      const transcript = document.querySelector<HTMLElement>('.transcript')!;
+      const buttons = Array.from(
+        document.querySelectorAll(
+          '.chat-content > .conversation-heading .conversation-actions .button',
+        ),
+      ).map(box);
+      return {
+        conversation: box(document.querySelector('.chat-workspace')!),
+        transcript: box(transcript),
+        scrollbar: transcript.offsetWidth - transcript.clientWidth,
+        card: box(document.querySelector('.context-card')!),
+        composer: box(document.querySelector('.composer')!),
+        buttonsBottom: Math.max(...buttons.map((button) => button.bottom)),
+        lastButtonRight: Math.max(...buttons.map((button) => button.right)),
+        texts: Array.from(
+          document.querySelectorAll('.transcript .message-text'),
+        ).map(box),
+      };
+    });
+    // The scroller spans the conversation: its scrollbar is at the app's edge.
+    expect(
+      Math.abs(layout.transcript.right - layout.conversation.right),
+    ).toBeLessThanOrEqual(1);
+    // The card sits under the header's buttons, its right edge on the last
+    // one's, left of the scrollbar and above the composer.
+    expect(layout.card.top).toBeGreaterThanOrEqual(layout.buttonsBottom);
+    expect(
+      Math.abs(layout.card.right - layout.lastButtonRight),
+    ).toBeLessThanOrEqual(1);
+    expect(layout.card.right).toBeLessThanOrEqual(
+      layout.transcript.right - layout.scrollbar,
+    );
+    expect(layout.card.bottom).toBeLessThanOrEqual(layout.composer.top);
+    // No message text runs under the card.
+    expect(layout.texts.length).toBeGreaterThan(0);
+    for (const text of layout.texts)
+      expect(
+        text.right > layout.card.left &&
+          text.left < layout.card.right &&
+          text.bottom > layout.card.top &&
+          text.top < layout.card.bottom,
+      ).toBe(false);
+    await screenshot(page, info, `b221-details-${width}`);
+  }
+  // The toggle hides the card (the column re-centres) and brings it back.
+  await toggle.click();
+  await expect(card).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  await expect(card).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 });

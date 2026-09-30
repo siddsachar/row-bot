@@ -6,8 +6,10 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import type { DelegatedActivityView, DelegatedRun } from '../../api/types';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { OverlayProvider } from '../../ui/overlays';
 import DelegatedActivity, {
   recentReads,
@@ -37,6 +39,23 @@ const deferred = <T,>() => {
   return { promise, resolve };
 };
 
+function show(
+  props: Partial<Parameters<typeof DelegatedActivity>[0]> = {},
+): ReturnType<typeof render> {
+  return render(
+    <OverlayProvider>
+      <DelegatedActivity
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={async () => page}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+        {...props}
+      />
+    </OverlayProvider>,
+  );
+}
+
 it('waits for deep-link authentication and loads automatically when ready', async () => {
   const load = vi.fn().mockResolvedValue({ ...page, items: [] });
   const props = {
@@ -64,46 +83,111 @@ it('waits for deep-link authentication and loads automatically when ready', asyn
   expect(props.openConversation).not.toHaveBeenCalled();
 });
 
-it('opens public detail with focus return and explicitly navigates retained child history', async () => {
-  const loadRun = vi.fn().mockResolvedValue(run);
-  const open = vi.fn().mockResolvedValue(undefined);
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={async () => page}
-        loadRun={loadRun}
-        openConversation={open}
-      />
-    </OverlayProvider>,
-  );
-  const opener = await screen.findByRole('button', { name: 'Research task' });
-  opener.focus();
-  fireEvent.click(opener);
-  expect(await screen.findByText('Public result')).toBeInTheDocument();
-  expect(open).not.toHaveBeenCalled();
-  // The dialog closes with its own Close; no second "Back to parent" there.
-  expect(screen.queryByRole('button', { name: 'Back to parent' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-  await act(async () => {});
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  await waitFor(() => expect(opener).toHaveFocus());
-  fireEvent.click(opener);
-  await screen.findByText('Public result');
-  fireEvent.click(screen.getByRole('button', { name: 'Open full thread' }));
-  await act(async () => {});
-  expect(open).toHaveBeenCalledExactlyOnceWith('child-a');
-  expect(loadRun).toHaveBeenCalledTimes(3);
+it('shows each agent on one line: icon, name, and its status in words (B240)', async () => {
+  const user = userEvent.setup();
+  const long = 'Partner portal price lists for Northwind, Contoso and Fabrikam';
+  const statuses = [
+    ['running', 'Working'],
+    ['waiting_approval', 'Waiting for you'],
+    ['failed', 'Failed'],
+  ] as const;
+  show({
+    loadPage: async () => ({
+      ...page,
+      items: statuses.map(([status], index) => ({
+        ...run,
+        run_id: `run-${index}`,
+        name: index === 0 ? long : `Task ${index}`,
+        status,
+        profile_id: index === 1 ? 'profile-7' : '',
+      })),
+    }),
+  });
+  for (const [index, [, word]] of statuses.entries()) {
+    const name = index === 0 ? long : `Task ${index}`;
+    const row = await screen.findByRole('button', { name: `${name}, ${word}` });
+    // The status word shows beside the name, and a small icon before it.
+    expect(within(row).getByText(word)).toBeVisible();
+    expect(row.querySelector('.agent-avatar')).not.toBeNull();
+  }
+  // The icon follows the profile when there is one, else the run.
+  const icon = (name: string) =>
+    screen
+      .getByRole('button', { name: new RegExp(`^${name},`) })
+      .querySelector('.agent-avatar')!
+      .getAttribute('data-avatar');
+  const expected = (seed: string) =>
+    render(<AgentAvatar seed={seed} />)
+      .container.querySelector('.agent-avatar')!
+      .getAttribute('data-avatar');
+  expect(icon('Task 1')).toBe(expected(agentSeed('profile-7', 'run-1')));
+  expect(icon('Task 2')).toBe(expected(agentSeed('', 'run-2')));
+  // A long name is cut to one line; the full name is the row's tooltip.
+  await user.tab();
+  expect(await screen.findByRole('tooltip')).toHaveTextContent(long);
 });
 
-it('fences late A list/detail callbacks after selecting B and closes the prior overlay', async () => {
+it('opens the agent’s conversation from its row, asking again for a queued one', async () => {
+  const open = vi.fn().mockResolvedValue(undefined);
+  const loadRun = vi
+    .fn()
+    .mockResolvedValue({ ...run, child_conversation_id: 'child-b' });
+  show({
+    loadPage: async () => ({
+      ...page,
+      items: [
+        { ...run, status: 'running' },
+        {
+          ...run,
+          run_id: 'run-b',
+          name: 'Queued task',
+          status: 'queued',
+          child_conversation_id: null,
+        },
+      ],
+    }),
+    loadRun,
+    openConversation: open,
+  });
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Research task, Working' }),
+  );
+  await waitFor(() => expect(open).toHaveBeenCalledWith('child-a'));
+  expect(loadRun).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Queued task, Working' }));
+  await waitFor(() => expect(open).toHaveBeenLastCalledWith('child-b'));
+  expect(loadRun).toHaveBeenCalledWith('run-b');
+});
+
+it('says when an agent has no conversation yet instead of opening nothing', async () => {
+  const open = vi.fn();
+  show({
+    loadPage: async () => ({
+      ...page,
+      items: [{ ...run, status: 'queued', child_conversation_id: null }],
+    }),
+    loadRun: async () => ({ ...run, child_conversation_id: null }),
+    openConversation: open,
+  });
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Research task, Working' }),
+  );
+  expect(
+    await screen.findByText("This agent's conversation isn't available yet."),
+  ).toBeInTheDocument();
+  expect(open).not.toHaveBeenCalled();
+});
+
+it('fences a late agent read after switching to another conversation', async () => {
   const pending = deferred<DelegatedRun>();
   const open = vi.fn().mockResolvedValue(undefined);
   const props = {
     conversationId: 'parent-a',
     refreshKey: '',
-    loadPage: async () => page,
+    loadPage: async () => ({
+      ...page,
+      items: [{ ...run, status: 'running', child_conversation_id: null }],
+    }),
     loadRun: () => pending.promise,
     openConversation: open,
   };
@@ -112,7 +196,9 @@ it('fences late A list/detail callbacks after selecting B and closes the prior o
       <DelegatedActivity {...props} />
     </OverlayProvider>,
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Research task' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Research task, Working' }),
+  );
   view.rerender(
     <OverlayProvider>
       <DelegatedActivity
@@ -129,59 +215,48 @@ it('fences late A list/detail callbacks after selecting B and closes the prior o
   await act(async () => {
     pending.resolve(run);
   });
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  expect(screen.queryByText('Public result')).not.toBeInTheDocument();
   expect(open).not.toHaveBeenCalled();
 });
 
-it('loads full continuation and provides the actual parent link without manufacturing child history', async () => {
-  const loadPage = vi
-    .fn()
-    .mockResolvedValueOnce({
+it('folds finished agents into one line under the live ones; a failure stays listed (B240)', async () => {
+  show({
+    loadPage: async () => ({
       ...page,
-      parent_conversation_id: 'root',
-      items: [],
-      has_more: true,
-      next_cursor: 'next',
-    })
-    .mockResolvedValue({ ...page, parent_conversation_id: 'root' });
-  const open = vi.fn().mockResolvedValue(undefined);
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={loadPage}
-        loadRun={async () => ({ ...run, child_conversation_id: null })}
-        openConversation={open}
-      />
-    </OverlayProvider>,
-  );
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'More delegated tasks' }),
-  );
-  fireEvent.click(await screen.findByRole('button', { name: 'Research task' }));
+      items: [
+        { ...run, run_id: 'done-1', name: 'Brand voice notes' },
+        { ...run, run_id: 'done-2', name: 'Customer quotes' },
+        { ...run, run_id: 'stop-1', name: 'Social posts', status: 'stopped' },
+        { ...run, run_id: 'fail-1', name: 'Copy review', status: 'failed' },
+        { ...run, run_id: 'live-1', name: 'Pricing scan', status: 'running' },
+      ],
+    }),
+  });
+  const fold = await screen.findByRole('button', {
+    name: '2 done · 1 stopped',
+  });
+  expect(fold).toHaveAttribute('aria-expanded', 'false');
+  const rows = screen
+    .getAllByRole('button', { name: /, (Working|Failed|Done|Stopped)$/ })
+    .map((button) => button.getAttribute('aria-label'));
+  expect(rows).toEqual(['Pricing scan, Working', 'Copy review, Failed']);
+  fireEvent.click(fold);
+  expect(fold).toHaveAttribute('aria-expanded', 'true');
   expect(
-    await screen.findByText("Its thread isn't available."),
-  ).toBeInTheDocument();
+    screen.getByRole('button', { name: 'Brand voice notes, Done' }),
+  ).toBeVisible();
   expect(
-    screen.queryByRole('button', { name: 'Open full thread' }),
-  ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Back to parent conversation' }),
-  );
-  expect(open).toHaveBeenCalledExactlyOnceWith('root');
-  expect(loadPage).toHaveBeenLastCalledWith('next', expect.any(AbortSignal));
+    screen.getByRole('button', { name: 'Social posts, Stopped' }),
+  ).toBeVisible();
 });
 
-it('replaces each 50-row page and can return to the first page', async () => {
+it('keeps each 50-row page and can return to the first page', async () => {
   const first = {
     ...page,
     items: Array.from({ length: 50 }, (_, index) => ({
       ...run,
       run_id: `run-${index}`,
       name: `Task ${index}`,
+      status: 'running',
     })),
     has_more: true,
     next_cursor: 'next',
@@ -192,6 +267,7 @@ it('replaces each 50-row page and can return to the first page', async () => {
       ...run,
       run_id: `run-${index}`,
       name: `Task ${index}`,
+      status: 'running',
     })),
   };
   const load = vi
@@ -199,30 +275,21 @@ it('replaces each 50-row page and can return to the first page', async () => {
     .mockResolvedValueOnce(first)
     .mockResolvedValueOnce(last)
     .mockResolvedValue(first);
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={load}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-      />
-    </OverlayProvider>,
-  );
-  await screen.findByRole('button', { name: 'Task 0' });
+  show({ loadPage: load });
+  await screen.findByRole('button', { name: 'Task 0, Working' });
   expect(screen.getAllByRole('listitem')).toHaveLength(50);
   fireEvent.click(screen.getByRole('button', { name: 'More delegated tasks' }));
-  await screen.findByRole('button', { name: 'Task 52' });
+  await screen.findByRole('button', { name: 'Task 52, Working' });
   expect(screen.getAllByRole('listitem')).toHaveLength(3);
   expect(
-    screen.queryByRole('button', { name: 'Task 0' }),
+    screen.queryByRole('button', { name: 'Task 0, Working' }),
   ).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'Return to first delegated tasks' }),
   );
-  await screen.findByRole('button', { name: 'Task 0' });
+  await screen.findByRole('button', { name: 'Task 0, Working' });
   expect(screen.getAllByRole('listitem')).toHaveLength(50);
+  expect(load).toHaveBeenNthCalledWith(2, 'next', expect.any(AbortSignal));
 });
 
 it('aborts continuation on unmount and ignores its late response', async () => {
@@ -231,17 +298,7 @@ it('aborts continuation on unmount and ignores its late response', async () => {
     .fn()
     .mockResolvedValueOnce({ ...page, has_more: true, next_cursor: 'next' })
     .mockReturnValue(pending.promise);
-  const view = render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={load}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-      />
-    </OverlayProvider>,
-  );
+  const view = show({ loadPage: load });
   fireEvent.click(
     await screen.findByRole('button', { name: 'More delegated tasks' }),
   );
@@ -252,41 +309,6 @@ it('aborts continuation on unmount and ignores its late response', async () => {
     pending.resolve(page);
   });
   expect(screen.queryByText('Research task')).not.toBeInTheDocument();
-});
-
-it('orders active agents before recent settled agents in the compact rail view', async () => {
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        compact
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={async () => ({
-          ...page,
-          items: [
-            run,
-            {
-              ...run,
-              run_id: 'run-active',
-              name: 'Active task',
-              status: 'waiting_approval',
-            },
-          ],
-        })}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-      />
-    </OverlayProvider>,
-  );
-
-  const names = (await screen.findAllByRole('listitem')).map(
-    (item) => within(item).getByRole('button').textContent,
-  );
-  expect(names[0]).toContain('Active task');
-  expect(names[1]).toContain('Research task');
-  expect(
-    screen.queryByRole('heading', { name: 'Delegated tasks' }),
-  ).not.toBeInTheDocument();
 });
 
 it('reports content once loads settle, without hiding existing work during a refresh', async () => {
@@ -325,18 +347,10 @@ it('reports content once loads settle, without hiding existing work during a ref
 
 it('treats a host without delegated activity as having nothing to show', async () => {
   const onContentChange = vi.fn();
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={vi.fn().mockRejectedValue({ code: 'capability_unavailable' })}
-        loadRun={async () => run}
-        openConversation={vi.fn().mockResolvedValue(undefined)}
-        onContentChange={onContentChange}
-      />
-    </OverlayProvider>,
-  );
+  show({
+    loadPage: vi.fn().mockRejectedValue({ code: 'capability_unavailable' }),
+    onContentChange,
+  });
   expect(
     await screen.findByText('No delegated agents in this conversation.'),
   ).toBeInTheDocument();
@@ -346,6 +360,7 @@ it('treats a host without delegated activity as having nothing to show', async (
 
 it('reuses a recent read when the section remounts with the same activity', async () => {
   const load = vi.fn().mockResolvedValue(page);
+  const onFirstPage = vi.fn();
   let stored: DelegatedRead | null = null;
   const recentRead = {
     get: () => stored,
@@ -353,31 +368,22 @@ it('reuses a recent read when the section remounts with the same activity', asyn
       stored = read;
     },
   };
-  const show = (refreshKey: string) =>
-    render(
-      <OverlayProvider>
-        <DelegatedActivity
-          conversationId="parent-a"
-          refreshKey={refreshKey}
-          loadPage={load}
-          loadRun={async () => run}
-          openConversation={vi.fn().mockResolvedValue(undefined)}
-          recentRead={recentRead}
-        />
-      </OverlayProvider>,
-    );
-  const first = show('event-1');
-  expect(await screen.findByText('Research task')).toBeVisible();
+  const mount = (refreshKey: string) =>
+    show({ refreshKey, loadPage: load, recentRead, onFirstPage });
+  const first = mount('event-1');
+  expect(await screen.findByRole('button', { name: '1 done' })).toBeVisible();
   first.unmount();
   // The context rail remounts when a panel closes; nothing new happened.
-  const second = show('event-1');
-  expect(await screen.findByText('Research task')).toBeVisible();
+  const second = mount('event-1');
+  expect(await screen.findByRole('button', { name: '1 done' })).toBeVisible();
   expect(load).toHaveBeenCalledTimes(1);
+  // The reused read still reaches the transcript and the header.
+  expect(onFirstPage).toHaveBeenCalledTimes(2);
   second.unmount();
   // New agent activity always reads again.
-  show('event-2');
+  mount('event-2');
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText('Research task')).toBeVisible();
+  expect(await screen.findByRole('button', { name: '1 done' })).toBeVisible();
 });
 
 it('keeps recent reads for several conversations and evicts the oldest', () => {
@@ -394,7 +400,7 @@ it('keeps recent reads for several conversations and evicts the oldest', () => {
   expect(reads.get('c')?.key).toBe('c');
 });
 
-it('reports how many delegated agents are live once each page settles', async () => {
+it('reports how many agents are live and working once each page settles', async () => {
   const onLiveChange = vi.fn();
   const next = deferred<DelegatedActivityView>();
   const load = vi
@@ -420,7 +426,9 @@ it('reports how many delegated agents are live once each page settles', async ()
       <DelegatedActivity {...props} refreshKey="1" />
     </OverlayProvider>,
   );
-  await waitFor(() => expect(onLiveChange).toHaveBeenLastCalledWith(2));
+  await waitFor(() =>
+    expect(onLiveChange).toHaveBeenLastCalledWith({ live: 2, working: 1 }),
+  );
   // A refresh in flight keeps the last count instead of reporting zero.
   view.rerender(
     <OverlayProvider>
@@ -435,125 +443,117 @@ it('reports how many delegated agents are live once each page settles', async ()
       items: [{ ...run, run_id: 'run-a', status: 'completed' }],
     }),
   );
-  await waitFor(() => expect(onLiveChange).toHaveBeenLastCalledWith(0));
+  await waitFor(() =>
+    expect(onLiveChange).toHaveBeenLastCalledWith({ live: 0, working: 0 }),
+  );
 });
 
-it('stops and messages a running agent from its detail (parity row 9)', async () => {
+it('messages and stops a running agent from inside its row (parity row 9)', async () => {
   const working = { ...run, status: 'running' };
   const stopRun = vi.fn().mockResolvedValue(undefined);
   const messageRun = vi.fn().mockResolvedValue(undefined);
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={async () => ({ ...page, items: [working] })}
-        loadRun={async () => working}
-        openConversation={async () => {}}
-        stopRun={stopRun}
-        messageRun={messageRun}
-      />
-    </OverlayProvider>,
+  show({
+    loadPage: async () => ({ ...page, items: [working] }),
+    stopRun,
+    messageRun,
+  });
+  const actions = await screen.findByRole('group', {
+    name: 'Research task actions',
+  });
+  fireEvent.click(
+    within(actions).getByRole('button', { name: 'Message Research task' }),
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Research task' }));
-  const dialog = await screen.findByRole('dialog');
-  expect(within(dialog).getByRole('status')).toHaveTextContent('Working');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Message' }));
   fireEvent.change(
-    within(dialog).getByRole('textbox', { name: 'Message to Research task' }),
+    screen.getByRole('textbox', { name: 'Message to Research task' }),
     { target: { value: 'Also cover tides.' } },
   );
   await act(async () => {
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Send to agent' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send to agent' }));
   });
   expect(messageRun).toHaveBeenCalledWith('run-a', 'Also cover tides.');
   expect(
-    await within(dialog).findByText(
+    await screen.findByText(
       'Message sent. The agent reads it at its next step.',
     ),
-  ).toBeVisible();
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   await act(async () => {
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop' }));
+    fireEvent.click(
+      within(actions).getByRole('button', { name: 'Stop Research task' }),
+    );
   });
   expect(stopRun).toHaveBeenCalledWith('run-a');
 });
 
-it('offers Stop in place on a working row and none on a finished one', async () => {
-  const stopRun = vi.fn().mockResolvedValue(undefined);
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        compact
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={async () => ({
-          ...page,
-          items: [
-            run,
-            {
-              ...run,
-              run_id: 'run-b',
-              name: 'Working task',
-              status: 'running',
-            },
-          ],
-        })}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-        stopRun={stopRun}
-      />
-    </OverlayProvider>,
-  );
-  const stop = await screen.findByRole('button', {
-    name: 'Stop Working task',
+it('offers Stop and Message only while an agent is still going', async () => {
+  show({
+    loadPage: async () => ({
+      ...page,
+      items: [
+        run,
+        { ...run, run_id: 'run-f', name: 'Failed task', status: 'failed' },
+        { ...run, run_id: 'run-s', name: 'Ending task', status: 'stopping' },
+      ],
+    }),
+    stopRun: vi.fn(),
+    messageRun: vi.fn(),
   });
-  await act(async () => {
-    fireEvent.click(stop);
-  });
-  expect(stopRun).toHaveBeenCalledWith('run-b');
+  await screen.findByRole('button', { name: 'Failed task, Failed' });
+  expect(
+    screen.queryByRole('button', { name: 'Stop Failed task' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Message Failed task' }),
+  ).not.toBeInTheDocument();
+  // A stop already asked for leaves only Message.
+  expect(
+    screen.queryByRole('button', { name: 'Stop Ending task' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Message Ending task' }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '1 done' }));
   expect(
     screen.queryByRole('button', { name: 'Stop Research task' }),
   ).not.toBeInTheDocument();
-  expect(screen.getByText('Done')).toBeVisible();
 });
 
-it('shows a child thread its own agent with Stop and Message', async () => {
+it('shows a child conversation its own agent as one compact row, with no button back (B242)', async () => {
   const stopRun = vi.fn().mockResolvedValue(undefined);
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="child-a"
-        refreshKey=""
-        loadPage={async () => ({
-          ...page,
-          conversation_id: 'child-a',
-          parent_conversation_id: 'parent-a',
-          own_run: { ...run, status: 'running' },
-          items: [],
-        })}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-        stopRun={stopRun}
-        messageRun={vi.fn()}
-      />
-    </OverlayProvider>,
-  );
-  const own = await screen.findByRole('group', { name: 'This agent' });
-  expect(own).toHaveTextContent('Research task');
-  expect(own).toHaveTextContent('Working');
-  expect(within(own).getByRole('button', { name: 'Message' })).toBeVisible();
+  show({
+    conversationId: 'child-a',
+    loadPage: async () => ({
+      ...page,
+      conversation_id: 'child-a',
+      parent_conversation_id: 'parent-a',
+      parent_title: 'Q4 launch plan',
+      own_run: { ...run, status: 'running' },
+      items: [],
+    }),
+    stopRun,
+    messageRun: vi.fn(),
+  });
+  const own = await screen.findByRole('list', { name: 'This agent' });
+  expect(
+    within(own).getByRole('group', { name: 'Research task, Working' }),
+  ).toBeVisible();
+  expect(
+    within(own).getByRole('button', { name: 'Message Research task' }),
+  ).toBeVisible();
   await act(async () => {
-    fireEvent.click(within(own).getByRole('button', { name: 'Stop' }));
+    fireEvent.click(
+      within(own).getByRole('button', { name: 'Stop Research task' }),
+    );
   });
   expect(stopRun).toHaveBeenCalledWith('run-a');
+  // The way back is the header's breadcrumb now.
+  expect(screen.queryByRole('button', { name: /back to parent/i })).toBeNull();
   expect(
-    screen.getByRole('button', { name: 'Back to parent conversation' }),
-  ).toBeVisible();
+    screen.queryByText('No delegated agents in this conversation.'),
+  ).toBeNull();
 });
 
-it('keeps "Message sent" in a child thread while Agents re-reads (B163)', async () => {
+it('keeps "Message sent" in a child conversation while it re-reads (B163)', async () => {
   const messageRun = vi.fn().mockResolvedValue(undefined);
   let release = () => {};
   const child = {
@@ -572,25 +572,11 @@ it('keeps "Message sent" in a child thread while Agents re-reads (B163)', async 
           release = () => resolve(child);
         }),
     );
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        conversationId="child-a"
-        refreshKey=""
-        loadPage={loadPage}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-        stopRun={vi.fn()}
-        messageRun={messageRun}
-      />
-    </OverlayProvider>,
+  show({ conversationId: 'child-a', loadPage, messageRun, stopRun: vi.fn() });
+  const own = await screen.findByRole('list', { name: 'This agent' });
+  fireEvent.click(
+    within(own).getByRole('button', { name: 'Message Research task' }),
   );
-  const own = await screen.findByRole('group', { name: 'This agent' });
-  // Its own agent is what this thread has; no "No delegated agents" beside it.
-  expect(
-    screen.queryByText('No delegated agents in this conversation.'),
-  ).toBeNull();
-  fireEvent.click(within(own).getByRole('button', { name: 'Message' }));
   fireEvent.change(
     within(own).getByRole('textbox', { name: 'Message to Research task' }),
     { target: { value: 'Keep it short.' } },
@@ -602,11 +588,27 @@ it('keeps "Message sent" in a child thread while Agents re-reads (B163)', async 
   await waitFor(() => expect(loadPage).toHaveBeenCalledTimes(2));
   expect(
     screen.getByText('Message sent. The agent reads it at its next step.'),
-  ).toBeVisible();
+  ).toBeInTheDocument();
   await act(async () => release());
   expect(
     screen.getByText('Message sent. The agent reads it at its next step.'),
-  ).toBeVisible();
+  ).toBeInTheDocument();
+});
+
+it('reports each settled first page, never a later one (B241, B242)', async () => {
+  const onFirstPage = vi.fn();
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce({ ...page, has_more: true, next_cursor: 'next' })
+    .mockResolvedValue({ ...page, items: [] });
+  show({ loadPage: load, onFirstPage });
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'More delegated tasks' }),
+  );
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  expect(onFirstPage).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ next_cursor: 'next' }),
+  );
 });
 
 it('offers Resume and Dismiss for interrupted agent work (B220)', async () => {
@@ -622,7 +624,6 @@ it('offers Resume and Dismiss for interrupted agent work (B220)', async () => {
   const view = (resumable: boolean) => (
     <OverlayProvider>
       <DelegatedActivity
-        compact
         conversationId="parent-a"
         refreshKey=""
         loadPage={loadPage}
@@ -668,22 +669,8 @@ it('offers Resume and Dismiss for interrupted agent work (B220)', async () => {
 });
 
 it('shows no interrupted-work controls when nothing waits on the person', async () => {
-  render(
-    <OverlayProvider>
-      <DelegatedActivity
-        compact
-        conversationId="parent-a"
-        refreshKey=""
-        loadPage={async () => page}
-        loadRun={async () => run}
-        openConversation={async () => {}}
-        interrupted={null}
-        resumeWork={vi.fn()}
-        dismissWork={vi.fn()}
-      />
-    </OverlayProvider>,
-  );
-  await screen.findByText('Research task');
+  show({ interrupted: null, resumeWork: vi.fn(), dismissWork: vi.fn() });
+  await screen.findByRole('button', { name: '1 done' });
   expect(
     screen.queryByRole('group', { name: 'Interrupted agent work' }),
   ).not.toBeInTheDocument();

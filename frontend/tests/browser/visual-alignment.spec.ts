@@ -267,7 +267,7 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
   expect((await layoutFor(page, id)).panels).toEqual([]);
   await revealContextControl(page, 'Automatic presentation Deck Design');
   await page
-    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('complementary', { name: 'Conversation details' })
     .getByRole('button', {
       name: 'Automatic presentation Deck Design',
       exact: true,

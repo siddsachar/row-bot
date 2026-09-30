@@ -83,6 +83,8 @@ class DelegatedAgentReference:
     run_id: str
     display_name: str
     status: str
+    # The agent's profile, when it has one: its icon follows it (B240).
+    profile_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -490,11 +492,13 @@ def _agent_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpe
         if not run_id or run_id in seen:
             continue
         seen.add(run_id)
+        profile = raw.get("profile")
         runs.append(
             DelegatedAgentReference(
                 run_id=run_id,
                 display_name=_clean_text(raw.get("display_name"), 256, fallback="Delegated task"),
                 status=_clean_text(raw.get("status"), 64, fallback="unknown"),
+                profile_id=_clean_text(profile.get("id") if isinstance(profile, dict) else "", 256),
             )
         )
     return (
@@ -705,6 +709,7 @@ def _public_specialization(
                 "run_id": run.run_id,
                 "display_name": run.display_name,
                 "status": run.status,
+                "profile_id": run.profile_id,
             }
             for run in specialization.agent_runs
         ],
