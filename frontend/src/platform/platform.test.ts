@@ -47,6 +47,9 @@ describe('browser capabilities', () => {
       await adapter.buddyPlacement('tear_off', { x: 10, y: 20 }),
     ).toMatchObject({ status: 'unavailable' });
     expect(legacy).not.toHaveBeenCalled();
+    // The spoofed globals would make later tests' window a desktop one.
+    Reflect.deleteProperty(window, 'pywebview');
+    Reflect.deleteProperty(window, '__ROW_BOT_NATIVE__');
   });
 
   it('returns selected File objects without local paths and cleans cancellation listeners', async () => {
@@ -1226,5 +1229,32 @@ describe('desktop windows never run the browser versions silently (B231, B238)',
     });
     expect(transport.saveToExports).not.toHaveBeenCalled();
     expect(transport.download).not.toHaveBeenCalled();
+  });
+});
+
+describe('downloads in a desktop window (B275)', () => {
+  it('never reports a download pywebview would cancel as started', async () => {
+    const { saveBrowserDownload } = await import('./download');
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+    const desktop = Object.assign(Object.create(window), {
+      chrome: { webview: {} },
+      document,
+      navigator: { userActivation: { isActive: true } },
+    }) as Window;
+    const load = vi.fn().mockResolvedValue(new Blob(['x']));
+
+    const result = await saveBrowserDownload(
+      load,
+      'code.py',
+      undefined,
+      desktop,
+    );
+
+    expect(result).toEqual({
+      status: 'unavailable',
+      reason: 'desktop_download_unavailable',
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
   });
 });

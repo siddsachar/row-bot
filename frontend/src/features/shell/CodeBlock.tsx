@@ -91,7 +91,10 @@ export function CodeBlock({
     setStatus(
       result.status === 'ok'
         ? 'Code download prepared.'
-        : 'Code download is unavailable.',
+        : result.status === 'unavailable' &&
+            result.reason === 'desktop_download_unavailable'
+          ? 'Downloads don’t work in the desktop window. Copy the code instead.'
+          : 'Code download is unavailable.',
     );
   }
   return (
