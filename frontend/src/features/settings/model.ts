@@ -369,7 +369,7 @@ export const settingsRows: SettingsRow[] = [
   {
     leaf: 'mcp',
     anchor: 'mcp-runtimes',
-    label: 'Managed runtimes',
+    label: 'Runtimes (Node.js, uv)',
     keywords: 'node python uv',
   },
   { leaf: 'accounts', anchor: 'github', label: 'GitHub account' },
@@ -452,7 +452,7 @@ export function searchSettingsRows(query: string) {
   if (!words.length) return [];
   return settingsRows.filter((row) => {
     const own = `${row.label} ${row.keywords ?? ''}`.toLowerCase();
-    // The page name narrows ("mcp runtime" → MCP › Managed runtimes), but
+    // The page name narrows ("mcp runtime" → MCP › Runtimes), but
     // one word must name the row itself, so "system" lists the page only.
     const text = `${own} ${leafLabels[row.leaf]}`.toLowerCase();
     return (

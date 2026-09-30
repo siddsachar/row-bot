@@ -43,7 +43,7 @@ const GOOGLE = open('accounts', 'Google account', 'google');
 const CHANNELS = open('channels', 'Channels');
 const PLUGINS = open('plugins', 'Plugins', 'installed-plugins');
 const MCP = open('mcp', 'MCP servers', 'mcp-servers');
-const RUNTIMES = open('mcp', 'Managed runtimes', 'mcp-runtimes');
+const RUNTIMES = open('mcp', 'Runtimes', 'mcp-runtimes');
 const SKILLS = open('skills', 'Skills', 'skill-library');
 const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');
@@ -1354,7 +1354,7 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   runtime_installation_unconfirmed: [
-    "Row-Bot couldn't confirm the install. Check Managed runtimes before trying again.",
+    "Row-Bot couldn't confirm the install. Check the runtimes in Settings › MCP before trying again.",
     'review',
     RUNTIMES,
   ],
