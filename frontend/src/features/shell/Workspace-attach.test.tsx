@@ -47,6 +47,11 @@ class ComposerTransport extends FixtureTransport {
     );
     return { ...template, conversation_id: id };
   }
+  // The composer's own read answers too, so its failure never replaces the
+  // message a test checks.
+  async composer(id: string) {
+    return (await this.workspace(id)).composer!;
+  }
 }
 
 const clients: ClientController[] = [];
@@ -55,7 +60,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function attachWith(selectFile: FakePlatformScript['selectFile']) {
+async function attachWith(
+  selectFile: FakePlatformScript['selectFile'],
+  prepare?: (controller: ClientController) => void,
+) {
   vi.stubGlobal('innerWidth', 1440);
   vi.stubGlobal('innerHeight', 900);
   const controller = new ClientController(
@@ -65,6 +73,7 @@ async function attachWith(selectFile: FakePlatformScript['selectFile']) {
   clients.push(controller);
   await controller.start();
   await controller.selectConversation('conversation-a');
+  prepare?.(controller);
   render(
     <MemoryRouter initialEntries={['/conversations/conversation-a']}>
       <RuntimeContext.Provider
@@ -126,3 +135,54 @@ it(
   },
   HEAVY,
 );
+
+it(
+  'files dropped while another uploads attach too (B281)',
+  async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const controller = await attachWith(
+      {
+        status: 'ok',
+        value: {
+          kind: 'file',
+          files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+        },
+      },
+      (value) => {
+        const upload = value.upload.bind(value);
+        let calls = 0;
+        // The picked file's upload is still running when the others drop.
+        vi.spyOn(value, 'upload').mockImplementation(async (...args) => {
+          if (calls++ === 0) await gate;
+          return upload(...args);
+        });
+      },
+    );
+    const field = document.querySelector('.composer-field')!;
+    await waitFor(() => expect(value(controller)).toBe(1));
+    fireEvent.drop(field, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [
+          new File(['first'], 'notes-a.txt', { type: 'text/plain' }),
+          new File(['second'], 'notes-b.txt', { type: 'text/plain' }),
+        ],
+      },
+    });
+    release();
+    await waitFor(
+      () =>
+        expect(controller.getDraft('conversation-a').attachments).toHaveLength(
+          3,
+        ),
+      { timeout: 15_000 },
+    );
+  },
+  HEAVY,
+);
+
+/** How many uploads the controller has started. */
+function value(controller: ClientController) {
+  return vi.mocked(controller.upload).mock.calls.length;
+}

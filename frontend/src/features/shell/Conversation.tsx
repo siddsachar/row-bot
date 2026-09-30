@@ -1834,22 +1834,14 @@ export default function Conversation({
     ]);
     if (problem) setError(problem);
     if (!accepted.length) return;
-    setBusy(true);
-    try {
-      // Each file's progress and any failure show on its tile (B232).
-      await uploads.add(target, accepted);
-      if (!problem) setError('');
-    } finally {
-      setBusy(false);
-    }
+    // Each file's progress and any failure show on its tile (B232); more
+    // files can join while others upload, so this doesn't hold the composer
+    // (B281). Sending waits for the uploads.
+    await uploads.add(target, accepted);
+    if (!problem) setError('');
   }
   async function retryUpload(item: AttachmentUpload) {
-    setBusy(true);
-    try {
-      await uploads.retry(item);
-    } finally {
-      setBusy(false);
-    }
+    await uploads.retry(item);
   }
   const [dragging, setDragging] = useState(false);
   const attachBlocked = busy || !id || state.status !== 'ready';
@@ -2765,6 +2757,7 @@ export default function Conversation({
   );
   const sendBlocked =
     busy ||
+    pendingUploads.some((item) => !item.error) ||
     Boolean(pendingSteering) ||
     Boolean(pendingSubmit) ||
     Boolean(pendingResume);
