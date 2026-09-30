@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BuddySurface, {
   BuddyAvatar,
+  BuddyPortrait,
   rememberBuddyMedia,
   type BuddyMediaLoader,
 } from './BuddySurface';
@@ -49,6 +50,7 @@ const surface = vi.hoisted(() => {
   const globalBuddyMedia = vi.fn();
   return {
     state: { selectedConversationId: null as string | null },
+    buddyOwner: null as null | { get: () => { get: (id: string) => unknown } },
     navigate: vi.fn(),
     globalBuddy,
     globalBuddyPack,
@@ -68,7 +70,7 @@ vi.mock('../../runtime', () => ({
   useClientState: () => surface.state,
   useRuntime: () => ({
     controller: surface.controller,
-    buddyOwner: null,
+    buddyOwner: surface.buddyOwner,
     platform: surface.platform,
   }),
 }));
@@ -96,6 +98,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  surface.buddyOwner = null;
 });
 
 beforeEach(() => {
@@ -562,4 +565,60 @@ it('reuses pack media across conversations for the same pack revision', async ()
     signal,
   );
   expect(load).toHaveBeenCalledTimes(4);
+});
+
+describe('BuddyPortrait: Buddy beside the Overview greeting (B269)', () => {
+  it('shows the global Buddy live, and nothing while Buddy is hidden', async () => {
+    surface.state.selectedConversationId = null;
+    surface.globalBuddy.mockResolvedValueOnce({
+      ...snapshot,
+      conversation_id: null,
+      activity: 'idle',
+    });
+    surface.globalBuddyPack.mockResolvedValue(pack);
+    const { container, unmount } = render(<BuddyPortrait />);
+    await waitFor(() =>
+      expect(
+        container.querySelector('.buddy-avatar-frame[data-buddy-mood]'),
+      ).toHaveAttribute('data-buddy-mood', 'curious'),
+    );
+    expect(surface.globalBuddyPack).toHaveBeenCalledWith(
+      'luminous',
+      expect.any(AbortSignal),
+    );
+    unmount();
+
+    surface.globalBuddy.mockResolvedValueOnce({
+      ...snapshot,
+      preferences: { ...snapshot.preferences, visible: false },
+      conversation_id: null,
+      activity: 'idle',
+    });
+    const hidden = render(<BuddyPortrait />);
+    await waitFor(() => expect(hidden.container).toBeEmptyDOMElement());
+  });
+
+  it('follows the open conversation’s Buddy session without reading it again', () => {
+    surface.state.selectedConversationId = 'conversation-a';
+    const view = {
+      snapshot: { ...snapshot, activity: 'thinking' },
+      selectedPack: pack,
+      busy: false,
+      revoked: false,
+    };
+    const session = {
+      subscribe: () => () => undefined,
+      getSnapshot: () => view,
+      observe: vi.fn(() => () => undefined),
+      load: vi.fn(),
+    };
+    surface.buddyOwner = { get: () => ({ get: () => session }) };
+    const { container } = render(<BuddyPortrait />);
+    expect(container.querySelector('.buddy-avatar-frame')).toHaveAttribute(
+      'data-state',
+      'thinking',
+    );
+    expect(surface.globalBuddy).not.toHaveBeenCalled();
+    expect(session.load).not.toHaveBeenCalled();
+  });
 });

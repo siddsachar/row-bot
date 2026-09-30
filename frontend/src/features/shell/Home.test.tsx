@@ -245,7 +245,7 @@ it('opens on Overview with the five Home capability tabs and no pane-backed reso
   );
 });
 
-it('keeps the old welcome, examples, and connection chrome out of Overview while listing recent threads', async () => {
+it('keeps the old welcome, examples, and connection chrome out of Overview while continuing recent threads', async () => {
   mock.state.conversations = [
     { id: 'chat-a', title: 'Design review', revision: 'r', pinned: false },
   ];
@@ -258,9 +258,11 @@ it('keeps the old welcome, examples, and connection chrome out of Overview while
     screen.queryByRole('region', { name: 'Start with an example' }),
   ).toBeNull();
   expect(screen.queryByText('Connected · local workspace')).toBeNull();
-  const recent = screen.getByRole('list', { name: 'Recent threads' });
+  const recent = screen.getByRole('list', {
+    name: 'Continue where you left off',
+  });
   fireEvent.click(
-    within(recent).getByRole('button', { name: /Design review/ }),
+    within(recent).getByRole('button', { name: 'Open Design review' }),
   );
   expect(mock.controller.selectConversation).toHaveBeenCalledWith('chat-a');
   expect(location()).toBe('/conversations/chat-a');
@@ -310,7 +312,7 @@ it('opens a workflow from Overview with a one-shot workflow intent', async () =>
         schedule: 'daily:08:00',
         at: null,
         last_run: null,
-        last_status: null,
+        last_status: 'failed',
         conversation_id: null,
         next_run: '2099-01-01T08:00:00',
       },
@@ -319,7 +321,7 @@ it('opens a workflow from Overview with a one-shot workflow intent', async () =>
   show();
   fireEvent.click(
     await screen.findByRole('button', {
-      name: 'Open scheduled workflow: Morning digest',
+      name: 'Open failed workflow: Morning digest',
     }),
   );
   expect(location()).toBe('/?tab=workflows&workflow=task-7');
@@ -329,7 +331,7 @@ it('opens a workflow from Overview with a one-shot workflow intent', async () =>
   );
   chooseTab('Overview');
   expect(location()).toBe('/?tab=overview');
-  fireEvent.click(await screen.findByRole('button', { name: 'Workflows' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Workflows: / }));
   expect(location()).toBe('/?tab=workflows');
   chooseTab('Overview');
   fireEvent.click(await screen.findByRole('button', { name: 'Monitor' }));
@@ -337,6 +339,69 @@ it('opens a workflow from Overview with a one-shot workflow intent', async () =>
   expect(
     await screen.findByRole('region', { name: 'System Monitor' }),
   ).toBeVisible();
+});
+
+it('starts a new chat from Overview through the shell’s New chat owner', async () => {
+  const onAsk = vi.fn();
+  render(
+    <MemoryRouter>
+      <Home onAsk={onAsk} asking={false} />
+    </MemoryRouter>,
+  );
+  fireEvent.change(
+    await screen.findByRole('textbox', { name: 'Ask Row-Bot' }),
+    { target: { value: 'Plan my week' } },
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start chat' }));
+  expect(onAsk).toHaveBeenCalledWith('Plan my week');
+  // Overview itself never creates a conversation.
+  expect(mock.controller.selectConversation).not.toHaveBeenCalled();
+});
+
+it('opens New design and New code folder setup, and a new workflow’s editor', async () => {
+  const onPanel = vi.fn();
+  render(
+    <MemoryRouter>
+      <Home onPanel={onPanel} />
+      <Location />
+    </MemoryRouter>,
+  );
+  const quick = await screen.findByRole('group', { name: 'Quick starts' });
+  fireEvent.click(within(quick).getByRole('button', { name: 'New design' }));
+  expect(mock.overlayOpen).toHaveBeenLastCalledWith(
+    expect.objectContaining({ title: 'New design' }),
+  );
+  fireEvent.click(
+    within(quick).getByRole('button', { name: 'New code folder' }),
+  );
+  expect(mock.overlayOpen).toHaveBeenLastCalledWith(
+    expect.objectContaining({ title: 'New code folder' }),
+  );
+  fireEvent.click(within(quick).getByRole('button', { name: 'New workflow' }));
+  expect(mock.taskEditSessions.open).toHaveBeenCalledWith('task');
+  expect(location()).toBe('/?tab=workflows');
+});
+
+it('reads Insights for Overview only where this device may', async () => {
+  mock.controller.insights.mockResolvedValue({
+    schema_version: 1,
+    revision: 'i',
+    curator_report: null,
+    items: [],
+  });
+  const { unmount } = show();
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
+  );
+  expect(mock.controller.insights).not.toHaveBeenCalled();
+  unmount();
+  mock.state.handshake = {
+    instance_id: 'server-b',
+    client_session_id: 'session-b',
+    authentication_kind: 'local_owner',
+  };
+  show();
+  await waitFor(() => expect(mock.controller.insights).toHaveBeenCalledOnce());
 });
 
 it('checks Dream Cycle from one click and opens the irreversible-change confirmation', async () => {
@@ -473,10 +538,9 @@ it('reuses monitor, knowledge, and workflow reads across tab switches for 20 sec
   await waitFor(() =>
     expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
   );
+  await waitFor(() => expect(graphReads(8)).toBe(1));
   chooseTab('Knowledge');
-  await waitFor(() =>
-    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(1),
-  );
+  await waitFor(() => expect(graphReads(2000)).toBe(1));
   expect(mock.controller.knowledgeGraph).toHaveBeenCalledWith(
     2000,
     expect.any(AbortSignal),
@@ -488,7 +552,8 @@ it('reuses monitor, knowledge, and workflow reads across tab switches for 20 sec
   chooseTab('Knowledge');
   await screen.findByRole('button', { name: 'Run Dream Cycle' });
   expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(1);
-  expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(1);
+  expect(graphReads(2000)).toBe(1);
+  expect(graphReads(8)).toBe(1);
   expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1);
 
   clock += 20_001;
@@ -499,10 +564,9 @@ it('reuses monitor, knowledge, and workflow reads across tab switches for 20 sec
   await waitFor(() =>
     expect(mock.controller.savedTasks).toHaveBeenCalledTimes(2),
   );
+  await waitFor(() => expect(graphReads(8)).toBe(2));
   chooseTab('Knowledge');
-  await waitFor(() =>
-    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
-  );
+  await waitFor(() => expect(graphReads(2000)).toBe(2));
 });
 
 it('does not cache a failed workflow read', async () => {
@@ -531,6 +595,8 @@ it('reads a bounded knowledge graph and raises the limit only when Show all is c
     relation_count: 0,
     orphan: true,
     is_user: false,
+    status: 'active',
+    tier: 'semantic',
   });
   mock.controller.knowledgeGraph
     .mockResolvedValueOnce({

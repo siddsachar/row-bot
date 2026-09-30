@@ -1659,7 +1659,17 @@ export default function Workspace() {
                       headerMenu={phone ? phoneMenu : undefined}
                     />
                   </section>
-                  {homeOpen && <Home />}
+                  {homeOpen && (
+                    <Home
+                      onAsk={(text, options) =>
+                        void creation.newChat(text, undefined, options)
+                      }
+                      asking={creation.creatingChat}
+                      onPanel={(panel, options) =>
+                        showPanel(panel, undefined, undefined, options)
+                      }
+                    />
+                  )}
                   {compact && !routeOpen && (
                     <section
                       className="compact-tab panel-sheet"

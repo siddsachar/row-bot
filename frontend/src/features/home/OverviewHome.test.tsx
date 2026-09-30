@@ -1,16 +1,25 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type {
   ConversationView,
   GenerationState,
   MonitorSnapshot,
   OnboardingSnapshot,
+  PendingApproval,
+  PendingApprovalPage,
+  SystemDiagnosisCheck,
   TaskSummary,
   TaskSummaryPage,
 } from '../../api/types';
 import OverviewHome, { type OverviewHomeProps } from './OverviewHome';
-import { scheduleWords } from './home-format';
+import { clockTime, scheduleWords } from './home-format';
+
+const runtime = vi.hoisted(() => ({ approval: vi.fn(), intent: vi.fn() }));
+vi.mock('../../runtime', () => ({
+  useRuntime: () => ({ controller: runtime }),
+}));
 
 /** Friday 26 September 2026, 9:30 local time. */
 const now = new Date(2026, 8, 26, 9, 30, 0);
@@ -84,6 +93,24 @@ function page(items: TaskSummary[]): TaskSummaryPage {
   };
 }
 
+function approval(patch: Partial<PendingApproval> = {}): PendingApproval {
+  return {
+    id: 'approval-mail',
+    source: 'conversation',
+    title: 'Send an email to Riverside Flour',
+    what: 'Reorder for next week: 40 kg rye',
+    requested_at: at(26, 9),
+    expires_at: null,
+    conversation_id: 'chat-mail',
+    task_id: null,
+    ...patch,
+  };
+}
+
+function approvals(...items: PendingApproval[]): PendingApprovalPage {
+  return { schema_version: 1, items, total: items.length };
+}
+
 function setupSnapshot(
   extra: Partial<OnboardingSnapshot> = {},
 ): OnboardingSnapshot {
@@ -141,11 +168,82 @@ function monitorSnapshot(
   };
 }
 
+function check(patch: Partial<SystemDiagnosisCheck>): SystemDiagnosisCheck {
+  return {
+    id: 'disk',
+    name: 'Disk',
+    status: 'ok',
+    detail: '120 GB free',
+    checked_at: new Date(2026, 8, 26, 9, 20, 0).getTime() / 1000,
+    settings_tab: 'System',
+    network: false,
+    stale: false,
+    ...patch,
+  };
+}
+
+function health(...checks: SystemDiagnosisCheck[]) {
+  return vi.fn().mockResolvedValue({
+    schema_version: 1,
+    hourly_network_checks: true,
+    checks,
+  });
+}
+
+const graphNode = (id: string, type: string, relations: number) => ({
+  id,
+  revision: `r-${id}`,
+  subject: `Memory ${id}`,
+  description: '',
+  entity_type: type,
+  source: 'manual',
+  updated_at: at(25, 9),
+  relation_count: relations,
+  orphan: relations === 0,
+  is_user: false,
+  status: 'active',
+  tier: 'semantic',
+});
+
+function memory(total: number) {
+  return vi.fn().mockResolvedValue({
+    schema_version: 1,
+    availability: 'available',
+    revision: 'g'.repeat(64),
+    nodes: [
+      graphNode('a', 'person', 3),
+      graphNode('b', 'project', 2),
+      graphNode('c', 'place', 1),
+    ],
+    edges: [
+      {
+        id: 'e1',
+        source_id: 'a',
+        target_id: 'b',
+        relation_type: 'works_on',
+        updated_at: at(25, 9),
+      },
+    ],
+    total_entities: total,
+    total_relations: 2,
+    shown_entities: 3,
+    shown_relations: 1,
+    truncated: total > 3,
+    center_id: null,
+    entity_types: ['person', 'project', 'place'],
+    sources: ['manual'],
+    status_counts: { active: total },
+  });
+}
+
 const handlers = {
   onOpenConversation: vi.fn(),
   onOpenWorkflows: vi.fn(),
   onOpenTab: vi.fn(),
   onHideSetup: vi.fn(),
+  onAsk: vi.fn(),
+  onNewResource: vi.fn(),
+  onNewWorkflow: vi.fn(),
 };
 
 function show(props: Partial<OverviewHomeProps> = {}) {
@@ -177,31 +275,61 @@ function buttonNames(name: string) {
     .map((button) => button.getAttribute('aria-label') ?? button.textContent);
 }
 
+function summary() {
+  return screen.getByRole('heading', { level: 2 }).nextElementSibling!;
+}
+
+function card(name: RegExp) {
+  return within(list('Live status')).getByRole('button', { name });
+}
+
 beforeEach(() => {
   for (const handler of Object.values(handlers)) handler.mockReset();
+  runtime.approval.mockReset().mockResolvedValue({
+    id: 'approval-mail',
+    revision: '0',
+    nonce: 'nonce-mail',
+  });
+  runtime.intent.mockReset().mockResolvedValue({ status: 'completed' });
 });
 
-it('greets by the supplied clock and summarizes a quiet workspace', async () => {
-  show();
+afterEach(() => {
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+});
+
+// Hero ---------------------------------------------------------------------
+
+it('greets by the supplied clock, shows Buddy beside it and is all caught up once reads finish', async () => {
+  show({ buddy: <img alt="Buddy" src="data:," /> });
+  const heading = screen.getByRole('heading', {
+    level: 2,
+    name: 'Good morning',
+  });
+  expect(heading).toBeVisible();
   expect(
-    screen.getByRole('heading', { level: 2, name: 'Good morning' }),
+    within(heading.closest('header')!).getByRole('img', { name: 'Buddy' }),
   ).toBeVisible();
-  expect(screen.getByRole('status')).toHaveTextContent('Reading workflows…');
-  expect(await screen.findByText('No scheduled workflows.')).toBeVisible();
-  expect(screen.queryByText('Reading workflows…')).toBeNull();
-  const header = screen.getByRole('heading', { level: 2 }).closest('header')!;
-  expect(header).toHaveTextContent('Nothing needs you');
-  expect(
-    screen.getByText(
-      'Nothing needs you. Approvals and failed runs show up here.',
-    ),
-  ).toBeVisible();
-  expect(screen.getByText('No agents or workflows are running.')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Checking what needs you…',
+  );
+  const needs = screen.getByRole('region', { name: 'Needs you' });
+  expect(await within(needs).findByText('All caught up')).toBeVisible();
+  expect(needs).toHaveTextContent(
+    'Nothing is waiting for you. Approvals and failed runs show up here.',
+  );
+  expect(summary()).toHaveTextContent("You're all caught up.");
   expect(screen.getByText('No conversations yet.')).toBeVisible();
   expect(
     screen.getByText('Quiet. Nothing ran since 6 PM yesterday.'),
   ).toBeVisible();
-  expect(screen.getByRole('region', { name: 'Needs you' })).toBeInTheDocument();
   expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull();
 });
 
@@ -217,7 +345,189 @@ it('greets in the afternoon and evening by the local hour', () => {
   );
 });
 
-it('lists conversation and workflow approvals and failed workflows under Needs you', async () => {
+it('sums up in one sentence what needs you, who is working and what runs next', async () => {
+  show({
+    conversations: [
+      conversation('chat-wait', 'Deploy plan', {
+        generation_state: [generation('waiting_approval')],
+      }),
+      conversation('chat-fail', 'Other', { activity_state: 'attention' }),
+      conversation('chat-a', 'Research sprint', { activity_state: 'active' }),
+      conversation('chat-b', 'Quick question', {
+        generation_state: [generation('running')],
+      }),
+    ],
+    loadTasks: vi
+      .fn()
+      .mockResolvedValue(
+        page([task('digest', 'Morning digest', { next_run: at(26, 10) })]),
+      ),
+  });
+  await screen.findByRole('button', { name: /^Workflows: in 30 minutes/ });
+  expect(summary()).toHaveTextContent(
+    '2 things need you. 2 agents are working, and Morning digest runs in 30 minutes.',
+  );
+});
+
+it('says what Row-Bot learned this week when nothing needs you', async () => {
+  show({
+    monitor: monitorSnapshot({
+      extraction_journal: [
+        {
+          timestamp: at(24, 10),
+          summary: '',
+          contradictions_blocked: 0,
+          low_confidence_skipped: 0,
+          islands_repaired: 0,
+          threads: [{ label: 'Trip plan', extracted: 5, saved: 12 }],
+          errors: [],
+        },
+      ],
+    }),
+  });
+  await screen.findByText('All caught up');
+  expect(summary()).toHaveTextContent(
+    "You're all caught up. Row-Bot learned 12 new things this week.",
+  );
+});
+
+it('starts a new chat from the Ask box on Enter with the text as its first message', async () => {
+  const user = userEvent.setup();
+  show();
+  const ask = screen.getByRole('textbox', { name: 'Ask Row-Bot' });
+  await user.type(ask, '{Enter}');
+  expect(handlers.onAsk).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Start chat' })).toBeDisabled();
+  await user.type(ask, '  Plan my week  {Enter}');
+  expect(handlers.onAsk).toHaveBeenCalledTimes(1);
+  expect(handlers.onAsk).toHaveBeenCalledWith('Plan my week');
+  // Files, dictation and tools live in the new chat's composer.
+  await user.click(
+    screen.getByRole('button', { name: 'Add files in a new chat' }),
+  );
+  expect(handlers.onAsk).toHaveBeenLastCalledWith('  Plan my week  ', {
+    send: false,
+  });
+});
+
+it('keeps the Ask box from starting a second chat while one is being made', async () => {
+  const user = userEvent.setup();
+  show({ asking: true });
+  const ask = screen.getByRole('textbox', { name: 'Ask Row-Bot' });
+  await user.type(ask, 'Plan my week{Enter}');
+  expect(handlers.onAsk).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Start chat' })).toBeDisabled();
+});
+
+it('offers quick starts that reuse New design, New code folder, New workflow and the last chat', () => {
+  show({
+    conversations: [
+      conversation('pinned', 'Pinned plan', {
+        pinned: true,
+        updated_at: at(20, 8),
+      }),
+      conversation('latest', 'Research brief', { updated_at: at(26, 9) }),
+      conversation('child', 'Delegated', {
+        parent_conversation_id: 'latest',
+        updated_at: at(26, 9, 20),
+      }),
+    ],
+  });
+  const quick = screen.getByRole('group', { name: 'Quick starts' });
+  fireEvent.click(within(quick).getByRole('button', { name: 'New design' }));
+  expect(handlers.onNewResource).toHaveBeenLastCalledWith('artifact');
+  fireEvent.click(
+    within(quick).getByRole('button', { name: 'New code folder' }),
+  );
+  expect(handlers.onNewResource).toHaveBeenLastCalledWith('workspace');
+  fireEvent.click(within(quick).getByRole('button', { name: 'New workflow' }));
+  expect(handlers.onNewWorkflow).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    within(quick).getByRole('button', { name: 'Continue “Research brief”' }),
+  );
+  expect(handlers.onOpenConversation).toHaveBeenCalledWith('latest');
+});
+
+it('leaves out the Ask box and quick starts Home cannot run', () => {
+  show({
+    onAsk: undefined,
+    onNewResource: undefined,
+    onNewWorkflow: undefined,
+  });
+  expect(screen.queryByRole('textbox', { name: 'Ask Row-Bot' })).toBeNull();
+  expect(screen.queryByRole('group', { name: 'Quick starts' })).toBeNull();
+});
+
+// Needs you ----------------------------------------------------------------
+
+it('answers waiting approvals in place and re-reads them after a decision', async () => {
+  const loadApprovals = vi
+    .fn()
+    .mockResolvedValueOnce(
+      approvals(
+        approval(),
+        approval({
+          id: 'approval-post',
+          source: 'workflow',
+          title: 'Post the specials',
+          what: 'Weekly specials · step 3 of 4',
+          conversation_id: null,
+          task_id: 'task-specials',
+        }),
+      ),
+    )
+    .mockResolvedValue(approvals());
+  show({
+    loadApprovals,
+    conversations: [
+      // Its approval is answered in place: not listed a second time.
+      conversation('chat-mail', 'Supplier price check', {
+        generation_state: [generation('waiting_approval')],
+      }),
+    ],
+  });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  const mail = (
+    await within(needs).findByText('Send an email to Riverside Flour')
+  ).closest('li')!;
+  expect(mail).toHaveTextContent('Reorder for next week: 40 kg rye');
+  expect(needs).not.toHaveTextContent('Supplier price check');
+  expect(
+    within(mail).getByRole('link', { name: 'Open the conversation' }),
+  ).toHaveAttribute('href', '/conversations/chat-mail');
+  const post = within(needs).getByText('Post the specials').closest('li')!;
+  expect(
+    within(post).getByRole('link', { name: 'Open the workflow' }),
+  ).toHaveAttribute('href', '/?tab=workflows&workflow=task-specials');
+  expect(screen.getByRole('heading', { name: /^Needs you/ })).toHaveTextContent(
+    'Needs you2',
+  );
+  await act(async () =>
+    fireEvent.click(
+      within(
+        within(mail).getByRole('group', {
+          name: 'Answer: Send an email to Riverside Flour',
+        }),
+      ).getByRole('button', { name: 'Approve' }),
+    ),
+  );
+  expect(runtime.approval).toHaveBeenCalledWith('approval-mail');
+  expect(runtime.intent).toHaveBeenCalledWith(
+    'approval-mail',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce-mail' },
+    '0',
+  );
+  expect(loadApprovals).toHaveBeenCalledTimes(2);
+  expect(
+    await within(needs).findByRole('button', {
+      name: 'Review approval in Supplier price check',
+    }),
+  ).toBeVisible();
+  expect(needs).not.toHaveTextContent('Send an email to Riverside Flour');
+});
+
+it('shows two waiting items at first and the rest behind "more waiting"', async () => {
   const conversations = [
     conversation('chat-wait', 'Deploy plan', {
       generation_state: [generation('waiting_approval')],
@@ -277,6 +587,16 @@ it('lists conversation and workflow approvals and failed workflows under Needs y
     loadTasks: vi.fn().mockResolvedValue(page(tasks)),
   });
   const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText('Deploy plan');
+  expect(buttonNames('Needs you')).toEqual([
+    'Review approval in Deploy plan',
+    'Review approval in Delegated review',
+  ]);
+  const more = screen.getByRole('button', { name: '+5 more waiting' });
+  expect(more).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(more);
+  expect(more).toHaveAttribute('aria-expanded', 'true');
+  expect(more).toHaveTextContent('Show fewer');
   expect(buttonNames('Needs you')).toEqual([
     'Review approval in Deploy plan',
     'Review approval in Delegated review',
@@ -295,9 +615,6 @@ it('lists conversation and workflow approvals and failed workflows under Needs y
   expect(meta('Review approval in Delegated review')).toContain(
     'Agent work needs your attention',
   );
-  expect(meta('Review approval in Delegated review')).not.toContain(
-    'Waiting for your approval',
-  );
   expect(meta('Review approval in Agent approval')).toContain(
     'Waiting for your approval',
   );
@@ -311,8 +628,7 @@ it('lists conversation and workflow approvals and failed workflows under Needs y
   expect(screen.getByRole('heading', { name: /^Needs you/ })).toHaveTextContent(
     'Needs you7',
   );
-  const header = screen.getByRole('heading', { level: 2 }).closest('header')!;
-  expect(header).toHaveTextContent('7 things need you');
+  expect(summary()).toHaveTextContent('7 things need you.');
 
   fireEvent.click(
     within(needs).getByRole('button', {
@@ -334,357 +650,88 @@ it('lists conversation and workflow approvals and failed workflows under Needs y
   expect(handlers.onOpenWorkflows).toHaveBeenLastCalledWith('wf-failed');
 });
 
-it('shows running conversations, delegated agents, and workflow step progress', async () => {
-  const conversations = [
-    conversation('chat-active', 'Research sprint', {
-      activity_state: 'active',
-      activity_phase: 'tool_call',
-    }),
-    conversation('chat-reply', 'Quick question', {
-      generation_state: [generation('running')],
-    }),
-    conversation('child-agent', 'Summarize sources', {
-      parent_conversation_id: 'chat-active',
-      generation_state: [generation('stopping')],
-    }),
-    // Waiting for approval wins over working; it is listed only once.
-    conversation('chat-both', 'Both states', {
-      activity_state: 'active',
-      generation_state: [generation('waiting_approval')],
-    }),
-    conversation('chat-done', 'Finished', {
-      generation_state: [generation('completed')],
-    }),
-  ];
-  const tasks = [
-    task('wf-run', 'Import leads', {
-      active_run: {
-        id: 'run-1',
-        status: 'running',
-        started_at: at(26, 9, 10),
-        steps_done: 1,
-        steps_total: 3,
-      },
-    }),
-    task('wf-last', 'Final step', {
-      active_run: {
-        id: 'run-2',
-        status: 'running',
-        started_at: at(26, 9, 10),
-        steps_done: 3,
-        steps_total: 3,
-      },
-    }),
-    task('wf-start', 'Starting up', {
-      active_run: {
-        id: 'run-3',
-        status: 'starting',
-        started_at: at(26, 9, 10),
-        steps_done: 0,
-        steps_total: 0,
-      },
-    }),
-  ];
+it('lets interrupted agent work be resumed or dismissed from Needs you (B220)', async () => {
+  const resumable = conversation('chat-cut', 'Phase 5 developer', {
+    activity_state: 'attention',
+    activity_phase: 'resume_required',
+  });
+  const finished = conversation('chat-done', 'Secure storage', {
+    activity_state: 'attention',
+    activity_phase: 'interrupted',
+  });
+  const onResumeAgentWork = vi.fn().mockResolvedValue(undefined);
+  const onDismissAgentWork = vi.fn().mockResolvedValue(undefined);
   show({
-    conversations,
-    loadTasks: vi.fn().mockResolvedValue(page(tasks)),
+    conversations: [resumable, finished],
+    onResumeAgentWork,
+    onDismissAgentWork,
   });
-  const running = await screen.findByRole('list', { name: 'Running now' });
-  await within(running).findByRole('button', {
-    name: 'Open running workflow: Import leads',
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  const row = (title: string) =>
+    within(needs)
+      .getByRole('button', { name: `Review agent work in ${title}` })
+      .closest('li')!;
+  const cut = row('Phase 5 developer');
+  expect(cut).toHaveTextContent('Agent work was interrupted');
+  await act(async () => {
+    fireEvent.click(
+      within(cut).getByRole('button', { name: 'Resume agent work' }),
+    );
   });
-  expect(buttonNames('Running now')).toEqual([
-    'Open running conversation: Research sprint',
-    'Open running conversation: Quick question',
-    'Open running conversation: Summarize sources',
-    'Open running workflow: Import leads',
-    'Open running workflow: Final step',
-    'Open running workflow: Starting up',
-  ]);
-  const text = (name: string) =>
-    within(running).getByRole('button', { name }).textContent;
-  expect(text('Open running conversation: Research sprint')).toContain(
-    'Agents working · Tool call',
-  );
-  expect(text('Open running conversation: Quick question')).toContain(
-    'Replying',
-  );
-  expect(text('Open running conversation: Summarize sources')).toContain(
-    'Agent · Working',
-  );
-  expect(text('Open running workflow: Import leads')).toContain(
-    'Workflow · step 2/3',
-  );
-  expect(text('Open running workflow: Final step')).toContain(
-    'Workflow · step 3/3',
-  );
-  expect(text('Open running workflow: Starting up')).toContain(
-    'Workflow · Starting',
-  );
-  expect(buttonNames('Needs you')).toEqual(['Review approval in Both states']);
-  const header = screen.getByRole('heading', { level: 2 }).closest('header')!;
-  expect(header).toHaveTextContent('1 thing needs you · 6 running');
+  expect(onResumeAgentWork).toHaveBeenCalledWith(resumable);
+
+  // Nothing left to run there: Dismiss only.
+  const done = row('Secure storage');
+  expect(
+    within(done).queryByRole('button', { name: 'Resume agent work' }),
+  ).not.toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(
+      within(done).getByRole('button', { name: 'Dismiss agent work' }),
+    );
+  });
+  expect(onDismissAgentWork).toHaveBeenCalledWith(finished);
+  expect(handlers.onOpenConversation).not.toHaveBeenCalled();
 
   fireEvent.click(
-    within(running).getByRole('button', {
-      name: 'Open running conversation: Summarize sources',
+    within(needs).getByRole('button', {
+      name: 'Review agent work in Phase 5 developer',
     }),
   );
-  expect(handlers.onOpenConversation).toHaveBeenCalledWith('child-agent');
+  expect(handlers.onOpenConversation).toHaveBeenCalledWith('chat-cut');
+});
+
+it('lists a Monitor check whose kept result is red under Needs you (B252)', async () => {
+  const loadHealth = health(
+    check({
+      id: 'disk',
+      name: 'Disk',
+      status: 'error',
+      detail: '1.2 GB free (97% used)',
+    }),
+    check({
+      id: 'documents',
+      name: 'Documents',
+      status: 'warn',
+      detail: 'rebuild recommended',
+      settings_tab: 'Documents',
+    }),
+  );
+  show({ loadHealth });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText('Disk needs attention');
+  expect(buttonNames('Needs you')).toEqual([
+    'Open Monitor: Disk needs attention',
+  ]);
+  expect(needs).toHaveTextContent('1.2 GB free (97% used)');
+  expect(needs).not.toHaveTextContent('Documents');
   fireEvent.click(
-    within(running).getByRole('button', {
-      name: 'Open running workflow: Import leads',
+    within(needs).getByRole('button', {
+      name: 'Open Monitor: Disk needs attention',
     }),
   );
-  expect(handlers.onOpenWorkflows).toHaveBeenCalledWith('wf-run');
-});
-
-it('lists at most six top-level recent threads named by title', () => {
-  const conversations = [
-    ...Array.from({ length: 7 }, (_, index) =>
-      conversation(`chat-${index + 1}`, `Thread ${index + 1}`),
-    ),
-    conversation('child', 'Delegated child', {
-      parent_conversation_id: 'chat-1',
-    }),
-  ];
-  conversations.splice(
-    1,
-    0,
-    conversation('untitled', '', { updated_at: undefined }),
-  );
-  show({ conversations });
-  const recent = list('Recent threads');
-  expect(
-    within(recent)
-      .getAllByRole('button')
-      .map((button) => button.textContent),
-  ).toEqual([
-    expect.stringContaining('Thread 1'),
-    'Untitled conversation',
-    expect.stringContaining('Thread 2'),
-    expect.stringContaining('Thread 3'),
-    expect.stringContaining('Thread 4'),
-    expect.stringContaining('Thread 5'),
-  ]);
-  expect(
-    within(recent).queryByRole('button', { name: /Delegated child/ }),
-  ).toBeNull();
-  expect(within(recent).queryByRole('button', { name: /Thread 6/ })).toBeNull();
-  fireEvent.click(within(recent).getByRole('button', { name: /Thread 3/ }));
-  expect(handlers.onOpenConversation).toHaveBeenCalledWith('chat-3');
-  expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute(
-    'href',
-    '/library',
-  );
-});
-
-it('lists the next five enabled scheduled workflows in fire order', async () => {
-  const tasks = [
-    task('later', 'Later', { next_run: at(27, 9), schedule: 'daily:09:00' }),
-    task('soonest', 'Soonest', {
-      next_run: at(26, 10),
-      schedule: 'interval:2',
-    }),
-    task('disabled', 'Disabled', { enabled: false, next_run: at(26, 9, 45) }),
-    task('no-next', 'No next run', { next_run: null }),
-    task('bad-next', 'Bad next run', { next_run: 'not a date' }),
-    task('third', 'Third', { next_run: at(26, 18) }),
-    task('fourth', 'Fourth', { next_run: at(28, 7) }),
-    task('fifth', 'Fifth', { next_run: at(29, 7) }),
-    task('sixth', 'Sixth', { next_run: at(30, 7) }),
-    task('second', 'Second', { next_run: at(26, 12) }),
-  ];
-  show({ loadTasks: vi.fn().mockResolvedValue(page(tasks)) });
-  const upcoming = await screen.findByRole('list', { name: 'Upcoming' });
-  expect(buttonNames('Upcoming')).toEqual([
-    'Open scheduled workflow: Soonest',
-    'Open scheduled workflow: Second',
-    'Open scheduled workflow: Third',
-    'Open scheduled workflow: Later',
-    'Open scheduled workflow: Fourth',
-  ]);
-  const soonest = within(upcoming).getByRole('button', {
-    name: 'Open scheduled workflow: Soonest',
-  });
-  expect(soonest).toHaveTextContent('Every 2 hours');
-  expect(soonest).toHaveTextContent('in 30 minutes');
-  expect(within(soonest).getByText('in 30 minutes')).toHaveAttribute(
-    'datetime',
-    at(26, 10),
-  );
-  expect(screen.getByRole('heading', { name: /^Upcoming/ })).toHaveTextContent(
-    'Upcoming5',
-  );
-  const header = screen.getByRole('heading', { level: 2 }).closest('header')!;
-  expect(header).toHaveTextContent('Nothing needs you · next: Soonest');
-
-  fireEvent.click(soonest);
-  expect(handlers.onOpenWorkflows).toHaveBeenLastCalledWith('soonest');
-  fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
-  expect(handlers.onOpenWorkflows).toHaveBeenLastCalledWith();
-});
-
-it('digests workflow runs, extraction, Dream Cycle and active threads since 6 PM yesterday', async () => {
-  const tasks = [
-    task('a', 'A', {
-      recent_runs: [
-        { status: 'completed', started_at: at(26, 7) },
-        { status: 'failed', started_at: at(25, 22) },
-        // Before 6 PM yesterday: outside the window.
-        { status: 'failed', started_at: at(25, 17, 59) },
-      ],
-    }),
-    task('b', 'B', {
-      recent_runs: [
-        { status: 'completed_delivery_failed', started_at: at(25, 18) },
-        // After the supplied clock: not "since yesterday evening" yet.
-        { status: 'failed', started_at: at(26, 11) },
-      ],
-    }),
-  ];
-  const conversations = [
-    conversation('recent-1', 'Recent one', { updated_at: at(26, 8) }),
-    conversation('recent-2', 'Recent two', { updated_at: at(25, 19) }),
-    conversation('old', 'Old one', { updated_at: at(25, 12) }),
-    conversation('child', 'Child', {
-      parent_conversation_id: 'recent-1',
-      updated_at: at(26, 8),
-    }),
-  ];
-  const monitor = monitorSnapshot({
-    extraction: {
-      availability: 'available',
-      last_run: at(26, 2),
-      interval_hours: 2,
-      threads_scanned: 4,
-      entities_saved: 1,
-      islands_repaired: 0,
-    },
-    dream_journal: [
-      {
-        timestamp: at(26, 3),
-        summary: '',
-        merges: [{ duplicate_subject: 'x', survivor_subject: 'y', score: 0.9 }],
-        enrichments: [
-          {
-            subject: 'a',
-            old_length: 1,
-            new_length: 2,
-            new_description: 'b',
-          },
-          {
-            subject: 'c',
-            old_length: 1,
-            new_length: 2,
-            new_description: 'd',
-          },
-        ],
-        inferred_relations: [
-          {
-            source_subject: 'a',
-            target_subject: 'c',
-            relation_type: 'knows',
-            confidence: 0.8,
-            evidence: '',
-          },
-        ],
-        errors: [],
-      },
-      {
-        timestamp: at(24, 3),
-        summary: '',
-        merges: [
-          { duplicate_subject: 'old', survivor_subject: 'y', score: 0.9 },
-        ],
-        enrichments: [],
-        inferred_relations: [],
-        errors: [],
-      },
-    ],
-  });
-  show({
-    conversations,
-    monitor,
-    loadTasks: vi.fn().mockResolvedValue(page(tasks)),
-  });
-  const digest = await screen.findByRole('list', {
-    name: 'Since yesterday evening',
-  });
-  await within(digest).findByText('3 workflow runs, 2 failed');
-  expect(
-    within(digest)
-      .getAllByRole('listitem')
-      .map((item) => item.textContent),
-  ).toEqual([
-    '3 workflow runs, 2 failed',
-    'Knowledge extraction read 4 conversations and saved 1 memory',
-    'Dream Cycle merged 1 duplicate, enriched 2 memories, inferred 1 connection',
-    '2 conversations active',
-  ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
   expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
-});
-
-it('reports all-completed runs, a quiet Dream Cycle, and a journal-less Dream run honestly', async () => {
-  const tasks = [
-    task('a', 'A', {
-      recent_runs: [{ status: 'completed', started_at: at(26, 1) }],
-    }),
-  ];
-  const quietDream = monitorSnapshot({
-    extraction: {
-      availability: 'unavailable',
-      last_run: at(26, 2),
-      interval_hours: 2,
-      threads_scanned: 9,
-      entities_saved: 9,
-      islands_repaired: 0,
-    },
-    dream_journal: [
-      {
-        timestamp: at(26, 3),
-        summary: '',
-        merges: [],
-        enrichments: [],
-        inferred_relations: [],
-        errors: [],
-      },
-    ],
-  });
-  const { unmount } = show({
-    monitor: quietDream,
-    loadTasks: vi.fn().mockResolvedValue(page(tasks)),
-  });
-  const digest = await screen.findByRole('list', {
-    name: 'Since yesterday evening',
-  });
-  await within(digest).findByText('1 workflow run, all completed');
-  expect(
-    within(digest)
-      .getAllByRole('listitem')
-      .map((item) => item.textContent),
-  ).toEqual([
-    '1 workflow run, all completed',
-    'Dream Cycle ran and found nothing to change',
-  ]);
-  unmount();
-
-  show({
-    monitor: monitorSnapshot({
-      dream: {
-        availability: 'available',
-        enabled: true,
-        window: '1:00 – 5:00',
-        last_run: at(26, 4),
-        last_summary: null,
-        recent: [],
-      },
-    }),
-  });
-  expect(
-    await screen.findByRole('list', { name: 'Since yesterday evening' }),
-  ).toHaveTextContent('Dream Cycle ran');
+  expect(loadHealth).toHaveBeenCalledOnce();
 });
 
 it('asks to choose how Row-Bot thinks while no model exists, without a hide control', () => {
@@ -704,14 +751,8 @@ it('asks to choose how Row-Bot thinks while no model exists, without a hide cont
   expect(
     within(region).queryByRole('button', { name: 'Hide setup reminder' }),
   ).toBeNull();
-  // Even a dismissed card stays until setup is complete.
-  expect(
-    screen.queryByText(
-      'Nothing needs you. Approvals and failed runs show up here.',
-    ),
-  ).toBeNull();
-  const header = screen.getByRole('heading', { level: 2 }).closest('header')!;
-  expect(header).toHaveTextContent('1 thing needs you');
+  expect(screen.queryByText('All caught up')).toBeNull();
+  expect(summary()).toHaveTextContent('1 thing needs you.');
 });
 
 it('keeps the first-run route even if the home card was dismissed', () => {
@@ -792,7 +833,98 @@ it('omits the hide control when Home cannot hide the reminder', () => {
   ).toBeNull();
 });
 
-it('redacts a workflow read failure and still shows conversation sections', async () => {
+// Live status strip -------------------------------------------------------
+
+it('shows who is working in the Agents card and opens the first of them', async () => {
+  show({
+    conversations: [
+      conversation('chat-active', 'Research brief', {
+        activity_state: 'active',
+        activity_phase: 'tool_call',
+      }),
+      conversation('child-agent', 'Summarize sources', {
+        parent_conversation_id: 'chat-active',
+        generation_state: [generation('stopping')],
+      }),
+      conversation('chat-reply', 'Quick question', {
+        generation_state: [generation('running')],
+      }),
+      // Waiting for approval is not counted as working.
+      conversation('chat-both', 'Both states', {
+        activity_state: 'active',
+        generation_state: [generation('waiting_approval')],
+      }),
+      conversation('chat-done', 'Finished', {
+        generation_state: [generation('completed')],
+      }),
+    ],
+  });
+  const agents = card(/^Agents/);
+  expect(agents).toHaveTextContent('3 working');
+  expect(agents).toHaveTextContent('Research brief and 2 more');
+  fireEvent.click(agents);
+  expect(handlers.onOpenConversation).toHaveBeenCalledWith('chat-active');
+});
+
+it('rests the Agents card when nothing works and counts agents that finished today', () => {
+  show({
+    conversations: [
+      conversation('child-a', 'Researcher', {
+        parent_conversation_id: 'chat',
+        activity_state: 'terminal',
+        updated_at: at(26, 8),
+      }),
+      conversation('child-old', 'Writer', {
+        parent_conversation_id: 'chat',
+        activity_state: 'terminal',
+        updated_at: at(24, 8),
+      }),
+    ],
+  });
+  const agents = card(/^Agents/);
+  expect(agents).toHaveTextContent('Resting');
+  expect(agents).toHaveTextContent('1 agent finished today');
+  fireEvent.click(agents);
+  expect(handlers.onOpenConversation).toHaveBeenCalledWith('child-a');
+});
+
+it('counts down to the next workflow run and draws today’s runs in the Workflows card', async () => {
+  const tasks = [
+    task('later', 'Later', { next_run: at(27, 9) }),
+    task('soonest', 'Soonest', {
+      next_run: at(26, 10),
+      recent_runs: [
+        { status: 'completed', started_at: at(26, 7) },
+        { status: 'failed', started_at: at(26, 8) },
+        // Yesterday: not one of today's runs.
+        { status: 'completed', started_at: at(25, 20) },
+      ],
+    }),
+    task('disabled', 'Disabled', { enabled: false, next_run: at(26, 9, 45) }),
+    task('b', 'B', {
+      recent_runs: [{ status: 'completed', started_at: at(26, 9) }],
+    }),
+  ];
+  show({ loadTasks: vi.fn().mockResolvedValue(page(tasks)) });
+  const workflows = await screen.findByRole('button', {
+    name: /^Workflows: in 30 minutes/,
+  });
+  expect(workflows).toHaveTextContent('Next: Soonest');
+  expect(workflows).toHaveTextContent('3 today · 1 failed');
+  fireEvent.click(workflows);
+  expect(handlers.onOpenWorkflows).toHaveBeenLastCalledWith();
+});
+
+it('says when no workflow is scheduled and when workflows could not be read', async () => {
+  const { unmount } = show({
+    loadTasks: vi.fn().mockResolvedValue(page([task('a', 'Manual one')])),
+  });
+  expect(
+    await screen.findByRole('button', {
+      name: /^Workflows: Nothing scheduled/,
+    }),
+  ).toHaveTextContent('No runs today');
+  unmount();
   show({
     conversations: [conversation('chat-a', 'Design review')],
     loadTasks: vi
@@ -805,14 +937,412 @@ it('redacts a workflow read failure and still shows conversation sections', asyn
     ),
   ).toBeVisible();
   expect(document.body.textContent).not.toContain('private');
-  expect(screen.queryByText('Reading workflows…')).toBeNull();
-  expect(screen.getByText('No scheduled workflows.')).toBeVisible();
+  expect(card(/^Workflows/)).toHaveTextContent('Unavailable');
   expect(
-    within(list('Recent threads')).getByRole('button', {
-      name: /Design review/,
+    within(list('Continue where you left off')).getByRole('button', {
+      name: 'Open Design review',
     }),
   ).toBeVisible();
 });
+
+it('shows how many memories there are and how many are new this week', async () => {
+  const loadMemory = memory(660);
+  show({
+    loadMemory,
+    monitor: monitorSnapshot({
+      extraction_journal: [
+        {
+          timestamp: at(25, 10),
+          summary: '',
+          contradictions_blocked: 0,
+          low_confidence_skipped: 0,
+          islands_repaired: 0,
+          threads: [
+            { label: 'Trip plan', extracted: 9, saved: 8 },
+            { label: 'Menu', extracted: 4, saved: 4 },
+          ],
+          errors: [],
+        },
+        {
+          // More than a week ago.
+          timestamp: at(18, 10),
+          summary: '',
+          contradictions_blocked: 0,
+          low_confidence_skipped: 0,
+          islands_repaired: 0,
+          threads: [{ label: 'Old', extracted: 5, saved: 5 }],
+          errors: [],
+        },
+      ],
+    }),
+  });
+  const memoryCard = await screen.findByRole('button', {
+    name: /^Memory: 660 memories/,
+  });
+  expect(memoryCard).toHaveTextContent('+12 this week');
+  fireEvent.click(memoryCard);
+  expect(handlers.onOpenTab).toHaveBeenCalledWith('knowledge');
+  expect(loadMemory).toHaveBeenCalledOnce();
+});
+
+it('says when memory could not be read', async () => {
+  show({ loadMemory: vi.fn().mockRejectedValue(new Error('locked')) });
+  expect(
+    await screen.findByRole('button', { name: /^Memory: Unavailable/ }),
+  ).toBeVisible();
+});
+
+it('reports Monitor’s kept checks in the Health card', async () => {
+  const { unmount } = show({
+    loadHealth: health(check({}), check({ id: 'net', name: 'Network' })),
+  });
+  const good = await screen.findByRole('button', { name: /^Health: All good/ });
+  expect(good).toHaveTextContent('Checked 10 minutes ago');
+  expect(good).toHaveTextContent('2 checks');
+  fireEvent.click(good);
+  expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
+  unmount();
+  show({
+    loadHealth: health(
+      check({}),
+      check({
+        id: 'invoice',
+        name: 'Invoice server',
+        status: 'warn',
+        detail: 'unreachable',
+      }),
+    ),
+  });
+  expect(
+    await screen.findByRole('button', { name: /^Health: 1 warning/ }),
+  ).toHaveTextContent('Invoice server: unreachable');
+});
+
+// Continue where you left off -----------------------------------------------
+
+it('continues from four top-level conversations as cards in list order', () => {
+  const conversations = [
+    conversation('pinned', 'Solstice poster', {
+      pinned: true,
+      category: 'designer',
+    }),
+    conversation('working', 'Quarterly brief', {
+      activity_state: 'active',
+      activity_phase: 'tool_call',
+    }),
+    conversation('agent-1', 'Researcher', {
+      parent_conversation_id: 'working',
+      generation_state: [generation('running')],
+    }),
+    conversation('code', 'Bakery website', { category: 'code' }),
+    conversation('flow', 'Morning digest', { category: 'workflow' }),
+    conversation('fifth', 'Fifth one'),
+  ];
+  show({ conversations });
+  const cards = list('Continue where you left off');
+  expect(
+    within(cards)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label')),
+  ).toEqual([
+    'Open Solstice poster',
+    'Open Quarterly brief',
+    'Open Bakery website',
+    'Open Morning digest',
+  ]);
+  const button = (name: string) => within(cards).getByRole('button', { name });
+  expect(button('Open Solstice poster')).toHaveTextContent('Design');
+  expect(button('Open Solstice poster')).toHaveTextContent('Pinned');
+  expect(button('Open Quarterly brief')).toHaveTextContent(
+    'Agents working · Tool call',
+  );
+  expect(button('Open Quarterly brief')).toHaveTextContent('1 agent');
+  expect(button('Open Bakery website')).toHaveTextContent('Code folder');
+  expect(button('Open Morning digest')).toHaveTextContent('Workflow');
+  fireEvent.click(button('Open Bakery website'));
+  expect(handlers.onOpenConversation).toHaveBeenCalledWith('code');
+  expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute(
+    'href',
+    '/library',
+  );
+});
+
+// Since yesterday evening --------------------------------------------------
+
+it('draws since yesterday evening as a timeline that links to where each thing happened', async () => {
+  const tasks = [
+    task('a', 'Morning digest', {
+      recent_runs: [
+        { status: 'completed', started_at: at(26, 7) },
+        // Before 6 PM yesterday: outside the window.
+        { status: 'failed', started_at: at(25, 17, 59) },
+        // After the supplied clock: not "since yesterday evening" yet.
+        { status: 'failed', started_at: at(26, 11) },
+      ],
+    }),
+    task('b', 'Invoice sync', {
+      recent_runs: [{ status: 'failed', started_at: at(25, 22) }],
+    }),
+  ];
+  const monitor = monitorSnapshot({
+    extraction_journal: [
+      {
+        timestamp: at(26, 2),
+        summary: '',
+        contradictions_blocked: 0,
+        low_confidence_skipped: 0,
+        islands_repaired: 0,
+        threads: [
+          { label: 'Trip plan', extracted: 3, saved: 3 },
+          { label: 'Menu', extracted: 1, saved: 1 },
+        ],
+        errors: [],
+      },
+    ],
+    dream_journal: [
+      {
+        timestamp: at(26, 3),
+        summary: '',
+        merges: [{ duplicate_subject: 'x', survivor_subject: 'y', score: 0.9 }],
+        enrichments: [
+          {
+            subject: 'a',
+            old_length: 1,
+            new_length: 2,
+            new_description: 'b',
+          },
+          {
+            subject: 'c',
+            old_length: 1,
+            new_length: 2,
+            new_description: 'd',
+          },
+        ],
+        inferred_relations: [
+          {
+            source_subject: 'a',
+            target_subject: 'c',
+            relation_type: 'knows',
+            confidence: 0.8,
+            evidence: '',
+          },
+        ],
+        errors: [],
+      },
+    ],
+  });
+  const conversations = [
+    conversation('agent-done', 'Designer', {
+      parent_conversation_id: 'poster',
+      activity_state: 'terminal',
+      updated_at: at(26, 9, 12),
+    }),
+  ];
+  show({
+    conversations,
+    monitor,
+    loadTasks: vi.fn().mockResolvedValue(page(tasks)),
+  });
+  const timeline = await screen.findByRole('list', {
+    name: 'Since yesterday evening',
+  });
+  await within(timeline).findByText('Invoice sync failed');
+  expect(
+    within(timeline)
+      .getAllByRole('listitem')
+      .map((item) => item.textContent),
+  ).toEqual([
+    `${clockTime(22, 0)}Invoice sync failedFailed`,
+    `${clockTime(2, 0)}Learned 4 new thingsFrom Trip plan and Menu`,
+    `${clockTime(3, 0)}Dream Cycle tidied memoryMerged 1 duplicate, enriched 2 memories, inferred 1 connection`,
+    `${clockTime(7, 0)}Morning digest ranCompleted`,
+    `${clockTime(9, 12)}Designer finishedAgent`,
+  ]);
+  const open = (name: RegExp) =>
+    fireEvent.click(within(timeline).getByRole('button', { name }));
+  open(/Invoice sync failed/);
+  expect(handlers.onOpenWorkflows).toHaveBeenLastCalledWith('b');
+  open(/Learned 4 new things/);
+  expect(handlers.onOpenTab).toHaveBeenLastCalledWith('knowledge');
+  open(/Dream Cycle tidied memory/);
+  expect(handlers.onOpenTab).toHaveBeenLastCalledWith('monitor');
+  open(/Designer finished/);
+  expect(handlers.onOpenConversation).toHaveBeenLastCalledWith('agent-done');
+  fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
+  expect(handlers.onOpenTab).toHaveBeenLastCalledWith('monitor');
+});
+
+it('reports a quiet Dream Cycle and a journal-less Dream run honestly', async () => {
+  const { unmount } = show({
+    monitor: monitorSnapshot({
+      dream_journal: [
+        {
+          timestamp: at(26, 3),
+          summary: '',
+          merges: [],
+          enrichments: [],
+          inferred_relations: [],
+          errors: [],
+        },
+      ],
+    }),
+  });
+  expect(
+    await screen.findByRole('list', { name: 'Since yesterday evening' }),
+  ).toHaveTextContent('Dream Cycle ranFound nothing to change');
+  unmount();
+
+  show({
+    monitor: monitorSnapshot({
+      dream: {
+        availability: 'available',
+        enabled: true,
+        window: '1:00 – 5:00',
+        last_run: at(26, 4),
+        last_summary: null,
+        recent: [],
+      },
+    }),
+  });
+  expect(
+    await screen.findByRole('list', { name: 'Since yesterday evening' }),
+  ).toHaveTextContent('Dream Cycle ran');
+});
+
+// Learned this week --------------------------------------------------------
+
+it('lists what Row-Bot learned this week as chips and the top insight as a card', async () => {
+  const dream = (day: number, subjects: string[]) => ({
+    timestamp: at(day, 3),
+    summary: '',
+    merges: [],
+    enrichments: subjects.map((subject) => ({
+      subject,
+      old_length: 1,
+      new_length: 2,
+      new_description: '',
+    })),
+    inferred_relations: [],
+    errors: [],
+  });
+  show({
+    monitor: monitorSnapshot({
+      dream_journal: [
+        dream(26, ['Priya prefers calls before 10', 'Lisbon trip']),
+        dream(24, [
+          'lisbon trip',
+          'Sourdough at 75% water',
+          'Menu update ships Friday',
+          'Riverside Flour',
+          'Bakery hours',
+        ]),
+        // Last month: not this week.
+        dream(1, ['Old news']),
+      ],
+      extraction_journal: [
+        {
+          timestamp: at(25, 10),
+          summary: '',
+          contradictions_blocked: 0,
+          low_confidence_skipped: 0,
+          islands_repaired: 0,
+          threads: [
+            { label: 'Trip plan', extracted: 9, saved: 8 },
+            { label: 'Menu', extracted: 4, saved: 4 },
+            { label: 'Nothing new', extracted: 1, saved: 0 },
+          ],
+          errors: [],
+        },
+      ],
+    }),
+    loadInsights: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      revision: 'i',
+      curator_report: null,
+      items: [
+        {
+          id: 'i-1',
+          title: 'Move Invoice sync to 2 PM?',
+          body: 'It failed three times this week at 12:30.',
+          suggestion: 'Run it at 2 PM while the server is idle.',
+          category: 'workflow',
+          severity: 'suggestion',
+          status: 'new',
+          proposals: [],
+        },
+      ],
+    }),
+  });
+  const learned = screen.getByRole('region', { name: 'Learned this week' });
+  expect(learned).toHaveTextContent('12 new memories from 2 conversations');
+  const chips = within(learned).getByRole('list', {
+    name: 'Memories added to this week',
+  });
+  expect(
+    within(chips)
+      .getAllByRole('button')
+      .map((chip) => chip.textContent),
+  ).toEqual([
+    'Priya prefers calls before 10',
+    'Lisbon trip',
+    'Sourdough at 75% water',
+    'Menu update ships Friday',
+    'Riverside Flour',
+    '+1 more',
+  ]);
+  fireEvent.click(within(chips).getByRole('button', { name: 'Lisbon trip' }));
+  expect(handlers.onOpenTab).toHaveBeenLastCalledWith('knowledge');
+  expect(
+    await within(learned).findByText('Move Invoice sync to 2 PM?'),
+  ).toBeVisible();
+  expect(learned).toHaveTextContent('Run it at 2 PM while the server is idle.');
+  fireEvent.click(
+    within(learned).getByRole('button', { name: 'Open Insights' }),
+  );
+  expect(handlers.onOpenTab).toHaveBeenLastCalledWith('insights');
+});
+
+it('says so when nothing was learned this week and leaves out unreadable Insights', async () => {
+  const loadInsights = vi.fn().mockRejectedValue(new Error('owner only'));
+  show({ loadInsights });
+  const learned = screen.getByRole('region', { name: 'Learned this week' });
+  expect(learned).toHaveTextContent(
+    'Nothing new this week. Row-Bot learns from your conversations as you go.',
+  );
+  await act(async () => {});
+  expect(loadInsights).toHaveBeenCalledOnce();
+  expect(
+    within(learned).queryByRole('button', { name: 'Open Insights' }),
+  ).toBeNull();
+});
+
+// Motion -------------------------------------------------------------------
+
+it('fades cards in and pulses live work only when motion is allowed', () => {
+  const working = [
+    conversation('chat-a', 'Research brief', { activity_state: 'active' }),
+  ];
+  const { container, unmount } = show({ conversations: working });
+  expect(container.querySelector('[data-entrance="stagger"]')).not.toBeNull();
+  expect(container.querySelector('[data-pulse="true"]')).not.toBeNull();
+  unmount();
+  vi.mocked(window.matchMedia).mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
+  const reduced = show({ conversations: working });
+  expect(
+    reduced.container.querySelector('[data-entrance="stagger"]'),
+  ).toBeNull();
+  expect(reduced.container.querySelector('[data-pulse="true"]')).toBeNull();
+});
+
+// Reads --------------------------------------------------------------------
 
 it('aborts the workflow read on unmount and ignores its late result', async () => {
   let resolve!: (value: TaskSummaryPage) => void;
@@ -873,16 +1403,12 @@ it('re-reads workflows when the refresh key changes and drops the stale read', a
   expect(loadTasks).toHaveBeenCalledTimes(2);
   expect(signals[0].aborted).toBe(true);
   expect(
-    await screen.findByRole('button', {
-      name: 'Open scheduled workflow: Fresh',
-    }),
+    await screen.findByRole('button', { name: /Next: Fresh/ }),
   ).toBeVisible();
   await act(async () => {
     first.resolve(page([task('stale', 'Stale', { next_run: at(26, 10) })]));
   });
-  expect(
-    screen.queryByRole('button', { name: 'Open scheduled workflow: Stale' }),
-  ).toBeNull();
+  expect(screen.queryByRole('button', { name: /Next: Stale/ })).toBeNull();
 });
 
 it('does not start a clock timer when the caller supplies the time', () => {
@@ -918,99 +1444,4 @@ it('advances its own clock every minute when no time is supplied', () => {
   } finally {
     vi.useRealTimers();
   }
-});
-
-it('lets interrupted agent work be resumed or dismissed from Needs you (B220)', async () => {
-  const resumable = conversation('chat-cut', 'Phase 5 developer', {
-    activity_state: 'attention',
-    activity_phase: 'resume_required',
-  });
-  const finished = conversation('chat-done', 'Secure storage', {
-    activity_state: 'attention',
-    activity_phase: 'interrupted',
-  });
-  const onResumeAgentWork = vi.fn().mockResolvedValue(undefined);
-  const onDismissAgentWork = vi.fn().mockResolvedValue(undefined);
-  show({
-    conversations: [resumable, finished],
-    onResumeAgentWork,
-    onDismissAgentWork,
-  });
-  const needs = await screen.findByRole('list', { name: 'Needs you' });
-  const row = (title: string) =>
-    within(needs)
-      .getByRole('button', { name: `Review agent work in ${title}` })
-      .closest('li')!;
-  const cut = row('Phase 5 developer');
-  expect(cut).toHaveTextContent('Agent work was interrupted');
-  await act(async () => {
-    fireEvent.click(
-      within(cut).getByRole('button', { name: 'Resume agent work' }),
-    );
-  });
-  expect(onResumeAgentWork).toHaveBeenCalledWith(resumable);
-
-  // Nothing left to run there: Dismiss only.
-  const done = row('Secure storage');
-  expect(
-    within(done).queryByRole('button', { name: 'Resume agent work' }),
-  ).not.toBeInTheDocument();
-  await act(async () => {
-    fireEvent.click(
-      within(done).getByRole('button', { name: 'Dismiss agent work' }),
-    );
-  });
-  expect(onDismissAgentWork).toHaveBeenCalledWith(finished);
-  expect(handlers.onOpenConversation).not.toHaveBeenCalled();
-
-  fireEvent.click(
-    within(needs).getByRole('button', {
-      name: 'Review agent work in Phase 5 developer',
-    }),
-  );
-  expect(handlers.onOpenConversation).toHaveBeenCalledWith('chat-cut');
-});
-
-it('lists a Monitor check whose kept result is red under Needs you (B252)', async () => {
-  const checkedAt = new Date(2026, 8, 26, 9, 10, 0).getTime() / 1000;
-  const loadHealth = vi.fn().mockResolvedValue({
-    schema_version: 1,
-    hourly_network_checks: true,
-    checks: [
-      {
-        id: 'disk',
-        name: 'Disk',
-        status: 'error',
-        detail: '1.2 GB free (97% used)',
-        checked_at: checkedAt,
-        settings_tab: 'System',
-        network: false,
-        stale: false,
-      },
-      {
-        id: 'documents',
-        name: 'Documents',
-        status: 'warn',
-        detail: 'rebuild recommended',
-        checked_at: checkedAt,
-        settings_tab: 'Documents',
-        network: false,
-        stale: false,
-      },
-    ],
-  });
-  show({ loadHealth });
-  const needs = await screen.findByRole('list', { name: 'Needs you' });
-  expect(buttonNames('Needs you')).toEqual([
-    'Open Monitor: Disk needs attention',
-  ]);
-  expect(needs).toHaveTextContent('1.2 GB free (97% used)');
-  expect(needs).not.toHaveTextContent('Documents');
-  fireEvent.click(
-    within(needs).getByRole('button', {
-      name: 'Open Monitor: Disk needs attention',
-    }),
-  );
-  expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
-  expect(loadHealth).toHaveBeenCalledOnce();
 });

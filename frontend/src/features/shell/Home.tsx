@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AttentionProblem } from '../../api/types';
+import type { AttentionProblem, PanelDescriptor } from '../../api/types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
@@ -27,6 +27,8 @@ import type { KnowledgeLifecycleAction } from '../home/KnowledgeReview';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
+import { BuddyPortrait } from '../buddy/BuddySurface';
+import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 
@@ -37,10 +39,42 @@ const REUSE_MS = 20_000;
 // in well under a second) and "Show all" reads up to the server's 5,000 (B251).
 const GRAPH_DEFAULT_LIMIT = 2000;
 const GRAPH_ALL_LIMIT = 5000;
+/** Overview's Memory card pictures the few most connected memories. */
+const OVERVIEW_GRAPH_LIMIT = 8;
 
-export default function Home() {
+/** One read shared by every reader for a short while; a failed one is dropped. */
+function useSharedRead<T>(read: () => Promise<T>, key: string) {
+  const cache = useRef<{ at: number; key: string; value: Promise<T> } | null>(
+    null,
+  );
+  return useCallback(() => {
+    const cached = cache.current;
+    if (cached && cached.key === key && Date.now() - cached.at < REUSE_MS)
+      return cached.value;
+    const value = read();
+    cache.current = { at: Date.now(), key, value };
+    value.catch(() => {
+      if (cache.current?.value === value) cache.current = null;
+    });
+    return value;
+  }, [read, key]);
+}
+
+export default function Home({
+  onAsk,
+  asking = false,
+  onPanel,
+}: {
+  /** Start a new chat from Overview's Ask box (the shell's New chat owner). */
+  onAsk?: (text: string, options?: { send: false }) => void;
+  /** A new chat is being made. */
+  asking?: boolean;
+  /** Show a resource's panel: a new design or code folder opens there. */
+  onPanel?: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
+} = {}) {
   const state = useClientState();
-  const { controller, knowledgeOwner, platform } = useRuntime();
+  const { controller, knowledgeOwner, platform, taskEditSessions } =
+    useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
@@ -242,6 +276,32 @@ export default function Home() {
     },
     [controller, identity],
   );
+  // Overview's Memory card, read again after a change in Knowledge.
+  const loadMemory = useSharedRead(
+    useCallback(
+      () => controller.knowledgeGraph(OVERVIEW_GRAPH_LIMIT),
+      [controller],
+    ),
+    `${identity}:${knowledgeReload}`,
+  );
+  const loadInsights = useSharedRead(
+    useCallback(() => controller.insights(), [controller]),
+    identity ?? '',
+  );
+  /** A new design or code folder: set up in a new chat, like its + menu. */
+  const newResource = (kind: 'artifact' | 'workspace') =>
+    onPanel &&
+    overlay.open({
+      title: kind === 'artifact' ? 'New design' : 'New code folder',
+      description: 'Row-Bot opens it in a new chat.',
+      content: (
+        <ResourceSetup
+          conversationId={null}
+          onPanel={onPanel}
+          initialEntry={{ kind, mode: 'create' }}
+        />
+      ),
+    });
 
   async function dream() {
     if (!monitor) return;
@@ -482,6 +542,28 @@ export default function Home() {
                 monitor={monitor}
                 loadTasks={identity ? loadTasks : undefined}
                 loadHealth={identity ? loadHealth : undefined}
+                loadApprovals={
+                  identity ? controller.pendingApprovals : undefined
+                }
+                loadMemory={identity ? loadMemory : undefined}
+                // Insights are the owner's on this computer.
+                loadInsights={
+                  state.handshake?.authentication_kind === 'local_owner'
+                    ? loadInsights
+                    : undefined
+                }
+                buddy={<BuddyPortrait />}
+                onAsk={onAsk}
+                asking={asking}
+                onNewResource={onPanel && newResource}
+                onNewWorkflow={
+                  taskEditSessions
+                    ? () => {
+                        taskEditSessions.open('task');
+                        chooseTab('workflows');
+                      }
+                    : undefined
+                }
                 refreshKey={identity ?? ''}
                 onOpenConversation={openConversation}
                 onOpenWorkflows={(taskId) =>

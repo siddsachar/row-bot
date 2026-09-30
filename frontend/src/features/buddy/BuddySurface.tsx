@@ -162,6 +162,111 @@ function GlobalBuddy() {
   );
 }
 
+/** Row-Bot's glyph in Buddy's frame until Buddy's view is known. */
+function PortraitGlyph() {
+  return (
+    <span className="buddy-avatar-frame" aria-hidden="true">
+      <img className="buddy-avatar" src={glyph} alt="" />
+    </span>
+  );
+}
+
+function GlobalPortrait() {
+  const { controller } = useRuntime();
+  const [view, setView] = useState<{
+    snapshot: BuddySnapshot;
+    pack: BuddyPack | null;
+  } | null>(null);
+  useEffect(() => {
+    const request = new AbortController();
+    void (async () => {
+      try {
+        const snapshot = await controller.globalBuddy(request.signal);
+        const pack = await controller.globalBuddyPack(
+          snapshot.preferences.pack_id,
+          request.signal,
+        );
+        if (!request.signal.aborted) setView({ snapshot, pack });
+      } catch {
+        // The sidebar's Buddy reports and retries; the glyph stays here.
+      }
+    })();
+    return () => request.abort();
+  }, [controller]);
+  if (!view) return <PortraitGlyph />;
+  if (!view.snapshot.preferences.visible) return null;
+  return (
+    <Avatar conversation={null} pack={view.pack} snapshot={view.snapshot} />
+  );
+}
+
+function SessionPortrait({
+  conversation,
+  session,
+}: {
+  conversation: string;
+  session: BuddyPanelSession;
+}) {
+  const view = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const settled = useShellSettled();
+  useEffect(() => {
+    if (!settled) return;
+    let stop: () => void;
+    try {
+      stop = session.observe();
+    } catch {
+      // Signed out: the session is revoked and shows nothing new.
+      return;
+    }
+    // A closed phone drawer mounts no other Buddy: read the session here,
+    // after a Buddy mounting now has.
+    const timer = window.setTimeout(() => {
+      const current = session.getSnapshot();
+      if (!current.snapshot && !current.busy && !current.revoked)
+        void session.load().catch(() => undefined);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      stop();
+    };
+  }, [session, settled]);
+  if (!view.snapshot) return <PortraitGlyph />;
+  if (!view.snapshot.preferences.visible) return null;
+  return (
+    <Avatar
+      conversation={conversation}
+      pack={view.selectedPack}
+      snapshot={view.snapshot}
+    />
+  );
+}
+
+/**
+ * Buddy's live avatar on its own, beside Overview's greeting (B269). It is
+ * the sidebar's Buddy: the open conversation's shared session (no extra
+ * reads) or, with none open, the global Buddy read once.
+ */
+export function BuddyPortrait() {
+  const { buddyOwner } = useRuntime();
+  const conversation = useClientState().selectedConversationId;
+  if (!conversation) return <GlobalPortrait />;
+  let session: BuddyPanelSession | undefined;
+  try {
+    session = buddyOwner?.get()?.get(conversation);
+  } catch {
+    session = undefined;
+  }
+  return session ? (
+    <SessionPortrait
+      key={conversation}
+      conversation={conversation}
+      session={session}
+    />
+  ) : (
+    <PortraitGlyph />
+  );
+}
+
 function OwnedBuddy({
   conversation,
   session,
