@@ -432,9 +432,10 @@ def use_code_folder(name: str = "") -> str:
                   "folders": [{"resource_id": folder.resource_id, "name": folder.name,
                                "revision": folder.revision} for folder in choices]},
     })
-    # The card binds what the person picked before the turn goes on.
-    return _bound_folder(conversation_id, asked) or _json({"ok": False, "kind": "setup_declined",
-                                                           "error": _NOTHING_CHOSEN})
+    # The card binds what the person picked before the turn goes on; their
+    # pick is the folder they meant, whatever it is called.
+    return _bound_folder(conversation_id) or _json({"ok": False, "kind": "setup_declined",
+                                                    "error": _NOTHING_CHOSEN})
 
 
 def clone_repository(repo_url: str = "") -> str:
