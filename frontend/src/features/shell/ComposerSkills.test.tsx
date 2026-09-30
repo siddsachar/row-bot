@@ -54,12 +54,11 @@ const composer: ConversationComposer = {
   commands_truncated: false,
 };
 
-it('shows skill provenance and performs activate, dismiss, and remove actions', async () => {
+it('performs activate, dismiss, and remove actions', async () => {
   const action = vi.fn().mockResolvedValue(undefined);
   render(
     <ComposerSkillChips composer={composer} disabled={false} action={action} />,
   );
-  expect(screen.getByText('auto')).toBeVisible();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: /Use Clear writing/ })),
   );
@@ -80,7 +79,8 @@ it('shows skill provenance and performs activate, dismiss, and remove actions', 
   expect(action).toHaveBeenCalledWith('remove', 'review');
 });
 
-it('keeps a default skill out of the chips (U17)', () => {
+it('gives a default skill a chip with only its name, whose × removes it from this chat (B236)', async () => {
+  const action = vi.fn().mockResolvedValue(undefined);
   const seeded = {
     ...composer,
     suggestions: [],
@@ -89,10 +89,46 @@ it('keeps a default skill out of the chips (U17)', () => {
       source: 'default' as const,
     })),
   };
-  const { container } = render(
-    <ComposerSkillChips composer={seeded} disabled={false} action={vi.fn()} />,
+  render(
+    <ComposerSkillChips composer={seeded} disabled={false} action={action} />,
   );
-  expect(container).toBeEmptyDOMElement();
+  const chips = screen.getByLabelText('Smart Skills');
+  expect(chips).toHaveTextContent('Careful review');
+  expect(chips).not.toHaveTextContent('default');
+  expect(screen.getByTitle('Review carefully.')).toHaveTextContent(
+    'Careful review',
+  );
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove Careful review from this chat',
+      }),
+    ),
+  );
+  expect(action).toHaveBeenCalledExactlyOnceWith('remove', 'review');
+});
+
+it("shows no remove button on a skill the chat can't drop (an agent profile's)", () => {
+  const profiled = {
+    ...composer,
+    suggestions: [],
+    active_skills: composer.active_skills.map((skill) => ({
+      ...skill,
+      source: 'thread' as const,
+      removable: false,
+    })),
+  };
+  render(
+    <ComposerSkillChips
+      composer={profiled}
+      disabled={false}
+      action={vi.fn()}
+    />,
+  );
+  expect(screen.getByLabelText('Smart Skills')).toHaveTextContent(
+    'Careful review',
+  );
+  expect(screen.queryByRole('button', { name: /Remove/ })).toBeNull();
 });
 
 function Anchored(

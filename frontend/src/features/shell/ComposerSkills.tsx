@@ -9,15 +9,6 @@ export type ComposerSkillAction = (
   skillId?: string,
 ) => Promise<void>;
 
-/**
- * Skills worth a chip: the ones this chat chose. A default every new chat
- * starts with ("Proactive Agent · default") stays in Skills, not as an
- * unexplained chip on every chat (U17).
- */
-export function chipSkills(composer: ConversationComposer) {
-  return composer.active_skills.filter((skill) => skill.source !== 'default');
-}
-
 export function ComposerSkillChips({
   composer,
   disabled,
@@ -27,19 +18,19 @@ export function ComposerSkillChips({
   disabled: boolean;
   action: ComposerSkillAction;
 }) {
-  const skills = chipSkills(composer);
+  // Every active skill has a chip, defaults included (B236); × drops it from
+  // this chat only, and an agent profile's skill has no ×.
+  const skills = composer.active_skills;
   if (!skills.length && !composer.suggestions.length) return null;
   return (
     <div className="composer-skill-chips" aria-label="Smart Skills">
       {skills.map((skill) => (
         <span
           className="composer-skill-chip"
-          data-skill-source={skill.source}
           key={skill.id}
-          title={`${skill.description}${skill.description ? ' · ' : ''}${skill.source}`}
+          title={skill.description}
         >
           <span aria-hidden>{skill.icon}</span> {skill.display_name}
-          <small>{skill.source}</small>
           {skill.removable && (
             <Button
               iconOnly

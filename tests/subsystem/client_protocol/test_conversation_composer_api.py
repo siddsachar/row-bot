@@ -215,3 +215,78 @@ def test_slash_read_is_allowlisted_bounded_and_cannot_execute_arbitrary_text(
         assert value.command_id == "help"
         assert "/status" in value.text
         assert len(response.content) < 20 * 1024
+
+
+@pytest.fixture
+def pinned_default_library(tmp_path, monkeypatch):
+    """A real, isolated skill library whose one skill Settings pins for new chats."""
+    from row_bot.plugins import state as plugin_state
+
+    root = tmp_path / "skills-data"
+    for name, path in [
+        ("DATA_DIR", root),
+        ("USER_SKILLS_DIR", root / "skills"),
+        ("BUNDLED_SKILLS_DIR", tmp_path / "bundled"),
+        ("TOOL_GUIDES_DIR", tmp_path / "guides"),
+        ("CONFIG_PATH", root / "skills_config.json"),
+    ]:
+        monkeypatch.setattr(skills, name, path)
+    monkeypatch.setattr(skills, "_skills_cache", {})
+    monkeypatch.setattr(skills, "_enabled", {})
+    monkeypatch.setattr(skills, "_pinned", [])
+    folder = skills.USER_SKILLS_DIR / "meeting_notes"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: meeting_notes\ndisplay_name: Meeting Notes\n"
+        "description: Turn a meeting into notes.\n---\n\nWrite tidy notes.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(plugin_state, "get_cached_plugin_enablement", lambda: None)
+    monkeypatch.setattr(skills_activation, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        skills_activation, "STATE_PATH", tmp_path / "skills_activation.json"
+    )
+    skills.set_pinned("meeting_notes", True)
+
+
+def test_removing_a_default_skill_changes_only_that_chat(
+    service, pinned_default_library
+):
+    def active(client, headers, conversation):
+        view = _query(client, headers, conversation).json()
+        return [(item["id"], item["source"], item["removable"]) for item in view["active_skills"]]
+
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        first = _create(client, headers)
+        other = _create(client, headers)["conversation_id"]
+        seeded = [("meeting_notes", "default", True)]
+        assert active(client, headers, first["conversation_id"]) == seeded
+        assert active(client, headers, other) == seeded
+
+        composer = _query(client, headers, first["conversation_id"]).json()
+        removed = _command(
+            client,
+            headers,
+            "conversation.skills",
+            {
+                "action": "remove",
+                "composer_revision": composer["composer_revision"],
+                "skill_id": "meeting_notes",
+                "draft": "",
+            },
+            target=first["conversation_id"],
+            revision=first["revision"],
+        )
+        assert removed.status_code == 200, removed.text
+
+        assert active(client, headers, first["conversation_id"]) == []
+        assert active(client, headers, other) == seeded
+        library = client.get("/api/v1/settings/skills", headers=headers)
+        assert library.status_code == 200, library.text
+        assert [(item["id"], item["pinned"]) for item in library.json()["items"]] == [
+            ("meeting_notes", True)
+        ]
+        # A chat started afterwards still begins with the Settings default.
+        later = _create(client, headers)["conversation_id"]
+        assert active(client, headers, later) == seeded

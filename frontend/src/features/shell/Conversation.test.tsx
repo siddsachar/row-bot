@@ -83,6 +83,8 @@ const mock = vi.hoisted(() => ({
   setDraft: vi.fn(),
   upload: vi.fn(),
   composer: vi.fn(),
+  refreshWorkspace: vi.fn(),
+  notify: vi.fn(),
   goals: vi.fn(),
   reviewGoal: vi.fn(),
   executeGoal: vi.fn(),
@@ -111,6 +113,7 @@ vi.mock('../../runtime', () => {
       setDraft: mock.setDraft,
       upload: mock.upload,
       composer: mock.composer,
+      refreshWorkspace: mock.refreshWorkspace,
       goals: mock.goals,
       reviewGoal: mock.reviewGoal,
       executeGoal: mock.executeGoal,
@@ -166,7 +169,7 @@ vi.mock('../../ui/overlays', () => ({
     close: mock.close,
     open: mock.open,
     dismiss: mock.dismiss,
-    notify: vi.fn(),
+    notify: mock.notify,
   }),
 }));
 beforeEach(() => {
@@ -2718,4 +2721,72 @@ it('starts a goal at once with /goal and a limit of 10', async () => {
     payload: { operation: 'start', review_id: 'review-1' },
   });
   expect(mock.drafts.get('conversation-a')?.text).toBe('');
+});
+
+it('removes a default skill from this chat with Undo in the notice (B236)', async () => {
+  withCommands();
+  const skill = {
+    id: 'proactive_agent',
+    display_name: 'Proactive Agent',
+    icon: '✨',
+    description: 'Plans ahead.',
+    library_source: 'bundled',
+    source: 'default',
+    removable: true,
+  };
+  const before = {
+    ...mock.state.workspace!.composer!,
+    active_skills: [skill],
+  };
+  const after = {
+    ...before,
+    composer_revision: 'composer-2',
+    active_skills: [],
+  };
+  mock.state.workspace!.composer = before as never;
+  mock.composer.mockResolvedValue(before);
+  mock.intent.mockImplementation(
+    async (_id, _type, _payload, _revision, commandId: string) => {
+      mock.composer.mockResolvedValue(after);
+      return { status: 'completed', command_id: commandId };
+    },
+  );
+  conversation();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove Proactive Agent from this chat',
+      }),
+    ),
+  );
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.skills',
+    expect.objectContaining({
+      action: 'remove',
+      composer_revision: 'composer-1',
+      skill_id: 'proactive_agent',
+    }),
+    '1',
+    expect.any(String),
+  );
+  expect(mock.notify).toHaveBeenCalledWith(
+    'Removed from this chat.',
+    undefined,
+    expect.objectContaining({ label: 'Undo' }),
+  );
+  // Undo brings the skill back against the chat's fresh composer revision.
+  const undo = mock.notify.mock.calls.at(-1)![2] as { onAction(): void };
+  await act(async () => undo.onAction());
+  expect(mock.intent).toHaveBeenLastCalledWith(
+    'conversation-a',
+    'conversation.skills',
+    expect.objectContaining({
+      action: 'activate',
+      composer_revision: 'composer-2',
+      skill_id: 'proactive_agent',
+    }),
+    '1',
+    expect.any(String),
+  );
 });

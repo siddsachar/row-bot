@@ -162,3 +162,24 @@ it('copies a table as CSV with markup removed and fields quoted', async () => {
   );
   expect(screen.getByRole('status')).toHaveTextContent('Table copied as CSV.');
 });
+
+it('keeps numbering when a paragraph splits an ordered list', () => {
+  render(
+    <SafeMarkdown
+      text={[
+        '1. First source',
+        'https://example.test/one',
+        '2. Second source',
+        'https://example.test/two',
+      ].join('\n')}
+    />,
+  );
+  const lists = screen.getAllByRole('list') as HTMLOListElement[];
+  expect(lists.map((list) => list.start)).toEqual([1, 2]);
+  expect(lists[1]).toHaveTextContent('Second source');
+});
+
+it('numbers a list from the number it starts with', () => {
+  render(<SafeMarkdown text={'3. Third\n4. Fourth'} />);
+  expect((screen.getByRole('list') as HTMLOListElement).start).toBe(3);
+});

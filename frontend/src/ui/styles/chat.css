@@ -2070,9 +2070,6 @@
   color: var(--text-secondary);
   font-size: var(--text-12);
 }
-.composer-skill-chip small {
-  color: var(--text-muted);
-}
 .composer-skill-chip .button,
 .composer-skill-suggestion .button {
   min-height: 24px;

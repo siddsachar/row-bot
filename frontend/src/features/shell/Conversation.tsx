@@ -87,7 +87,7 @@ import {
   profileChoices,
 } from './agent-profiles';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
-import { ComposerSkillChips, chipSkills } from './ComposerSkills';
+import { ComposerSkillChips } from './ComposerSkills';
 import {
   attachmentLimitProblem,
   pastedFileName,
@@ -837,6 +837,13 @@ export default function Conversation({
       if (controller.getSnapshot().selectedConversationId === id)
         setComposerSnapshot(fresh);
       setError('');
+      // Settings' defaults stay as they are; Undo adds the skill back to
+      // this chat against its fresh composer revision (B236).
+      if (!checking && skillActionName === 'remove')
+        overlay.notify('Removed from this chat.', undefined, {
+          label: 'Undo',
+          onAction: () => void skillActionRef.current('activate', skillId),
+        });
     } catch (cause) {
       setError(clientError(cause).message);
       await controller.refreshWorkspace();
@@ -844,6 +851,10 @@ export default function Conversation({
       setComposerBusy(false);
     }
   }
+  const skillActionRef = useRef(skillAction);
+  useLayoutEffect(() => {
+    skillActionRef.current = skillAction;
+  });
 
   async function runSlashArgument({ command, argument }: SlashArgument) {
     if (!id || !state.workspace || !controls || !state.conversation) return;
@@ -3121,7 +3132,7 @@ export default function Conversation({
                 (singleLine && needsModel) ||
                 Boolean(
                   composerSnapshot &&
-                  (chipSkills(composerSnapshot).length ||
+                  (composerSnapshot.active_skills.length ||
                     composerSnapshot.suggestions.length),
                 )) && (
                 <div className="composer-chips">

@@ -325,7 +325,10 @@ export default function SafeMarkdown({
       }
       blocks.push(
         ordered ? (
-          <ol key={`list-${start}`}>{items}</ol>
+          // A list split by a paragraph goes on from its own first number.
+          <ol key={`list-${start}`} start={Number(list[2])}>
+            {items}
+          </ol>
         ) : (
           <ul key={`list-${start}`}>{items}</ul>
         ),
