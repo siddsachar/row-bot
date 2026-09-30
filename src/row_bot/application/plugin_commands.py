@@ -207,6 +207,9 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
     values = raw.get("plugins", [])
     if type(values) is not list or len(values) > 2000:
         raise _error("plugin_catalog_unavailable")
+    from row_bot.plugins.marketplace import MarketplaceEntry, entry_source
+
+    index_source = str(raw.get("source") or "")[:2048]
     result = {}
     for entry in values:
         if type(entry) is not dict or type(entry.get("id")) is not str:
@@ -215,13 +218,14 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
         if _ID.fullmatch(plugin_id) is None or plugin_id in result:
             continue
         provides = entry.get("provides", {})
-        try:
-            archive_host = urlsplit(str(entry.get("archive_url") or "")).hostname
-        except ValueError:
-            archive_host = None
-        source_label = archive_host or (
-            "local directory" if entry.get("path") else "configured marketplace repository"
-        )
+        # Where its code comes from, and whether it can install (B266).
+        origin = entry_source(MarketplaceEntry(
+            id=plugin_id, name="", version="", description="",
+            path=str(entry.get("path") or "")[:2048],
+            archive_url=str(entry.get("archive_url") or "")[:2048],
+            checksum=str(entry.get("checksum") or "")[:128],
+            index_source=index_source,
+        ))
         result[plugin_id] = {
             "id": plugin_id,
             "name": str(entry.get("name") or plugin_id)[:256],
@@ -231,7 +235,8 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
             if type(entry.get("tags", [])) is list
             else [],
             "verified": entry.get("verified") is True,
-            "source_label": source_label[:256],
+            "source_label": origin.label[:256],
+            "source_problem": origin.problem,
             "checksum": str(entry.get("checksum") or "")[:128],
             "permissions": [
                 str(item)[:64] for item in entry.get("permissions", [])[:64]
@@ -360,20 +365,18 @@ def _health(record: dict[str, Any]) -> dict[str, Any]:
 def _capabilities(
     *, installed: bool, enabled: bool, setup: bool, healthy: bool,
     market_available: bool = False, update_available: bool = False,
+    source_problem: str | None = None,
 ) -> dict[str, dict[str, Any]]:
+    # An entry whose source can't install offers neither install nor update.
+    install_code = "plugin_source_unavailable" if installed or not market_available else source_problem
+    update_code = source_problem if installed and update_available else "plugin_update_unavailable"
     return {
         "test": {
             "available": installed,
             "code": None if installed else "plugin_not_installed",
         },
-        "install": {
-            "available": not installed and market_available,
-            "code": None if not installed and market_available else "plugin_source_unavailable",
-        },
-        "update": {
-            "available": installed and update_available,
-            "code": None if installed and update_available else "plugin_update_unavailable",
-        },
+        "install": {"available": install_code is None, "code": install_code},
+        "update": {"available": update_code is None, "code": update_code},
         "remove": {
             "available": installed,
             "code": None if installed else "plugin_not_installed",
@@ -500,6 +503,7 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
                 healthy=health["status"] == "passed",
                 market_available=market is not None,
                 update_available=bool(market and _newer(market["version"], manifest.version)),
+                source_problem=market["source_problem"] if market else None,
             ),
         }
         item["capabilities"]["prepare"] = _prepare_capability(manifest.id)
@@ -533,7 +537,7 @@ def _catalog(validate: Callable[[], None]) -> tuple[list[dict[str, Any]], str]:
                 "capabilities": {
                     **_capabilities(
                         installed=False, enabled=False, setup=False, healthy=False,
-                        market_available=True,
+                        market_available=True, source_problem=market["source_problem"],
                     ),
                     "prepare": {"available": False, "code": "plugin_not_installed"},
                 },

@@ -58,6 +58,13 @@ export function usePluginLifecycle(
     kind: Confirmable;
     review: PluginLifecycleReview;
   } | null>(null);
+  // A failed install or update says why (the installer's reason) as an
+  // alert, not as a quiet status line (B266).
+  const show = (receipt: PluginLifecycleReceipt) => {
+    const failed = receipt.status === 'failed';
+    setMessage(failed ? '' : receipt.message);
+    setError(failed ? receipt.message : '');
+  };
   const run = async (
     kind: PluginLifecycleCommand['action'],
     review: PluginLifecycleReview,
@@ -70,7 +77,7 @@ export function usePluginLifecycle(
       plugin_id: plugin?.plugin_id ?? '',
       revision: review.revision,
     });
-    setMessage(receipt.message);
+    show(receipt);
     if (receipt.status !== 'uncertain') {
       remember('');
       onChanged();
@@ -110,8 +117,7 @@ export function usePluginLifecycle(
     setBusy(true);
     try {
       const receipt = await api.receipt(pending);
-      setMessage(receipt.message);
-      setError('');
+      show(receipt);
       if (receipt.status !== 'uncertain') {
         remember('');
         onChanged();

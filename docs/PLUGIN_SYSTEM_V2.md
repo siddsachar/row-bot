@@ -179,11 +179,15 @@ row-bot-plugins/
 ```
 
 Set `ROW_BOT_PLUGIN_INDEX_URL` to a plain local `index.json` path, a `file://`
-URL, or a remote HTTPS index while testing the marketplace flow. Local index
-entries can use relative `path` values; Row-Bot resolves them against the index
-`source`, verifies the `sha256:` checksum when present, installs disabled, and
-reuses the same source/checksum data for updates. Entries can also provide an
-`archive_url` that points at a local or remote zip archive containing either the
+URL, or a remote HTTPS index while testing the marketplace flow. The index
+`source` says where its plugins live. When it is a local folder (an absolute
+path or a `file://` URL), relative `path` values resolve inside it and the
+`sha256:` checksum is verified when present. When it is an HTTPS GitHub
+repository, a relative `path` is that plugin's folder in the repository's
+`main` archive, and the entry must carry a `sha256:` checksum. A `path` is never
+resolved against Row-Bot's working folder. Installs stay disabled, and updates
+reuse the same source/checksum data. Entries can also provide an HTTPS
+`archive_url` (a checksum is required) for a zip archive containing either the
 plugin directory itself or a `plugins/<plugin_id>/` tree.
 
 ## Health Checks

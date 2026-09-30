@@ -243,6 +243,42 @@ def test_installer_installs_plugin_from_local_zip_archive(
     )
 
 
+def test_installer_downloads_only_with_a_checksum_and_only_inside_the_archive(
+    plugin_modules: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = plugin_modules["installer"]
+    devtools = plugin_modules["devtools"]
+    installer.PLUGINS_DIR = tmp_path / "installed_plugins"
+    tree = tmp_path / "repository"
+    source = write_plugin(tree / "plugins", "archive-plugin")
+    archive = tmp_path / "repository.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for path in source.rglob("*"):
+            zf.write(path, Path("row-bot-plugins-main") / path.relative_to(tree))
+    downloads: list[str] = []
+    monkeypatch.setattr(installer, "_download_to_file", lambda ref, dest: downloads.append(ref))
+
+    unpinned = installer.install_plugin(
+        "archive-plugin", archive_url="https://example.test/repository.zip",
+        archive_path="plugins/archive-plugin",
+    )
+    assert unpinned.success is False and unpinned.code == "plugin_checksum_unavailable"
+    assert downloads == []
+
+    monkeypatch.setattr(installer, "_download_to_file", lambda ref, dest: dest.write_bytes(archive.read_bytes()))
+    # A folder above the archive's own is never copied (it would hold the
+    # download itself), whatever the checksum says.
+    escaped = installer.install_plugin(
+        "archive-plugin", archive_url="https://example.test/repository.zip",
+        archive_path="../..", expected_checksum=devtools.compute_plugin_checksum(source),
+    )
+    assert escaped.success is False and escaped.code == "plugin_install_failed"
+    assert "has no folder" in escaped.message
+    assert not installer.is_installed("archive-plugin")
+
+
 def test_marketplace_parse_search_tags_entry_and_update_detection(
     plugin_modules: dict[str, Any],
 ) -> None:

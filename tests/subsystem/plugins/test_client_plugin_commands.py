@@ -66,11 +66,14 @@ def test_reads_installed_and_cached_marketplace_without_paths_or_secrets(
         json.dumps(
             {
                 "schema_version": 2,
+                "source": "https://github.com/example-owner/row-bot-plugins",
                 "plugins": [
                     {
                         "id": "sample-plugin",
                         "name": "Sample Plugin",
                         "version": "1.2.0",
+                        "path": "plugins/sample-plugin",
+                        "checksum": "sha256:" + "c" * 64,
                     },
                     {
                         "id": "cached-plugin",
@@ -80,6 +83,8 @@ def test_reads_installed_and_cached_marketplace_without_paths_or_secrets(
                         "verified": True,
                         "permissions": ["network"],
                         "provides": {"skills": 2},
+                        "path": "plugins/cached-plugin",
+                        "checksum": "sha256:" + "d" * 64,
                     },
                 ],
             }

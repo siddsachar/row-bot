@@ -19,6 +19,7 @@ import {
   type MenuAction,
   type Tone,
 } from '../../ui/primitives';
+import { clientError } from '../../api/errors';
 import { humanizeToken } from '../../ui/format';
 import PluginLifecycleActions, {
   PluginProvenance,
@@ -997,6 +998,17 @@ function PluginRow({
     .filter(Boolean)
     .join(' · ');
   const busy = locked || life.locked;
+  // An install or update the plugin's source can't do says why instead of
+  // offering a button that fails (B266).
+  const lifecycleGate = !plugin.installed
+    ? plugin.capabilities.install
+    : plugin.update_version
+      ? plugin.capabilities.update
+      : undefined;
+  const blockedReason =
+    lifecycle && lifecycleGate?.available === false && lifecycleGate.code
+      ? clientError({ code: lifecycleGate.code }).message
+      : '';
   const menu: MenuAction[] = [];
   if (plugin.installed)
     menu.push({
@@ -1005,7 +1017,12 @@ function PluginRow({
       disabled: busy || !plugin.capabilities.test?.available,
       onSelect: () => onAction('plugin.test'),
     });
-  if (lifecycle && plugin.installed && plugin.update_version)
+  if (
+    lifecycle &&
+    plugin.installed &&
+    plugin.update_version &&
+    plugin.capabilities.update?.available
+  )
     menu.push({
       label: `Update to ${plugin.update_version}`,
       icon: <Upload size={16} />,
@@ -1032,6 +1049,7 @@ function PluginRow({
         </div>
         <p>{plugin.description}</p>
         <small>{meta}</small>
+        {blockedReason && <small>{blockedReason}</small>}
         <details className="settings-plugin-details">
           <summary>Source and permissions</summary>
           <PluginProvenance plugin={plugin} />
@@ -1074,7 +1092,7 @@ function PluginRow({
               }
             />
           </>
-        ) : lifecycle ? (
+        ) : lifecycle && plugin.capabilities.install?.available ? (
           <Button
             variant="primary"
             disabled={busy}

@@ -1857,6 +1857,10 @@ const CATALOG: Record<string, Entry> = {
     RETRY,
   ],
   plugin_changed: ['The plugin changed. Try again.', 'retry', RETRY],
+  plugin_checksum_unavailable: [
+    "The marketplace lists no checksum for this plugin, so Row-Bot won't download it.",
+    'none',
+  ],
   plugin_configuration_unconfirmed: [
     "Row-Bot couldn't confirm the plugin's settings were saved. Check them before trying again.",
     'review',
@@ -1909,9 +1913,12 @@ const CATALOG: Record<string, Entry> = {
     PLUGINS,
   ],
   plugin_source_unavailable: [
-    "The plugin's source couldn't be reached. Try again.",
-    'retry',
-    RETRY,
+    "The plugin's folder isn't where the marketplace index says it is.",
+    'none',
+  ],
+  plugin_source_unsupported: [
+    'This plugin can’t be installed from where its marketplace entry points.',
+    'none',
   ],
   invalid_skill_action: ["That skill action isn't valid.", 'review', SKILLS],
   invalid_skill_command: ["That skill action isn't valid.", 'review', SKILLS],

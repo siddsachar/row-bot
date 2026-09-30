@@ -337,6 +337,8 @@ _STATUS.update(
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
         "plugin_source_unavailable": 409,
+        "plugin_source_unsupported": 409,
+        "plugin_checksum_unavailable": 409,
         "plugin_lifecycle_changed": 409,
         "plugin_lifecycle_receipt_unavailable": 404,
     }

@@ -9,13 +9,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from hashlib import sha256
 import json
-from urllib.parse import urlsplit
+import logging
 from uuid import uuid4
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
 
+_LOG = logging.getLogger(__name__)
 _ACTIONS = frozenset({"install", "update", "remove", "refresh", "prepare"})
 
 _PREPARE_DISCLOSURES = [
@@ -53,35 +54,52 @@ def _entry(plugin_id: str):
     return entry
 
 
-def _source(entry) -> str:
-    from row_bot.plugins.installer import DEFAULT_REPO_URL
-
-    source = entry.archive_url or f"{DEFAULT_REPO_URL}/archive/refs/heads/main.zip"
-    parsed = urlsplit(source)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ClientPlatformError("plugin_source_unavailable")
-    return source
-
-
-def _local_source(entry):
+def _origin(entry):
+    """Where the entry installs from; refused with its code when it can't (B266)."""
     from row_bot.plugins import marketplace
 
-    if not getattr(entry, "path", ""):
-        return None
-    source = marketplace.source_dir_for_entry(entry)
-    if source is None:
-        raise ClientPlatformError("plugin_source_unavailable")
-    return source
+    origin = marketplace.entry_source(entry)
+    if origin.problem:
+        raise ClientPlatformError(origin.problem)
+    return origin
+
+
+def _described(origin) -> str:
+    if origin.local_dir is not None:
+        return f"Local directory: {origin.local_dir.name}"
+    if origin.archive_path:
+        return f"{origin.archive_url} (folder {origin.archive_path})"
+    return origin.archive_url
+
+
+def _log_refusal(action: str, plugin_id: str, code: str) -> None:
+    from row_bot.application import plugin_commands
+
+    _LOG.warning(
+        "Plugin %s for %s refused: %s",
+        action if action in _ACTIONS else "action",
+        plugin_id if plugin_commands._ID.fullmatch(plugin_id) else "marketplace",
+        code,
+    )
 
 
 def review_plugin_lifecycle(
     action: str, plugin_id: str, *, validate: Callable[[], None]
 ) -> dict:
+    try:
+        return _review(action, plugin_id, validate=validate)
+    except ClientPlatformError as exc:
+        _log_refusal(action, plugin_id, exc.code)
+        raise
+
+
+def _review(action: str, plugin_id: str, *, validate: Callable[[], None]) -> dict:
     from row_bot.application import plugin_commands
 
     validate()
     if action not in _ACTIONS or (action != "refresh" and not plugin_commands._ID.fullmatch(plugin_id)):
         raise ClientPlatformError("invalid_plugin_lifecycle_command")
+    reviewed_tree = ""
     if action == "refresh":
         data = {
             "action": action,
@@ -107,17 +125,15 @@ def review_plugin_lifecycle(
         if action == "update" and not item["update_version"]:
             raise ClientPlatformError("plugin_update_unavailable")
         entry = _entry(plugin_id) if action in {"install", "update"} else None
-        local_source = _local_source(entry) if entry else None
-        source = (
-            f"Local directory: {local_source.name}" if local_source else
-            _source(entry) if entry else "installed local plugin"
-        )
+        origin = _origin(entry) if entry else None
+        source = _described(origin) if origin else "installed local plugin"
         version = entry.version if entry else item["version"]
         checksum = str(entry.checksum or "") if entry else ""
-        if local_source is not None:
+        if origin is not None and origin.local_dir is not None:
             from row_bot.plugins.installer import _tree_revision
 
-            checksum = _tree_revision(local_source, source=True)
+            # A local folder installs only as reviewed, checksum or not.
+            reviewed_tree = _tree_revision(origin.local_dir, source=True)
         data = {
             "action": action,
             "plugin_id": plugin_id,
@@ -130,8 +146,8 @@ def review_plugin_lifecycle(
                 [
                     "Plugin code is copied locally and kept disabled until configuration and testing.",
                     "Third-party plugin code and dependencies may contact external services when enabled; inspect its source and permissions before proceeding.",
-                    "The marketplace index does not pin this package with a checksum; its content may change before download."
-                    if not checksum else "The downloaded package is checked against the displayed checksum.",
+                    "The plugin's files are checked against the displayed checksum before they are installed."
+                    if checksum else "The marketplace index lists no checksum for this local folder; it installs only if unchanged since this review.",
                     "A plugin with its own code gets a private Python environment in Row-Bot's data folder.",
                 ]
                 if action in {"install", "update"}
@@ -141,7 +157,7 @@ def review_plugin_lifecycle(
             ),
         }
     data["revision"] = sha256(
-        json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        json.dumps([data, reviewed_tree], sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
     validate()
     return data
@@ -174,6 +190,7 @@ def execute_plugin_lifecycle(
         return admissions.claim_command(owner_id, command["command_id"], wire, target)
     reviewed = review_plugin_lifecycle(action, plugin_id, validate=validate)
     if command["revision"] != reviewed["revision"]:
+        _log_refusal(action, plugin_id, "plugin_lifecycle_changed")
         raise ClientPlatformError("plugin_lifecycle_changed")
     admissions.claim_command(
         owner_id,
@@ -206,14 +223,15 @@ def execute_plugin_lifecycle(
         )
     else:
         entry = _entry(plugin_id)
-        local_source = _local_source(entry)
-        source = _source(entry) if local_source is None else str(local_source)
+        origin = _origin(entry)
         kwargs = {
             "source": "marketplace",
-            "source_ref": source,
-            "source_dir": local_source,
-            "archive_url": source if local_source is None else "",
-            "expected_checksum": (entry.checksum or None) if local_source is None else None,
+            "source_ref": str(origin.local_dir) if origin.local_dir else _described(origin),
+            "source_dir": origin.local_dir,
+            "archive_url": origin.archive_url,
+            "archive_path": origin.archive_path,
+            # A local folder is checked too when the index lists a checksum (B208).
+            "expected_checksum": entry.checksum or None,
         }
         outcome = (
             installer.install_plugin(plugin_id, **kwargs)
@@ -221,12 +239,15 @@ def execute_plugin_lifecycle(
             else installer.update_plugin(plugin_id, **kwargs)
         )
         success = outcome.success
-        message = (
-            f"Installed {plugin_id} and kept it disabled."
-            if success and action == "install"
-            else f"Updated {plugin_id}." if success else
-            "Plugin operation failed; inspect the local installation."
-        )
+        if success:
+            message = f"Installed {plugin_id} and kept it disabled." if action == "install" else f"Updated {plugin_id}."
+        else:
+            # The installer's own reason, bounded; the log names only its code.
+            reason = " ".join(str(outcome.message).split())[:300]
+            message = f"Couldn't {action} {plugin_id}: {reason}"
+            if outcome.code == "plugin_checksum_mismatch":
+                message += " Refresh the marketplace, then try again."
+            _LOG.warning("Plugin %s for %s failed: %s", action, plugin_id, outcome.code)
         if success:
             # A worker plugin loads only from its prepared environment (B129).
             from row_bot.application.plugin_commands import environment_needed

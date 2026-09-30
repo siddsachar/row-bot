@@ -323,6 +323,93 @@ it('refreshes the enabled switch after the saved command completes', async () =>
   expect(screen.getByText('Plugin change completed.')).toBeVisible();
 });
 
+const installable = {
+  ...capabilities,
+  install: { available: true, code: null },
+};
+
+function marketplaceOnly(
+  props: ReturnType<typeof options>,
+  caps: PluginCatalogPage['items'][number]['capabilities'],
+) {
+  props.load.mockResolvedValue({
+    ...page,
+    items: [{ ...page.items[1], capabilities: caps }],
+    total: 1,
+  });
+}
+
+it('says why a marketplace plugin cannot install instead of offering Install (B266)', async () => {
+  const props = options();
+  marketplaceOnly(props, {
+    ...capabilities,
+    install: { available: false, code: 'plugin_checksum_unavailable' },
+  });
+  const lifecycle = { review: vi.fn(), execute: vi.fn(), receipt: vi.fn() };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  expect(await screen.findByText(/lists no checksum/)).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Install' }),
+  ).not.toBeInTheDocument();
+  expect(lifecycle.review).not.toHaveBeenCalled();
+});
+
+it('shows the installer’s reason when an install fails (B266)', async () => {
+  sessionStorage.clear();
+  const props = options();
+  marketplaceOnly(props, installable);
+  const lifecycle = {
+    review: vi.fn().mockResolvedValue({
+      action: 'install',
+      plugin_id: 'cached-plugin',
+      name: 'Cached Plugin',
+      version: '2.0.0',
+      source:
+        'https://github.com/example/plugins/archive/refs/heads/main.zip (folder plugins/cached-plugin)',
+      checksum: `sha256:${'a'.repeat(64)}`,
+      permissions: [],
+      disclosures: [],
+      revision: 'd'.repeat(64),
+    }),
+    execute: vi.fn().mockImplementation(async (command) => ({
+      command_id: command.command_id,
+      status: 'failed',
+      action: 'install',
+      plugin_id: 'cached-plugin',
+      message:
+        "Couldn't install cached-plugin: Checksum mismatch: expected sha256:a, got sha256:b Refresh the marketplace, then try again.",
+    })),
+    receipt: vi.fn(),
+  };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Install plugin' }),
+  );
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Checksum mismatch');
+  expect(alert).toHaveTextContent('Refresh the marketplace');
+});
+
+it('says an entry that cannot install is permanent, not "try again" (B266)', async () => {
+  sessionStorage.clear();
+  const props = options();
+  marketplaceOnly(props, installable);
+  const lifecycle = {
+    review: vi
+      .fn()
+      .mockRejectedValue({ status: 409, code: 'plugin_source_unsupported' }),
+    execute: vi.fn(),
+    receipt: vi.fn(),
+  };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent(/can’t be installed from/);
+  expect(alert).not.toHaveTextContent(/try again/i);
+  expect(lifecycle.execute).not.toHaveBeenCalled();
+});
+
 it('keeps a newly installed marketplace plugin visible for its next action', async () => {
   sessionStorage.clear();
   const props = options();
@@ -330,6 +417,7 @@ it('keeps a newly installed marketplace plugin visible for its next action', asy
   props.load.mockImplementation(async ({ source }) => {
     const item = {
       ...page.items[1],
+      capabilities: installable,
       installed,
       source: installed ? ('installed' as const) : ('marketplace' as const),
     };

@@ -30,11 +30,11 @@ it('shows what the server says about a plugin before installing it (B144)', asyn
     plugin_id: 'synthetic-plugin',
     name: 'Synthetic plugin',
     version: '1.0.0',
-    source: 'https://example.test/plugin.zip',
+    source: 'Local directory: synthetic-plugin',
     checksum: '',
     permissions: ['filesystem_read'],
     disclosures: [
-      'The marketplace index does not pin this package with a checksum; its content may change before download.',
+      'The marketplace index lists no checksum for this local folder; it installs only if unchanged since this review.',
     ],
     revision: 'a'.repeat(64),
   });
@@ -58,8 +58,8 @@ it('shows what the server says about a plugin before installing it (B144)', asyn
   const dialog = await screen.findByRole('dialog', {
     name: /Install Synthetic plugin/,
   });
-  expect(dialog).toHaveTextContent('does not pin this package');
-  expect(dialog).toHaveTextContent('https://example.test/plugin.zip');
+  expect(dialog).toHaveTextContent('lists no checksum for this local folder');
+  expect(dialog).toHaveTextContent('Local directory: synthetic-plugin');
   expect(dialog).toHaveTextContent('Not pinned');
   expect(execute).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
