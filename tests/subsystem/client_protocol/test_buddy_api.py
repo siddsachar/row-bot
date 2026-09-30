@@ -42,7 +42,16 @@ def test_global_buddy_projection_is_passive_idle_shell_state(service, env):
 
 
 def test_passive_buddy_reads_keep_general_query_reserve_available(service, env):
-    with _client(service) as client:
+    from fastapi.testclient import TestClient
+
+    from row_bot.api.v1.routes import create_client_platform_app
+    from row_bot.api.v1.security import ClientSecurity
+
+    # A frozen clock: the query lane (30 requests, then 2 a second) never refills
+    # mid-test, however slowly a loaded machine answers.
+    security = ClientSecurity(service.instance_id, clock=lambda: 1_000.0)
+    app = create_client_platform_app(service, choices=lambda: {"models": [], "capabilities": []}, security=security)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
         _, headers = bootstrap(client)
         query_statuses = [
             client.get("/api/v1/conversations", headers=headers).status_code

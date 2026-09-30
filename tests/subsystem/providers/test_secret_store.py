@@ -416,7 +416,7 @@ def test_encrypted_server_store_survives_a_fresh_python_process(
     environment = os.environ.copy()
     environment.update(
         {
-            "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+            "PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"),
             "PYTHON_KEYRING_BACKEND": "keyring.backends.fail.Keyring",
             "ROW_BOT_DATA_DIR": str(data_dir),
             "ROW_BOT_DEPLOYMENT_MODE": "server",
@@ -433,7 +433,7 @@ def test_encrypted_server_store_survives_a_fresh_python_process(
                 "namespace='providers:codex') == 'encrypted_file'"
             ),
         ],
-        cwd=Path(__file__).resolve().parents[1],
+        cwd=Path(__file__).resolve().parents[3],
         env=environment,
         capture_output=True,
         text=True,
@@ -452,7 +452,7 @@ def test_encrypted_server_store_survives_a_fresh_python_process(
                 "== 'fake-process-token'"
             ),
         ],
-        cwd=Path(__file__).resolve().parents[1],
+        cwd=Path(__file__).resolve().parents[3],
         env=environment,
         capture_output=True,
         text=True,

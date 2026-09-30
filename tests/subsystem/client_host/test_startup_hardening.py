@@ -140,7 +140,7 @@ def test_preflight_handles_real_broken_optional_package_subprocess(tmp_path):
         """
     )
     env = dict(os.environ)
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     env["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(tmp_path), str(root / "src"), str(root), env.get("PYTHONPATH", "")) if part
     )
@@ -214,7 +214,7 @@ def test_app_import_survives_broken_cv2_module(tmp_path):
     fake_cv2.write_text('raise OSError("libGL.so.1: cannot open shared object file")\n', encoding="utf-8")
     code = "import row_bot.app; print('app-import-ok')"
     env = dict(os.environ)
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     env["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(tmp_path), str(root / "src"), str(root), env.get("PYTHONPATH", "")) if part
     )

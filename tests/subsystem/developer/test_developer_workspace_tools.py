@@ -372,7 +372,7 @@ def test_status_reports_developer_enabled_for_new_install_when_active(tmp_path, 
 def test_developer_guides_and_skills_are_bundled():
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     assert (root / "tool_guides" / "developer_guide" / "SKILL.md").exists()
     assert (root / "bundled_skills" / "developer_coding" / "SKILL.md").exists()
     assert (root / "bundled_skills" / "developer_review" / "SKILL.md").exists()
