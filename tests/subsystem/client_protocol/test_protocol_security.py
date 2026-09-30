@@ -84,13 +84,14 @@ def test_query_revoked_during_store_wait_never_delivers_data():
 
 def test_choice_discovery_reads_metadata_without_plugin_construction_or_refresh(monkeypatch):
     from row_bot.api.v1.routes import cached_choices
-    from row_bot.providers import model_catalog_cache, selection
+    from row_bot.providers import client_status, model_catalog_cache
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state
     from row_bot.mcp_client import runtime
     monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=True))
-    monkeypatch.setattr(selection, "list_model_choice_options", lambda **kwargs: [{"provider_id": "fixture",
-        "value": "fixture::model", "label": "Fixture", "active": True, "api_key": "PRIVATE_SENTINEL"}])
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [{"provider_id": "fixture",
+        "selection_ref": "fixture::model", "label": "Fixture", "available": True, "unavailable_reason": None,
+        "billing": None, "api_key": "PRIVATE_SENTINEL"}])
     tool = SimpleNamespace(name="fixture_tool", destructive_tool_names={"fixture_delete"},
                            as_langchain_tools=lambda: pytest.fail("Discovery constructed plugin tools"))
     monkeypatch.setattr(tool_registry, "get_all_tools", lambda: [])

@@ -18,7 +18,8 @@ from typing import Literal
 from row_bot.providers.catalog import PROVIDER_DEFINITIONS
 from row_bot.providers.config import load_provider_config
 from row_bot.providers.custom import normalize_custom_endpoint
-from row_bot.providers.model_catalog import CatalogModelRow, build_saved_model_catalog_rows, project_saved_catalog_readiness
+from row_bot.providers.model_catalog import (CatalogModelRow, build_saved_model_catalog_rows, picker_options,
+                                             project_saved_catalog_readiness)
 from row_bot.providers.model_catalog_cache import (
     CATALOG_CACHE_TTL_SECONDS,
     is_model_catalog_refresh_running,
@@ -226,6 +227,11 @@ def _read(now: float | None, *, include_readiness: bool = False) -> tuple[Provid
 def read_provider_snapshot(*, now: float | None = None) -> ProviderStatusSnapshot:
     """Read public saved status; no refresh or authentication side effects."""
     return _read(now)[0]
+
+
+def picker_choices(surface: str) -> list[dict]:
+    """A picker's options from saved metadata and local status; never reads a provider."""
+    return picker_options(_read(None, include_readiness=True)[1], surface)
 
 
 def list_cached_models(

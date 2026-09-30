@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Brain,
@@ -116,11 +116,6 @@ export default function ModelsPanel({
   const [catalogOpen, setCatalogOpen] = useState(!!initialProvider);
   // "Download Ollama" only when Ollama isn't running (B117).
   const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
-  // The composer's model list: the default picker offers the same choices.
-  const models = useSyncExternalStore(
-    (notify) => controller.subscribe?.(notify) ?? (() => undefined),
-    () => controller.getSnapshot?.().handshake?.models,
-  );
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -650,10 +645,10 @@ export default function ModelsPanel({
           >
             <DefaultModelPicker
               current={state.brain.current_ref}
-              models={models ?? []}
               options={state.brain.options}
               disabled={!!busy || !!pending || !!pinPending}
               onChoose={(ref) => void brainDefault(ref).catch(() => {})}
+              onRefresh={() => void refreshCatalog()}
             />
           </Field>
         </div>

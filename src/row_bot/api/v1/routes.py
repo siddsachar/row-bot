@@ -1159,26 +1159,23 @@ async def _context(request: Request) -> AccessContext:
 def cached_choices() -> dict:
     """Read existing caches/catalogues; opening a client never refreshes a provider."""
     from row_bot.providers.model_catalog_cache import read_model_catalog_cache
-    from row_bot.providers.selection import list_model_choice_options
+    from row_bot.providers.client_status import picker_choices
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
-    from row_bot.providers.catalog import provider_billing
-
     snapshot = read_model_catalog_cache()
+    # The composer offers the Brain picker's list, judged by the same rule.
     models = [
         {
-            "provider_id": row["provider_id"],
-            "model_ref": row["value"],
-            "label": row["label"],
-            "available": bool(row.get("active")),
-            "unavailable_reason": "configuration_required"
-            if not row.get("active")
-            else None,
-            "billing": provider_billing(row["provider_id"]),
+            "provider_id": option["provider_id"],
+            "model_ref": option["selection_ref"],
+            "label": option["label"],
+            "available": option["available"],
+            "unavailable_reason": option["unavailable_reason"],
+            "billing": option["billing"],
         }
-        for row in list_model_choice_options(include_inactive=True)
+        for option in picker_choices("chat")
     ]
     capabilities = []
 

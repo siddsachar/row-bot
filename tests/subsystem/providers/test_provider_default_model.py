@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from row_bot.application import provider_default_model as controls
-from row_bot.providers import config, saved_model_settings as settings
+from row_bot.providers import config, model_catalog, saved_model_settings as settings
 from row_bot.runtime import admissions
 from tests.subsystem.providers import test_provider_settings_controls as fixtures
 
@@ -26,6 +26,13 @@ def saved(store, tmp_path, monkeypatch):
         "model:openai:same": {"provider": "openai", "model_id": "same", "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}},
         "model:anthropic:same": {"provider": "anthropic", "model_id": "same", "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}},
     }, ollama_rows=[]))
+    # The save accepts what the Brain picker offers: pinned models of connected
+    # providers. The pins carry no metadata of their own; the catalog does.
+    config.save_provider_config({"quick_choices": [
+        {"id": f"model:{provider}:same", "kind": "model", "provider_id": provider, "model_id": "same",
+         "visibility": ["chat"], "capabilities_snapshot": {}} for provider in ("openai", "anthropic")]})
+    monkeypatch.setattr(model_catalog, "_provider_status_by_id", lambda: {
+        "openai": {"configured": True}, "anthropic": {"configured": True}})
     return path
 
 

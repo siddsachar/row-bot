@@ -504,6 +504,31 @@ def test_claude_subscription_model_infos_cache_live_catalog(tmp_path, monkeypatc
     assert [info.model_id for info in cached] == ["claude-live"]
 
 
+def test_claude_subscription_saved_catalog_rows_keep_chat_and_vision_for_the_pickers(tmp_path, monkeypatch):
+    """The Claude catalog writer stores text output like the other providers (B226)."""
+    from row_bot.providers.model_catalog import build_saved_model_catalog_rows
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _set_backend_for_tests(_MemoryKeyring())
+    try:
+        save_claude_subscription_oauth_tokens(ClaudeSubscriptionTokenSet(
+            access_token=_valid_token(),
+            refresh_token="refresh-secret",
+        ))
+        list_claude_subscription_model_infos(force_refresh=True, http_client=_HttpClient([_Response(200, {
+            "data": [{"id": "claude-live", "display_name": "Claude Live",
+                      "capabilities": {"image_input": {"supported": True}}}],
+        })]))
+    finally:
+        _set_backend_for_tests(None)
+
+    rows = build_saved_model_catalog_rows(cloud_cache={}, ollama_rows=[],
+                                          provider_config=provider_config.load_provider_config())
+
+    assert [(row.selection_ref, set(row.categories)) for row in rows] == [
+        ("model:claude_subscription:claude-live", {"chat", "vision"})]
+
+
 def test_claude_subscription_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
 

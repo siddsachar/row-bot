@@ -6,11 +6,12 @@ import time
 from typing import Any, Iterable
 
 from row_bot.providers.capabilities import normalize_snapshot, snapshot_supports_surface
-from row_bot.providers.catalog import get_provider_definition
+from row_bot.providers.catalog import get_provider_definition, provider_billing
 from row_bot.providers.models import TransportMode
-from row_bot.providers.selection import model_ref
+from row_bot.providers.selection import format_model_choice_label, model_ref
 
 CATALOG_SURFACES = ("chat", "vision", "image", "video", "voice")
+MISSING_METADATA_REASON = "No saved details for this model yet. Refresh the catalog."
 logger = logging.getLogger(__name__)
 _AGENT_MODE_MIN_CONTEXT = 32_000
 _CHAT_ONLY_MIN_CONTEXT = 16_384
@@ -70,6 +71,38 @@ class CatalogModelRow:
 
     def supports(self, surface: str) -> bool:
         return surface in self.categories
+
+
+def _known(value: Any) -> bool:
+    return value is not None and value != "" and not (isinstance(value, (set, frozenset, dict)) and not value)
+
+
+def _richness(snapshot: dict[str, Any]) -> int:
+    return sum(_known(value) for value in snapshot.values())
+
+
+def _merged_row(existing: CatalogModelRow | None, row: CatalogModelRow, *, fill_only: bool) -> CatalogModelRow:
+    """One model from several saved sources: the richer capability metadata
+    leads and the other only fills what it lacks (``fill_only`` never leads)."""
+    if existing is None:
+        return row
+    rich, poor = (existing, row)
+    if not fill_only and _richness(row.capabilities_snapshot) > _richness(existing.capabilities_snapshot):
+        rich, poor = row, existing
+    snapshot = normalize_snapshot({
+        **{key: value for key, value in poor.capabilities_snapshot.items() if _known(value)},
+        **{key: value for key, value in rich.capabilities_snapshot.items() if _known(value)},
+    })
+    return replace(
+        rich,
+        display_name=next((item.display_name for item in (rich, poor) if item.display_name != item.model_id),
+                          rich.display_name),
+        provider_display_name=next((item.provider_display_name for item in (rich, poor)
+                                    if item.provider_display_name != item.provider_id), rich.provider_display_name),
+        categories=categories_for_snapshot(snapshot), capabilities_snapshot=snapshot,
+        context_window=rich.context_window or poor.context_window,
+        installed=rich.installed or poor.installed, source=existing.source,
+    )
 
 
 def categories_for_snapshot(snapshot: dict[str, Any] | None) -> tuple[str, ...]:
@@ -181,15 +214,18 @@ def build_saved_model_catalog_rows(
     Unlike the interactive catalog, missing capabilities stay unknown and
     subscription fallbacks, curated models and runtime probes are not consulted.
     This is a passive projection of the existing catalog, not another catalog.
+    Rows for one model from several sources merge; a pinned model keeps the
+    metadata saved with its pin, so it is listed even without a catalog row.
     """
     from row_bot.providers.catalog import split_model_cache_key
     from row_bot.providers.custom import normalize_custom_endpoint
 
-    quick = provider_config.get("quick_choices", [])
-    pinned = _pinned_surfaces_by_ref((item for item in quick if isinstance(item, dict)), infer_unknown=False)
+    quick = [item for item in provider_config.get("quick_choices", []) if isinstance(item, dict)]
+    pinned = _pinned_surfaces_by_ref(quick, infer_unknown=False)
     rows: dict[str, CatalogModelRow] = {}
 
-    def add(provider: str, model: str, info: dict[str, Any], *, label: str = "", local: bool = False) -> None:
+    def add(provider: str, model: str, info: dict[str, Any], *, label: str = "", local: bool = False,
+            pin: bool = False) -> None:
         if not isinstance(provider, str) or not isinstance(model, str) or not provider or not model:
             return
         snapshot = info.get("capabilities_snapshot")
@@ -202,15 +238,16 @@ def build_saved_model_catalog_rows(
             context = _positive_int(info.get("context_window") or info.get("ctx"))
         except (OverflowError, ValueError):
             context = 0
-        rows[ref] = CatalogModelRow(
+        rows[ref] = _merged_row(rows.get(ref), CatalogModelRow(
             provider_id=provider, model_id=model, selection_ref=ref,
             display_name=next((value for value in (info.get("display_name"), info.get("label")) if isinstance(value, str) and value), model),
             provider_display_name=label or (definition.display_name if definition else provider),
             categories=categories_for_snapshot(normalized), capabilities_snapshot=normalized,
             context_window=context, runtime_ready=False, configured=False,
             installed=info.get("installed") is True if local else False,
-            pinned_surfaces=tuple(sorted(pinned.get(ref, set()))), source="saved_catalog",
-        )
+            pinned_surfaces=tuple(sorted(pinned.get(ref, set()))),
+            source="pinned_choice" if pin else "saved_catalog",
+        ), fill_only=pin)
 
     for key, info in cloud_cache.items():
         if not isinstance(info, dict):
@@ -237,6 +274,12 @@ def build_saved_model_catalog_rows(
     for info in ollama_rows:
         if isinstance(info, dict):
             add("ollama", info.get("model_id") or "", info, local=True)
+    for choice in quick:
+        if choice.get("kind") == "model":
+            add(choice.get("provider_id") or "", choice.get("model_id") or "", {
+                "display_name": choice.get("display_name"),
+                "capabilities_snapshot": choice.get("capabilities_snapshot") or {},
+            }, pin=True)
     return sorted(rows.values(), key=lambda row: (
         row.provider_display_name.casefold(), row.display_name.casefold(), row.provider_id, row.model_id,
     ))
@@ -262,6 +305,40 @@ def project_saved_catalog_readiness(rows: Iterable[CatalogModelRow]) -> list[Cat
         )
         projected.append(replace(assessed, provider_display_name=row.provider_display_name))
     return projected
+
+
+def picker_options(rows: Iterable[Any], surface: str, current: str = "") -> list[dict[str, Any]]:
+    """The one model list and availability rule for every picker and save check.
+
+    A picker lists the models pinned for its surface plus its current value.
+    A pinned model without saved capability metadata stays listed, unavailable
+    with a reason to refresh, instead of vanishing. Rows must carry readiness
+    (``project_saved_catalog_readiness``); nothing here reads a provider.
+    """
+    options = []
+    for row in rows:
+        known = bool(row.categories)
+        if row.selection_ref != current and (
+            surface not in row.pinned_surfaces or (known and surface not in row.categories)
+        ):
+            continue
+        unavailable, reason = None, ""
+        if not row.configured:
+            unavailable, reason = "configuration_required", row.status_reason
+        elif not known:
+            unavailable, reason = "metadata_missing", MISSING_METADATA_REASON
+        elif surface not in row.categories:
+            unavailable, reason = "unavailable", f"This model can't be used for {surface}."
+        elif not (row.runtime_ready and row.installed):
+            unavailable, reason = "unavailable", row.status_reason
+        options.append({
+            "selection_ref": row.selection_ref, "provider_id": row.provider_id,
+            "label": format_model_choice_label(row.provider_id, row.model_id, row.display_name, include_icon=False)[:256],
+            "source": row.source[:80], "available": unavailable is None,
+            "unavailable_reason": unavailable, "reason": reason[:256],
+            "context_window": row.context_window or None, "billing": provider_billing(row.provider_id),
+        })
+    return options
 
 
 def _catalog_row(

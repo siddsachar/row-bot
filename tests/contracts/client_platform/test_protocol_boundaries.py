@@ -19,7 +19,7 @@ pytestmark = pytest.mark.contract
 def test_discovery_reads_metadata_without_constructing_tool_adapters(monkeypatch):
     from types import SimpleNamespace
     from row_bot.api.v1.routes import cached_choices
-    from row_bot.providers import model_catalog_cache, selection
+    from row_bot.providers import client_status, model_catalog_cache
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client import runtime as mcp_runtime
@@ -32,8 +32,9 @@ def test_discovery_reads_metadata_without_constructing_tool_adapters(monkeypatch
     plugin = SimpleNamespace(name="synthetic_plugin", destructive_tool_names=("synthetic_write",),
                              as_langchain_tools=forbidden_construction)
     monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=True))
-    monkeypatch.setattr(selection, "list_model_choice_options", lambda **kwargs: [
-        {"provider_id": "fixture", "value": "model:fixture:synthetic", "label": "Synthetic", "active": False}])
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [
+        {"provider_id": "fixture", "selection_ref": "model:fixture:synthetic", "label": "Synthetic",
+         "available": False, "unavailable_reason": "configuration_required", "billing": None}])
     monkeypatch.setattr(tool_registry, "get_all_tools", lambda: [native])
     monkeypatch.setattr(tool_registry, "is_enabled", lambda name: True)
     monkeypatch.setattr(plugin_registry, "get_loaded_manifests", lambda: [SimpleNamespace(id="synthetic")])

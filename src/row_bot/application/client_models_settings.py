@@ -6,6 +6,8 @@ from typing import Callable
 
 from row_bot.application.provider_default_model import read_default_model
 from row_bot.providers import client_status
+from row_bot.providers.catalog import provider_billing
+from row_bot.providers.model_catalog import picker_options
 from row_bot.providers.selection import format_model_choice_label, model_choice_value, parse_model_ref
 
 SURFACES = ("chat", "vision", "image", "video")
@@ -20,33 +22,19 @@ def _media_ref(value: str, *, default_provider: str) -> str:
 
 def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = None,
             media_options: dict[str, str] | None = None) -> dict:
-    options = []
-    found = False
-    for row in rows:
-        if surface not in row.pinned_surfaces and row.selection_ref != current:
-            continue
-        if surface not in row.categories and row.selection_ref != current:
-            continue
-        available = bool(row.configured and row.runtime_ready and row.installed and surface in row.categories)
-        found |= row.selection_ref == current
-        options.append({
-            "selection_ref": row.selection_ref,
-            "label": format_model_choice_label(row.provider_id, row.model_id, row.display_name, include_icon=False)[:256],
-            "source": row.source[:80], "available": available,
-            "context_window": row.context_window,
-            "reason": row.status_reason[:256] if not available else "",
-        })
-    if current and not found:
+    options = picker_options(rows, surface, current)
+    if current and not any(option["selection_ref"] == current for option in options):
         parsed = parse_model_ref(current)
         provider_id, model_id = parsed if parsed else ("", current)
         media_value = f"{provider_id}/{model_id}"
         available = bool(media_options and media_value in media_options)
         options.append({
-            "selection_ref": current,
+            "selection_ref": current, "provider_id": provider_id,
             "label": (media_options.get(media_value) if available and media_options else
                       format_model_choice_label(provider_id, model_id, include_icon=False))[:256],
             "source": "configured_default" if available else "included_value",
-            "available": available, "context_window": None,
+            "available": available, "unavailable_reason": None if available else "unavailable",
+            "context_window": None, "billing": provider_billing(provider_id),
             "reason": "" if available else "This saved model is not available in the local catalog.",
         })
     current_option = next((option for option in options if option["selection_ref"] == current), None)

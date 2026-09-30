@@ -16,7 +16,9 @@ import {
   splitModelLabel,
 } from './model-choices';
 
-type Row = { key: string; model: ModelChoice };
+/** A list row: a model choice, with the plain reason when it is unavailable. */
+export type ListedModel = ModelChoice & { reason?: string };
+type Row = { key: string; model: ListedModel };
 type Section = {
   key: string;
   label: string;
@@ -62,7 +64,7 @@ export default function ModelList({
   showRecent = true,
   emptyText = 'No cached models. Open Models in Settings.',
 }: {
-  models: readonly ModelChoice[];
+  models: readonly ListedModel[];
   current: string | undefined;
   onChoose: (model: ModelChoice) => void;
   /** Open provider setup (for providers that are not connected). */
@@ -247,6 +249,14 @@ export default function ModelList({
                   onClick={() => choose(row.model)}
                 >
                   <span className="model-picker-option-name">{label.name}</span>
+                  {!row.model.available && row.model.reason && (
+                    <span
+                      className="model-picker-option-reason"
+                      title={row.model.reason}
+                    >
+                      {row.model.reason}
+                    </span>
+                  )}
                   {section.key === 'recent' && label.provider && (
                     <span className="model-picker-option-provider">
                       {label.provider}

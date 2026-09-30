@@ -2508,6 +2508,15 @@
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+.model-picker-option-reason {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .model-picker-check {
   flex: none;
   color: var(--accent-solid);

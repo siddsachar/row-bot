@@ -657,6 +657,29 @@ def test_codex_model_infos_cache_live_catalog_and_fall_back_to_cache(tmp_path, m
     assert "reasoning" in cached_infos[0].capabilities
 
 
+def test_codex_saved_catalog_rows_keep_chat_and_vision_for_the_pickers(tmp_path, monkeypatch):
+    """The Codex catalog writer stores text output like the other providers (B226)."""
+    from row_bot.providers.model_catalog import build_saved_model_catalog_rows
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _set_backend_for_tests(_MemoryKeyring())
+    try:
+        save_codex_oauth_tokens(CodexTokenSet(access_token=_jwt({
+            "exp": 1893456000,
+            "https://api.openai.com/auth": {"chatgpt_account_id": "acct-123"},
+        }), refresh_token="refresh-token", id_token="id-token"))
+        list_codex_model_infos(force_refresh=True, http_client=_HttpClient([_Response(200, {
+            "models": [{"slug": "gpt-live", "display_name": "GPT Live", "input_modalities": ["text", "image"]}],
+        })]))
+    finally:
+        _set_backend_for_tests(None)
+
+    rows = build_saved_model_catalog_rows(cloud_cache={}, ollama_rows=[],
+                                          provider_config=provider_config.load_provider_config())
+
+    assert [(row.selection_ref, set(row.categories)) for row in rows] == [("model:codex:gpt-live", {"chat", "vision"})]
+
+
 def test_codex_quick_choice_seed_only_adds_recommended_model(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {

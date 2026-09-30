@@ -1372,6 +1372,8 @@ def _model_cache_row(model_info: ModelInfo) -> dict[str, Any]:
         "display_name": model_info.display_name,
         "context_window": model_info.context_window,
         "input_modalities": sorted(model_info.input_modalities),
+        "output_modalities": sorted(model_info.output_modalities),
+        "tasks": sorted(model_info.tasks),
         "capabilities": sorted(model_info.capabilities),
         "tool_calling": model_info.tool_calling,
         "streaming": model_info.streaming,

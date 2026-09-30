@@ -4402,11 +4402,14 @@ class CachedModelPage(WireModel):
 
 class ModelPickerOption(WireModel):
     selection_ref: str = Field(max_length=647)
+    provider_id: str = Field(max_length=128)
     label: str = Field(max_length=256)
     source: str = Field(max_length=80)
     available: bool
+    unavailable_reason: Literal["configuration_required", "metadata_missing", "unavailable"] | None = None
     context_window: int | None = Field(default=None, ge=1)
     reason: str = Field(default="", max_length=256)
+    billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
 
 
 class ModelPickerSurface(WireModel):
@@ -6759,7 +6762,7 @@ class ModelChoice(WireModel):
     model_ref: str = Field(min_length=1, max_length=256)
     label: str = Field(max_length=256)
     available: bool
-    unavailable_reason: Literal["configuration_required", "unavailable"] | None = None
+    unavailable_reason: Literal["configuration_required", "metadata_missing", "unavailable"] | None = None
     billing: ProviderBilling | None = None
 
 

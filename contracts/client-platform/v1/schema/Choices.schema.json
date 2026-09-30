@@ -91,6 +91,7 @@
             {
               "enum": [
                 "configuration_required",
+                "metadata_missing",
                 "unavailable"
               ],
               "type": "string"

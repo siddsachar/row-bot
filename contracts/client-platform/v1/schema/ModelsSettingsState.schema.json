@@ -71,6 +71,24 @@
           "title": "Available",
           "type": "boolean"
         },
+        "billing": {
+          "anyOf": [
+            {
+              "enum": [
+                "subscription",
+                "pay_per_use",
+                "credits",
+                "local"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Billing"
+        },
         "context_window": {
           "anyOf": [
             {
@@ -89,6 +107,11 @@
           "title": "Label",
           "type": "string"
         },
+        "provider_id": {
+          "maxLength": 128,
+          "title": "Provider Id",
+          "type": "string"
+        },
         "reason": {
           "default": "",
           "maxLength": 256,
@@ -104,10 +127,28 @@
           "maxLength": 80,
           "title": "Source",
           "type": "string"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "configuration_required",
+                "metadata_missing",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable Reason"
         }
       },
       "required": [
         "selection_ref",
+        "provider_id",
         "label",
         "source",
         "available"

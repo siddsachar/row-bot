@@ -8,7 +8,8 @@ import sys
 
 from row_bot.providers import saved_model_settings as settings
 from row_bot.providers.config import ProviderConfigError, load_provider_config, provider_config_transaction
-from row_bot.providers.model_catalog import build_saved_model_catalog_rows
+from row_bot.providers.model_catalog import (build_saved_model_catalog_rows, picker_options,
+                                             project_saved_catalog_readiness)
 from row_bot.providers.selection import model_ref, parse_model_ref
 from row_bot.runtime import admissions
 
@@ -58,7 +59,9 @@ def review_default_model(settings_revision: str, provider_id: str, model_id: str
     saved = _saved_catalog()
     rows = build_saved_model_catalog_rows(cloud_cache=saved.cloud_cache, ollama_rows=saved.ollama_rows,
                                           provider_config=load_provider_config(strict=True))
-    if not any(row.selection_ref == reference and "chat" in row.categories for row in rows):
+    # The Brain picker's own list and rule: the save accepts exactly what it offers.
+    chosen = project_saved_catalog_readiness(row for row in rows if row.selection_ref == reference)
+    if not any(option["available"] for option in picker_options(chosen, "chat", snapshot.selection_ref or "")):
         raise ProviderConfigError("model_configuration_unavailable")
     intent = {"settings_revision": settings_revision, "provider_id": provider_id, "model_id": model_id}
     validate()

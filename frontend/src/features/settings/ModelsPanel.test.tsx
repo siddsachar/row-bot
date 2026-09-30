@@ -22,11 +22,15 @@ const image = 'model:openai:gpt-image-2';
 const video = 'model:xai:grok-imagine-video';
 const option = (selection_ref: string, label: string, available = true) => ({
   selection_ref,
+  provider_id: selection_ref.split(':')[1],
   label,
   source: 'saved_catalog',
   available,
   context_window: 272000,
   reason: '',
+  billing: selection_ref.startsWith('model:codex:')
+    ? ('subscription' as const)
+    : ('pay_per_use' as const),
 });
 const baseState: ModelsSettingsState = {
   schema_version: 1,
@@ -421,6 +425,65 @@ it('keeps only the original receipt action visible while a Brain save is uncerta
   });
   fireEvent.click(button);
   await waitFor(() => expect(button).not.toBeInTheDocument());
+});
+
+it("offers the page's one model list in the Brain picker, never a second list (B226)", async () => {
+  const controller = fixture();
+  // A composer-only entry must not reach the Brain picker: the page's list
+  // and the save share one rule, so the picker never offers what it refuses.
+  vi.spyOn(controller, 'getSnapshot').mockReturnValue({
+    handshake: {
+      models: [
+        {
+          provider_id: 'codex',
+          model_ref: 'model:codex:composer-only',
+          label: 'Composer Only - ChatGPT / Codex',
+          available: true,
+          billing: 'subscription',
+        },
+      ],
+    },
+  } as never);
+  show(controller);
+  const picker = await screen.findByRole('button', { name: 'Default model' });
+  expect(picker).toHaveTextContent('ChatGPT / Codex · Subscription');
+  fireEvent.click(picker);
+  expect(
+    await screen.findByRole('option', { name: /GPT-5\.5/ }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /Composer Only/ })).toBeNull();
+});
+
+it('lists a pinned model without saved details with its reason and a catalog refresh (B226)', async () => {
+  const controller = fixture();
+  vi.spyOn(controller, 'modelsSettings').mockResolvedValue({
+    ...structuredClone(baseState),
+    brain: {
+      ...structuredClone(baseState.brain),
+      options: [
+        ...structuredClone(baseState.brain.options),
+        {
+          ...option(
+            'model:claude_subscription:claude-mystery',
+            'Claude Mystery - Claude Subscription',
+            false,
+          ),
+          unavailable_reason: 'metadata_missing',
+          reason: 'No saved details for this model yet. Refresh the catalog.',
+        },
+      ],
+    },
+  });
+  show(controller);
+  fireEvent.click(await screen.findByRole('button', { name: 'Default model' }));
+  const row = await screen.findByRole('option', { name: /Claude Mystery/ });
+  expect(row).toHaveAttribute('aria-disabled', 'true');
+  expect(row).toHaveTextContent('No saved details for this model yet.');
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh the catalog' }));
+  await waitFor(() =>
+    expect(controller.refreshModelsCatalog).toHaveBeenCalledTimes(1),
+  );
+  expect(controller.reviewDefaultModel).not.toHaveBeenCalled();
 });
 
 it('links to Providers inside the router, never under a doubled basename (B31)', async () => {
