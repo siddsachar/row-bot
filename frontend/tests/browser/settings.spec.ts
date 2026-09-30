@@ -7,6 +7,7 @@ import {
   writeEvidence,
 } from './evidence';
 import { blockFixtureServiceWorkers } from './unified-helpers';
+import { installDesktopFolderBridge } from './surface-helpers';
 import type { Locator, Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
@@ -444,6 +445,9 @@ test('Wiki uses an authorized vault and imports only the explicitly reviewed ext
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
     Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
   };
+  // The vault is picked in the desktop window (B280): a stand-in bridge
+  // "chooses" the fixture's synthetic vault folder.
+  await installDesktopFolderBridge(page);
   await page.goto('/app-v2/');
   await openSettingsRouteFromHome(page, {
     linkName: 'Memory',
@@ -960,7 +964,8 @@ test('Knowledge adds memory, searches the library, retains editor drafts, and co
   await page.goto('/app-v2/settings/knowledge');
   await expect(page.getByRole('searchbox')).toHaveCount(0);
   await page.getByRole('link', { name: 'Open Knowledge', exact: true }).click();
-  await expect(page).toHaveURL(/\/app-v2\/\?tab=knowledge$/);
+  // `/?tab=knowledge` under the /app-v2 base: with or without its slash.
+  await expect(page).toHaveURL(/\/app-v2\/?\?tab=knowledge$/);
   // Phase 13: Add memory opens a blank editor (closing it keeps nothing).
   await page.getByRole('button', { name: 'Add memory', exact: true }).click();
   const adding = page.getByRole('dialog', { name: 'Add memory', exact: true });
@@ -1256,7 +1261,12 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   await expect(
     page.getByLabel('Describe your Buddy', { exact: true }),
   ).toHaveValue('Retained synthetic description');
-  await page.keyboard.press('Escape');
+  // Its Close button: a notice raised meanwhile (the name's autosave) takes
+  // Escape first.
+  await page
+    .getByRole('dialog', { name: 'New look', exact: true })
+    .getByRole('button', { name: 'Close dialog', exact: true })
+    .click();
   await expect(
     preferences.getByRole('button', {
       name: 'Save Buddy preferences',
@@ -1583,7 +1593,13 @@ test('Models catalog recovers an expired page cursor only when requested', async
   await models
     .getByRole('combobox', { name: 'Provider' })
     .selectOption('openai');
-  await expect(models.getByText('No matching models')).toBeVisible();
+  // Emptied, the catalog keeps at most the Brain's own saved model (B226).
+  await expect(models.getByText(/^Showing [01] of [01] models$/)).toBeVisible();
+  const kept = models.locator('.settings-model-row-list > li');
+  if (await kept.count()) {
+    await expect(kept).toHaveCount(1);
+    await expect(kept.first()).toContainText('Default');
+  } else await expect(models.getByText('No matching models')).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'saved-models-empty');
   await accessibility(page, info, 'saved-models-empty');
@@ -1898,88 +1914,119 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   });
   const name = `Synthetic MCP ${info.project.name}`;
   const renamed = `${name} renamed`;
-  // The server editor opens from Add server behind its own disclosure.
+  // Add server opens a dialog; Manual fills in the details (B262).
+  const addDialog = page.getByRole('dialog', {
+    name: 'Add a server',
+    exact: true,
+  });
   await editor.getByRole('button', { name: 'Add server', exact: true }).click();
-  await editor.getByLabel('Server name', { exact: true }).fill(name);
-  await editor
-    .getByLabel('New command', { exact: true })
+  await addDialog.getByRole('radio', { name: 'Manual', exact: true }).click();
+  await addDialog.getByLabel('Server name', { exact: true }).fill(name);
+  await addDialog
+    .getByLabel('Command', { exact: true })
     .fill('synthetic-unused-command');
   // Arguments one per line; environment values are masked name/value rows.
-  await editor
+  await addDialog
     .getByLabel('Arguments (one per line)', { exact: true })
     .fill('--synthetic-private');
-  await editor
+  await addDialog
     .getByRole('button', { name: 'Add variable', exact: true })
     .click();
-  await editor
+  await addDialog
     .getByLabel('Environment variables name 1', { exact: true })
     .fill('SYNTHETIC');
-  const secretValue = editor.getByLabel('Environment variables value 1', {
+  const secretValue = addDialog.getByLabel('Environment variables value 1', {
     exact: true,
   });
   await secretValue.fill('private-test-value');
   await expect(secretValue).toHaveAttribute('type', 'password');
-  // The unsaved draft, including write-only fields, is retained by its owner
-  // across navigation and reopens the editor.
+  // Closed (and across navigation), the unsaved draft, write-only fields
+  // included, is kept by its owner; the page offers to continue it.
+  await page.keyboard.press('Escape');
+  await expect(addDialog).toBeHidden();
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
     path: '/app-v2/settings/mcp',
     headingName: 'MCP',
   });
-  await expect(editor.getByLabel('New command', { exact: true })).toHaveValue(
+  await expect(editor.getByText('You have an unsaved server.')).toBeVisible();
+  await editor.getByRole('button', { name: 'Continue', exact: true }).click();
+  await addDialog.getByRole('radio', { name: 'Manual', exact: true }).click();
+  await expect(addDialog.getByLabel('Command', { exact: true })).toHaveValue(
     'synthetic-unused-command',
   );
-  // Saving is reviewed by the server and applied, disabled, in one step.
-  const save = async () => {
-    await editor
-      .getByRole('button', { name: 'Save Disabled', exact: true })
-      .click();
-    await expect(
-      editor.getByText(/^Saved\. It stays turned off/),
-    ).toBeVisible();
-    await chooseFromMenu(editor, 'More MCP actions', 'Refresh');
-    // The re-read unlocks the form; its empty Add draft waits for a name
-    // and a command before Save Disabled is offered again.
-    await expect(
-      editor.getByLabel('Server name', { exact: true }),
-    ).toBeEnabled();
-    await expect(
-      editor.getByRole('button', { name: 'Save Disabled', exact: true }),
-    ).toBeDisabled();
-  };
-  await save();
-  // Row verbs other than Connection sit in the server's ⋯ menu.
-  await chooseFromMenu(editor, `More actions for ${name}`, `Edit ${name}`);
-  await expect(editor.getByLabel('New command', { exact: true })).toHaveValue(
-    '',
-  );
+  // Each save is reviewed by the server; a server is added turned off, and
+  // adding opens its details.
+  await addDialog
+    .getByRole('button', { name: 'Add turned off', exact: true })
+    .click();
+  await expect(addDialog).toBeHidden();
+  await page
+    .getByRole('button', { name: 'Close server details', exact: true })
+    .click();
+  await expect(editor.getByText(/^Added\. It stays turned off/)).toBeVisible();
+  // Edit and Rename sit in the server's ⋯ menu; the write-only command and
+  // additional settings are never read back.
+  await chooseFromMenu(editor, `More actions for ${name}`, 'Edit settings…');
+  const editDialog = page.getByRole('dialog', {
+    name: `Edit ${name}`,
+    exact: true,
+  });
   await expect(
-    editor.getByLabel('Additional settings (JSON)', { exact: true }),
+    editDialog.getByLabel('New command', { exact: true }),
   ).toHaveValue('');
-  await editor
+  await editDialog.getByText('More settings', { exact: true }).click();
+  await expect(
+    editDialog.getByLabel('Additional settings (JSON)', { exact: true }),
+  ).toHaveValue('');
+  await editDialog
     .getByLabel('Additional settings (JSON)', { exact: true })
     .fill('{"output_limit":500}');
-  await save();
-  await chooseFromMenu(editor, `More actions for ${name}`, `Rename ${name}`);
-  await editor.getByLabel('New server name', { exact: true }).fill(renamed);
-  await save();
+  await editDialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(editor.getByText(/^Saved\. It stays turned off/)).toBeVisible();
+  await chooseFromMenu(editor, `More actions for ${name}`, 'Rename…');
+  const renameDialog = page.getByRole('dialog', {
+    name: `Rename ${name}`,
+    exact: true,
+  });
+  await renameDialog
+    .getByLabel('New server name', { exact: true })
+    .fill(renamed);
+  await renameDialog
+    .getByRole('button', { name: 'Rename', exact: true })
+    .click();
+  await expect(renameDialog).toBeHidden();
   await expect(
-    editor.getByRole('listitem').filter({ hasText: renamed }),
-  ).toContainText('Disabled');
-  await editor
-    .getByRole('combobox', { name: 'Operation', exact: true })
-    .selectOption('import');
-  await editor.getByLabel('Server import JSON', { exact: true }).fill(
-    JSON.stringify({
-      mcpServers: {
-        [`Imported ${info.project.name}`]: {
-          command: 'synthetic-imported-command',
+    editor.getByRole('button', { name: `${renamed} details`, exact: true }),
+  ).toBeVisible();
+  // Paste JSON adds each server in a standard mcpServers block, turned off.
+  await editor.getByRole('button', { name: 'Add server', exact: true }).click();
+  await addDialog
+    .getByRole('radio', { name: 'Paste JSON', exact: true })
+    .click();
+  await addDialog
+    .getByLabel('Server configuration (JSON)', { exact: true })
+    .fill(
+      JSON.stringify({
+        mcpServers: {
+          [`Imported ${info.project.name}`]: {
+            command: 'synthetic-imported-command',
+          },
         },
-      },
+      }),
+    );
+  await addDialog
+    .getByRole('button', { name: 'Add from JSON', exact: true })
+    .click();
+  await expect(addDialog).toBeHidden();
+  await expect(
+    editor.getByRole('button', {
+      name: `Imported ${info.project.name} details`,
+      exact: true,
     }),
-  );
-  await save();
+  ).toBeVisible();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);

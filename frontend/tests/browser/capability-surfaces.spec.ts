@@ -311,7 +311,10 @@ test('retained settings expose real capability state without leaving the unified
     label: 'Accounts',
     path: '/app-v2/settings/accounts',
   });
-  await expect(page.getByText('GitHub', { exact: true })).toBeVisible();
+  // One row per account (B263): GitHub's setup is offered in place.
+  await expect(
+    page.getByRole('region', { name: 'Connect GitHub', exact: true }),
+  ).toBeVisible();
   await visualCheck(page, info, 'retained-accounts-settings');
 
   await openSettingThroughCommands(page, {

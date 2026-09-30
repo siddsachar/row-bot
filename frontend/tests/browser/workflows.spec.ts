@@ -405,7 +405,8 @@ test('Phase 4 explicit workflow run records history and opens the unified conver
       exact: true,
     })
     .click();
-  await expect(page.getByText('Run started.')).toBeVisible();
+  // Exact: the floating notice repeats it.
+  await expect(page.getByText('Run started.', { exact: true })).toBeVisible();
   await screenshot(page, info, 'workflow-run-started');
   await accessibility(page, info, 'workflow-run-started');
   await card

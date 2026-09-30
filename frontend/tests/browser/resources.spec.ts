@@ -16,102 +16,13 @@ import {
   newConversation,
 } from './unified-helpers';
 import type { Locator, Page } from '@playwright/test';
+import { installDesktopFolderBridge } from './surface-helpers';
 
 function fixtureHeaders() {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
   const base = process.env.ROW_BOT_BROWSER_BASE_URL;
   if (!token || !base) throw new Error('Use the isolated Phase 4 runner');
   return { 'X-Fixture-Token': token, Origin: new URL(base).origin };
-}
-
-/**
- * Folder choices come from the desktop bridge: the browser platform cannot
- * mint a folder grant. This stand-in performs the bridge's host half through
- * the same loopback routes the pywebview bridge uses (attest the handshake's
- * one-shot attestation, then complete one exact selection) and always
- * "chooses" the fixture's disposable parent folder.
- */
-async function installDesktopFolderBridge(page: Page) {
-  const response = await page.request.get('/__p4_fixture/workspace-parent', {
-    headers: fixtureHeaders(),
-  });
-  expect(response.ok()).toBe(true);
-  const { path } = (await response.json()) as { path: string };
-  await page.addInitScript((parent) => {
-    try {
-      if (window !== window.top) return;
-    } catch {
-      return;
-    }
-    const windowId = 'phase4-desktop-window';
-    const epoch = 1;
-    let instance = '';
-    let grant: {
-      session_id: string;
-      policy_revision: string;
-      authority_grant: string;
-    } | null = null;
-    const post = async (route: string, body: unknown) => {
-      const reply = await fetch(`/api/v1${route}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!reply.ok) throw new Error(`${route} ${reply.status}`);
-      return reply.json();
-    };
-    Object.assign(window, {
-      __ROW_BOT_NATIVE_CLIENT__: {
-        async dispatch(operation: string, payload: Record<string, unknown>) {
-          if (operation === 'discover') {
-            // Attestations are one-shot, like the desktop bridge's: exchange
-            // the first one and keep its grant for this document.
-            if (!grant) {
-              const identity = await fetch('/api/v1/native/bootstrap');
-              instance = ((await identity.json()) as { instance_id: string })
-                .instance_id;
-              grant = await post('/native/attest', {
-                attestation: payload.attestation,
-                instance_id: instance,
-                window_id: windowId,
-                window_epoch: epoch,
-              });
-            }
-            return {
-              status: 'ok',
-              value: {
-                kind: 'pywebview',
-                platform: 'windows',
-                capabilities: ['select_folder'],
-                instanceId: instance,
-                windowId,
-                epoch,
-              },
-            };
-          }
-          if (operation === 'select_folder' && grant) {
-            const view = await post('/native/selections/complete', {
-              ...grant,
-              instance_id: instance,
-              window_id: windowId,
-              window_epoch: epoch,
-              selection_kind: 'folder',
-              intent_id: payload.intentId,
-              intent: payload.intent,
-              conversation_id: payload.conversationId ?? null,
-              destination: payload.destination,
-              path: parent,
-            });
-            return {
-              status: 'ok',
-              value: { kind: 'folder', reference: view.reference },
-            };
-          }
-          return { status: 'unavailable' };
-        },
-      },
-    });
-  }, path);
 }
 
 async function resourceState(page: Page, resource: string) {
@@ -705,7 +616,10 @@ test('Design inline edits in a row keep the selection, and colour, font and logo
     .getByLabel('Colour: another colour', { exact: true })
     .fill('#aa3300');
   await expect(frame).toHaveAttribute('srcdoc', /#aa3300/i);
-  await expect(selection.getByRole('status')).toHaveText('Saved.');
+  // The controls and the selected element each keep a status line (B247).
+  await expect(
+    selection.getByRole('status').filter({ hasText: /^Saved\.$/ }),
+  ).toBeVisible();
   await expect(inspector.getByRole('alert')).toHaveCount(0);
   await screenshot(page, info, 'design-text-controls');
   // Brand settings are one tab: the heading font comes from a searchable

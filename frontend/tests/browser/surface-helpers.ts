@@ -15,6 +15,96 @@ export function fixtureHeaders(): Record<string, string> {
   return { 'X-Fixture-Token': token, Origin: new URL(base).origin };
 }
 
+/**
+ * Folder choices come from the desktop bridge: the browser platform cannot
+ * mint a folder grant. This stand-in performs the bridge's host half through
+ * the same loopback routes the pywebview bridge uses (attest the handshake's
+ * one-shot attestation, then complete one exact selection) and always
+ * "chooses" the fixture's disposable parent folder.
+ */
+export async function installDesktopFolderBridge(page: Page) {
+  const response = await page.request.get('/__p4_fixture/workspace-parent', {
+    headers: fixtureHeaders(),
+  });
+  expect(response.ok()).toBe(true);
+  const { path } = (await response.json()) as { path: string };
+  await page.addInitScript((parent) => {
+    try {
+      if (window !== window.top) return;
+    } catch {
+      return;
+    }
+    const windowId = 'phase4-desktop-window';
+    const epoch = 1;
+    let instance = '';
+    let grant: {
+      session_id: string;
+      policy_revision: string;
+      authority_grant: string;
+    } | null = null;
+    const post = async (route: string, body: unknown) => {
+      const reply = await fetch(`/api/v1${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!reply.ok) throw new Error(`${route} ${reply.status}`);
+      return reply.json();
+    };
+    Object.assign(window, {
+      __ROW_BOT_NATIVE_CLIENT__: {
+        async dispatch(operation: string, payload: Record<string, unknown>) {
+          if (operation === 'discover') {
+            // Attestations are one-shot, like the desktop bridge's: exchange
+            // the first one and keep its grant for this document.
+            if (!grant) {
+              const identity = await fetch('/api/v1/native/bootstrap');
+              instance = ((await identity.json()) as { instance_id: string })
+                .instance_id;
+              grant = await post('/native/attest', {
+                attestation: payload.attestation,
+                instance_id: instance,
+                window_id: windowId,
+                window_epoch: epoch,
+              });
+            }
+            return {
+              status: 'ok',
+              value: {
+                kind: 'pywebview',
+                platform: 'windows',
+                capabilities: ['select_folder'],
+                instanceId: instance,
+                windowId,
+                epoch,
+              },
+            };
+          }
+          if (operation === 'select_folder' && grant) {
+            const view = await post('/native/selections/complete', {
+              ...grant,
+              instance_id: instance,
+              window_id: windowId,
+              window_epoch: epoch,
+              selection_kind: 'folder',
+              intent_id: payload.intentId,
+              intent: payload.intent,
+              conversation_id: payload.conversationId ?? null,
+              destination: payload.destination,
+              path: parent,
+            });
+            return {
+              status: 'ok',
+              value: { kind: 'folder', reference: view.reference },
+            };
+          }
+          return { status: 'unavailable' };
+        },
+      },
+    });
+  }, path);
+}
+
 export async function openHome(page: Page): Promise<void> {
   await page.goto('/app-v2/');
   await expect(

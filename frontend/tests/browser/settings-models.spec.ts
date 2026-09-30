@@ -115,9 +115,8 @@ test('Model catalog rows remain lazy and bounded', async ({ page }, info) => {
     105,
   );
   await chips.getByRole('button', { name: 'Vision', exact: true }).click();
-  await expect(
-    models.getByRole('button', { name: /^Open / }).first(),
-  ).toBeVisible();
+  // The fixture saved chat models only: another job says it has none yet.
+  await expect(models.getByText(/^No vision models saved yet/)).toBeVisible();
   for (const name of ['Image', 'Video', 'Voice'])
     await chips.getByRole('button', { name, exact: true }).click();
   await assertNoOverflow(page);
