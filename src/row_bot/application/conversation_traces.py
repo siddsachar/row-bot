@@ -778,8 +778,10 @@ def project_assistant_row_traces(
     assistant row.  A later tool row identifies its call with
     ``row["tool_call_id"]``.  The returned list contains copied public rows:
     initiating assistant rows gain ``traces`` and matched tool rows gain
-    ``trace_parent_id``.  Calls without a result remain pending; orphan result
-    rows stay untouched.
+    ``trace_parent_id``.  Calls without a result remain pending while nothing
+    but tool rows follows them; a call the conversation moved past (a later
+    user or assistant row) never ran and is cancelled, as histories recorded
+    before B234 left denied calls.  Orphan result rows stay untouched.
 
     Caller-supplied call IDs are the stable item identities.  A canonical
     group uses the first matching call ID as its stable group identity unless
@@ -871,9 +873,15 @@ def project_assistant_row_traces(
         call["result"] = result
         call["result_row"] = row
 
+    later_turns = [
+        index for index, row in enumerate(output)
+        if str(row.get("role") or "") in {"user", "assistant"}
+    ]
     for parent_id, projected_calls in parent_calls.items():
         items: list[TraceItem] = []
         for call in projected_calls:
+            if call["result"] is None and any(index > call["record_index"] for index in later_turns):
+                call["result"] = {"name": call["tool_name"], "content": "", "status": "cancelled"}
             result_row = call["result_row"] or {}
             result_message_id = str(result_row.get("message_id") or "").strip()
             content_ref = str(result_row.get("content_ref") or result_message_id).strip()

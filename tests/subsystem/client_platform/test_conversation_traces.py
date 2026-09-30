@@ -390,6 +390,36 @@ def test_ordered_public_rows_project_stable_grouped_assistant_traces():
     ]
 
 
+def _denied_call_records(*later_roles: str) -> list[dict]:
+    """A call with no result (a denial recorded before B234), then later rows."""
+    records = [{
+        "row": {"id": "assistant:checkpoint:ask", "message_id": "ask", "role": "assistant", "blocks": []},
+        "tool_calls": [{"id": "call-delete", "name": "run_command"}],
+    }]
+    for index, role in enumerate(later_roles):
+        records.append({"row": {
+            "id": f"{role}:checkpoint:later-{index}", "message_id": f"later-{index}", "role": role,
+            "blocks": [{"type": "text", "text": "The requested action was denied."}],
+        }})
+    return records
+
+
+def test_a_call_the_conversation_moved_past_without_a_result_reads_cancelled_not_running():
+    # Histories written before B234 have a denied call with no result, followed by
+    # the denial reply: the step never ran, so it must not spin forever.
+    after_reply = project_assistant_row_traces(_denied_call_records("assistant"))
+    after_next_message = project_assistant_row_traces(_denied_call_records("user"))
+
+    assert after_reply[0]["traces"][0]["status"] == "cancelled"
+    assert after_next_message[0]["traces"][0]["status"] == "cancelled"
+
+
+def test_a_call_at_the_end_of_the_transcript_stays_pending():
+    rows = project_assistant_row_traces(_denied_call_records())
+
+    assert rows[0]["traces"][0]["status"] == "pending"
+
+
 def test_trace_adapter_copies_rows_and_leaves_orphan_results_unattached():
     source_row = {
         "id": "tool:checkpoint:orphan",
