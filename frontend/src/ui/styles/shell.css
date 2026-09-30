@@ -253,6 +253,10 @@
 
 .nav-section-header {
   display: flex;
+  /* A narrow or zoomed sidebar wraps the filter under the heading; the
+     scrolling column must not squeeze the header back to one line. */
+  flex: none;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
@@ -590,6 +594,13 @@
 @container navigation-pane (max-height: 640px) {
   .navigation {
     --nav-buddy-size: 64px;
+  }
+}
+/* Very short (a small window, 200% zoom): the footer scrolls with the list
+   instead of covering it, so every row can be scrolled into view. */
+@container navigation-pane (max-height: 480px) {
+  .nav-footer {
+    position: static;
   }
 }
 .navigation {
