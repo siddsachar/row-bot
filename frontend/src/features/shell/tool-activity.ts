@@ -241,6 +241,35 @@ export function stepVerb(name: string, status: StepStatus): string {
   return known?.done ?? fallback;
 }
 
+// A denial's result leads with its approval line; older rows kept only the
+// tool's refusal.
+const DENIED =
+  /^(approval: asked; denied|(action|command) cancelled by user|install cancelled)/i;
+
+/** Why a cancelled step never ran or finished: you denied it, or stopped the turn. */
+export function skipReason(
+  step: TranscriptTraceItem,
+): 'Denied' | 'Stopped' | null {
+  if (step.status !== 'cancelled') return null;
+  return DENIED.test(step.safe_summary) ? 'Denied' : 'Stopped';
+}
+
+/**
+ * An approval-gated result leads with one line saying whether approval was
+ * needed, given or refused ("Approval: asked; approved by you").
+ */
+export function splitApproval(text: string): {
+  approval: string;
+  body: string;
+} {
+  const line = /^Approval: ([^\n]*)\n?/.exec(text);
+  if (!line) return { approval: '', body: text };
+  return {
+    approval: line[1].charAt(0).toUpperCase() + line[1].slice(1),
+    body: text.slice(line[0].length),
+  };
+}
+
 /** "Frobnicate widget" reads "frobnicate widget" mid-sentence; "MCP" stays. */
 function midSentence(label: string) {
   return /^\p{Lu}\p{Ll}/u.test(label)

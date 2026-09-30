@@ -367,6 +367,12 @@ def classify_tool_result(
             return "failed"
 
     text = str(content or "").strip().casefold()
+    if text.startswith("approval: "):
+        # An approval-gated result leads with its approval line (B235).
+        approval, _, text = text.partition("\n")
+        if approval.startswith("approval: asked; denied"):
+            return "cancelled"
+        text = text.strip()
     if text in _DENIED_RESULTS:
         return "cancelled"
     if text.startswith(("uncertain:", "outcome uncertain:")):

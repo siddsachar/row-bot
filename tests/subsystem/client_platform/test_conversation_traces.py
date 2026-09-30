@@ -40,6 +40,14 @@ pytestmark = pytest.mark.subsystem
         # A denied approval is a refusal, not a completed action.
         ({"content": "Action cancelled by user."}, "cancelled"),
         ({"content": "Command cancelled by user."}, "cancelled"),
+        # An approval-gated result leads with its approval line (B235); the
+        # rest of the result still decides how it went.
+        ({"content": "Approval: asked; denied by you — did not run\nCommand cancelled by user."}, "cancelled"),
+        ({"content": "Approval: asked; approved by you\n$ New-Item notes.txt"}, "succeeded"),
+        ({"content": "Approval: not needed (Auto approval mode)\nError: synthetic failure"}, "failed"),
+        # A turn that ended early answers its open calls (B234).
+        ({"content": "Cancelled: stopped before it finished."}, "cancelled"),
+        ({"content": "Error: the turn ended before it finished."}, "failed"),
     ],
 )
 def test_result_classification_is_closed_and_truthful(value, expected):

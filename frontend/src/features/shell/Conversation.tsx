@@ -101,7 +101,11 @@ import ConversationHeader from './ConversationHeader';
 import ErrorFix from './ErrorFix';
 import { TranscriptMessage } from './TranscriptMessage';
 import { publicBlockText } from './TranscriptBlocks';
-import { buildTranscript, liveMedia } from './transcript-model';
+import {
+  answerStreaming,
+  buildTranscript,
+  liveMedia,
+} from './transcript-model';
 import {
   CardActionsContext,
   cardKey,
@@ -716,6 +720,7 @@ export default function Conversation({
   const thinkingActive =
     Boolean(running) &&
     state.activity.at(-1)?.event.type === 'generation.activity';
+  const answering = Boolean(running) && answerStreaming(rows, state.activity);
   useEffect(() => {
     const composer = state.workspace?.composer;
     if (composer?.conversation_id === id) setComposerSnapshot(composer);
@@ -2832,6 +2837,7 @@ export default function Conversation({
                           paused: computerPause,
                           stopping: generation?.status === 'stopping',
                           startedAt: runStartedAt,
+                          answering,
                         }}
                       >
                         {computer.visible && (

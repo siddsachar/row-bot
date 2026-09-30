@@ -91,6 +91,8 @@ def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: 
 
     The model is not asked again, so it cannot retry the action or reach for
     another way to do it: the stream is closed there, and the reply says so.
+    Closing it before LangGraph saves the tool step leaves the results unsaved,
+    so they are recorded before the reply (B234).
     """
     message = ("Computer Use access was denied. No action was taken." if computer
                else "The requested action was denied. No action was taken.")
@@ -116,7 +118,9 @@ def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: 
             close()
     from langchain_core.messages import AIMessage
     from row_bot import threads
-    if threads.append_checkpoint_messages(conversation_id, [AIMessage(id=identity, content=message)]):
+    from row_bot.tools.approval_gate import APPROVAL_DENIED
+    if threads.answer_open_tool_calls(conversation_id, APPROVAL_DENIED,
+                                      then=[AIMessage(id=identity, content=message)]):
         yield ("output_binding", {"native_message_id": identity,
                                   "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id)})
     yield ("done", message)
@@ -300,6 +304,8 @@ class ClientPlatformService:
             status = "stopped" if handle.cancel_scope.is_cancelled() else status
             if status == "stopped":
                 self._keep_stopped_reply(handle)
+            if status not in {"completed", "waiting_approval"}:
+                self._answer_open_calls(handle.conversation_id, status)
             # Clients reset on a checkpoint installed below and resubscribe
             # from a snapshot, which carries no queue: an update published
             # after it never reaches them and they kept "1 queued" (B97).
@@ -366,6 +372,17 @@ class ClientPlatformService:
                 id=identity, content=text + _STOPPED_MARKER)])
         except Exception:
             _LOG.warning("A stopped reply could not be kept for %s", conversation_id, exc_info=True)
+
+    @staticmethod
+    def _answer_open_calls(conversation_id: str, status: str) -> None:
+        """A turn that ended early leaves no call looking as if it still runs (B234)."""
+        from row_bot import threads
+        reason = ("Cancelled: stopped before it finished." if status == "stopped"
+                  else "Error: the turn ended before it finished.")
+        try:
+            threads.answer_open_tool_calls(conversation_id, reason)
+        except Exception:
+            _LOG.warning("Unanswered tool calls could not be closed for %s", conversation_id, exc_info=True)
 
     def _metadata(self, conversation_id: str) -> dict:
         from row_bot import threads
@@ -999,7 +1016,10 @@ class ClientPlatformService:
                 self.projection.publish(conversation_id, "generation.state", handle.view())
             if (waiting and waiting.get("approval_id") in withdrawn
                     and not self.registry.active(conversation_id)):
-                # The paused turn no longer waits: every client drops its card.
+                # The paused call will never run: it gets its result, and
+                # every client drops its card.
+                self._answer_open_calls(conversation_id, "stopped")
+                self._refresh_checkpoint(conversation_id)
                 self.projection.publish(conversation_id, "generation.state", {
                     **waiting, "status": "stopped", "approval_id": None, "cancel_requested": True,
                     "quiesced": True, "cleanup_complete": True, "can_stop": False,

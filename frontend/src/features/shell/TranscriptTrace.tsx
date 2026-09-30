@@ -5,7 +5,14 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Check, ChevronDown, CircleAlert, LoaderCircle, X } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  LoaderCircle,
+  X,
+} from 'lucide-react';
 import type {
   TranscriptTraceGroup,
   TranscriptTraceItem,
@@ -18,6 +25,8 @@ import {
   isAttention,
   keyArgument,
   orderedSteps,
+  skipReason,
+  splitApproval,
   stepIcon,
   stepVerb,
   summarizeActivity,
@@ -26,8 +35,12 @@ import {
 const MAX_RESULT_PAGES = 20;
 
 // Durations are observed by this client while a step runs. Durable rows carry
-// no timing, so steps that finished before this page loaded show none.
-const timing = new Map<string, { start: number; end?: number }>();
+// no timing, so steps that finished before this page loaded show none. Time a
+// step spent waiting for your approval is kept apart from its run (B235).
+const timing = new Map<
+  string,
+  { start: number; end?: number; waitStart?: number; waited?: number }
+>();
 function observeTiming(steps: TranscriptTraceItem[], now: number) {
   let changed = false;
   for (const step of steps) {
@@ -45,6 +58,17 @@ function observeTiming(steps: TranscriptTraceItem[], now: number) {
   while (timing.size > 512) timing.delete(timing.keys().next().value!);
   return changed;
 }
+/** An approval holds the turn: the steps still running are waiting on it. */
+function observeWaiting(waiting: boolean, now: number) {
+  for (const span of timing.values()) {
+    if (span.end !== undefined) continue;
+    if (waiting) span.waitStart ??= now;
+    else if (span.waitStart !== undefined) {
+      span.waited = (span.waited ?? 0) + now - span.waitStart;
+      span.waitStart = undefined;
+    }
+  }
+}
 /** How long after this client saw a step finish its glyph still draws in. */
 const FRESH_FINISH_MS = 2500;
 /**
@@ -59,6 +83,16 @@ function finishedMoments(step: TranscriptTraceItem, now: number) {
 function stepDuration(step: TranscriptTraceItem) {
   const value = timing.get(step.call_id);
   return value?.end === undefined ? null : value.end - value.start;
+}
+/** "Waited 19.8s for approval · ran 0.2s", when this client saw the wait. */
+function approvalTiming(step: TranscriptTraceItem) {
+  const value = timing.get(step.call_id);
+  if (value?.waited === undefined) return { ran: null, text: '' };
+  const waited = `Waited ${formatElapsed(value.waited)} for approval`;
+  if (value.end === undefined || step.status === 'cancelled')
+    return { ran: null, text: waited };
+  const ran = Math.max(0, value.end - value.start - value.waited);
+  return { ran, text: `${waited} · ran ${formatElapsed(ran)}` };
 }
 
 function prettyInput(value: string) {
@@ -122,6 +156,13 @@ function StepNode({ item }: { item: TranscriptTraceItem }) {
     return (
       <span className="activity-node" data-state="running" aria-hidden>
         <LoaderCircle className="activity-spinner" />
+      </span>
+    );
+  // Denied or stopped: it never ran or finished, and it is no failure (B234).
+  if (item.status === 'cancelled')
+    return (
+      <span className="activity-node" data-state="skipped" aria-hidden>
+        <Ban />
       </span>
     );
   if (isAttention(item.status))
@@ -241,9 +282,12 @@ function TraceItem({
     }
   }
 
+  // The approval line shows on its own, apart from the result (B235).
+  const approval = splitApproval(item.safe_summary);
+  const body = splitApproval(text).body;
   async function copy() {
     try {
-      const ok = (await platform.writeClipboard(text)).status === 'ok';
+      const ok = (await platform.writeClipboard(body)).status === 'ok';
       setResultCopied(ok);
       setCopyStatus(ok ? 'Result copied.' : 'Copy is unavailable.');
     } catch {
@@ -252,7 +296,10 @@ function TraceItem({
   }
 
   const argument = keyArgument(item.safe_input);
-  const duration = stepDuration(item);
+  const wait = approvalTiming(item);
+  // A step that waited for you shows its run, not the wait.
+  const duration = wait.text ? wait.ran : stepDuration(item);
+  const reason = skipReason(item);
   return (
     <li className="activity-step" data-trace-status={item.status}>
       <details
@@ -272,15 +319,14 @@ function TraceItem({
           <span className="activity-step-text">
             <span className="activity-step-verb">
               {stepVerb(item.canonical_name, item.status)}
+              {reason && <span className="activity-step-tag">{reason}</span>}
             </span>
             {argument ? (
               <span className="activity-step-arg">{argument}</span>
             ) : (
               !open &&
-              item.safe_summary && (
-                <span className="activity-step-preview">
-                  {item.safe_summary}
-                </span>
+              approval.body && (
+                <span className="activity-step-preview">{approval.body}</span>
               )
             )}
           </span>
@@ -296,6 +342,15 @@ function TraceItem({
             <code>{item.canonical_name}</code>
             <span className="activity-step-status">{item.status}</span>
           </p>
+          {(approval.approval || wait.text) && (
+            <p className="activity-step-approval">
+              <span className="activity-step-label">Approval</span>
+              {approval.approval && <span>{approval.approval}</span>}
+              {wait.text && (
+                <span className="activity-step-wait">{wait.text}</span>
+              )}
+            </p>
+          )}
           {specialization(item)}
           {item.safe_input && (
             <div className="trace-input">
@@ -305,7 +360,7 @@ function TraceItem({
           )}
           <div className="trace-result-heading">
             <span className="activity-step-label">Result</span>
-            {text && (
+            {body && (
               <Button
                 variant="ghost"
                 className="activity-copy"
@@ -315,7 +370,7 @@ function TraceItem({
               </Button>
             )}
           </div>
-          {text && <pre className="trace-output">{text}</pre>}
+          {body && <pre className="trace-output">{body}</pre>}
           {busy && <small role="status">Loading public result…</small>}
           {error && <p role="alert">{error}</p>}
           {error && item.content_ref && (
@@ -351,6 +406,8 @@ export type LiveActivity = {
   stopping?: boolean;
   /** When this client saw the run start (Date.now()). */
   startedAt?: number;
+  /** Answer text is streaming: it is newer than any tool or reasoning event. */
+  answering?: boolean;
 };
 
 function useElapsed(startedAt: number | undefined, active: boolean) {
@@ -362,6 +419,43 @@ function useElapsed(startedAt: number | undefined, active: boolean) {
     return () => window.clearInterval(timer);
   }, [active, startedAt]);
   return active && startedAt !== undefined ? Math.max(0, now - startedAt) : 0;
+}
+
+/**
+ * The live line's current thinking stretch (B233): when it began (the run's
+ * start for the first), and how long it took once answer text arrived. A
+ * tool step takes over the line, so it forgets the time.
+ */
+function useThinkingPhase(
+  thinking: boolean,
+  answering: boolean,
+  tools: boolean,
+  runStart: number | undefined,
+) {
+  const [phase, setPhase] = useState<{
+    thinking: boolean;
+    start?: number;
+    took?: number;
+  }>({ thinking: false });
+  useLayoutEffect(() => {
+    const now = Date.now();
+    setPhase((was) => {
+      if (thinking && !was.thinking)
+        return {
+          thinking: true,
+          start: was.start === undefined ? (runStart ?? now) : now,
+        };
+      if (!thinking && was.thinking)
+        return {
+          thinking: false,
+          start: was.start,
+          took: answering && !tools ? now - was.start! : undefined,
+        };
+      if (tools && was.took !== undefined) return { ...was, took: undefined };
+      return was;
+    });
+  }, [thinking, answering, tools, runStart]);
+  return phase;
 }
 
 /**
@@ -383,7 +477,28 @@ export default function TranscriptTrace({
 }) {
   const steps = orderedSteps(groups);
   const summary = summarizeActivity(groups);
-  const running = Boolean(live?.running) || summary.pending > 0;
+  // Streaming answer text settles the live line: nothing spins below it.
+  const answering = Boolean(live?.answering) && summary.pending === 0;
+  const running = (Boolean(live?.running) && !answering) || summary.pending > 0;
+  const holding = Boolean(live?.stopping || live?.paused || live?.waiting);
+  const thinking = running && !steps.length && !holding;
+  const phase = useThinkingPhase(
+    thinking,
+    answering,
+    steps.length > 0,
+    live?.startedAt,
+  );
+  // Like the running seconds, a thought under a second is not worth a line.
+  const thought =
+    answering && !steps.length && (phase.took ?? 0) >= 1000
+      ? phase.took!
+      : null;
+  const waiting = Boolean(live?.waiting);
+  useLayoutEffect(() => {
+    if (live) observeWaiting(waiting, Date.now());
+    // Only the live row knows when an approval holds the turn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
   const [, setTimingVersion] = useState(0);
   const signature = steps
     .map((step) => `${step.call_id}:${step.status}`)
@@ -394,7 +509,7 @@ export default function TranscriptTrace({
     // The signature captures every status change that matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
-  const elapsed = useElapsed(live?.startedAt, running);
+  const elapsed = useElapsed(thinking ? phase.start : live?.startedAt, running);
   const durations = steps.map(stepDuration);
   const measured =
     !running && steps.length && durations.every((value) => value !== null)
@@ -406,8 +521,16 @@ export default function TranscriptTrace({
           );
         })()
       : null;
-  const attention = summary.failed + summary.skipped;
-  const status = running ? 'pending' : attention ? 'failed' : 'succeeded';
+  // A step you denied or stopped is no failure (B234).
+  const cancelled = steps.filter((step) => step.status === 'cancelled').length;
+  const attention = summary.failed + summary.skipped - cancelled;
+  const status = running
+    ? 'pending'
+    : attention
+      ? 'failed'
+      : cancelled
+        ? 'skipped'
+        : 'succeeded';
   // The turn's check draws itself when this client watched it finish (the
   // live row and the stored row that replaces it share the step timing).
   const [drawCheck, setDrawCheck] = useState(false);
@@ -437,7 +560,25 @@ export default function TranscriptTrace({
             : running
               ? `Working · ${summary.total} ${summary.total === 1 ? 'tool' : 'tools'} so far`
               : activityLabel(summary);
-  if (!steps.length && !running && !children) return null;
+  // Screen readers hear the state change, never the ticking seconds.
+  const announcement = !live
+    ? ''
+    : live.stopping
+      ? 'Stopping'
+      : live.paused
+        ? 'Paused while you use the computer'
+        : live.waiting
+          ? 'Waiting for your approval'
+          : current
+            ? stepVerb(current.canonical_name, 'pending')
+            : answering
+              ? 'Answering'
+              : running
+                ? live.thinking || !steps.length
+                  ? 'Thinking'
+                  : 'Working'
+                : '';
+  if (!steps.length && !running && thought === null && !children) return null;
   return (
     <div
       className="activity-row"
@@ -453,6 +594,8 @@ export default function TranscriptTrace({
                 <LoaderCircle className="activity-spinner" />
               ) : attention ? (
                 <CircleAlert />
+              ) : cancelled ? (
+                <Ban />
               ) : (
                 <Check className={drawCheck ? 'icon-draw' : undefined} />
               )}
@@ -487,22 +630,31 @@ export default function TranscriptTrace({
             ))}
           </ol>
         </details>
+      ) : running ? (
+        <p className="activity-summary activity-summary-static">
+          <span className="activity-summary-icon" aria-hidden>
+            <LoaderCircle className="activity-spinner" />
+          </span>
+          <span className="activity-summary-text" data-live="true">
+            {text}
+          </span>
+          {elapsed >= 1000 && (
+            <span className="activity-duration">{formatElapsed(elapsed)}</span>
+          )}
+        </p>
       ) : (
-        running && (
-          <p className="activity-summary activity-summary-static" role="status">
-            <span className="activity-summary-icon" aria-hidden>
-              <LoaderCircle className="activity-spinner" />
+        thought !== null && (
+          <p className="activity-summary activity-summary-static">
+            <span className="activity-summary-text">
+              Thought for {formatElapsed(thought)}
             </span>
-            <span className="activity-summary-text" data-live="true">
-              {text}
-            </span>
-            {elapsed >= 1000 && (
-              <span className="activity-duration">
-                {formatElapsed(elapsed)}
-              </span>
-            )}
           </p>
         )
+      )}
+      {live && (
+        <span className="visually-hidden" role="status">
+          {announcement}
+        </span>
       )}
       {children}
     </div>

@@ -3628,21 +3628,25 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
 def _wrap_with_interrupt_gate(tool) -> None:
     """Keep sync and async targets behind the same current approval decision."""
     from functools import wraps
+    from row_bot.tools.approval_gate import (
+        APPROVAL_DENIED, APPROVAL_GIVEN, APPROVAL_NOT_NEEDED_AUTO, with_approval,
+    )
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()
 
-    def refusal(args, kwargs):
+    def refusal(args, kwargs) -> tuple[str | None, str]:
+        """The refusal (None when the call may run) and its result's approval line."""
         decision = decision_for_action(get_approval_mode())
         if decision == "block":
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
-                    "and move on.")
+                    "and move on."), ""
         if decision == "allow":
-            return None
+            return None, APPROVAL_NOT_NEEDED_AUTO
         args_str = ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
         if args:
             args_str = repr(args[0]) if len(args) == 1 else repr(args)
@@ -3659,20 +3663,22 @@ def _wrap_with_interrupt_gate(tool) -> None:
             "args": kwargs or (args[0] if args else {}),
             "external_discovery_active": external_discovery_active,
         })
-        return None if approval else "Action cancelled by user."
+        if approval:
+            return None, APPROVAL_GIVEN
+        return with_approval(APPROVAL_DENIED, "Action cancelled by user."), ""
 
     sync_target = getattr(original, "func", None) or original._run
     async_target = getattr(original, "coroutine", None) or original._arun
 
     @wraps(sync_target)
     def gated(*args, **kwargs):
-        blocked = refusal(args, kwargs)
-        return blocked if blocked is not None else sync_target(*args, **kwargs)
+        blocked, approval = refusal(args, kwargs)
+        return blocked if blocked is not None else with_approval(approval, sync_target(*args, **kwargs))
 
     @wraps(async_target)
     async def gated_async(*args, **kwargs):
-        blocked = refusal(args, kwargs)
-        return blocked if blocked is not None else await async_target(*args, **kwargs)
+        blocked, approval = refusal(args, kwargs)
+        return blocked if blocked is not None else with_approval(approval, await async_target(*args, **kwargs))
 
     if getattr(tool, "func", None) is not None:
         tool.func = gated

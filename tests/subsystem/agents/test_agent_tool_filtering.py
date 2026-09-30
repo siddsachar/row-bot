@@ -447,7 +447,8 @@ def test_external_target_keeps_underlying_approval_name_and_one_repeat_guard(mon
         "arguments": {"query": "alpha"},
     })
 
-    assert payload == "plugin_lookup:alpha"
+    # The result says approval was asked and given (B235).
+    assert payload == "Approval: asked; approved by you\nplugin_lookup:alpha"
     assert interrupts[0]["tool"] == "plugin_lookup"
     assert interrupts[0]["external_discovery_active"] is True
     assert [name for name, _arguments in guarded] == ["plugin_lookup"]

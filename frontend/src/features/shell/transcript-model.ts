@@ -148,3 +148,28 @@ export function liveMedia(
   }
   return media;
 }
+
+/**
+ * True while answer text is the newest thing the turn produced: its live row
+ * changed after the last tool or reasoning event (B233).
+ */
+export function answerStreaming(
+  rows: readonly TranscriptRow[],
+  activity: readonly EventRecord[],
+): boolean {
+  const last = rows.at(-1);
+  if (!last?.id.startsWith('assistant:live:') || !last.render_revision)
+    return false;
+  if (!hasContent(last)) return false;
+  const latest = [...activity]
+    .reverse()
+    .find(
+      (record) =>
+        record.event.type === 'tool.activity' ||
+        record.event.type === 'generation.activity',
+    );
+  return (
+    !latest ||
+    BigInt(last.render_revision) > BigInt(latest.event.projection_revision)
+  );
+}

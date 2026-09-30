@@ -1828,6 +1828,39 @@ def append_checkpoint_messages(thread_id: str, messages: list) -> bool:
         return _append_checkpoint_messages_locked(thread_id, messages)
 
 
+def answer_open_tool_calls(thread_id: str, reason: str, then: list | None = None) -> bool:
+    """Give the last step's unanswered tool calls their results, then append ``then``.
+
+    A turn that ends early (denied, stopped, failed) can leave a call without
+    its result: providers refuse such a history and the transcript shows the
+    call as still running (B234). A result the tool produced before the turn
+    ended (its step's saved write, never checkpointed because the stream was
+    closed) is kept as it is; a call that produced none gets ``reason``.
+    """
+    from langchain_core.messages import ToolMessage
+
+    with checkpoint_mutation(thread_id):
+        saved = checkpointer.get_tuple({"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}})
+        messages = list(saved.checkpoint.get("channel_values", {}).get("messages", []) or []) if saved else []
+        step = next((index for index in range(len(messages) - 1, -1, -1)
+                     if getattr(messages[index], "tool_calls", None)), None)
+        results = []
+        # Only a call whose step is still the conversation's end can be paired.
+        if step is not None and all(getattr(message, "type", "") == "tool" for message in messages[step + 1:]):
+            answered = {message.tool_call_id for message in messages[step + 1:]}
+            produced = {item.tool_call_id: item
+                        for _task, channel, value in (saved.pending_writes or ()) if channel == "messages"
+                        for item in (value if isinstance(value, list) else [value])
+                        if isinstance(item, ToolMessage)}
+            for call in messages[step].tool_calls:
+                if call.get("id") and call["id"] not in answered:
+                    results.append(produced.get(call["id"]) or ToolMessage(
+                        content=reason, name=str(call.get("name") or "tool"), tool_call_id=call["id"],
+                        id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"row-bot:unanswered:{thread_id}:{call['id']}"))))
+        additions = [*results, *(then or [])]
+        return _append_checkpoint_messages_locked(thread_id, additions) if additions else True
+
+
 def replace_admitted_human_content(thread_id: str, message_id: str, content: str, *, expected_revision: str) -> str:
     """Finish attachment preparation on the exact admitted input before dispatch."""
     from langgraph.checkpoint.base import empty_checkpoint

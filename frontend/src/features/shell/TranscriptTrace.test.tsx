@@ -1,7 +1,13 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
-import type { TranscriptTraceGroup } from '../../api/types';
-import TranscriptTrace from './TranscriptTrace';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type {
+  EventRecord,
+  TranscriptRow,
+  TranscriptTraceGroup,
+  TranscriptTraceItem,
+} from '../../api/types';
+import TranscriptTrace, { type LiveActivity } from './TranscriptTrace';
+import { answerStreaming } from './transcript-model';
 
 const messageText = vi.fn();
 const writeClipboard = vi.fn();
@@ -71,6 +77,9 @@ beforeEach(() => {
   download.mockResolvedValue(new Blob(['fixture'], { type: 'image/png' }));
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:trace-media');
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 it('shows one quiet collapsed line per turn with stable status hooks', () => {
@@ -393,4 +402,263 @@ it('never animates history it did not watch', () => {
   expect(step().querySelector('.activity-node svg')).not.toHaveClass(
     'icon-draw-settle',
   );
+});
+
+function command(
+  overrides: Partial<TranscriptTraceItem>,
+): TranscriptTraceGroup[] {
+  const item: TranscriptTraceItem = {
+    ...groups[0].items[0],
+    canonical_name: 'run_command',
+    safe_input: '{"command": "New-Item notes.txt"}',
+    content_ref: '',
+    specialization: null,
+    ...overrides,
+  };
+  return [
+    {
+      ...groups[0],
+      status: item.status,
+      counts: { [item.status]: 1 },
+      items: [item],
+    },
+  ];
+}
+
+it.each([
+  [
+    'Approval: asked; denied by you — did not run\nCommand cancelled by user.',
+    'Denied',
+  ],
+  ['Command cancelled by user.', 'Denied'],
+  ['Cancelled: stopped before it finished.', 'Stopped'],
+])(
+  'shows a step that never ran as %#: no spinner, no failure (B234)',
+  (summary, label) => {
+    render(
+      <TranscriptTrace
+        conversation="conversation-a"
+        groups={command({
+          call_id: `call-${label}-${summary.length}`,
+          status: 'cancelled',
+          safe_summary: summary,
+        })}
+      />,
+    );
+    expect(row()).toHaveAttribute('data-trace-status', 'skipped');
+    expect(row().querySelector('.activity-spinner')).toBeNull();
+    openRow();
+    const skipped = screen.getByText("Didn't run a command").closest('li')!;
+    expect(within(skipped).getByText(label)).toBeVisible();
+    expect(skipped.querySelector('.activity-node')).toHaveAttribute(
+      'data-state',
+      'skipped',
+    );
+  },
+);
+
+it('shows the approval apart from the result, and the wait apart from the run (B235)', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(0);
+  const pending = { call_id: 'call-approved', status: 'pending' as const };
+  const stored = render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={command({ ...pending, safe_summary: '' })}
+    />,
+  );
+  // The live row holds the approval card while the step waits.
+  const live = render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={{ running: false, waiting: true }}
+    >
+      <aside aria-label="Approval required for run_command" />
+    </TranscriptTrace>,
+  );
+  vi.setSystemTime(19_800);
+  live.rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={{ running: true }}
+    />,
+  );
+  vi.setSystemTime(20_040);
+  stored.rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={command({
+        ...pending,
+        status: 'succeeded',
+        safe_summary:
+          'Approval: asked; approved by you\n$ New-Item notes.txt\n\n[Exit code: 0 | Duration: 0.24s]',
+      })}
+    />,
+  );
+  live.unmount();
+  openRow();
+  const approved = screen.getByText('Ran a command').closest('details')!;
+  fireEvent.click(within(approved).getByText('Ran a command'));
+  // The step's own time is its run; the wait is told apart.
+  expect(within(approved).getByText('0.2s')).toBeVisible();
+  expect(within(approved).getByText('Asked; approved by you')).toBeVisible();
+  expect(
+    within(approved).getByText('Waited 20s for approval · ran 0.2s'),
+  ).toBeVisible();
+  expect(approved.querySelector('.trace-output')).toHaveTextContent(
+    /^\$ New-Item notes\.txt/,
+  );
+});
+
+function event(
+  type: 'generation.activity' | 'tool.activity',
+  revision: string,
+): EventRecord {
+  return {
+    cursor: revision,
+    event: { type, projection_revision: revision, payload: {} },
+  } as unknown as EventRecord;
+}
+function answer(text: string, revision: string, segment = 'one') {
+  return {
+    id: `assistant:live:pass:${segment}`,
+    role: 'assistant',
+    blocks: [{ type: 'text', text }],
+    render_revision: revision,
+  } as TranscriptRow;
+}
+
+it('thinks only until the answer starts, then settles without ticking under the text (B233)', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const user = {
+    id: 'user:one',
+    role: 'user',
+    blocks: [{ type: 'text', text: 'Make a note' }],
+  } as TranscriptRow;
+  const view = (
+    rows: TranscriptRow[],
+    activity: EventRecord[],
+    traceGroups: TranscriptTraceGroup[] = [],
+    running = true,
+  ) => {
+    const live: LiveActivity = {
+      running,
+      thinking: activity.at(-1)?.event.type === 'generation.activity',
+      startedAt: 0,
+      answering: running && answerStreaming(rows, activity),
+    };
+    return (
+      <TranscriptTrace
+        conversation="conversation-a"
+        groups={traceGroups}
+        live={live}
+      />
+    );
+  };
+  const thinking = event('generation.activity', '5');
+  const { container, rerender } = render(view([user], [thinking]));
+  expect(screen.getByText('Thinking…')).toBeVisible();
+  act(() => vi.advanceTimersByTime(3000));
+  expect(container.querySelector('.activity-duration')).toHaveTextContent(
+    '3.0s',
+  );
+  // The status region says what changed, never the seconds.
+  expect(screen.getByRole('status')).toHaveTextContent(/^Thinking$/);
+
+  // The first answer text: the line settles on how long the thinking took.
+  act(() => vi.advanceTimersByTime(5200));
+  rerender(view([user, answer('Sure', '6')], [thinking]));
+  expect(screen.queryByText('Thinking…')).toBeNull();
+  expect(screen.getByText('Thought for 8.2s')).toBeVisible();
+  expect(container.querySelector('.activity-spinner')).toBeNull();
+  expect(container.querySelector('.activity-duration')).toBeNull();
+  expect(screen.getByRole('status')).toHaveTextContent(/^Answering$/);
+
+  // More text: nothing counts on.
+  act(() => vi.advanceTimersByTime(4000));
+  rerender(view([user, answer('Sure, one moment', '9')], [thinking]));
+  expect(screen.getByText('Thought for 8.2s')).toBeVisible();
+
+  // A tool step takes its own row.
+  const tool = event('tool.activity', '10');
+  rerender(
+    view(
+      [user, answer('Sure, one moment', '9')],
+      [thinking, tool],
+      command({
+        call_id: 'call-live-tool',
+        status: 'pending',
+      }),
+    ),
+  );
+  expect(
+    within(row()).getByText('Running a command New-Item notes.txt'),
+  ).toHaveAttribute('data-live', 'true');
+  expect(screen.getByRole('status')).toHaveTextContent(/^Running a command$/);
+  expect(screen.queryByText(/Thought for/)).toBeNull();
+
+  // The step settles into its stored row and the model thinks again.
+  const done = event('tool.activity', '11');
+  const stored = {
+    id: 'assistant:stored',
+    role: 'assistant',
+    blocks: [],
+  } as TranscriptRow;
+  rerender(view([user, stored], [thinking, tool, done]));
+  expect(screen.getByText('Thinking…')).toBeVisible();
+  act(() => vi.advanceTimersByTime(2000));
+  expect(container.querySelector('.activity-duration')).toHaveTextContent(
+    '2.0s',
+  );
+
+  // Its answer streams: the line settles again, nothing spins below it.
+  rerender(
+    view([user, stored, answer('Done.', '12', 'two')], [thinking, tool, done]),
+  );
+  expect(screen.queryByText('Thinking…')).toBeNull();
+  expect(screen.getByText('Thought for 2.0s')).toBeVisible();
+  expect(container.querySelector('.activity-spinner')).toBeNull();
+
+  // Done: the live line leaves.
+  rerender(
+    view(
+      [user, stored, answer('Done.', '12', 'two')],
+      [thinking, tool, done],
+      [],
+      false,
+    ),
+  );
+  expect(container).toBeEmptyDOMElement();
+});
+
+it('gives a thought under a second no line of its own', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const thinking = event('generation.activity', '3');
+  const live = (answering: boolean): LiveActivity => ({
+    running: true,
+    thinking: !answering,
+    startedAt: 0,
+    answering,
+  });
+  const { container, rerender } = render(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={live(false)}
+    />,
+  );
+  act(() => vi.advanceTimersByTime(400));
+  const rows = [answer('Sure', '4')];
+  rerender(
+    <TranscriptTrace
+      conversation="conversation-a"
+      groups={[]}
+      live={live(answerStreaming(rows, [thinking]))}
+    />,
+  );
+  expect(container).toBeEmptyDOMElement();
 });

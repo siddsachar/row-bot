@@ -640,6 +640,33 @@
 .activity-step[data-trace-status='uncertain'] .activity-step-verb {
   color: var(--status-danger-text);
 }
+/* Denied or stopped: it never ran or finished, and it is no failure (B234). */
+.activity-step[data-trace-status='cancelled'] .activity-step-verb {
+  color: var(--text-secondary);
+}
+.activity-step-tag {
+  margin-inline-start: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+  line-height: 18px;
+}
+/* Approval apart from the result, the wait apart from the run (B235). */
+.activity-step-approval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+.activity-step-wait {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .activity-step-arg,
 .activity-step-preview {
   overflow: hidden;

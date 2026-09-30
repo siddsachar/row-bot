@@ -59,7 +59,8 @@ def test_shell_ask_policy_includes_reason_in_interrupt_payload(tmp_path, monkeyp
         approval_reason="Verify command execution policy.",
     )
 
-    assert output == "Command cancelled by user."
+    # The model is told the command was denied and did not run (B235).
+    assert output == "Approval: asked; denied by you — did not run\nCommand cancelled by user."
     assert captured["tool"] == "run_command"
     assert captured["approval_reason"] == "Verify command execution policy."
     assert captured["args"]["command"] == "python -c \"print('hi')\""
@@ -99,3 +100,41 @@ def test_shell_auto_policy_runs_without_interrupt(tmp_path, monkeypatch):
     assert seen == ["python -c \"print('hi')\""]
     assert "$ python -c \"print('hi')\"" in output
     assert "ran" in output
+
+
+@pytest.mark.parametrize(
+    "command,mode,answer,first_line",
+    [
+        ("git status", "approve", None, "Approval: not needed (safe command)"),
+        ("New-Item notes.txt", "approve", True, "Approval: asked; approved by you"),
+        ("New-Item notes.txt", "allow_all", None, "Approval: not needed (Auto approval mode)"),
+    ],
+)
+def test_shell_results_say_whether_approval_was_needed_and_given(
+    tmp_path, monkeypatch, command, mode, answer, first_line
+):
+    """The model can tell what happened instead of guessing (B235)."""
+    approval_gate, shell_tool = _fresh_shell_modules(tmp_path, monkeypatch)
+    monkeypatch.setattr(approval_gate, "current_approval_mode", lambda: mode)
+
+    def interrupt(_payload):
+        if answer is None:
+            raise AssertionError("this command must run without asking")
+        return answer
+
+    monkeypatch.setattr("langgraph.types.interrupt", interrupt)
+    ran: list[str] = []
+
+    class FakeSession:
+        def run_command(self, command: str) -> dict:
+            ran.append(command)
+            return {"output": "done", "exit_code": 0, "duration": 0.24, "cwd": str(tmp_path)}
+
+    monkeypatch.setattr(shell_tool._session_manager, "get_session", lambda _key, _working_dir: FakeSession())
+
+    output = shell_tool.ShellTool().execute(command)
+
+    assert ran == [command]
+    assert output.splitlines()[0] == first_line
+    assert output.splitlines()[1] == f"$ {command}"
+    assert "[Exit code: 0 | Duration: 0.24s" in output
