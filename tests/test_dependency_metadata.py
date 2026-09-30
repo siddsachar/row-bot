@@ -211,7 +211,7 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
     windows_installer = (ROOT / "installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "uv sync --locked --all-extras --group test" in ci
-    assert "uv sync --locked --all-extras --group test" in release
+    assert "uv lock --check" in release and "export_locked_requirements.py --check" in release
     # Every pull request checks that uv.lock and requirements.txt are current.
     assert "scripts/run_test_matrix.py quality" in ci
     assert {"lock-check", "requirements-check"} <= set(TIER_COMMANDS["quality"])

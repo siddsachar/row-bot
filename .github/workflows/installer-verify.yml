@@ -15,6 +15,18 @@ on:
         description: Build and smoke the unsigned macOS app/pkg
         type: boolean
         default: true
+  # nightly.yml: the Linux package daily, Windows and macOS weekly.
+  workflow_call:
+    inputs:
+      windows:
+        type: boolean
+        default: false
+      linux:
+        type: boolean
+        default: false
+      macos:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -69,72 +81,7 @@ jobs:
         run: .\installer\build_installer.ps1 -PythonVersion "${{ env.WINDOWS_PYTHON_VERSION }}"
 
       - name: Smoke installed Windows package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installer = Get-ChildItem -Path dist -Filter "Row-Bot-*-Windows-*.exe" | Select-Object -First 1
-          if (-not $installer) {
-            throw "Windows installer artifact not found under dist"
-          }
-
-          $installDir = Join-Path $env:RUNNER_TEMP "Row-Bot"
-          $installLog = Join-Path $env:RUNNER_TEMP "row-bot-install.log"
-          if (Test-Path $installDir) {
-            Remove-Item -LiteralPath $installDir -Recurse -Force
-          }
-
-          $installerArgs = @(
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART",
-            "/DIR=$installDir",
-            "/LOG=$installLog"
-          )
-          $installerProcess = Start-Process `
-            -FilePath $installer.FullName `
-            -ArgumentList $installerArgs `
-            -Wait `
-            -PassThru `
-            -WindowStyle Hidden
-          if ($installerProcess.ExitCode -ne 0) {
-            Get-Content $installLog -ErrorAction SilentlyContinue
-            throw "Installer exited with code $($installerProcess.ExitCode)"
-          }
-
-          $pythonExe = Join-Path $installDir "python\python.exe"
-          $appDir = Join-Path $installDir "app"
-          foreach ($required in @(
-            $pythonExe,
-            (Join-Path $appDir "launcher.py"),
-            (Join-Path $appDir "scripts\verify_runtime_dependencies.py")
-          )) {
-            if (!(Test-Path $required)) {
-              throw "Expected installed file missing: $required"
-            }
-          }
-
-          $env:PYTHONNOUSERSITE = "1"
-          $env:PYTHONIOENCODING = "utf-8"
-          $env:TCL_LIBRARY = Join-Path $installDir "python\tcl\tcl8.6"
-          $env:TK_LIBRARY = Join-Path $installDir "python\tcl\tk8.6"
-          $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $installDir "python\playwright-browsers"
-          $env:PATH = (Join-Path $installDir "python\Scripts") + ";" + (Join-Path $installDir "python") + ";" + $env:PATH
-
-          & $pythonExe (Join-Path $appDir "scripts\verify_runtime_dependencies.py") all
-          if ($LASTEXITCODE -ne 0) {
-            throw "Installed runtime verifier failed with code $LASTEXITCODE"
-          }
-
-          & $pythonExe (Join-Path $env:GITHUB_WORKSPACE "scripts\verify_client_assets.py") `
-            --root (Join-Path $appDir "src\row_bot\static\client-v2") `
-            --compare (Join-Path $env:GITHUB_WORKSPACE "frontend\dist") --strict
-          if ($LASTEXITCODE -ne 0) { throw "Installed client asset validation failed." }
-
-          python scripts/smoke_app.py `
-            --port 8094 `
-            --timeout 180 `
-            --cwd "$appDir" `
-            -- "$pythonExe" launcher.py --server --no-open --no-splash --no-ollama --port 8094
+        uses: ./.github/actions/smoke-windows-installer
 
       - name: Upload Windows installer
         if: always()
@@ -182,34 +129,7 @@ jobs:
           ./installer/build_linux_app.sh
 
       - name: Smoke installed Linux package
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/row-bot-linux-smoke"
-          tar -xzf dist/Row-Bot-*-Linux-*.tar.gz -C "$RUNNER_TEMP/row-bot-linux-smoke"
-          PACKAGE_ROOT="$(find "$RUNNER_TEMP/row-bot-linux-smoke" -maxdepth 1 -type d -name 'Row-Bot-*-Linux-*' | head -n 1)"
-          if [ -z "$PACKAGE_ROOT" ]; then
-            echo "::error::Linux package root not found after extraction"
-            exit 1
-          fi
-          chmod +x "$PACKAGE_ROOT/bin/row-bot"
-          export HOME="$RUNNER_TEMP/row-bot-linux-home"
-          export XDG_DATA_HOME="$RUNNER_TEMP/row-bot-linux-xdg"
-          mkdir -p "$HOME" "$XDG_DATA_HOME"
-          bash "$PACKAGE_ROOT/install.sh"
-          PYTHONNOUSERSITE=1 "$XDG_DATA_HOME/row-bot/current/python/bin/python3" \
-            "$GITHUB_WORKSPACE/scripts/verify_client_assets.py" \
-            --root "$XDG_DATA_HOME/row-bot/current/app/src/row_bot/static/client-v2" \
-            --compare "$GITHUB_WORKSPACE/frontend/dist" --strict
-          python scripts/smoke_app.py \
-            --port 8095 \
-            --timeout 180 \
-            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
-            -- "$HOME/.local/bin/row-bot" --no-open --port 8095 --no-ollama
-          python scripts/smoke_app.py \
-            --port 8096 \
-            --timeout 120 \
-            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
-            -- "$HOME/.local/bin/row-bot" --server --no-open --port 8096 --no-ollama
+        uses: ./.github/actions/smoke-linux-package
 
       - name: Upload Linux package
         if: always()
@@ -242,50 +162,11 @@ jobs:
           ./installer/build_mac_app.sh
 
       - name: Smoke macOS app bundle
-        run: |
-          set -euo pipefail
-          resolve_bundle_python() {
-            local resources="$1"
-            local candidate
-            for candidate in \
-              "$resources/python/bin/python3" \
-              "$resources/python/bin/python" \
-              "$resources/python/bin"/python3.*; do
-              if [ -x "$candidate" ]; then
-                printf '%s\n' "$candidate"
-                return 0
-              fi
-            done
-            return 1
-          }
+        uses: ./.github/actions/smoke-macos-app
+        with:
+          app-path: ${{ github.workspace }}/installer/build/mac/Row-Bot.app
 
-          APP_PATH="$(pwd)/installer/build/mac/Row-Bot.app"
-          APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"
-          RESOURCES="$APP_PATH/Contents/Resources"
-          APP_DIR="$RESOURCES/app"
-          test -x "$APP_EXEC"
-          file "$APP_EXEC" | grep -q "Mach-O"
-          plutil -lint "$APP_PATH/Contents/Info.plist"
-          "$APP_EXEC" --self-test
-          if ! PYTHON="$(resolve_bundle_python "$RESOURCES")"; then
-            echo "::error::Bundled Python not found under $RESOURCES/python/bin"
-            find "$APP_PATH" -maxdepth 5 -path '*/python/bin/*' -print || true
-            exit 1
-          fi
-          PYTHONNOUSERSITE=1 "$PYTHON" "$GITHUB_WORKSPACE/scripts/verify_client_assets.py" \
-            --root "$APP_DIR/src/row_bot/static/client-v2" \
-            --compare "$GITHUB_WORKSPACE/frontend/dist" --strict
-          ROW_BOT_INSTALL_ROOT="$RESOURCES" \
-          PYTHONNOUSERSITE=1 \
-          PYTHONIOENCODING=utf-8 \
-          PLAYWRIGHT_BROWSERS_PATH="$RESOURCES/python/playwright-browsers" \
-          python scripts/smoke_app.py \
-            --port 8097 \
-            --timeout 180 \
-            --cwd "$APP_DIR" \
-            -- "$PYTHON" launcher.py --server --no-open --no-splash --no-ollama --port 8097
-
-      - name: Install and smoke macOS package
+      - name: Install macOS package
         run: |
           set -euo pipefail
           PKG="$(find dist -maxdepth 1 -name 'Row-Bot-*-macOS-*.pkg' | head -n 1)"
@@ -295,52 +176,19 @@ jobs:
           fi
           sudo rm -rf /Applications/Row-Bot.app
           sudo installer -pkg "$PKG" -target /
-
-          APP_PATH="/Applications/Row-Bot.app"
-          APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"
-          RESOURCES="$APP_PATH/Contents/Resources"
-          APP_DIR="$RESOURCES/app"
-          test -x "$APP_EXEC"
-          file "$APP_EXEC" | grep -q "Mach-O"
-          plutil -lint "$APP_PATH/Contents/Info.plist"
-          "$APP_EXEC" --self-test
-          resolve_bundle_python() {
-            local resources="$1"
-            local candidate
-            for candidate in \
-              "$resources/python/bin/python3" \
-              "$resources/python/bin/python" \
-              "$resources/python/bin"/python3.*; do
-              if [ -x "$candidate" ]; then
-                printf '%s\n' "$candidate"
-                return 0
-              fi
-            done
-            return 1
-          }
-
-          if ! PYTHON="$(resolve_bundle_python "$RESOURCES")"; then
+          if [ ! -d /Applications/Row-Bot.app/Contents/Resources/python/bin ]; then
             echo "::group::macOS pkg payload"
             pkgutil --payload-files "$PKG" | sed -n '1,160p' || true
             echo "::endgroup::"
-            echo "::group::Installed Row-Bot candidates"
-            find /Applications -maxdepth 7 \( -name 'Row-Bot.app' -o -path '*/Row-Bot.app/Contents/Resources/python/bin/*' \) -print || true
-            echo "::endgroup::"
-            echo "::error::Installed bundled Python not found under $RESOURCES/python/bin"
+            echo "::error::Installed bundled Python not found"
             exit 1
           fi
-          PYTHONNOUSERSITE=1 "$PYTHON" "$GITHUB_WORKSPACE/scripts/verify_client_assets.py" \
-            --root "$APP_DIR/src/row_bot/static/client-v2" \
-            --compare "$GITHUB_WORKSPACE/frontend/dist" --strict
-          ROW_BOT_INSTALL_ROOT="$RESOURCES" \
-          PYTHONNOUSERSITE=1 \
-          PYTHONIOENCODING=utf-8 \
-          PLAYWRIGHT_BROWSERS_PATH="$RESOURCES/python/playwright-browsers" \
-          python scripts/smoke_app.py \
-            --port 8098 \
-            --timeout 180 \
-            --cwd "$APP_DIR" \
-            -- "$PYTHON" launcher.py --server --no-open --no-splash --no-ollama --port 8098
+
+      - name: Smoke installed macOS package
+        uses: ./.github/actions/smoke-macos-app
+        with:
+          app-path: /Applications/Row-Bot.app
+          port: "8098"
 
       - name: Upload macOS package
         if: always()

@@ -140,6 +140,8 @@ COMMANDS: dict[str, CommandSpec] = {
         "python-full", *APP_LANES, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python-full.xml",
         env=COVERAGE_ENV,
     ),
+    # The nightly pass without coverage (Windows and macOS nightly jobs).
+    "deterministic": _pytest("deterministic", *APP_LANES),
     # OS-sensitive tests; CI runs them on Windows (the shipped Python 3.13) and macOS.
     "platform": _pytest("platform", "tests", marker=f"platform and not slow and {DETERMINISTIC}"),
     "app-smoke": _cmd(
@@ -201,6 +203,7 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     # What the Linux PR lane runs, in one local command.
     "pr": (*QUALITY, "client-foundation", "runtime-deps", "python", "app-smoke"),
     "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
+    "deterministic": ("deterministic",),
     "fast": ("ruff-safety", "client-platform-boundaries", "client-platform-contracts", "contracts"),
     "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),

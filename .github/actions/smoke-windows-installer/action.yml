@@ -1,0 +1,86 @@
+name: Smoke the Windows installer
+description: >-
+  Silently install dist/Row-Bot-*-Windows-*.exe into a temporary folder, verify the
+  installed runtime and client assets, and start the installed launcher. Shared by
+  release.yml and installer-verify.yml.
+inputs:
+  port:
+    description: Loopback port for the launcher smoke
+    required: false
+    default: "8094"
+runs:
+  using: composite
+  steps:
+    - name: Install and smoke the Windows package
+      shell: pwsh
+      env:
+        SMOKE_PORT: ${{ inputs.port }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        $installer = Get-ChildItem -Path dist -Filter "Row-Bot-*-Windows-*.exe" | Select-Object -First 1
+        if (-not $installer) {
+          throw "Windows installer artifact not found under dist"
+        }
+
+        $installDir = Join-Path $env:RUNNER_TEMP "Row-Bot"
+        $installLog = Join-Path $env:RUNNER_TEMP "row-bot-install.log"
+        if (Test-Path $installDir) {
+          Remove-Item -LiteralPath $installDir -Recurse -Force
+        }
+
+        $installerArgs = @(
+          "/VERYSILENT",
+          "/SUPPRESSMSGBOXES",
+          "/NORESTART",
+          "/DIR=$installDir",
+          "/LOG=$installLog"
+        )
+        $installerProcess = Start-Process `
+          -FilePath $installer.FullName `
+          -ArgumentList $installerArgs `
+          -Wait `
+          -PassThru `
+          -WindowStyle Hidden
+        if ($installerProcess.ExitCode -ne 0) {
+          Get-Content $installLog -ErrorAction SilentlyContinue
+          throw "Installer exited with code $($installerProcess.ExitCode)"
+        }
+
+        $pythonExe = Join-Path $installDir "python\python.exe"
+        $appDir = Join-Path $installDir "app"
+        foreach ($required in @(
+          $pythonExe,
+          (Join-Path $appDir "launcher.py"),
+          (Join-Path $appDir "scripts\verify_runtime_dependencies.py")
+        )) {
+          if (!(Test-Path $required)) {
+            throw "Expected installed file missing: $required"
+          }
+        }
+
+        $env:PYTHONNOUSERSITE = "1"
+        $env:PYTHONIOENCODING = "utf-8"
+        $env:TCL_LIBRARY = Join-Path $installDir "python\tcl\tcl8.6"
+        $env:TK_LIBRARY = Join-Path $installDir "python\tcl\tk8.6"
+        $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $installDir "python\playwright-browsers"
+        $env:PATH = (Join-Path $installDir "python\Scripts") + ";" + (Join-Path $installDir "python") + ";" + $env:PATH
+
+        & $pythonExe (Join-Path $appDir "scripts\verify_runtime_dependencies.py") all
+        if ($LASTEXITCODE -ne 0) {
+          throw "Installed runtime verifier failed with code $LASTEXITCODE"
+        }
+
+        & $pythonExe (Join-Path $env:GITHUB_WORKSPACE "scripts\verify_client_assets.py") `
+          --root (Join-Path $appDir "src\row_bot\static\client-v2") `
+          --compare (Join-Path $env:GITHUB_WORKSPACE "frontend\dist") --strict
+        if ($LASTEXITCODE -ne 0) { throw "Installed client asset validation failed." }
+
+        # The launcher issues its own launch secret, so the smoke uses the public
+        # probes; ending the smoke ends the launcher's server too (B203).
+        python scripts/smoke_app.py `
+          --port $env:SMOKE_PORT `
+          --timeout 180 `
+          --public-probes `
+          --cwd "$appDir" `
+          -- "$pythonExe" launcher.py --server --no-open --no-splash --no-ollama --port $env:SMOKE_PORT
+        if ($LASTEXITCODE -ne 0) { throw "Installed launcher smoke failed." }

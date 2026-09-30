@@ -3,29 +3,26 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 pytestmark = [pytest.mark.contract, pytest.mark.installer]
 
 
-def test_release_workflow_has_manual_trigger_and_installer_jobs() -> None:
-    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+def test_release_builds_only_a_commit_the_gate_passed() -> None:
+    workflow = yaml.load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)
+    jobs = workflow["jobs"]
 
-    assert "workflow_dispatch" in release
-    assert "scripts/run_test_matrix.py release" in release
-    assert "build-windows" in release
-    assert "build-linux" in release
-    assert "build-macos" in release
-    assert "checksums-and-manifest" in release
-    assert "scripts/smoke_app.py" in release
-
-
-def test_release_workflow_does_not_call_legacy_scripts_directly() -> None:
-    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
-
-    assert "tests/test_suite.py" not in release
-    assert "tests/integration_tests.py" not in release
-    assert "tests/test_memory_e2e.py" not in release
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert "scripts/release_gate.py" in str(jobs["release-gate"]["steps"])
+    assert jobs["nightly"]["needs"] == "release-gate"
+    assert jobs["nightly"]["if"] == "${{ needs.release-gate.outputs.nightly_green != 'true' }}"
+    for name in ("build-windows", "build-linux", "build-macos"):
+        condition = jobs[name]["if"]
+        assert jobs[name]["needs"] == ["release-gate", "nightly"]
+        assert "needs.release-gate.result == 'success'" in condition
+        assert "(needs.nightly.result == 'success' || needs.nightly.result == 'skipped')" in condition
 
 
 def test_live_e2e_workflow_is_manual_and_opt_in() -> None:

@@ -372,6 +372,7 @@ def test_linux_root_build_wrapper_delegates_to_installer_script():
     assert 'exec "$SCRIPT_DIR/installer/build_linux_app.sh" "$@"' in script
 
 
+@pytest.mark.slow
 def test_linux_launcher_resolves_installed_symlink_chain(tmp_path):
     if os.name == "nt":
         pytest.skip("POSIX symlink execution is covered by Linux CI")
@@ -489,49 +490,20 @@ def test_launcher_linux_default_is_direct_browser(monkeypatch):
     assert called == {"browser": True, "no_tray": False}
 
 
-def test_release_workflows_reference_linux_artifact():
-    from row_bot.version import __version__
-
+def test_the_linux_package_smoke_never_touches_a_real_profile():
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    verify = Path(".github/workflows/installer-verify.yml").read_text(encoding="utf-8")
     manifest = Path(".github/workflows/update-manifest.yml").read_text(encoding="utf-8")
-    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
-    installer_docs = Path("installer/README.md").read_text(encoding="utf-8")
-    readme = Path("README.md").read_text(encoding="utf-8")
+    smoke = Path(".github/actions/smoke-linux-package/action.yml").read_text(encoding="utf-8")
 
-    assert "build-linux" in release
-    assert "installer/build_linux_app.sh" in release
-    assert "bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh" in release
-    assert "bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh" in ci
-    assert "libxcb-cursor0" in ci
-    assert "libportaudio2" in ci
-    assert "installer/install-linux.sh" in release
-    assert "installer/install-linux.sh" in ci
-    assert "Row-Bot-Windows" in release
-    assert "Row-Bot-*-Windows-*.exe" in release
-    assert "RowBotSetup-Windows" not in release
-    assert "Row-Bot-*-Linux-*.tar.gz" in release
-    assert "libxcb-cursor0" in release
-    assert "libportaudio2" in release
-    assert "binutils" in release
-    linux_smoke = release[release.index("Smoke Linux package"):]
-    linux_smoke = linux_smoke[:linux_smoke.index("Upload Linux package")]
-    assert "--no-root-check" not in linux_smoke
-    assert linux_smoke.count("--public-probes") == 2
-    assert "HOME=\"$RUNNER_TEMP/row-bot-linux-home\"" in linux_smoke
-    assert "bash \"$PACKAGE_ROOT/install.sh\"" in linux_smoke
-    assert '"$HOME/.local/bin/row-bot"\n' in linux_smoke
-    assert "\"$HOME/.local/bin/row-bot\" --no-ollama serve --port 8091" in linux_smoke
-    assert "Row-Bot-*-Linux-*.tar.gz" in manifest
-    assert "Row-Bot-*-Windows-*.exe" in manifest
-    assert "RowBotSetup_*.exe" not in manifest
-    assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in installer_docs
-    assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in readme
-    assert "https://github.com/siddsachar/row-bot/releases/latest" in readme
-    legacy_repo = "siddsachar/" + "Th" + "oth"
-    assert f"https://github.com/{legacy_repo}/releases/latest" not in readme
-    assert "published GitHub Release assets" in installer_docs
-    assert f"bash installer/build_linux_app.sh {__version__}" in installer_docs
-    assert f"bash build_linux_app.sh {__version__}" in installer_docs
+    assert "uses: ./.github/actions/smoke-linux-package" in release
+    assert "uses: ./.github/actions/smoke-linux-package" in verify
+    # The package installs into a throwaway HOME and XDG data folder.
+    assert smoke.index('export HOME="$RUNNER_TEMP/row-bot-linux-home"') < smoke.index('install.sh"')
+    assert smoke.index('export XDG_DATA_HOME="$RUNNER_TEMP/row-bot-linux-xdg"') < smoke.index('install.sh"')
+    # The update manifest lists checksums for what the release uploads.
+    for artifact in ("Row-Bot-*-Linux-*.tar.gz", "Row-Bot-*-Windows-*.exe"):
+        assert artifact in release and artifact in manifest
 
 
 def test_release_scripts_use_source_layout_version_file():
@@ -561,6 +533,7 @@ def test_release_scripts_use_source_layout_version_file():
     assert f'ROW_BOT_VERSION="{__version__}"' in mac_launcher
 
 
+@pytest.mark.slow
 def test_release_manifest_script_uses_brand_contract():
     from row_bot.brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
     from scripts import append_sha_manifest

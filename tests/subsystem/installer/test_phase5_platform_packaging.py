@@ -111,9 +111,9 @@ def test_all_installers_stage_and_verify_the_complete_pwa_and_native_payload() -
     assert "node scripts/asset-manifest.mjs dist --package-dir /client-payload" in docker
     assert "COPY --from=client-build /client-payload ./src/row_bot/static/client-v2" in docker
 
-    installer_verify = _source(".github/workflows/installer-verify.yml")
-    assert installer_verify.count("verify_client_assets.py") == 4
-    assert installer_verify.count("--strict") == 4
+    for action in ("smoke-windows-installer", "smoke-macos-app", "smoke-linux-package"):
+        smoke = _source(f".github/actions/{action}/action.yml")
+        assert "verify_client_assets.py" in smoke and "--strict" in smoke
 
 
 @pytest.mark.parametrize("custom", [False, True], ids=["canonical", "custom"])

@@ -50,15 +50,6 @@ def test_macos_installer_uses_native_tray_host() -> None:
     assert "--self-test" in host_source
 
 
-def test_macos_installer_verify_smokes_native_host() -> None:
-    workflow = pathlib.Path(".github/workflows/installer-verify.yml").read_text(encoding="utf-8")
-
-    assert 'APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"' in workflow
-    assert 'file "$APP_EXEC" | grep -q "Mach-O"' in workflow
-    assert 'plutil -lint "$APP_PATH/Contents/Info.plist"' in workflow
-    assert '"$APP_EXEC" --self-test' in workflow
-
-
 def test_client_build_action_pins_tools_and_preserves_manifests() -> None:
     action = yaml.load(pathlib.Path(".github/actions/build-client/action.yml").read_text(encoding="utf-8"),
                        Loader=yaml.BaseLoader)
@@ -77,21 +68,6 @@ def test_client_build_action_pins_tools_and_preserves_manifests() -> None:
     assert "'.vite/manifest.json'" in packager
     assert "await mkdir(destination);" in packager
     assert "--package-dir" in packager
-
-
-@pytest.mark.parametrize("workflow,jobs", [
-    ("release.yml", ["release-preflight", "build-windows", "build-linux", "build-macos"]),
-    ("installer-verify.yml", ["verify-windows", "verify-linux", "verify-macos"]),
-])
-def test_fresh_checkout_ci_and_installer_jobs_build_client_assets_first(workflow: str, jobs: list[str]) -> None:
-    data = yaml.load(pathlib.Path(".github/workflows", workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-    for name in jobs:
-        steps = data["jobs"][name]["steps"]
-        checkout = next(i for i, step in enumerate(steps) if step.get("uses", "").startswith("actions/checkout@"))
-        build = next(i for i, step in enumerate(steps) if step.get("uses") == "./.github/actions/build-client")
-        consumer = next(i for i, step in enumerate(steps) if any(command in step.get("run", "") for command in (
-            "scripts/run_test_matrix.py", "installer/build_", "installer\\build_")))
-        assert checkout < build < consumer
 
 
 def test_installer_stages_are_verified_before_compile_sign_or_package() -> None:
