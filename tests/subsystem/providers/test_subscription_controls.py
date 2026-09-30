@@ -452,7 +452,7 @@ def test_bounded_auth_client_close_cancels_stalled_body_and_closes_transport(mon
 
 
 def test_xai_strict_start_does_not_publish_discovery_and_legacy_default_does(store, monkeypatch):
-    from tests.test_xai_oauth_provider import _HttpClient, _Response, _discovery_payload
+    from tests.subsystem.providers.test_xai_oauth_provider import _HttpClient, _Response, _discovery_payload
     before = config.CONFIG_PATH.read_bytes()
     client = _HttpClient([_Response(payload=_discovery_payload())])
     flow = xai_oauth.start_xai_oauth_flow(http_client=client, persist_discovery=False)
@@ -464,7 +464,7 @@ def test_xai_strict_start_does_not_publish_discovery_and_legacy_default_does(sto
 
 def test_xai_strict_listener_releases_accepted_partial_header_after_cancel(monkeypatch):
     import socket
-    from tests.test_xai_oauth_provider import _free_loopback_port
+    from tests.subsystem.providers.test_xai_oauth_provider import _free_loopback_port
     port = _free_loopback_port()
     ready, reading, cancel = Event(), Event(), Event()
     original = socket.socket.recv_into

@@ -12,7 +12,7 @@ Fast installer and release contracts run in the normal test matrix:
 
 ```bash
 uv run python scripts/run_test_matrix.py installer-contracts
-uv run python scripts/run_test_matrix.py release
+uv run python scripts/run_test_matrix.py platform
 ```
 
 Actual package builds and installed-app smoke checks are manual release work.

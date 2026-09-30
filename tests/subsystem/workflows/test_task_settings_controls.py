@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from row_bot.application import task_settings_controls as control
-from tests.test_agent_profiles import _fresh_agent_modules
+from tests.subsystem.agents.test_agent_profiles import _fresh_agent_modules
 
 pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 

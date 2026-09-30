@@ -22,8 +22,12 @@ Row-Bot uses semantic versioning:
    python scripts/export_locked_requirements.py --check
    uv sync --locked --all-extras --group test
    uv run python scripts/verify_runtime_dependencies.py all
-   uv run python scripts/run_test_matrix.py release
+   uv run python scripts/run_test_matrix.py pr
    ```
+
+   The release workflow itself doesn't re-run these: its `release-gate`
+   refuses a commit without a green `CI / ci-ok` and runs the nightly suite
+   once only if that commit has no green nightly run.
 
 3. Cut a release-prep branch:
 
@@ -80,7 +84,7 @@ Row-Bot uses semantic versioning:
 
    ```bash
    uv run python scripts/verify_runtime_dependencies.py all
-   uv run python -m pytest tests/test_dependency_metadata.py tests/test_optional_dependency_imports.py tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
+   uv run python -m pytest tests/subsystem/installer tests/subsystem/client_host
    ```
 
    For documentation changes, also run `npm audit --omit=dev` in `docs-site/`

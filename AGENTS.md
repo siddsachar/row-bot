@@ -33,9 +33,8 @@ Priorities, in order:
 - Do not make default tests depend on live providers, live MCP servers, real
   messaging channels, real network availability, or a specific local Ollama
   model. Mark those tests `live_provider` or `e2e`.
-- Do not add substantive tests to `tests/test_suite.py`,
-  `tests/integration_tests.py`, or `tests/test_memory_e2e.py`; they are retired
-  compatibility shims.
+- Do not add test files to the `tests/` root; put them in the lane and area
+  they cover (see Where To Put Tests).
 - Do not edit `requirements.txt` by hand. It is generated from `uv.lock`.
 - Do not add runtime implementation code to root wrappers such as `app.py` or
   `launcher.py`; application code belongs under `src/row_bot/`.
@@ -71,11 +70,13 @@ Priorities, in order:
 - `tests/subsystem/`: deterministic subsystem end-to-end tests with fakes.
 - `tests/integration/`: deterministic cross-subsystem tests.
 - `tests/e2e/`: opt-in live provider or real-service tests.
-- `tests/fixtures/` and `tests/helpers/`: fakes, snapshots, source-test map,
-  legacy inventory, subprocess helpers, and coverage inventory.
+- `tests/fixtures/` and `tests/helpers/`: fakes, snapshot and subprocess helpers.
+- `frontend/src/**/*.test.ts(x)` and `frontend/tests/browser/`: vitest and
+  Playwright tests of the React client.
 - `scripts/run_test_matrix.py`: local and CI test matrix source of truth.
-- `installer/` and `.github/workflows/`: packaging, CI, release, installer
-  verification, live e2e, lockfile, update manifest, and notarization flows.
+- `installer/`, `.github/workflows/` and `.github/actions/`: packaging, CI,
+  nightly, release, installer verification, live e2e, update manifest, and
+  notarization flows, and the shared install smokes.
 
 ## Before Editing
 
@@ -84,8 +85,8 @@ Priorities, in order:
 3. Prefer existing helpers, fixtures, UI primitives, and local patterns.
 4. Use structured parsers/APIs for structured data when reasonable.
 5. Add or update focused tests for behavior changes.
-6. If a change crosses subsystem ownership, update `tests/helpers/source_test_map.py`
-   and any affected inventory tests.
+6. Put tests where the subsystem's tests live (Where To Put Tests) and mark
+   them `slow` or `platform` as Writing Tests describes.
 7. Treat sandbox/import gates, shell execution, MCP safety, updater/installer
    flows, signing, and release workflows as security sensitive.
 
@@ -119,87 +120,95 @@ and installer build set.
 
 ## Test Matrix
 
-Use `scripts/run_test_matrix.py` as the executable source of truth.
+Use `scripts/run_test_matrix.py` as the executable source of truth; CI runs its
+tiers.
 
+- While iterating: focused `uv run python -m pytest <files>` and, for the
+  client, `npm --prefix frontend exec vitest run <files>`.
 - Small focused change: `uv run python scripts/run_test_matrix.py fast`
-- Everything touched by changed source paths:
+  (static checks and contracts, under 2 minutes).
+- The tests for what changed, by convention:
   `uv run python scripts/run_test_matrix.py changed --base origin/main`
-- Shared, cross-subsystem, security-sensitive, dependency, installer, release,
-  or high-risk change: `uv run python scripts/run_test_matrix.py pr`
-- Release preflight equivalent: `uv run python scripts/run_test_matrix.py release`
+- Before a pull request: `uv run python scripts/run_test_matrix.py pr`, the
+  Linux PR lane in one command: `quality` (lock files, ruff safety and
+  deserialization lint, dependency and client-platform checks),
+  `client-foundation`, runtime dependencies, one deterministic pytest pass
+  without the `slow` tests (coverage recorded, not gated) and the strict app
+  smoke.
+- OS-sensitive code: `uv run python scripts/run_test_matrix.py platform` (the
+  `platform` tests and a launcher smoke) on your own OS; CI runs it on Windows
+  (Python 3.13, as shipped) and macOS for every pull request.
+- Browser: `uv run python scripts/run_test_matrix.py browser-smoke` (Chromium
+  desktop; set `ROW_BOT_BROWSER_CHANNEL=msedge` to use an installed Edge) runs
+  on every pull request; `browser-nightly` runs nightly; `browser-budgets`
+  (performance budgets and Windows pixel baselines) needs a quiet local machine.
+- Nightly (`.github/workflows/nightly.yml`): the whole deterministic suite with
+  the slow tests on Linux (with coverage), Windows and macOS, the browser
+  nightly set at desktop and phone, a Linux package smoke and the docs reference
+  check; weekly, installer-verify on Windows and macOS and the browser smoke on
+  Firefox and WebKit. Locally: `uv run python scripts/run_test_matrix.py nightly`.
+- `tests/docs` and `tests/marketing` belong to `.github/workflows/docs.yml`
+  (`run_test_matrix.py docs` locally).
+- The required check on `main` is `CI / ci-ok`. Never add Ollama or another
+  live service to a deterministic lane.
 
-Useful focused tiers:
-
-```powershell
-uv run python scripts/run_test_matrix.py contracts
-uv run python scripts/run_test_matrix.py subsystem
-uv run python scripts/run_test_matrix.py contract-subsystem
-uv run python scripts/run_test_matrix.py coverage
-uv run python scripts/run_test_matrix.py deterministic
-uv run python scripts/run_test_matrix.py installer-contracts
-uv run python scripts/run_test_matrix.py app-smoke
-uv run python scripts/run_test_matrix.py legacy-inventory
-```
-
-The coverage tier measures selected migrated subsystem modules only. It writes
-`.tmp/coverage/migrated-subsystems.xml` and enforces the current 55% migrated
-subsystem baseline. It is not whole-app coverage.
+Useful focused tiers: `quality`, `client-foundation`, `python`, `deterministic`,
+`contracts`, `subsystem`, `installer-contracts`, `dependency-integrity`,
+`app-smoke`, `docs`. CI splits the `python` tier across jobs with
+`ROW_BOT_TEST_SHARD=k/N`.
 
 ## Where To Put Tests
 
-- Providers/media routing: `tests/contracts/test_provider_contract.py`,
-  `tests/subsystem/providers/`, and focused provider tests. Provider catalog,
-  runtime, and selection are part of the migrated coverage gate.
+- Providers/media routing, secrets and API keys: `tests/contracts/test_provider_contract.py`
+  and `tests/subsystem/providers/`.
 - Channels: `tests/contracts/test_channel_contract.py` and
   `tests/subsystem/channels/`.
-- MCP: `tests/contracts/test_mcp_contract.py`, `tests/subsystem/mcp/`, and
-  focused `tests/test_mcp_client.py` coverage.
-- Workflows/tasks/approvals: `tests/subsystem/workflows/` and focused
-  task/workflow tests.
+- MCP: `tests/contracts/test_mcp_contract.py` and `tests/subsystem/mcp/`.
+- Agents, approvals, goals: `tests/subsystem/agents/`.
+- Workflows/tasks/approvals: `tests/subsystem/workflows/`.
 - Memory, knowledge graph, wiki vault, documents, Dream Cycle:
   `tests/subsystem/knowledge_graph/`, `tests/subsystem/dream_cycle/`,
   `tests/integration/wiki_vault/`, and `tests/subsystem/regression/`.
   Memory tool behavior also has deterministic coverage in
   `tests/subsystem/tools/`.
-- Developer Studio: `tests/subsystem/developer/` plus approval/write-lock tests.
+- Developer Studio: `tests/subsystem/developer/`.
 - Designer: `tests/subsystem/designer/` and `tests/snapshots/`.
 - Plugins: `tests/contracts/plugins/` and `tests/subsystem/plugins/`.
-- Installer, CLI, packaging, updater, release contracts:
+- App start-up, server and native host: `tests/subsystem/client_host/`; the
+  React client's API: `tests/subsystem/client_protocol/`.
+- Installer, CLI, packaging, updater, GitHub workflow contracts:
   `tests/subsystem/installer/`, `tests/subsystem/updater/`, and
   `tests/contracts/installers/`.
+- React client: vitest next to the component; browser specs in
+  `frontend/tests/browser/`.
 - Live providers, real MCP, real channels, real network: `tests/e2e/` with
   `live_provider` or `e2e` markers.
 
-Test rules:
+## Writing Tests
 
-- Use `tmp_path`, `monkeypatch`, and isolated `ROW_BOT_DATA_DIR`.
+- Test behaviour through public functions, HTTP APIs or rendered UI. Do not
+  assert on source text, private constants, imports, or copy that is not a
+  user-facing safety contract, and do not add tests that police test
+  bookkeeping.
+- Use `tmp_path`, `monkeypatch`, and isolated `ROW_BOT_DATA_DIR`. A test that
+  needs modules re-bound to a fresh data folder uses the `reload_for_data_dir`
+  fixture, which restores them afterwards; never pop modules by hand.
 - Reuse `tests/fixtures/` and `tests/helpers/` before inventing one-off fakes.
-- Assert behavior and contracts, not only imports or implementation strings,
-  unless a source-level contract is intentional.
-- Keep snapshots deterministic.
-- Avoid sleeps, real clocks, real network, real users, or globally installed
-  services in deterministic lanes.
-
-## Legacy Inventory
-
-Retired shim files:
-
-- `tests/test_suite.py`
-- `tests/integration_tests.py`
-- `tests/test_memory_e2e.py`
-
-Coverage ownership is tracked by:
-
-- `tests/helpers/legacy_inventory.py`
-- `tests/helpers/legacy_inventory_snapshot.py`
-- `tests/helpers/coverage_inventory.py`
-- `tests/helpers/source_test_map.py`
-
-If ownership changes, update the relevant helper and run:
-
-```powershell
-uv run python -m pytest tests/subsystem/test_coverage_inventory.py tests/subsystem/test_legacy_inventory.py tests/subsystem/test_source_test_map.py -q
-```
+- Deterministic tests never reach the network: `tests/conftest.py` fails a test
+  that connects to anything but loopback or looks up a real name. They never
+  touch real user data (the live-state guard) or the checkout's git repository.
+- Mark a deterministic test that takes about a second or more, or starts real
+  processes, `@pytest.mark.slow`; it runs nightly, not per pull request.
+- Mark tests of OS-sensitive code (process trees, paths, secret storage,
+  launcher, updater, installer, plugin and MCP runtimes) `pytest.mark.platform`;
+  a check fails when a test module importing such a module lacks the marker.
+- Security-sensitive behaviour (sandbox and import gate, shell classification,
+  MCP safety, approvals, auth/tokens/secrets, updater/installer, channel
+  delivery semantics, plugin isolation) keeps a behaviour test in the pull
+  request lane, never only a `slow` one.
+- Snapshots are committed; record one on purpose with `ROW_BOT_UPDATE_SNAPSHOTS=1`.
+- Avoid sleeps, real clocks, real users, or globally installed services in
+  deterministic lanes.
 
 ## Subsystem Cautions
 
@@ -224,15 +233,18 @@ uv run python -m pytest tests/subsystem/test_coverage_inventory.py tests/subsyst
 
 1. Prepare release changes on a branch.
 2. For an actual versioned release, run `python scripts/cut_release.py X.Y.Z`.
-3. Run `uv run python scripts/run_test_matrix.py pr`.
-4. Open and merge the release-prep PR after CI passes.
-5. Trigger `.github/workflows/release.yml` manually with the intended version
-   and selected platform builds.
-6. Review artifacts and checksum manifest.
-7. Run `.github/workflows/installer-verify.yml` for deeper installed-package
-   smoke checks when validating release candidates.
-8. Sign Windows locally, run macOS notarization workflows, and perform clean
-   machine/VM manual smoke checks before publishing final assets.
+3. Run `uv run python scripts/run_test_matrix.py pr`, open the release-prep PR,
+   merge it after `CI / ci-ok` passes, and wait for CI on the merge commit.
+4. Trigger `.github/workflows/release.yml` with the version and platform
+   builds. Its `release-gate` checks the version and lock files and refuses a
+   commit without a green `CI / ci-ok`; it runs the nightly suite once only if
+   that commit has no green nightly run. Nothing else is re-tested.
+5. Each build install-smokes its own package (`.github/actions/smoke-*`);
+   review the artifacts and the checksum manifest.
+6. `.github/workflows/installer-verify.yml` is the unsigned dry run for
+   branches (nightly runs its Linux job daily and Windows and macOS weekly).
+7. Sign Windows locally, run the macOS notarization workflows, and perform
+   clean machine/VM manual smoke checks before publishing final assets.
 
 Manual checks outside default PR CI: real provider accounts, real MCP servers,
 real channels, clean-machine installer UX, repair/upgrade/uninstall, Windows

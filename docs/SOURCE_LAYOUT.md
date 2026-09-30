@@ -88,10 +88,9 @@ disable only an unchanged owned route. All three files are private local state
 under `ROW_BOT_DATA_DIR`; none belongs in source control, images, or test
 fixtures containing real user data.
 
-Source-to-test ownership for these paths lives in
-`tests/helpers/source_test_map.py`. Focused coverage belongs in
-`tests/subsystem/access/`, `tests/integration/access/`, and the deployment
-contracts under `tests/contracts/installers/`.
+Focused coverage belongs in `tests/subsystem/access/`,
+`tests/integration/access/`, and the deployment contracts under
+`tests/contracts/installers/`.
 
 ## Packaging Payloads
 
@@ -111,8 +110,7 @@ coverage. The manifest currently separates the package into:
 Windows packaging uses `installer/row_bot_setup.iss` to recursively include
 `src/row_bot`. macOS and Linux builders call `scripts/app_payload_manifest.py`
 for root files, runtime scripts, payload directories, and asset directories.
-Packaging tests in `tests/test_linux_support.py`, `tests/test_dependency_metadata.py`,
-and focused `tests/subsystem/installer/` contracts assert those boundaries.
+Packaging tests in `tests/subsystem/installer/` assert those boundaries.
 
 Because `src/row_bot` is recursive, the shared Browser runtime, native Computer
 Use, the Buddy desktop overlay, coordinated conversation cleanup, live provider
@@ -121,10 +119,8 @@ skill discovery, durable skill activation, access/runtime policy, provider
 transports, channel streaming, the staged React client, and the mobile routes
 require no per-file installer entries. Deployment examples under `deploy/` are
 source-distribution/operator artifacts rather than runtime Python packages.
-`tests/test_linux_support.py` keeps required runtime packages in the
-cross-platform payload inventory, while
-`tests/subsystem/installer/test_computer_use_package_data.py` verifies that the
-Computer Use JSON manifest survives both wheel and installer packaging.
+`tests/subsystem/installer/test_linux_support.py` keeps required runtime
+packages in the cross-platform payload inventory.
 
 ## Local Cleanup Candidates
 

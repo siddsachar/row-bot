@@ -333,7 +333,7 @@ def test_chat_only_actual_prepared_boundary_preserves_native_identity(platform, 
     from row_bot.providers import readiness
     from row_bot.runtime import executions
     from langchain_core.messages import HumanMessage, AIMessageChunk
-    from tests.test_chat_only_runtime import _chat_ready_result
+    from tests.subsystem.providers.test_chat_only_runtime import _chat_ready_result
     barrier = StreamBarrier()
     receipt = submit(platform, ScriptedAgentStream((barrier,)), "chat-hook-initial")
     assert barrier.entered.wait(10)

@@ -331,8 +331,7 @@ the visual family; coarse-pointer targets and readable transcript text
 remain accessibility requirements. No external font or icon fetch is required.
 
 Add deterministic tests under the existing domain and client-platform test
-owners; use isolated data, fake providers and synthetic folders. Update
-`tests/helpers/source_test_map.py` for cross-subsystem changes. Generated
+owners; use isolated data, fake providers and synthetic folders. Generated
 contracts and frontend changes select the matrix's explicit Node lane. The
 browser fixture runner is `tests/browser/client_workspace/run_browser.py` and
 requires its documented local browser/toolchain setup; Python ownership tests

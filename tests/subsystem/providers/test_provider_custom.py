@@ -282,7 +282,7 @@ def test_custom_endpoint_reasoning_capability_config_is_persisted(tmp_path, monk
 
 
 def test_custom_endpoint_save_no_auth_removes_stored_secret(tmp_path, monkeypatch):
-    from tests.test_provider_auth_store import _MemoryKeyring
+    from tests.subsystem.providers.test_provider_auth_store import _MemoryKeyring
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     backend = _MemoryKeyring()
     _set_backend_for_tests(backend)

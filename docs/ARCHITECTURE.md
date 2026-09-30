@@ -1293,7 +1293,7 @@ Skills Hub is the discovery, import, search, and installation layer for manual s
 - **Import detection** — pasted or linked content is classified before install so a raw `SKILL.md`, a folder-like package, or a catalog entry can route through the right importer
 - **Installation search index** — local and remote Skills Hub catalog rows are normalized into searchable records with source, tags, description, install state, and provenance metadata; this install-time browsing path is separate from request-time local progressive discovery
 - **Provenance and safety** — installed skills retain origin/source metadata, user overrides take precedence over bundled skills, and user-controlled enablement determines whether manual skill instructions enter the system prompt
-- **Testing coverage** — `tests/test_skill_discovery.py`, `tests/test_capability_search.py`, `tests/test_skills_activation.py`, `tests/test_skill_pinning.py`, `tests/test_slash_commands.py`, Skills Hub suites, and UI/transcript/source tests cover ranking, aliases, references, automatic persistence, parent/child isolation, pinning, import detection, source adapters, search, and composer contracts
+- **Testing coverage** — `tests/subsystem/skills/test_skill_discovery.py`, `tests/subsystem/tools/test_capability_search.py`, `tests/subsystem/skills/test_skills_activation.py`, `tests/subsystem/skills/test_skill_pinning.py`, `tests/subsystem/skills/test_slash_commands.py`, Skills Hub suites, and UI/transcript/source tests cover ranking, aliases, references, automatic persistence, parent/child isolation, pinning, import detection, source adapters, search, and composer contracts
 
 ---
 
@@ -1398,8 +1398,8 @@ Row-Bot includes a guarded Model Context Protocol client that can connect extern
 
 ### Testing & Release Checks
 
-- **Offline regression suite** — `tests/test_mcp_client.py` covers config fallback, secret masking, safety classification, marketplace fallback/filtering, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling
-- **Opt-in live E2E** — `scripts/mcp_real_world_e2e.py` and `tests/test_mcp_real_world_e2e.py` connect to public MCP servers outside normal CI to validate import, probe, manual tool enablement, dynamic wrapper invocation, and read-only approval classification
+- **Offline regression suite** — `tests/subsystem/mcp/test_mcp_client.py` covers config fallback, secret masking, safety classification, marketplace fallback/filtering, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling
+- **Opt-in live E2E** — `scripts/mcp_real_world_e2e.py` and `tests/e2e/test_mcp_real_world_e2e.py` connect to public MCP servers outside normal CI to validate import, probe, manual tool enablement, dynamic wrapper invocation, and read-only approval classification
 - **Maintainer workflow** — MCP-heavy releases run the offline suite first, then the live public E2E check from the repo root
 
 ---
@@ -1434,7 +1434,7 @@ Row-Bot includes a one-time migration wizard for moving selected data from Herme
 
 ### Testing
 
-- **Focused suites** — `tests/test_migration_core.py`, `tests/test_migration_detection.py`, `tests/test_migration_planner.py`, `tests/test_migration_apply.py`, and `tests/test_migration_wizard_ui.py` cover model invariants, source detection, dry-run planning, wrong-provider rejection, conflict behavior, backups, reports, redaction, daily memory import, and UI helper logic
+- **Focused suites** — `tests/subsystem/data/test_migration_core.py`, `tests/subsystem/data/test_migration_detection.py`, `tests/subsystem/data/test_migration_planner.py`, and `tests/subsystem/data/test_migration_apply.py` cover model invariants, source detection, dry-run planning, wrong-provider rejection, conflict behavior, backups, reports, redaction, and daily memory import
 - **Realistic fixtures** — `migration/fixtures.py` builds multi-month Hermes and OpenClaw homes with fake secrets, memories, skills, channels, MCP servers, approvals, cron/hooks, plugins, sessions, logs, and archive-only state
 - **Manual E2E path** — disposable targets under `.tmp/migration-fixtures/` are used for click-through validation during migration testing; the fixture root is ignored by git
 

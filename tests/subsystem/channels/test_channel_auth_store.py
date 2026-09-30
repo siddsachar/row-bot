@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.test_api_key_storage import FakeKeyring
+from tests.subsystem.providers.test_api_key_storage import FakeKeyring
 
 
 pytestmark = pytest.mark.platform

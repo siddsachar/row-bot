@@ -321,7 +321,7 @@ def test_existing_mcp_effect_owner_must_confirm_read_only(runtime, monkeypatch):
 def test_real_graph_guard_precedes_approval_and_preserves_write_profile_gate(
     runtime, monkeypatch, external, asynchronous
 ):
-    from tests.test_agent_tool_filtering import _prepare_graph
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
 
     agent = _prepare_graph(monkeypatch)
     agent._approval_mode_var.set("approve")
@@ -473,7 +473,7 @@ def test_retained_profile_denylist_and_malformed_policy_fail_closed(runtime):
 def test_actual_graph_preserves_injected_config_and_callback_signature(
     runtime, monkeypatch, asynchronous
 ):
-    from tests.test_agent_tool_filtering import _prepare_graph
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
 
     agent = _prepare_graph(monkeypatch)
     captured = []
@@ -548,7 +548,7 @@ def test_real_filesystem_composite_reads_but_never_changes_disposable_bytes(
 def test_actual_graph_retains_exact_repeat_admission_once_per_dispatch(
     runtime, monkeypatch, asynchronous
 ):
-    from tests.test_agent_tool_filtering import _prepare_graph
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
 
     agent = _prepare_graph(monkeypatch)
     effects, requests = [], []

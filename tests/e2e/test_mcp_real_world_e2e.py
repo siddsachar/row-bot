@@ -10,7 +10,12 @@ import argparse
 import os
 import unittest
 
+import pytest
+
 from scripts.mcp_real_world_e2e import run
+
+
+pytestmark = pytest.mark.e2e
 
 
 @unittest.skipUnless(os.environ.get("ROW_BOT_MCP_REAL_WORLD_E2E") == "1", "set ROW_BOT_MCP_REAL_WORLD_E2E=1 to run live MCP E2E checks")
