@@ -2428,4 +2428,49 @@ describe('deleted conversations', () => {
     expect(state.selectedConversationId).toBeNull();
     expect(state.handshake).not.toBeNull();
   });
+
+  // Reading a conversation that is being deleted closes it; the app stays
+  // connected (it went to "Connection interrupted" after a delete).
+  class DeletingFixture extends FixtureTransport {
+    deleting = new Set<string>();
+    override async getConversation(id: string, signal?: AbortSignal) {
+      if (this.deleting.has(id))
+        throw clientError({ code: 'conversation_deleting' });
+      return super.getConversation(id, signal);
+    }
+    async workspace(id: string): Promise<wire.ConversationWorkspace> {
+      if (this.deleting.has(id))
+        throw clientError({ code: 'conversation_deleting' });
+      return null as unknown as wire.ConversationWorkspace;
+    }
+  }
+
+  it('opening a conversation that is being deleted closes it and stays connected', async () => {
+    const transport = new DeletingFixture({ conversationCount: 3 });
+    transport.deleting.add('conversation-2');
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-2');
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.error).toBeNull();
+    expect(state.selectedConversationId).toBeNull();
+  });
+
+  it('refreshing the open conversation after its deletion closes it and stays connected', async () => {
+    const transport = new DeletingFixture({ conversationCount: 3 });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    expect(value.getSnapshot().projection).not.toBeNull();
+    transport.deleting.add('conversation-a');
+    await value.refreshWorkspace();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.error).toBeNull();
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.handshake).not.toBeNull();
+  });
 });

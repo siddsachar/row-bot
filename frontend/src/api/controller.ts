@@ -645,6 +645,17 @@ export class ClientController {
     });
     this.scheduleRecovery();
   }
+  /**
+   * A read of the open conversation failed. One deleted meanwhile (here or
+   * on another client) closes like a deleted stream does; anything else is
+   * a failure of the connection.
+   */
+  private conversationFailed(id: string, error: unknown): void {
+    const code = aborted(error) ? '' : clientError(error).code;
+    if (code === 'not_found' || code === 'conversation_deleting')
+      this.forgetConversation(id);
+    else this.failed(error);
+  }
   private scheduleRecovery(): void {
     const status = this.state.status;
     if (
@@ -1254,7 +1265,7 @@ export class ClientController {
       });
       if (this.visible) this.beginObservation(id, ticket, true);
     } catch (error) {
-      if (ticket === this.selectionNumber) this.failed(error);
+      if (ticket === this.selectionNumber) this.conversationFailed(id, error);
     }
   }
   private pageSnapshot(page: TranscriptPage): Snapshot {
@@ -1309,7 +1320,7 @@ export class ClientController {
         hasMoreTranscript: page.has_more,
       });
     } catch (error) {
-      if (ticket === this.selectionNumber) this.failed(error);
+      if (ticket === this.selectionNumber) this.conversationFailed(id, error);
     } finally {
       if (ticket === this.selectionNumber) this.transcriptRequest = false;
     }
@@ -1870,7 +1881,7 @@ export class ClientController {
       }
     } catch (error) {
       if (!aborted(error) && ticket === this.selectionNumber)
-        this.failed(error);
+        this.conversationFailed(id, error);
     }
   }
   composer = (
