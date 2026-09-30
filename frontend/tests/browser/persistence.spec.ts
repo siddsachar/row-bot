@@ -6,6 +6,7 @@ import {
   assertConversationMarker,
 } from './fixture';
 import { openPanel, readLayout } from './panel-helpers';
+import { fixtureState, headerAction } from './unified-helpers';
 
 test('an open panel and its instance survive a same-size browser refresh', async ({
   page,
@@ -65,7 +66,7 @@ test('compact Back stays on the conversation after refresh while retaining the p
   await writeEvidence(testInfo, 'compact-back-persistence', { before, after });
 });
 
-test('version-zero layout migrates, clamps obsolete sizes and resets only after confirmation', async ({
+test('version-zero layout migrates, clamps obsolete sizes and resets from the command palette', async ({
   page,
 }, testInfo) => {
   const width = testInfo.project.use.viewport!.width;
@@ -109,18 +110,32 @@ test('version-zero layout migrates, clamps obsolete sizes and resets only after 
   expect(migrated.bottom.size).toBe(160);
   expect(migrated.panels[0].instance_id).toBe('panel-7');
   await screenshot(page, testInfo, 'version-zero-layout-migrated');
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  await page.getByRole('button', { name: 'Reset layout', exact: true }).click();
+  // On a phone the restored panel covers the conversation and its header.
+  const back = page.getByRole('button', {
+    name: 'Back to conversation',
+    exact: true,
+  });
+  if (await back.isVisible()) await back.click();
+  await headerAction(page, 'Workspace commands');
+  const commands = page.getByRole('dialog', {
+    name: 'Workspace commands',
+    exact: true,
+  });
+  await commands
+    .getByRole('searchbox', { name: 'Find a workspace command', exact: true })
+    .fill('Reset layout');
   expect((await readLayout(page)).panels).toHaveLength(1);
-  await page
-    .getByRole('alertdialog', { name: 'Reset layout?', exact: true })
-    .getByRole('button', { name: 'Reset layout', exact: true })
+  // The reset runs at once, without a confirmation, and closes the palette.
+  await commands
+    .getByRole('option', { name: 'Reset layout', exact: true })
     .click();
+  await expect(commands).toHaveCount(0);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await expect.poll(async () => (await readLayout(page)).panels.length).toBe(0);
-  await page.keyboard.press('Escape');
   await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   const reset = await readLayout(page);
-  expect(reset.navigation.size).toBe(240);
+  // The fresh-layout reference width (layout.test.tsx).
+  expect(reset.navigation.size).toBe(300);
   expect(
     await page.evaluate(
       () =>
@@ -231,6 +246,8 @@ test.describe('browser lifecycle', () => {
       )
         cleanupResponses.push({ status: response.status(), path });
     });
+    // Other specs in the same fixture run add calls; Back must add none.
+    const baseline = await fixtureState(page);
     await page.addInitScript(() => {
       Object.assign(window, { __QA_PAGE_SHOW__: [] as boolean[] });
       window.addEventListener('pageshow', (event) => {
@@ -300,18 +317,9 @@ test.describe('browser lifecycle', () => {
     await expect(
       page.getByRole('button', { name: 'Phase 1 conversation B', exact: true }),
     ).toBeVisible();
-    const response = await request.get('/__p1_fixture/state', {
-      headers: {
-        'x-fixture-token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-      },
-    });
-    expect(response.ok()).toBe(true);
-    const state = (await response.json()) as {
-      calls: unknown[];
-      external_calls: number;
-    };
-    expect(state.calls).toEqual([]);
-    expect(state.external_calls).toBe(0);
+    const state = await fixtureState(page);
+    expect(state.calls).toEqual(baseline.calls);
+    expect(state.external_calls).toBe(baseline.external_calls);
     let cleanupProbe = { status: 0, code: '' };
     await expect
       .poll(

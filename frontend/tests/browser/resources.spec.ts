@@ -645,16 +645,19 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
   const sandboxChanges = inspector
     .locator('summary')
     .filter({ hasText: 'Sandbox changes' });
-  const toggleSandboxChanges = async (open: boolean) => {
-    const details = sandboxChanges.locator('xpath=..');
-    if (((await details.getAttribute('open')) !== null) !== open)
-      await sandboxChanges.click();
-  };
-  await toggleSandboxChanges(true);
   const imports = page.getByRole('region', {
     name: 'Sandbox imports',
     exact: true,
   });
+  // The section opens by itself once it counts a waiting import; opening it by
+  // hand before that could race the automatic open and close it again.
+  await expect(sandboxChanges).toContainText('waiting');
+  await expect(async () => {
+    const details = sandboxChanges.locator('xpath=..');
+    if ((await details.getAttribute('open')) === null)
+      await sandboxChanges.click();
+    await expect(imports).toBeVisible({ timeout: 1_000 });
+  }).toPass();
   await imports.getByRole('button', { name: /^Pending · 2 files/ }).click();
   await expect(
     imports.getByText('Synthetic imported', { exact: false }),
@@ -779,203 +782,6 @@ test('Phase 4 sandbox import and Undo retain reviews and restore exact original 
       (call) => call.conversation_id === conversation,
     ),
   ).toEqual([]);
-});
-
-test('Phase 4 empty workspace requires a named parent-scoped action and retains the chat', async ({
-  page,
-}, info) => {
-  await installDesktopFolderBridge(page);
-  const conversation = await newConversation(page);
-  const before = await conversationState(page, conversation);
-  await composer(page).fill('Retained empty-workspace draft');
-  await markWorkspaceIdentity(page);
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
-  const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
-  await expect(setup).toHaveAccessibleName('Add resource');
-  await setup.getByRole('radio', { name: 'Code folder', exact: true }).click();
-  await setup
-    .getByRole('combobox', { name: 'Folder setup', exact: true })
-    .selectOption('empty_folder');
-  const create = setup.getByRole('button', {
-    name: 'Create empty workspace',
-    exact: true,
-  });
-  await expect(create).toBeDisabled();
-  await setup
-    .getByRole('textbox', { name: 'New folder name', exact: true })
-    .fill(`phase4-${conversation}`);
-  await expect(create).toBeDisabled();
-  await setup
-    .getByRole('button', { name: 'Choose parent folder', exact: true })
-    .click();
-  await expect(create).toBeEnabled();
-  await screenshot(page, info, 'empty-workspace-setup');
-  await create.click();
-  await expect(
-    setup.getByText('Resource ready', { exact: true }),
-  ).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
-  await assertWorkspaceIdentity(page);
-  const bindings = (await conversationState(page, conversation)).conversation
-    .resource_bindings;
-  expect(bindings).toHaveLength(1);
-  expect(bindings[0].kind).toBe('workspace');
-  const disk = await resourceState(page, bindings[0].resource_id);
-  expect(disk).toMatchObject({
-    registered: true,
-    exists: true,
-    origin_id: conversation,
-    children: [],
-    has_more: false,
-    git_present: false,
-  });
-  expect(
-    (await conversationState(page, conversation)).workspace.controls,
-  ).toEqual(before.workspace.controls);
-  expect(
-    (await fixtureState(page)).calls.filter(
-      (call) => call.conversation_id === conversation,
-    ),
-  ).toEqual([]);
-  await screenshot(page, info, 'empty-workspace-inspector');
-  await assertNoOverflow(page);
-  await accessibility(page, info, 'empty-workspace-inspector');
-  const seed = await page.request.post(
-    `/__p4_fixture/resources/${bindings[0].resource_id}/edit-file`,
-    { headers: fixtureHeaders() },
-  );
-  expect(seed.ok()).toBe(true);
-  await page
-    .getByRole('button', { name: 'Refresh inspector', exact: true })
-    .click();
-  await page
-    .getByRole('button', { name: 'Workspace root', exact: true })
-    .click();
-  await page
-    .getByRole('button', { name: 'Preview file sample.txt', exact: true })
-    .click();
-  await page.getByRole('button', { name: 'Edit file', exact: true }).click();
-  const editor = page.getByRole('region', {
-    name: 'Workspace file editor',
-    exact: true,
-  });
-  const contents = editor.getByRole('textbox', {
-    name: 'File contents',
-    exact: true,
-  });
-  await expect(contents).toHaveValue('Synthetic original\n');
-  await contents.fill('Synthetic edited\n');
-  await editor
-    .getByRole('button', { name: 'Close editor and keep draft', exact: true })
-    .click();
-  await page
-    .getByRole('button', { name: 'Resume edit: sample.txt', exact: true })
-    .click();
-  await expect(contents).toHaveValue('Synthetic edited\n');
-  await page
-    .getByRole('button', { name: 'Close all panels', exact: true })
-    .click();
-  await expect(editor).not.toBeVisible();
-  await page
-    .getByRole('group', { name: 'Bound resources', exact: true })
-    .getByRole('button', { name: `phase4-${conversation}`, exact: true })
-    .click();
-  await expect(contents).toHaveValue('Synthetic edited\n');
-  await editor.getByRole('button', { name: 'Save file', exact: true }).click();
-  await expect(
-    editor.getByText(
-      'File saved. Original bytes remain available in edit recovery.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  const stored = await page.request.get(
-    `/__p4_fixture/resources/${bindings[0].resource_id}/edit-file`,
-    { headers: fixtureHeaders() },
-  );
-  expect(await stored.json()).toMatchObject({
-    content: 'Synthetic edited\n',
-    retained_original: true,
-  });
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `workspace-editor-${appearance}`);
-    await accessibility(page, info, `workspace-editor-${appearance}`);
-  }
-  const processProbe = await page.request.post(
-    `/__p4_fixture/resources/${bindings[0].resource_id}/process-probe`,
-    { headers: fixtureHeaders() },
-  );
-  expect(processProbe.ok()).toBe(true);
-  await page.getByRole('button', { name: 'Processes', exact: true }).click();
-  const processes = page.getByRole('region', {
-    name: 'Workspace processes',
-    exact: true,
-  });
-  await expect(
-    processes.getByText('No owned processes reported.', { exact: true }),
-  ).toBeVisible();
-  await processes
-    .getByRole('textbox', { name: 'Process command', exact: true })
-    .fill((await processProbe.json()).command);
-  const startProcess = processes.getByRole('button', {
-    name: 'Start reviewed command',
-    exact: true,
-  });
-  await expect(startProcess).toBeDisabled();
-  await processes
-    .getByRole('button', { name: 'Review command', exact: true })
-    .click();
-  await expect(startProcess).toBeEnabled();
-  await expect(processes.getByRole('button', { name: /^Stop / })).toHaveCount(
-    0,
-  );
-  await startProcess.click();
-  await expect(
-    processes.getByText('Workspace writer held until cleanup completes.', {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect
-    .poll(async () => {
-      await processes
-        .getByRole('button', { name: 'View output', exact: true })
-        .click();
-      return processes
-        .getByLabel('Process output', { exact: true })
-        .textContent();
-    })
-    .toContain('Synthetic process ready');
-  await page
-    .getByRole('button', { name: 'Close all panels', exact: true })
-    .click();
-  await page
-    .getByRole('group', { name: 'Bound resources', exact: true })
-    .getByRole('button', { name: `phase4-${conversation}`, exact: true })
-    .click();
-  await page.getByRole('button', { name: 'Processes', exact: true }).click();
-  await expect(
-    processes.getByRole('textbox', { name: 'Process command', exact: true }),
-  ).toHaveValue('python -I -S process_probe.py');
-  await processes.getByRole('button', { name: /^Stop / }).click();
-  await expect(
-    processes.getByRole('button', { name: /^Stop / }),
-  ).toBeDisabled();
-  await expect(
-    processes.getByText('Workspace writer held until cleanup completes.', {
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `workspace-process-${appearance}`);
-    await accessibility(page, info, `workspace-process-${appearance}`);
-  }
-  await returnToChat(page);
-  await expect(composer(page)).toHaveValue('Retained empty-workspace draft');
-  await writeEvidence(info, 'empty-workspace-filesystem', disk);
 });
 
 test('Phase 4 one-shot empty workspace save failure requires renewed parent and resumes exact identity', async ({

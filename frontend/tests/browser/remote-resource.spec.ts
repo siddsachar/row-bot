@@ -1,9 +1,12 @@
-import { captureBrowserDownload } from './download-helpers';
 import { expect, test, writeEvidence } from './evidence';
-import { fixtureResources, openConversation } from './unified-helpers';
+import {
+  fixtureResources,
+  openConversation,
+  revealContextControl,
+} from './unified-helpers';
 import { captureSurface } from './surface-helpers';
 
-test('browser resource setup uses server IDs and exports through a bounded download', async ({
+test('browser resource setup uses server IDs and never sends client paths', async ({
   page,
 }, testInfo) => {
   const mutationBodies: { path: string; body: string }[] = [];
@@ -13,6 +16,7 @@ test('browser resource setup uses server IDs and exports through a bounded downl
       mutationBodies.push({ path, body: request.postData() ?? '' });
   });
   await openConversation(page);
+  await revealContextControl(page, 'Add resource');
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   let setup = page.getByRole('dialog', {
     name: 'Add resource',
@@ -31,6 +35,7 @@ test('browser resource setup uses server IDs and exports through a bounded downl
     page.getByRole('region', { name: 'Design preview', exact: true }),
   ).toBeVisible();
 
+  await revealContextControl(page, 'Add resource');
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   const restart = setup.getByRole('button', {
@@ -73,6 +78,7 @@ test('browser resource setup uses server IDs and exports through a bounded downl
     page.getByRole('region', { name: 'Phase 1 workspace inspector' }),
   ).toBeVisible();
 
+  await revealContextControl(page, `${deckName} Design`);
   await page
     .getByRole('button', { name: `${deckName} Design`, exact: true })
     .click();
@@ -81,24 +87,9 @@ test('browser resource setup uses server IDs and exports through a bounded downl
     exact: true,
   });
   await expect(preview).toBeVisible();
-  await preview.getByRole('button', { name: 'Export', exact: true }).click();
-  const exporting = preview.getByRole('region', {
-    name: 'Design export',
-    exact: true,
-  });
-  // Another device can't save into this computer's Exports folder: the
-  // export is offered as a download.
-  await exporting
-    .getByRole('button', { name: 'Export as HTML', exact: true })
-    .click();
-  const download = await captureBrowserDownload(page, () =>
-    exporting
-      .getByRole('button', { name: 'Download HTML', exact: true })
-      .click(),
-  );
-  expect(download.name).toBe(`${deckName}.html`);
-  expect(download.mimeType).toBe('text/html');
-  expect(download.bytes.length).toBeGreaterThan(0);
+  // This runner's browser is the computer's own owner, so an export saves into
+  // the Exports folder (resources.spec); another device gets a download instead
+  // (ArtifactExports.test.tsx, and the API's scoped download test).
 
   const payloadProof = mutationBodies.map((request) => ({
     path: request.path,
@@ -113,12 +104,10 @@ test('browser resource setup uses server IDs and exports through a bounded downl
   ).toBe(false);
   await writeEvidence(testInfo, 'browser-resource-authority', {
     selectedServerResourceId: workspace.workspace_id,
-    exportName: download.name,
-    exportBytes: download.bytes.length,
     payloadProof,
     clientPathInputs: await page.locator('input[webkitdirectory]').count(),
     scope:
-      'Real bounded API/resource/export flow through the isolated loopback browser host. Paired remote-cookie enforcement is covered by focused access/API tests; this browser runner does not claim a physical remote network.',
+      'Real bounded API/resource flow through the isolated loopback browser host. Paired remote-cookie enforcement is covered by focused access/API tests; this browser runner does not claim a physical remote network.',
   });
   await captureSurface(page, testInfo, 'browser-artifact-and-workspace', {
     axe: false,

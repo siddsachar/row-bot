@@ -2028,7 +2028,7 @@ test.describe('Knowledge settings', () => {
   // system appearance; Knowledge also runs on the native network path.
   test.use({ nativeNetwork: true });
 
-  test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', async ({
+  test('Knowledge Settings keeps its hierarchy, filters, review and delete flows', async ({
     page,
   }, info) => {
     await seedKnowledge(page, 'populated');
@@ -2052,9 +2052,11 @@ test.describe('Knowledge settings', () => {
       page.locator('.settings-knowledge-filters').getByRole('combobox'),
     ).toHaveCount(4);
     await expect(page.locator('.settings-knowledge-result')).toHaveCount(25);
-    await expect(
-      page.getByText('Showing 25 of 105 matching entries.'),
-    ).toBeVisible();
+    // Earlier specs in the shared fixture may add entries; the page size is fixed.
+    const showing = page.getByText(/^Showing 25 of \d+ matching entries\.$/);
+    await expect(showing).toBeVisible();
+    const total = Number(/of (\d+)/.exec((await showing.textContent())!)![1]);
+    expect(total).toBeGreaterThanOrEqual(105);
 
     const memory = page.getByRole('switch', { name: 'Enable Memory' });
     const wasEnabled = await memory.isChecked();
@@ -2064,6 +2066,9 @@ test.describe('Knowledge settings', () => {
     await expect(
       page.getByRole('region', { name: 'Memory graph summary' }),
     ).toContainText(wasEnabled ? 'Memory disabled' : 'Memory enabled');
+    // Later specs share this fixture: put the setting back.
+    await memory.click();
+    await expect(memory).toBeChecked({ checked: wasEnabled });
 
     const search = page.getByRole('searchbox', { name: 'Search knowledge' });
     await search.fill('tail needle');
@@ -2152,7 +2157,7 @@ test.describe('Knowledge settings', () => {
     await deleteAll.click();
     await expect(
       page.getByRole('region', { name: 'Reviewed knowledge deletion' }),
-    ).toContainText('104 entries');
+    ).toContainText(`${total - 1} entries`);
     await page
       .getByRole('button', { name: 'Confirm permanent deletion' })
       .click();

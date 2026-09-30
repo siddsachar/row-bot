@@ -892,7 +892,7 @@ test('profile library manages profiles and starts a selected chat', async ({
   await dialog
     .getByRole('button', { name: 'Duplicate profile', exact: true })
     .click();
-  await dialog.locator('summary').filter({ hasText: 'My Profiles' }).click();
+  // Duplicating opens the "My Profiles" group by itself (B15).
   await expect(
     dialog.getByRole('button', { name: 'View General Assistant Copy' }),
   ).toBeVisible();
