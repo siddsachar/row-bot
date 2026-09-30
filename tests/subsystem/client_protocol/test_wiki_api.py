@@ -165,6 +165,32 @@ def test_articles_open_without_import_or_path_disclosure(api, monkeypatch):
     assert str(stack["vault"]) not in page.text + opened.text
 
 
+@pytest.mark.slow
+def test_a_vault_of_many_articles_reads_within_its_bound_when_memory_reads_are_slow(api, monkeypatch):
+    """A 660-article vault took ~4 s with one memory read per article, past the 2 s bound (B280)."""
+    import types
+    from row_bot import knowledge_views
+    from row_bot.application import wiki_commands
+
+    stack, client, headers, _clock, _picked = api
+    entities = [stack["kg"].save_entity("concept", f"Many articles {index}", "A saved memory long enough.")
+                for index in range(22)]
+    stack["wiki_vault"].export_entities_projection(entities)
+    now = [0.0]
+    monkeypatch.setattr(wiki_commands, "time", types.SimpleNamespace(monotonic=lambda: now[0]))
+    read = knowledge_views._read
+
+    def slow_read(*args, **kwargs):
+        now[0] += 0.1  # each memory read costs a tenth of a second
+        return read(*args, **kwargs)
+
+    monkeypatch.setattr(knowledge_views, "_read", slow_read)
+    status = client.get("/api/v1/settings/wiki", headers=headers, params={"folder_grant": grant(api)})
+    assert status.status_code == 200, status.text
+    assert status.json()["availability"] == "available"
+    assert status.json()["articles"] >= 22
+
+
 def test_reviewed_rebuild_replays_original_receipt_without_republication(api, monkeypatch):
     stack, client, headers, _clock, _picked = api
     stack["kg"].save_entity("person", "Rebuild API article", "Saved database version")
