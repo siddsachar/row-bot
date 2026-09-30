@@ -154,7 +154,7 @@ def test_receive_reserves_before_any_audio_and_stop_waits_for_reader(runtime):
     assert not runtime.calls
 
 
-@pytest.mark.parametrize("field,value", [("client_session_id", str(uuid4())), ("access_binding", "another"),
+@pytest.mark.parametrize("field,value", [("client_session_id", "7f1c2e3a-0b4d-4c5e-8f6a-9b8c7d6e5f4a"), ("access_binding", "another"),
                                         ("conversation_id", "B"), ("server_epoch", "other-epoch")])
 def test_private_owner_mismatch_denied_before_work(runtime, field, value):
     snapshot = start(runtime)

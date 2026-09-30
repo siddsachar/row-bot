@@ -173,6 +173,7 @@ row-bot = "row_bot.launcher:main"
 test = [
   "pytest>=9.0.3,<10.0",
   "pytest-cov>=6.0,<8.0",
+  "pytest-xdist>=3.6,<4.0",
 ]
 lint = [
   "ruff>=0.12,<1.0",

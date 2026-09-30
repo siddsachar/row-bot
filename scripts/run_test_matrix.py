@@ -102,6 +102,11 @@ def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> Comm
                 "--timeout", "7200", "--", *playwright_args, env=TEST_ENV)
 
 
+# pytest-xdist: one worker per CPU; a file's tests stay on one worker (module
+# fixtures, and tests that rely on their file's order).
+PARALLEL = ("-n", "auto", "--dist", "loadfile")
+
+
 def _pytest(name: str, *args: str, marker: str = DETERMINISTIC, env: dict[str, str] = TEST_ENV) -> CommandSpec:
     return _cmd(name, "uv", "run", "python", "-m", "pytest", *args, "-m", marker, "-q", env=env)
 
@@ -137,18 +142,18 @@ COMMANDS: dict[str, CommandSpec] = {
     # The PR pass: every deterministic app test once, coverage recorded but not
     # gated. CI splits it by file with ROW_BOT_TEST_SHARD=k/N (tests/conftest.py).
     "python": _pytest(
-        "python", *APP_LANES, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python.xml",
+        "python", *APP_LANES, *PARALLEL, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python.xml",
         marker=f"not slow and {DETERMINISTIC}", env=COVERAGE_ENV,
     ),
     # The nightly pass: the same lanes with the slow tests.
     "python-full": _pytest(
-        "python-full", *APP_LANES, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python-full.xml",
+        "python-full", *APP_LANES, *PARALLEL, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python-full.xml",
         env=COVERAGE_ENV,
     ),
     # The nightly pass without coverage (Windows and macOS nightly jobs).
-    "deterministic": _pytest("deterministic", *APP_LANES),
+    "deterministic": _pytest("deterministic", *APP_LANES, *PARALLEL),
     # OS-sensitive tests; CI runs them on Windows (the shipped Python 3.13) and macOS.
-    "platform": _pytest("platform", "tests", marker=f"platform and not slow and {DETERMINISTIC}"),
+    "platform": _pytest("platform", "tests", *PARALLEL, marker=f"platform and not slow and {DETERMINISTIC}"),
     "app-smoke": _cmd(
         "app-smoke", "uv", "run", "python", "scripts/smoke_app.py", "--port", "8090", "--timeout", "120",
         env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
@@ -161,7 +166,7 @@ COMMANDS: dict[str, CommandSpec] = {
         env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
     ),
     "contracts": _pytest("contracts", "tests/contracts"),
-    "subsystem": _pytest("subsystem", "tests/subsystem"),
+    "subsystem": _pytest("subsystem", "tests/subsystem", *PARALLEL),
     "installer-contracts": _pytest("installer-contracts", "tests/subsystem/installer", "tests/contracts/installers"),
     "docs": _pytest("docs", "tests/docs", "tests/marketing"),
     "browser-smoke": _browser(

@@ -17,7 +17,10 @@ import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "pytest_row_bot"
+# pytest-xdist workers run side by side: each gets its own data folder (temporary
+# files already get unique names per process).
+XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "pytest_row_bot" / XDIST_WORKER
 DEFAULT_TEST_TMP_DIR = PROJECT_ROOT / ".tmp" / "pytest_tmp"
 LEGACY_DATA_DIR_NAME = ".thoth"
 LIVE_LEGACY_DATA_DIR = Path.home() / LEGACY_DATA_DIR_NAME
@@ -73,6 +76,8 @@ def _raise_live_write(path: Any, operation: str) -> None:
 existing_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
 if not existing_data_dir or _is_live_user_state_path(existing_data_dir):
     existing_data_dir = str(DEFAULT_TEST_DATA_DIR)
+elif XDIST_WORKER:
+    existing_data_dir = str(Path(existing_data_dir) / XDIST_WORKER)
 os.environ["ROW_BOT_DATA_DIR"] = existing_data_dir
 DEFAULT_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
