@@ -190,11 +190,12 @@ export function UpdateControls({ owner }: { owner: Owner }) {
       setNotice(
         receipt.status === 'failed'
           ? 'The update check could not reach a verified release source. Try again later.'
-          : command.action === 'check'
-            ? receipt.snapshot.available
+          : command.action === 'skip'
+            ? 'Update preference saved.'
+            : // Check, or Show it again (which checks).
+              receipt.snapshot.available
               ? `Version ${receipt.snapshot.available.version} is available.`
-              : 'No update is available on this channel.'
-            : 'Update preference saved.',
+              : 'No update is available on this channel.',
       );
     } catch (cause) {
       const issue = clientError(cause);
@@ -386,18 +387,21 @@ export function UpdateControls({ owner }: { owner: Owner }) {
               Show version {snapshot.available.version}
             </Button>
           )}
-          {!!snapshot.skipped_versions.length && (
-            <div className="actions">
-              <span>Skipped: {snapshot.skipped_versions.join(', ')}</span>
-              <CompactAction
-                label="Clear skipped versions"
+          {snapshot.skipped_versions.map((version) => (
+            // The server reports only the skip holding back the release on
+            // offer (B261).
+            <div className="actions" key={version}>
+              <span>You skipped {version}</span>
+              <span aria-hidden>·</span>
+              <Button
+                variant="ghost"
                 disabled={busy || !!pending || !!installCommand}
                 onClick={() => send('clear_skipped')}
               >
-                <Download size={17} aria-hidden />
-              </CompactAction>
+                Show it again
+              </Button>
             </div>
-          )}
+          ))}
         </>
       )}
     </section>

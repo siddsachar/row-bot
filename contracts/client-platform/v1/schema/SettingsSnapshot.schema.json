@@ -1645,15 +1645,6 @@
           "const": "cached",
           "title": "Runtime State",
           "type": "string"
-        },
-        "skipped_versions": {
-          "items": {
-            "maxLength": 256,
-            "type": "string"
-          },
-          "maxItems": 128,
-          "title": "Skipped Versions",
-          "type": "array"
         }
       },
       "required": [
@@ -1661,7 +1652,6 @@
         "channel",
         "last_check",
         "last_success",
-        "skipped_versions",
         "runtime_state"
       ],
       "title": "UpdateSettingsSnapshot",

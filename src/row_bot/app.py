@@ -601,6 +601,14 @@ async def _run_startup_sequence():
     except Exception:
         logger.warning("Could not keep the models this profile was using", exc_info=True)
 
+    # Once: an off saved while off was the Developer tool's default (B259).
+    try:
+        from row_bot.application.developer_tool_upgrade import turn_on_developer_tools_once
+        with _startup_phase("developer_tool_default"):
+            await asyncio.to_thread(turn_on_developer_tools_once)
+    except Exception:
+        logger.warning("Could not apply the Developer tool's new default", exc_info=True)
+
     if is_cloud_available():
         _set("☁️ Loading cached model catalog...")
         with _startup_phase("load_cached_model_catalog"):

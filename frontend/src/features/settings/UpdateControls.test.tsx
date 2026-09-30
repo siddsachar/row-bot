@@ -57,7 +57,7 @@ it('loads cached status without checking and checks from one explicit click', as
   );
 });
 
-it('shows a verified release and skips it from one click', async () => {
+it('shows a verified release, skips it from one click and shows it again', async () => {
   const release: UpdateSnapshot = {
     ...snapshot,
     available: {
@@ -70,11 +70,14 @@ it('shows a verified release and skips it from one click', async () => {
       verified_manifest: true,
     },
   };
-  const send = vi.fn(async (command) => ({
+  const send = vi.fn(async (command: UpdateCommand) => ({
     schema_version: 1 as const,
     command_id: command.command_id,
     status: 'completed' as const,
-    snapshot: { ...release, available: null, skipped_versions: ['2.0.0'] },
+    snapshot:
+      command.action === 'skip'
+        ? { ...release, available: null, skipped_versions: ['2.0.0'] }
+        : release,
   }));
   show(
     vi.fn(async () => release),
@@ -83,9 +86,16 @@ it('shows a verified release and skips it from one click', async () => {
   expect(await screen.findByText('Version 2.0.0 is available')).toBeVisible();
   expect(screen.getByText('Synthetic changes')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Skip version 2.0.0' }));
-  expect(await screen.findByText('Skipped: 2.0.0')).toBeVisible();
+  // One line about the skipped release, only while it is held back (B261).
+  expect(await screen.findByText('You skipped 2.0.0')).toBeVisible();
   expect(send).toHaveBeenCalledWith(
     expect.objectContaining({ action: 'skip', version: '2.0.0' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show it again' }));
+  expect(await screen.findByText('Version 2.0.0 is available')).toBeVisible();
+  expect(screen.queryByText('You skipped 2.0.0')).toBeNull();
+  expect(send).toHaveBeenLastCalledWith(
+    expect.objectContaining({ action: 'clear_skipped' }),
   );
 });
 

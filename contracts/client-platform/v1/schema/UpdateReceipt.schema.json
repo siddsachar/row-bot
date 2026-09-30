@@ -123,7 +123,7 @@
             "maxLength": 64,
             "type": "string"
           },
-          "maxItems": 64,
+          "maxItems": 1,
           "title": "Skipped Versions",
           "type": "array"
         }

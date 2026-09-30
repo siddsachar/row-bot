@@ -2680,6 +2680,18 @@ function TrackerDeleteAll({ mutation }: { mutation: SettingsMutationIO }) {
   );
 }
 
+/** After an account action the page shows its new saved state (B263). */
+function reloadAccounts(mutation: SettingsMutationIO) {
+  // A failed reload keeps the page as it was; the action's own result shows.
+  mutation.refreshSnapshot?.().then(mutation.onSnapshot, () => undefined);
+}
+/** A usable sign-in is saved, checked or not. */
+function tokenSaved(account: SettingsSnapshot['accounts']['x']) {
+  return ['saved_unchecked', 'connected'].includes(
+    account.authentication_state,
+  );
+}
+
 function AccountPanel({
   label,
   icon: Icon,
@@ -2745,7 +2757,9 @@ function AccountPanel({
                 text: 'Check that Row-Bot can reach GitHub with it.',
                 done: account.authentication_state === 'connected',
                 children: showActions ? (
-                  <ConnectedGitHubAccessControls />
+                  <ConnectedGitHubAccessControls
+                    onChanged={() => reloadAccounts(mutation)}
+                  />
                 ) : null,
               },
             ]}
@@ -2802,9 +2816,12 @@ function AccountPanel({
               {
                 id: 'authenticate',
                 text: 'Authenticate X in your browser.',
-                done: account.authentication_state === 'saved_unchecked',
+                done: tokenSaved(account),
                 children: showActions ? (
-                  <ConnectedAccountAuthControls account="x" />
+                  <ConnectedAccountAuthControls
+                    account="x"
+                    onChanged={() => reloadAccounts(mutation)}
+                  />
                 ) : null,
               },
             ]}
@@ -2940,11 +2957,12 @@ function GoogleAccountPanel({
             {
               id: 'authenticate',
               text: 'Choose that file here, then authenticate Google in your browser.',
-              done:
-                gmail.authentication_state === 'saved_unchecked' ||
-                calendar.authentication_state === 'saved_unchecked',
+              done: tokenSaved(gmail) || tokenSaved(calendar),
               children: showActions ? (
-                <ConnectedAccountAuthControls account="google" />
+                <ConnectedAccountAuthControls
+                  account="google"
+                  onChanged={() => reloadAccounts(mutation)}
+                />
               ) : null,
             },
           ]}
@@ -3041,17 +3059,19 @@ export function AccountsSnapshotPanel({
         <StateChip warning>Account settings unavailable</StateChip>
       </Section>
     );
+  // Gmail and Calendar share one Google sign-in, so Google counts once.
   const connected = [
-    snapshot.github,
-    snapshot.gmail,
-    snapshot.calendar,
-    snapshot.x,
-  ].filter((account) => account.configured).length;
+    [snapshot.github],
+    [snapshot.gmail, snapshot.calendar],
+    [snapshot.x],
+  ].filter((account) =>
+    account.some((part) => part.authentication_state === 'connected'),
+  ).length;
   return (
     <div className="stack settings-snapshot-page settings-accounts-page">
       <SettingsSummary>
         <SummaryChip tone={connected ? 'success' : undefined}>
-          {connected} configured
+          {connected} connected
         </SummaryChip>
       </SettingsSummary>
       <AccountPanel
@@ -3700,14 +3720,6 @@ export function PreferencesSnapshotPanel({
             <Fact
               label="Last success"
               value={formattedDateTime(snapshot.updates.last_success)}
-            />
-            <Fact
-              label="Skipped versions"
-              value={
-                snapshot.updates.skipped_versions
-                  .map(versionLabel)
-                  .join(', ') || 'None'
-              }
             />
           </Facts>
         </SettingsAdvanced>

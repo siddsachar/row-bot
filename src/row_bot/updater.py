@@ -242,15 +242,32 @@ def reload_saved_update_state(config_path: pathlib.Path) -> None:
 
 
 def skip_version(version: str) -> None:
-    """Add *version* to the skipped list and clear any pending update for it."""
+    """Skip the offered *version* and clear any pending update for it.
+
+    A skip only holds back the release on offer, so it replaces any earlier
+    skip (B261).
+    """
     with _state_lock:
         st = get_update_state()
-        if version and version not in st.skipped_versions:
-            st.skipped_versions.append(version)
+        if version:
+            st.skipped_versions = [version]
         if st.available and st.available.version == version:
             st.available = None
         _save_state(st)
     _notify()
+
+
+def skipped_release() -> Optional[str]:
+    """The skipped release this channel would otherwise offer, if any.
+
+    Checks and skips keep only that one skip. More than one, or one that is
+    not newer than this version, is left over from before and goes with the
+    next check, so it is not reported.
+    """
+    skipped = get_update_state().skipped_versions
+    if len(skipped) == 1 and compare_versions(__version__, skipped[0]) > 0:
+        return skipped[0]
+    return None
 
 
 def clear_skipped_versions() -> None:
@@ -651,7 +668,7 @@ def check_for_updates(*, force: bool = False) -> Optional[UpdateInfo]:
         _notify()
         return st.available
 
-    best: Optional[UpdateInfo] = None
+    newest: Optional[UpdateInfo] = None
     for r in releases:
         info = _parse_release(r, st.channel)
         if info is None:
@@ -660,14 +677,17 @@ def check_for_updates(*, force: bool = False) -> Optional[UpdateInfo]:
             continue
         if compare_versions(__version__, info.version) <= 0:
             continue
-        if info.version in st.skipped_versions:
-            continue
-        if best is None or compare_versions(best.version, info.version) > 0:
-            best = info
+        if newest is None or compare_versions(newest.version, info.version) > 0:
+            newest = info
+    # A skip holds back only the release on offer; nothing older is offered
+    # instead, and every other skip no longer matters (B261).
+    skipped = newest is not None and newest.version in st.skipped_versions
+    best = None if skipped else newest
 
     with _state_lock:
         st.last_success = now.isoformat()
         st.available = best
+        st.skipped_versions = [newest.version] if skipped else []
         _save_state(st)
     _notify()
     if best:

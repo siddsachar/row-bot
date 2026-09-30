@@ -10,7 +10,6 @@ refreshes a token, probes a provider, or imports plugin entrypoints.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
 import copy
 import hashlib
 import json
@@ -21,6 +20,7 @@ import sys
 import time
 from typing import Any
 
+from row_bot.account_token_checks import token_file_state
 from row_bot.data_paths import get_row_bot_data_dir
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -280,28 +280,6 @@ def _enabled(
         return bool(saved[tool_id])
     value = registered.get(tool_id, {}).get("enabled")
     return value if isinstance(value, bool) else None
-
-
-def _token_state(path: Path) -> str:
-    """Classify an OAuth token from local metadata without refreshing it."""
-
-    if not path.is_file():
-        return "not_authenticated"
-    raw = _read_json(path, default=None)
-    if not isinstance(raw, Mapping):
-        return "unavailable"
-    expiry = raw.get("expiry") or raw.get("expires_at")
-    if isinstance(expiry, str) and expiry:
-        try:
-            normalized = expiry.replace("Z", "+00:00")
-            parsed = datetime.fromisoformat(normalized)
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            if parsed <= datetime.now(timezone.utc):
-                return "expired"
-        except ValueError:
-            return "unavailable"
-    return "saved_unchecked"
 
 
 def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
@@ -1395,14 +1373,14 @@ def _accounts(
             account_id="gmail",
             enabled=_enabled("gmail", tools, registered),
             configured=_local_path_is_file(gmail_path),
-            authentication_state=_token_state(root / "gmail" / "token.json"),
+            authentication_state=token_file_state(root / "gmail" / "token.json"),
             operations=gmail_ops,
         ),
         "calendar": _account(
             account_id="calendar",
             enabled=_enabled("calendar", tools, registered),
             configured=_local_path_is_file(calendar_path),
-            authentication_state=_token_state(root / "calendar" / "token.json"),
+            authentication_state=token_file_state(root / "calendar" / "token.json"),
             operations=calendar_ops,
         ),
         "x": _account(
@@ -1410,7 +1388,7 @@ def _accounts(
             enabled=_enabled("x", tools, registered),
             configured=x_id["configured"] and x_secret["configured"],
             authentication_state=(
-                _token_state(root / "x" / "token.json")
+                token_file_state(root / "x" / "token.json")
                 if x_id["configured"] and x_secret["configured"]
                 else "not_configured"
             ),
@@ -1483,7 +1461,6 @@ def _preferences(root: Path) -> dict[str, Any]:
         end = max(0, min(23, int(dream.get("window_end", 5))))
     except (TypeError, ValueError):
         start, end = 1, 5
-    skipped = _strings(updates.get("skipped_versions"))
     return {
         "availability": "available",
         "identity": {
@@ -1505,7 +1482,6 @@ def _preferences(root: Path) -> dict[str, Any]:
             "channel": channel,
             "last_check": _text(updates.get("last_check"), 80) or None,
             "last_success": _text(updates.get("last_success"), 80) or None,
-            "skipped_versions": skipped,
             "runtime_state": "cached",
         },
         "migration": {"available": True, "sources": ["Hermes Agent", "OpenClaw"]},

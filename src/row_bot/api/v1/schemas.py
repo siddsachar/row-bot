@@ -1129,7 +1129,17 @@ class AccountAuthSnapshot(WireModel):
     account: Literal["google", "x"]
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     configured: bool
-    state: Literal["not_configured", "not_authenticated", "saved_unchecked", "partial"]
+    # From the last check while the token files are as it left them (B263).
+    state: Literal[
+        "not_configured",
+        "not_authenticated",
+        "saved_unchecked",
+        "partial",
+        "connected",
+        "invalid",
+        "expired",
+        "unavailable",
+    ]
     token_files: int = Field(ge=0, le=2)
 
 
@@ -1201,9 +1211,6 @@ class UpdateSettingsSnapshot(WireModel):
     channel: Literal["stable", "beta"]
     last_check: str | None = Field(max_length=80)
     last_success: str | None = Field(max_length=80)
-    skipped_versions: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
-        max_length=128
-    )
     runtime_state: Literal["cached"]
 
 
@@ -2075,8 +2082,9 @@ class UpdateSnapshot(WireModel):
     current_version: str = Field(max_length=64)
     last_check: str | None = Field(max_length=64)
     last_success: str | None = Field(max_length=64)
+    # The skip holding back the release on offer, if any (B261).
     skipped_versions: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
-        max_length=64
+        max_length=1
     )
     available: UpdateRelease | None
     dev_install: bool

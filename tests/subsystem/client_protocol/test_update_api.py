@@ -73,9 +73,19 @@ def test_update_command_is_unavailable_from_development_checkout(tmp_path, monke
 
 def test_update_skip_and_clear_are_revision_bound(tmp_path, monkeypatch):
     updater = _updater(tmp_path, monkeypatch)
-    updater.get_update_state().available = _release(updater)
+    state = updater.get_update_state()
+    state.available = _release(updater)
+    # Skips left from early testing were never offered and are not shown (B261).
+    state.skipped_versions = ["9.9.9", "9.99.0"]
+
+    def check(*, force):
+        state.last_success = "2026-09-30T12:00:00Z"
+        state.available = None if "99.0.0" in state.skipped_versions else _release(updater)
+
+    monkeypatch.setattr(updater, "check_for_updates", check)
     first = client_updates.read_updates()
     assert first["available"]["verified_manifest"] is True
+    assert first["skipped_versions"] == []
     with pytest.raises(Exception, match="update_changed"):
         client_updates.execute_update_choice(
             owner_id="local", command_id=str(uuid4()), expected_revision=first["revision"],
@@ -87,11 +97,13 @@ def test_update_skip_and_clear_are_revision_bound(tmp_path, monkeypatch):
     )["snapshot"]
     assert skipped["available"] is None
     assert skipped["skipped_versions"] == ["99.0.0"]
+    # "Show it again" brings the release back.
     cleared = client_updates.execute_update_choice(
         owner_id="local", command_id=str(uuid4()), expected_revision=skipped["revision"],
         action="clear_skipped",
     )["snapshot"]
     assert cleared["skipped_versions"] == []
+    assert cleared["available"]["version"] == "99.0.0"
 
 
 def test_settings_channel_save_refreshes_the_shared_updater_owner(tmp_path, monkeypatch):

@@ -70,6 +70,7 @@ def test_load_state_normalizes_invalid_fields_and_state_mutators_notify(tmp_path
     )
     updater._state = None
     state = updater.get_update_state()
+    assert state.skipped_versions == ["8.0.0"]
     seen: list[tuple[str, list[str], list[str], object]] = []
     unsubscribe = updater.subscribe(
         lambda st: seen.append((st.channel, list(st.skipped_versions), list(st.dismissed_banner_versions), st.available))
@@ -95,9 +96,10 @@ def test_load_state_normalizes_invalid_fields_and_state_mutators_notify(tmp_path
     assert state.channel == "stable"
     assert state.auto_check is False
     assert state.check_interval_hours == 1
-    assert state.skipped_versions[:1] == ["8.0.0"]
+    # Skipping the offered release makes it the only skip that matters (B261).
+    assert state.skipped_versions == ["9.0.0"]
     assert state.dismissed_banner_versions[:1] == ["7.0.0"]
-    assert seen[-1] == ("stable", ["8.0.0", "9.0.0"], ["7.0.0", "9.0.0"], None)
+    assert seen[-1] == ("stable", ["9.0.0"], ["7.0.0", "9.0.0"], None)
 
 
 def test_parse_release_selects_platform_asset_and_summarizes_notes(tmp_path, monkeypatch) -> None:
@@ -116,16 +118,14 @@ def test_parse_release_selects_platform_asset_and_summarizes_notes(tmp_path, mon
     assert updater._parse_release({**_release("9.0.0"), "tag_name": ""}, "stable") is None
 
 
-def test_check_for_updates_filters_channel_versions_skips_and_fetch_failures(tmp_path, monkeypatch) -> None:
+def test_check_for_updates_filters_channel_versions_and_fetch_failures(tmp_path, monkeypatch) -> None:
     updater = _reload_updater(monkeypatch, tmp_path)
     monkeypatch.setattr(updater.platform, "system", lambda: "Windows")
     monkeypatch.setattr(updater, "__version__", "4.0.0")
     state = updater.get_update_state()
     state.channel = "beta"
-    state.skipped_versions = ["4.3.0"]
     releases = [
         _release("4.1.0"),
-        _release("4.3.0"),
         _release("4.2.0", prerelease=True),
         _release("3.9.0"),
     ]
@@ -140,6 +140,33 @@ def test_check_for_updates_filters_channel_versions_skips_and_fetch_failures(tmp
 
     monkeypatch.setattr(updater, "_fetch_releases_payload", lambda _channel: None)
     assert updater.check_for_updates(force=True) is best
+
+
+def test_a_skip_only_holds_back_the_release_on_offer(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    """B261: skips of old or never-offered versions were listed for good."""
+    (updater,) = reload_for_data_dir(tmp_path, "row_bot.updater")
+    monkeypatch.setattr(updater.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(updater, "__version__", "4.0.0")
+    state = updater.get_update_state()
+    # Old, installed, never offered, and the release on offer.
+    state.skipped_versions = ["3.9.0", "4.0.0", "9.9.9", "4.3.0"]
+    releases = [_release("4.1.0"), _release("4.3.0")]
+    monkeypatch.setattr(updater, "_fetch_releases_payload", lambda _channel: releases)
+    # Until a check says which release is on offer, leftovers are not shown.
+    assert updater.skipped_release() is None
+
+    # The newest release is skipped, so nothing older is offered instead.
+    assert updater.check_for_updates(force=True) is None
+    assert state.skipped_versions == ["4.3.0"]
+    assert updater.skipped_release() == "4.3.0"
+    saved = json.loads(updater._CONFIG_PATH.read_text(encoding="utf-8"))
+    assert saved["skipped_versions"] == ["4.3.0"]
+
+    # A newer release is offered and the old skip goes.
+    releases.append(_release("4.4.0"))
+    assert updater.check_for_updates(force=True).version == "4.4.0"
+    assert state.skipped_versions == []
+    assert updater.skipped_release() is None
 
 
 def test_check_for_updates_debounce_returns_cached_update_without_fetching(tmp_path, monkeypatch) -> None:

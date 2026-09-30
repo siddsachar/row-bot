@@ -5,14 +5,20 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
+import type { ClientController } from '../../api/controller';
 import type {
+  AccountAuthCommand,
+  AccountAuthSnapshot,
   SettingsMutationReceipt,
   SettingsMutationRequest,
   SettingsMutationReview,
   SettingsSnapshot,
 } from '../../api/types';
+import type { ClientPlatform } from '../../platform';
+import { RuntimeContext } from '../../runtime';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
@@ -323,7 +329,6 @@ const snapshot = {
       channel: 'stable',
       last_check: null,
       last_success: null,
-      skipped_versions: [],
       runtime_state: 'cached',
     },
     migration: { available: false, sources: [] },
@@ -1283,6 +1288,94 @@ it('renders System, Tracker, Accounts, and Utilities controls from one snapshot'
   expect(screen.getByText('Evaluate calculations locally.')).toBeVisible();
   expect(screen.getByText(/of 2 on\./)).toBeVisible();
   expect(screen.queryByText('Timer')).not.toBeInTheDocument();
+});
+
+it('updates the Accounts header after Check without reloading the page (B263)', async () => {
+  const google = (state: AccountAuthSnapshot['state']) =>
+    ({
+      ...snapshot.accounts,
+      gmail: {
+        ...snapshot.accounts.gmail,
+        configured: true,
+        authentication_state: state,
+      },
+      calendar: {
+        ...snapshot.accounts.calendar,
+        configured: true,
+        authentication_state: state,
+      },
+    }) as SettingsSnapshot['accounts'];
+  const saved = { ...snapshot, accounts: google('saved_unchecked') };
+  const checked = {
+    ...snapshot,
+    revision: 'settings-checked',
+    accounts: google('connected'),
+  };
+  const auth = (account: 'google' | 'x'): AccountAuthSnapshot => ({
+    schema_version: 1,
+    account,
+    revision: 'a'.repeat(64),
+    configured: true,
+    state: 'saved_unchecked',
+    token_files: account === 'google' ? 2 : 1,
+  });
+  const controller = {
+    accountAuth: vi.fn(async (account: 'google' | 'x') => auth(account)),
+    accountAuthCommand: vi.fn(
+      async (_account: 'google' | 'x', command: AccountAuthCommand) => ({
+        schema_version: 1,
+        command_id: command.command_id,
+        account: command.account,
+        action: command.action,
+        phase: 'completed',
+        message: 'Account token is healthy.',
+        snapshot: { ...auth(command.account), state: 'connected' },
+      }),
+    ),
+    accountAuthReceipt: vi.fn(),
+    cancelAccountAuth: vi.fn(),
+    githubAccess: vi.fn(() => new Promise(() => {})),
+  } as unknown as ClientController;
+  const refreshSnapshot = vi.fn(async () => checked);
+  function Page() {
+    const [current, setCurrent] = useState<SettingsSnapshot>(saved);
+    return (
+      <Phase4RetainedSettings
+        setting="accounts"
+        snapshot={current}
+        mutation={{
+          ...mutation,
+          page: 'accounts',
+          refreshSnapshot,
+          onSnapshot: setCurrent,
+        }}
+        selectedConversationId={null}
+        showAccountActions
+      />
+    );
+  }
+  render(
+    <RuntimeContext.Provider
+      value={{ controller, platform: {} as ClientPlatform }}
+    >
+      <MemoryRouter>
+        <Page />
+      </MemoryRouter>
+    </RuntimeContext.Provider>,
+  );
+  expect(screen.getByText('0 connected')).toBeVisible();
+  const googleRow = screen
+    .getByText('Google (Gmail & Calendar)')
+    .closest('summary')!;
+  expect(within(googleRow).getByText('Saved · not checked')).toBeVisible();
+  fireEvent.click(googleRow);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Check Google account token' }),
+  );
+  // Gmail and Calendar are one Google account in the count.
+  expect(await screen.findByText('1 connected')).toBeVisible();
+  expect(within(googleRow).getByText('Connected')).toBeVisible();
+  expect(refreshSnapshot).toHaveBeenCalledTimes(1);
 });
 
 it('renders editable document, tool, and preference owners', async () => {

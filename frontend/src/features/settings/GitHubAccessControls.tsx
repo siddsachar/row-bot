@@ -30,7 +30,18 @@ function saved(): GitHubAccessCommand | null {
   }
 }
 
-export function GitHubAccessControls({ owner }: { owner: Owner }) {
+export function GitHubAccessControls({
+  owner,
+  onChanged,
+}: {
+  owner: Owner;
+  /** An action finished: the page reloads what it shows (B263). */
+  onChanged?: () => void;
+}) {
+  const changed = useRef(onChanged);
+  useEffect(() => {
+    changed.current = onChanged;
+  });
   const [snapshot, setSnapshot] = useState<GitHubAccessSnapshot | null>(null);
   const [pending, setPending] = useState<GitHubAccessCommand | null>(saved);
   const [busy, setBusy] = useState(false);
@@ -70,6 +81,7 @@ export function GitHubAccessControls({ owner }: { owner: Owner }) {
           );
           sessionStorage.removeItem(pendingKey);
           setPending(null);
+          changed.current?.();
         },
         (cause) => {
           if (!cancelled)
@@ -102,6 +114,7 @@ export function GitHubAccessControls({ owner }: { owner: Owner }) {
       setSnapshot(result.snapshot);
       sessionStorage.removeItem(pendingKey);
       setPending(null);
+      changed.current?.();
       setError('');
       setNotice(
         result.phase === 'started'
@@ -135,6 +148,7 @@ export function GitHubAccessControls({ owner }: { owner: Owner }) {
       sessionStorage.removeItem(pendingKey);
       setPending(null);
       setSnapshot(result.snapshot);
+      changed.current?.();
       setNotice(
         result.phase === 'started'
           ? 'Complete GitHub CLI authentication on this computer, then check GitHub.'
@@ -249,12 +263,16 @@ export function GitHubAccessControls({ owner }: { owner: Owner }) {
   );
 }
 
-export default function ConnectedGitHubAccessControls() {
+export default function ConnectedGitHubAccessControls({
+  onChanged,
+}: {
+  onChanged?: () => void;
+}) {
   const { controller } = useRuntime();
   const owner = useRef<Owner>({
     load: () => controller.githubAccess(),
     send: (command) => controller.githubAccessCommand(command),
     receipt: (commandId) => controller.githubAccessReceipt(commandId),
   });
-  return <GitHubAccessControls owner={owner.current} />;
+  return <GitHubAccessControls owner={owner.current} onChanged={onChanged} />;
 }

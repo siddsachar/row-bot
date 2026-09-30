@@ -31,10 +31,17 @@ function saved(account: Account): string {
 export function AccountAuthControls({
   account,
   owner,
+  onChanged,
 }: {
   account: Account;
   owner: Owner;
+  /** An action finished: the page reloads what it shows (B263). */
+  onChanged?: () => void;
 }) {
+  const changed = useRef(onChanged);
+  useEffect(() => {
+    changed.current = onChanged;
+  });
   const [snapshot, setSnapshot] = useState<AccountAuthSnapshot | null>(null);
   const initialPending = useRef(saved(account));
   const [pending, setPending] = useState(initialPending.current);
@@ -81,6 +88,7 @@ export function AccountAuthControls({
         } else {
           sessionStorage.removeItem(pendingKey(account));
           setPending('');
+          changed.current?.();
         }
       } catch (cause) {
         if (!stopped) {
@@ -129,6 +137,7 @@ export function AccountAuthControls({
       if (result.phase !== 'running' && result.phase !== 'cancel_requested') {
         sessionStorage.removeItem(pendingKey(account));
         setPending('');
+        changed.current?.();
       }
     } catch (cause) {
       const issue = clientError(cause);
@@ -292,6 +301,7 @@ export function AccountAuthControls({
                   if (!['running', 'cancel_requested'].includes(result.phase)) {
                     sessionStorage.removeItem(pendingKey(account));
                     setPending('');
+                    changed.current?.();
                   }
                 },
                 (cause) => {
@@ -328,8 +338,10 @@ export function AccountAuthControls({
 
 export default function ConnectedAccountAuthControls({
   account,
+  onChanged,
 }: {
   account: Account;
+  onChanged?: () => void;
 }) {
   const { controller } = useRuntime();
   const owner = useRef<Owner>({
@@ -340,5 +352,11 @@ export default function ConnectedAccountAuthControls({
     cancel: (which, commandId) =>
       controller.cancelAccountAuth(which, commandId),
   });
-  return <AccountAuthControls account={account} owner={owner.current} />;
+  return (
+    <AccountAuthControls
+      account={account}
+      owner={owner.current}
+      onChanged={onChanged}
+    />
+  );
 }

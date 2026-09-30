@@ -30,7 +30,11 @@
             "not_configured",
             "not_authenticated",
             "saved_unchecked",
-            "partial"
+            "partial",
+            "connected",
+            "invalid",
+            "expired",
+            "unavailable"
           ],
           "title": "State",
           "type": "string"
