@@ -35,9 +35,8 @@ test('an open compact navigation drawer updates when a large library page arrive
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   await page.getByRole('button', { name: 'Show all', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Load more conversations', exact: true })
-    .click();
+  // The end of the list reads the next page as it scrolls into view (B239).
+  await page.locator('.nav-list-end').scrollIntoViewIfNeeded();
   await expect(
     page.getByRole('button', { name: 'Library conversation 100', exact: true }),
   ).toBeAttached();

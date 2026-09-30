@@ -112,10 +112,15 @@ async function showLess(nav: Locator): Promise<void> {
   if (await shrink.isVisible()) await shrink.click();
 }
 
-async function wheelToPageControls(
+/**
+ * Wheels to the end of the expanded list: reaching it reads the next page,
+ * with no button (B239), and Show less stays reachable below every row.
+ */
+async function wheelToListEnd(
   page: Page,
   nav: Locator,
   testInfo: TestInfo,
+  total: number,
 ): Promise<void> {
   const readSurface = () =>
     nav.evaluate((element) => {
@@ -152,11 +157,13 @@ async function wheelToPageControls(
     testInfo.project.use.isMobile
   ) {
     const limitation =
-      'Playwright mobile WebKit does not implement mouse.wheel; this project retains data/cursor and keyboard-selection checks, but makes no native wheel or physical touch-scroll claim.';
+      'Playwright mobile WebKit does not implement mouse.wheel; this project scrolls the end of the list into view programmatically and retains data/cursor and keyboard-selection checks, but makes no native wheel or physical touch-scroll claim.';
     testInfo.annotations.push({
       type: 'coverage-limitation',
       description: limitation,
     });
+    await nav.locator('.nav-list-end').scrollIntoViewIfNeeded();
+    await expect(conversationRows(nav)).toHaveCount(total);
     await writeEvidence(testInfo, 'sidebar-wheel-pagination-reachability', {
       supported: false,
       limitation,
@@ -170,60 +177,58 @@ async function wheelToPageControls(
   // Engines clamp a single very large wheel delta. Bounded repeated gestures
   // establish progress without mistaking that input behavior for lost history.
   const samples = [scrollSurface!];
-  for (let gesture = 0; gesture < 8; gesture += 1) {
-    const previous = samples.at(-1)!;
-    const maximum = previous.scrollHeight - previous.clientHeight;
-    if (previous.scrollTop >= maximum - 1) break;
-    await page.mouse.wheel(0, 1000);
-    await expect
-      .poll(async () => (await readSurface())!.scrollTop)
-      .toBeGreaterThanOrEqual(Math.min(previous.scrollTop + 300, maximum - 1));
-    samples.push((await readSurface())!);
-  }
+  const wheelToBottom = async () => {
+    for (let gesture = 0; gesture < 8; gesture += 1) {
+      const previous = samples.at(-1)!;
+      const maximum = previous.scrollHeight - previous.clientHeight;
+      if (previous.scrollTop >= maximum - 1) break;
+      await page.mouse.wheel(0, 1000);
+      await expect
+        .poll(async () => (await readSurface())!.scrollTop)
+        .toBeGreaterThanOrEqual(
+          Math.min(previous.scrollTop + 300, maximum - 1),
+        );
+      samples.push((await readSurface())!);
+    }
+  };
+  await wheelToBottom();
+  // The end of the list came into view: the next page arrives by itself.
+  await expect(conversationRows(nav)).toHaveCount(total);
+  samples.push((await readSurface())!);
+  await wheelToBottom();
   await writeEvidence(testInfo, 'sidebar-wheel-scroll-samples', samples);
-  const results = [];
-  for (const name of ['Show less', 'Load more conversations']) {
-    const control = nav.getByRole('button', { name, exact: true });
-    await expect
-      .poll(
-        () =>
-          control.evaluate((element) => {
-            const rect = element.getBoundingClientRect();
-            return (
-              rect.y >= 0 &&
-              rect.bottom <= innerHeight &&
-              element.contains(
-                document.elementFromPoint(
-                  rect.x + rect.width / 2,
-                  rect.y + rect.height / 2,
-                ),
-              )
-            );
-          }),
-        `${name} becomes reachable through wheel input`,
-      )
-      .toBe(true);
-    results.push(
-      await control.evaluate((element, label) => {
-        const rect = element.getBoundingClientRect();
-        return {
-          name: label,
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        };
-      }, name),
-    );
-  }
+  const control = nav.getByRole('button', { name: 'Show less', exact: true });
+  await expect
+    .poll(
+      () =>
+        control.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            rect.y >= 0 &&
+            rect.bottom <= innerHeight &&
+            element.contains(
+              document.elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height / 2,
+              ),
+            )
+          );
+        }),
+      'Show less becomes reachable through wheel input',
+    )
+    .toBe(true);
   await writeEvidence(testInfo, 'sidebar-wheel-pagination-reachability', {
     supported: true,
     input:
-      'At most eight native wheel gestures of deltaY1000 inside the actual scrolling ancestor',
-    gestures: samples.length - 1,
+      'Native wheel gestures of deltaY1000 inside the actual scrolling ancestor, at most eight to reach the end of the list before and after its next page loads',
+    gestures: samples.length - 2,
     scrollSurface,
     finalSurface: await readSurface(),
-    controls: results,
+    rowsLoaded: total,
+    control: await control.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }),
   });
 }
 
@@ -241,16 +246,17 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   let nav = await navigation(page);
   await assertRowOrder(nav, rows.slice(0, 10));
   await expect(
-    nav.getByRole('button', { name: 'Load more conversations', exact: true }),
-  ).toHaveCount(0);
-  await expect(
     nav.getByRole('button', { name: 'Show all', exact: true }),
   ).toHaveAttribute('aria-expanded', 'false');
   await screenshot(page, testInfo, 'sidebar-default-ten');
 
   await nav.getByRole('button', { name: 'Show all', exact: true }).click();
   await assertRowOrder(nav, rows.slice(0, 50));
-  await wheelToPageControls(page, nav, testInfo);
+  await wheelToListEnd(page, nav, testInfo, rows.length);
+  await assertRowOrder(nav, rows);
+  await expect(
+    nav.getByRole('button', { name: 'Load more conversations', exact: true }),
+  ).toHaveCount(0);
   await nav.getByRole('button', { name: rows[12].title, exact: true }).click();
   await assertSelection(page, rows[12].id);
   const firstSelectionHistory = await readRouteHistory();
@@ -284,13 +290,7 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   expect(selectionStyle.selectedBackground).not.toBe('rgba(0, 0, 0, 0)');
 
   await nav.getByRole('button', { name: 'Show all', exact: true }).click();
-  await nav
-    .getByRole('button', { name: 'Load more conversations', exact: true })
-    .click();
   await assertRowOrder(nav, rows);
-  await expect(
-    nav.getByRole('button', { name: 'Load more conversations', exact: true }),
-  ).toHaveCount(0);
   await nav.getByRole('button', { name: rows[54].title, exact: true }).click();
   await assertSelection(page, rows[54].id);
   const secondSelectionHistory = await readRouteHistory();
@@ -309,17 +309,16 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
     await assertNoOverflow(page);
     return;
   }
-  await nav.getByText('About and developer utilities').click();
   await nav
-    .getByRole('link', { name: 'Component gallery', exact: true })
+    .getByRole('link', { name: 'Conversation library', exact: true })
     .click();
-  await expect(page).toHaveURL(/\/app-v2\/primitives(?:[?#].*)?$/);
-  const galleryHistory = await readRouteHistory();
-  expect(galleryHistory).toMatchObject({
-    pathname: '/app-v2/primitives',
+  await expect(page).toHaveURL(/\/app-v2\/library(?:[?#].*)?$/);
+  const libraryHistory = await readRouteHistory();
+  expect(libraryHistory).toMatchObject({
+    pathname: '/app-v2/library',
     search: '',
   });
-  expect(galleryHistory.length).toBeGreaterThan(secondSelectionHistory.length);
+  expect(libraryHistory.length).toBeGreaterThan(secondSelectionHistory.length);
   nav = await navigation(page);
   await nav.getByRole('button', { name: rows[54].title, exact: true }).click();
   await expect(page).toHaveURL(
@@ -332,7 +331,7 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
     search: '',
   });
   expect(returnedConversationHistory.length).toBeGreaterThan(
-    galleryHistory.length,
+    libraryHistory.length,
   );
   await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await assertNoOverflow(page);
@@ -345,10 +344,10 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
     originalRootHistory,
     firstSelectionHistory,
     secondSelectionHistory,
-    galleryHistory,
+    libraryHistory,
     returnedConversationHistory,
     routeMethod:
-      'Each explicit conversation or gallery selection pushes its registered route once; conversation selection clears the fixture-only query.',
+      'Each explicit conversation or library selection pushes its registered route once; conversation selection clears the fixture-only query.',
     selectionStyle,
     commands: await page.evaluate(
       () =>
@@ -356,6 +355,36 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
           .commands,
     ),
   });
+});
+
+test('a type filter lists its older matches from the server, down to Older', async ({
+  page,
+}, testInfo) => {
+  const rows = await seedLibrary(page);
+  // The only workflow is the oldest conversation, beyond the first page.
+  await page.evaluate(async (id) => {
+    const { controller, transport } = (window as FixtureWindow)
+      .__ROW_BOT_FIXTURE__;
+    const row = transport.conversations.find((item) => item.id === id)!;
+    row.category = 'workflow';
+    row.updated_at = '2026-01-05T09:00:00Z';
+    await controller.loadMoreConversations(true);
+  }, rows[54].id);
+  const nav = await navigation(page);
+  await assertRowOrder(nav, rows.slice(0, 10));
+  await nav.getByRole('radio', { name: 'Workflows', exact: true }).click();
+  await assertRowOrder(nav, [rows[54]]);
+  await expect(
+    nav
+      .getByRole('list', { name: 'Recent conversations', exact: true })
+      .getByRole('heading', { level: 4 }),
+  ).toHaveText(['Older']);
+  await screenshot(page, testInfo, 'sidebar-type-filter-older');
+  await nav.getByRole('radio', { name: 'Chats', exact: true }).click();
+  await expect(nav.getByText('No chats yet.', { exact: true })).toBeVisible();
+  await nav.getByRole('radio', { name: 'All', exact: true }).click();
+  await assertRowOrder(nav, rows.slice(0, 10));
+  await assertNoOverflow(page);
 });
 
 test('selecting another conversation preserves its own view and restores the original registered panels on return', async ({

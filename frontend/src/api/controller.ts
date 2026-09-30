@@ -40,7 +40,7 @@ const INITIAL: ClientState = {
   connection: 'none',
   handshake: null,
   conversations: [],
-  conversationGroup: 'all',
+  typedConversations: null,
   hasMoreConversations: false,
   loadingConversations: false,
   conversationListError: null,
@@ -185,6 +185,8 @@ export class ClientController {
   private appliedDictation: string | null = null;
   private conversationCursor: string | undefined;
   private conversationListNumber = 0;
+  private typedCursor: string | undefined;
+  private typedListNumber = 0;
   private transcriptCursor: string | undefined;
   private transcriptRequest = false;
   private searchNumber = 0;
@@ -611,6 +613,13 @@ export class ClientController {
       this.update({
         handshake: null,
         conversations: [],
+        typedConversations: this.state.typedConversations && {
+          ...this.state.typedConversations,
+          rows: [],
+          hasMore: true,
+          loading: false,
+          error: null,
+        },
         conversationListError: null,
         conversation: null,
         projection: null,
@@ -848,7 +857,32 @@ export class ClientController {
     }
   }
 
+  /** A refresh (`reset`) re-reads the sidebar's type listing too (B239). */
   async loadMoreConversations(reset = false): Promise<void> {
+    if (!reset) return this.readConversations(false);
+    await Promise.all([
+      this.readConversations(true),
+      this.loadMoreTypedConversations(true),
+    ]);
+  }
+  /** One listing page, whose cursor must move while more remain. */
+  private async conversationPage(
+    group: import('./types').ConversationListGroup,
+    cursor: string | undefined,
+  ): Promise<import('./types').ConversationPage> {
+    const page = validateWire<import('./types').ConversationPage>(
+      'ConversationPage',
+      await this.transport.listConversations(
+        cursor,
+        this.lifetime.signal,
+        group,
+      ),
+    );
+    if (page.has_more && (!page.next_cursor || page.next_cursor === cursor))
+      throw new Error('protocol_incompatible');
+    return page;
+  }
+  private async readConversations(reset: boolean): Promise<void> {
     const authentication = this.authenticationNumber;
     if (
       !this.online ||
@@ -861,13 +895,9 @@ export class ClientController {
     const ticket = ++this.conversationListNumber;
     this.update({ loadingConversations: true, conversationListError: null });
     try {
-      const page = validateWire<import('./types').ConversationPage>(
-        'ConversationPage',
-        await this.transport.listConversations(
-          reset ? undefined : this.conversationCursor,
-          this.lifetime.signal,
-          this.state.conversationGroup,
-        ),
+      const page = await this.conversationPage(
+        'all',
+        reset ? undefined : this.conversationCursor,
       );
       if (
         this.disposed ||
@@ -875,12 +905,6 @@ export class ClientController {
         ticket !== this.conversationListNumber
       )
         return;
-      if (
-        page.has_more &&
-        (!page.next_cursor ||
-          (!reset && page.next_cursor === this.conversationCursor))
-      )
-        throw new Error('protocol_incompatible');
       this.conversationCursor = page.next_cursor ?? undefined;
       const rows = new Map(
         (reset ? [] : this.state.conversations).map((row) => [row.id, row]),
@@ -914,7 +938,11 @@ export class ClientController {
     signal?: AbortSignal,
   ): Promise<void> {
     const listTicket = this.conversationListNumber;
-    const original = this.state.conversations.find((row) => row.id === id);
+    const typedTicket = this.typedListNumber;
+    const listed = () =>
+      this.state.conversations.find((row) => row.id === id) ??
+      this.state.typedConversations?.rows.find((row) => row.id === id);
+    const original = listed();
     if (!original) return;
     const view = validateWire<import('./types').ConversationView>(
       'ConversationView',
@@ -922,17 +950,20 @@ export class ClientController {
     );
     if (signal?.aborted || view.id !== id)
       throw Error('activity_refresh_stale');
-    const current = this.state.conversations.find((row) => row.id === id);
+    const current = listed();
     if (
       listTicket !== this.conversationListNumber ||
+      typedTicket !== this.typedListNumber ||
       !current ||
       current.revision !== original.revision
     )
       return;
+    const replace = (row: import('./types').ConversationView) =>
+      row.id === id ? view : row;
+    const typed = this.state.typedConversations;
     this.update({
-      conversations: this.state.conversations.map((row) =>
-        row.id === id ? view : row,
-      ),
+      conversations: this.state.conversations.map(replace),
+      typedConversations: typed && { ...typed, rows: typed.rows.map(replace) },
     });
   }
   /** An explicit library review reads every page without the sidebar's 1,000-row cache cap. */
@@ -973,17 +1004,81 @@ export class ClientController {
     } while (cursor);
     return rows;
   }
-  async setConversationGroup(
-    group: ClientState['conversationGroup'],
+  /**
+   * The sidebar's type filter (B239): list that type from the server with
+   * its own cursor, so older matches page in; `null` stops listing one.
+   */
+  async setTypedConversations(
+    group: import('./types').TypedConversationList['group'] | null,
   ): Promise<void> {
-    if (this.state.conversationGroup === group) return;
-    this.conversationCursor = undefined;
+    if ((this.state.typedConversations?.group ?? null) === group) return;
+    this.typedCursor = undefined;
+    this.typedListNumber += 1;
     this.update({
-      conversationGroup: group,
-      conversations: [],
-      hasMoreConversations: true,
+      typedConversations: group && {
+        group,
+        rows: [],
+        hasMore: true,
+        loading: false,
+        error: null,
+      },
     });
-    await this.loadMoreConversations(true);
+    await this.loadMoreTypedConversations(true);
+  }
+  async loadMoreTypedConversations(reset = false): Promise<void> {
+    const typed = this.state.typedConversations;
+    const authentication = this.authenticationNumber;
+    if (
+      !typed ||
+      !this.online ||
+      this.disposed ||
+      !this.state.handshake ||
+      (!reset && (typed.loading || !typed.hasMore))
+    )
+      return;
+    const ticket = ++this.typedListNumber;
+    const patch = (value: Partial<import('./types').TypedConversationList>) =>
+      this.update({
+        typedConversations: { ...this.state.typedConversations!, ...value },
+      });
+    patch({ loading: true, error: null });
+    try {
+      const page = await this.conversationPage(
+        typed.group,
+        reset ? undefined : this.typedCursor,
+      );
+      if (
+        this.disposed ||
+        authentication !== this.authenticationNumber ||
+        ticket !== this.typedListNumber
+      )
+        return;
+      this.typedCursor = page.next_cursor ?? undefined;
+      const rows = new Map(
+        (reset ? [] : this.state.typedConversations!.rows).map((row) => [
+          row.id,
+          row,
+        ]),
+      );
+      page.items.forEach((row) => rows.set(row.id, row));
+      patch({
+        rows: [...rows.values()].slice(-1000),
+        hasMore: page.has_more,
+        loading: false,
+      });
+    } catch (error) {
+      if (
+        authentication !== this.authenticationNumber ||
+        ticket !== this.typedListNumber ||
+        aborted(error) ||
+        this.disposed
+      )
+        return;
+      const safe = clientError(error);
+      if (safe.recovery === 'authenticate' || safe.recovery === 'update')
+        this.failed(error);
+      else patch({ error: safe, loading: false });
+    }
   }
 
   /**
@@ -996,9 +1091,17 @@ export class ClientController {
     const conversations = this.state.conversations.filter(
       (row) => row.id !== id,
     );
+    const typed = this.state.typedConversations;
+    const typedConversations = typed && {
+      ...typed,
+      rows: typed.rows.filter((row) => row.id !== id),
+    };
     if (this.state.selectedConversationId !== id) {
-      if (conversations.length !== this.state.conversations.length)
-        this.update({ conversations });
+      if (
+        conversations.length !== this.state.conversations.length ||
+        typedConversations?.rows.length !== typed?.rows.length
+      )
+        this.update({ conversations, typedConversations });
       return;
     }
     this.selectionNumber += 1;
@@ -1014,6 +1117,7 @@ export class ClientController {
     this.dirtyDrafts.delete(id);
     this.update({
       conversations,
+      typedConversations,
       selectedConversationId: null,
       conversation: null,
       projection: null,
@@ -1748,16 +1852,22 @@ export class ClientController {
         this.transport.workspace(id, this.selection.signal),
         this.transport.getConversation(id, this.selection.signal),
       ]);
-      if (ticket === this.selectionNumber && !this.selection.signal.aborted)
+      if (ticket === this.selectionNumber && !this.selection.signal.aborted) {
+        const replace = (row: import('./types').ConversationView) =>
+          row.id === conversation.id ? conversation : row;
+        const typed = this.state.typedConversations;
         this.update({
           workspace,
           conversation,
           // The sidebar and header read the listed row, so a name the server
           // gave the conversation meanwhile shows there too (B230).
-          conversations: this.state.conversations.map((row) =>
-            row.id === conversation.id ? conversation : row,
-          ),
+          conversations: this.state.conversations.map(replace),
+          typedConversations: typed && {
+            ...typed,
+            rows: typed.rows.map(replace),
+          },
         });
+      }
     } catch (error) {
       if (!aborted(error) && ticket === this.selectionNumber)
         this.failed(error);

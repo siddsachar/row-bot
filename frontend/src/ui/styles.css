@@ -536,7 +536,6 @@ svg {
 }
 .context-agents > summary,
 .context-utilities > summary,
-.nav-secondary-destinations > summary,
 .conversation-browser > details > summary,
 .resource-advanced > summary {
   min-height: 40px;
@@ -548,10 +547,6 @@ svg {
 }
 .context-agents > summary,
 .context-utilities > summary {
-  font-size: var(--type-size-label);
-}
-.nav-secondary-destinations > summary {
-  padding-inline: 12px;
   font-size: var(--type-size-label);
 }
 .conversation-browser > details {
@@ -4417,21 +4412,10 @@ details[open] > summary > .settings-disclosure-chevron {
   display: grid;
   justify-items: center;
 }
-.nav-pagination,
-.nav-preferences,
-.nav-secondary-destinations {
+.nav-preferences {
   display: grid;
   gap: 4px;
-}
-.nav-pagination {
-  padding-top: 4px;
-  border-top: 1px solid var(--border-subtle);
-}
-.nav-preferences {
   padding-top: 8px;
-}
-.nav-secondary-destinations {
-  color: var(--text-muted);
 }
 .command-count,
 .voice-state-reason,

@@ -1,4 +1,4 @@
-import type { ConversationView } from '../../api/types';
+import type { ConversationView, TypedConversationList } from '../../api/types';
 import { parseTimestamp } from '../../ui/format';
 
 /** The sidebar type filter; "all" shows every top-level conversation. */
@@ -15,6 +15,17 @@ export const CONVERSATION_TYPES: readonly {
   { value: 'code', label: 'Code' },
   { value: 'workflow', label: 'Workflows' },
 ];
+
+/** The server listing that holds each type, paged in by the sidebar (B239). */
+export const TYPE_GROUPS: Record<
+  Exclude<ConversationType, 'all'>,
+  TypedConversationList['group']
+> = {
+  chat: 'chat',
+  designer: 'artifact',
+  code: 'workspace',
+  workflow: 'workflow',
+};
 
 export type ConversationGroupId =
   'pinned' | 'today' | 'yesterday' | 'week' | 'older';

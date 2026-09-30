@@ -390,6 +390,10 @@
   gap: 1px;
   padding: 4px 0;
 }
+/* The end of the list, watched to read the next page (B239). */
+.nav-list-end {
+  min-height: 1px;
+}
 .navigation .nav-more,
 .navigation .nav-list-footer .nav-more {
   justify-content: flex-start;
@@ -446,27 +450,6 @@
 .nav-footer .nav-settings[aria-current='page'] {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-}
-.navigation .nav-secondary-destinations {
-  display: grid;
-  gap: 2px;
-  color: var(--text-muted);
-}
-.navigation .nav-secondary-destinations > summary {
-  min-height: 24px;
-  padding-inline: 8px;
-  font-size: var(--text-12);
-  font-weight: var(--weight-regular);
-  color: var(--text-muted);
-  list-style: none;
-}
-.navigation .nav-secondary-destinations > summary::-webkit-details-marker {
-  display: none;
-}
-.navigation .nav-secondary-destinations .button {
-  justify-content: flex-start;
-  min-height: 28px;
-  font-size: var(--text-12);
 }
 
 /* Buddy in the footer: an avatar with an activity ring, name and status.

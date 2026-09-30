@@ -38,6 +38,23 @@ _COMMAND_LOCK = threading.RLock()
 _LOG = logging.getLogger(__name__)
 # The client shows a trailing marker as a "Stopped" chip (TranscriptMessage).
 _STOPPED_MARKER = "\n\n⏹️ *[Stopped]*"
+# Conversation listings by group. The sidebar's type filters (B239) read the
+# conversations the client shows under each type: a thread's category
+# (threads.classify_thread) plus its resource bindings (conversation_resources,
+# derived from the legacy columns while none are stored). Filtering in SQL keeps
+# a page one bounded scan of thread_meta, never a read of the whole library.
+_BOUND = ("EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) "
+          "THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='{}')")
+_CODE_THREAD = "(COALESCE(thread_type,'')='code' OR COALESCE(developer_workspace_id,'')<>'')"
+_DESIGN = f"(COALESCE(project_id,'')<>'' OR {_BOUND.format('artifact')})"
+_CODE = (f"((COALESCE(project_id,'')='' AND {_CODE_THREAD}) OR {_BOUND.format('workspace')} "
+         "OR (COALESCE(resource_bindings_json,'')='' AND (COALESCE(developer_workspace_id,'')<>'' "
+         "OR COALESCE(project_workspace_id,'')<>'')))")
+_WORKFLOW = (f"(COALESCE(project_id,'')='' AND NOT {_CODE_THREAD} "
+             "AND thread_id IN (SELECT value FROM json_each(:workflows)))")
+_LIST_GROUPS = {"all": "1=1", "pinned": "COALESCE(pinned_at,'')<>''", "artifact": _DESIGN,
+                "workspace": _CODE, "workflow": _WORKFLOW,
+                "chat": f"NOT {_DESIGN} AND NOT {_CODE} AND NOT {_WORKFLOW}"}
 
 
 def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, maximum: int = 128 * 1024) -> list[tuple[int, dict]]:
@@ -481,8 +498,9 @@ class ClientPlatformService:
         from row_bot import threads
         threads._ensure_thread_db()
         limit = min(200, max(1, limit))
-        if group not in {"all", "pinned", "artifact", "workspace"}:
+        if group not in _LIST_GROUPS:
             raise ClientPlatformError("invalid_command")
+        workflow_thread_ids = threads.get_workflow_thread_ids()
         with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
             from row_bot.application.conversation_search import _library_revision
             revision = _library_revision(conn) + ":" + group
@@ -494,19 +512,19 @@ class ClientPlatformService:
                         raise ValueError()
                 except (ValueError, TypeError) as exc:
                     raise ClientPlatformError("cursor_expired") from exc
+            pinned, recent, thread_id = after or (0, "", "")
             rows = conn.execute(
                 "SELECT thread_id,CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END AS pinned,"
                 "COALESCE(updated_at,'') AS recent FROM thread_meta "
-                + "WHERE " + ({"all": "1=1", "pinned": "COALESCE(pinned_at,'')<>''",
-                    "artifact": "(COALESCE(project_id,'')<>'' OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='artifact'))",
-                    "workspace": "(COALESCE(developer_workspace_id,'')<>'' OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='workspace'))"}[group]) + " "
-                + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)<(?,?,?) " if after else "")
-                + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT ?",
-                (*after, limit + 1) if after else (limit + 1,),
+                + "WHERE " + _LIST_GROUPS[group] + " "
+                + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)"
+                   "<(:pinned,:recent,:thread_id) " if after else "")
+                + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT :limit",
+                {"pinned": pinned, "recent": recent, "thread_id": thread_id, "limit": limit + 1,
+                 "workflows": json.dumps(sorted(workflow_thread_ids))},
             ).fetchall()
         more = len(rows) > limit
         selected = rows[:limit]
-        workflow_thread_ids = threads.get_workflow_thread_ids()
         from row_bot import agent_runs
         agent_runs.ensure_agent_run_schema()
         parent_ids: dict[str, str] = {}

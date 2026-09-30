@@ -56,13 +56,27 @@ export type ClientPanelSuggestion = {
   conversation_revision: string;
   descriptor: PanelDescriptor;
 };
+/** A server conversation listing (`GET /conversations?group=`). */
+export type ConversationListGroup =
+  'all' | 'pinned' | 'artifact' | 'workspace' | 'chat' | 'workflow';
+/**
+ * The sidebar's type filter reads its type's own server listing and cursor
+ * (B239), beside the unfiltered list the rest of the app shares.
+ */
+export type TypedConversationList = {
+  group: Exclude<ConversationListGroup, 'all' | 'pinned'>;
+  rows: Wire.ConversationView[];
+  hasMore: boolean;
+  loading: boolean;
+  error: ClientError | null;
+};
 export type ClientState = {
   status: ClientStatus;
   error: ClientError | null;
   connection: 'none' | 'sse' | 'poll';
   handshake: Omit<Wire.HandshakeView, 'csrf_token'> | null;
   conversations: Wire.ConversationView[];
-  conversationGroup: 'all' | 'pinned' | 'artifact' | 'workspace';
+  typedConversations: TypedConversationList | null;
   hasMoreConversations: boolean;
   loadingConversations: boolean;
   conversationListError: ClientError | null;
@@ -1462,7 +1476,7 @@ export interface ClientTransport {
   listConversations(
     cursor?: string,
     signal?: AbortSignal,
-    group?: ClientState['conversationGroup'],
+    group?: ConversationListGroup,
   ): Promise<Wire.ConversationPage>;
   getConversation(
     id: string,

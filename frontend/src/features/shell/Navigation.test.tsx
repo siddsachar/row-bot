@@ -22,8 +22,47 @@ afterEach(() => {
   clients.splice(0).forEach((controller) => controller.dispose());
   localStorage.removeItem('row-bot.sidebar-type.v1');
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+
+/**
+ * The list's end marker under a fake IntersectionObserver: the returned
+ * function scrolls it into view.
+ */
+function observeListEnd() {
+  const observers = new Set<{
+    callback: IntersectionObserverCallback;
+    targets: Element[];
+  }>();
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      private readonly entry: {
+        callback: IntersectionObserverCallback;
+        targets: Element[];
+      };
+      constructor(callback: IntersectionObserverCallback) {
+        this.entry = { callback, targets: [] };
+        observers.add(this.entry);
+      }
+      observe(target: Element) {
+        this.entry.targets.push(target);
+      }
+      disconnect() {
+        observers.delete(this.entry);
+      }
+    },
+  );
+  return () =>
+    act(async () => {
+      for (const { callback, targets } of [...observers])
+        callback(
+          targets.map((target) => ({ target, isIntersecting: true })) as never,
+          {} as IntersectionObserver,
+        );
+    });
+}
 
 function CurrentRoute() {
   const location = useLocation();
@@ -37,17 +76,17 @@ function CurrentRoute() {
 async function setup(
   count = 55,
   route = '/',
-  group?: 'pinned' | 'artifact' | 'workspace',
+  prepare?: (transport: FixtureTransport) => void,
 ) {
   const onOpenConversation = vi.fn();
   const onOpenHome = vi.fn();
   const onNewChat = vi.fn();
   const transport = new FixtureTransport({ conversationCount: count });
+  prepare?.(transport);
   const list = vi.spyOn(transport, 'listConversations');
   const controller = new ClientController(transport, () => 1);
   clients.push(controller);
   await controller.start();
-  if (group) await controller.setConversationGroup(group);
   render(
     <MemoryRouter initialEntries={[route]}>
       <CurrentRoute />
@@ -222,32 +261,31 @@ it('preserves the history entry when selecting the current canonical conversatio
   expect(onOpenConversation).toHaveBeenCalledTimes(2);
 });
 
-it('starts with ten ordered rows and expands without fetching or losing cursor access', async () => {
+it('starts with ten ordered rows and reads the next page when Show all scrolls to its end', async () => {
+  const scrollToEnd = observeListEnd();
   const { list, transport } = await setup();
   expect(rows()).toHaveLength(10);
   expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(
     transport.conversations.slice(0, 10).map(({ title }) => title),
   );
-  expect(
-    screen.queryByRole('button', { name: 'Load more conversations' }),
-  ).toBeNull();
+  await scrollToEnd();
   expect(list).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
   expect(rows()).toHaveLength(50);
   expect(list).toHaveBeenCalledTimes(1);
-  await act(async () =>
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Load more conversations' }),
-    ),
-  );
-  expect(rows()).toHaveLength(55);
-  expect(list).toHaveBeenCalledTimes(2);
-  expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(
-    transport.conversations.map(({ title }) => title),
-  );
+  // No second button: the end of the list reads the next page.
   expect(
     screen.queryByRole('button', { name: 'Load more conversations' }),
   ).toBeNull();
+  await scrollToEnd();
+  expect(rows()).toHaveLength(55);
+  expect(list).toHaveBeenCalledTimes(2);
+  expect(list).toHaveBeenLastCalledWith('50', expect.any(AbortSignal), 'all');
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(
+    transport.conversations.map(({ title }) => title),
+  );
+  await scrollToEnd();
+  expect(list).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole('button', { name: 'Show less' }));
   expect(rows()).toHaveLength(10);
   fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
@@ -256,20 +294,79 @@ it('starts with ten ordered rows and expands without fetching or losing cursor a
   expect(transport.counters.commands).toBe(0);
 });
 
-it('removes the group selector and restores the unified list from an earlier group', async () => {
-  const { controller, list } = await setup(2, '/', 'pinned');
-  await waitFor(() =>
-    expect(controller.getSnapshot().conversationGroup).toBe('all'),
-  );
+/** Sixty conversations; only the given indexes (0-based) are Code. */
+function codeAt(...indexes: number[]) {
+  return (transport: FixtureTransport) =>
+    transport.conversations.forEach((row, index) => {
+      row.pinned = false;
+      row.category = indexes.includes(index) ? 'code' : 'chat';
+      row.updated_at = new Date(
+        Date.now() - (index < 50 ? index : 30 + index) * 3_600_000 * 24,
+      ).toISOString();
+    });
+}
+
+it('lists a type from the server, so an older match beyond the loaded pages shows under Older', async () => {
+  const { controller, list, transport } = await setup(60, '/', codeAt(1, 57));
+  expect(list).toHaveBeenCalledTimes(1);
   expect(
-    screen.queryByRole('combobox', { name: 'Conversation group' }),
+    screen.queryByRole('button', { name: 'Sample conversation 58' }),
   ).toBeNull();
-  expect(rows()).toHaveLength(2);
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Code' })),
+  );
   expect(list).toHaveBeenLastCalledWith(
     undefined,
     expect.any(AbortSignal),
-    'all',
+    'workspace',
   );
+  expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual([
+    'Sample conversation 2',
+    'Sample conversation 58',
+  ]);
+  const older = screen
+    .getByRole('button', { name: 'Sample conversation 58' })
+    .closest('li')!;
+  expect(within(older).getByRole('heading', { level: 4 })).toHaveTextContent(
+    'Older',
+  );
+  expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull();
+  // Deleted elsewhere, it leaves the typed list too.
+  act(() => controller.forgetConversation(transport.conversations[57].id));
+  expect(rows()).toHaveLength(1);
+});
+
+it('pages a typed list in as it scrolls and says none only for the whole library', async () => {
+  const scrollToEnd = observeListEnd();
+  const code = Array.from({ length: 55 }, (_, index) => index + 3);
+  const { list } = await setup(60, '/', codeAt(...code));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Code' })),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+  expect(rows()).toHaveLength(50);
+  await scrollToEnd();
+  expect(list).toHaveBeenLastCalledWith(
+    '50',
+    expect.any(AbortSignal),
+    'workspace',
+  );
+  expect(rows()).toHaveLength(55);
+  expect(rows().at(-1)).toHaveAccessibleName('Sample conversation 58');
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Workflows' })),
+  );
+  expect(list).toHaveBeenLastCalledWith(
+    undefined,
+    expect.any(AbortSignal),
+    'workflow',
+  );
+  expect(screen.getByText('No workflow conversations yet.')).toBeVisible();
+  // Back to All: the shared list, no new read.
+  const reads = list.mock.calls.length;
+  fireEvent.click(screen.getByRole('radio', { name: 'All' }));
+  expect(rows()).toHaveLength(50);
+  expect(list).toHaveBeenCalledTimes(reads);
 });
 
 it('retains the selected older row through Show less and section collapse', async () => {
@@ -356,21 +453,14 @@ it('delegates sidebar New chat and navigates Settings to the persistent shell', 
   expect(transport.counters.commands).toBe(0);
 });
 
-it('groups primary actions, conversations and secondary destinations for compact navigation', async () => {
+it('groups primary actions and conversations, with no developer utilities for users (B267)', async () => {
   await setup(2);
   expect(
     screen.getByRole('group', { name: 'Primary workspace actions' }),
   ).toBeVisible();
   expect(screen.getByRole('region', { name: 'Conversations' })).toBeVisible();
-  expect(screen.getByText('About and developer utilities')).toBeVisible();
-  expect(
-    screen.getByText('About and developer utilities').closest('details'),
-  ).not.toHaveAttribute('open');
-  fireEvent.click(screen.getByText('About and developer utilities'));
-  expect(
-    screen.getByText('About and developer utilities').closest('details'),
-  ).toHaveAttribute('open');
-  expect(screen.getByRole('link', { name: 'Component gallery' })).toBeVisible();
+  expect(screen.queryByText('About and developer utilities')).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Component gallery' })).toBeNull();
 });
 
 it('supports an empty collapsible section without introducing commands or controls for nonexistent pages', async () => {
@@ -381,15 +471,6 @@ it('supports an empty collapsible section without introducing commands or contro
   expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Conversations' }));
   expect(screen.queryByText('Your conversations will appear here.')).toBeNull();
-  // React is the only application: the utilities link to nothing outside it.
-  const utilities = screen
-    .getByText('About and developer utilities')
-    .closest('details') as HTMLElement;
-  expect(
-    within(utilities)
-      .getAllByRole('link')
-      .map((link) => link.textContent),
-  ).toEqual(['Component gallery']);
   expect(transport.counters.commands).toBe(0);
 });
 
@@ -632,13 +713,17 @@ it('filters by conversation type and labels recency runs inside the recent list'
   expect(
     screen.getByRole('radiogroup', { name: 'Filter conversations' }),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole('radio', { name: 'Designs' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Designs' })),
+  );
   expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual([
     titles[1],
     titles[4],
   ]);
   expect(localStorage.getItem('row-bot.sidebar-type.v1')).toBe('designer');
-  fireEvent.click(screen.getByRole('radio', { name: 'Chats' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Chats' })),
+  );
   expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual([
     titles[0],
     titles[5],

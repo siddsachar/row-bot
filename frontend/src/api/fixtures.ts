@@ -9,7 +9,26 @@ import f07 from '../../../contracts/client-platform/v1/fixtures/F-P07.json';
 import f08 from '../../../contracts/client-platform/v1/fixtures/F-P08.json';
 import f09 from '../../../contracts/client-platform/v1/fixtures/F-P09.json';
 import f10 from '../../../contracts/client-platform/v1/fixtures/F-P10.json';
-import type { ClientTransport } from './types';
+import type { ClientTransport, ConversationListGroup } from './types';
+
+/** The server's listing groups (`client_platform._LIST_GROUPS`) over a row. */
+function inGroup(
+  row: wire.ConversationView,
+  group: ConversationListGroup,
+): boolean {
+  const kinds = new Set((row.resource_bindings ?? []).map(({ kind }) => kind));
+  const design = row.category === 'designer' || kinds.has('artifact');
+  const code = row.category === 'code' || kinds.has('workspace');
+  const workflow = row.category === 'workflow';
+  return {
+    all: true,
+    pinned: row.pinned,
+    artifact: design,
+    workspace: code,
+    workflow,
+    chat: !design && !code && !workflow,
+  }[group];
+}
 
 export type Recording = {
   fixture_id: string;
@@ -157,11 +176,13 @@ export class FixtureTransport implements ClientTransport {
   async listConversations(
     cursor?: string,
     signal?: AbortSignal,
+    group: ConversationListGroup = 'all',
   ): Promise<wire.ConversationPage> {
     this.available(signal);
+    const listed = this.conversations.filter((row) => inGroup(row, group));
     const start = cursor ? Number(cursor) : 0;
-    const items = this.conversations.slice(start, start + 50);
-    const has_more = start + items.length < this.conversations.length;
+    const items = listed.slice(start, start + 50);
+    const has_more = start + items.length < listed.length;
     return {
       items,
       has_more,

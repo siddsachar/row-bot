@@ -37,6 +37,7 @@ const clients: ClientController[] = [];
 afterEach(() => {
   clients.splice(0).forEach((controller) => controller.dispose());
   vi.unstubAllGlobals();
+  localStorage.removeItem('row-bot.sidebar-type.v1');
 });
 
 /** What the server publishes when a conversation changes outside a turn. */
@@ -63,54 +64,63 @@ function conversationChanged(controller: ClientController): wire.EventRecord {
   };
 }
 
-it('shows the name a conversation got after its first reply in the sidebar and the header (B230)', async () => {
-  vi.stubGlobal('innerWidth', 1440);
-  vi.stubGlobal('innerHeight', 900);
-  const transport = new NamingTransport({ conversationCount: 2 });
-  const controller = new ClientController(transport, () => 1);
-  clients.push(controller);
-  await controller.start();
-  await controller.selectConversation('conversation-a');
-  render(
-    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
-      <RuntimeContext.Provider
-        value={{ controller, platform: createFakePlatform() }}
-      >
-        <OverlayProvider>
-          <Workspace />
-        </OverlayProvider>
-      </RuntimeContext.Provider>
-    </MemoryRouter>,
-  );
-  await waitFor(() =>
+// The fixture's conversations are Code ones: the sidebar's Code filter lists
+// them from its own server listing (B239).
+it.each(['all', 'code'])(
+  'shows the name a conversation got after its first reply in the sidebar (%s) and the header (B230)',
+  async (type) => {
+    localStorage.setItem('row-bot.sidebar-type.v1', type);
+    vi.stubGlobal('innerWidth', 1440);
+    vi.stubGlobal('innerHeight', 900);
+    const transport = new NamingTransport({ conversationCount: 2 });
+    const controller = new ClientController(transport, () => 1);
+    clients.push(controller);
+    await controller.start();
+    await controller.selectConversation('conversation-a');
+    render(
+      <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+        <RuntimeContext.Provider
+          value={{ controller, platform: createFakePlatform() }}
+        >
+          <OverlayProvider>
+            <Workspace />
+          </OverlayProvider>
+        </RuntimeContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', {
+          level: 1,
+          name: 'A place for your ideas',
+        }),
+      ).toBeVisible(),
+    );
     expect(
-      screen.getByRole('heading', { level: 1, name: 'A place for your ideas' }),
-    ).toBeVisible(),
-  );
-  expect(
-    screen.getByRole('button', { name: 'A place for your ideas' }),
-  ).toBeVisible();
-  await waitFor(() => expect(transport.counters.subscribes).toBe(1));
+      screen.getByRole('button', { name: 'A place for your ideas' }),
+    ).toBeVisible();
+    await waitFor(() => expect(transport.counters.subscribes).toBe(1));
 
-  // The server renamed it: later reads return a new row.
-  transport.conversations[0] = {
-    ...transport.conversations[0],
-    title: 'Cornwall Coast Walking Trip',
-  };
-  await act(async () => transport.emit(conversationChanged(controller)));
+    // The server renamed it: later reads return a new row.
+    transport.conversations[0] = {
+      ...transport.conversations[0],
+      title: 'Cornwall Coast Walking Trip',
+    };
+    await act(async () => transport.emit(conversationChanged(controller)));
 
-  await waitFor(() =>
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', {
+          level: 1,
+          name: 'Cornwall Coast Walking Trip',
+        }),
+      ).toBeVisible(),
+    );
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: 'Cornwall Coast Walking Trip',
-      }),
-    ).toBeVisible(),
-  );
-  expect(
-    screen.getByRole('button', { name: 'Cornwall Coast Walking Trip' }),
-  ).toBeVisible();
-  expect(
-    screen.queryByRole('button', { name: 'A place for your ideas' }),
-  ).toBeNull();
-});
+      screen.getByRole('button', { name: 'Cornwall Coast Walking Trip' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'A place for your ideas' }),
+    ).toBeNull();
+  },
+);

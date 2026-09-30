@@ -1,6 +1,7 @@
 import BuddySurface from '../buddy/BuddySurface';
 import {
   useEffect,
+  useEffectEvent,
   useId,
   useRef,
   useState,
@@ -54,6 +55,7 @@ import { openAgentProfiles } from './agent-profiles';
 import { ConversationGlyph } from './ConversationGlyph';
 import {
   CONVERSATION_TYPES,
+  TYPE_GROUPS,
   matchesType,
   withRetainedRow,
   recencyGroup,
@@ -88,6 +90,39 @@ const TYPE_ICONS: Record<ConversationType, ReactNode> = {
   code: <Code2 size={14} aria-hidden />,
   workflow: <Workflow size={14} aria-hidden />,
 };
+
+const EMPTY_LABELS: Record<ConversationType, string> = {
+  all: 'Your conversations will appear here.',
+  chat: 'No chats yet.',
+  designer: 'No designs yet.',
+  code: 'No code conversations yet.',
+  workflow: 'No workflow conversations yet.',
+};
+
+/** Reads the next page when the end of the list scrolls into view (B239). */
+function ListEnd({
+  loading,
+  onReach,
+}: {
+  loading: boolean;
+  onReach: () => void;
+}) {
+  const target = useRef<HTMLDivElement>(null);
+  const reach = useEffectEvent(onReach);
+  useEffect(() => {
+    const element = target.current;
+    // jsdom has no IntersectionObserver; every supported browser does. A new
+    // observer after each page reports at once whether the end still shows.
+    if (loading || !element || typeof IntersectionObserver === 'undefined')
+      return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) reach();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [loading]);
+  return <div ref={target} className="nav-list-end" aria-hidden />;
+}
 
 function readType(): ConversationType {
   try {
@@ -307,11 +342,9 @@ export default function Navigation({
   };
   const [sectionOpen, setSectionOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
-  const [page, setPage] = useState(0);
   const [type, setTypeState] = useState<ConversationType>(readType);
   const setType = (value: ConversationType) => {
     setTypeState(value);
-    setPage(0);
     try {
       localStorage.setItem(TYPE_KEY, value);
     } catch {
@@ -323,23 +356,34 @@ export default function Navigation({
   );
   const sectionId = useId();
   const sectionHeadingId = `${sectionId}-heading`;
+  // A type filter lists that type from the server, older matches included.
+  const group = type === 'all' ? null : TYPE_GROUPS[type];
   useEffect(() => {
-    if (state.conversationGroup !== 'all') {
-      setPage(0);
-      void controller.setConversationGroup('all');
-    }
-  }, [controller, state.conversationGroup]);
+    void controller.setTypedConversations(group);
+  }, [controller, group]);
+  const typed =
+    state.typedConversations?.group === group ? state.typedConversations : null;
+  const listing = group
+    ? {
+        rows: typed?.rows ?? [],
+        hasMore: typed?.hasMore ?? true,
+        loading: typed?.loading ?? true,
+        error: typed?.error ?? null,
+        loadMore: () => void controller.loadMoreTypedConversations(),
+      }
+    : {
+        rows: state.conversations,
+        hasMore: state.hasMoreConversations,
+        loading: state.loadingConversations,
+        error: state.conversationListError,
+        loadMore: () => void controller.loadMoreConversations(),
+      };
   const selected =
     state.conversations.find(({ id }) => id === state.selectedConversationId) ??
     (state.conversation?.id === state.selectedConversationId
       ? state.conversation
       : null);
-  const topLevel =
-    state.conversationGroup === 'all'
-      ? state.conversations.filter(
-          (row) => !row.parent_conversation_id && matchesType(row, type),
-        )
-      : [];
+  const topLevel = listing.rows.filter((row) => !row.parent_conversation_id);
   const allPinned = topLevel.filter((row) => row.pinned);
   const allRecent = topLevel.filter((row) => !row.pinned);
   const previewPinned = allPinned.slice(
@@ -350,9 +394,7 @@ export default function Navigation({
     0,
     PREVIEW_COUNT - previewPinned.length,
   );
-  const visible = expanded
-    ? topLevel.slice(page * 100, page * 100 + 100)
-    : [...previewPinned, ...previewRecent];
+  const visible = expanded ? topLevel : [...previewPinned, ...previewRecent];
   const selectedParent = selected?.parent_conversation_id
     ? state.conversations.find(
         (row) => row.id === selected.parent_conversation_id,
@@ -361,8 +403,8 @@ export default function Navigation({
   const activeTopLevel = selected?.parent_conversation_id
     ? selectedParent
     : selected;
-  // The open conversation stays listed (in order) when the preview or a
-  // collapsed page hides it, but a type filter is an explicit choice.
+  // The open conversation stays listed (in order) when the preview hides it
+  // or its page has not loaded, but a type filter is an explicit choice.
   const rows =
     activeTopLevel &&
     matchesType(activeTopLevel, type) &&
@@ -649,8 +691,6 @@ export default function Navigation({
         }),
     });
   }
-  const typeLabel =
-    CONVERSATION_TYPES.find((option) => option.value === type)?.label ?? 'All';
   return (
     <nav className="navigation" aria-label="Workspace navigation">
       <header className="nav-header">
@@ -765,28 +805,22 @@ export default function Navigation({
       >
         {sectionOpen && (
           <>
-            {state.conversationListError && (
+            {listing.error && (
               <div role="alert" className="nav-conversation-error">
-                <p>{state.conversationListError.message}</p>
+                <p>{listing.error.message}</p>
                 <Button
-                  disabled={state.loadingConversations}
-                  onClick={() => {
-                    setPage(0);
-                    void controller.loadMoreConversations(true);
-                  }}
+                  disabled={listing.loading}
+                  onClick={() => void controller.loadMoreConversations(true)}
                 >
                   Retry conversations
                 </Button>
               </div>
             )}
-            {state.loadingConversations && rows.length === 0 ? (
+            {rows.length === 0 &&
+            (listing.loading || (listing.hasMore && !listing.error)) ? (
               <Skeleton label="Loading conversations" />
             ) : rows.length === 0 ? (
-              <p className="muted nav-empty">
-                {type === 'all'
-                  ? 'Your conversations will appear here.'
-                  : `No ${typeLabel.toLowerCase()} in the loaded conversations.`}
-              </p>
+              <p className="muted nav-empty">{EMPTY_LABELS[type]}</p>
             ) : (
               <>
                 {pinnedRows.length > 0 && (
@@ -840,9 +874,16 @@ export default function Navigation({
                 </span>
               </div>
             )}
+            {/* Show all pages in the rest as the list scrolls; the preview
+                reads on until it has its rows (a page can hold none). */}
+            {listing.hasMore &&
+              !listing.error &&
+              (expanded || topLevel.length < PREVIEW_COUNT) && (
+                <ListEnd loading={listing.loading} onReach={listing.loadMore} />
+              )}
             <div className="nav-list-footer">
               {(topLevel.length > PREVIEW_COUNT ||
-                state.hasMoreConversations) && (
+                (listing.hasMore && topLevel.length > 0)) && (
                 <Button
                   className="nav-more"
                   variant="ghost"
@@ -852,61 +893,9 @@ export default function Navigation({
                   {expanded ? 'Show less' : 'Show all'}
                 </Button>
               )}
-              {expanded && state.hasMoreConversations && (
+              {expanded && listing.rows.length >= 1000 && (
                 <Button
-                  className="nav-more"
-                  variant="ghost"
-                  onClick={() => {
-                    void controller
-                      .loadMoreConversations()
-                      .then(() =>
-                        setPage(
-                          Math.max(
-                            0,
-                            Math.ceil(
-                              controller
-                                .getSnapshot()
-                                .conversations.filter(
-                                  (row) =>
-                                    !row.parent_conversation_id &&
-                                    matchesType(row, type),
-                                ).length / 100,
-                            ) - 1,
-                          ),
-                        ),
-                      );
-                  }}
-                  disabled={state.loadingConversations}
-                >
-                  Load more conversations
-                </Button>
-              )}
-              {expanded && topLevel.length > 100 && (
-                <div
-                  className="button-row nav-pagination"
-                  role="group"
-                  aria-label="Conversation pages"
-                >
-                  <Button
-                    disabled={!page}
-                    onClick={() => setPage((value) => value - 1)}
-                  >
-                    Previous rows
-                  </Button>
-                  <Button
-                    disabled={(page + 1) * 100 >= topLevel.length}
-                    onClick={() => setPage((value) => value + 1)}
-                  >
-                    Next rows
-                  </Button>
-                </div>
-              )}
-              {expanded && state.conversations.length >= 1000 && (
-                <Button
-                  onClick={() => {
-                    setPage(0);
-                    void controller.loadMoreConversations(true);
-                  }}
+                  onClick={() => void controller.loadMoreConversations(true)}
                 >
                   Return to newest conversations
                 </Button>
@@ -958,16 +947,6 @@ export default function Navigation({
             </Link>
           </Hint>
         </div>
-        <details className="nav-secondary-destinations">
-          <summary>About and developer utilities</summary>
-          <Link
-            className="button ghost"
-            to="/primitives"
-            onClick={openRoute('/primitives')}
-          >
-            Component gallery
-          </Link>
-        </details>
       </footer>
     </nav>
   );

@@ -59,7 +59,12 @@ import {
 } from './active-conversation-session';
 import './ui/styles/index.css';
 
-const Gallery = lazy(() => import('./features/shell/Gallery'));
+// The component gallery is a design-system check for development and fixture
+// builds; a production build leaves it out and /primitives is an unknown view.
+const Gallery =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_FIXTURES === '1'
+    ? lazy(() => import('./features/shell/Gallery'))
+    : null;
 const LibraryPage = lazy(() => import('./features/shell/LibraryPage'));
 const Onboarding = lazy(() => import('./features/shell/Onboarding'));
 const SettingRoute = lazy(() => import('./features/settings/SettingRoute'));
@@ -386,7 +391,9 @@ async function start() {
                       path="conversations/:conversationId"
                       element={null}
                     />
-                    <Route path="primitives" element={<Gallery />} />
+                    {Gallery && (
+                      <Route path="primitives" element={<Gallery />} />
+                    )}
                     <Route path="library" element={<LibraryPage />} />
                     <Route path="setup" element={<Onboarding />} />
                     <Route path="settings" element={<SettingsIndex />} />
