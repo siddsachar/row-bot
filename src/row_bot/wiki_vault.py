@@ -969,7 +969,10 @@ def _plan_tidy(manifest: dict, entities: Iterable[dict]) -> _TidyPlan:
     for relative in _markdown_files(get_vault_path() / "wiki"):
         path = _wiki_path(relative)
         entry = manifest["files"].get(relative)
-        if (entry is not None and not _ROLLUP.fullmatch(relative)) or path.stat().st_size > _TIDY_FILE_BYTES:
+        # An entry kept as not managed (a memory imported from its own old
+        # article) is still adopted when the file is the app's, unedited.
+        known = entry is not None and entry.get("managed") is not False
+        if (known and not _ROLLUP.fullmatch(relative)) or path.stat().st_size > _TIDY_FILE_BYTES:
             continue
         data = path.read_bytes()
         text = data.decode("utf-8", errors="replace").lstrip("﻿")

@@ -154,6 +154,27 @@ def test_mixed_vault_keeps_one_readable_article_per_memory_and_moves_hashed_copi
     assert wiki.check_vault_sync() == []
 
 
+def test_an_old_article_the_manifest_lists_as_imported_is_adopted_not_duplicated(stack):
+    # A memory imported from its own old article (wiki sync-back) left that file in
+    # the manifest as not managed; the tidy must still adopt it, not add a copy.
+    wiki, kg, vault = stack["wiki_vault"], stack["kg"], stack["vault"]
+    memory = _memory(stack, "64K context window", entity_type="concept")
+    legacy = _v491_article(stack, memory)
+    os.utime(legacy, (_saved_time(memory) - 60, _saved_time(memory) - 60))
+    memory = kg.update_entity(memory["id"], "A 64K context window holds about fifty pages of text.")
+    _hashed_article(stack, memory)
+    manifest = json.loads(_manifest_file(stack).read_text(encoding="utf-8"))
+    manifest["files"]["concept/64K context window.md"] = {
+        "hash": hashlib.sha256(legacy.read_bytes()).hexdigest(), "entity_id": memory["id"], "managed": False}
+    _manifest_file(stack).write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = wiki.tidy_vault()
+
+    assert sorted(path.name for path in (vault / "wiki" / "concept").glob("*.md")) == ["64K context window.md"]
+    assert "fifty pages" in legacy.read_text(encoding="utf-8")
+    assert report["tidied"] == 1 and report["review"] == []
+
+
 def test_clash_with_a_users_own_note_adds_a_short_id_and_leaves_the_note(stack):
     wiki, vault = stack["wiki_vault"], stack["vault"]
     dana = _memory(stack, "Dana")
