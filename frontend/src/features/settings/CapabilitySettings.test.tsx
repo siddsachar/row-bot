@@ -819,6 +819,41 @@ it('disconnects a connected server from its row', async () => {
   });
 });
 
+it('disconnects right after connecting from the row (B262)', async () => {
+  const props = options();
+  const io = runtime();
+  const execute = io.execute.getMockImplementation()!;
+  io.execute.mockImplementation(async (command: McpRuntimeCommand) => {
+    const receipt = await execute(command);
+    // The runtime the connect made is what a disconnect must name.
+    if (command.payload.operation === 'connect')
+      io.load.mockResolvedValue(
+        runtimeState({
+          runtime_id: runtimeId,
+          cleanup_revision: 'c'.repeat(64),
+          state: 'connected',
+          session_quiesced: false,
+        }),
+      );
+    return receipt;
+  });
+  render(<CapabilitySettings {...props} runtime={io} />);
+  props.load.mockResolvedValue(withServer({ connection_present: true }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Connect Synthetic' }),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
+  );
+  await waitFor(() => expect(io.execute).toHaveBeenCalledTimes(2));
+  expect(io.review.mock.calls[1][0]).toEqual({
+    resource_revision: 'c'.repeat(64),
+    server_id: serverId,
+    operation: 'disconnect',
+    expected_runtime_id: runtimeId,
+  });
+});
+
 it('turns a turned-off server on, then connects it, in one click', async () => {
   const props = options();
   props.load.mockResolvedValue(withServer({ enabled: false }));

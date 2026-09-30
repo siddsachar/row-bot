@@ -411,8 +411,11 @@ export function runtimeActions(
     if (attempt) await submit(name, attempt);
   };
   /** A row's action: reads the state first when nothing was read yet. */
+  // The server row's one action follows the server list: read the runtime
+  // first, so a Disconnect right after Connect sees the runtime it made
+  // (it silently did nothing with the older read, B262).
   const run = async (operation: McpRuntimeCommand['payload']['operation']) => {
-    if (!session.getSnapshot().snapshot) await read();
+    await read();
     await requestReview(operation);
   };
   return { read, requestReview, submit, run };
