@@ -52,9 +52,10 @@ describe('document upload retained staging', () => {
     render(<DocumentUploads session={session} />);
     expect(transport.review).not.toHaveBeenCalled();
     expect(transport.upload).not.toHaveBeenCalled();
+    // Nothing to upload yet, so no Upload button (B258).
     expect(
-      screen.getByRole('button', { name: 'Upload selected' }),
-    ).toBeDisabled();
+      screen.queryByRole('button', { name: 'Upload selected' }),
+    ).toBeNull();
     fireEvent.change(screen.getByLabelText('Choose documents'), {
       target: { files: [source()] },
     });

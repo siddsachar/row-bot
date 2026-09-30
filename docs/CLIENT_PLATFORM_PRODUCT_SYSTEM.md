@@ -354,19 +354,45 @@ element with that `data-setting-anchor`, scrolls it into view and highlights it
 briefly (an outline instead under reduced motion). The ⌘K palette offers the
 same pages and rows and still finds former page names.
 
-Every page follows one anatomy (`features/settings/anatomy.tsx`):
+Every page follows one anatomy (`features/settings/anatomy.tsx`; B258 set the
+row contract, and Preferences, Buddy, Models, Voice, Documents, System and
+Updates are built on it):
 
 1. **Header** — icon tile, title (`h2`, focused on navigation without a ring
-   for pointer users), one line, and the page's summary chips plus an optional
-   ↻, which the page portals in with `SettingsSummary`/`SettingsRefresh`.
-2. **Essentials** — flat `SettingsSection`s of rows. Saved fields render as
-   rows (`Field layout="row"`: label and help on the left, the control on the
-   right; the help describes the control rather than naming it). Switches carry
-   no On/Off text. Every change saves at once (decision 19): switches, selects
-   and choices when changed, text when the field is left or on Enter (Escape
-   puts the saved text back without sending anything). The save is one
-   reviewed step (review and execute together) and the row then reads
-   "Saved · Undo"; Undo sends the previous value. There is no Save or Revert.
+   for pointer users), one plain line, then **one status line**
+   (`SettingsStatus`: a toned dot, then words, parts joined by "·", e.g.
+   "● Dream Cycle on · last ran today at 3:12 AM") portalled under the line.
+   No summary chips or banners. Rare page actions (Provider connections,
+   re-reading the page, a download) sit in the header's ⋯
+   (`SettingsPageMenu`); a meaningful re-read may be a ↻ (`SettingsRefresh`).
+   Pages not yet rebuilt may still portal chips with `SettingsSummary`.
+2. **Groups of rows** — `SettingsGroup`: a small heading (13 semibold,
+   secondary) with an optional one-line note or meta (a count, "Updated 12
+   min ago · Refresh") over one quiet surface (`--surface`, hairline border,
+   card radius); rows inside are divided by hairlines. A row (`SettingsItem`,
+   or a saved field through `SavedSetting`) is label (14 medium) and one-line
+   help (13 muted) on the left, the control on the right, at least 60px tall;
+   a row's status is one small line under the help (`StatusLine`: dot, then
+   words, with an optional text action such as "Install" or "Show it again").
+   The label names the row's one control and the help and status describe it;
+   a control that names itself (a segmented choice, several buttons) is left
+   alone. Every control in a row is one height: 32px on a fine pointer and
+   44px on touch (`--settings-control`); selects and text fields share one
+   width (280px), model pickers 320px. On a narrow page (a 560px container
+   query on the page column) the control moves under its label at full width,
+   switches stay beside their label and segmented choices fill the row. A
+   tinted 32px icon tile may lead a row; a sub-row (Camera under Vision) is
+   indented; a job that is off dims its text and keeps its control in view,
+   disabled. Short choices are segmented controls ("Open in: App window |
+   Browser | Ask each time", "Search runs: This computer | Cloud"), not
+   dropdowns. Switches carry no On/Off text. Every change saves at once
+   (decision 19): switches, selects and choices when changed, text when the
+   field is left or on Enter (Escape puts the saved text back without sending
+   anything). The save is one reviewed step (review and execute together) and
+   is confirmed by the floating notice ("Name saved · Undo"), never a line in
+   the page; Undo sends the previous value. A save whose outcome is uncertain
+   keeps "Check again" beside its control until the original receipt settles.
+   There is no Save or Revert.
    A change that sends data somewhere new asks first in place (choosing cloud
    embeddings: "Documents and memories will be sent to the cloud embedding
    provider…"). Typed credentials (API keys, channel tokens, secret fields)
@@ -379,10 +405,13 @@ Every page follows one anatomy (`features/settings/anatomy.tsx`):
    instead of per-verb Search/Reload buttons; a reload that is meaningful sits
    in ⋯ or the header. Pages with a local library and a public catalogue use
    kept-mounted `SettingsTabs` (Installed | Discover).
-4. **Advanced** — `SettingsAdvanced`, collapsed, for diagnostics, maintenance
+4. **Advanced** — `SettingsAdvanced`, one dashed disclosure at the end with a
+   meta line naming what is inside, collapsed, for diagnostics, maintenance
    and rarely changed options. Forms inside a page (profile editor, MCP
    server settings) are one raised surface with the settings inputs, never a
-   browser fieldset.
+   browser fieldset. Setup that needs several reviewed steps (System ›
+   Browser and computer use, the file operations one by one) opens from one
+   "Set up…" or "Choose each…" in its row, in a dialog.
 5. **Danger zone** — `SettingsDangerZone`, collapsed and outlined in the danger
    tone, never a filled button in the main flow; each `DangerAction` states
    what is lost and still asks for confirmation. A flow that starts from a row
@@ -467,7 +496,17 @@ Replace" (`maskedTail`, `credentialSourceLabel`) — never the value. The
 settings snapshot reports each saved field's default; a field that differs
 shows a small accent mark and a "Reset … to default" action. The default
 model is the composer's searchable `ModelList` behind one trigger (name,
-provider and billing tag); Providers show each provider's billing tag. API key
+provider and billing tag); Providers show each provider's billing tag.
+Settings › Models (B229) is one "Jobs" group with one row per job — Brain,
+Vision, Image, Video: icon, name, one-line purpose, the switch where there is
+one and the same picker for all four (Vision puts "Same as Brain" first) —
+then Camera as a sub-row only while Vision is on (its list loads when the
+select opens), and "Advanced context" in plain words ("… can read about
+272,000 tokens at once, roughly 820 pages", Automatic | Limit…). Agent limits
+are a collapsed "Limits for long work"; the Catalog has one status line
+("Updated 12 min ago · Refresh"), search, the job as filter chips, then its
+providers and, once one is opened, its models with a pin and "use for this
+job". A Brain change reads "Brain is now … · Undo". API key
 dialogs have a "Get a key" link, a format hint that warns before saving, a
 note that saving sends the key to the provider, and the provider checks the
 key before it is saved (a refused key is explained in the dialog and never

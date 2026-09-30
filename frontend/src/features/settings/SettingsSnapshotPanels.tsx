@@ -1,18 +1,19 @@
 import { Link } from 'react-router-dom';
 import {
   Activity,
-  UserRound,
   BarChart3,
   BookOpen,
-  Bot,
   AppWindow,
   Calculator,
   CalendarClock,
   ChevronDown,
+  Cloud,
   Download,
   CloudSun,
   FileKey,
-  FileText,
+  Files,
+  Folder,
+  FolderOpen,
   GitBranch,
   Globe2,
   HardDrive,
@@ -22,9 +23,8 @@ import {
   ListChecks,
   Mic,
   MonitorCog,
-  Moon,
+  MousePointerClick,
   Network,
-  Radio,
   RefreshCw,
   RotateCcw,
   Search,
@@ -48,7 +48,7 @@ import { clientError } from '../../api/errors';
 import { appPwaClient } from '../../pwa/client';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
-import { ModalTask } from '../../ui/overlays';
+import { ModalTask, useNotify } from '../../ui/overlays';
 import ConnectedUpdateControls from './UpdateControls';
 import ConnectedMigrationControls from './MigrationControls';
 import ConnectedDataBackup from './DataBackup';
@@ -64,11 +64,12 @@ import type {
 } from '../../api/types';
 import {
   Button,
-  Field,
   IconButton,
   Input,
+  Segmented,
   Select,
   Toggle,
+  type SegmentedOption,
 } from '../../ui/primitives';
 import {
   absoluteTime,
@@ -81,7 +82,11 @@ import {
   DangerAction,
   SettingsAdvanced,
   SettingsDangerZone,
+  SettingsGroup,
+  SettingsItem,
+  SettingsStatus,
   SettingsSummary,
+  StatusLine,
   SummaryChip,
 } from './anatomy';
 
@@ -216,28 +221,36 @@ function Facts({ children }: { children: ReactNode }) {
 function VoiceModelRow({
   title,
   description,
-  provider,
   status,
   ready,
+  action,
+  note,
 }: {
   title: string;
   description: string;
-  provider: string;
   status: string;
   ready?: boolean;
+  action?: ReactNode;
+  note?: ReactNode;
 }) {
   return (
-    <li>
-      <Mic size={17} aria-hidden />
-      <div>
-        <strong>{title}</strong>
-        <small>{description}</small>
-      </div>
-      <StateChip>{provider}</StateChip>
-      <StateChip active={ready} warning={ready === false}>
-        {status}
-      </StateChip>
-    </li>
+    <SettingsItem
+      label={title}
+      help={description}
+      icon={<Mic size={16} aria-hidden />}
+      tone="neutral"
+      bind={false}
+      status={
+        <StatusLine
+          tone={ready ? 'success' : ready === false ? 'warning' : undefined}
+        >
+          {status}
+        </StatusLine>
+      }
+      control={action}
+    >
+      {note}
+    </SettingsItem>
   );
 }
 
@@ -361,6 +374,14 @@ function sameValue(left: SettingsValue, right: SettingsValue) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+type RowLook = Pick<
+  Parameters<typeof SettingsItem>[0],
+  'icon' | 'tone' | 'off' | 'sub' | 'bind' | 'status' | 'trailing'
+> & {
+  /** Full-width content under the row (a preview line, a list). */
+  extra?: ReactNode;
+};
+
 function SavedSetting({
   mutation,
   field,
@@ -372,6 +393,8 @@ function SavedSetting({
   group = false,
   commit = 'change',
   layout = 'row',
+  row,
+  savedMessage,
   onDraftChange,
   children,
 }: {
@@ -379,7 +402,7 @@ function SavedSetting({
   field: string;
   label: string;
   value: SettingsValue;
-  hint?: string;
+  hint?: ReactNode;
   group?: boolean;
   /**
    * When a change saves (decision 19): "change" at once (choices, switches),
@@ -388,10 +411,15 @@ function SavedSetting({
    */
   commit?: 'change' | 'blur' | 'explicit';
   /**
-   * "row" puts the control beside its label, "stack" below it; "bare" shows
-   * only the control (its own accessible name) inside a row that names it.
+   * A settings row (B258): "row" puts the control beside its label, "inline"
+   * keeps it there on a phone (switches), "stack" below it; "bare" shows only
+   * the control (its own accessible name) inside a row that names it.
    */
-  layout?: 'row' | 'stack' | 'bare';
+  layout?: 'row' | 'inline' | 'stack' | 'bare';
+  /** The row's icon, status line and extra actions. */
+  row?: RowLook;
+  /** The floating notice after a save; "<label> saved" by default. */
+  savedMessage?: (value: SettingsValue) => string;
   validate?: (value: SettingsValue) => string;
   /** An outward choice asks first (decision 19): the question, or ''. */
   confirm?: (value: SettingsValue) => string;
@@ -402,6 +430,7 @@ function SavedSetting({
     disabled: boolean;
   }) => ReactNode;
 }) {
+  const notify = useNotify();
   const [draft, setDraft] = useState<SettingsValue>(() =>
     mutation.drafts.has(mutation.page, field)
       ? (mutation.drafts.read(mutation.page, field) as SettingsValue)
@@ -410,9 +439,9 @@ function SavedSetting({
   const [busy, setBusy] = useState<'review' | 'save' | ''>('');
   const [pendingCommand, setPendingCommand] = useState('');
   const [error, setError] = useState('');
+  // Receipt and action messages stay by the control; a plain save is
+  // confirmed by the floating notice ("Name saved · Undo", B258).
   const [notice, setNotice] = useState('');
-  // The value before the last save, while "Saved · Undo" shows.
-  const [undo, setUndo] = useState<{ value: SettingsValue } | null>(null);
   const [asking, setAsking] = useState<{
     value: SettingsValue;
     question: string;
@@ -437,6 +466,13 @@ function SavedSetting({
     }
   }, [busy, dirty, field, mutation.drafts, mutation.page, value]);
   useEffect(() => () => abort.current?.abort(), []);
+  // A notice's Undo runs after later renders: it calls the current save
+  // (current revision) with the value before the latest change.
+  const latestSave = useRef<typeof saveChange | null>(null);
+  const undoValue = useRef<SettingsValue>(value);
+  useEffect(() => {
+    latestSave.current = saveChange;
+  });
   function change(next: SettingsValue) {
     setDraft(next);
     onDraftChange?.(next);
@@ -444,7 +480,6 @@ function SavedSetting({
     else mutation.drafts.write(mutation.page, field, next);
     setError('');
     setNotice('');
-    setUndo(null);
     setAsking(null);
     if (commit !== 'change' || sameValue(next, value)) return;
     const question = confirm?.(next) ?? '';
@@ -476,7 +511,6 @@ function SavedSetting({
     setBusy('review');
     setError('');
     setNotice('');
-    setUndo(null);
     const before = value;
     let submitted = false;
     try {
@@ -499,15 +533,28 @@ function SavedSetting({
         mutation.drafts.discard(mutation.page, field);
         if (field === 'computer_use.system_binary_verify') setDraft('');
         mutation.onSnapshot(receipt.snapshot);
-        setNotice(
-          receipt.action_result
-            ? `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim()
-            : undoing
-              ? 'Undone.'
-              : 'Saved',
-        );
-        if (undoable && !undoing && !receipt.action_result)
-          setUndo({ value: before });
+        if (receipt.action_result)
+          setNotice(
+            `${receipt.action_result.message} ${receipt.action_result.remediation}`.trim(),
+          );
+        else if (undoing) notify(`${label} changed back`);
+        else {
+          undoValue.current = before;
+          notify(
+            savedMessage?.(nextValue) ?? `${label} saved`,
+            undefined,
+            undoable
+              ? {
+                  label: 'Undo',
+                  onAction: () => {
+                    const previous = undoValue.current;
+                    setDraft(previous);
+                    void latestSave.current?.(previous, true);
+                  },
+                }
+              : undefined,
+          );
+        }
       } else if (receipt.status === 'partial') {
         setNotice("Row-Bot couldn't confirm that. Check again.");
       } else {
@@ -565,101 +612,49 @@ function SavedSetting({
       title="Changed from default"
     />
   ) : null;
-  return (
-    <div
-      className="settings-saved-control"
-      aria-busy={!!busy}
-      data-setting-anchor={field}
-      data-modified={modified ? 'true' : undefined}
-      onBlur={(event) => {
-        if (
-          commit !== 'blur' ||
-          event.currentTarget.contains(event.relatedTarget as Node | null)
-        )
-          return;
-        void saveChange();
-      }}
-      onKeyDown={(event) => {
-        if (commit !== 'blur') return;
-        const target = event.target as HTMLElement;
-        if (event.key === 'Enter' && target.tagName === 'INPUT') {
-          event.preventDefault();
-          void saveChange();
-        } else if (event.key === 'Escape' && dirty) {
-          // Leave the field as it was saved; nothing is sent.
-          event.preventDefault();
-          event.stopPropagation();
-          change(value);
-        }
-      }}
-    >
-      {group ? (
-        <fieldset className="field settings-choice-field">
-          <legend>
-            {label}
-            {modifiedDot}
-          </legend>
-          {children({
-            value: draft,
-            setValue: change,
-            disabled: !!busy || !!pendingCommand,
-          })}
-          {hint && <small>{hint}</small>}
-        </fieldset>
-      ) : layout === 'bare' ? (
-        children({
-          value: draft,
-          setValue: change,
-          disabled: !!busy || !!pendingCommand,
-        })
-      ) : (
-        <Field
-          label={label}
-          hint={hint}
-          layout={layout}
-          labelAddon={modifiedDot}
+  const control = children({
+    value: draft,
+    setValue: change,
+    disabled: !!busy || !!pendingCommand,
+  });
+  const actions = (
+    <>
+      {modified && !dirty && !pendingCommand && (
+        <IconButton
+          size="sm"
+          label={`Reset ${label} to default`}
+          disabled={!!busy}
+          onClick={() => {
+            setDraft(defaultValue as SettingsValue);
+            void saveChange(defaultValue as SettingsValue);
+          }}
         >
-          {children({
-            value: draft,
-            setValue: change,
-            disabled: !!busy || !!pendingCommand,
-          })}
-        </Field>
+          <RotateCcw size={14} aria-hidden />
+        </IconButton>
       )}
-      <div className="settings-control-actions">
-        {modified && !dirty && !pendingCommand && (
-          <IconButton
-            size="sm"
-            label={`Reset ${label} to default`}
-            disabled={!!busy}
-            onClick={() => {
-              setDraft(defaultValue as SettingsValue);
-              void saveChange(defaultValue as SettingsValue);
-            }}
-          >
-            <RotateCcw size={14} aria-hidden />
-          </IconButton>
-        )}
-        {dirty && commit !== 'explicit' && error && !pendingCommand && (
-          <Button onClick={() => void saveChange()} disabled={!!busy}>
-            Retry
-          </Button>
-        )}
-        {dirty && commit === 'explicit' && !pendingCommand && (
-          <Button
-            variant="primary"
-            onClick={() => void saveChange()}
-            disabled={!!busy}
-          >
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
-        )}
-        {pendingCommand && (
-          <Button onClick={() => void checkReceipt()} disabled={!!busy}>
-            {busy === 'save' ? 'Checking…' : 'Check again'}
-          </Button>
-        )}
-      </div>
+      {dirty && commit !== 'explicit' && error && !pendingCommand && (
+        <Button onClick={() => void saveChange()} disabled={!!busy}>
+          Retry
+        </Button>
+      )}
+      {dirty && commit === 'explicit' && !pendingCommand && (
+        <Button
+          variant="primary"
+          onClick={() => void saveChange()}
+          disabled={!!busy}
+        >
+          {busy ? 'Saving…' : 'Save'}
+        </Button>
+      )}
+      {pendingCommand && (
+        <Button onClick={() => void checkReceipt()} disabled={!!busy}>
+          {busy === 'save' ? 'Checking…' : 'Check again'}
+        </Button>
+      )}
+    </>
+  );
+  const messages = (
+    <>
       {asking && (
         <div
           role="group"
@@ -690,25 +685,85 @@ function SavedSetting({
       {notice && (
         <p role="status" className="settings-saved-note">
           {notice}
-          {undo && (
-            <>
-              {' · '}
-              <Button
-                variant="ghost"
-                className="small"
-                aria-label={`Undo ${label}`}
-                disabled={!!busy || !!pendingCommand}
-                onClick={() => {
-                  const previous = undo.value;
-                  setDraft(previous);
-                  void saveChange(previous, true);
-                }}
-              >
-                Undo
-              </Button>
-            </>
-          )}
         </p>
+      )}
+    </>
+  );
+  const rowed = !group && layout !== 'bare';
+  return (
+    <div
+      className="settings-saved-control"
+      aria-busy={!!busy}
+      data-setting-anchor={field}
+      data-modified={modified ? 'true' : undefined}
+      onBlur={(event) => {
+        if (
+          commit !== 'blur' ||
+          event.currentTarget.contains(event.relatedTarget as Node | null)
+        )
+          return;
+        void saveChange();
+      }}
+      onKeyDown={(event) => {
+        if (commit !== 'blur') return;
+        const target = event.target as HTMLElement;
+        if (event.key === 'Enter' && target.tagName === 'INPUT') {
+          event.preventDefault();
+          void saveChange();
+        } else if (event.key === 'Escape' && dirty) {
+          // Leave the field as it was saved; nothing is sent.
+          event.preventDefault();
+          event.stopPropagation();
+          change(value);
+        }
+      }}
+    >
+      {rowed ? (
+        <SettingsItem
+          label={label}
+          help={hint}
+          status={row?.status}
+          layout={
+            layout === 'stack'
+              ? 'stacked'
+              : layout === 'inline'
+                ? 'inline'
+                : 'row'
+          }
+          icon={row?.icon}
+          tone={row?.tone}
+          off={row?.off}
+          sub={row?.sub}
+          bind={row?.bind}
+          modified={modified}
+          control={control}
+          trailing={
+            <>
+              {row?.trailing}
+              {actions}
+            </>
+          }
+        >
+          {row?.extra}
+          {(asking || error || notice) && messages}
+        </SettingsItem>
+      ) : (
+        <>
+          {group ? (
+            <fieldset className="field settings-choice-field">
+              <legend>
+                {label}
+                {modifiedDot}
+              </legend>
+              {control}
+              {hint && <small>{hint}</small>}
+            </fieldset>
+          ) : (
+            control
+          )}
+          <div className="settings-control-actions">{actions}</div>
+          {messages}
+        </>
       )}
     </div>
   );
@@ -721,13 +776,26 @@ function ReviewedSettingsAction({
   description,
   variant,
   confirm,
+  presentation = 'block',
+  text,
+  icon,
 }: {
   mutation: SettingsMutationIO;
   field: string;
+  /** The action's accessible name (and its text unless `text` is given). */
   label: string;
   description: string;
   variant?: 'danger' | 'primary' | 'ghost';
   confirm?: string;
+  /**
+   * "block": the description, then the button. In a settings row (B258):
+   * "button" (the button alone, e.g. "Install"), "icon" (an icon button
+   * with `label` as its tooltip) or "link" (a text action in a status line).
+   */
+  presentation?: 'block' | 'button' | 'icon' | 'link';
+  /** A shorter visible text than `label` ("Install"). */
+  text?: string;
+  icon?: ReactNode;
 }) {
   const tunnelRecovery =
     field === 'tunnel.start_main' || field === 'tunnel.stop_main';
@@ -879,27 +947,64 @@ function ReviewedSettingsAction({
     }
   }
 
+  const start = () => (confirm ? setConfirmOpen(true) : void runAction());
+  const glyph =
+    icon ??
+    (field.endsWith('.install') ? (
+      <Download size={presentation === 'block' ? 16 : 14} aria-hidden />
+    ) : field.includes('stop') ? (
+      <Square size={16} aria-hidden />
+    ) : field.includes('check') || field.includes('rebuild') ? (
+      <RefreshCw size={16} aria-hidden />
+    ) : (
+      <Play size={16} aria-hidden />
+    ));
+  const shown = text ?? label;
+  const Wrapper = presentation === 'block' ? 'div' : 'span';
   return (
-    <div className="settings-reviewed-action" aria-busy={busy}>
-      <p className="settings-help">{description}</p>
-      {!pendingCommand && (
-        <Button
-          variant={variant}
-          disabled={busy}
-          onClick={() => (confirm ? setConfirmOpen(true) : void runAction())}
-        >
-          {field.endsWith('.install') ? (
-            <Download size={16} aria-hidden />
-          ) : field.includes('stop') ? (
-            <Square size={16} aria-hidden />
-          ) : field.includes('check') || field.includes('rebuild') ? (
-            <RefreshCw size={16} aria-hidden />
-          ) : (
-            <Play size={16} aria-hidden />
-          )}
-          {busy ? 'Working…' : label}
-        </Button>
+    <Wrapper
+      className={
+        presentation === 'block'
+          ? 'settings-reviewed-action'
+          : `settings-inline-action is-${presentation}`
+      }
+      aria-busy={busy}
+    >
+      {presentation === 'block' && (
+        <p className="settings-help">{description}</p>
       )}
+      {!pendingCommand &&
+        (presentation === 'icon' ? (
+          <IconButton
+            label={label}
+            variant={variant === 'danger' ? 'danger' : 'ghost'}
+            disabled={busy}
+            aria-busy={busy || undefined}
+            onClick={start}
+          >
+            {glyph}
+          </IconButton>
+        ) : presentation === 'link' ? (
+          <Button
+            variant="ghost"
+            className="settings-link"
+            aria-label={shown === label ? undefined : label}
+            disabled={busy}
+            onClick={start}
+          >
+            {busy ? 'Working…' : shown}
+          </Button>
+        ) : (
+          <Button
+            variant={variant}
+            aria-label={shown === label || busy ? undefined : label}
+            disabled={busy}
+            onClick={start}
+          >
+            {glyph}
+            {busy ? 'Working…' : shown}
+          </Button>
+        ))}
       {pendingCommand && (
         <Button disabled={busy} onClick={() => void checkReceipt()}>
           {busy ? 'Checking…' : 'Check again'}
@@ -950,7 +1055,7 @@ function ReviewedSettingsAction({
           </Button>
         </div>
       </ModalTask>
-    </div>
+    </Wrapper>
   );
 }
 
@@ -962,14 +1067,18 @@ function TextSetting({
   hint,
   maxLength,
   multiline = false,
+  row,
+  onDraftChange,
 }: {
   mutation: SettingsMutationIO;
   field: string;
   label: string;
   value: string;
-  hint?: string;
+  hint?: ReactNode;
   maxLength?: number;
   multiline?: boolean;
+  row?: RowLook;
+  onDraftChange?: (value: string) => void;
 }) {
   return (
     <SavedSetting
@@ -980,6 +1089,8 @@ function TextSetting({
       hint={hint}
       layout={multiline ? 'stack' : 'row'}
       commit="blur"
+      row={row}
+      onDraftChange={(next) => onDraftChange?.(String(next ?? ''))}
     >
       {({ value: draft, setValue, disabled }) =>
         multiline ? (
@@ -1012,15 +1123,21 @@ function SelectSetting({
   hint,
   onDraftChange,
   confirm,
+  row,
+  savedMessage,
+  layout,
 }: {
   mutation: SettingsMutationIO;
   field: string;
   label: string;
   value: string;
   options: { value: string; label: string }[];
-  hint?: string;
+  hint?: ReactNode;
   onDraftChange?: (value: string) => void;
   confirm?: (value: string) => string;
+  row?: RowLook;
+  savedMessage?: (value: SettingsValue) => string;
+  layout?: 'row' | 'bare';
 }) {
   const available = options.some((option) => option.value === value)
     ? options
@@ -1032,11 +1149,15 @@ function SelectSetting({
       label={label}
       value={value}
       hint={hint}
+      row={row}
+      layout={layout}
+      savedMessage={savedMessage}
       onDraftChange={(next) => onDraftChange?.(String(next))}
       confirm={confirm && ((next) => confirm(String(next)))}
     >
       {({ value: draft, setValue, disabled }) => (
         <Select
+          aria-label={layout === 'bare' ? label : undefined}
           value={String(draft)}
           disabled={disabled}
           onChange={(event) => setValue(event.target.value)}
@@ -1047,6 +1168,69 @@ function SelectSetting({
             </option>
           ))}
         </Select>
+      )}
+    </SavedSetting>
+  );
+}
+
+/**
+ * A short choice as a segmented control (B258: "Open in: App window |
+ * Browser", "Search runs: This computer | Cloud"). A saved value outside
+ * the options still shows, as the first option.
+ */
+function SegmentedSetting({
+  mutation,
+  field,
+  label,
+  value,
+  options,
+  hint,
+  confirm,
+  groupLabel,
+  row,
+  savedMessage,
+  onDraftChange,
+}: {
+  mutation: SettingsMutationIO;
+  field: string;
+  label: string;
+  /** The choice's own name when the row label is shorter ("Channel"). */
+  groupLabel?: string;
+  value: string;
+  options: SegmentedOption<string>[];
+  hint?: ReactNode;
+  confirm?: (value: string) => string;
+  row?: RowLook;
+  savedMessage?: (value: SettingsValue) => string;
+  onDraftChange?: (value: string) => void;
+}) {
+  const available = options.some((option) => option.value === value)
+    ? options
+    : [{ value, label: value || 'Not selected' }, ...options];
+  return (
+    <SavedSetting
+      mutation={mutation}
+      field={field}
+      label={label}
+      value={value}
+      hint={hint}
+      row={{ ...row, bind: false }}
+      savedMessage={savedMessage}
+      onDraftChange={(next) => onDraftChange?.(String(next))}
+      confirm={confirm && ((next) => confirm(String(next)))}
+    >
+      {({ value: draft, setValue, disabled }) => (
+        <Segmented
+          label={groupLabel ?? label}
+          value={String(draft)}
+          onChange={(next) => {
+            if (!disabled) setValue(next);
+          }}
+          options={available.map((option) => ({
+            ...option,
+            disabled: option.disabled || disabled,
+          }))}
+        />
       )}
     </SavedSetting>
   );
@@ -1101,14 +1285,18 @@ function SwitchSetting({
   value,
   hint,
   bare = false,
+  row,
+  savedMessage,
 }: {
   mutation: SettingsMutationIO;
   field: string;
   label: string;
   value: boolean;
-  hint?: string;
+  hint?: ReactNode;
   /** Only the switch, for rows that already show the name beside it. */
   bare?: boolean;
+  row?: RowLook;
+  savedMessage?: (value: SettingsValue) => string;
 }) {
   return (
     <SavedSetting
@@ -1117,7 +1305,12 @@ function SwitchSetting({
       label={label}
       value={value}
       hint={hint}
-      layout={bare ? 'bare' : 'row'}
+      layout={bare ? 'bare' : 'inline'}
+      row={row}
+      savedMessage={
+        savedMessage ??
+        ((next) => `${label} ${next ? 'turned on' : 'turned off'}`)
+      }
     >
       {({ value: draft, setValue, disabled }) => (
         <Toggle
@@ -1141,6 +1334,7 @@ function NumberSetting({
   step = 1,
   optional = false,
   hint,
+  row,
 }: {
   mutation: SettingsMutationIO;
   field: string;
@@ -1150,7 +1344,8 @@ function NumberSetting({
   max: number;
   step?: number;
   optional?: boolean;
-  hint?: string;
+  hint?: ReactNode;
+  row?: RowLook;
 }) {
   return (
     <SavedSetting
@@ -1159,6 +1354,7 @@ function NumberSetting({
       label={label}
       value={value}
       hint={hint}
+      row={row}
       validate={(draft) =>
         draft == null ||
         (typeof draft === 'number' && draft >= min && draft <= max)
@@ -1441,6 +1637,25 @@ function whisperSize(
   return label.replace(/,\s*[^)]*\)/, ')');
 }
 
+/** "Small · 244 MB" from the size option "Small (~244 MB, accurate)". */
+function whisperOptionLabel(label: string) {
+  const match = /^(.*?)\s*\(~?([^,)]+)(?:,[^)]*)?\)\s*$/.exec(label);
+  return match ? `${match[1]} · ${match[2]}` : label;
+}
+
+/** Where a voice provider runs, in the provider select (B258). */
+function voiceProviderLabel(
+  kind: 'listen' | 'speak',
+  option: { value: string; label: string },
+) {
+  if (option.value === 'local')
+    return kind === 'listen'
+      ? 'Whisper · on this computer'
+      : 'Kokoro · on this computer';
+  if (option.value === 'openai_realtime') return 'OpenAI Realtime · online';
+  return option.label;
+}
+
 export function VoiceSnapshotPanel({
   snapshot,
   conversationId,
@@ -1460,97 +1675,238 @@ export function VoiceSnapshotPanel({
       setTalkProvider(snapshot.runtime.talk_provider);
   }, [mutation.drafts, mutation.page, snapshot.runtime.talk_provider]);
   const readAloudOn = snapshot.tts.installed && snapshot.tts.enabled;
+  const realtime = talkProvider === 'openai_realtime';
+  const localDictation = snapshot.runtime.dictation_provider === 'local';
+  const size = whisperSize(
+    snapshot.whisper_options,
+    snapshot.local.whisper_model,
+  );
   return (
     <div className="stack settings-snapshot-page settings-voice-page">
-      <SettingsSummary>
-        <SummaryChip>
-          {talkProvider === 'openai_realtime' ? 'Realtime Talk' : 'Local Talk'}
-        </SummaryChip>
-        <SummaryChip tone={readAloudOn ? 'success' : undefined}>
-          {readAloudOn ? 'Read aloud on' : 'Read aloud off'}
-        </SummaryChip>
-      </SettingsSummary>
-      <Section
-        title="Talk"
-        description="Continuous voice conversation through the normal chat and approval path."
-        icon={Mic}
+      <SettingsStatus
+        tone="success"
+        more={[
+          realtime && localDictation ? 'dictation on this computer' : '',
+          readAloudOn ? 'read aloud on' : 'read aloud off',
+        ]}
       >
-        <div className="settings-control-grid">
+        {realtime
+          ? 'Realtime Talk online'
+          : localDictation
+            ? 'Talk and dictation on this computer'
+            : 'Talk on this computer'}
+      </SettingsStatus>
+      <SettingsGroup
+        title="Talk"
+        anchor="talk"
+        note="A spoken conversation, with the same approvals as chat."
+      >
+        <SelectSetting
+          mutation={mutation}
+          field="runtime.talk_provider"
+          label="Listen with"
+          hint={
+            realtime
+              ? 'Sends live microphone audio only while you are talking.'
+              : 'On this computer keeps your voice private.'
+          }
+          value={snapshot.runtime.talk_provider}
+          options={snapshot.talk_providers.map((option) => ({
+            value: option.value,
+            label: voiceProviderLabel('listen', option),
+          }))}
+          onDraftChange={setTalkProvider}
+          savedMessage={(next) =>
+            next === 'openai_realtime'
+              ? 'Talk now listens with OpenAI Realtime'
+              : 'Talk now listens on this computer'
+          }
+        />
+        <SwitchSetting
+          mutation={mutation}
+          field="runtime.captions_enabled"
+          label="Live captions"
+          hint="Show your words while you speak."
+          value={snapshot.runtime.captions_enabled}
+        />
+        {realtime && (
+          <SwitchSetting
+            mutation={mutation}
+            field="runtime.realtime_fallback_to_local"
+            label="Fall back to this computer"
+            hint="If Realtime is unavailable, Talk listens with Whisper instead."
+            value={snapshot.runtime.realtime_fallback_to_local}
+          />
+        )}
+        <SettingsItem
+          label="Try it"
+          help="Talk starts from a conversation’s microphone."
+          layout="inline"
+          bind={false}
+          control={
+            <Link
+              className="button"
+              to={conversationId ? `/conversations/${conversationId}` : '/'}
+            >
+              {conversationId
+                ? 'Open conversation voice'
+                : 'Open a conversation'}
+            </Link>
+          }
+        />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Dictation"
+        anchor="dictation"
+        note="Speech to text; nothing is sent until you press Send."
+      >
+        <SelectSetting
+          mutation={mutation}
+          field="runtime.dictation_provider"
+          label="Dictate with"
+          hint="Uses the same speech model as Talk."
+          value={snapshot.runtime.dictation_provider}
+          options={snapshot.dictation_providers.map((option) => ({
+            value: option.value,
+            label: voiceProviderLabel('listen', option),
+          }))}
+        />
+        {/* Dictate needs the chosen Whisper model on this computer (B140). */}
+        <SelectSetting
+          mutation={mutation}
+          field="local.whisper_model"
+          label="Speech model"
+          hint="Downloads once from Hugging Face (Systran), then works offline."
+          value={snapshot.local.whisper_model}
+          options={snapshot.whisper_options.map((option) => ({
+            value: option.value,
+            label: whisperOptionLabel(option.label),
+          }))}
+          savedMessage={() => 'Speech model saved'}
+          row={{
+            status: snapshot.local.whisper_installed ? (
+              <StatusLine tone="success">Whisper {size} installed</StatusLine>
+            ) : (
+              <StatusLine tone="warning">Not installed</StatusLine>
+            ),
+            trailing: snapshot.local.whisper_installed ? undefined : (
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="whisper.install"
+                label={`Install Whisper ${size}`}
+                text="Install"
+                description="Downloads the speech recognition model from Hugging Face (Systran) once and keeps it on this computer; Dictate then works offline. This action uses network access."
+                presentation="button"
+              />
+            ),
+          }}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Read aloud" anchor="read-aloud">
+        {snapshot.tts.installed ? (
+          <SwitchSetting
+            mutation={mutation}
+            field="tts.enabled"
+            label="Read replies aloud"
+            hint="Speaks answers with Kokoro, on this computer."
+            value={snapshot.tts.enabled}
+          />
+        ) : (
+          <SettingsItem
+            label="Read replies aloud"
+            help="Speaks answers with Kokoro, on this computer. Installing downloads the model and voices once."
+            status={
+              <StatusLine
+                tone="warning"
+                action={
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="tts.install"
+                    label="Install Kokoro TTS"
+                    text="Install"
+                    description="Downloads the Kokoro model and voices, then keeps speech generation local. This action uses network access."
+                    presentation="link"
+                  />
+                }
+              >
+                Kokoro isn’t installed yet
+              </StatusLine>
+            }
+          />
+        )}
+        {snapshot.speech_output_providers.length > 1 && (
           <SelectSetting
             mutation={mutation}
-            field="runtime.talk_provider"
-            label="Talk provider"
-            value={snapshot.runtime.talk_provider}
-            options={snapshot.talk_providers}
-            onDraftChange={setTalkProvider}
+            field="runtime.speech_output_provider"
+            label="Speak with"
+            value={snapshot.runtime.speech_output_provider}
+            options={snapshot.speech_output_providers.map((option) => ({
+              value: option.value,
+              label: voiceProviderLabel('speak', option),
+            }))}
           />
+        )}
+        {snapshot.tts.installed && (
+          <>
+            <SelectSetting
+              mutation={mutation}
+              field="tts.voice"
+              label="Voice"
+              hint="The voice Row-Bot reads with."
+              value={snapshot.tts.voice}
+              options={snapshot.tts_voice_options}
+              row={{
+                trailing: (
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="tts.test"
+                    label="Test voice"
+                    description="Plays one fixed local phrase through the selected output device."
+                    presentation="icon"
+                    icon={<Volume2 size={16} aria-hidden />}
+                  />
+                ),
+              }}
+            />
+            <NumberSetting
+              mutation={mutation}
+              field="tts.speed"
+              label="Speech speed"
+              hint="1 is normal; 0.5 to 2."
+              value={snapshot.tts.speed}
+              min={0.5}
+              max={2}
+              step={0.1}
+            />
+            <SwitchSetting
+              mutation={mutation}
+              field="tts.auto_speak"
+              label="Auto-speak voice responses"
+              hint="Replies to something you said are read aloud."
+              value={snapshot.tts.auto_speak}
+            />
+          </>
+        )}
+      </SettingsGroup>
+      <SettingsAdvanced meta="Other speech models, realtime voice, diagnostics">
+        {realtime && (
+          <SettingsGroup title="Realtime Talk">
+            <SelectSetting
+              mutation={mutation}
+              field="runtime.realtime_voice"
+              label="Realtime voice"
+              hint="Realtime Talk only, not read aloud."
+              value={snapshot.runtime.realtime_voice}
+              options={snapshot.realtime_voice_options}
+            />
+          </SettingsGroup>
+        )}
+        <SettingsGroup title="Speech models">
           <TextSetting
             mutation={mutation}
             field="runtime.talk_model"
             label="Talk model"
             value={snapshot.runtime.talk_model}
-          />
-          <SwitchSetting
-            mutation={mutation}
-            field="runtime.captions_enabled"
-            label={
-              talkProvider === 'local' ? 'Local captions' : 'Realtime captions'
-            }
-            value={snapshot.runtime.captions_enabled}
-          />
-          {talkProvider === 'openai_realtime' && (
-            <SwitchSetting
-              mutation={mutation}
-              field="runtime.realtime_fallback_to_local"
-              label="Fallback to local Talk if Realtime is unavailable"
-              value={snapshot.runtime.realtime_fallback_to_local}
-            />
-          )}
-        </div>
-        <div className="settings-inline-row">
-          <p className="settings-help">
-            {talkProvider === 'local'
-              ? 'Local Talk keeps microphone transcription on this machine, then sends finished text through normal chat.'
-              : 'Realtime Talk sends live microphone audio only while an explicitly started session is active.'}
-          </p>
-          <Link
-            className="button ghost"
-            to={conversationId ? `/conversations/${conversationId}` : '/'}
-          >
-            {conversationId ? 'Open conversation voice' : 'Open a conversation'}
-          </Link>
-        </div>
-      </Section>
-      {talkProvider === 'openai_realtime' && (
-        <Section
-          title="Realtime Talk Voice"
-          description="Controls the voice used by the active OpenAI Realtime Talk session."
-          icon={Radio}
-        >
-          <SelectSetting
-            mutation={mutation}
-            field="runtime.realtime_voice"
-            label="Realtime voice"
-            value={snapshot.runtime.realtime_voice}
-            options={snapshot.realtime_voice_options}
-          />
-          <p className="settings-help">
-            This voice applies to Realtime Talk only, not local read-aloud.
-          </p>
-        </Section>
-      )}
-      <Section
-        title="Dictation"
-        description="Speech-to-text only; text stays in the composer until Send."
-        icon={Mic}
-      >
-        <div className="settings-control-grid">
-          <SelectSetting
-            mutation={mutation}
-            field="runtime.dictation_provider"
-            label="Dictation provider"
-            value={snapshot.runtime.dictation_provider}
-            options={snapshot.dictation_providers}
           />
           <TextSetting
             mutation={mutation}
@@ -1558,195 +1914,96 @@ export function VoiceSnapshotPanel({
             label="Dictation model"
             value={snapshot.runtime.dictation_model}
           />
-          <SelectSetting
-            mutation={mutation}
-            field="local.whisper_model"
-            label="Whisper model size"
-            value={snapshot.local.whisper_model}
-            options={snapshot.whisper_options}
-          />
-        </div>
-        {/* Dictate needs the chosen Whisper model on this computer (B140). */}
-        {snapshot.local.whisper_installed ? (
-          <StateChip active>
-            Whisper{' '}
-            {whisperSize(
-              snapshot.whisper_options,
-              snapshot.local.whisper_model,
-            )}{' '}
-            installed
-          </StateChip>
-        ) : (
-          <>
-            <StateChip warning>Whisper not installed</StateChip>
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="whisper.install"
-              label={`Install Whisper ${whisperSize(snapshot.whisper_options, snapshot.local.whisper_model)}`}
-              description="Downloads the speech recognition model from Hugging Face (Systran) once and keeps it on this computer; Dictate then works offline. This action uses network access."
-            />
-          </>
-        )}
-      </Section>
-      <Section
-        title="Read aloud"
-        description="Hear responses spoken with the configured speech output."
-        icon={Volume2}
-        anchor="read-aloud"
-      >
-        <div className="settings-control-grid">
-          <SelectSetting
-            mutation={mutation}
-            field="runtime.speech_output_provider"
-            label="Read-aloud provider"
-            value={snapshot.runtime.speech_output_provider}
-            options={snapshot.speech_output_providers}
-          />
           <TextSetting
             mutation={mutation}
             field="runtime.speech_output_model"
             label="Read-aloud model"
             value={snapshot.runtime.speech_output_model}
           />
-          {snapshot.tts.installed ? (
-            <>
-              <SwitchSetting
-                mutation={mutation}
-                field="tts.enabled"
-                label="Enable text-to-speech"
-                value={snapshot.tts.enabled}
-              />
-              <SelectSetting
-                mutation={mutation}
-                field="tts.voice"
-                label="Voice"
-                value={snapshot.tts.voice}
-                options={snapshot.tts_voice_options}
-              />
-              <NumberSetting
-                mutation={mutation}
-                field="tts.speed"
-                label="Speech speed"
-                value={snapshot.tts.speed}
-                min={0.5}
-                max={2}
-                step={0.1}
-              />
-              <SwitchSetting
-                mutation={mutation}
-                field="tts.auto_speak"
-                label="Auto-speak voice responses"
-                value={snapshot.tts.auto_speak}
-              />
-            </>
-          ) : (
-            <>
-              <StateChip warning>Kokoro not installed</StateChip>
-              <ReviewedSettingsAction
-                mutation={mutation}
-                field="tts.install"
-                label="Install Kokoro TTS"
-                description="Downloads the Kokoro model and voices, then keeps speech generation local. This action uses network access."
-              />
-            </>
-          )}
-        </div>
-        {snapshot.tts.installed && (
-          <ReviewedSettingsAction
-            mutation={mutation}
-            field="tts.test"
-            label="Test voice"
-            description="Plays one fixed local phrase through the selected output device."
+        </SettingsGroup>
+        <SettingsGroup
+          title="Voice models"
+          meta={
+            <Link className="settings-link" to="/settings/providers">
+              Open Providers
+            </Link>
+          }
+        >
+          <VoiceModelRow
+            title={`Whisper ${snapshot.local.whisper_model}`}
+            description="Dictation and local Talk transcription · on this computer"
+            status={savedStateLabel(snapshot.local.runtime_state)}
           />
-        )}
-      </Section>
-      <SettingsAdvanced meta="Voice models, setup and diagnostics">
-        <Section
-          title="Voice Models"
-          description="Saved runtime choices and masked provider configuration."
-          icon={Radio}
-        >
-          <h4>Runtime Voice Models</h4>
-          <ul className="settings-voice-model-list">
-            <VoiceModelRow
-              title={`Whisper ${snapshot.local.whisper_model}`}
-              description="Dictation and local Talk transcription"
-              provider="Local"
-              status={savedStateLabel(snapshot.local.runtime_state)}
-            />
-            <VoiceModelRow
-              title="SenseVoice"
-              description="Talk and Dictation multilingual transcription"
-              provider="Local"
-              status={
-                snapshot.local.sensevoice_path_configured
-                  ? 'Configured'
-                  : 'Setup needed'
-              }
-              ready={snapshot.local.sensevoice_path_configured}
-            />
-            <VoiceModelRow
-              title="Kokoro"
-              description={`Speech output · ${
-                snapshot.tts_voice_options.find(
-                  (option) => option.value === snapshot.tts.voice,
-                )?.label ?? humanizeToken(snapshot.tts.voice)
-              }`}
-              provider="Local"
-              status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
-              ready={snapshot.tts.installed}
-            />
-            <VoiceModelRow
-              title="OpenAI Realtime Talk"
-              description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice}`}
-              provider="OpenAI"
-              status={
-                snapshot.openai_realtime_credential.configured
-                  ? 'Credential saved · not checked'
-                  : 'Setup needed'
-              }
-              ready={
-                snapshot.openai_realtime_credential.configured
-                  ? undefined
-                  : false
-              }
-            />
-          </ul>
-          {!snapshot.local.sensevoice_path_configured && (
-            <>
-              <a
-                href="https://modelscope.cn/models/iic/SenseVoiceSmall"
-                target="_blank"
-                rel="noreferrer"
-              >
-                SenseVoice Small model and Apache-2.0 license
-              </a>
-              <ReviewedSettingsAction
-                mutation={mutation}
-                field="sensevoice.install"
-                label="Install SenseVoice Small"
-                description="Downloads the Apache-2.0 SenseVoice Small model from ModelScope. No audio, prompts, or usage data are sent."
-              />
-            </>
-          )}
-          <Link className="button ghost" to="/settings/providers">
-            Open Providers
-          </Link>
-        </Section>
-        <Section
-          title="Diagnostics"
-          description="Cached audio configuration; no device or provider was probed."
-          icon={ShieldCheck}
-        >
-          <Facts>
-            <Fact label="Settings availability" value={snapshot.availability} />
-            <Fact label="Microphone/provider readiness" value="Not checked" />
-          </Facts>
-          <p className="settings-help">
-            Talk can call models and tools. Realtime sessions can incur provider
-            cost while active.
-          </p>
-        </Section>
+          <VoiceModelRow
+            title="SenseVoice"
+            description="Talk and Dictation multilingual transcription · on this computer"
+            status={
+              snapshot.local.sensevoice_path_configured
+                ? 'Configured'
+                : 'Setup needed'
+            }
+            ready={snapshot.local.sensevoice_path_configured}
+            action={
+              snapshot.local.sensevoice_path_configured ? undefined : (
+                <ReviewedSettingsAction
+                  mutation={mutation}
+                  field="sensevoice.install"
+                  label="Install SenseVoice Small"
+                  text="Install"
+                  description="Downloads the Apache-2.0 SenseVoice Small model from ModelScope. No audio, prompts, or usage data are sent."
+                  presentation="button"
+                />
+              )
+            }
+            note={
+              snapshot.local.sensevoice_path_configured ? undefined : (
+                <a
+                  href="https://modelscope.cn/models/iic/SenseVoiceSmall"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  SenseVoice Small model and Apache-2.0 license
+                </a>
+              )
+            }
+          />
+          <VoiceModelRow
+            title="Kokoro"
+            description={`Speech output · ${
+              snapshot.tts_voice_options.find(
+                (option) => option.value === snapshot.tts.voice,
+              )?.label ?? humanizeToken(snapshot.tts.voice)
+            } · on this computer`}
+            status={snapshot.tts.installed ? 'Installed' : 'Not installed'}
+            ready={snapshot.tts.installed}
+          />
+          <VoiceModelRow
+            title="OpenAI Realtime Talk"
+            description={`Realtime voice-agent · ${snapshot.runtime.realtime_voice} · online`}
+            status={
+              snapshot.openai_realtime_credential.configured
+                ? 'Credential saved · not checked'
+                : 'Setup needed'
+            }
+            ready={
+              snapshot.openai_realtime_credential.configured ? undefined : false
+            }
+          />
+        </SettingsGroup>
+        <SettingsGroup title="Diagnostics">
+          <SettingsItem
+            label="Settings availability"
+            help={snapshot.availability}
+          />
+          <SettingsItem
+            label="Microphone and provider readiness"
+            help="Not checked. Opening Settings never probes a device or provider."
+          />
+          <SettingsItem
+            label="Costs"
+            help="Talk can call models and tools. Realtime sessions can incur provider cost while active."
+          />
+        </SettingsGroup>
       </SettingsAdvanced>
     </div>
   );
@@ -1981,41 +2238,34 @@ export function SystemSnapshotPanel({
       </div>
     );
   const cu = snapshot.computer_use;
+  const files = snapshot.file_operations;
+  const filesAvailable = files.available && files.enabled != null;
+  const shellAvailable =
+    snapshot.shell.available && snapshot.shell.enabled != null;
+  const browserAvailable =
+    snapshot.browser.available && snapshot.browser.enabled != null;
+  const computerAvailable = cu.available && cu.enabled != null;
+  const access = filesAvailable
+    ? fileAccessLevel(files.enabled === true, files.selected, files.options)
+    : null;
   return (
     <div className="stack settings-snapshot-page settings-system-page">
-      <SettingsSummary>
-        <SummaryChip tone={snapshot.workspace.exists ? 'success' : 'warning'}>
-          {snapshot.workspace.exists
-            ? 'Workspace folder ready'
-            : 'Workspace folder missing'}
-        </SummaryChip>
-        <SummaryChip
-          tone={
-            appAvailability.phase === 'ready'
-              ? 'success'
-              : appAvailability.phase === 'error'
-                ? 'danger'
-                : undefined
-          }
-          title="Install and offline support for this browser"
-        >
-          {appAvailability.phase === 'offline'
-            ? 'Offline'
-            : appAvailability.phase === 'ready'
-              ? 'Offline ready'
-              : appAvailability.phase === 'unsupported'
-                ? 'No offline mode'
-                : appAvailability.phase === 'error'
-                  ? 'Offline unavailable'
-                  : 'Checking offline'}
-        </SummaryChip>
-      </SettingsSummary>
-      <Section
-        title="Workspace folder"
-        description="The filesystem tool is sandboxed to this folder."
-        icon={HardDrive}
-        anchor="workspace-folder"
+      <SettingsStatus
+        tone={snapshot.workspace.exists ? 'success' : 'warning'}
+        more={[
+          shellAvailable
+            ? snapshot.shell.enabled
+              ? 'Shell on'
+              : 'Shell off'
+            : '',
+          access ? `Files: ${fileAccessWords[access]}` : '',
+        ]}
       >
+        {snapshot.workspace.exists
+          ? 'Workspace folder ready'
+          : 'Workspace folder missing'}
+      </SettingsStatus>
+      <SettingsGroup title="Workspace" anchor="workspace-folder">
         <WorkspaceFolderSetting
           key={mutation.revision}
           mutation={mutation}
@@ -2024,278 +2274,159 @@ export function SystemSnapshotPanel({
           exists={snapshot.workspace.exists}
           pickFolder={pickFolder}
         />
-      </Section>
-      <Section
-        title="Shell access"
-        description="Shell commands run directly on the host inside saved boundaries."
-        icon={SquareTerminal}
-        anchor="shell"
+      </SettingsGroup>
+      <SettingsGroup
+        title="What Row-Bot may do"
+        note="Risky actions still ask first, as set per chat."
       >
-        {snapshot.shell.available && snapshot.shell.enabled != null ? (
+        {shellAvailable ? (
           <SwitchSetting
             mutation={mutation}
             field="shell.enabled"
-            label="Enable Shell tool"
-            value={snapshot.shell.enabled}
+            label="Run commands"
+            hint="Uses this computer’s shell, inside its limits."
+            value={snapshot.shell.enabled === true}
+            row={{
+              icon: <SquareTerminal size={16} aria-hidden />,
+              tone: '6',
+            }}
           />
         ) : (
-          <StateChip warning>Shell tool not found</StateChip>
+          <SettingsItem
+            label="Run commands"
+            icon={<SquareTerminal size={16} aria-hidden />}
+            tone="neutral"
+            off
+            anchor="shell.enabled"
+            status={
+              <StatusLine tone="warning">Shell tool not found</StatusLine>
+            }
+          />
         )}
-      </Section>
-      <Section
-        title="Browser & Computer Use"
-        description="Web and native-app automation keep separate setup and authority."
-        icon={AppWindow}
-        anchor="browser-computer-use"
-      >
-        <div className="settings-system-runtime-list">
-          {snapshot.browser.available && snapshot.browser.enabled != null ? (
-            <div className="settings-system-runtime-row">
-              <div>
-                <strong>Browser automation</strong>
-                <small>
-                  Runtime: {savedStateLabel(snapshot.browser.runtime_state)}
-                </small>
-              </div>
-              <SwitchSetting
-                mutation={mutation}
-                field="browser.enabled"
-                label="Enable Browser tool"
-                value={snapshot.browser.enabled}
-              />
-              <ReviewedSettingsAction
-                mutation={mutation}
-                field="browser.install"
-                label="Install browser runtime"
-                description="Downloads Row-Bot's managed Playwright Chromium. Installed Chrome or Edge remains preferred."
-              />
-            </div>
-          ) : (
-            <StateChip warning>Browser tool not found</StateChip>
-          )}
-          {snapshot.computer_use.available &&
-          snapshot.computer_use.enabled != null ? (
-            <div className="settings-system-runtime-row">
-              <div>
-                <strong>Computer Use (Beta)</strong>
-                <small>{snapshot.computer_use.status_message}</small>
-              </div>
-              {snapshot.computer_use.local_owner_control_available &&
-              snapshot.computer_use.disclosure_acknowledged ? (
-                <SwitchSetting
-                  mutation={mutation}
-                  field="computer_use.enabled"
-                  label="Computer Use (Beta)"
-                  value={snapshot.computer_use.enabled}
-                />
-              ) : !snapshot.computer_use.disclosure_acknowledged ? (
-                <StateChip warning>Telemetry notice required</StateChip>
-              ) : (
-                <StateChip>Host setup is local only</StateChip>
-              )}
-            </div>
-          ) : (
-            <StateChip warning>Computer Use unavailable</StateChip>
-          )}
-        </div>
-        {snapshot.computer_use.available && (
-          <>
-            {snapshot.computer_use.local_owner_control_available &&
-              !snapshot.computer_use.disclosure_acknowledged && (
-                <div className="settings-system-detail">
-                  <p className="settings-help">
-                    {snapshot.computer_use.disclosure_text}
-                  </p>
-                  <SwitchSetting
-                    mutation={mutation}
-                    field="computer_use.disclosure_acknowledged"
-                    label="Accept Cua Driver telemetry notice"
-                    value={false}
-                  />
-                </div>
-              )}
-            {snapshot.computer_use.local_owner_control_available &&
-              snapshot.computer_use.disclosure_acknowledged && (
-                <div className="settings-system-detail">
-                  <p className="settings-help">
-                    {snapshot.computer_use.remediation}
-                  </p>
-                  <ReviewedSettingsAction
-                    mutation={mutation}
-                    field="computer_use.check"
-                    label="Check Computer Use setup"
-                    description="Run the reviewed local driver diagnostics and report missing access."
-                  />
-                  {snapshot.computer_use.platform === 'macos' && (
-                    <details>
-                      <summary>macOS permission recovery</summary>
-                      <p className="settings-help">
-                        Switch on Row-Bot in Accessibility and Screen Recording,
-                        then check setup again. macOS may ask you to reopen
-                        Row-Bot.
-                      </p>
-                      <ReviewedSettingsAction
-                        mutation={mutation}
-                        field="computer_use.open_accessibility"
-                        label="Open Accessibility settings"
-                        description="Open the local macOS Privacy & Security pane."
-                      />
-                      <ReviewedSettingsAction
-                        mutation={mutation}
-                        field="computer_use.open_screen_recording"
-                        label="Open Screen Recording settings"
-                        description="Open the local macOS Privacy & Security pane."
-                      />
-                    </details>
-                  )}
-                  {snapshot.computer_use.runtime_state === 'ready' && (
-                    <ReviewedSettingsAction
-                      mutation={mutation}
-                      field="computer_use.test"
-                      label="Test with Calculator"
-                      description="Open Calculator briefly and verify a local target window."
-                    />
-                  )}
-                  <details>
-                    <summary>Advanced system Cua executable</summary>
-                    <p className="settings-help">
-                      Verifying starts the executable you select on this host.
-                      Use only a separately reviewed Cua Driver binary.
-                    </p>
-                    <TextSetting
-                      mutation={mutation}
-                      field="computer_use.system_binary_verify"
-                      label="Verify system Cua executable"
-                      value=""
-                      maxLength={4096}
-                    />
-                    {snapshot.computer_use.system_binary_configured && (
-                      <ReviewedSettingsAction
-                        mutation={mutation}
-                        field="computer_use.use_managed_runtime"
-                        label="Use managed Cua runtime"
-                        description="Return to Row-Bot's reviewed managed component."
-                      />
-                    )}
-                  </details>
-                </div>
-              )}
-            <details className="settings-system-detail">
-              <summary>Computer Use setup details</summary>
-              <Facts>
-                <Fact
-                  label="Disclosure"
-                  value={
-                    snapshot.computer_use.disclosure_acknowledged
-                      ? 'Acknowledged'
-                      : 'Not acknowledged'
-                  }
-                />
-                <Fact
-                  label="System Cua executable"
-                  value={configuredLabel(
-                    snapshot.computer_use.system_binary_configured,
-                  )}
-                />
-              </Facts>
-            </details>
-          </>
-        )}
-        {snapshot.computer_use.available &&
-          snapshot.computer_use.local_owner_control_available &&
-          snapshot.computer_use.disclosure_acknowledged && (
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="computer_use.install"
-              label="Install Computer Use runtime"
-              description="Downloads the pinned Cua Driver artifact for this platform."
-            />
-          )}
-      </Section>
-      <Section
-        title="File operations"
-        description="Which read, write and destructive filesystem operations are allowed."
-        icon={FileText}
-        anchor="file-operations"
-      >
-        {snapshot.file_operations.available &&
-        snapshot.file_operations.enabled != null ? (
-          <>
-            <SwitchSetting
-              mutation={mutation}
-              field="file_operations.enabled"
-              label="Enable Filesystem tool"
-              value={snapshot.file_operations.enabled}
-            />
-            <GroupedOperationSetting
-              mutation={mutation}
-              field="file_operations.selected"
-              label="Allowed operations"
-              value={snapshot.file_operations.selected}
-              options={snapshot.file_operations.options}
-            />
-          </>
+        {filesAvailable ? (
+          <FileAccessSetting
+            mutation={mutation}
+            enabled={files.enabled === true}
+            selected={files.selected}
+            options={files.options}
+          />
         ) : (
-          <StateChip warning>Filesystem tool unavailable</StateChip>
+          <SettingsItem
+            label="Work with files"
+            icon={<Files size={16} aria-hidden />}
+            tone="neutral"
+            off
+            anchor="file-operations"
+            status={
+              <StatusLine tone="warning">
+                Filesystem tool unavailable
+              </StatusLine>
+            }
+          />
         )}
-      </Section>
-      <Section
-        title="Logging"
-        description="Local diagnostic level and output folder."
-        icon={ListChecks}
-        anchor="logging"
-      >
+        <SettingsItem
+          label="Browser and computer use"
+          help="Lets Row-Bot use websites and apps for you."
+          icon={<MousePointerClick size={16} aria-hidden />}
+          tone="3"
+          anchor="browser-computer-use"
+          bind={false}
+          status={
+            <StatusLine
+              tone={
+                (browserAvailable && snapshot.browser.enabled) ||
+                (computerAvailable && cu.enabled)
+                  ? 'success'
+                  : browserAvailable || computerAvailable
+                    ? 'neutral'
+                    : 'warning'
+              }
+              more={[
+                computerAvailable
+                  ? cu.enabled
+                    ? 'Computer use on'
+                    : 'Computer use off'
+                  : 'Computer Use unavailable',
+              ]}
+            >
+              {browserAvailable
+                ? snapshot.browser.enabled
+                  ? 'Browser on'
+                  : 'Browser off'
+                : 'Browser tool not found'}
+            </StatusLine>
+          }
+          control={
+            <BrowserComputerSetup
+              snapshot={snapshot}
+              mutation={mutation}
+              browserAvailable={browserAvailable}
+              computerAvailable={computerAvailable}
+            />
+          }
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Logs">
         <SelectSetting
           mutation={mutation}
           field="logging.level"
-          label="File log level"
+          label="Log detail"
           hint={
             snapshot.logging.directory_available
-              ? 'Logs are written to a local folder.'
+              ? 'Kept on this computer; more detail helps with bug reports.'
               : 'The log folder is created when logging starts.'
           }
           value={snapshot.logging.level}
           options={[
-            { value: 'DEBUG', label: 'Debug' },
-            { value: 'INFO', label: 'Info' },
-            { value: 'WARNING', label: 'Warning' },
-            { value: 'ERROR', label: 'Error' },
+            { value: 'DEBUG', label: 'Everything (debug)' },
+            { value: 'INFO', label: 'Normal' },
+            { value: 'WARNING', label: 'Warnings and errors' },
+            { value: 'ERROR', label: 'Errors only' },
           ]}
+          row={{
+            trailing: (
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="logging.open"
+                label="Open log folder"
+                description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
+                presentation="icon"
+                icon={<FolderOpen size={16} aria-hidden />}
+              />
+            ),
+          }}
         />
-        <ReviewedSettingsAction
-          mutation={mutation}
-          field="logging.open"
-          label="Open log folder"
-          description="Opens Row-Bot's fixed local log directory; the renderer never receives its path."
-        />
-      </Section>
+      </SettingsGroup>
       <SettingsAdvanced meta="Blocked commands, offline support">
-        {snapshot.shell.available && snapshot.shell.enabled != null && (
-          <TextSetting
-            mutation={mutation}
-            field="shell.blocked_patterns"
-            label="Additional blocked patterns (comma-separated)"
-            value={snapshot.shell.blocked_patterns}
+        <SettingsGroup label="Advanced system settings">
+          {shellAvailable && (
+            <TextSetting
+              mutation={mutation}
+              field="shell.blocked_patterns"
+              label="Additional blocked patterns (comma-separated)"
+              hint="Commands matching these are never run."
+              value={snapshot.shell.blocked_patterns}
+            />
+          )}
+          <SettingsItem
+            label="App availability"
+            help={
+              <span role="status">
+                {appAvailability.phase === 'offline'
+                  ? 'Offline. Unsent drafts remain on this device.'
+                  : appAvailability.phase === 'error'
+                    ? 'Install and offline support are unavailable. Check browser storage and service worker permissions.'
+                    : appAvailability.phase === 'unsupported'
+                      ? 'This browser does not support install and offline mode.'
+                      : appAvailability.updateAvailable
+                        ? 'An update is ready to apply from the app notice.'
+                        : appAvailability.phase === 'ready'
+                          ? 'Install and offline support are ready.'
+                          : 'Checking install and offline support.'}
+              </span>
+            }
           />
-        )}
-        <div className="settings-inline-row">
-          <div>
-            <strong>App availability</strong>
-            <p role="status">
-              {appAvailability.phase === 'offline'
-                ? 'Offline. Unsent drafts remain on this device.'
-                : appAvailability.phase === 'error'
-                  ? 'Install and offline support are unavailable. Check browser storage and service worker permissions.'
-                  : appAvailability.phase === 'unsupported'
-                    ? 'This browser does not support install and offline mode.'
-                    : appAvailability.updateAvailable
-                      ? 'An update is ready to apply from the app notice.'
-                      : appAvailability.phase === 'ready'
-                        ? 'Install and offline support are ready.'
-                        : 'Checking install and offline support.'}
-            </p>
-          </div>
-        </div>
+        </SettingsGroup>
       </SettingsAdvanced>
       {cu.available &&
         cu.local_owner_control_available &&
@@ -2317,6 +2448,470 @@ export function SystemSnapshotPanel({
           </SettingsDangerZone>
         )}
     </div>
+  );
+}
+
+/**
+ * Browser and computer use, behind one "Set up…" (B258): the same reviewed
+ * switches, installs, disclosure and diagnostics as before, in a dialog.
+ */
+function BrowserComputerSetup({
+  snapshot,
+  mutation,
+  browserAvailable,
+  computerAvailable,
+}: {
+  snapshot: SettingsSnapshot['system'];
+  mutation: SettingsMutationIO;
+  browserAvailable: boolean;
+  computerAvailable: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const cu = snapshot.computer_use;
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>Set up…</Button>
+      <ModalTask
+        open={open}
+        onOpenChange={setOpen}
+        title="Browser and computer use"
+        description="Web and native-app automation keep separate setup and authority."
+      >
+        <div className="settings-dialog-rows">
+          <SettingsGroup title="Browser">
+            {browserAvailable ? (
+              <>
+                <SwitchSetting
+                  mutation={mutation}
+                  field="browser.enabled"
+                  label="Enable Browser tool"
+                  hint={`Runtime: ${savedStateLabel(snapshot.browser.runtime_state)}`}
+                  value={snapshot.browser.enabled === true}
+                />
+                <SettingsItem
+                  label="Browser runtime"
+                  help="Downloads Row-Bot's managed Playwright Chromium. Installed Chrome or Edge remains preferred."
+                  bind={false}
+                  control={
+                    <ReviewedSettingsAction
+                      mutation={mutation}
+                      field="browser.install"
+                      label="Install browser runtime"
+                      text="Install"
+                      description="Downloads Row-Bot's managed Playwright Chromium. Installed Chrome or Edge remains preferred."
+                      presentation="button"
+                    />
+                  }
+                />
+              </>
+            ) : (
+              <SettingsItem
+                label="Browser automation"
+                status={
+                  <StatusLine tone="warning">Browser tool not found</StatusLine>
+                }
+              />
+            )}
+          </SettingsGroup>
+          <SettingsGroup title="Desktop apps">
+            {computerAvailable ? (
+              <SettingsItem
+                label="Computer Use (Beta)"
+                help={cu.status_message}
+                layout="inline"
+                bind={false}
+                control={
+                  cu.local_owner_control_available &&
+                  cu.disclosure_acknowledged ? (
+                    <SwitchSetting
+                      mutation={mutation}
+                      field="computer_use.enabled"
+                      label="Computer Use (Beta)"
+                      value={cu.enabled === true}
+                      bare
+                    />
+                  ) : !cu.disclosure_acknowledged ? (
+                    <StatusLine tone="warning">
+                      Telemetry notice required
+                    </StatusLine>
+                  ) : (
+                    <StatusLine>Host setup is local only</StatusLine>
+                  )
+                }
+              />
+            ) : (
+              <SettingsItem
+                label="Computer Use (Beta)"
+                status={
+                  <StatusLine tone="warning">
+                    Computer Use unavailable
+                  </StatusLine>
+                }
+              />
+            )}
+            {cu.available &&
+              cu.local_owner_control_available &&
+              !cu.disclosure_acknowledged && (
+                <SwitchSetting
+                  mutation={mutation}
+                  field="computer_use.disclosure_acknowledged"
+                  label="Accept Cua Driver telemetry notice"
+                  hint={cu.disclosure_text}
+                  value={false}
+                />
+              )}
+            {cu.available &&
+              cu.local_owner_control_available &&
+              cu.disclosure_acknowledged && (
+                <div className="settings-divided settings-system-detail">
+                  {cu.remediation && (
+                    <p className="settings-help">{cu.remediation}</p>
+                  )}
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="computer_use.check"
+                    label="Check Computer Use setup"
+                    description="Run the reviewed local driver diagnostics and report missing access."
+                  />
+                  {cu.platform === 'macos' && (
+                    <details>
+                      <summary>macOS permission recovery</summary>
+                      <p className="settings-help">
+                        Switch on Row-Bot in Accessibility and Screen Recording,
+                        then check setup again. macOS may ask you to reopen
+                        Row-Bot.
+                      </p>
+                      <ReviewedSettingsAction
+                        mutation={mutation}
+                        field="computer_use.open_accessibility"
+                        label="Open Accessibility settings"
+                        description="Open the local macOS Privacy & Security pane."
+                      />
+                      <ReviewedSettingsAction
+                        mutation={mutation}
+                        field="computer_use.open_screen_recording"
+                        label="Open Screen Recording settings"
+                        description="Open the local macOS Privacy & Security pane."
+                      />
+                    </details>
+                  )}
+                  {cu.runtime_state === 'ready' && (
+                    <ReviewedSettingsAction
+                      mutation={mutation}
+                      field="computer_use.test"
+                      label="Test with Calculator"
+                      description="Open Calculator briefly and verify a local target window."
+                    />
+                  )}
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="computer_use.install"
+                    label="Install Computer Use runtime"
+                    description="Downloads the pinned Cua Driver artifact for this platform."
+                  />
+                  <details>
+                    <summary>Advanced system Cua executable</summary>
+                    <p className="settings-help">
+                      Verifying starts the executable you select on this host.
+                      Use only a separately reviewed Cua Driver binary.
+                    </p>
+                    <TextSetting
+                      mutation={mutation}
+                      field="computer_use.system_binary_verify"
+                      label="Verify system Cua executable"
+                      value=""
+                      maxLength={4096}
+                    />
+                    {cu.system_binary_configured && (
+                      <ReviewedSettingsAction
+                        mutation={mutation}
+                        field="computer_use.use_managed_runtime"
+                        label="Use managed Cua runtime"
+                        description="Return to Row-Bot's reviewed managed component."
+                      />
+                    )}
+                  </details>
+                </div>
+              )}
+            {cu.available && (
+              <details className="settings-divided settings-system-detail">
+                <summary>Computer Use setup details</summary>
+                <Facts>
+                  <Fact
+                    label="Disclosure"
+                    value={
+                      cu.disclosure_acknowledged
+                        ? 'Acknowledged'
+                        : 'Not acknowledged'
+                    }
+                  />
+                  <Fact
+                    label="System Cua executable"
+                    value={configuredLabel(cu.system_binary_configured)}
+                  />
+                </Facts>
+              </details>
+            )}
+          </SettingsGroup>
+        </div>
+      </ModalTask>
+    </>
+  );
+}
+
+const READ_OPERATIONS = ['read_file', 'list_directory', 'file_search'];
+const WRITE_OPERATIONS = ['write_file', 'copy_file', 'export_to_pdf'];
+const DESTRUCTIVE_OPERATIONS = ['move_file', 'file_delete'];
+type FileAccess = 'off' | 'read' | 'write' | 'all' | 'custom';
+const fileAccessWords: Record<FileAccess, string> = {
+  off: 'off',
+  read: 'read only',
+  write: 'read and write',
+  all: 'everything',
+  custom: 'chosen each',
+};
+const operationVerbs: Record<string, string> = {
+  read_file: 'read',
+  list_directory: 'list',
+  file_search: 'search',
+  write_file: 'write',
+  copy_file: 'copy',
+  export_to_pdf: 'save as PDF',
+  move_file: 'move',
+  file_delete: 'delete',
+};
+
+/** The operations each step allows, among the ones this install offers. */
+function fileAccessSteps(options: string[]) {
+  const offered = (list: string[]) => list.filter((op) => options.includes(op));
+  return {
+    read: offered(READ_OPERATIONS),
+    write: offered([...READ_OPERATIONS, ...WRITE_OPERATIONS]),
+    all: [...options],
+  };
+}
+
+function sameOperations(left: string[], right: string[]) {
+  return left.length === right.length && left.every((op) => right.includes(op));
+}
+
+function fileAccessLevel(
+  enabled: boolean,
+  selected: string[],
+  options: string[],
+): FileAccess {
+  if (!enabled) return 'off';
+  const steps = fileAccessSteps(options);
+  if (sameOperations(selected, steps.read)) return 'read';
+  if (sameOperations(selected, steps.write)) return 'write';
+  if (sameOperations(selected, steps.all)) return 'all';
+  return 'custom';
+}
+
+/** "Read, list and search. Moving and deleting stay off." */
+function fileAccessSummary(enabled: boolean, selected: string[]) {
+  if (!enabled) return 'Row-Bot can’t read or change files.';
+  const verbs = selected.map((op) => operationVerbs[op] ?? operationLabel(op));
+  if (!verbs.length) return 'No file operations are allowed.';
+  const list =
+    verbs.length > 1
+      ? `${verbs.slice(0, -1).join(', ')} and ${verbs[verbs.length - 1]}`
+      : verbs[0];
+  const destructiveOff = DESTRUCTIVE_OPERATIONS.every(
+    (op) => !selected.includes(op),
+  );
+  return `${list[0].toUpperCase()}${list.slice(1)}.${
+    destructiveOff ? ' Moving and deleting stay off.' : ''
+  }`;
+}
+
+/** Review and apply one saved field; the receipt carries the new snapshot. */
+async function applySetting(
+  mutation: SettingsMutationIO,
+  revision: string,
+  field: string,
+  value: SettingsValue,
+) {
+  const request: SettingsMutationRequest = {
+    settings_revision: revision,
+    page: mutation.page,
+    field,
+    value: Array.isArray(value) ? [...value] : value,
+  };
+  const review = await mutation.review(request);
+  if (
+    review.operation !== 'settings.update' ||
+    review.settings_revision !== revision ||
+    review.page !== request.page ||
+    review.field !== field
+  )
+    throw { code: 'revision_conflict' };
+  return mutation.execute(request, review, crypto.randomUUID());
+}
+
+/**
+ * Work with files as four steps (B258): Off, Read, Read & write, All, and
+ * "Choose each…" for the operations one by one. A step writes the same two
+ * saved fields as before (the Filesystem tool switch and its allowed
+ * operations), each through its own review; Destructive stays off unless
+ * "All".
+ */
+function FileAccessSetting({
+  mutation,
+  enabled,
+  selected,
+  options,
+}: {
+  mutation: SettingsMutationIO;
+  enabled: boolean;
+  selected: string[];
+  options: string[];
+}) {
+  const notify = useNotify();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [uncertain, setUncertain] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const level = fileAccessLevel(enabled, selected, options);
+  const steps = fileAccessSteps(options);
+  const latest = useRef({ mutation, enabled, selected });
+  useEffect(() => {
+    latest.current = { mutation, enabled, selected };
+  });
+  async function apply(
+    target: { enabled: boolean; selected: string[] },
+    message: string,
+    undo?: { enabled: boolean; selected: string[] },
+  ) {
+    const current = latest.current;
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    setUncertain(false);
+    const changes: [string, SettingsValue][] = [];
+    if (target.enabled && !current.enabled)
+      changes.push(['file_operations.enabled', true]);
+    if (target.enabled && !sameOperations(target.selected, current.selected))
+      changes.push(['file_operations.selected', target.selected]);
+    if (!target.enabled && current.enabled)
+      changes.push(['file_operations.enabled', false]);
+    let revision = current.mutation.revision;
+    try {
+      for (const [field, value] of changes) {
+        const receipt = await applySetting(
+          current.mutation,
+          revision,
+          field,
+          value,
+        );
+        if (receipt.status !== 'completed' || !receipt.snapshot) {
+          if (receipt.status === 'partial') setUncertain(true);
+          else setError('The change was rejected. Refresh and try again.');
+          return;
+        }
+        revision = receipt.snapshot.revision;
+        current.mutation.onSnapshot(receipt.snapshot);
+      }
+      notify(
+        message,
+        undefined,
+        undo
+          ? {
+              label: 'Undo',
+              onAction: () => void apply(undo, 'File access changed back'),
+            }
+          : undefined,
+      );
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const before = { enabled, selected: [...selected] };
+  return (
+    <SettingsItem
+      label="Work with files"
+      help="In the workspace folder only."
+      icon={<Files size={16} aria-hidden />}
+      tone="1"
+      anchor="file-operations"
+      bind={false}
+      control={
+        <Segmented
+          label="Work with files"
+          value={level}
+          onChange={(next) => {
+            if (next === level || next === 'custom') return;
+            const target =
+              next === 'off'
+                ? { enabled: false, selected }
+                : { enabled: true, selected: steps[next] };
+            void apply(target, `File access: ${fileAccessWords[next]}`, before);
+          }}
+          options={[
+            { value: 'off', label: 'Off', disabled: busy },
+            { value: 'read', label: 'Read', disabled: busy },
+            { value: 'write', label: 'Read & write', disabled: busy },
+            { value: 'all', label: 'All', disabled: busy },
+          ]}
+        />
+      }
+    >
+      <div className="settings-file-access-summary">
+        <p>
+          {level === 'custom' && <strong>Chosen each: </strong>}
+          {fileAccessSummary(enabled, selected)}
+        </p>
+        <Button
+          variant="ghost"
+          className="settings-link"
+          onClick={() => setChoosing(true)}
+        >
+          Choose each…
+        </Button>
+      </div>
+      {error && <p role="alert">{error}</p>}
+      {uncertain && (
+        <p role="status">
+          Row-Bot couldn’t confirm the change.{' '}
+          {mutation.refreshSnapshot && (
+            <Button
+              variant="ghost"
+              className="settings-link"
+              onClick={() =>
+                void mutation.refreshSnapshot!().then(
+                  (snapshot) => {
+                    mutation.onSnapshot(snapshot);
+                    setUncertain(false);
+                  },
+                  (cause) => setError(clientError(cause).message),
+                )
+              }
+            >
+              Read the saved state again
+            </Button>
+          )}
+        </p>
+      )}
+      <ModalTask
+        open={choosing}
+        onOpenChange={setChoosing}
+        title="Choose each file operation"
+        description="Each one saves when you change it. Destructive operations move or delete files."
+      >
+        <GroupedOperationSetting
+          mutation={mutation}
+          field="file_operations.selected"
+          label="Allowed operations"
+          value={selected}
+          options={options}
+        />
+        <div className="button-row">
+          <Button onClick={() => setChoosing(false)}>Done</Button>
+        </div>
+      </ModalTask>
+    </SettingsItem>
   );
 }
 
@@ -2342,24 +2937,46 @@ function WorkspaceFolderSetting({
     <SavedSetting
       mutation={mutation}
       field="workspace.folder_grant"
-      label="Workspace folder grant"
+      label="Workspace folder"
+      hint="Row-Bot’s file tools only work inside this folder. The full local path is never sent to the renderer."
       value=""
-      group
+      savedMessage={() => 'Workspace folder changed'}
+      row={{
+        bind: false,
+        status:
+          pickError || selectedName || (configured && exists === false) ? (
+            <>
+              {configured && exists === false && (
+                <StatusLine tone="warning">Folder not found</StatusLine>
+              )}
+              {selectedName && (
+                <span role="status" className="settings-row-status-line">
+                  Selected: {selectedName}
+                </span>
+              )}
+              {pickError && (
+                <span role="alert" className="settings-row-status-line">
+                  {pickError}
+                </span>
+              )}
+            </>
+          ) : undefined,
+      }}
     >
       {({ setValue, disabled }) => (
-        <div className="settings-inline-row settings-folder-row">
-          <div>
-            <strong>
+        <>
+          <span className="settings-folder-chip">
+            <Folder size={14} aria-hidden />
+            <span>
               {configured
-                ? `Current folder: ${currentName || 'Selected local folder'}`
-                : 'No workspace folder selected'}
-            </strong>
-            <p>
-              {exists === false && configured ? 'Folder not found. ' : ''}
-              The full local path is never sent to the renderer.
-            </p>
-          </div>
+                ? currentName || 'Selected local folder'
+                : 'No folder chosen'}
+            </span>
+          </span>
           <Button
+            aria-label={
+              configured ? 'Change workspace folder' : 'Choose workspace folder'
+            }
             disabled={disabled || picking || !pickFolder}
             onClick={() => {
               if (!pickFolder || picking) return;
@@ -2384,11 +3001,9 @@ function WorkspaceFolderSetting({
                 .finally(() => setPicking(false));
             }}
           >
-            {picking ? 'Choosing folder…' : 'Choose workspace folder'}
+            {picking ? 'Choosing…' : configured ? 'Change…' : 'Choose…'}
           </Button>
-          {selectedName && <p role="status">Selected: {selectedName}</p>}
-          {pickError && <p role="alert">{pickError}</p>}
-        </div>
+        </>
       )}
     </SavedSetting>
   );
@@ -3193,9 +3808,17 @@ export function DocumentModelSetting({
     <SelectSetting
       mutation={mutation}
       field="processing_model"
-      label="Model for documents"
-      hint="Reads each document and saves what it says to knowledge. The conversation's model is used when none is picked."
+      label="Read documents with"
+      hint="Saves what each document says to your knowledge. The conversation’s model is used when none is picked."
       value={current}
+      savedMessage={(next) =>
+        next
+          ? `Documents are read with ${
+              models.find((model) => model.model_ref === next)?.label ??
+              String(next)
+            }`
+          : 'Documents are read with the conversation’s model'
+      }
       options={[
         { value: '', label: "Conversation's model" },
         ...models
@@ -3209,6 +3832,18 @@ export function DocumentModelSetting({
       ]}
     />
   );
+}
+
+/** A saved health state in words: "cached" → "Cached". */
+function healthWords(state: string) {
+  return humanizeToken(state);
+}
+function healthTone(state: string): 'success' | 'warning' | undefined {
+  return ['current', 'cached', 'ready', 'loaded'].includes(state)
+    ? 'success'
+    : ['unavailable', 'stale', 'missing', 'failed', 'pending'].includes(state)
+      ? 'warning'
+      : undefined;
 }
 
 export function DocumentEmbeddingSnapshot({
@@ -3230,13 +3865,15 @@ export function DocumentEmbeddingSnapshot({
   }, [embedding.provider, mutation.drafts, mutation.page]);
   if (snapshot.availability !== 'available')
     return (
-      <Section
-        title="Embedding Engine"
-        description="Local models stay private; cloud models send the document text to the provider."
-        icon={Bot}
-      >
-        <StateChip warning>Embedding settings unavailable</StateChip>
-      </Section>
+      <SettingsGroup title="Search" anchor="embedding">
+        <SettingsItem
+          label="Search"
+          help="Local models stay private; cloud models send the document text to the provider."
+          status={
+            <StatusLine tone="warning">Search settings unavailable</StatusLine>
+          }
+        />
+      </SettingsGroup>
     );
   const activeEmbedding =
     snapshot.active_embedding ||
@@ -3255,150 +3892,191 @@ export function DocumentEmbeddingSnapshot({
     state: 'unavailable',
     detail: 'Saved memory index state is unavailable.',
   };
+  const local = provider === 'local';
   return (
-    <div className="stack settings-document-embedding-owner">
-      <SettingsSummary>
-        <SummaryChip>
-          {snapshot.indexed_documents == null
-            ? 'Indexed count unavailable'
-            : `${snapshot.indexed_documents.toLocaleString()} indexed`}
-        </SummaryChip>
-        <SummaryChip
-          tone={vectors.state === 'current' ? 'success' : 'warning'}
-          title={vectors.detail}
-        >
-          {vectors.state === 'current'
-            ? 'Vectors current'
-            : `Vectors ${humanizeToken(vectors.state).toLowerCase()}`}
-        </SummaryChip>
-      </SettingsSummary>
-      <Section
-        title="Embedding Engine"
-        description={`Local models stay private; cloud models send the document text to the provider. Active: ${activeEmbedding}.`}
-        icon={Network}
-        anchor="embedding"
+    <>
+      <SettingsStatus
+        tone={vectors.state === 'current' ? 'success' : 'warning'}
+        more={[
+          vectors.state === 'current'
+            ? ''
+            : `search index ${healthWords(vectors.state).toLowerCase()}`,
+          local ? 'search runs on this computer' : 'search runs in the cloud',
+        ]}
       >
-        <div className="settings-control-grid">
+        {snapshot.indexed_documents == null
+          ? 'Indexed count unavailable'
+          : `${snapshot.indexed_documents.toLocaleString()} searchable`}
+      </SettingsStatus>
+      <SettingsGroup title="Search" anchor="embedding">
+        <SegmentedSetting
+          mutation={mutation}
+          field="embedding.provider"
+          label="Search runs"
+          hint={
+            local
+              ? 'On this computer, your documents never leave it.'
+              : 'In the cloud, document text goes to the embedding provider.'
+          }
+          value={embedding.provider}
+          onDraftChange={setProvider}
+          savedMessage={(next) =>
+            next === 'cloud'
+              ? 'Search now runs in the cloud'
+              : 'Search now runs on this computer'
+          }
+          confirm={(next) =>
+            next === 'cloud'
+              ? 'Documents and memories will be sent to the cloud embedding provider to be indexed. Change it?'
+              : ''
+          }
+          options={[
+            {
+              value: 'local',
+              label: 'This computer',
+              icon: <HardDrive size={14} aria-hidden />,
+            },
+            {
+              value: 'cloud',
+              label: 'Cloud',
+              icon: <Cloud size={14} aria-hidden />,
+            },
+          ]}
+        />
+        {local ? (
           <SelectSetting
+            key="local-embedding-model"
             mutation={mutation}
-            field="embedding.provider"
-            label="Provider"
-            value={embedding.provider}
-            onDraftChange={setProvider}
-            confirm={(next) =>
-              next === 'cloud'
-                ? 'Documents and memories will be sent to the cloud embedding provider to be indexed. Change it?'
-                : ''
-            }
-            options={[
-              { value: 'local', label: 'Local runtime model' },
-              { value: 'cloud', label: 'Cloud embedding model' },
-            ]}
+            field="embedding.local_model"
+            label="Search model"
+            hint={`Turns text into something searchable. In use: ${activeEmbedding}.`}
+            value={embedding.local_model}
+            options={embedding.local_options}
+            row={{
+              status: (
+                <StatusLine tone={healthTone(localRuntime.state)}>
+                  {healthWords(localRuntime.state)}
+                </StatusLine>
+              ),
+            }}
           />
-          {provider === 'local' ? (
-            <SelectSetting
-              key="local-embedding-model"
-              mutation={mutation}
-              field="embedding.local_model"
-              label="Local model"
-              value={embedding.local_model}
-              options={embedding.local_options}
-            />
-          ) : (
-            <SelectSetting
-              key="cloud-embedding-model"
-              mutation={mutation}
-              field="embedding.cloud_model"
-              label="Cloud model"
-              value={embedding.cloud_model}
-              options={embedding.cloud_options}
-            />
-          )}
+        ) : (
+          <SelectSetting
+            key="cloud-embedding-model"
+            mutation={mutation}
+            field="embedding.cloud_model"
+            label="Search model"
+            hint={`Turns text into something searchable. In use: ${activeEmbedding}.`}
+            value={embedding.cloud_model}
+            options={embedding.cloud_options}
+          />
+        )}
+        <SwitchSetting
+          mutation={mutation}
+          field="embedding.auto_unload"
+          label="Free memory when idle"
+          hint="Unloads the search model after a few minutes."
+          value={embedding.auto_unload}
+        />
+      </SettingsGroup>
+      <SettingsAdvanced meta="Index health, rebuild, repair the model">
+        <SettingsGroup label="Index health and maintenance">
           <NumberSetting
             mutation={mutation}
             field="embedding.dimension"
             label="Dimension override"
+            hint="Leave it on Automatic unless a model needs a fixed size."
             value={embedding.dimension}
             min={1}
             max={65536}
             optional
           />
-          <SwitchSetting
-            mutation={mutation}
-            field="embedding.auto_unload"
-            label="Auto-unload local resources"
-            value={embedding.auto_unload}
+          <SettingsItem
+            label="Document vectors"
+            help={vectors.detail}
+            bind={false}
+            status={
+              <StatusLine tone={healthTone(vectors.state)}>
+                Document vectors: {vectors.state}
+              </StatusLine>
+            }
+            control={
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="vectors.rebuild"
+                label="rebuild document vectors"
+                text="Rebuild"
+                description="Recreate document search vectors from the documents already added."
+                presentation="button"
+              />
+            }
           />
-        </div>
-      </Section>
-      <SettingsAdvanced meta="Index health and maintenance">
-        <div className="settings-document-runtime" role="status">
-          {provider === 'local' && (
-            <p>
-              <strong>Local model: {localRuntime.state}</strong> —{' '}
-              {localRuntime.detail}
-            </p>
-          )}
-          {provider === 'local' && (
-            <p>
-              <strong>Memory index: {memoryIndex.state}</strong> —{' '}
-              {memoryIndex.detail}
-            </p>
-          )}
-          <p>
-            <strong>Document vectors: {vectors.state}</strong> —{' '}
-            {vectors.detail}
-          </p>
-          <p className="settings-help">
-            Normal recall never downloads a model. Saving a field does not
-            rebuild either index.
-          </p>
-        </div>
-        <div className="settings-document-maintenance-wrap">
-          <div
-            className="settings-document-maintenance"
-            role="group"
-            aria-label="Document index maintenance"
-          >
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="vectors.rebuild"
-              label="rebuild document vectors"
-              description="Recreate document search vectors from the documents already added."
+          <SettingsItem
+            label="Memory index"
+            help={memoryIndex.detail}
+            bind={false}
+            status={
+              local ? (
+                <StatusLine tone={healthTone(memoryIndex.state)}>
+                  Memory index: {memoryIndex.state}
+                </StatusLine>
+              ) : undefined
+            }
+            control={
+              <ReviewedSettingsAction
+                mutation={mutation}
+                field="memory_index.rebuild"
+                label="rebuild memory index"
+                text="Rebuild"
+                description="Recreate the local memory vector index with the saved embedding configuration."
+                presentation="button"
+              />
+            }
+          />
+          {local && (
+            <SettingsItem
+              label="Search model files"
+              help={`${localRuntime.detail} Normal recall never downloads a model; saving a field does not rebuild either index.`}
+              bind={false}
+              status={
+                <StatusLine tone={healthTone(localRuntime.state)}>
+                  Local model: {localRuntime.state}
+                </StatusLine>
+              }
+              control={
+                <>
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="local_model.retry"
+                    label="retry local load"
+                    text="Retry"
+                    description="Retry loading the selected model from the existing on-device cache."
+                    presentation="button"
+                  />
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="local_model.download"
+                    label="download local model"
+                    text="Download"
+                    description="Download the selected embedding model. This requires network access."
+                    presentation="button"
+                  />
+                  <ReviewedSettingsAction
+                    mutation={mutation}
+                    field="local_model.repair"
+                    label="repair local model"
+                    text="Repair"
+                    description="Replace the selected model's cached files. This requires network access."
+                    variant="danger"
+                    presentation="button"
+                  />
+                </>
+              }
             />
-            <ReviewedSettingsAction
-              mutation={mutation}
-              field="memory_index.rebuild"
-              label="rebuild memory index"
-              description="Recreate the local memory vector index with the saved embedding configuration."
-            />
-            {provider === 'local' && (
-              <>
-                <ReviewedSettingsAction
-                  mutation={mutation}
-                  field="local_model.retry"
-                  label="retry local load"
-                  description="Retry loading the selected model from the existing on-device cache."
-                />
-                <ReviewedSettingsAction
-                  mutation={mutation}
-                  field="local_model.download"
-                  label="download local model"
-                  description="Download the selected embedding model. This requires network access."
-                />
-                <ReviewedSettingsAction
-                  mutation={mutation}
-                  field="local_model.repair"
-                  label="repair local model"
-                  description="Replace the selected model's cached files. This requires network access."
-                  variant="danger"
-                />
-              </>
-            )}
-          </div>
-        </div>
+          )}
+        </SettingsGroup>
       </SettingsAdvanced>
-    </div>
+    </>
   );
 }
 
@@ -3663,51 +4341,55 @@ export function PreferencesSnapshotPanel({
   if (part === 'updates')
     return (
       <div className="stack settings-snapshot-page settings-updates-page">
-        <SettingsSummary>
-          <SummaryChip tone="success">
-            {versionLabel(snapshot.updates.current_version)}
-          </SummaryChip>
-          <SummaryChip>
-            {snapshot.updates.channel === 'beta' ? 'Beta channel' : 'Stable'}
-          </SummaryChip>
-        </SettingsSummary>
-        <Section
-          title="Updates"
-          description="Cached release state; no update check runs when Settings opens."
-          icon={RefreshCw}
-          anchor="updates"
+        <SettingsStatus
+          tone="neutral"
+          more={[
+            snapshot.updates.channel === 'beta' ? 'Beta' : 'Stable',
+            snapshot.updates.last_check ? (
+              <>
+                checked{' '}
+                <time
+                  dateTime={snapshot.updates.last_check}
+                  title={absoluteTime(snapshot.updates.last_check)}
+                >
+                  {relativeTime(snapshot.updates.last_check)}
+                </time>
+              </>
+            ) : (
+              'not checked yet'
+            ),
+          ]}
         >
-          <SelectSetting
+          Row-Bot {snapshot.updates.current_version}
+        </SettingsStatus>
+        <SettingsGroup label="Updates" anchor="updates">
+          {showUpdateControls ? (
+            <ConnectedUpdateControls />
+          ) : (
+            <SettingsItem
+              label={`Row-Bot ${snapshot.updates.current_version}`}
+              help="No update check runs when Settings opens."
+            />
+          )}
+          <SegmentedSetting
             mutation={mutation}
             field="updates.channel"
-            label="Update channel"
+            label="Channel"
+            groupLabel="Update channel"
             hint="Beta gets new features first and may be less stable."
             value={snapshot.updates.channel}
+            savedMessage={(next) =>
+              next === 'beta'
+                ? 'Updates now come from Beta'
+                : 'Updates now come from Stable'
+            }
             options={[
               { value: 'stable', label: 'Stable' },
               { value: 'beta', label: 'Beta' },
             ]}
           />
-          <div className="settings-inline-row">
-            <div>
-              <strong>Last check</strong>
-              <p>
-                {snapshot.updates.last_check ? (
-                  <time
-                    dateTime={snapshot.updates.last_check}
-                    title={absoluteTime(snapshot.updates.last_check)}
-                  >
-                    {relativeTime(snapshot.updates.last_check)}
-                  </time>
-                ) : (
-                  'Never checked'
-                )}
-              </p>
-            </div>
-          </div>
-          {showUpdateControls && <ConnectedUpdateControls />}
-        </Section>
-        <SettingsAdvanced meta="Cached update details">
+        </SettingsGroup>
+        <SettingsAdvanced meta="Last check and download details">
           <Facts>
             <Fact
               label="Current version"
@@ -3758,130 +4440,202 @@ export function PreferencesSnapshotPanel({
         </Section>
       </div>
     );
+  return <PreferencesPage snapshot={snapshot} mutation={mutation} />;
+}
+
+/** "1:00 AM" for hour 1, in the reader's locale. */
+function hourLabel(hour: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(2000, 0, 1, hour));
+}
+
+/** A Dream Cycle hour as a select of whole hours; saves at once. */
+function HourSetting({
+  mutation,
+  field,
+  label,
+  value,
+}: {
+  mutation: SettingsMutationIO;
+  field: string;
+  label: string;
+  value: number;
+}) {
   return (
-    <div className="stack settings-snapshot-page">
-      <SettingsSummary>
-        <SummaryChip>{snapshot.identity.name}</SummaryChip>
-        <SummaryChip
-          tone={snapshot.dream_cycle.enabled ? 'success' : undefined}
+    <SavedSetting
+      mutation={mutation}
+      field={field}
+      label={label}
+      value={value}
+      layout="bare"
+      validate={(draft) =>
+        typeof draft === 'number' && draft >= 0 && draft <= 23
+          ? ''
+          : 'Enter a value from 0 to 23.'
+      }
+    >
+      {({ value: draft, setValue, disabled }) => (
+        <Select
+          aria-label={label}
+          className="settings-hour-select"
+          value={String(draft)}
+          disabled={disabled}
+          onChange={(event) => setValue(Number(event.target.value))}
         >
-          {snapshot.dream_cycle.enabled ? 'Dream Cycle on' : 'Dream Cycle off'}
-        </SummaryChip>
-      </SettingsSummary>
-      <section
-        className="settings-preferences-identity settings-snapshot-section stack"
-        aria-label="Assistant identity"
-        data-setting-anchor="identity"
+          {Array.from({ length: 24 }, (_, hour) => (
+            <option key={hour} value={hour}>
+              {hourLabel(hour)}
+            </option>
+          ))}
+        </Select>
+      )}
+    </SavedSetting>
+  );
+}
+
+function PreferencesPage({
+  snapshot,
+  mutation,
+}: {
+  snapshot: SettingsSnapshot['preferences'];
+  mutation: SettingsMutationIO;
+}) {
+  const identity = snapshot.identity;
+  const dream = snapshot.dream_cycle;
+  const [personality, setPersonality] = useState(() =>
+    mutation.drafts.has(mutation.page, 'identity.personality')
+      ? String(mutation.drafts.read(mutation.page, 'identity.personality'))
+      : identity.personality,
+  );
+  useEffect(() => {
+    if (!mutation.drafts.has(mutation.page, 'identity.personality'))
+      setPersonality(identity.personality);
+  }, [identity.personality, mutation.drafts, mutation.page]);
+  const assistant = identity.name || 'Row-Bot';
+  const preview = `You are ${assistant}, a knowledgeable personal assistant with access to tools.${
+    personality ? ` ${personality}` : ''
+  }`;
+  const lastRun = dream.last_run ? (
+    <time dateTime={dream.last_run} title={absoluteTime(dream.last_run)}>
+      {relativeTime(dream.last_run)}
+    </time>
+  ) : null;
+  return (
+    <div className="stack settings-snapshot-page settings-preferences-page">
+      <SettingsStatus
+        tone={dream.enabled ? 'success' : 'neutral'}
+        more={lastRun ? [<>last ran {lastRun}</>] : []}
       >
-        <header className="settings-snapshot-heading">
-          <UserRound size={18} aria-hidden />
-          <div>
-            <h3>Identity</h3>
-            <p>How the assistant introduces itself and behaves.</p>
-          </div>
-        </header>
+        {dream.enabled ? 'Dream Cycle on' : 'Dream Cycle off'}
+      </SettingsStatus>
+      <SettingsGroup title="Identity" anchor="identity">
         <TextSetting
           mutation={mutation}
           field="identity.name"
           label="Name"
-          hint="Shown in chat and used in the system prompt."
-          value={snapshot.identity.name}
+          hint={`What ${identity.name || 'Row-Bot'} calls itself in chat.`}
+          value={identity.name}
           maxLength={80}
         />
-        <div className="settings-preferences-personality">
-          <TextSetting
-            mutation={mutation}
-            field="identity.personality"
-            label="Personality"
-            value={snapshot.identity.personality}
-            maxLength={snapshot.identity.personality_max_length}
-            multiline
-          />
-          <p className="settings-help">
-            Optional behaviour guidance, up to{' '}
-            {snapshot.identity.personality_max_length} characters ·{' '}
-            {snapshot.identity.personality.length} /{' '}
-            {snapshot.identity.personality_max_length}
-          </p>
-          <p className="settings-preferences-preview">
-            <span>Preview</span>
-            You are {snapshot.identity.name}, a knowledgeable personal assistant
-            with access to tools.
-            {snapshot.identity.personality
-              ? ` ${snapshot.identity.personality}`
-              : ''}
-          </p>
-        </div>
+        <TextSetting
+          mutation={mutation}
+          field="identity.personality"
+          label="Personality"
+          hint={`A short note on tone, up to ${identity.personality_max_length} characters.`}
+          value={identity.personality}
+          maxLength={identity.personality_max_length}
+          multiline
+          onDraftChange={setPersonality}
+          row={{
+            extra: (
+              <p className="settings-preferences-preview">
+                <span title={preview}>
+                  <span className="visually-hidden">Preview: </span>
+                  {assistant} starts every chat as: “{preview}”
+                </span>
+                <span className="settings-preferences-count">
+                  {personality.length} / {identity.personality_max_length}
+                </span>
+              </p>
+            ),
+          }}
+        />
         <SwitchSetting
           mutation={mutation}
           field="identity.self_improvement_enabled"
-          label="Enable self-improvement"
-          hint="Lets the assistant create and improve skills over time."
-          value={snapshot.identity.self_improvement_enabled}
+          label="Learn new skills"
+          hint={`${identity.name || 'Row-Bot'} writes and improves its own skills over time.`}
+          value={identity.self_improvement_enabled}
         />
-      </section>
-      <Section
-        title="Launch"
-        description="How Row-Bot opens on the next launch."
-        icon={AppWindow}
-        anchor="window-mode"
-      >
-        <SelectSetting
+      </SettingsGroup>
+      <SettingsGroup title="Opening Row-Bot">
+        <SegmentedSetting
           mutation={mutation}
           field="window_mode"
-          label="Window mode"
-          hint="Native Window gives Row-Bot its own app window. System Browser uses your default browser."
+          label="Open in"
+          hint="Its own app window, your default browser, or ask each launch."
           value={snapshot.window_mode}
+          savedMessage={() => 'Row-Bot opens there from the next launch'}
           options={[
-            { value: 'ask', label: 'Ask on Launch' },
-            { value: 'native', label: 'Native Window' },
-            { value: 'browser', label: 'System Browser' },
+            {
+              value: 'native',
+              label: 'App window',
+              icon: <AppWindow size={14} aria-hidden />,
+            },
+            {
+              value: 'browser',
+              label: 'Browser',
+              icon: <Globe2 size={14} aria-hidden />,
+            },
+            { value: 'ask', label: 'Ask each time' },
           ]}
         />
-      </Section>
-      <Section
-        title="Dream Cycle"
-        description="Idle background clean-up for memory and sparse knowledge."
-        icon={Moon}
-        anchor="dream-cycle"
-      >
+      </SettingsGroup>
+      <SettingsGroup title="Overnight tidy-up" anchor="dream-cycle">
         <SwitchSetting
           mutation={mutation}
           field="dream_cycle.enabled"
-          label="Enable Dream Cycle"
-          hint={
-            snapshot.dream_cycle.last_run
-              ? `Last run ${relativeTime(snapshot.dream_cycle.last_run)}.`
-              : 'Has not run yet.'
+          label="Dream Cycle"
+          hint="Merges duplicate memories and fills gaps while Row-Bot is idle."
+          value={dream.enabled}
+          row={{
+            status: (
+              <StatusLine
+                tone={dream.last_run ? 'success' : undefined}
+                more={dream.last_summary ? [dream.last_summary] : []}
+              >
+                {lastRun ? <>Last ran {lastRun}</> : 'Has not run yet'}
+              </StatusLine>
+            ),
+          }}
+        />
+        <SettingsItem
+          label="Hours"
+          help="Local time. It waits if you’re using Row-Bot."
+          bind={false}
+          control={
+            <>
+              <HourSetting
+                mutation={mutation}
+                field="dream_cycle.window_start"
+                label="Start hour"
+                value={dream.window_start}
+              />
+              <span className="settings-inline-label" aria-hidden>
+                to
+              </span>
+              <HourSetting
+                mutation={mutation}
+                field="dream_cycle.window_end"
+                label="End hour"
+                value={dream.window_end}
+              />
+            </>
           }
-          value={snapshot.dream_cycle.enabled}
         />
-        <NumberSetting
-          mutation={mutation}
-          field="dream_cycle.window_start"
-          label="Start hour"
-          hint="Local time, 0–23. Runs only while Row-Bot is idle."
-          value={snapshot.dream_cycle.window_start}
-          min={0}
-          max={23}
-        />
-        <NumberSetting
-          mutation={mutation}
-          field="dream_cycle.window_end"
-          label="End hour"
-          value={snapshot.dream_cycle.window_end}
-          min={0}
-          max={23}
-        />
-        {snapshot.dream_cycle.last_summary && (
-          <div className="settings-inline-row">
-            <div>
-              <strong>Last summary</strong>
-              <p>{snapshot.dream_cycle.last_summary}</p>
-            </div>
-          </div>
-        )}
-      </Section>
+      </SettingsGroup>
     </div>
   );
 }

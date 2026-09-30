@@ -34,6 +34,7 @@ export function pickerModel(option: ModelPickerOption): ListedModel {
 export default function DefaultModelPicker({
   id,
   'aria-describedby': describedBy,
+  ariaLabel,
   current,
   options,
   follow,
@@ -44,6 +45,8 @@ export default function DefaultModelPicker({
 }: {
   id?: string;
   'aria-describedby'?: string;
+  /** The button's name when no visible label names it ("Vision model"). */
+  ariaLabel?: string;
   current: string;
   options: readonly ModelPickerOption[];
   /** A first choice saved as "" (Vision's "Same as Brain", decision 11). */
@@ -97,6 +100,7 @@ export default function DefaultModelPicker({
       <Popover.Trigger asChild>
         <Button
           id={id}
+          aria-label={ariaLabel}
           aria-describedby={describedBy}
           className="settings-default-model"
           aria-haspopup="dialog"

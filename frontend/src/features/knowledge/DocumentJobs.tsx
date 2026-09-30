@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { Button, CompactAction, ErrorState } from '../../ui/primitives';
+import { CircleX, Eye, Files, RefreshCw } from 'lucide-react';
+import { Button, IconButton } from '../../ui/primitives';
 
 export type DocumentQueueItem = {
   id: string;
@@ -396,6 +396,22 @@ export function createDocumentJobsSession(
 }
 export type DocumentJobsSession = ReturnType<typeof createDocumentJobsSession>;
 
+/** A batch's dot: working, waiting for you, or finished. */
+function batchTone(item: DocumentQueueItem) {
+  if (item.status === 'running') return 'info' as const;
+  if (item.status === 'paused' || item.pause_requested)
+    return 'warning' as const;
+  if (item.status === 'completed') return 'success' as const;
+  if (item.status === 'completed_with_errors') return 'danger' as const;
+  return undefined;
+}
+
+/**
+ * The documents being added, as rows at the top of "Your documents" (B258):
+ * each batch shows its state and its next step (Process, Resume or Pause)
+ * in the row, with Inspect and Cancel as icons; several paused batches get
+ * "Resume all". Every action keeps its reviewed command.
+ */
 export function DocumentJobs({
   session,
   onProcess,
@@ -408,35 +424,66 @@ export function DocumentJobs({
   const invoke = (call: () => Promise<unknown>) => {
     void call().catch(() => undefined);
   };
+  const items = state.batches?.items ?? [];
+  const paused = items.filter(
+    (item) =>
+      item.pause_requested &&
+      !terminal.has(item.status) &&
+      !item.cancel_requested,
+  );
+  const resumeAll = async () => {
+    for (const item of paused)
+      await session.start('document.batch.resume', item.id);
+  };
   return (
     <section aria-label="Document ingestion queue" className="document-queue">
-      <header className="settings-owner-heading">
-        <div>
-          <h3>Ingestion queue</h3>
-          <p>
-            Documents can become searchable before knowledge extraction
-            finishes.
-          </p>
-        </div>
-        <CompactAction
+      <div className="settings-divided document-queue-head">
+        <span>
+          {!state.batches
+            ? 'Documents being added'
+            : items.length
+              ? `Being added · ${state.batches.total ?? items.length}`
+              : 'Nothing being added'}
+        </span>
+        {paused.length > 1 && (
+          <Button
+            variant="ghost"
+            className="settings-link"
+            disabled={disabled}
+            onClick={() => invoke(resumeAll)}
+          >
+            Resume all
+          </Button>
+        )}
+        <IconButton
+          size="sm"
           label="Refresh queue"
           disabled={disabled}
           onClick={() => invoke(session.load)}
         >
-          <RefreshCw size={16} aria-hidden />
-        </CompactAction>
-      </header>
+          <RefreshCw size={14} aria-hidden />
+        </IconButton>
+      </div>
       {state.error && (
-        <ErrorState title="Queue action needs attention">
+        <p role="alert" className="settings-divided document-queue-note">
           {state.error}
-        </ErrorState>
+        </p>
       )}
-      {state.batches && <p>{state.batches.total ?? 'Unknown'} saved batches</p>}
-      {state.batches?.items.map((item) => (
-        <div key={item.id} className="document-batch-row">
+      {items.map((item) => (
+        <div key={item.id} className="settings-divided document-batch-row">
+          <span className="settings-row-icon" data-tone="5" aria-hidden>
+            <Files size={16} aria-hidden />
+          </span>
           <div className="document-batch-summary">
             <strong>{batchTitle(item)}</strong>
-            <small>{batchStatus(item)}</small>
+            <small className="status-indicator" data-tone={batchTone(item)}>
+              <span
+                className="status-indicator-dot"
+                data-pulse={item.status === 'running' ? 'true' : undefined}
+                aria-hidden
+              />
+              <span>{batchStatus(item)}</span>
+            </small>
           </div>
           <div className="document-batch-actions">
             {onProcess &&
@@ -444,7 +491,8 @@ export function DocumentJobs({
               item.status === 'paused' &&
               !item.cancel_requested && (
                 <Button
-                  variant="primary"
+                  variant="ghost"
+                  className="settings-link"
                   disabled={disabled}
                   aria-label={`Process ${item.id}`}
                   onClick={() => onProcess(item)}
@@ -452,15 +500,35 @@ export function DocumentJobs({
                   Process
                 </Button>
               )}
-            <Button
+            {!terminal.has(item.status) && (
+              <Button
+                variant="ghost"
+                className="settings-link"
+                disabled={disabled}
+                onClick={() =>
+                  invoke(() =>
+                    session.start(
+                      item.pause_requested
+                        ? 'document.batch.resume'
+                        : 'document.batch.pause',
+                      item.id,
+                    ),
+                  )
+                }
+              >
+                {item.pause_requested ? 'Resume' : 'Pause'}
+              </Button>
+            )}
+            <IconButton
+              size="sm"
+              label={`Inspect batch ${item.id}`}
               disabled={disabled}
-              aria-label={`Inspect batch ${item.id}`}
               onClick={() => invoke(() => session.openBatch(item.id))}
             >
-              Inspect
-            </Button>
+              <Eye size={15} aria-hidden />
+            </IconButton>
             {terminal.has(item.status) ? (
-              <label>
+              <label className="document-batch-select">
                 <input
                   type="checkbox"
                   aria-label={`Select finished batch ${item.id}`}
@@ -473,108 +541,121 @@ export function DocumentJobs({
                 Select
               </label>
             ) : (
-              <>
-                <Button
-                  disabled={disabled}
-                  onClick={() =>
-                    invoke(() =>
-                      session.start(
-                        item.pause_requested
-                          ? 'document.batch.resume'
-                          : 'document.batch.pause',
-                        item.id,
-                      ),
-                    )
-                  }
-                >
-                  {item.pause_requested ? 'Resume' : 'Pause'}
-                </Button>
-                <Button
-                  disabled={disabled}
-                  onClick={() =>
-                    invoke(() =>
-                      session.review('document.batch.cancel', item.id),
-                    )
-                  }
-                >
-                  Cancel remaining
-                </Button>
-              </>
+              <IconButton
+                size="sm"
+                label="Cancel remaining"
+                disabled={disabled}
+                onClick={() =>
+                  invoke(() => session.review('document.batch.cancel', item.id))
+                }
+              >
+                <CircleX size={15} aria-hidden />
+              </IconButton>
             )}
           </div>
         </div>
       ))}
-      {state.batches?.next_cursor && (
-        <Button disabled={disabled} onClick={() => invoke(session.nextBatches)}>
-          Next batches
-        </Button>
-      )}
-      {state.selected.length > 0 && (
-        <Button
-          disabled={disabled}
-          onClick={() =>
-            invoke(() => session.review('document.jobs.clear_finished'))
-          }
-        >
-          Clear selected finished
-        </Button>
-      )}
-      {state.jobs && (
-        <p>{state.jobs.total ?? 'Unknown'} saved jobs in this batch</p>
-      )}
-      {state.jobs?.items.map((item) => (
-        <div key={item.id}>
-          <p>
-            {item.name} · {item.status} · {item.stage}
-          </p>
-          {item.cancel_requested && (
-            <p>
-              Cancellation requested. Active work must acknowledge the request.
-            </p>
+      {(state.batches?.next_cursor || state.selected.length > 0) && (
+        <div className="settings-divided document-queue-foot">
+          {state.batches?.next_cursor && (
+            <Button
+              variant="ghost"
+              disabled={disabled}
+              onClick={() => invoke(session.nextBatches)}
+            >
+              Next batches
+            </Button>
           )}
-          {item.error_code && <p>{item.error_code}</p>}
-          {item.index_total !== null && item.index_total > 0 && (
-            <p>
-              Index {item.index_current ?? 0}/{item.index_total}
-            </p>
-          )}
-          {item.extraction_total !== null && item.extraction_total > 0 && (
-            <p>
-              Knowledge {item.extraction_current ?? 0}/{item.extraction_total}
-            </p>
-          )}
-          {item.status === 'failed' ? (
+          {state.selected.length > 0 && (
             <Button
               disabled={disabled}
               onClick={() =>
-                invoke(() => session.start('document.job.retry', item.id))
+                invoke(() => session.review('document.jobs.clear_finished'))
               }
             >
-              Retry {item.name}
+              Clear selected finished
             </Button>
-          ) : (
-            !['completed', 'cancelled', 'skipped_duplicate'].includes(
-              item.status,
-            ) && (
-              <Button
-                disabled={disabled}
-                onClick={() =>
-                  invoke(() => session.review('document.job.cancel', item.id))
-                }
-              >
-                Cancel {item.name}
-              </Button>
-            )
           )}
         </div>
-      ))}
-      {state.jobs?.next_cursor && (
-        <Button disabled={disabled} onClick={() => invoke(session.nextJobs)}>
-          Next jobs
-        </Button>
+      )}
+      {state.jobs && (
+        <div className="settings-divided document-jobs">
+          <p className="document-queue-note">
+            {state.jobs.total ?? 'Unknown'} saved jobs in this batch
+          </p>
+          {state.jobs.items.map((item) => (
+            <div key={item.id} className="document-job-row">
+              <div className="document-batch-summary">
+                <strong>{item.name}</strong>
+                <small>
+                  {item.status} · {item.stage}
+                  {item.index_total !== null && item.index_total > 0 && (
+                    <>
+                      {' · '}Index {item.index_current ?? 0}/{item.index_total}
+                    </>
+                  )}
+                  {item.extraction_total !== null &&
+                    item.extraction_total > 0 && (
+                      <>
+                        {' · '}Knowledge {item.extraction_current ?? 0}/
+                        {item.extraction_total}
+                      </>
+                    )}
+                </small>
+                {item.cancel_requested && (
+                  <small>
+                    Cancellation requested. Active work must acknowledge the
+                    request.
+                  </small>
+                )}
+                {item.error_code && <small>{item.error_code}</small>}
+              </div>
+              {item.status === 'failed' ? (
+                <Button
+                  variant="ghost"
+                  disabled={disabled}
+                  onClick={() =>
+                    invoke(() => session.start('document.job.retry', item.id))
+                  }
+                >
+                  Retry {item.name}
+                </Button>
+              ) : (
+                !['completed', 'cancelled', 'skipped_duplicate'].includes(
+                  item.status,
+                ) && (
+                  <Button
+                    variant="ghost"
+                    disabled={disabled}
+                    onClick={() =>
+                      invoke(() =>
+                        session.review('document.job.cancel', item.id),
+                      )
+                    }
+                  >
+                    Cancel {item.name}
+                  </Button>
+                )
+              )}
+            </div>
+          ))}
+          {state.jobs.next_cursor && (
+            <Button
+              variant="ghost"
+              disabled={disabled}
+              onClick={() => invoke(session.nextJobs)}
+            >
+              Next jobs
+            </Button>
+          )}
+        </div>
       )}
       {state.review && (
-        <div role="group" aria-label="Confirm document queue action">
+        <div
+          role="group"
+          aria-label="Confirm document queue action"
+          className="settings-divided settings-confirm-change document-queue-confirm"
+        >
           <p>
             <strong>{ACTION_QUESTIONS[state.review.action]}</strong>
           </p>
@@ -590,23 +671,31 @@ export function DocumentJobs({
               Clearing finished removes only selected queue records.
             </p>
           )}
-          <Button disabled={disabled} onClick={() => invoke(session.confirm)}>
-            {state.review.action === 'document.jobs.clear_finished'
-              ? 'Confirm clear selected'
-              : 'Confirm cancellation'}
-          </Button>
+          <div className="action-cluster">
+            <Button
+              variant="primary"
+              disabled={disabled}
+              onClick={() => invoke(session.confirm)}
+            >
+              {state.review.action === 'document.jobs.clear_finished'
+                ? 'Confirm clear selected'
+                : 'Confirm cancellation'}
+            </Button>
+          </div>
         </div>
       )}
       {state.pending && (
-        <Button
-          disabled={state.busy || state.revoked}
-          onClick={() => invoke(session.refresh)}
-        >
-          Refresh original queue command
-        </Button>
+        <div className="settings-divided document-queue-foot">
+          <Button
+            disabled={state.busy || state.revoked}
+            onClick={() => invoke(session.refresh)}
+          >
+            Refresh original queue command
+          </Button>
+        </div>
       )}
       {state.receipt && (
-        <p role="status">
+        <p role="status" className="settings-divided document-queue-note">
           {state.receipt.status === 'completed'
             ? `Saved queue outcome: ${state.receipt.outcome}. ${state.receipt.saved_status ?? ''}`
             : state.receipt.status === 'partial'

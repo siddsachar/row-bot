@@ -46,7 +46,7 @@ import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
-import { SettingsDangerZone, DangerAction } from './anatomy';
+import { SettingsDangerZone, DangerAction, SettingsGroup } from './anatomy';
 import { useWorkspaceActions } from '../shell/workspace-actions';
 import SettingsShell from './SettingsShell';
 import AccessConnect from './AccessConnect';
@@ -462,6 +462,7 @@ export default function SettingRoute() {
             controller={controller}
             session={defaultModelOwner.get()!}
             initialProvider={search.get('provider') ?? ''}
+            openExternal={(url) => void platform.openExternal(url)}
           />
         ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
           <>
@@ -721,7 +722,98 @@ export default function SettingRoute() {
             }}
           />
         ) : leaf.id === 'documents' ? (
-          <div className="stack settings-documents-flow">
+          <div className="stack settings-snapshot-page settings-documents-flow">
+            <SettingsGroup title="Add documents" surface={false}>
+              {documentUploadOwner?.get() && (
+                <DocumentUploadPanel
+                  owner={documentUploadOwner.get()!}
+                  onStaged={() => {
+                    const queue = documentQueueOwner?.get();
+                    if (queue && !queue.hasRetained())
+                      void queue.session.load().catch(() => undefined);
+                  }}
+                />
+              )}
+              {settingsSnapshot && mutation && (
+                <div className="settings-group-surface">
+                  <DocumentModelSetting
+                    snapshot={settingsSnapshot.documents}
+                    mutation={mutation}
+                    models={state.handshake?.models ?? []}
+                  />
+                </div>
+              )}
+            </SettingsGroup>
+            <SettingsGroup title="Your documents">
+              {documentQueueOwner?.get() && (
+                <DocumentQueuePanel
+                  owner={documentQueueOwner.get()!}
+                  onProcess={
+                    documentProcessingOwner?.get()
+                      ? (batch) => {
+                          if (!state.selectedConversationId) {
+                            setProcessingSelectionError(
+                              'Open or create a conversation first, then return here to review its document processing policy.',
+                            );
+                            return;
+                          }
+                          try {
+                            documentProcessingOwner
+                              .get()!
+                              .select(
+                                state.selectedConversationId,
+                                batch.id,
+                                batch.revision,
+                              );
+                            setProcessingSelectionError('');
+                          } catch {
+                            setProcessingSelectionError(
+                              'Check processing before choosing another batch.',
+                            );
+                          }
+                        }
+                      : undefined
+                  }
+                />
+              )}
+              {processingSelectionError && (
+                <p
+                  role="alert"
+                  className="settings-divided document-queue-note"
+                >
+                  {processingSelectionError}
+                </p>
+              )}
+              {documentProcessingOwner?.get() && (
+                <DocumentProcessingPanel
+                  owner={documentProcessingOwner.get()!}
+                  conversationTitle={(id) =>
+                    state.conversations
+                      .find((conversation) => conversation.id === id)
+                      ?.title.trim() || undefined
+                  }
+                  onAdmitted={() => {
+                    const queue = documentQueueOwner?.get();
+                    if (queue && !queue.hasRetained())
+                      void queue.session.load().catch(() => undefined);
+                  }}
+                />
+              )}
+              <DocumentsCatalog
+                key={session}
+                load={controller.savedDocuments}
+                onRemove={(id, label) => {
+                  documentRemovalsOwner?.get()?.select(id, label);
+                  // The removal review lives in the Danger zone: show it.
+                  setDocumentDangerOpen(true);
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector('.settings-document-danger')
+                      ?.scrollIntoView?.({ block: 'nearest' }),
+                  );
+                }}
+              />
+            </SettingsGroup>
             {settingsSnapshot && mutation ? (
               <DocumentEmbeddingSnapshot
                 snapshot={settingsSnapshot.documents}
@@ -730,89 +822,9 @@ export default function SettingRoute() {
             ) : (
               snapshotState
             )}
-            {documentUploadOwner?.get() && (
-              <DocumentUploadPanel
-                owner={documentUploadOwner.get()!}
-                onStaged={() => {
-                  const queue = documentQueueOwner?.get();
-                  if (queue && !queue.hasRetained())
-                    void queue.session.load().catch(() => undefined);
-                }}
-              />
-            )}
-            {settingsSnapshot && mutation && (
-              <DocumentModelSetting
-                snapshot={settingsSnapshot.documents}
-                mutation={mutation}
-                models={state.handshake?.models ?? []}
-              />
-            )}
-            {documentQueueOwner?.get() && (
-              <DocumentQueuePanel
-                owner={documentQueueOwner.get()!}
-                onProcess={
-                  documentProcessingOwner?.get()
-                    ? (batch) => {
-                        if (!state.selectedConversationId) {
-                          setProcessingSelectionError(
-                            'Open or create a conversation first, then return here to review its document processing policy.',
-                          );
-                          return;
-                        }
-                        try {
-                          documentProcessingOwner
-                            .get()!
-                            .select(
-                              state.selectedConversationId,
-                              batch.id,
-                              batch.revision,
-                            );
-                          setProcessingSelectionError('');
-                        } catch {
-                          setProcessingSelectionError(
-                            'Check processing before choosing another batch.',
-                          );
-                        }
-                      }
-                    : undefined
-                }
-              />
-            )}
-            {processingSelectionError && (
-              <p role="alert">{processingSelectionError}</p>
-            )}
-            {documentProcessingOwner?.get() && (
-              <DocumentProcessingPanel
-                owner={documentProcessingOwner.get()!}
-                conversationTitle={(id) =>
-                  state.conversations
-                    .find((conversation) => conversation.id === id)
-                    ?.title.trim() || undefined
-                }
-                onAdmitted={() => {
-                  const queue = documentQueueOwner?.get();
-                  if (queue && !queue.hasRetained())
-                    void queue.session.load().catch(() => undefined);
-                }}
-              />
-            )}
-            <DocumentsCatalog
-              key={session}
-              load={controller.savedDocuments}
-              onRemove={(id, label) => {
-                documentRemovalsOwner?.get()?.select(id, label);
-                // The removal review lives in the Danger zone: show it.
-                setDocumentDangerOpen(true);
-                requestAnimationFrame(() =>
-                  document
-                    .querySelector('.settings-document-danger')
-                    ?.scrollIntoView?.({ block: 'nearest' }),
-                );
-              }}
-            />
             {documentRemovalsOwner?.get() && (
               <SettingsDangerZone
-                meta="Remove indexed documents"
+                meta="Remove documents"
                 open={documentDangerOpen}
                 onOpenChange={setDocumentDangerOpen}
               >

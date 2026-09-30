@@ -27,7 +27,9 @@ it('retains unsent preference and Hatch drafts across panel remount and purges t
   fireEvent.change(await screen.findByLabelText('Buddy name'), {
     target: { value: 'Retained typed name' },
   });
-  fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
+  // The generation flow opens from the last look tile (B258).
+  fireEvent.click(screen.getByRole('button', { name: /New look/ }));
+  fireEvent.change(await screen.findByLabelText('Describe your Buddy'), {
     target: { value: 'Retained private look' },
   });
   expect(session.hasRetained()).toBe(true);
@@ -36,7 +38,8 @@ it('retains unsent preference and Hatch drafts across panel remount and purges t
   expect(screen.getByLabelText('Buddy name')).toHaveValue(
     'Retained typed name',
   );
-  expect(screen.getByLabelText('Describe your Buddy')).toHaveValue(
+  fireEvent.click(screen.getByRole('button', { name: /New look/ }));
+  expect(await screen.findByLabelText('Describe your Buddy')).toHaveValue(
     'Retained private look',
   );
   act(() => session.purge());

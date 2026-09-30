@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, Pin, Search } from 'lucide-react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
+import {
+  AudioLines,
+  Check,
+  ChevronLeft,
+  Clapperboard,
+  Eye,
+  Image,
+  MessageSquare,
+  Pin,
+  Search,
+} from 'lucide-react';
 import type { ClientController } from '../../api/controller';
 import type { CachedModelPage, ModelCatalogSummary } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   Button,
-  EmptyState,
-  Field,
+  IconButton,
   Input,
   Select,
   Skeleton,
@@ -14,8 +23,35 @@ import {
 import { humanizeToken } from '../../ui/format';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
-const tabs: Surface[] = ['chat', 'vision', 'image', 'video', 'voice'];
+type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
+const surfaces: { id: Surface; label: string; icon: Icon }[] = [
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'vision', label: 'Vision', icon: Eye },
+  { id: 'image', label: 'Image', icon: Image },
+  { id: 'video', label: 'Video', icon: Clapperboard },
+  { id: 'voice', label: 'Voice', icon: AudioLines },
+];
+const capability: Record<string, Icon> = {
+  chat: MessageSquare,
+  vision: Eye,
+  image: Image,
+  video: Clapperboard,
+  voice: AudioLines,
+};
 
+/** "272K" for a context window of 272,000 tokens. */
+function reads(tokens: number) {
+  return tokens >= 1_000_000
+    ? `${Math.round(tokens / 100_000) / 10}M`
+    : `${Math.round(tokens / 1000)}K`;
+}
+
+/**
+ * Settings › Models › Catalog (B229): search, the job as filter chips, then
+ * the providers; a provider (or a search) lists its models with a pin and
+ * "use for this job". Rows load only once a provider is opened or a search
+ * runs, and then page by page.
+ */
 export default function ModelCatalog({
   controller,
   initialProvider = '',
@@ -55,6 +91,8 @@ export default function ModelCatalog({
   const ticket = useRef(0);
   const more = useRef<AbortController | null>(null);
   const browseRows = !!provider || !!query;
+  const surfaceLabel =
+    surfaces.find((item) => item.id === surface)?.label ?? surface;
 
   useEffect(() => {
     const abort = new AbortController();
@@ -177,131 +215,153 @@ export default function ModelCatalog({
     }
   }
 
+  const providerName = (id: string) =>
+    summary?.providers.find((item) => item.provider_id === id)?.display_name ??
+    humanizeToken(id);
   return (
-    <div className="stack settings-model-catalog" aria-label="Model catalog">
-      <p>
-        Browse discovered models by provider. Open one provider or search before
-        showing model rows.
-      </p>
-      <div className="settings-model-catalog-filters">
-        <div
-          className="settings-model-tabs"
-          role="tablist"
-          aria-label="Model category"
+    <div className="settings-model-catalog">
+      <form
+        className="settings-divided settings-catalog-head"
+        role="search"
+        aria-label="Search the model catalog"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setQuery(searchDraft.trim());
+        }}
+      >
+        <label className="settings-inline-search">
+          <span className="visually-hidden">Search models</span>
+          <Search size={14} aria-hidden />
+          <Input
+            type="search"
+            maxLength={256}
+            placeholder="Search models"
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.target.value)}
+          />
+        </label>
+        <Select
+          aria-label="Provider"
+          value={provider}
+          onChange={(event) => setProvider(event.target.value)}
         >
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={surface === tab}
+          <option value="">All providers</option>
+          {summary?.providers.map((item) => (
+            <option key={item.provider_id} value={item.provider_id}>
+              {item.display_name}
+            </option>
+          ))}
+        </Select>
+      </form>
+      <div
+        className="settings-catalog-chips"
+        role="group"
+        aria-label="Model category"
+      >
+        {surfaces.map(({ id, label, icon: Glyph }) => (
+          <button
+            key={id}
+            type="button"
+            className="settings-chip"
+            aria-pressed={surface === id}
+            onClick={() => {
+              setSurface(id);
+              setProvider('');
+              setQuery('');
+              setSearchDraft('');
+            }}
+          >
+            <Glyph size={12} aria-hidden />
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && (
+        <p role="alert" className="settings-divided settings-catalog-note">
+          {error}
+        </p>
+      )}
+      {cursorExpired && (
+        <div className="settings-divided settings-catalog-note">
+          <Button
+            onClick={() => {
+              setError('');
+              setCursorExpired(false);
+              setReload((value) => value + 1);
+            }}
+          >
+            Reload catalog results
+          </Button>
+        </div>
+      )}
+      {!browseRows && !summary && !error && (
+        <div className="settings-divided settings-catalog-note">
+          <Skeleton label="Loading the catalog" />
+        </div>
+      )}
+      {!browseRows && summary && (
+        <ul className="settings-model-provider-summaries">
+          {summary.providers.length ? (
+            summary.providers.map((item) => (
+              <li className="settings-divided" key={item.provider_id}>
+                <div className="settings-catalog-row-text">
+                  <strong>{item.display_name}</strong>
+                  <small>
+                    {item.total} {surfaceLabel.toLowerCase()} model
+                    {item.total === 1 ? '' : 's'} · {item.ready} ready
+                    {item.pinned > 0 ? ` · ${item.pinned} pinned` : ''}
+                  </small>
+                </div>
+                <Button
+                  variant="ghost"
+                  aria-label={`Open ${item.display_name}`}
+                  onClick={() => setProvider(item.provider_id)}
+                >
+                  Open
+                </Button>
+              </li>
+            ))
+          ) : (
+            <li className="settings-divided settings-catalog-note">
+              No {surfaceLabel.toLowerCase()} models saved yet. Refresh after
+              connecting a provider.
+            </li>
+          )}
+        </ul>
+      )}
+      {loading && (
+        <div className="settings-divided settings-catalog-note">
+          <Skeleton label="Loading model rows" />
+        </div>
+      )}
+      {page && (
+        <section
+          className="settings-model-provider-results"
+          aria-label={provider ? providerName(provider) : 'Search results'}
+        >
+          <div className="settings-divided settings-catalog-results-head">
+            <IconButton
+              size="sm"
+              label="All providers"
               onClick={() => {
-                setSurface(tab);
                 setProvider('');
                 setQuery('');
                 setSearchDraft('');
               }}
             >
-              {tab.toUpperCase()}
-            </button>
-          ))}
-        </div>
-        <Field label="Provider">
-          <Select
-            value={provider}
-            onChange={(event) => setProvider(event.target.value)}
-          >
-            <option value="">All providers</option>
-            {summary?.providers.map((item) => (
-              <option key={item.provider_id} value={item.provider_id}>
-                {item.display_name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <form
-          className="settings-model-search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setQuery(searchDraft.trim());
-          }}
-        >
-          <Field label="Search models">
-            <Input
-              type="search"
-              maxLength={256}
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-            />
-          </Field>
-          <Button type="submit" aria-label="Search models">
-            <Search size={16} aria-hidden />
-          </Button>
-        </form>
-      </div>
-      {error && <p role="alert">{error}</p>}
-      {cursorExpired && (
-        <Button
-          onClick={() => {
-            setError('');
-            setCursorExpired(false);
-            setReload((value) => value + 1);
-          }}
-        >
-          Reload catalog results
-        </Button>
-      )}
-      {!browseRows && summary && (
-        <div className="settings-model-provider-summaries">
-          <h4>Providers</h4>
-          {summary.providers.length ? (
-            <ul>
-              {summary.providers.map((item) => (
-                <li key={item.provider_id}>
-                  <div>
-                    <strong>{item.display_name}</strong>
-                    <small>
-                      {item.total} {surface} model(s) · {item.ready} ready ·{' '}
-                      {item.pinned} pinned
-                    </small>
-                  </div>
-                  {item.pinned > 0 && (
-                    <span className="status-chip">{item.pinned} pinned</span>
-                  )}
-                  <Button
-                    variant="ghost"
-                    onClick={() => setProvider(item.provider_id)}
-                  >
-                    Open
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState title="No cached models">
-              Refresh after connecting a provider.
-            </EmptyState>
-          )}
-        </div>
-      )}
-      {loading && <Skeleton label="Loading model rows" />}
-      {page && (
-        <section className="settings-model-provider-results">
-          <h4>
-            {provider
-              ? (summary?.providers.find(
-                  (item) => item.provider_id === provider,
-                )?.display_name ?? provider)
-              : 'Search results'}{' '}
-            ({page.total})
-          </h4>
-          <p>
-            Showing {page.items.length} of {page.total} models
-          </p>
+              <ChevronLeft size={15} aria-hidden />
+            </IconButton>
+            <strong>
+              {provider ? providerName(provider) : 'Search results'}
+            </strong>
+            <span role="status">
+              Showing {page.items.length} of {page.total} models
+            </span>
+          </div>
           {!page.items.length && (
-            <EmptyState title="No matching models">
-              Try another provider or search.
-            </EmptyState>
+            <p className="settings-divided settings-catalog-note">
+              No matching models. Try another provider or search.
+            </p>
           )}
           <ul className="settings-model-row-list">
             {page.items.map((model) => {
@@ -311,69 +371,77 @@ export default function ModelCatalog({
                 model.installed === true;
               const pinned = model.pinned_surfaces.includes(surface);
               const isDefault = defaults[surface] === model.selection_ref;
+              const meta = [
+                model.provider_display_name || humanizeToken(model.provider_id),
+                model.context_window
+                  ? `reads ${reads(model.context_window)}`
+                  : '',
+                usable && model.runtime_mode === 'agent' ? 'Agent-ready' : '',
+                usable && model.runtime_mode === 'chat_only' ? 'Chat only' : '',
+              ].filter(Boolean);
               return (
-                <li key={model.selection_ref}>
-                  <div className="settings-model-row-name">
-                    <strong title={model.model_id}>{model.display_name}</strong>
+                <li className="settings-divided" key={model.selection_ref}>
+                  <div className="settings-catalog-row-text">
+                    <strong title={model.model_id}>
+                      {model.display_name}
+                      {isDefault && (
+                        <span className="settings-catalog-default">
+                          Default
+                        </span>
+                      )}
+                    </strong>
+                    <small>
+                      {meta.join(' · ')}
+                      {!model.configured && (
+                        <span className="settings-catalog-warning">
+                          {' · '}Connect first
+                        </span>
+                      )}
+                      {model.configured && !model.runtime_ready && (
+                        <span className="settings-catalog-warning">
+                          {' · '}Unavailable
+                        </span>
+                      )}
+                    </small>
                   </div>
-                  <div className="settings-model-row-badges">
-                    <span className="status-chip">
-                      {humanizeToken(model.provider_id)}
+                  <span
+                    className="settings-catalog-caps"
+                    title={model.categories.map(humanizeToken).join(', ')}
+                  >
+                    {model.categories.map((category) => {
+                      const Glyph = capability[category];
+                      return Glyph ? (
+                        <Glyph key={category} size={14} aria-hidden />
+                      ) : null;
+                    })}
+                    <span className="visually-hidden">
+                      {model.categories.map(humanizeToken).join(', ')}
                     </span>
-                    {model.context_window && (
-                      <span className="status-chip">
-                        {Math.round(model.context_window / 1000)}K ctx
-                      </span>
-                    )}
-                    {model.categories.map((category) => (
-                      <span className="status-chip" key={category}>
-                        {category}
-                      </span>
-                    ))}
-                    {usable && model.runtime_mode === 'agent' && (
-                      <span className="status-chip success">Agent-ready</span>
-                    )}
-                    {usable && model.runtime_mode === 'chat_only' && (
-                      <span className="status-chip">Chat only</span>
-                    )}
-                    {!model.configured && (
-                      <span className="status-chip warning">connect</span>
-                    )}
-                    {model.configured && !model.runtime_ready && (
-                      <span className="status-chip warning">unavailable</span>
-                    )}
-                    {pinned && <span className="status-chip">pinned</span>}
-                    {isDefault && <span className="status-chip">default</span>}
-                  </div>
+                  </span>
                   <div className="settings-model-row-actions">
-                    <Button
-                      variant="ghost"
-                      aria-label={`${pinned ? 'Unpin' : 'Pin'} ${model.display_name} for ${surface}`}
-                      title={
-                        model.status_reason ||
-                        (pinned
-                          ? 'Remove from this picker'
-                          : 'Pin to this picker')
-                      }
+                    <IconButton
+                      size="sm"
+                      label={`${pinned ? 'Unpin' : 'Pin'} ${model.display_name} for ${surface}`}
+                      pressed={pinned}
+                      className="settings-catalog-pin"
                       disabled={!usable || !!busyRef}
                       onClick={() => void act('pin', model)}
                     >
                       <Pin
-                        size={16}
+                        size={14}
                         fill={pinned ? 'currentColor' : 'none'}
                         aria-hidden
                       />
-                    </Button>
+                    </IconButton>
                     {surface !== 'voice' && (
-                      <Button
-                        variant="ghost"
-                        aria-label={`Set ${model.display_name} as ${surface} default`}
-                        title={model.status_reason || 'Set default'}
+                      <IconButton
+                        size="sm"
+                        label={`Set ${model.display_name} as ${surface} default`}
                         disabled={!usable || isDefault || !!busyRef}
                         onClick={() => void act('default', model)}
                       >
-                        <Check size={16} aria-hidden />
-                      </Button>
+                        <Check size={14} aria-hidden />
+                      </IconButton>
                     )}
                   </div>
                 </li>
@@ -381,12 +449,15 @@ export default function ModelCatalog({
             })}
           </ul>
           {page.next_cursor && (
-            <Button
-              disabled={loadingMore || cursorExpired}
-              onClick={() => void showMore()}
-            >
-              {loadingMore ? 'Loading more models…' : 'Show more models'}
-            </Button>
+            <div className="settings-divided settings-catalog-more">
+              <Button
+                variant="ghost"
+                disabled={loadingMore || cursorExpired}
+                onClick={() => void showMore()}
+              >
+                {loadingMore ? 'Loading more models…' : 'Show more models'}
+              </Button>
+            </div>
           )}
         </section>
       )}

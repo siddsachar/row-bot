@@ -296,7 +296,6 @@ export function DocumentUploads({
       className="document-uploads"
       data-setting-anchor="document-upload"
     >
-      <h3>Upload documents</h3>
       <div
         className="document-dropzone"
         data-dragging={dragging ? 'true' : undefined}
@@ -322,20 +321,22 @@ export function DocumentUploads({
           choose(Array.from(event.dataTransfer.files));
         }}
       >
-        <FileUp size={22} aria-hidden />
-        <p>
-          <strong>Drop files here</strong> or{' '}
-          <label htmlFor={inputId} className="document-dropzone-choose">
-            Choose documents
-          </label>
-        </p>
-        <small>
-          PDF, DOC, DOCX, TXT, MD, HTML, HTM and EPUB · up to 256 MiB each.
-          Files are staged in a paused batch; processing and provider use are a
-          separate action.
-        </small>
+        <span className="settings-row-icon" aria-hidden>
+          <FileUp size={16} aria-hidden />
+        </span>
+        <div className="document-dropzone-text">
+          <strong>Drop files here</strong>
+          <small>
+            PDF, Word, text, Markdown, web pages or EPUB · up to 256 MB each.
+            They wait, paused, until you process them.
+          </small>
+        </div>
+        <label htmlFor={inputId} className="button document-dropzone-choose">
+          Choose files…
+        </label>
         <input
           id={inputId}
+          aria-label="Choose documents"
           className="document-dropzone-input"
           type="file"
           multiple
@@ -356,12 +357,15 @@ export function DocumentUploads({
       {state.error && (
         <ErrorState title="Upload needs attention">{state.error}</ErrorState>
       )}
-      <Button
-        disabled={disabled || !state.files.length}
-        onClick={() => invoke(() => session.start())}
-      >
-        Upload selected
-      </Button>
+      {state.files.length > 0 && (
+        <Button
+          variant="primary"
+          disabled={disabled}
+          onClick={() => invoke(() => session.start())}
+        >
+          Upload selected
+        </Button>
+      )}
       {state.pending && (
         <Button
           disabled={state.busy || state.revoked}

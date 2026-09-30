@@ -239,7 +239,8 @@ it('names batches in words and keeps the exact id in each action name', async ()
   const inspect = await screen.findByRole('button', {
     name: 'Inspect batch batch',
   });
-  expect(inspect).toHaveTextContent(/^Inspect$/);
+  // Inspect is an icon; the batch id stays in its name and tooltip (B258).
+  expect(inspect).toHaveTextContent('');
   const row = inspect.closest('.document-batch-row') as HTMLElement;
   expect(within(row).getByText('Batch · batch')).toBeVisible();
   expect(within(row).getByText('Queued')).toBeVisible();

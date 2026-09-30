@@ -1,11 +1,14 @@
 import {
   act,
   fireEvent,
-  render,
+  render as renderUi,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { OverlayProvider } from '../../ui/overlays';
 import BuddyControls, {
   type BuddyControlsProps,
   type BuddySnapshot,
@@ -72,6 +75,18 @@ function props(): BuddyControlsProps {
     stop: vi.fn(async () => {}),
   };
 }
+/** Saves are confirmed by the floating notice (B258). */
+function render(ui: ReactElement) {
+  const view = renderUi(<OverlayProvider>{ui}</OverlayProvider>);
+  return {
+    ...view,
+    rerender: (next: ReactElement) =>
+      view.rerender(<OverlayProvider>{next}</OverlayProvider>),
+  };
+}
+function notice(text: string | RegExp) {
+  return screen.findByText(text, { selector: '.toast *' });
+}
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -102,30 +117,57 @@ describe('Buddy shared companion and preferences', () => {
     expect(input.onSettings).toHaveBeenCalledOnce();
   });
 
-  it('keeps secondary companion settings closed and presents pack readiness before the grid', () => {
+  it('keeps name and compact size in Advanced and shows the looks as a grid of tiles (B258)', () => {
     const input = props();
     render(<BuddyControls {...input} />);
 
-    const advanced = screen.getByText('Advanced companion').closest('details');
+    const advanced = screen.getByText('Advanced').closest('details');
     expect(advanced).not.toHaveAttribute('open');
-    expect(
-      screen.getByText('Selected: Glyph. Motion pack ready.'),
-    ).toBeVisible();
-    expect(screen.getByText('2 clips · Ready')).toBeVisible();
+    // The page status line names the look; each tile says whether it's ready.
+    expect(screen.getByText('Shown')).toBeVisible();
+    expect(screen.getByText('motion ready')).toBeVisible();
+    const looks = screen.getByRole('group', { name: 'Buddy looks' });
+    const glyph = within(looks).getByRole('button', {
+      name: 'Glyph — 2 clips · Ready',
+    });
+    expect(glyph).toHaveAttribute('aria-pressed', 'true');
+    expect(glyph).toHaveTextContent('GlyphReady');
     expect(screen.queryByText('Buddy Glyph')).not.toBeInTheDocument();
     expect(
-      screen.getByText('Selected: Glyph. Motion pack ready.')
-        .nextElementSibling,
-    ).toBe(screen.getByRole('group', { name: 'Buddy looks' }));
+      within(screen.getByRole('radiogroup', { name: 'Motion' })).getByRole(
+        'radio',
+        { name: 'Normal' },
+      ),
+    ).toHaveAttribute('aria-checked', 'true');
 
-    fireEvent.click(screen.getByText('Advanced companion'));
+    fireEvent.click(screen.getByText('Advanced'));
     expect(advanced).toHaveAttribute('open');
     expect(screen.getByLabelText('Compact Buddy')).toBeEnabled();
     expect(screen.getByLabelText('Buddy name')).toHaveValue('Buddy');
-    expect(screen.getByLabelText('Animation intensity')).toHaveValue('normal');
     expect(screen.getByLabelText('Style notes (optional)')).toHaveValue(
       'Warm and luminous',
     );
+  });
+
+  it('ends the looks with a New look tile that opens the generation flow (B258)', () => {
+    const input = props();
+    const onNewLook = vi.fn();
+    const view = render(<BuddyControls {...input} onNewLook={onNewLook} />);
+    const looks = screen.getByRole('group', { name: 'Buddy looks' });
+    const tiles = within(looks).getAllByRole('button');
+    expect(tiles.at(-1)).toHaveTextContent('New look…');
+    fireEvent.click(tiles.at(-1)!);
+    expect(onNewLook).toHaveBeenCalledOnce();
+    view.rerender(
+      <BuddyControls
+        {...input}
+        onNewLook={onNewLook}
+        newLookStatus="Making it · 2 of 6 clips"
+      />,
+    );
+    expect(
+      within(looks).getByRole('button', { name: /New look/ }),
+    ).toHaveTextContent('Making it · 2 of 6 clips');
   });
 
   it('offers Compact Buddy only for the desktop window, where it is saved', () => {
@@ -136,7 +178,7 @@ describe('Buddy shared companion and preferences', () => {
         snapshot={{ ...snapshot, native_placement_retained: false }}
       />,
     );
-    fireEvent.click(screen.getByText('Advanced companion'));
+    fireEvent.click(screen.getByText('Advanced'));
     // A docked Buddy's "collapsed" is always normalized off by the server.
     expect(screen.queryByLabelText('Compact Buddy')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Buddy name')).toBeVisible();
@@ -147,7 +189,7 @@ describe('Buddy shared companion and preferences', () => {
     render(<BuddyControls {...input} />);
     expect(input.reload).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh looks' }));
-    await screen.findByText('Buddy looks refreshed.');
+    await notice('Buddy looks refreshed.');
     expect(input.reload).toHaveBeenCalledOnce();
   });
 
@@ -164,17 +206,20 @@ describe('Buddy shared companion and preferences', () => {
     expect(
       screen.queryByRole('button', { name: 'Save Buddy preferences' }),
     ).toBeNull();
-    fireEvent.change(screen.getByLabelText('Bubble style'), {
-      target: { value: 'quiet' },
-    });
-    await screen.findByRole('button', { name: 'Undo Buddy change' });
+    const bubbles = screen.getByRole('radiogroup', { name: 'Bubbles' });
+    fireEvent.click(within(bubbles).getByRole('radio', { name: 'Quiet' }));
+    const saved = await notice('Bubbles saved');
     expect(input.save).toHaveBeenCalledWith(
       { bubble_verbosity: 'quiet' },
       'revision-one',
     );
-    expect(screen.getByLabelText('Bubble style')).toHaveValue('quiet');
-    fireEvent.click(screen.getByRole('button', { name: 'Undo Buddy change' }));
-    await screen.findByText('Undone.');
+    expect(
+      within(bubbles).getByRole('radio', { name: 'Quiet' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(
+      within(saved.closest('li')!).getByRole('button', { name: 'Undo' }),
+    );
+    await notice('Bubbles changed back');
     expect(input.save).toHaveBeenLastCalledWith(
       { bubble_verbosity: 'normal' },
       'revision-two',
@@ -191,13 +236,13 @@ describe('Buddy shared companion and preferences', () => {
       }),
     );
     render(<BuddyControls {...input} />);
-    fireEvent.click(screen.getByText('Advanced companion'));
+    fireEvent.click(screen.getByText('Advanced'));
     const name = screen.getByLabelText('Buddy name');
     fireEvent.change(name, { target: { value: 'Nova' } });
     expect(input.save).not.toHaveBeenCalled();
     fireEvent.keyDown(name, { key: 'Enter' });
     fireEvent.blur(name);
-    await screen.findByRole('button', { name: 'Undo Buddy change' });
+    await notice('Name saved');
     expect(input.save).toHaveBeenCalledExactlyOnceWith(
       { display_name: 'Nova' },
       'revision-one',
@@ -207,7 +252,7 @@ describe('Buddy shared companion and preferences', () => {
   it('keeps typing across a saved revision change and offers a reload', () => {
     const input = props();
     const view = render(<BuddyControls {...input} />);
-    fireEvent.click(screen.getByText('Advanced companion'));
+    fireEvent.click(screen.getByText('Advanced'));
     fireEvent.change(screen.getByLabelText('Buddy name'), {
       target: { value: 'Typed name' },
     });
@@ -230,7 +275,7 @@ describe('Buddy shared companion and preferences', () => {
     const pending = deferred<BuddySnapshot>();
     input.save = vi.fn(() => pending.promise);
     const view = render(<BuddyControls {...input} />);
-    fireEvent.change(screen.getByLabelText('Companion personality'), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Personality' }), {
       target: { value: 'calm_focus' },
     });
     await waitFor(() => expect(input.save).toHaveBeenCalledOnce());
@@ -247,12 +292,10 @@ describe('Buddy shared companion and preferences', () => {
         preferences: { ...snapshot.preferences, personality: 'calm_focus' },
       }),
     );
-    expect(screen.getByLabelText('Companion personality')).toHaveValue(
+    expect(screen.getByRole('combobox', { name: 'Personality' })).toHaveValue(
       'warm_mystical',
     );
-    expect(
-      screen.queryByRole('button', { name: 'Undo Buddy change' }),
-    ).toBeNull();
+    expect(screen.queryByText('Personality saved')).toBeNull();
     expect(input.save).toHaveBeenCalledOnce();
   });
 
@@ -266,9 +309,7 @@ describe('Buddy shared companion and preferences', () => {
     view.rerender(<BuddyControls {...input} snapshot={null} />);
     await act(async () => pending.resolve(snapshot));
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Undo Buddy change' }),
-    ).toBeNull();
+    expect(screen.queryByText('Show Buddy saved')).toBeNull();
   });
 
   it('uses real next cursor and keeps unavailable looks disabled', async () => {
@@ -316,7 +357,11 @@ describe('Buddy shared companion and preferences', () => {
         }}
       />,
     );
-    expect(screen.queryByText('Ready')).not.toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole('complementary', { name: 'Buddy companion' }),
+      ).queryByText('Ready'),
+    ).not.toBeInTheDocument();
     view.rerender(
       <BuddyControls
         {...input}

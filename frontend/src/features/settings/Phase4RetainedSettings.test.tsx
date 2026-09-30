@@ -19,6 +19,7 @@ import type {
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
+import { OverlayProvider } from '../../ui/overlays';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
@@ -389,29 +390,41 @@ function renderSetting(setting: Phase4RetainedSetting) {
   mutation.page = setting === 'access' ? 'system' : setting;
   return render(
     <MemoryRouter>
-      <Phase4RetainedSettings
-        setting={setting}
-        snapshot={snapshot}
-        mutation={mutation}
-        selectedConversationId="conversation-a"
-      />
+      <OverlayProvider>
+        <Phase4RetainedSettings
+          setting={setting}
+          snapshot={snapshot}
+          mutation={mutation}
+          selectedConversationId="conversation-a"
+        />
+      </OverlayProvider>
     </MemoryRouter>,
   );
+}
+/** Browser and computer use keep their reviewed setup behind "Set up…". */
+function openSetup() {
+  fireEvent.click(screen.getByRole('button', { name: 'Set up…' }));
+  return screen.getByRole('dialog', { name: 'Browser and computer use' });
+}
+/** A save is confirmed by the floating notice (B258). */
+function notice(text: string | RegExp) {
+  return screen.findByText(text, { selector: '.toast *' });
 }
 
 it('renders real voice controls without probing a device or provider', async () => {
   renderSetting('voice');
-  expect(screen.getByLabelText('Talk provider')).toHaveValue('local');
-  expect(screen.getByLabelText('Whisper model size')).toHaveValue('base');
-  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
+  expect(screen.getByLabelText('Listen with')).toHaveValue('local');
+  // The provider select says where it runs (B258).
   expect(
-    screen.queryByLabelText(
-      'Fallback to local Talk if Realtime is unavailable',
-    ),
-  ).toBeNull();
+    screen.getAllByRole('option', { name: 'Whisper · on this computer' }),
+  ).toHaveLength(2);
+  expect(screen.getByText('Talk and dictation on this computer')).toBeVisible();
+  expect(screen.getByLabelText('Speech model')).toHaveValue('base');
+  expect(screen.queryByLabelText('Realtime voice')).toBeNull();
+  expect(screen.queryByLabelText('Fall back to this computer')).toBeNull();
   expect(screen.queryByLabelText('Start automatically')).toBeNull();
   expect(screen.queryByLabelText('Provider voice')).toBeNull();
-  expect(screen.getByLabelText('Enable text-to-speech')).toBeChecked();
+  expect(screen.getByLabelText('Read replies aloud')).toBeChecked();
   fireEvent.click(screen.getByText('Advanced'));
   expect(screen.getByText('Whisper base')).toBeVisible();
   expect(screen.getByText('SenseVoice')).toBeVisible();
@@ -423,13 +436,11 @@ it('renders real voice controls without probing a device or provider', async () 
       name: /OpenAI Realtime API key/,
     }),
   ).toBeNull();
-  fireEvent.change(screen.getByLabelText('Talk provider'), {
+  fireEvent.change(screen.getByLabelText('Listen with'), {
     target: { value: 'openai_realtime' },
   });
   expect(screen.getByLabelText('Realtime voice')).toBeVisible();
-  expect(
-    screen.getByLabelText('Fallback to local Talk if Realtime is unavailable'),
-  ).toBeVisible();
+  expect(screen.getByLabelText('Fall back to this computer')).toBeVisible();
   // A choice saves at once (decision 19); nothing probes a device.
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -464,15 +475,16 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
       />
     </MemoryRouter>,
   );
-  expect(screen.getByLabelText('Realtime captions')).toBeChecked();
+  expect(screen.getByLabelText('Live captions')).toBeChecked();
   expect(screen.getByLabelText('Realtime voice')).toHaveValue('alloy');
-  expect(
-    screen.getByLabelText('Fallback to local Talk if Realtime is unavailable'),
-  ).toBeChecked();
-  expect(screen.getByText('Kokoro not installed')).toBeVisible();
-  expect(screen.queryByLabelText('Enable text-to-speech')).toBeNull();
+  expect(screen.getByLabelText('Fall back to this computer')).toBeChecked();
+  // Kokoro's install is a text action in the Read aloud row's status line.
+  expect(screen.getByText('Kokoro isn’t installed yet')).toBeVisible();
+  expect(screen.queryByLabelText('Read replies aloud')).toBeNull();
   expect(screen.queryByLabelText('Speech speed')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Install Kokoro TTS' }));
+  const install = screen.getByRole('button', { name: 'Install Kokoro TTS' });
+  expect(install).toHaveTextContent('Install');
+  fireEvent.click(install);
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
       page: 'voice',
@@ -485,6 +497,7 @@ it('shows Realtime-only voice controls only for Realtime and hides uninstalled l
 
 it('reviews local voice output and SenseVoice setup only after explicit actions', async () => {
   renderSetting('voice');
+  // Test voice is an icon beside the Voice select (B258).
   fireEvent.click(screen.getByRole('button', { name: 'Test voice' }));
   await waitFor(() =>
     expect(mutation.review).toHaveBeenCalledWith(
@@ -535,19 +548,108 @@ it('does not expose writable System fields when their tool owner is unavailable'
   expect(screen.getByText('Computer Use unavailable')).toBeVisible();
   expect(screen.getByText('Filesystem tool unavailable')).toBeVisible();
   expect(screen.queryByLabelText(/Additional blocked patterns/)).toBeNull();
+  expect(
+    screen.queryByRole('radiogroup', { name: 'Work with files' }),
+  ).toBeNull();
   expect(screen.queryByLabelText('Allowed operations')).toBeNull();
 });
 
-it('groups available filesystem operations and keeps runtime detail supplemental', () => {
+it('groups available filesystem operations behind Choose each and keeps runtime detail supplemental', () => {
   renderSetting('system');
-  expect(screen.getByText('Read-only')).toBeVisible();
-  expect(screen.getByText('Write')).toBeVisible();
-  expect(screen.getByText('Destructive')).toBeVisible();
-  expect(screen.getByText('Read files')).toBeVisible();
-  expect(screen.getAllByText(/Not checked/).length).toBeGreaterThan(0);
+  // Only read_file of read, write and delete: a choice made one by one.
   expect(
-    screen.getByText('Computer Use setup details').closest('details'),
+    screen.getByRole('radiogroup', { name: 'Work with files' }),
+  ).toBeVisible();
+  expect(
+    screen.getByText(/Read\. Moving and deleting stay off\./),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Choose each…' }));
+  const choose = screen.getByRole('dialog', {
+    name: 'Choose each file operation',
+  });
+  expect(within(choose).getByText('Read-only')).toBeVisible();
+  expect(within(choose).getByText('Write')).toBeVisible();
+  expect(within(choose).getByText('Destructive')).toBeVisible();
+  expect(within(choose).getByLabelText('Read files')).toBeChecked();
+  fireEvent.click(within(choose).getByRole('button', { name: 'Done' }));
+  const setup = openSetup();
+  expect(within(setup).getAllByText(/Not checked/).length).toBeGreaterThan(0);
+  expect(
+    within(setup).getByText('Computer Use setup details').closest('details'),
   ).not.toHaveAttribute('open');
+});
+
+it('turns file access to a step through the same two saved fields (B258)', async () => {
+  let current: SettingsSnapshot = structuredClone(snapshot);
+  mutation.page = 'system';
+  mutation.execute = vi.fn(async (request, _review, commandId) => {
+    current = structuredClone(current);
+    current.revision = `${current.revision}+`;
+    if (request.field === 'file_operations.enabled')
+      current.system.file_operations.enabled = request.value as boolean;
+    if (request.field === 'file_operations.selected')
+      current.system.file_operations.selected = request.value as string[];
+    return {
+      command_id: commandId,
+      status: 'completed' as const,
+      settings_revision: current.revision,
+      snapshot: current,
+    };
+  });
+  const view = render(
+    <OverlayProvider>
+      <SystemSnapshotPanel snapshot={current.system} mutation={mutation} />
+    </OverlayProvider>,
+  );
+  mutation.onSnapshot = vi.fn((next) =>
+    view.rerender(
+      <OverlayProvider>
+        <SystemSnapshotPanel
+          snapshot={next.system}
+          mutation={{ ...mutation, revision: next.revision }}
+        />
+      </OverlayProvider>,
+    ),
+  );
+  const steps = screen.getByRole('radiogroup', { name: 'Work with files' });
+  fireEvent.click(within(steps).getByRole('radio', { name: 'Read & write' }));
+  // The options offer read_file, write_file and file_delete: Read & write
+  // allows the first two; deleting stays off unless "All".
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: 'file_operations.selected',
+        value: ['read_file', 'write_file'],
+      }),
+    ),
+  );
+  expect(await notice('File access: read and write')).toBeInTheDocument();
+  expect(
+    within(steps).getByRole('radio', { name: 'Read & write' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  fireEvent.click(within(steps).getByRole('radio', { name: 'Off' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        field: 'file_operations.enabled',
+        value: false,
+      }),
+    ),
+  );
+  expect(screen.getByText('Row-Bot can’t read or change files.')).toBeVisible();
+  // Coming back from Off switches the tool on first, then sets the step.
+  fireEvent.click(within(steps).getByRole('radio', { name: 'All' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        field: 'file_operations.selected',
+        value: ['read_file', 'write_file', 'file_delete'],
+      }),
+    ),
+  );
+  expect(mutation.review).toHaveBeenCalledWith(
+    expect.objectContaining({ field: 'file_operations.enabled', value: true }),
+  );
 });
 
 it('shows the Cua disclosure before enabling and accepts it with one toggle', async () => {
@@ -565,10 +667,13 @@ it('shows the Cua disclosure before enabling and accepts it with one toggle', as
       mutation={mutation}
     />,
   );
-  expect(screen.getByText('Cua Driver telemetry notice.')).toBeVisible();
-  expect(screen.queryByLabelText('Computer Use (Beta)')).toBeNull();
+  const setup = openSetup();
+  expect(within(setup).getByText('Cua Driver telemetry notice.')).toBeVisible();
+  expect(within(setup).queryByLabelText('Computer Use (Beta)')).toBeNull();
   expect(mutation.review).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByLabelText('Accept Cua Driver telemetry notice'));
+  fireEvent.click(
+    within(setup).getByLabelText('Accept Cua Driver telemetry notice'),
+  );
   await waitFor(() =>
     expect(mutation.execute).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -598,6 +703,7 @@ it('runs Computer Use diagnostics only after the explicit click', async () => {
   render(
     <SystemSnapshotPanel snapshot={snapshot.system} mutation={mutation} />,
   );
+  openSetup();
   expect(screen.getByText('Computer Use is off.')).toBeVisible();
   expect(mutation.review).not.toHaveBeenCalled();
   fireEvent.click(
@@ -633,6 +739,7 @@ it('shows Computer Use status without host actions in a remote session', () => {
       mutation={mutation}
     />,
   );
+  openSetup();
   expect(screen.getByText('Host setup is local only')).toBeVisible();
   expect(
     screen.queryByRole('button', { name: 'Check Computer Use setup' }),
@@ -669,6 +776,7 @@ it('tests a ready Computer Use runtime and verifies an explicit system binary', 
       mutation={mutation}
     />,
   );
+  openSetup();
   fireEvent.click(screen.getByRole('button', { name: 'Test with Calculator' }));
   await waitFor(() =>
     expect(mutation.execute).toHaveBeenCalledWith(
@@ -748,6 +856,7 @@ it('offers one-click macOS permission recovery only on the local Mac host', asyn
       mutation={mutation}
     />,
   );
+  openSetup();
   fireEvent.click(screen.getByText('macOS permission recovery'));
   fireEvent.click(
     screen.getByRole('button', { name: 'Open Accessibility settings' }),
@@ -768,6 +877,7 @@ it('keeps System install network tunnel and OS actions explicit and reviewed', a
   );
   expect(mutation.review).not.toHaveBeenCalled();
   expect(mutation.execute).not.toHaveBeenCalled();
+  openSetup();
   fireEvent.click(
     screen.getByRole('button', { name: 'Install browser runtime' }),
   );
@@ -997,8 +1107,12 @@ it('uses an opaque local-owner folder grant and never renders a workspace path',
     />,
   );
   expect(document.body).not.toHaveTextContent('D:/Workspace');
+  // The folder shows as a chip with Change… beside it (B258).
+  expect(
+    screen.getByText('Workspace', { selector: '.settings-folder-chip span' }),
+  ).toBeVisible();
   fireEvent.click(
-    screen.getByRole('button', { name: 'Choose workspace folder' }),
+    screen.getByRole('button', { name: 'Change workspace folder' }),
   );
   expect(await screen.findByText('Selected: Selected workspace')).toBeVisible();
   // The pick itself is the change: it saves at once, without Undo.
@@ -1016,6 +1130,7 @@ it('uses an opaque local-owner folder grant and never renders a workspace path',
 
 it('saves one retained setting when the field is left, once, and offers Undo (decision 19)', async () => {
   renderSetting('voice');
+  fireEvent.click(screen.getByText('Advanced'));
   const model = screen.getByLabelText('Talk model');
   fireEvent.change(model, {
     target: { value: 'medium' },
@@ -1025,19 +1140,18 @@ it('saves one retained setting when the field is left, once, and offers Undo (de
   expect(screen.queryByRole('button', { name: /^Revert/ })).toBeNull();
   fireEvent.blur(model);
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(1));
-  const saved = await screen.findByText(
-    (_, element) =>
-      element?.classList.contains('settings-saved-note') === true &&
-      element.textContent?.startsWith('Saved') === true,
+  const saved = await notice('Talk model saved');
+  // Never a line in the page (B258).
+  expect(document.querySelector('.settings-saved-note')).toBeNull();
+  fireEvent.click(
+    within(saved.closest('li')!).getByRole('button', { name: 'Undo' }),
   );
-  expect(saved).toHaveAttribute('role', 'status');
-  fireEvent.click(screen.getByRole('button', { name: 'Undo Talk model' }));
   await waitFor(() => expect(mutation.execute).toHaveBeenCalledTimes(2));
   expect(mutation.review).toHaveBeenLastCalledWith(
     expect.objectContaining({ field: 'runtime.talk_model', value: 'small' }),
     expect.any(AbortSignal),
   );
-  expect(await screen.findByText('Undone.')).toBeInTheDocument();
+  expect(await notice('Talk model changed back')).toBeInTheDocument();
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
       page: 'voice',
@@ -1054,6 +1168,7 @@ it('saves one retained setting when the field is left, once, and offers Undo (de
 it('marks a field that differs from its default and resets it in one step', async () => {
   mutation.defaults = { 'runtime.talk_model': 'local-whisper' };
   const { container } = renderSetting('voice');
+  fireEvent.click(screen.getByText('Advanced'));
   const row = screen
     .getByLabelText('Talk model')
     .closest('.settings-saved-control')!;
@@ -1063,7 +1178,7 @@ it('marks a field that differs from its default and resets it in one step', asyn
   expect(screen.getByRole('textbox', { name: 'Talk model' })).toBeVisible();
   // A field already at its default offers no reset.
   expect(
-    screen.queryByRole('button', { name: 'Reset Talk provider to default' }),
+    screen.queryByRole('button', { name: 'Reset Listen with to default' }),
   ).toBeNull();
   fireEvent.click(
     screen.getByRole('button', { name: 'Reset Talk model to default' }),
@@ -1235,9 +1350,13 @@ it('does not carry a write draft into a new authenticated session owner', () => 
 
 it('renders System, Tracker, Accounts, and Utilities controls from one snapshot', () => {
   const system = renderSetting('system');
-  expect(screen.getByText(/Current folder: Workspace/)).toBeVisible();
+  expect(screen.getByText('Workspace folder ready')).toBeVisible();
+  expect(
+    screen.getByText('Workspace', { selector: '.settings-folder-chip span' }),
+  ).toBeVisible();
   expect(screen.queryByDisplayValue(/D:\/Workspace/)).toBeNull();
-  expect(screen.getByLabelText('File log level')).toHaveValue('INFO');
+  expect(screen.getByLabelText('Log detail')).toHaveValue('INFO');
+  expect(screen.getByRole('option', { name: 'Normal' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Mobile Access' })).toBeNull();
   // Remote reach moved to Access.
   expect(screen.queryByText('Public link')).toBeNull();
@@ -1386,13 +1505,16 @@ it('renders editable document, tool, and preference owners', async () => {
       mutation={mutation}
     />,
   );
-  expect(screen.getByLabelText('Provider')).toHaveValue('local');
-  expect(screen.getByLabelText('Local model')).toBeVisible();
-  expect(screen.queryByLabelText('Cloud model')).toBeNull();
+  const runs = screen.getByRole('radiogroup', { name: 'Search runs' });
+  expect(
+    within(runs).getByRole('radio', { name: 'This computer' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByLabelText('Search model')).toHaveValue('qwen3-0.6b');
+  expect(screen.getByLabelText('Free memory when idle')).toBeChecked();
   expect(screen.getByLabelText('Dimension override')).toHaveValue(null);
-  expect(screen.getByText('12 indexed')).toBeVisible();
-  expect(screen.getByText(/Active: Qwen3 0\.6B \(local\)/)).toBeVisible();
-  expect(screen.getByText('Vectors current')).toBeVisible();
+  expect(screen.getByText('12 searchable')).toBeVisible();
+  expect(screen.getByText('search runs on this computer')).toBeVisible();
+  expect(screen.getByText(/In use: Qwen3 0\.6B \(local\)/)).toBeVisible();
   // Index health and maintenance sit under Advanced.
   expect(screen.getByText('Advanced').closest('details')).not.toHaveAttribute(
     'open',
@@ -1419,21 +1541,19 @@ it('renders editable document, tool, and preference owners', async () => {
       expect.any(AbortSignal),
     ),
   );
-  fireEvent.change(screen.getByLabelText('Provider'), {
-    target: { value: 'cloud' },
-  });
-  expect(screen.getByLabelText('Cloud model')).toBeVisible();
-  expect(screen.queryByLabelText('Local model')).toBeNull();
+  fireEvent.click(within(runs).getByRole('radio', { name: 'Cloud' }));
+  expect(screen.getByLabelText('Search model')).toHaveValue(
+    'openai:text-embedding-3-small',
+  );
   // Data would leave this computer, so it asks first (decision 19).
-  const ask = screen.getByRole('group', { name: 'Confirm Provider' });
+  const ask = screen.getByRole('group', { name: 'Confirm Search runs' });
   expect(ask).toHaveTextContent(/sent to the cloud embedding provider/);
   expect(mutation.review).not.toHaveBeenCalledWith(
     expect.objectContaining({ field: 'embedding.provider' }),
     expect.anything(),
   );
   fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
-  expect(screen.getByLabelText('Local model')).toBeVisible();
-  expect(screen.queryByLabelText('Cloud model')).toBeNull();
+  expect(screen.getByLabelText('Search model')).toHaveValue('qwen3-0.6b');
   documents.unmount();
 
   mutation.page = 'tools';
@@ -1468,14 +1588,29 @@ it('renders editable document, tool, and preference owners', async () => {
   );
   expect(screen.getByLabelText('Name')).toHaveValue('Row-Bot');
   expect(screen.getByRole('textbox', { name: 'Personality' })).toBeVisible();
-  expect(screen.getByText('Preview')).toBeVisible();
-  expect(screen.getByLabelText('Window mode')).toHaveValue('ask');
-  expect(screen.getByLabelText('Start hour')).toHaveValue(1);
-  expect(screen.getByLabelText('End hour')).toHaveValue(5);
-  expect(screen.getByRole('option', { name: 'Ask on Launch' })).toBeVisible();
-  expect(screen.getByRole('option', { name: 'System Browser' })).toBeVisible();
+  // The preview and the count are one muted line under the text box.
+  expect(
+    screen.getByText(/Row-Bot starts every chat as: “You are Row-Bot/),
+  ).toBeVisible();
+  expect(screen.getByText('0 / 200')).toBeVisible();
+  expect(screen.getByLabelText('Learn new skills')).not.toBeChecked();
+  const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
+  expect(
+    within(openIn).getByRole('radio', { name: 'Ask each time' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(
+    within(openIn).getByRole('radio', { name: 'App window' }),
+  ).toBeVisible();
+  // Dream Cycle's hours are one row of two times.
+  expect(screen.getByLabelText('Start hour')).toHaveValue('1');
+  expect(screen.getByLabelText('End hour')).toHaveValue('5');
+  // Whole hours, in the reader's own clock.
+  expect(
+    within(screen.getByLabelText('Start hour')).getAllByRole('option'),
+  ).toHaveLength(24);
+  expect(screen.getByText('Dream Cycle off')).toBeVisible();
   // Updates and migration moved to their own System pages.
-  expect(screen.queryByText(/Cached release state/)).toBeNull();
+  expect(screen.queryByText(/No update check runs/)).toBeNull();
   preferences.unmount();
   render(
     <PreferencesSnapshotPanel
@@ -1484,11 +1619,16 @@ it('renders editable document, tool, and preference owners', async () => {
       part="updates"
     />,
   );
-  expect(screen.getAllByText('v1.0.0')[0]).toBeVisible();
+  expect(screen.getAllByText('Row-Bot 1.0.0')[0]).toBeVisible();
   expect(screen.getByText('Advanced').closest('details')).not.toHaveAttribute(
     'open',
   );
-  expect(screen.getByText(/Cached release state/)).toBeVisible();
+  expect(screen.getByText(/No update check runs/)).toBeVisible();
+  expect(
+    within(
+      screen.getByRole('radiogroup', { name: 'Update channel' }),
+    ).getByRole('radio', { name: 'Stable' }),
+  ).toHaveAttribute('aria-checked', 'true');
 });
 
 it('uses NiceGUI friendly research-tool labels and owner order', () => {
@@ -1578,15 +1718,19 @@ it('installs the chosen Whisper size from Voice settings (B140)', () => {
       />
     </MemoryRouter>,
   );
-  expect(screen.getByText('Whisper not installed')).toBeVisible();
+  expect(screen.getByText('Not installed')).toBeVisible();
   expect(
-    screen.getByText(
-      /Downloads the speech recognition model from Hugging Face/,
-    ),
+    screen.getByText(/Downloads once from Hugging Face \(Systran\)/),
   ).toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Install Whisper Base (~74 MB)' }),
-  );
+  // The size reads "Base · 74 MB"; Install sits beside it.
+  expect(
+    screen.getByRole('option', { name: 'Base · 74 MB' }),
+  ).toBeInTheDocument();
+  const install = screen.getByRole('button', {
+    name: 'Install Whisper Base (~74 MB)',
+  });
+  expect(install).toHaveTextContent('Install');
+  fireEvent.click(install);
   expect(mutation.review).toHaveBeenCalledWith(
     expect.objectContaining({
       page: 'voice',
@@ -1619,24 +1763,30 @@ it('picks the model for documents next to the queue and saves at once (U45)', as
   // Nothing picked is the default: no "Reset … to default" until a model is.
   mutation.defaults = { processing_model: '' };
   render(
-    <DocumentModelSetting
-      snapshot={snapshot.documents}
-      mutation={mutation}
-      models={[
-        {
-          model_ref: 'model:ollama:qwen3.8:27b',
-          label: 'qwen3.8:27b',
-          available: true,
-        },
-        { model_ref: 'model:openai:gpt-4o', label: 'GPT-4o', available: false },
-      ]}
-    />,
+    <OverlayProvider>
+      <DocumentModelSetting
+        snapshot={snapshot.documents}
+        mutation={mutation}
+        models={[
+          {
+            model_ref: 'model:ollama:qwen3.8:27b',
+            label: 'qwen3.8:27b',
+            available: true,
+          },
+          {
+            model_ref: 'model:openai:gpt-4o',
+            label: 'GPT-4o',
+            available: false,
+          },
+        ]}
+      />
+    </OverlayProvider>,
   );
-  const picker = screen.getByLabelText('Model for documents', { exact: true });
+  const picker = screen.getByLabelText('Read documents with', { exact: true });
   expect(picker).toHaveDisplayValue("Conversation's model");
   expect(
     screen.queryByRole('button', {
-      name: 'Reset Model for documents to default',
+      name: 'Reset Read documents with to default',
     }),
   ).toBeNull();
   expect(
@@ -1653,6 +1803,42 @@ it('picks the model for documents next to the queue and saves at once (U45)', as
     expect.any(AbortSignal),
   );
   expect(
-    screen.getByRole('button', { name: 'Undo Model for documents' }),
-  ).toBeVisible();
+    await notice('Documents are read with qwen3.8:27b'),
+  ).toBeInTheDocument();
+});
+
+it('saves Open in and the Dream Cycle hours at once, confirmed by the floating notice (B258)', async () => {
+  mutation.page = 'preferences';
+  render(
+    <OverlayProvider>
+      <PreferencesSnapshotPanel
+        snapshot={snapshot.preferences}
+        mutation={mutation}
+      />
+    </OverlayProvider>,
+  );
+  const openIn = screen.getByRole('radiogroup', { name: 'Open in' });
+  fireEvent.click(within(openIn).getByRole('radio', { name: 'App window' }));
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 'preferences',
+        field: 'window_mode',
+        value: 'native',
+      }),
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(
+    await notice('Row-Bot opens there from the next launch'),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('End hour'), {
+    target: { value: '6' },
+  });
+  await waitFor(() =>
+    expect(mutation.review).toHaveBeenLastCalledWith(
+      expect.objectContaining({ field: 'dream_cycle.window_end', value: 6 }),
+      expect.any(AbortSignal),
+    ),
+  );
 });

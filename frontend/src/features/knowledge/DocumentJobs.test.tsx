@@ -296,3 +296,57 @@ describe('document queue retained controls', () => {
     expect(session.getSnapshot().batches).toBeNull();
   });
 });
+
+it('resumes every paused batch from one "Resume all", each through its own review (B258)', async () => {
+  const paused = (id: string): DocumentQueueItem => ({
+    ...batch,
+    id,
+    status: 'paused',
+    pause_requested: true,
+    revision: `${id}-revision`,
+  });
+  const transport: DocumentJobsTransport = {
+    batches: vi.fn(async () => page([paused('one'), paused('two')])),
+    jobs: vi.fn(async () => page([])),
+    review: vi.fn(async (action, payload) => ({
+      review_id: `review-${String(payload.target_id)}`,
+      action,
+      target_id: String(payload.target_id),
+      batch_ids: [String(payload.target_id)],
+      revision: 'review-revision',
+      intent_digest: 'digest',
+      provider_work: true,
+      retains_work: false,
+    })),
+    execute: vi.fn(async (command) => ({
+      command_id: command.command_id,
+      status: 'completed' as const,
+      outcome: 'resumed' as const,
+      target_id: String(command.payload.target_id),
+      batch_ids: [String(command.payload.target_id)],
+      saved_status: 'queued',
+      count: 1,
+      retained_work: false,
+    })),
+    receipt: vi.fn(),
+  };
+  const session = createDocumentJobsSession(transport, vi.fn());
+  render(<DocumentJobs session={session} />);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh queue' }));
+  });
+  // Each paused batch also offers Resume in its own row.
+  expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Resume all' }));
+  });
+  expect(transport.review).toHaveBeenCalledWith(
+    'document.batch.resume',
+    expect.objectContaining({ target_id: 'one' }),
+  );
+  expect(transport.review).toHaveBeenCalledWith(
+    'document.batch.resume',
+    expect.objectContaining({ target_id: 'two' }),
+  );
+  expect(transport.execute).toHaveBeenCalledTimes(2);
+});

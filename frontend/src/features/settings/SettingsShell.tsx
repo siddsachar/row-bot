@@ -42,7 +42,11 @@ import {
   settingsRowHref,
   type SettingsLeaf,
 } from './model';
-import { SettingsHeaderSlot, useSettingsAnchor } from './anatomy';
+import {
+  SettingsHeaderSlot,
+  SettingsStatusSlot,
+  useSettingsAnchor,
+} from './anatomy';
 import { useWorkspaceActions } from '../shell/workspace-actions';
 
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
@@ -71,14 +75,14 @@ const icons: Record<string, Icon> = {
 };
 
 const descriptions: Record<string, string> = {
-  preferences: 'How Row-Bot introduces itself, opens and works overnight.',
+  preferences: 'How Row-Bot introduces itself, opens and tidies up overnight.',
   appearance: 'Theme, accent colour and density on this device.',
-  buddy: 'Your companion’s visibility, personality, look and motion.',
+  buddy: 'Your companion’s look, personality and motion.',
   providers: 'Where Row-Bot’s models come from. Defaults live in Models.',
-  models: 'Default, vision and image models, and the pinned catalog.',
+  models: 'Which model does each job.',
   voice: 'Talk, dictation and read-aloud.',
   knowledge: 'The memory graph, the wiki vault and stored knowledge.',
-  documents: 'Files Row-Bot can search, and how they are indexed.',
+  documents: 'Files Row-Bot can search and learn from.',
   tracker: 'Habits, symptoms and health events you track.',
   tools: 'Search, research and built-in tools the assistant can use.',
   skills: 'Reusable instructions: installed skills and public ones.',
@@ -86,10 +90,10 @@ const descriptions: Record<string, string> = {
   mcp: 'External MCP servers, their tools, permissions and runtimes.',
   accounts: 'GitHub, Google and X accounts, without exposing credentials.',
   channels: 'Messaging platforms Row-Bot can talk through.',
-  system: 'Workspace folder, shell, browser, files and logs.',
+  system: 'Where Row-Bot works on this computer, and what it may do there.',
   access:
     'Use Row-Bot on a phone or another computer, and see what is signed in.',
-  updates: 'The installed version and how updates arrive.',
+  updates: 'The version you have and how new ones arrive.',
   data: 'Back up and restore, import from other assistants, and irreversible clean-up.',
 };
 
@@ -120,6 +124,7 @@ export default function SettingsShell({
   const search = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState<HTMLDivElement | null>(null);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const [statusSlot, setStatusSlot] = useState<HTMLDivElement | null>(null);
   const [query, setQuery] = useState('');
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
@@ -321,11 +326,14 @@ export default function SettingsShell({
                 {leaf.label}
               </h2>
               <p>{descriptions[leaf.id]}</p>
+              <div className="settings-pane-status" ref={setStatusSlot} />
             </div>
             <div className="settings-pane-summary" ref={setSlot} />
           </header>
           <SettingsHeaderSlot.Provider value={slot}>
-            {children}
+            <SettingsStatusSlot.Provider value={statusSlot}>
+              {children}
+            </SettingsStatusSlot.Provider>
           </SettingsHeaderSlot.Provider>
         </div>
       </section>

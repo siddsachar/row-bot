@@ -1,30 +1,366 @@
 import {
+  Children,
+  cloneElement,
   createContext,
+  Fragment,
+  isValidElement,
   useContext,
   useEffect,
   useId,
   useRef,
   useState,
   type ComponentType,
+  type ReactElement,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { Disclosure, IconButton, type Tone } from '../../ui/primitives';
+import { AlertTriangle, MoreHorizontal, RefreshCw } from 'lucide-react';
+import {
+  Disclosure,
+  IconButton,
+  Menu,
+  type MenuAction,
+  type Tone,
+} from '../../ui/primitives';
 
 /**
- * Settings page anatomy: header (icon, title, one line, summary chips, ↻) →
- * Essentials → lists → Advanced (collapsed) → Danger zone (collapsed,
- * outlined). The shell owns the header; pages portal their summary into it.
+ * Settings page anatomy (B258; B229, B262 and B263 build on it):
+ *
+ *   header      icon tile, title, one plain line, then ONE status line
+ *               (<SettingsStatus>) and the page's ⋯ (<SettingsPageMenu>);
+ *               no summary chips or banners.
+ *   groups      <SettingsGroup title note meta> — a small heading over one
+ *               quiet surface; rows inside are divided by hairlines.
+ *   rows        <SettingsItem label help status control> — label and
+ *               one-line help on the left, the control on the right (32px
+ *               on a fine pointer, 44px on touch; selects 280px wide); on a
+ *               narrow page the control moves under its label.
+ *   saves       confirmed by the floating notice ("Name saved · Undo"),
+ *               never a line in the page.
+ *   Advanced    <SettingsAdvanced meta> — one dashed disclosure at the end.
+ *   Danger zone <SettingsDangerZone meta> — outlined in the danger tone,
+ *               collapsed.
+ *
+ * The shell owns the header; pages portal their status line and ⋯ into it.
  */
 export const SettingsHeaderSlot = createContext<HTMLElement | null | undefined>(
   undefined,
 );
+/** Where a page's status line goes: under the header's description. */
+export const SettingsStatusSlot = createContext<HTMLElement | null | undefined>(
+  undefined,
+);
+
+/** Status parts: a toned dot before the first, "·" between the rest. */
+function StatusParts({
+  tone,
+  pulse,
+  children,
+  more = [],
+}: {
+  tone?: Tone;
+  pulse?: boolean;
+  children: ReactNode;
+  more?: ReactNode[];
+}) {
+  return (
+    <>
+      <span className="status-indicator" data-tone={tone}>
+        {tone && (
+          <span
+            className="status-indicator-dot"
+            data-pulse={pulse ? 'true' : undefined}
+            aria-hidden
+          />
+        )}
+        <span className="settings-status-first">{children}</span>
+      </span>
+      {more
+        .filter((part) => part != null && part !== false && part !== '')
+        .map((part, index) => (
+          <Fragment key={index}>
+            <span className="settings-status-sep" aria-hidden>
+              ·
+            </span>
+            <span>{part}</span>
+          </Fragment>
+        ))}
+    </>
+  );
+}
 
 /**
- * Summary chips and an optional refresh, shown in the page header. Outside
- * the Settings shell (e.g. a component rendered on its own) they show inline.
+ * The page's one status line, under its description: `tone` colours the
+ * dot before the first part (`children`); `more` adds muted parts joined by
+ * "·" ("● Dream Cycle on · last ran today at 3:12 AM"). Outside the
+ * Settings shell it shows inline.
+ */
+export function SettingsStatus({
+  tone,
+  pulse,
+  children,
+  more,
+}: {
+  tone?: Tone;
+  pulse?: boolean;
+  children: ReactNode;
+  more?: ReactNode[];
+}) {
+  const slot = useContext(SettingsStatusSlot);
+  const line = (
+    <p className="settings-status-line">
+      <StatusParts tone={tone} pulse={pulse} more={more}>
+        {children}
+      </StatusParts>
+    </p>
+  );
+  if (slot === undefined) return line;
+  if (!slot) return null;
+  return createPortal(line, slot);
+}
+
+/**
+ * A row's small status line under its help (same parts as
+ * SettingsStatus): "● Not installed", "Last ran today · 14 merged".
+ */
+export function StatusLine({
+  tone,
+  pulse,
+  children,
+  more,
+  action,
+}: {
+  tone?: Tone;
+  pulse?: boolean;
+  children: ReactNode;
+  more?: ReactNode[];
+  /** A trailing text action ("Install", "Show it again"). */
+  action?: ReactNode;
+}) {
+  return (
+    <span className="settings-row-status-line" data-tone={tone}>
+      <StatusParts tone={tone} pulse={pulse} more={more}>
+        {children}
+      </StatusParts>
+      {action && (
+        <>
+          <span className="settings-status-sep" aria-hidden>
+            ·
+          </span>
+          {action}
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The page's ⋯ in the header, for rare page actions (provider links,
+ * re-reading the page). `label` names the button.
+ */
+export function SettingsPageMenu({
+  label,
+  actions,
+}: {
+  label: string;
+  actions: MenuAction[];
+}) {
+  return (
+    <SettingsSummary>
+      <Menu
+        label={label}
+        iconOnly
+        variant="ghost"
+        className="icon-action settings-page-menu"
+        actions={actions}
+      >
+        <MoreHorizontal size={16} aria-hidden />
+      </Menu>
+    </SettingsSummary>
+  );
+}
+
+/**
+ * One quiet group of rows.
+ * - `title`: the small heading (omit it for a lone group, then give `label`).
+ * - `note`: one muted line beside the heading (under it on a phone).
+ * - `meta`: the heading's right side: a count, a "Refresh" link, an icon.
+ * - `anchor`: the settings-search target (`#anchor`).
+ * - `surface={false}`: the children bring their own surface (a drop zone).
+ */
+export function SettingsGroup({
+  title,
+  label,
+  note,
+  meta,
+  anchor,
+  surface = true,
+  className = '',
+  children,
+}: {
+  title?: string;
+  label?: string;
+  note?: ReactNode;
+  meta?: ReactNode;
+  anchor?: string;
+  surface?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section
+      className={`settings-group ${className}`}
+      aria-labelledby={title ? `${id}-title` : undefined}
+      aria-label={title ? undefined : label}
+      data-setting-anchor={anchor}
+    >
+      {(title || meta) && (
+        <header className="settings-group-head">
+          {title && <h3 id={`${id}-title`}>{title}</h3>}
+          {note && <p>{note}</p>}
+          {meta && <div className="settings-group-meta">{meta}</div>}
+        </header>
+      )}
+      {surface ? (
+        <div className="settings-group-surface">{children}</div>
+      ) : (
+        children
+      )}
+    </section>
+  );
+}
+
+type ControlProps = { id?: string; 'aria-describedby'?: string };
+
+/**
+ * One settings row.
+ * - `label`, `help`: the name (14 medium) and one plain line (13 muted).
+ * - `status`: a small line under the help, usually a <StatusLine>.
+ * - `control`: the control. When it is one element, the label names it and
+ *   the help and status describe it; pass `bind={false}` for a control that
+ *   names itself (a segmented choice, several buttons).
+ * - `trailing`: actions after the control that the label does not name
+ *   (Reset, Install, an icon button).
+ * - `layout`: "row" (the control moves under the label on a narrow page),
+ *   "inline" (stays beside it: switches, one small button) or "stacked"
+ *   (always under it, full width: text areas, lists).
+ * - `icon`: a tinted 32px tile before the label; `tone` picks its tint.
+ * - `sub`: an indented sub-row (Camera under Vision); `off`: dimmed text for
+ *   a job that is switched off; `modified`: the accent "changed" dot.
+ * - `children`: full-width content under the row (a message, a confirm).
+ */
+export function SettingsItem({
+  label,
+  help,
+  status,
+  control,
+  bind = true,
+  trailing,
+  layout = 'row',
+  icon,
+  tone,
+  sub = false,
+  off = false,
+  modified = false,
+  anchor,
+  className = '',
+  children,
+}: {
+  label: ReactNode;
+  help?: ReactNode;
+  status?: ReactNode;
+  control?: ReactNode;
+  bind?: boolean;
+  trailing?: ReactNode;
+  layout?: 'row' | 'inline' | 'stacked';
+  icon?: ReactNode;
+  tone?: 'accent' | 'neutral' | '1' | '2' | '3' | '4' | '5' | '6';
+  sub?: boolean;
+  off?: boolean;
+  modified?: boolean;
+  anchor?: string;
+  className?: string;
+  children?: ReactNode;
+}) {
+  const id = useId();
+  const single =
+    bind && isValidElement<ControlProps>(control) && control.type !== Fragment;
+  const element = single ? (control as ReactElement<ControlProps>) : null;
+  const controlId = element ? (element.props.id ?? `${id}-control`) : '';
+  const helpId = help ? `${id}-help` : '';
+  const statusId = status ? `${id}-status` : '';
+  const bound = element
+    ? cloneElement(element, {
+        id: controlId,
+        'aria-describedby':
+          [element.props['aria-describedby'], helpId, statusId]
+            .filter(Boolean)
+            .join(' ') || undefined,
+      })
+    : control;
+  const dot = modified ? (
+    <span
+      className="settings-modified-dot"
+      aria-hidden
+      title="Changed from default"
+    />
+  ) : null;
+  return (
+    <div
+      className={`settings-row ${className}`}
+      data-layout={layout}
+      data-icon={icon ? 'true' : undefined}
+      data-sub={sub ? 'true' : undefined}
+      data-off={off ? 'true' : undefined}
+      data-setting-anchor={anchor}
+    >
+      {icon && (
+        <span className="settings-row-icon" data-tone={tone} aria-hidden>
+          {icon}
+        </span>
+      )}
+      <div className="settings-row-text">
+        {element ? (
+          <label className="settings-row-label" htmlFor={controlId}>
+            {label}
+            {dot}
+          </label>
+        ) : (
+          <span className="settings-row-label">
+            {label}
+            {dot}
+          </span>
+        )}
+        {help && (
+          <p className="settings-row-help" id={helpId}>
+            {help}
+          </p>
+        )}
+        {status && (
+          <div className="settings-row-status" id={statusId}>
+            {status}
+          </div>
+        )}
+      </div>
+      {(control != null || trailing != null) && (
+        <div className="settings-row-control">
+          {bound}
+          {trailing}
+        </div>
+      )}
+      {Children.toArray(children).length > 0 && (
+        <div className="settings-row-extra">{children}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The header's right side: the page's ⋯ or ↻ (and, on pages not yet on the
+ * B258 anatomy, summary chips). Outside the Settings shell (e.g. a
+ * component rendered on its own) it shows inline.
  */
 export function SettingsSummary({ children }: { children: ReactNode }) {
   const slot = useContext(SettingsHeaderSlot);

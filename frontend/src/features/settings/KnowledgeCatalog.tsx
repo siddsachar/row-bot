@@ -26,6 +26,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  IconButton,
   Input,
   Skeleton,
   Toggle,
@@ -66,6 +67,7 @@ export function SavedCatalog<P extends SavedPage>({
   renderItems,
   description,
   initialPageSize,
+  headless = false,
 }: {
   title: string;
   noun: string;
@@ -74,6 +76,11 @@ export function SavedCatalog<P extends SavedPage>({
   renderItems: (page: P) => ReactNode;
   description: string;
   initialPageSize?: number;
+  /**
+   * Inside a settings group (B258): no heading of its own; the reload sits
+   * in the search row.
+   */
+  headless?: boolean;
 }) {
   const [draft, setDraft] = useState('');
   const [selected, setSelected] = useState('');
@@ -198,19 +205,21 @@ export function SavedCatalog<P extends SavedPage>({
       className="stack settings-saved-catalog"
       aria-busy={loading || loadingMore}
     >
-      <header className="settings-owner-heading">
-        <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
-        </div>
-        <CompactAction
-          label={`Reload ${noun}`}
-          disabled={loading}
-          onClick={() => setReload((value) => value + 1)}
-        >
-          <RefreshCw size={16} aria-hidden />
-        </CompactAction>
-      </header>
+      {!headless && (
+        <header className="settings-owner-heading">
+          <div>
+            <h3>{title}</h3>
+            <p>{description}</p>
+          </div>
+          <CompactAction
+            label={`Reload ${noun}`}
+            disabled={loading}
+            onClick={() => setReload((value) => value + 1)}
+          >
+            <RefreshCw size={16} aria-hidden />
+          </CompactAction>
+        </header>
+      )}
       <form
         className="settings-list-toolbar"
         role="search"
@@ -249,6 +258,16 @@ export function SavedCatalog<P extends SavedPage>({
           clearTimeout(typing.current);
           setApplied({ query: draft.trim(), selected: value.trim() });
         })}
+        {headless && (
+          <IconButton
+            size="sm"
+            label={`Reload ${noun}`}
+            disabled={loading}
+            onClick={() => setReload((value) => value + 1)}
+          >
+            <RefreshCw size={14} aria-hidden />
+          </IconButton>
+        )}
       </form>
       {loading && <Skeleton label={`Loading saved ${noun}`} />}
       {error && (

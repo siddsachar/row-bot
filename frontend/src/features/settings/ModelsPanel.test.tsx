@@ -6,7 +6,8 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type {
@@ -14,6 +15,7 @@ import type {
   DefaultModelSnapshot,
   ModelsSettingsState,
 } from '../../api/types';
+import { OverlayProvider } from '../../ui/overlays';
 import { DefaultModelSession } from './DefaultModelSettings';
 import ModelsPanel from './ModelsPanel';
 
@@ -188,7 +190,7 @@ function fixture() {
   return controller;
 }
 /** Every Models picker is the composer's searchable list (U12, B227). */
-async function chooseDefault(name: RegExp, picker = 'Default model') {
+async function chooseDefault(name: RegExp, picker = 'Brain model') {
   const button = await screen.findByRole('button', { name: picker });
   // A save in flight disables the pickers until it settles.
   await waitFor(() => expect(button).toBeEnabled());
@@ -196,20 +198,35 @@ async function chooseDefault(name: RegExp, picker = 'Default model') {
   const option = await screen.findByRole('option', { name });
   await act(async () => fireEvent.click(option));
 }
-function show(controller = fixture()) {
+function Location() {
+  return <output aria-label="Location">{useLocation().pathname}</output>;
+}
+function show(controller = fixture(), openExternal = vi.fn()) {
   const session = new DefaultModelSession();
   render(
-    <MemoryRouter>
-      <ModelsPanel controller={controller} session={session} />
+    <MemoryRouter initialEntries={['/settings/models']}>
+      <OverlayProvider>
+        <ModelsPanel
+          controller={controller}
+          session={session}
+          openExternal={openExternal}
+        />
+        <Location />
+      </OverlayProvider>
     </MemoryRouter>,
   );
-  return { controller, session };
+  return { controller, session, openExternal };
+}
+/** The floating notice that confirms a save (B258). */
+async function notice(text: string | RegExp) {
+  const notices = await screen.findByRole('region', { name: /Notifications/ });
+  return within(notices.parentElement!).findByText(text);
 }
 
-it('renders actual defaults and limits while leaving the catalog off the initial row path', async () => {
+it('renders actual defaults and limits while leaving catalog rows unloaded', async () => {
   const { controller } = show();
   expect(
-    await screen.findByRole('button', { name: 'Default model' }),
+    await screen.findByRole('button', { name: 'Brain model' }),
   ).toHaveTextContent('GPT-6-Astra');
   expect(
     screen.getByRole('button', { name: 'Vision model' }),
@@ -223,14 +240,10 @@ it('renders actual defaults and limits while leaving the catalog off the initial
   expect(
     screen.getByText(/Current Video default is unavailable/),
   ).toBeVisible();
-  expect(
-    screen.getByRole('spinbutton', { name: /Maximum work rounds/ }),
-  ).toHaveValue(90);
-  expect(screen.getByRole('button', { name: 'Model Catalog' })).toHaveAttribute(
-    'aria-expanded',
-    'false',
+  expect(screen.getByRole('spinbutton', { name: /Steps per run/ })).toHaveValue(
+    90,
   );
-  expect(controller.modelCatalogSummary).not.toHaveBeenCalled();
+  // The catalog lists its providers; model rows wait for a provider or search.
   expect(controller.modelCatalogPage).not.toHaveBeenCalled();
   expect(
     screen.queryByText(
@@ -239,16 +252,52 @@ it('renders actual defaults and limits while leaving the catalog off the initial
   ).not.toBeInTheDocument();
 });
 
-it('offers explicit Ollama setup navigation without starting an install on render', async () => {
-  const { controller } = show();
-  const link = await screen.findByRole('link', { name: 'Download Ollama' });
-  expect(link).toHaveAttribute('href', 'https://ollama.com/download');
-  expect(link).toHaveAttribute('target', '_blank');
-  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+it('gives the four jobs one row each: name, purpose, switch, picker (B229)', async () => {
+  show();
+  await screen.findByRole('button', { name: 'Brain model' });
+  expect(screen.getByText('Chats, agents and workflows.')).toBeVisible();
+  expect(
+    screen.getByText('Reads images, screenshots and your camera.'),
+  ).toBeVisible();
+  expect(screen.getByText('Makes and edits pictures.')).toBeVisible();
+  expect(
+    screen.getByText('Makes short clips and animates pictures.'),
+  ).toBeVisible();
+  // Vision, Image and Video can be switched off; the Brain can't.
+  expect(
+    screen.getAllByRole('switch').map((toggle) => toggle.ariaLabel),
+  ).toEqual(['Enable vision', 'Enable image', 'Enable video']);
+  // No stray save line, no chip repeating the Brain model.
+  expect(screen.queryByText(/Brain default saved/)).toBeNull();
+  expect(screen.queryByTitle(/Default model:/)).toBeNull();
+});
+
+it('says who is connected and how much there is to choose in one status line (B229)', async () => {
+  show();
+  await screen.findByRole('button', { name: 'Brain model' });
+  // ChatGPT / Codex, OpenAI and Google offer available models; the unavailable
+  // xAI video model counts for neither.
+  expect(screen.getByText('3 providers connected')).toBeVisible();
+  expect(screen.getByText('6 models to choose from')).toBeVisible();
+});
+
+it('offers models for this computer from the page menu only when Ollama is not running (B117)', async () => {
+  const user = userEvent.setup();
+  const { controller, openExternal } = show();
+  await screen.findByRole('button', { name: 'Brain model' });
+  await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
+  await user.click(screen.getByRole('button', { name: 'More model actions' }));
+  await user.click(
+    await screen.findByRole('menuitem', {
+      name: 'Get models for this computer…',
+    }),
+  );
+  expect(openExternal).toHaveBeenCalledWith('https://ollama.com/download');
   expect(controller.executeDefaultModel).not.toHaveBeenCalled();
 });
 
-it('offers Download Ollama only when Ollama is not running (B117)', async () => {
+it('leaves the download out of the page menu while Ollama runs (B117)', async () => {
+  const user = userEvent.setup();
   const controller = fixture();
   vi.spyOn(controller, 'localRuntime').mockResolvedValue({
     schema_version: 1,
@@ -258,9 +307,42 @@ it('offers Download Ollama only when Ollama is not running (B117)', async () => 
     models: [],
   });
   show(controller);
-  await screen.findByRole('button', { name: 'Default model' });
+  await screen.findByRole('button', { name: 'Brain model' });
   await waitFor(() => expect(controller.localRuntime).toHaveBeenCalled());
-  expect(screen.queryByRole('link', { name: 'Download Ollama' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'More model actions' }));
+  expect(
+    await screen.findByRole('menuitem', { name: 'Provider connections' }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('menuitem', { name: /Get models for this computer/ }),
+  ).toBeNull();
+});
+
+it('opens Provider connections inside the router from the page menu (B31)', async () => {
+  const user = userEvent.setup();
+  show();
+  await screen.findByRole('button', { name: 'Brain model' });
+  await user.click(screen.getByRole('button', { name: 'More model actions' }));
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Provider connections' }),
+  );
+  expect(screen.getByRole('status', { name: 'Location' })).toHaveTextContent(
+    '/settings/providers',
+  );
+});
+
+it('re-reads the model settings from the page menu', async () => {
+  const user = userEvent.setup();
+  const { controller } = show();
+  await screen.findByRole('button', { name: 'Brain model' });
+  expect(controller.modelsSettings).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('button', { name: 'More model actions' }));
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Re-read model settings' }),
+  );
+  await waitFor(() =>
+    expect(controller.modelsSettings).toHaveBeenCalledTimes(2),
+  );
 });
 
 it('lets Vision follow the Brain from the top of its list (decision 11, B227)', async () => {
@@ -279,7 +361,7 @@ it('lets Vision follow the Brain from the top of its list (decision 11, B227)', 
       selection_ref: '',
     }),
   );
-  expect(await screen.findByText('Vision settings saved.')).toBeInTheDocument();
+  expect(await notice('Vision now follows the Brain')).toBeInTheDocument();
   expect(
     screen.getByRole('button', { name: 'Vision model' }),
   ).toHaveTextContent('Same as Brain');
@@ -323,6 +405,7 @@ it('lists only the Vision choices, grouped by provider with how each is paid for
   expect(
     await screen.findByRole('button', { name: 'Vision model' }),
   ).toHaveTextContent('GPT-4.1OpenAI · Pay per use');
+  expect(await notice('Vision is now GPT-4.1')).toBeInTheDocument();
 });
 
 it('keeps an unset Image model unset and lists an unavailable Video model with its reason (B227)', async () => {
@@ -362,7 +445,7 @@ it('keeps an unset Image model unset and lists an unavailable Video model with i
 
 it('reviews and saves the selected Brain default internally with the exact qualified identity', async () => {
   const { controller } = show();
-  const select = await screen.findByRole('button', { name: 'Default model' });
+  const select = await screen.findByRole('button', { name: 'Brain model' });
   await chooseDefault(/GPT-5\.5/);
   await waitFor(() =>
     expect(controller.executeDefaultModel).toHaveBeenCalledTimes(1),
@@ -380,6 +463,25 @@ it('reviews and saves the selected Brain default internally with the exact quali
   ).not.toBeInTheDocument();
 });
 
+it('confirms a Brain change with the floating notice, whose Undo saves the previous model back (B229)', async () => {
+  const { controller } = show();
+  await chooseDefault(/GPT-5\.5/);
+  const confirmation = await notice('Brain is now GPT-5.5');
+  const undo = within(confirmation.closest('li')!).getByRole('button', {
+    name: 'Undo',
+  });
+  await act(async () => fireEvent.click(undo));
+  await waitFor(() =>
+    expect(controller.reviewDefaultModel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        provider_id: 'codex',
+        model_id: 'gpt-6-astra',
+      }),
+    ),
+  );
+  expect(controller.executeDefaultModel).toHaveBeenCalledTimes(2);
+});
+
 it('updates media toggles, defaults, camera, context, and delegation through their typed owners', async () => {
   const { controller } = show();
   await screen.findByRole('button', { name: 'Image model' });
@@ -389,6 +491,14 @@ it('updates media toggles, defaults, camera, context, and delegation through the
       surface: 'image',
       action: 'enabled',
       enabled: false,
+    }),
+  );
+  fireEvent.click(screen.getByRole('switch', { name: 'Enable image' }));
+  await waitFor(() =>
+    expect(controller.updateModelSurface).toHaveBeenLastCalledWith({
+      surface: 'image',
+      action: 'enabled',
+      enabled: true,
     }),
   );
   await chooseDefault(/gpt-image-1\.5/, 'Image model');
@@ -407,11 +517,15 @@ it('updates media toggles, defaults, camera, context, and delegation through the
       selection_ref: 'model:google:veo-3.1',
     }),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh camera list' }));
-  await screen.findByText('2 camera(s) detected');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Camera' }), {
-    target: { value: '1' },
-  });
+  // The camera list loads when its select is opened, not on page load.
+  const camera = screen.getByRole('combobox', { name: 'Camera' });
+  expect(controller.refreshModelCameras).not.toHaveBeenCalled();
+  fireEvent.focus(camera);
+  await waitFor(() =>
+    expect(within(camera).getAllByRole('option')).toHaveLength(2),
+  );
+  expect(controller.refreshModelCameras).toHaveBeenCalledTimes(1);
+  fireEvent.change(camera, { target: { value: '1' } });
   await waitFor(() =>
     expect(controller.updateModelSurface).toHaveBeenCalledWith({
       surface: 'vision',
@@ -420,19 +534,29 @@ it('updates media toggles, defaults, camera, context, and delegation through the
     }),
   );
   fireEvent.click(screen.getByText('Advanced context'));
-  fireEvent.change(
-    screen.getByRole('combobox', { name: 'Provider context cap' }),
-    { target: { value: '65536' } },
-  );
+  expect(
+    screen.getByText(
+      'GPT-6-Astra can read about 272,000 tokens at once, roughly 820 pages. Row-Bot uses all of it.',
+    ),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('radio', { name: 'Limit…' }));
+  const limit = screen.getByRole('spinbutton', { name: 'Limit in tokens' });
+  fireEvent.change(limit, { target: { value: '65536' } });
+  fireEvent.blur(limit);
   await waitFor(() =>
     expect(controller.updateModelContext).toHaveBeenCalledWith({
       policy_kind: 'provider',
       cap: 65536,
     }),
   );
-  const rounds = screen.getByRole('spinbutton', {
-    name: /Maximum work rounds/,
-  });
+  fireEvent.click(screen.getByRole('radio', { name: 'Automatic' }));
+  await waitFor(() =>
+    expect(controller.updateModelContext).toHaveBeenLastCalledWith({
+      policy_kind: 'provider',
+      cap: null,
+    }),
+  );
+  const rounds = screen.getByRole('spinbutton', { name: /Steps per run/ });
   fireEvent.change(rounds, { target: { value: '120' } });
   // Leaving the field saves it (decision 19); there is no Save button.
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
@@ -451,6 +575,25 @@ it('updates media toggles, defaults, camera, context, and delegation through the
   await waitFor(() =>
     expect(controller.resetAgentRuntimeSettings).toHaveBeenCalledTimes(1),
   );
+});
+
+it('shows Camera only under Vision while Vision is on (B229)', async () => {
+  const { controller } = show();
+  expect(
+    await screen.findByRole('combobox', { name: 'Camera' }),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('switch', { name: 'Enable vision' }));
+  await waitFor(() =>
+    expect(controller.updateModelSurface).toHaveBeenCalledWith({
+      surface: 'vision',
+      action: 'enabled',
+      enabled: false,
+    }),
+  );
+  expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull();
+  // A job that is off keeps its picker in view, but closed.
+  expect(screen.getByRole('button', { name: 'Vision model' })).toBeDisabled();
+  expect(await notice('Vision turned off')).toBeInTheDocument();
 });
 
 it('sets a default goal turn limit, where 0 means no limit (B243)', async () => {
@@ -475,15 +618,16 @@ it('sets a default goal turn limit, where 0 means no limit (B243)', async () => 
   );
 });
 
-it('refreshes the catalog only from the explicit action and keeps its rows closed', async () => {
+it('refreshes the catalog only from its status line and keeps its rows closed', async () => {
   const { controller } = show();
-  await screen.findByRole('button', { name: 'Default model' });
+  await screen.findByRole('button', { name: 'Brain model' });
   expect(controller.refreshModelsCatalog).not.toHaveBeenCalled();
+  expect(screen.getByText(/^Updated /)).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh catalog' }));
   await waitFor(() =>
     expect(controller.refreshModelsCatalog).toHaveBeenCalledTimes(1),
   );
-  await screen.findByText('Model catalog refreshed.');
+  expect(await notice('Model catalog refreshed.')).toBeInTheDocument();
   expect(controller.liveProviderRefresh).toHaveBeenCalled();
   expect(controller.modelCatalogPage).not.toHaveBeenCalled();
 });
@@ -503,7 +647,7 @@ it('keeps only the original receipt action visible while a Brain save is uncerta
     });
   show(controller);
   const selector = await screen.findByRole('button', {
-    name: 'Default model',
+    name: 'Brain model',
   });
   await chooseDefault(/GPT-5\.5/);
   const button = await screen.findByRole('button', {
@@ -539,7 +683,7 @@ it("offers the page's one model list in the Brain picker, never a second list (B
     },
   } as never);
   show(controller);
-  const picker = await screen.findByRole('button', { name: 'Default model' });
+  const picker = await screen.findByRole('button', { name: 'Brain model' });
   expect(picker).toHaveTextContent('ChatGPT / Codex · Subscription');
   fireEvent.click(picker);
   expect(
@@ -569,7 +713,7 @@ it('lists a pinned model without saved details with its reason and a catalog ref
     },
   });
   show(controller);
-  fireEvent.click(await screen.findByRole('button', { name: 'Default model' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Brain model' }));
   const row = await screen.findByRole('option', { name: /Claude Mystery/ });
   expect(row).toHaveAttribute('aria-disabled', 'true');
   expect(row).toHaveTextContent('No saved details for this model yet.');
@@ -578,25 +722,4 @@ it('lists a pinned model without saved details with its reason and a catalog ref
     expect(controller.refreshModelsCatalog).toHaveBeenCalledTimes(1),
   );
   expect(controller.reviewDefaultModel).not.toHaveBeenCalled();
-});
-
-it('links to Providers inside the router, never under a doubled basename (B31)', async () => {
-  show();
-  const link = await screen.findByRole('link', {
-    name: 'Provider connections',
-  });
-  expect(link).toHaveAttribute('href', '/settings/providers');
-});
-
-it('names the default model in the page summary and follows a saved change', async () => {
-  show();
-  const chip = await screen.findByTitle(
-    'Default model: GPT-6-Astra - ChatGPT / Codex',
-  );
-  expect(chip).toHaveTextContent('GPT-6-Astra');
-  expect(chip).not.toHaveTextContent('ChatGPT / Codex');
-  await chooseDefault(/GPT-5\.5/);
-  expect(
-    await screen.findByTitle('Default model: GPT-5.5 - ChatGPT / Codex'),
-  ).toHaveTextContent('GPT-5.5');
 });

@@ -1,5 +1,5 @@
 import { ProviderSettingsSession } from '../settings/provider-settings-sessions';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import BuddyControls, {
   type BuddyControlsProps,
   type BuddyPack,
@@ -14,6 +14,8 @@ import BuddyHatch, {
   type HatchRemoval,
 } from '../shell/BuddyHatch';
 import { Button, ErrorState } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
+import { SettingsGroup } from '../settings/anatomy';
 import glyph from '../../assets/row_bot_glyph_256.png';
 import './BuddySurface.css';
 
@@ -534,6 +536,7 @@ function BuddyPanelState({
 }
 
 export default function BuddyPanel(props: BuddyPanelProps) {
+  const [hatchOpen, setHatchOpen] = useState(false);
   const state = useSyncExternalStore(
     props.session.subscribe,
     props.session.getSnapshot,
@@ -554,6 +557,24 @@ export default function BuddyPanel(props: BuddyPanelProps) {
       <BuddyPanelState state="unavailable" />
     );
   const retry = () => void props.session.load().catch(() => {});
+  const generating = !!state.result;
+  const hatch = (
+    <BuddyHatch
+      editor={props.session.hatchEditor}
+      scopeKey={props.scopeKey}
+      configRevision={state.snapshot?.revision ?? null}
+      initialPrompt={props.initialPrompt}
+      selectedPack={state.selectedPack}
+      personality={state.snapshot?.preferences.personality ?? 'warm_mystical'}
+      styleNotes={state.snapshot?.preferences.personality_description ?? ''}
+      result={state.result}
+      review={props.session.review}
+      confirm={props.session.confirm}
+      dismissReview={props.session.dismissReview}
+      refresh={props.session.refresh}
+      cancel={props.session.cancel}
+    />
+  );
   return (
     <>
       {!state.snapshot && props.companionVisible !== false && (
@@ -573,47 +594,66 @@ export default function BuddyPanel(props: BuddyPanelProps) {
         save={props.session.save}
         loadPacks={props.session.loadPacks}
         reload={props.session.load}
+        onNewLook={
+          props.settingsOpen
+            ? () =>
+                generating
+                  ? document
+                      .querySelector('[data-setting-anchor="buddy-new-look"]')
+                      ?.scrollIntoView?.({ block: 'nearest' })
+                  : setHatchOpen(true)
+            : undefined
+        }
+        newLookStatus={
+          state.result && ['queued', 'running'].includes(state.result.status)
+            ? `Making it · ${state.result.completed_clips} of ${state.result.total_clips} clips`
+            : undefined
+        }
       />
       {state.statusError && <p role="status">{state.statusError}</p>}
-      {props.settingsOpen && (
-        <section aria-label="Buddy appearance" aria-busy={state.busy}>
-          {!state.snapshot && !state.error && <p>Loading Buddy settings…</p>}
-          {!state.snapshot && state.error && (
-            <Button disabled={state.busy} onClick={retry}>
-              Retry Buddy settings
-            </Button>
-          )}
-          <BuddyHatch
-            editor={props.session.hatchEditor}
-            scopeKey={props.scopeKey}
-            configRevision={state.snapshot?.revision ?? null}
-            initialPrompt={props.initialPrompt}
-            selectedPack={state.selectedPack}
-            personality={
-              state.snapshot?.preferences.personality ?? 'warm_mystical'
-            }
-            styleNotes={
-              state.snapshot?.preferences.personality_description ?? ''
-            }
-            result={state.result}
-            review={props.session.review}
-            confirm={props.session.confirm}
-            dismissReview={props.session.dismissReview}
-            refresh={props.session.refresh}
-            cancel={props.session.cancel}
-          />
-          {state.pending && (
-            <Button
-              disabled={state.busy}
-              onClick={() => void props.session.recover().catch(() => {})}
-            >
-              Refresh original Buddy command
-            </Button>
-          )}
-          {state.error && (
-            <ErrorState title="Buddy needs attention">{state.error}</ErrorState>
-          )}
-        </section>
+      {props.settingsOpen &&
+        (!state.snapshot || generating || state.pending || state.error) && (
+          <section aria-label="Buddy appearance" aria-busy={state.busy}>
+            {!state.snapshot && !state.error && <p>Loading Buddy settings…</p>}
+            {!state.snapshot && state.error && (
+              <Button disabled={state.busy} onClick={retry}>
+                Retry Buddy settings
+              </Button>
+            )}
+            {/* Once a generation has started, its progress and Stop stay on
+                the page (B258). */}
+            {generating && (
+              <SettingsGroup title="New look" anchor="buddy-new-look">
+                <div className="settings-divided settings-buddy-hatch">
+                  {hatch}
+                </div>
+              </SettingsGroup>
+            )}
+            {state.pending && (
+              <Button
+                disabled={state.busy}
+                onClick={() => void props.session.recover().catch(() => {})}
+              >
+                Refresh original Buddy command
+              </Button>
+            )}
+            {state.error && (
+              <ErrorState title="Buddy needs attention">
+                {state.error}
+              </ErrorState>
+            )}
+          </section>
+        )}
+      {/* The generation flow opens from the "New look…" tile (B258). */}
+      {props.settingsOpen && !generating && (
+        <ModalTask
+          open={hatchOpen}
+          onOpenChange={setHatchOpen}
+          title="New look"
+          description="Create a look and six motion clips with your image and video models. Generation may cost provider credits; your current look stays until the new one is ready."
+        >
+          {hatch}
+        </ModalTask>
       )}
     </>
   );

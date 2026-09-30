@@ -4626,8 +4626,7 @@ details[open] > summary > .settings-disclosure-chevron {
   .conversation-voice-surface,
   .buddy-companion,
   .buddy-preferences,
-  .buddy-hatch,
-  .delegated-run-item {
+  .buddy-hatch {
     color: CanvasText;
     background: Canvas;
     border-color: CanvasText;

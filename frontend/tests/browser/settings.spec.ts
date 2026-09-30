@@ -1247,8 +1247,8 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     name: 'Buddy preferences',
     exact: true,
   });
-  // Name and visual style live in the "Advanced companion" disclosure.
-  const advanced = preferences.locator('details.settings-buddy-advanced');
+  // Name and compact size live in the Advanced disclosure (B258).
+  const advanced = preferences.locator('.settings-advanced details');
   const openAdvanced = async () => {
     if (!(await advanced.evaluate((node) => (node as HTMLDetailsElement).open)))
       await advanced.locator('summary').click();
@@ -1257,18 +1257,27 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   await preferences
     .getByLabel('Buddy name', { exact: true })
     .fill('Synthetic companion');
-  await preferences
-    .getByLabel('Bubble style', { exact: true })
-    .selectOption('chatty');
-  // Phase 13 (decision 19): each change saves when it is made.
+  const bubbles = preferences.getByRole('radiogroup', {
+    name: 'Bubbles',
+    exact: true,
+  });
+  await bubbles.getByRole('radio', { name: 'Chatty', exact: true }).click();
+  // Phase 13 (decision 19): each change saves when it is made; the floating
+  // notice confirms it with Undo (B258).
   await expect(
-    preferences.getByRole('button', { name: 'Undo Buddy change', exact: true }),
+    page
+      .locator('.toast')
+      .filter({ hasText: 'Bubbles saved' })
+      .getByRole('button', { name: 'Undo', exact: true }),
   ).toBeVisible();
+  // The generation flow opens from the last look tile.
+  await preferences.getByRole('button', { name: /New look/ }).click();
   const describe = page.getByLabel('Describe your Buddy', { exact: true });
   // The pack's description seeds the empty field once it loads; replace it
   // after that, or typing races the seed.
   await expect(describe).not.toHaveValue('');
   await describe.fill('Retained synthetic description');
+  await page.keyboard.press('Escape');
   await openHomeThroughNavigation(page);
   await expectFocusedHome(page);
   await openSettingsRouteFromHome(page, {
@@ -1280,9 +1289,11 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
   await expect(
     preferences.getByLabel('Buddy name', { exact: true }),
   ).toHaveValue('Synthetic companion');
+  await preferences.getByRole('button', { name: /New look/ }).click();
   await expect(
     page.getByLabel('Describe your Buddy', { exact: true }),
   ).toHaveValue('Retained synthetic description');
+  await page.keyboard.press('Escape');
   await expect(
     preferences.getByRole('button', {
       name: 'Save Buddy preferences',
@@ -1290,8 +1301,8 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     }),
   ).toHaveCount(0);
   await expect(
-    preferences.getByLabel('Bubble style', { exact: true }),
-  ).toHaveValue('chatty');
+    bubbles.getByRole('radio', { name: 'Chatty', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
   await expect(
     page.locator('.buddy-avatar[src^="blob:"]').first(),
   ).toBeVisible();
@@ -1319,14 +1330,16 @@ test('Buddy keeps appearance edits through navigation and serves bundled media w
     await screenshot(page, info, `buddy-preferences-${appearance}`);
     await accessibility(page, info, `buddy-preferences-${appearance}`);
   }
+  await preferences.getByRole('button', { name: /New look/ }).click();
   await page.getByLabel('Describe your Buddy', { exact: true }).fill('');
+  await page.keyboard.press('Escape');
   await page.reload();
   await expect(
     preferences.getByLabel('Buddy name', { exact: true }),
   ).toHaveValue('Synthetic companion');
   await expect(
-    preferences.getByLabel('Bubble style', { exact: true }),
-  ).toHaveValue('chatty');
+    bubbles.getByRole('radio', { name: 'Chatty', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
 });
 
 test('Buddy plays the saved bundled motion and switches to its still for reduced motion', async ({
@@ -1531,7 +1544,7 @@ test('Models catalog applies a default and retains it across Providers navigatio
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
   // The default is a searchable picker (U12): its button names the model.
-  const defaultPicker = models.getByRole('button', { name: 'Default model' });
+  const defaultPicker = models.getByRole('button', { name: 'Brain model' });
   await expect(defaultPicker).toBeVisible();
   const index = /Saved example 104\b/.test(
     (await defaultPicker.textContent()) ?? '',
@@ -1539,8 +1552,10 @@ test('Models catalog applies a default and retains it across Providers navigatio
     ? '103'
     : '104';
   const label = 'Saved example ' + index;
-  await models.getByRole('button', { name: 'Model Catalog' }).click();
-  await models.getByRole('button', { name: 'Open' }).first().click();
+  await models
+    .getByRole('button', { name: /^Open / })
+    .first()
+    .click();
   await models.getByRole('button', { name: 'Show more models' }).click();
   const row = models
     .locator('.settings-model-row-list > li')
@@ -1554,7 +1569,12 @@ test('Models catalog applies a default and retains it across Providers navigatio
     .getByRole('button', { name: 'Set ' + label + ' as chat default' })
     .click();
   await expect(defaultPicker).toContainText(label);
-  await models.getByRole('link', { name: 'Provider connections' }).click();
+  // Provider connections sit in the page's ⋯ (B229).
+  await chooseFromMenu(
+    page.locator('.settings-pane-header'),
+    'More model actions',
+    'Provider connections',
+  );
   await expect(page).toHaveURL(/\/app-v2\/settings\/providers$/);
   await page.goBack();
   await expect(defaultPicker).toContainText(label);

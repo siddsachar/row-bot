@@ -497,9 +497,13 @@ test('Preferences snapshot owner reviews cancels saves receipts and reloads one 
     };
     expect(receipt.status).toBe('completed');
     expect(receipt.snapshot?.preferences?.identity?.name).toBe(replacement);
-    await expect(owner.getByRole('status')).toHaveText('Saved · Undo');
+    // The save is confirmed by the floating notice, with Undo (B258).
+    const savedNotice = page
+      .locator('.toast')
+      .filter({ hasText: 'Name saved' });
+    await expect(savedNotice).toBeVisible();
     await expect(
-      owner.getByRole('button', { name: 'Undo Name', exact: true }),
+      savedNotice.getByRole('button', { name: 'Undo', exact: true }),
     ).toBeVisible();
     expect(commandRequests).toEqual([
       '/api/v1/settings/snapshot/review',
@@ -584,18 +588,16 @@ test('Keyboard-only Settings traversal reaches navigation and local controls', a
   await page.keyboard.press('Enter');
   await waitForSettings(page, 'Models');
 
-  const disclosure = page.getByRole('button', {
-    name: /Model Catalog/,
-    exact: false,
-  });
-  await disclosure.focus();
-  await expect(disclosure).toBeFocused();
-  const expanded = await disclosure.getAttribute('aria-expanded');
+  // The catalog's job chips work from the keyboard (B229).
+  const chips = page.getByRole('group', { name: 'Model category' });
+  const vision = chips.getByRole('button', { name: 'Vision', exact: true });
+  await vision.focus();
+  await expect(vision).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(disclosure).toHaveAttribute(
-    'aria-expanded',
-    expanded === 'true' ? 'false' : 'true',
-  );
+  await expect(vision).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    chips.getByRole('button', { name: 'Chat', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'false');
 
   await page.goto(settingsPath('appearance'));
   await waitForSettings(page, 'Appearance');

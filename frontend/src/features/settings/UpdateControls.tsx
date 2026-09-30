@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { remindLaterAbout } from '../shell/AttentionIndicator';
-import { Download, RotateCcw, SkipForward } from 'lucide-react';
+import {
+  ArrowUpCircle,
+  Clock,
+  Download,
+  PackageCheck,
+  RefreshCw,
+  SkipForward,
+} from 'lucide-react';
 import type {
   UpdateCommand,
   UpdateInstallCommand,
@@ -10,12 +17,9 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
-import {
-  Button,
-  CompactAction,
-  ErrorState,
-  Skeleton,
-} from '../../ui/primitives';
+import { Button, Disclosure, IconButton } from '../../ui/primitives';
+import { absoluteTime, relativeTime } from '../../ui/format';
+import { SettingsItem, StatusLine } from './anatomy';
 
 type Owner = {
   load: (signal?: AbortSignal) => Promise<UpdateSnapshot>;
@@ -236,41 +240,142 @@ export function UpdateControls({ owner }: { owner: Owner }) {
       return '';
     }
   })();
+  const locked = busy || !!pending || !!installCommand;
+  const available = snapshot?.available ?? null;
+  const skipped = snapshot?.skipped_versions ?? [];
   return (
-    <section className="stack" aria-label="Update controls">
-      {loading && <Skeleton label="Loading cached update state" />}
+    <div className="settings-update-controls" aria-busy={busy || loading}>
+      {loading && !snapshot && (
+        <SettingsItem label="Row-Bot" help="Reading the saved update state…" />
+      )}
       {error && (
-        <ErrorState
-          title="Update action needs attention"
-          action={
+        <SettingsItem
+          label="Update action needs attention"
+          help={<span role="alert">{error}</span>}
+          control={
             <Button onClick={() => void load()}>Refresh update state</Button>
           }
+        />
+      )}
+      {snapshot && (
+        <SettingsItem
+          label={`Row-Bot ${snapshot.current_version}`}
+          icon={<PackageCheck size={16} aria-hidden />}
+          tone="accent"
+          bind={false}
+          help={
+            snapshot.dev_install ? (
+              'Development checkout: installed-app updates are unavailable.'
+            ) : notice ? (
+              <span role="status">{notice}</span>
+            ) : snapshot.last_check ? (
+              <>
+                Checked{' '}
+                <time
+                  dateTime={snapshot.last_check}
+                  title={absoluteTime(snapshot.last_check)}
+                >
+                  {relativeTime(snapshot.last_check)}
+                </time>
+              </>
+            ) : (
+              'Not checked yet.'
+            )
+          }
+          status={
+            skipped.length
+              ? skipped.map((version) => (
+                  // The server reports only the skip holding back the
+                  // release on offer (B261).
+                  <StatusLine
+                    key={version}
+                    action={
+                      <Button
+                        variant="ghost"
+                        className="settings-link"
+                        disabled={locked}
+                        onClick={() => send('clear_skipped')}
+                      >
+                        Show it again
+                      </Button>
+                    }
+                  >
+                    You skipped {version}
+                  </StatusLine>
+                ))
+              : undefined
+          }
+          control={
+            snapshot.dev_install ? undefined : (
+              <Button
+                aria-label="Check for updates"
+                disabled={locked}
+                onClick={() => send('check')}
+              >
+                <RefreshCw size={14} aria-hidden />
+                Check now
+              </Button>
+            )
+          }
         >
-          {error}
-        </ErrorState>
+          {pending && (
+            <div role="status" className="settings-update-recovery">
+              <p>Check the original update action before starting another.</p>
+              <Button disabled={busy} onClick={() => void execute(pending)}>
+                Check update action
+              </Button>
+            </div>
+          )}
+          {installError && <p role="alert">{installError}</p>}
+        </SettingsItem>
       )}
-      {pending && (
-        <div role="status" className="surface stack">
-          <p>Check the original update action before starting another.</p>
-          <Button disabled={busy} onClick={() => void execute(pending)}>
-            Check update action
-          </Button>
-        </div>
-      )}
-      {notice && <p role="status">{notice}</p>}
-      {installError && <p role="alert">{installError}</p>}
       {installCommand && (
-        <div
-          className="surface stack"
-          role="status"
-          aria-label="Update installation"
+        <SettingsItem
+          label={
+            installStatus?.message ??
+            'Checking the original installation status.'
+          }
+          icon={<Download size={16} aria-hidden />}
+          tone="accent"
+          bind={false}
+          control={
+            <>
+              {(installStatus?.phase === 'downloading' ||
+                installStatus?.phase === 'cancel_requested') && (
+                <Button
+                  disabled={busy || installStatus.phase === 'cancel_requested'}
+                  onClick={() => void cancelInstall()}
+                >
+                  Cancel download
+                </Button>
+              )}
+              {(installStatus?.phase === 'cancelled' ||
+                installStatus?.phase === 'failed') && (
+                <Button
+                  onClick={() => {
+                    sessionStorage.removeItem(installKey);
+                    setInstallCommand(null);
+                    setInstallStatus(null);
+                    void load();
+                  }}
+                >
+                  Refresh release
+                </Button>
+              )}
+              {!installStatus && (
+                <Button
+                  disabled={busy}
+                  onClick={() => void startInstall(installCommand)}
+                >
+                  Retry original installation
+                </Button>
+              )}
+            </>
+          }
         >
-          <p>
-            {installStatus?.message ??
-              'Checking the original installation status.'}
-          </p>
           {installStatus && installStatus.total > 0 && (
             <progress
+              aria-label="Update download"
               value={installStatus.downloaded}
               max={installStatus.total}
             >
@@ -280,131 +385,84 @@ export function UpdateControls({ owner }: { owner: Owner }) {
               %
             </progress>
           )}
-          {(installStatus?.phase === 'downloading' ||
-            installStatus?.phase === 'cancel_requested') && (
-            <Button
-              disabled={busy || installStatus.phase === 'cancel_requested'}
-              onClick={() => void cancelInstall()}
-            >
-              Cancel download
-            </Button>
-          )}
-          {(installStatus?.phase === 'cancelled' ||
-            installStatus?.phase === 'failed') && (
-            <Button
-              onClick={() => {
-                sessionStorage.removeItem(installKey);
-                setInstallCommand(null);
-                setInstallStatus(null);
-                void load();
-              }}
-            >
-              Refresh release
-            </Button>
-          )}
-          {!installStatus && (
-            <Button
-              disabled={busy}
-              onClick={() => void startInstall(installCommand)}
-            >
-              Retry original installation
-            </Button>
-          )}
-        </div>
+        </SettingsItem>
       )}
-      {snapshot && (
-        <>
-          <p>
-            Current version: {snapshot.current_version} · Channel:{' '}
-            {snapshot.channel}
-          </p>
-          {snapshot.dev_install ? (
-            <p>Development checkout: installed-app updates are unavailable.</p>
-          ) : (
-            <CompactAction
-              label="Check for updates"
-              disabled={busy || !!pending || !!installCommand}
-              onClick={() => send('check')}
-            >
-              <RotateCcw size={17} aria-hidden />
-            </CompactAction>
-          )}
-          {snapshot.available && !deferred && (
-            <div className="surface stack" aria-label="Available update">
-              <h3>Version {snapshot.available.version} is available</h3>
-              <p>
-                {snapshot.available.verified_manifest
-                  ? 'Release manifest includes an installer checksum.'
-                  : 'No verified installer checksum is available.'}
-              </p>
-              <pre className="settings-update-notes">
-                {snapshot.available.notes}
-              </pre>
-              {releaseUrl && (
-                <a href={releaseUrl} target="_blank" rel="noopener noreferrer">
-                  View release notes
-                </a>
-              )}
-              <div className="actions">
-                {snapshot.available.verified_manifest && owner.startInstall && (
-                  <CompactAction
-                    label={`Install version ${snapshot.available.version}`}
-                    disabled={busy || !!pending || !!installCommand}
-                    onClick={() =>
-                      void startInstall({
-                        command_id: crypto.randomUUID(),
-                        expected_revision: snapshot.revision,
-                        version: snapshot.available!.version,
-                      })
-                    }
-                  >
-                    <Download size={17} aria-hidden />
-                  </CompactAction>
-                )}
-                <CompactAction
-                  label={`Skip version ${snapshot.available.version}`}
-                  disabled={busy || !!pending || !!installCommand}
-                  onClick={() => send('skip', snapshot.available!.version)}
-                >
-                  <SkipForward size={17} aria-hidden />
-                </CompactAction>
+      {available && !deferred && (
+        <SettingsItem
+          label={`Version ${available.version} is available`}
+          icon={<ArrowUpCircle size={16} aria-hidden />}
+          tone="2"
+          bind={false}
+          help={
+            available.verified_manifest
+              ? 'Release manifest includes an installer checksum.'
+              : 'No verified installer checksum is available.'
+          }
+          control={
+            <>
+              {available.verified_manifest && owner.startInstall && (
                 <Button
-                  variant="ghost"
-                  onClick={() => {
-                    // The sidebar indicator leaves it out for a day, on this
-                    // device (parity row 12).
-                    remindLaterAbout(snapshot.available!.version);
-                    setDeferred(true);
-                  }}
+                  variant="primary"
+                  aria-label={`Install version ${available.version}`}
+                  disabled={locked}
+                  onClick={() =>
+                    void startInstall({
+                      command_id: crypto.randomUUID(),
+                      expected_revision: snapshot!.revision,
+                      version: available.version,
+                    })
+                  }
                 >
-                  Remind me later
+                  <Download size={14} aria-hidden />
+                  Install
                 </Button>
-              </div>
-            </div>
-          )}
-          {snapshot.available && deferred && (
-            <Button variant="ghost" onClick={() => setDeferred(false)}>
-              Show version {snapshot.available.version}
-            </Button>
-          )}
-          {snapshot.skipped_versions.map((version) => (
-            // The server reports only the skip holding back the release on
-            // offer (B261).
-            <div className="actions" key={version}>
-              <span>You skipped {version}</span>
-              <span aria-hidden>·</span>
-              <Button
-                variant="ghost"
-                disabled={busy || !!pending || !!installCommand}
-                onClick={() => send('clear_skipped')}
+              )}
+              <IconButton
+                label={`Skip version ${available.version}`}
+                disabled={locked}
+                onClick={() => send('skip', available.version)}
               >
-                Show it again
-              </Button>
-            </div>
-          ))}
-        </>
+                <SkipForward size={16} aria-hidden />
+              </IconButton>
+              <IconButton
+                label="Remind me later"
+                onClick={() => {
+                  // The sidebar indicator leaves it out for a day, on this
+                  // device (parity row 12).
+                  remindLaterAbout(available.version);
+                  setDeferred(true);
+                }}
+              >
+                <Clock size={16} aria-hidden />
+              </IconButton>
+            </>
+          }
+        >
+          <Disclosure
+            className="settings-update-notes-disclosure"
+            summary="What’s new"
+          >
+            <pre className="settings-update-notes">{available.notes}</pre>
+            {releaseUrl && (
+              <a href={releaseUrl} target="_blank" rel="noopener noreferrer">
+                View release notes
+              </a>
+            )}
+          </Disclosure>
+        </SettingsItem>
       )}
-    </section>
+      {available && deferred && (
+        <SettingsItem
+          label={`Version ${available.version} is available`}
+          help="Hidden until tomorrow on this device."
+          control={
+            <Button variant="ghost" onClick={() => setDeferred(false)}>
+              Show version {available.version}
+            </Button>
+          }
+        />
+      )}
+    </div>
   );
 }
 

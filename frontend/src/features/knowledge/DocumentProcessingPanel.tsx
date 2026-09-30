@@ -297,10 +297,18 @@ export function DocumentProcessingPanel({
     void operation().catch(() => undefined);
   };
   if (state.revoked)
-    return <p role="status">Authenticate again to process documents.</p>;
-  if (!state.selection) return <p>Select a paused batch to process.</p>;
+    return (
+      <p role="status" className="settings-divided document-queue-note">
+        Authenticate again to process documents.
+      </p>
+    );
+  // Shown once a batch's Process is chosen (B258: no idle hint).
+  if (!state.selection) return null;
   return (
-    <section aria-label="Document processing">
+    <section
+      aria-label="Document processing"
+      className="settings-divided document-processing"
+    >
       <h3>Process saved documents</h3>
       <p title={state.selection.conversationId}>
         Conversation:{' '}
@@ -311,8 +319,8 @@ export function DocumentProcessingPanel({
         Batch: {batchName(state.selection.batchId)}
       </p>
       <p>
-        Processing follows this conversation's approvals and profile, and uses
-        the Model for documents above.
+        Processing follows this conversation's approvals and profile, and reads
+        documents with the model chosen above.
       </p>
       {state.error && (
         <ErrorState title="Processing needs attention">

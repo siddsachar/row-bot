@@ -1,31 +1,42 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useId, useState, type ComponentType } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Brain,
+  Clapperboard,
+  Download,
   Eye,
-  GitBranch,
   Image,
   Network,
   RefreshCw,
-  Video,
 } from 'lucide-react';
 import type { ClientController } from '../../api/controller';
 import type {
   AgentRuntimeSettingsState,
   CachedModelPage,
   DefaultModelSnapshot,
+  ModelPickerOption,
   ModelsSettingsState,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   Button,
-  Field,
+  Disclosure,
   Input,
+  Segmented,
   Select,
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
-import { SettingsSummary, SummaryChip } from './anatomy';
+import { useNotify } from '../../ui/overlays';
+import { relativeTime } from '../../ui/format';
+import {
+  SettingsAdvanced,
+  SettingsGroup,
+  SettingsItem,
+  SettingsPageMenu,
+  SettingsStatus,
+  StatusLine,
+} from './anatomy';
 import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
@@ -34,10 +45,12 @@ import { modelRefName, splitModelLabel } from '../shell/model-choices';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 type Media = 'vision' | 'image' | 'video';
+type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
 type PinPending = {
   commandId: string;
   operation: 'provider.model.pin' | 'provider.model.unpin';
 };
+/** Limits for long work, in plain words; the saved fields are unchanged. */
 const agentFields: {
   key: keyof Omit<AgentRuntimeSettingsState, 'schema_version'>;
   label: string;
@@ -45,41 +58,68 @@ const agentFields: {
 }[] = [
   {
     key: 'max_iterations',
-    label: 'Maximum work rounds',
-    help: 'Maximum model-and-tool rounds in one run.',
+    label: 'Steps per run',
+    help: 'Model-and-tool rounds one run may take.',
   },
   {
     key: 'max_spawn_depth',
-    label: 'Maximum nested agent levels',
-    help: 'One level allows children but not grandchildren.',
+    label: 'Helper levels',
+    help: '1 lets helpers work but not start helpers of their own.',
   },
   {
     key: 'max_concurrent_children',
-    label: 'Active children per parent',
-    help: 'Extra children wait in the queue.',
+    label: 'Helpers at a time, per agent',
+    help: 'More wait in line.',
   },
   {
     key: 'max_active_children_global',
-    label: 'Active children across the app',
-    help: 'Application-wide child concurrency cap.',
+    label: 'Helpers at a time, in total',
+    help: 'Across the whole app.',
   },
   {
     key: 'child_timeout_seconds',
-    label: 'Child active-time limit (seconds; 0 disables)',
-    help: 'Queue time is not counted.',
+    label: 'Helper time limit (seconds)',
+    help: '0 means no limit. Time waiting in line doesn’t count.',
   },
   {
     key: 'goal_max_turns',
-    label: 'Goal turn limit (0 = no limit)',
-    help: 'New goals start with this limit; each goal can change it.',
+    label: 'Goal turn limit',
+    help: '0 means no limit. New goals start with this; each goal can change it.',
   },
 ];
 /** Fields where 0 switches the limit off. */
 const ZERO_OFF = new Set(['child_timeout_seconds', 'goal_max_turns']);
-const contextPresets = {
-  local: [16384, 32768, 65536, 131072, 262144],
-  provider: [16384, 32768, 65536, 131072, 262144, 524288, 1048576],
-};
+/** The smallest reading limit the server accepts. */
+const MIN_CONTEXT = 16384;
+const media: {
+  surface: Media;
+  label: string;
+  help: string;
+  icon: Icon;
+  tone: '2' | '3' | '4';
+}[] = [
+  {
+    surface: 'vision',
+    label: 'Vision',
+    help: 'Reads images, screenshots and your camera.',
+    icon: Eye,
+    tone: '2',
+  },
+  {
+    surface: 'image',
+    label: 'Image',
+    help: 'Makes and edits pictures.',
+    icon: Image,
+    tone: '3',
+  },
+  {
+    surface: 'video',
+    label: 'Video',
+    help: 'Makes short clips and animates pictures.',
+    icon: Clapperboard,
+    tone: '4',
+  },
+];
 function selectionParts(ref: string) {
   const match = /^model:([^:]+):(.+)$/.exec(ref);
   if (!match) throw { code: 'invalid_model_selection' };
@@ -90,16 +130,33 @@ function fieldsFrom(settings: AgentRuntimeSettingsState) {
     agentFields.map(({ key }) => [key, String(settings[key])]),
   ) as Record<string, string>;
 }
+/** A model's name without its provider ("GPT-5.5 - ChatGPT" → "GPT-5.5"). */
+function optionName(options: readonly ModelPickerOption[], ref: string) {
+  const option = options.find((item) => item.selection_ref === ref);
+  return option ? splitModelLabel(option.label).name : modelRefName(ref);
+}
+/** About 330 tokens to a printed page, to two significant figures. */
+function pages(tokens: number) {
+  const value = tokens / 330;
+  const scale = 10 ** Math.max(0, Math.floor(Math.log10(value)) - 1);
+  return (Math.round(value / scale) * scale).toLocaleString();
+}
 
 export default function ModelsPanel({
   controller,
   session,
   initialProvider = '',
+  openExternal,
 }: {
   controller: ClientController;
   session: DefaultModelSession;
   initialProvider?: string;
+  /** Opens a web page outside Row-Bot (the Ollama download). */
+  openExternal?: (url: string) => void;
 }) {
+  const notify = useNotify();
+  const navigate = useNavigate();
+  const limitId = useId();
   const [state, setState] = useState<ModelsSettingsState | null>(null);
   const [snapshot, setSnapshot] =
     useProviderSettingsValue<DefaultModelSnapshot | null>(
@@ -118,20 +175,18 @@ export default function ModelsPanel({
     );
   const [agents, setAgents] = useState<AgentRuntimeSettingsState | null>(null);
   const [agentDraft, setAgentDraft] = useState<Record<string, string>>({});
-  const [contextDraft, setContextDraft] = useState('');
+  const [limiting, setLimiting] = useState(false);
   const [customContext, setCustomContext] = useState('');
   const [cameras, setCameras] = useState<number[] | null>(null);
-  const [catalogOpen, setCatalogOpen] = useState(!!initialProvider);
-  // "Download Ollama" only when Ollama isn't running (B117).
+  // "Get models for this computer" only when Ollama isn't running (B117).
   const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  // Decision 19: the last change can be taken back ("Saved · Undo").
-  const [undo, setUndo] = useState<null | (() => Promise<void>)>(null);
+  // An unconfirmed save stays by its row until its receipt settles.
+  const [brainNote, setBrainNote] = useState('');
+  const [catalogNote, setCatalogNote] = useState('');
   const contextSelectedCap = state?.context.selected_cap;
-  const contextPolicyKind = state?.context.policy_kind;
 
   useEffect(() => {
     const abort = new AbortController();
@@ -167,28 +222,36 @@ export default function ModelsPanel({
   }, [controller]);
 
   useEffect(() => {
-    if (!contextPolicyKind) return;
-    const current = contextSelectedCap;
-    const presets = contextPresets[contextPolicyKind];
-    setContextDraft(
-      current == null
-        ? 'auto'
-        : presets.includes(current)
-          ? String(current)
-          : 'custom',
+    setLimiting(contextSelectedCap != null);
+    setCustomContext(
+      contextSelectedCap == null ? '' : String(contextSelectedCap),
     );
-    setCustomContext(current == null ? '' : String(current));
-  }, [contextSelectedCap, contextPolicyKind]);
+  }, [contextSelectedCap]);
 
   async function reload() {
     const updated = await controller.modelsSettings();
     setState(updated);
   }
-  async function brainDefault(ref: string) {
+  function brainSaved(ref: string, previous: string) {
+    const name = state ? optionName(state.brain.options, ref) : ref;
+    notify(
+      `Brain is now ${name}`,
+      undefined,
+      previous && previous !== ref
+        ? {
+            label: 'Undo',
+            onAction: () => void brainDefault(previous, true).catch(() => {}),
+          }
+        : undefined,
+    );
+  }
+  async function brainDefault(ref: string, undoing = false) {
     if (!session.active || pending || pinPending || busy)
       throw { code: 'operation_uncertain' };
     setBusy('brain');
     setError('');
+    setBrainNote('');
+    const previous = state?.brain.current_ref ?? '';
     try {
       const current = snapshot ?? (await controller.defaultModel());
       const { provider_id, model_id } = selectionParts(ref);
@@ -219,7 +282,8 @@ export default function ModelsPanel({
         await reload();
         // The composer's picker offers the new default at once.
         void controller.refreshChoices().catch(() => undefined);
-        setNotice('Brain default saved for future work.');
+        if (undoing) notify('Brain changed back');
+        else brainSaved(ref, previous);
       } catch (cause) {
         try {
           const receipt = await controller.defaultModelReceipt(
@@ -231,7 +295,7 @@ export default function ModelsPanel({
             session.resolved();
             await reload();
             if (receipt.status === 'completed') {
-              setNotice('Brain default saved for future work.');
+              brainSaved(ref, previous);
               return;
             }
           }
@@ -253,17 +317,15 @@ export default function ModelsPanel({
     try {
       const receipt = await controller.defaultModelReceipt(pending.commandId);
       if (receipt.status === 'uncertain')
-        setNotice('The original Brain save is still unconfirmed.');
+        setBrainNote('The original Brain save is still unconfirmed.');
       else {
         setPending(null);
         session.resolved();
         setSnapshot(receipt.selection);
         await reload();
-        setNotice(
-          receipt.status === 'completed'
-            ? 'Brain default saved for future work.'
-            : 'The Brain save was rejected.',
-        );
+        setBrainNote('');
+        if (receipt.status === 'completed') notify('Brain saved');
+        else setError('The Brain save was rejected.');
       }
     } catch (cause) {
       setError(clientError(cause).message);
@@ -343,17 +405,15 @@ export default function ModelsPanel({
         pinPending.commandId,
       );
       if (result.status === 'uncertain')
-        setNotice('The original pin change is still unconfirmed.');
+        setCatalogNote('The original pin change is still unconfirmed.');
       else {
         setPinPending(null);
         session.resolved();
         await reload();
         setCatalogRefresh((value) => value + 1);
-        setNotice(
-          result.status === 'completed'
-            ? 'Picker updated.'
-            : 'Picker change rejected.',
-        );
+        setCatalogNote('');
+        if (result.status === 'completed') notify('Picker updated');
+        else setError('Picker change rejected.');
       }
     } catch (cause) {
       setError(clientError(cause).message);
@@ -361,12 +421,13 @@ export default function ModelsPanel({
       setBusy('');
     }
   }
-  async function media(
+  async function saveMedia(
     surface: Media,
     action: 'default' | 'enabled' | 'camera',
     value: string | boolean | number,
   ) {
     const previous = state;
+    const label = surface[0].toUpperCase() + surface.slice(1);
     setBusy(surface);
     setError('');
     if (previous) {
@@ -394,9 +455,16 @@ export default function ModelsPanel({
             ? { enabled: value as boolean }
             : { camera_index: value as number }),
       };
-      setState(await controller.updateModelSurface(body));
-      setNotice(
-        `${surface[0].toUpperCase() + surface.slice(1)} settings saved.`,
+      const saved = await controller.updateModelSurface(body);
+      setState(saved);
+      notify(
+        action === 'enabled'
+          ? `${label} turned ${value ? 'on' : 'off'}`
+          : action === 'camera'
+            ? 'Camera saved'
+            : value
+              ? `${label} is now ${optionName(saved[surface].options, value as string)}`
+              : `${label} now follows the Brain`,
       );
     } catch (cause) {
       setError(clientError(cause).message);
@@ -408,11 +476,10 @@ export default function ModelsPanel({
   }
   async function context(cap: number | null, undoing = false) {
     if (!state) return;
-    const before = state.context.selected_cap;
+    const before = state.context.selected_cap ?? null;
     const kind = state.context.policy_kind;
     setBusy('context');
     setError('');
-    setUndo(null);
     try {
       setState(
         await controller.updateModelContext({
@@ -420,8 +487,15 @@ export default function ModelsPanel({
           cap,
         }),
       );
-      setNotice(undoing ? 'Undone.' : 'Saved');
-      if (!undoing) setUndo(() => () => context(before ?? null, true));
+      if (undoing) notify('Reading limit changed back');
+      else
+        notify(
+          cap == null
+            ? 'Reading limit: automatic'
+            : `Reading limit: ${cap.toLocaleString()} tokens`,
+          undefined,
+          { label: 'Undo', onAction: () => void context(before, true) },
+        );
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
@@ -437,7 +511,6 @@ export default function ModelsPanel({
     const before = agents;
     setBusy('agents');
     setError('');
-    setUndo(null);
     try {
       let saved: AgentRuntimeSettingsState;
       if (reset) saved = await controller.resetAgentRuntimeSettings();
@@ -457,15 +530,18 @@ export default function ModelsPanel({
       }
       setAgents(saved);
       setAgentDraft(fieldsFrom(saved));
-      setNotice(
-        undoing
-          ? 'Undone.'
-          : reset
-            ? 'Recommended agent limits restored.'
-            : 'Saved. New runs use these limits.',
-      );
-      if (!undoing)
-        setUndo(() => () => saveAgents(false, fieldsFrom(before), true));
+      if (undoing) notify('Limits changed back');
+      else
+        notify(
+          reset
+            ? 'Recommended limits restored'
+            : 'Saved. New runs use these limits',
+          undefined,
+          {
+            label: 'Undo',
+            onAction: () => void saveAgents(false, fieldsFrom(before), true),
+          },
+        );
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
@@ -475,7 +551,7 @@ export default function ModelsPanel({
   // Text and numbers save when the field is left or Enter is pressed.
   function commitCustomContext() {
     const cap = Number(customContext);
-    if (!/^\d+$/.test(customContext) || cap < 16384) return;
+    if (!/^\d+$/.test(customContext) || cap < MIN_CONTEXT) return;
     if (cap === state?.context.selected_cap) return;
     void context(cap);
   }
@@ -491,7 +567,6 @@ export default function ModelsPanel({
     setError('');
     try {
       await controller.refreshModelsCatalog();
-      setNotice('Refreshing model catalog…');
       let refreshStatus = await controller.liveProviderRefresh();
       for (let attempt = 0; attempt < 40 && refreshStatus.running; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -499,12 +574,13 @@ export default function ModelsPanel({
       }
       await reload();
       setCatalogRefresh((value) => value + 1);
-      setNotice(
+      notify(
         refreshStatus.running
           ? 'Model catalog is still refreshing.'
           : refreshStatus.ok === false
             ? 'Model catalog refresh did not complete. Check your provider connection.'
             : 'Model catalog refreshed.',
+        refreshStatus.ok === false ? 'warning' : undefined,
       );
     } catch (cause) {
       setError(clientError(cause).message);
@@ -512,7 +588,9 @@ export default function ModelsPanel({
       setBusy('');
     }
   }
-  async function refreshCameras() {
+  // The camera list loads when its select is first opened (B229).
+  async function loadCameras() {
+    if (cameras !== null || busy === 'cameras') return;
     setBusy('cameras');
     try {
       const result = await controller.refreshModelCameras();
@@ -543,322 +621,278 @@ export default function ModelsPanel({
   const currentBrain = state.brain.options.find(
     (item) => item.selection_ref === state.brain.current_ref,
   );
+  const brainName = currentBrain
+    ? splitModelLabel(currentBrain.label).name
+    : modelRefName(state.brain.current_ref);
+  // One status line (B229): who is connected and how much there is to choose.
+  const choices = [state.brain, state.vision, state.image, state.video]
+    .flatMap((picker) => picker.options)
+    .filter((option) => option.available);
+  const providers = new Set(choices.map((option) => option.provider_id)).size;
+  const models = new Set(choices.map((option) => option.selection_ref)).size;
+  const brainReady = !!state.brain.current_ref && !!currentBrain?.available;
   const contextKind = state.context.policy_kind;
+  const locked = !!busy || !!pending || !!pinPending;
+  const catalogStatus =
+    busy === 'refresh'
+      ? 'Refreshing…'
+      : state.generated_at
+        ? `Updated ${relativeTime(new Date(state.generated_at * 1000))}${state.freshness === 'stale' ? ' · may be old' : ''}`
+        : 'No saved catalog yet';
+  const menu = [
+    {
+      label: 'Provider connections',
+      icon: <Network size={16} aria-hidden />,
+      onSelect: () => navigate('/settings/providers'),
+    },
+    {
+      label: 'Re-read model settings',
+      icon: <RefreshCw size={16} aria-hidden />,
+      onSelect: () => void reload().catch(() => undefined),
+    },
+    ...(ollamaRunning === false && openExternal
+      ? [
+          {
+            label: 'Get models for this computer…',
+            icon: <Download size={16} aria-hidden />,
+            onSelect: () => openExternal('https://ollama.com/download'),
+          },
+        ]
+      : []),
+  ];
   return (
-    <div className="stack settings-models-parity" aria-label="Models settings">
-      {error && <p role="alert">{error}</p>}
-      {notice && (
-        <p role="status" className="settings-saved-note">
-          {notice}
-          {undo && (
-            <>
-              {' · '}
-              <Button
-                variant="ghost"
-                className="small"
-                disabled={!!busy}
-                onClick={() => {
-                  const back = undo;
-                  setUndo(null);
-                  void back();
-                }}
-              >
-                Undo
-              </Button>
-            </>
-          )}
+    <div
+      className="stack settings-snapshot-page settings-models-page"
+      aria-label="Models settings"
+    >
+      <SettingsStatus
+        tone={brainReady ? 'success' : 'warning'}
+        more={[`${models} model${models === 1 ? '' : 's'} to choose from`]}
+      >
+        {providers} provider{providers === 1 ? '' : 's'} connected
+      </SettingsStatus>
+      <SettingsPageMenu label="More model actions" actions={menu} />
+      {error && (
+        <p role="alert" className="settings-page-alert">
+          {error}
         </p>
       )}
-      <section
-        className="settings-model-defaults-group stack"
-        aria-label="Defaults"
-      >
-        <SettingsSummary>
-          <SummaryChip
-            tone={
-              !state.brain.current_ref || !currentBrain?.available
-                ? 'warning'
-                : 'success'
-            }
-            title={
-              currentBrain
-                ? `Default model: ${currentBrain.label}`
-                : 'Brain: the default model for chat'
-            }
-          >
-            {!state.brain.current_ref
-              ? 'No default model'
-              : !currentBrain?.available
-                ? 'Default unavailable'
-                : // "GPT-5.6 Sol (ChatGPT) - ChatGPT / Codex" → the model name.
-                  currentBrain.label.replace(/ - [^-]+$/, '')}
-          </SummaryChip>
-        </SettingsSummary>
-        <header className="settings-owner-heading">
-          <div>
-            <h3>Defaults</h3>
-            <p>
-              Pickers show pinned catalog choices plus the current default. Pin
-              models in the catalog below.
-            </p>
-          </div>
-          <div className="settings-model-heading-actions">
-            <Link
-              className="button ghost icon-action icon-action-sm"
-              to="/settings/providers"
-              aria-label="Provider connections"
-              title="Provider connections"
-            >
-              <Network size={16} aria-hidden />
-            </Link>
-            <Button
-              variant="ghost"
-              className="icon-action icon-action-sm"
-              aria-label="Refresh model settings"
-              title="Refresh model settings"
-              onClick={() => void reload()}
-            >
-              <RefreshCw size={16} aria-hidden />
-            </Button>
-          </div>
-        </header>
-        <div
-          className="settings-model-role-heading"
-          data-setting-anchor="default-model"
-        >
-          <Brain size={18} aria-hidden />
-          <div>
-            <h4>Brain</h4>
-            <p>Conversation, tool use, memory, and workflows.</p>
-          </div>
-        </div>
-        <div className="settings-model-selector">
-          <Field
-            label="Default model"
-            layout="row"
-            hint={
-              state.context.effective_cap
-                ? `Context: native max ${
-                    state.context.native_max
-                      ? Math.round(state.context.native_max / 1000) + 'K'
-                      : 'unknown'
-                  } · effective ${Math.round(state.context.effective_cap / 1000)}K ${
-                    state.context.selected_cap == null ? 'Auto' : 'cap'
-                  }`
-                : undefined
-            }
-          >
+      <SettingsGroup title="Jobs">
+        <SettingsItem
+          label="Brain"
+          help="Chats, agents and workflows."
+          icon={<Brain size={16} aria-hidden />}
+          tone="accent"
+          anchor="default-model"
+          bind={false}
+          status={
+            state.brain.warning || brainNote ? (
+              <StatusLine tone="warning">
+                {brainNote || state.brain.warning?.replace('Chat', 'Brain')}
+              </StatusLine>
+            ) : undefined
+          }
+          control={
             <DefaultModelPicker
+              ariaLabel="Brain model"
+              dialogLabel="Choose the Brain model"
               current={state.brain.current_ref}
               options={state.brain.options}
-              disabled={!!busy || !!pending || !!pinPending}
+              disabled={locked}
               onChoose={(ref) => void brainDefault(ref).catch(() => {})}
               onRefresh={() => void refreshCatalog()}
             />
-          </Field>
-        </div>
-        {state.brain.warning && (
-          <p className="settings-model-warning">
-            {state.brain.warning.replace('Chat', 'Brain')}
-          </p>
-        )}
-        {ollamaRunning === false && (
-          <p className="settings-help">
-            Want models on this computer?{' '}
-            <a
-              href="https://ollama.com/download"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Download Ollama
-            </a>
-            ; Row-Bot finds it once it runs.
-          </p>
-        )}
-        {pending && (
-          <Button onClick={() => void checkBrainReceipt()}>
-            Check the save
-          </Button>
-        )}
-        <details className="settings-model-context disclosure">
-          <summary className="disclosure-summary">Advanced context</summary>
-          <p>
-            {contextKind === 'local'
-              ? 'Local model context controls the requested Ollama allocation.'
-              : 'Provider context caps trim requests; configure the server context separately.'}
-          </p>
-          <Field
-            layout="row"
+          }
+        >
+          {pending && (
+            <div className="settings-row-actions">
+              <Button onClick={() => void checkBrainReceipt()}>
+                Check the save
+              </Button>
+            </div>
+          )}
+        </SettingsItem>
+        {media.map(({ surface, label, help, icon: Glyph, tone }) => {
+          const picker = state[surface];
+          const on = picker.enabled === true;
+          return [
+            <SettingsItem
+              key={surface}
+              label={label}
+              help={help}
+              icon={<Glyph size={16} aria-hidden />}
+              tone={tone}
+              off={!on}
+              anchor={`${surface}-model`}
+              bind={false}
+              className="settings-job-row"
+              status={
+                picker.warning ? (
+                  <StatusLine tone="warning">{picker.warning}</StatusLine>
+                ) : undefined
+              }
+              control={
+                <>
+                  <Toggle
+                    label={`Enable ${surface}`}
+                    checked={on}
+                    disabled={!!busy}
+                    onChange={(event) =>
+                      void saveMedia(surface, 'enabled', event.target.checked)
+                    }
+                  />
+                  <DefaultModelPicker
+                    ariaLabel={`${label} model`}
+                    current={picker.current_ref}
+                    options={picker.options}
+                    // Most chat models see images too (decision 11).
+                    follow={
+                      surface === 'vision'
+                        ? { label: 'Same as Brain', detail: brainName }
+                        : undefined
+                    }
+                    dialogLabel={`Choose the ${surface} model`}
+                    disabled={!!busy || !on}
+                    onChoose={(ref) => void saveMedia(surface, 'default', ref)}
+                    onRefresh={() => void refreshCatalog()}
+                  />
+                </>
+              }
+            />,
+            surface === 'vision' && on && (
+              <SettingsItem
+                key="camera"
+                label="Camera"
+                help="Used when you ask Row-Bot to look."
+                sub
+                status={
+                  cameras?.length === 0 ? (
+                    <StatusLine tone="warning">No cameras found</StatusLine>
+                  ) : busy === 'cameras' ? (
+                    <StatusLine>Looking for cameras…</StatusLine>
+                  ) : undefined
+                }
+                control={
+                  <Select
+                    className="settings-camera-select"
+                    value={state.camera_index}
+                    disabled={!!busy && busy !== 'cameras'}
+                    onFocus={() => void loadCameras()}
+                    onPointerDown={() => void loadCameras()}
+                    onChange={(event) =>
+                      void saveMedia(
+                        'vision',
+                        'camera',
+                        Number(event.target.value),
+                      )
+                    }
+                  >
+                    {[...new Set([state.camera_index, ...(cameras ?? [])])].map(
+                      (camera) => (
+                        <option key={camera} value={camera}>
+                          Camera {camera + 1}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                }
+              />
+            ),
+          ];
+        })}
+        <Disclosure
+          className="settings-group-disclosure settings-divided"
+          summary="Advanced context"
+          meta="How much the Brain reads at once"
+        >
+          <SettingsItem
             label={
               contextKind === 'local'
-                ? 'Local model context'
-                : 'Provider context cap'
+                ? 'Models on this computer'
+                : 'Reading limit'
+            }
+            sub
+            bind={false}
+            help={
+              contextKind === 'local'
+                ? `Automatic gives local models what your computer can hold${
+                    state.context.effective_cap
+                      ? `: about ${state.context.effective_cap.toLocaleString()} tokens now`
+                      : ''
+                  }.`
+                : state.context.native_max
+                  ? `${brainName} can read about ${state.context.native_max.toLocaleString()} tokens at once, roughly ${pages(state.context.native_max)} pages. ${
+                      state.context.selected_cap == null
+                        ? 'Row-Bot uses all of it.'
+                        : `Row-Bot reads up to ${state.context.selected_cap.toLocaleString()}.`
+                    }`
+                  : `Row-Bot reads as much as ${brainName} allows.`
+            }
+            status={
+              state.context.warning ? (
+                <StatusLine tone="warning">{state.context.warning}</StatusLine>
+              ) : undefined
+            }
+            control={
+              <Segmented
+                label="Reading limit"
+                value={limiting ? 'limit' : 'auto'}
+                onChange={(next) => {
+                  if (next === 'auto') {
+                    setLimiting(false);
+                    if (state.context.selected_cap != null) void context(null);
+                  } else setLimiting(true);
+                }}
+                options={[
+                  { value: 'auto', label: 'Automatic', disabled: !!busy },
+                  { value: 'limit', label: 'Limit…', disabled: !!busy },
+                ]}
+              />
             }
           >
-            <Select
-              value={contextDraft}
-              disabled={!!busy}
-              onChange={(event) => {
-                const value = event.target.value;
-                setContextDraft(value);
-                if (value === 'auto') void context(null);
-                else if (value !== 'custom') void context(Number(value));
-              }}
-            >
-              <option value="auto">
-                {contextKind === 'local'
-                  ? 'Auto - use detected server context'
-                  : 'Auto - use provider/model context'}
-              </option>
-              {contextPresets[contextKind].map((cap) => (
-                <option value={cap} key={cap}>
-                  {Math.round(cap / 1024)}K
-                </option>
-              ))}
-              <option value="custom">Custom…</option>
-            </Select>
-          </Field>
-          {contextDraft === 'custom' && (
-            <div className="settings-model-custom-context">
-              <Field label="Custom context tokens">
+            {limiting && (
+              <div className="settings-context-limit">
+                <label htmlFor={limitId}>Limit in tokens</label>
                 <Input
+                  id={limitId}
                   type="number"
-                  min={16384}
+                  min={MIN_CONTEXT}
                   max={10000000}
+                  step={1000}
                   value={customContext}
+                  aria-describedby={`${limitId}-pages`}
                   onChange={(event) => setCustomContext(event.target.value)}
                   onBlur={commitCustomContext}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') commitCustomContext();
                   }}
                 />
-              </Field>
-            </div>
-          )}
-          {state.context.warning && (
-            <p className="settings-model-warning">{state.context.warning}</p>
-          )}
-        </details>
-        {(
-          [
-            ['vision', Eye, 'Camera and screen capture analysis'],
-            ['image', Image, 'Image generation and editing'],
-            ['video', Video, 'Video generation and image animation'],
-          ] as const
-        ).map(([surface, Icon, description]) => {
-          const picker = state[surface];
-          return (
-            <section
-              className="settings-model-surface"
-              key={surface}
-              aria-label={surface}
-              data-setting-anchor={`${surface}-model`}
-            >
-              <div className="settings-model-role-heading">
-                <Icon size={18} aria-hidden />
-                <div>
-                  <h4>{surface[0].toUpperCase() + surface.slice(1)}</h4>
-                  <p>{description}</p>
-                </div>
-                <div className="settings-model-enabled">
-                  <Toggle
-                    label={`Enable ${surface}`}
-                    checked={picker.enabled === true}
-                    disabled={!!busy}
-                    onChange={(event) =>
-                      void media(surface, 'enabled', event.target.checked)
-                    }
-                  />
-                </div>
+                <small id={`${limitId}-pages`}>
+                  {Number(customContext) >= MIN_CONTEXT
+                    ? `About ${pages(Number(customContext))} pages.`
+                    : `At least ${MIN_CONTEXT.toLocaleString()} tokens.`}
+                </small>
               </div>
-              <Field
-                layout="row"
-                label={`${surface[0].toUpperCase() + surface.slice(1)} model`}
-              >
-                <DefaultModelPicker
-                  current={picker.current_ref}
-                  options={picker.options}
-                  // Most chat models see images too (decision 11).
-                  follow={
-                    surface === 'vision'
-                      ? {
-                          label: 'Same as Brain',
-                          detail: currentBrain
-                            ? splitModelLabel(currentBrain.label).name
-                            : modelRefName(state.brain.current_ref),
-                        }
-                      : undefined
-                  }
-                  dialogLabel={`Choose the ${surface} model`}
-                  disabled={!!busy}
-                  onChoose={(ref) => void media(surface, 'default', ref)}
-                  onRefresh={() => void refreshCatalog()}
-                />
-              </Field>
-              {picker.warning && (
-                <p className="settings-model-warning">{picker.warning}</p>
-              )}
-              {surface === 'vision' && (
-                <div className="settings-model-camera">
-                  <Field
-                    label="Camera"
-                    layout="row"
-                    hint={
-                      cameras == null
-                        ? 'Camera list not loaded'
-                        : cameras.length
-                          ? `${cameras.length} camera(s) detected`
-                          : 'No cameras detected'
-                    }
-                  >
-                    <Select
-                      value={state.camera_index}
-                      disabled={!!busy}
-                      onChange={(event) =>
-                        void media(
-                          'vision',
-                          'camera',
-                          Number(event.target.value),
-                        )
-                      }
-                    >
-                      {[
-                        ...new Set([state.camera_index, ...(cameras ?? [])]),
-                      ].map((camera) => (
-                        <option key={camera} value={camera}>
-                          Camera {camera}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Button
-                    variant="ghost"
-                    aria-label="Refresh camera list"
-                    onClick={() => void refreshCameras()}
-                  >
-                    <RefreshCw size={16} aria-hidden />
-                  </Button>
-                </div>
-              )}
-            </section>
-          );
-        })}
-      </section>
-      <details className="settings-model-delegation disclosure">
-        <summary className="disclosure-summary">
-          <GitBranch size={16} aria-hidden />
-          <span>Agent runtime &amp; delegation</span>
-          <span className="disclosure-meta">Limits for long work</span>
-        </summary>
-        <p className="settings-help">
-          Optional limits for long-running work and delegated child agents.
-          Changes apply to new runs.
-        </p>
+            )}
+          </SettingsItem>
+        </Disclosure>
+      </SettingsGroup>
+      <SettingsAdvanced
+        summary="Limits for long work"
+        meta={
+          agents
+            ? `${agents.max_iterations} steps per run · ${agents.max_concurrent_children} helper agents at a time`
+            : undefined
+        }
+      >
         {agents ? (
-          <>
-            <div className="settings-model-agent-grid">
-              {agentFields.map(({ key, label, help }) => (
-                <Field label={label} hint={help} key={key} layout="row">
+          <SettingsGroup label="Limits for long work">
+            {agentFields.map(({ key, label, help }) => (
+              <SettingsItem
+                key={key}
+                label={label}
+                help={help}
+                control={
                   <Input
                     type="number"
                     min={ZERO_OFF.has(key) ? 0 : 1}
@@ -876,90 +910,77 @@ export default function ModelsPanel({
                       if (event.key === 'Enter') commitAgents();
                     }}
                   />
-                </Field>
-              ))}
-            </div>
-            <div className="actions">
-              <Button
-                variant="ghost"
-                disabled={!!busy}
-                onClick={() => void saveAgents(true)}
-              >
-                Restore recommended defaults
-              </Button>
-            </div>
-          </>
+                }
+              />
+            ))}
+            <SettingsItem
+              label="Recommended limits"
+              help="Changes apply to new runs."
+              bind={false}
+              control={
+                <Button
+                  variant="ghost"
+                  disabled={!!busy}
+                  onClick={() => void saveAgents(true)}
+                >
+                  Restore recommended defaults
+                </Button>
+              }
+            />
+          </SettingsGroup>
         ) : (
           <Skeleton label="Loading agent limits" />
         )}
-      </details>
-      <section className="settings-catalog-owner stack" aria-label="Catalog">
-        <header
-          className="settings-owner-heading"
-          data-setting-anchor="model-catalog"
-        >
-          <div>
-            <h3>Catalog</h3>
-            <p>Browse or pin models when you need more choices.</p>
-          </div>
-        </header>
-        <div className="settings-model-catalog-status">
-          <span
-            className={`status-chip ${state.freshness === 'fresh' ? 'success' : 'warning'}`}
-          >
-            {state.freshness === 'fresh'
-              ? 'Cached models ready'
-              : state.freshness === 'stale'
-                ? 'Cached models may be old'
-                : 'No cached models'}
-          </span>
-          <span>
-            {state.generated_at
-              ? 'Saved catalog available'
-              : 'No saved catalog yet'}
-          </span>
-          <Button
-            variant="ghost"
-            disabled={busy === 'refresh'}
-            onClick={() => void refreshCatalog()}
-          >
-            <RefreshCw size={16} aria-hidden /> Refresh catalog
-          </Button>
-        </div>
-        <button
-          className="settings-disclosure"
-          type="button"
-          aria-expanded={catalogOpen}
-          aria-controls="model-catalog-content"
-          onClick={() => setCatalogOpen((value) => !value)}
-        >
-          Model Catalog <span aria-hidden>{catalogOpen ? '−' : '+'}</span>
-        </button>
-        {catalogOpen && (
-          <div id="model-catalog-content">
-            <ModelCatalog
-              controller={controller}
-              initialProvider={initialProvider}
-              refreshSignal={catalogRefresh}
-              defaults={defaults}
-              onDefault={async (surface, model) => {
-                if (!model.pinned_surfaces.includes(surface)) {
-                  await pin(surface, model);
-                  await reload();
-                }
-                if (surface === 'chat') await brainDefault(model.selection_ref);
-                else if (surface !== 'voice')
-                  await media(surface, 'default', model.selection_ref);
-              }}
-              onPin={pin}
-              onChanged={reload}
-            />
+      </SettingsAdvanced>
+      <SettingsGroup
+        title="Catalog"
+        anchor="model-catalog"
+        meta={
+          <>
+            <span role="status">{catalogStatus}</span>
+            <span className="settings-status-sep" aria-hidden>
+              ·
+            </span>
+            <Button
+              variant="ghost"
+              className="settings-link"
+              aria-label="Refresh catalog"
+              disabled={busy === 'refresh'}
+              onClick={() => void refreshCatalog()}
+            >
+              Refresh
+            </Button>
+          </>
+        }
+      >
+        <ModelCatalog
+          controller={controller}
+          initialProvider={initialProvider}
+          refreshSignal={catalogRefresh}
+          defaults={defaults}
+          onDefault={async (surface, model) => {
+            if (!model.pinned_surfaces.includes(surface)) {
+              await pin(surface, model);
+              await reload();
+            }
+            if (surface === 'chat') await brainDefault(model.selection_ref);
+            else if (surface !== 'voice')
+              await saveMedia(surface, 'default', model.selection_ref);
+          }}
+          onPin={pin}
+          onChanged={reload}
+        />
+        {(pinPending || catalogNote) && (
+          <div className="settings-divided settings-catalog-note">
+            {catalogNote && <p role="status">{catalogNote}</p>}
+            {pinPending && (
+              <Button onClick={() => void checkPinReceipt()}>
+                Check picker
+              </Button>
+            )}
           </div>
         )}
-        {pinPending && (
-          <Button onClick={() => void checkPinReceipt()}>Check picker</Button>
-        )}
-      </section>
+      </SettingsGroup>
     </div>
   );
 }
