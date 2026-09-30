@@ -1686,233 +1686,262 @@ export default function Workspace() {
             />
           )}
           <Panel id="conversation-area" minSize={desktop ? 400 : 0}>
+            {/* The terminal docks under the conversation and its bottom dock,
+                in a group of its own: a panel resized in code takes room from
+                the one after it, so each dock is the last of its group (B249). */}
             <Group
-              id="workspace-rows"
+              id="workspace-terminal-rows"
               orientation="vertical"
               resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
               onLayoutChanged={(_, meta) => {
-                if (meta.isUserInteraction && bottomVisible) {
-                  const size = bottomRef.current?.getSize().inPixels;
-                  if (size !== undefined && size < 0.5)
-                    openPanelRef.current?.focus({ preventScroll: true });
-                  update((previous) => settleResize(previous, 'bottom', size));
-                }
                 if (meta.isUserInteraction && terminalDocked)
                   settleTerminal(terminalRef.current?.getSize().inPixels);
               }}
             >
-              <Panel id="conversation-pane" minSize={desktop ? 240 : 0}>
-                <main className="conversation-area">
-                  <section
-                    id="conversation"
-                    tabIndex={-1}
-                    data-testid="conversation-workspace"
-                    className="conversation"
-                    aria-label="Conversation"
-                    hidden={
-                      homeOpen || routeOpen || Boolean(compact) || terminalSheet
+              <Panel id="workspace-rows-pane" minSize={desktop ? 240 : 0}>
+                <Group
+                  id="workspace-rows"
+                  orientation="vertical"
+                  resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
+                  onLayoutChanged={(_, meta) => {
+                    if (meta.isUserInteraction && bottomVisible) {
+                      const size = bottomRef.current?.getSize().inPixels;
+                      if (size !== undefined && size < 0.5)
+                        openPanelRef.current?.focus({ preventScroll: true });
+                      update((previous) =>
+                        settleResize(previous, 'bottom', size),
+                      );
                     }
-                  >
-                    <div className="conversation-heading">
-                      {/* Announced, not drawn: the sidebar footer shows a
+                  }}
+                >
+                  <Panel id="conversation-pane" minSize={desktop ? 240 : 0}>
+                    <main className="conversation-area">
+                      <section
+                        id="conversation"
+                        tabIndex={-1}
+                        data-testid="conversation-workspace"
+                        className="conversation"
+                        aria-label="Conversation"
+                        hidden={
+                          homeOpen ||
+                          routeOpen ||
+                          Boolean(compact) ||
+                          terminalSheet
+                        }
+                      >
+                        <div className="conversation-heading">
+                          {/* Announced, not drawn: the sidebar footer shows a
                           status dot and a disconnection shows the banner
                           below (B7). */}
-                      <span
-                        className={`connection-status visually-hidden ${state.status === 'ready' ? 'connected' : ''}`}
-                        role="status"
-                      >
-                        {state.status === 'ready' ? 'Connected' : state.status}
-                      </span>
-                    </div>
-                    {state.status === 'loading' || state.loadingConversation ? (
-                      <Skeleton label="Opening conversation" />
-                    ) : state.error ? (
-                      <ErrorState
-                        title={connectionTitle(state.status)}
-                        action={connectionAction}
-                      >
-                        <span>{state.error.message}</span>
-                        {connectionHint(state.status)}
-                      </ErrorState>
-                    ) : null}
-                    <Conversation
-                      onPanel={(panel, options) =>
-                        showPanel(panel, undefined, undefined, options)
-                      }
-                      completedDesignId={
-                        completedDesign?.conversation === conversationId
-                          ? completedDesign.binding
-                          : undefined
-                      }
-                      onResourceOpened={(binding) => {
-                        if (completedDesign?.binding === binding)
-                          setCompletedDesign(null);
-                      }}
-                      onResourceRemoved={(reference) =>
-                        update((previous) =>
-                          closeResourcePanels(previous, reference),
-                        )
-                      }
-                      onNewChat={() => void creation.newChat()}
-                      onStartProfileChat={(profile) =>
-                        void creation.newChat('', profile)
-                      }
-                      focusConversationId={creation.focusConversationId}
-                      onComposerFocused={creation.onComposerFocused}
-                      firstPrompt={creation.firstPrompt}
-                      onFirstPromptConsumed={creation.onFirstPromptConsumed}
-                      contextPlacement={desktop ? 'inline' : 'compact'}
-                      contextToggle={contextToggle}
-                      headerActions={
-                        desktop ? (
-                          <>
-                            {terminalToggle}
-                            {openPanelMenu}
-                          </>
-                        ) : phone ? undefined : (
-                          <>
-                            {commandsButton}
-                            {terminalToggle}
-                            {openPanelMenu}
-                          </>
-                        )
-                      }
-                      headerLeading={
-                        desktop ? undefined : navigationButton(phone)
-                      }
-                      headerMenu={phone ? phoneMenu : undefined}
-                    />
-                  </section>
-                  {homeOpen && (
-                    <Home
-                      onAsk={(text, options) =>
-                        void creation.newChat(text, undefined, options)
-                      }
-                      asking={creation.creatingChat}
-                      onPanel={(panel, options) =>
-                        showPanel(panel, undefined, undefined, options)
-                      }
-                    />
-                  )}
-                  {compact && !routeOpen && !terminalSheet && (
-                    <section
-                      className="compact-tab panel-sheet"
-                      aria-label="Compact panel"
-                    >
-                      <header className="panel-sheet-header">
-                        <IconButton
-                          label="Back to conversation"
-                          onClick={() => {
-                            openPanelRef.current?.focus({
-                              preventScroll: true,
-                            });
-                            update((previous) => focusPanel(previous, null));
-                          }}
-                        >
-                          <ChevronLeft size={18} aria-hidden />
-                        </IconButton>
-                        <span className="panel-sheet-title">
-                          {(() => {
-                            const Icon = panelIcon(compact.descriptor);
-                            return <Icon size={15} aria-hidden />;
-                          })()}
-                          <span title={compact.descriptor.title}>
-                            {panelKindLabel(compact.descriptor)}
+                          <span
+                            className={`connection-status visually-hidden ${state.status === 'ready' ? 'connected' : ''}`}
+                            role="status"
+                          >
+                            {state.status === 'ready'
+                              ? 'Connected'
+                              : state.status}
                           </span>
-                        </span>
-                        <IconButton
-                          label="Close panel"
-                          onClick={() => {
-                            openPanelRef.current?.focus({
-                              preventScroll: true,
-                            });
+                        </div>
+                        {state.status === 'loading' ||
+                        state.loadingConversation ? (
+                          <Skeleton label="Opening conversation" />
+                        ) : state.error ? (
+                          <ErrorState
+                            title={connectionTitle(state.status)}
+                            action={connectionAction}
+                          >
+                            <span>{state.error.message}</span>
+                            {connectionHint(state.status)}
+                          </ErrorState>
+                        ) : null}
+                        <Conversation
+                          onPanel={(panel, options) =>
+                            showPanel(panel, undefined, undefined, options)
+                          }
+                          completedDesignId={
+                            completedDesign?.conversation === conversationId
+                              ? completedDesign.binding
+                              : undefined
+                          }
+                          onResourceOpened={(binding) => {
+                            if (completedDesign?.binding === binding)
+                              setCompletedDesign(null);
+                          }}
+                          onResourceRemoved={(reference) =>
                             update((previous) =>
-                              closePanel(previous, compact.instance_id),
-                            );
-                            update((previous) => focusPanel(previous, null));
-                          }}
-                        >
-                          <X size={18} aria-hidden />
-                        </IconButton>
-                      </header>
-                      <div className="panel-sheet-body">
-                        <PanelContent panel={compact} visible />
-                      </div>
-                    </section>
-                  )}
-                  {terminalSheet && (
-                    <div className="compact-tab panel-sheet">
-                      <TerminalSlot
-                        open
-                        focusKey={terminal.focusKey}
-                        onClose={() => closeTerminal()}
-                      />
-                    </div>
-                  )}
-                  {routeOpen && (
-                    <div
-                      className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
-                    >
-                      {!settingsOpen && (
-                        <Link className="button ghost routed-home" to="/">
-                          <ChevronLeft size={18} aria-hidden />
-                          Home
-                        </Link>
+                              closeResourcePanels(previous, reference),
+                            )
+                          }
+                          onNewChat={() => void creation.newChat()}
+                          onStartProfileChat={(profile) =>
+                            void creation.newChat('', profile)
+                          }
+                          focusConversationId={creation.focusConversationId}
+                          onComposerFocused={creation.onComposerFocused}
+                          firstPrompt={creation.firstPrompt}
+                          onFirstPromptConsumed={creation.onFirstPromptConsumed}
+                          contextPlacement={desktop ? 'inline' : 'compact'}
+                          contextToggle={contextToggle}
+                          headerActions={
+                            desktop ? (
+                              <>
+                                {terminalToggle}
+                                {openPanelMenu}
+                              </>
+                            ) : phone ? undefined : (
+                              <>
+                                {commandsButton}
+                                {terminalToggle}
+                                {openPanelMenu}
+                              </>
+                            )
+                          }
+                          headerLeading={
+                            desktop ? undefined : navigationButton(phone)
+                          }
+                          headerMenu={phone ? phoneMenu : undefined}
+                        />
+                      </section>
+                      {homeOpen && (
+                        <Home
+                          onAsk={(text, options) =>
+                            void creation.newChat(text, undefined, options)
+                          }
+                          asking={creation.creatingChat}
+                          onPanel={(panel, options) =>
+                            showPanel(panel, undefined, undefined, options)
+                          }
+                        />
                       )}
-                      <Suspense fallback={<Skeleton label="Opening view" />}>
-                        <WorkspaceActionsContext.Provider
-                          value={{
-                            resetLayout: () => update(resetLayout),
-                            startProfileChat: (profile) =>
-                              void creation.newChat('', profile),
-                            newChat: (draft) =>
-                              void creation.newChat(draft, undefined, {
-                                send: false,
-                              }),
-                            openAgentProfiles: (returnFocusTo) => {
-                              const session = goalProfileOwner?.get();
-                              if (session)
-                                openAgentProfiles({
-                                  overlay,
-                                  controller,
-                                  session,
-                                  returnFocusTo,
-                                  onStartProfileChat: (profile) =>
-                                    void creation.newChat('', profile),
-                                });
-                            },
-                            compactControls: desktop
-                              ? undefined
-                              : {
-                                  navigation: navigationToggle,
-                                  commands: commandsButton,
-                                },
-                          }}
+                      {compact && !routeOpen && !terminalSheet && (
+                        <section
+                          className="compact-tab panel-sheet"
+                          aria-label="Compact panel"
                         >
-                          <Outlet />
-                        </WorkspaceActionsContext.Provider>
-                      </Suspense>
-                    </div>
+                          <header className="panel-sheet-header">
+                            <IconButton
+                              label="Back to conversation"
+                              onClick={() => {
+                                openPanelRef.current?.focus({
+                                  preventScroll: true,
+                                });
+                                update((previous) =>
+                                  focusPanel(previous, null),
+                                );
+                              }}
+                            >
+                              <ChevronLeft size={18} aria-hidden />
+                            </IconButton>
+                            <span className="panel-sheet-title">
+                              {(() => {
+                                const Icon = panelIcon(compact.descriptor);
+                                return <Icon size={15} aria-hidden />;
+                              })()}
+                              <span title={compact.descriptor.title}>
+                                {panelKindLabel(compact.descriptor)}
+                              </span>
+                            </span>
+                            <IconButton
+                              label="Close panel"
+                              onClick={() => {
+                                openPanelRef.current?.focus({
+                                  preventScroll: true,
+                                });
+                                update((previous) =>
+                                  closePanel(previous, compact.instance_id),
+                                );
+                                update((previous) =>
+                                  focusPanel(previous, null),
+                                );
+                              }}
+                            >
+                              <X size={18} aria-hidden />
+                            </IconButton>
+                          </header>
+                          <div className="panel-sheet-body">
+                            <PanelContent panel={compact} visible />
+                          </div>
+                        </section>
+                      )}
+                      {terminalSheet && (
+                        <div className="compact-tab panel-sheet">
+                          <TerminalSlot
+                            open
+                            focusKey={terminal.focusKey}
+                            onClose={() => closeTerminal()}
+                          />
+                        </div>
+                      )}
+                      {routeOpen && (
+                        <div
+                          className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
+                        >
+                          {!settingsOpen && (
+                            <Link className="button ghost routed-home" to="/">
+                              <ChevronLeft size={18} aria-hidden />
+                              Home
+                            </Link>
+                          )}
+                          <Suspense
+                            fallback={<Skeleton label="Opening view" />}
+                          >
+                            <WorkspaceActionsContext.Provider
+                              value={{
+                                resetLayout: () => update(resetLayout),
+                                startProfileChat: (profile) =>
+                                  void creation.newChat('', profile),
+                                newChat: (draft) =>
+                                  void creation.newChat(draft, undefined, {
+                                    send: false,
+                                  }),
+                                openAgentProfiles: (returnFocusTo) => {
+                                  const session = goalProfileOwner?.get();
+                                  if (session)
+                                    openAgentProfiles({
+                                      overlay,
+                                      controller,
+                                      session,
+                                      returnFocusTo,
+                                      onStartProfileChat: (profile) =>
+                                        void creation.newChat('', profile),
+                                    });
+                                },
+                                compactControls: desktop
+                                  ? undefined
+                                  : {
+                                      navigation: navigationToggle,
+                                      commands: commandsButton,
+                                    },
+                              }}
+                            >
+                              <Outlet />
+                            </WorkspaceActionsContext.Provider>
+                          </Suspense>
+                        </div>
+                      )}
+                    </main>
+                  </Panel>
+                  {bottomVisible && (
+                    <Separator
+                      className="resize-handle horizontal"
+                      aria-label="Resize bottom panel"
+                      onKeyDownCapture={(event) =>
+                        keyboardResize(event, 'bottom')
+                      }
+                    />
                   )}
-                </main>
-              </Panel>
-              {bottomVisible && (
-                <Separator
-                  className="resize-handle horizontal"
-                  aria-label="Resize bottom panel"
-                  onKeyDownCapture={(event) => keyboardResize(event, 'bottom')}
-                />
-              )}
-              <Panel
-                id="bottom-pane"
-                panelRef={bottomRef}
-                minSize={desktop ? 160 : 0}
-                maxSize={desktop ? regionBounds(layout, 'bottom').max : 0}
-                defaultSize={0}
-                collapsible
-                collapsedSize={0}
-              >
-                {bottomVisible && dock(bottomPanels, 'bottom')}
+                  <Panel
+                    id="bottom-pane"
+                    panelRef={bottomRef}
+                    minSize={desktop ? 160 : 0}
+                    maxSize={desktop ? regionBounds(layout, 'bottom').max : 0}
+                    defaultSize={0}
+                    collapsible
+                    collapsedSize={0}
+                  >
+                    {bottomVisible && dock(bottomPanels, 'bottom')}
+                  </Panel>
+                </Group>
               </Panel>
               {terminalDocked && (
                 <Separator
