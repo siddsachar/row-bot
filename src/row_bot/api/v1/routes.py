@@ -5077,6 +5077,23 @@ def create_router(
         result = await call(run_system_diagnosis)
         return await respond(request, dto.SystemDiagnosis, result)
 
+    @router.get("/monitor/diagnosis")
+    async def monitor_kept_diagnosis(request: Request) -> JSONResponse:
+        # The last result of every check (B252): a file read, nothing runs.
+        await session(request)
+        from row_bot.application.client_diagnosis import read_system_health
+
+        return await respond(request, dto.SystemDiagnosis, await call(read_system_health))
+
+    @router.post("/monitor/diagnosis/settings")
+    async def monitor_diagnosis_settings(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SystemDiagnosisSettings, 256)
+        from row_bot.application.client_diagnosis import set_hourly_network_checks
+
+        result = await call(set_hourly_network_checks, body.hourly_network_checks)
+        return await respond(request, dto.SystemDiagnosis, result)
+
     @router.get("/system/updates")
     async def update_snapshot(request: Request) -> JSONResponse:
         await session(request)

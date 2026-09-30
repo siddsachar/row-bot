@@ -2134,6 +2134,22 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.health-tile-time {
+  align-self: end;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.health-checks li .health-check-time {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.monitor-connection-checks {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
 .health-detail {
   display: grid;
   gap: 12px;

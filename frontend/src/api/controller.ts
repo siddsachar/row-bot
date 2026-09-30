@@ -2415,6 +2415,15 @@ export class ClientController {
     this.query(() => this.transport.monitorLogs?.(limit, signal));
   systemDiagnosis = (signal?: AbortSignal) =>
     this.query(() => this.transport.systemDiagnosis?.(signal));
+  /** The last result of every Monitor check, kept by the server (B252). */
+  systemHealth = (signal?: AbortSignal) =>
+    this.query(() => this.transport.systemHealth?.(signal));
+  setHourlyConnectionChecks = (enabled: boolean) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.setHourlyConnectionChecks)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.setHourlyConnectionChecks(enabled, signal);
+    });
   updates = (signal?: AbortSignal) =>
     this.query(() => this.transport.updates?.(signal));
   updateCommand = (command: UpdateCommand, signal?: AbortSignal) =>

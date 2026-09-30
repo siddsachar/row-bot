@@ -1930,6 +1930,27 @@ def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = 
     return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
 
 
+def _p17_install_connection_check_fakes() -> None:
+    """Monitor's connection checks (B252) run hourly and on Run diagnosis; in
+    this disposable server they answer from the fixture and never reach a
+    runtime, an account or the internet."""
+    from row_bot import status_checks
+
+    def check_ollama() -> status_checks.CheckResult:
+        running = _p10_state["runtime"] == "running"
+        return status_checks.CheckResult("Ollama", "ok" if running else "inactive",
+                                         "Server reachable" if running else "Server offline", settings_tab="Models")
+
+    def check_github_oauth() -> status_checks.CheckResult:
+        return status_checks.CheckResult("GitHub", "inactive", "Not connected", settings_tab="Accounts")
+
+    def check_network() -> status_checks.CheckResult:
+        return status_checks.CheckResult("Network", "ok", "Connected", settings_tab="System")
+
+    status_checks.check_ollama = check_ollama
+    status_checks.NETWORK_CHECKS = (check_ollama, check_github_oauth, check_network)
+
+
 def main() -> None:
     # Resolve the fixture's already selected isolated Python for child probes.
     os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
@@ -2064,6 +2085,7 @@ def main() -> None:
 
     client_platform_service.readiness_factory = lambda _: True
     _p10_install_fakes()
+    _p17_install_connection_check_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = predecessor.resume
     from row_bot import goals as goal_owner

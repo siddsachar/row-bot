@@ -486,7 +486,11 @@ def _check_github_account_health(at_startup: bool = False) -> list[str]:
 
 
 def _periodic_oauth_check():
-    """Background OAuth health check — runs every 6 hours."""
+    """Background OAuth health check — runs every 6 hours while background
+    connection checks are on (Monitor's "Check connections every hour", B252)."""
+    from row_bot.application.client_diagnosis import connection_checks_enabled
+    if not connection_checks_enabled():
+        return
     warnings = _check_oauth_tokens()
     warnings.extend(_check_github_account_health())
     if warnings:
@@ -798,10 +802,12 @@ async def _run_startup_sequence():
             _startup_warning(f"The public tunnel didn't start. {describe_tunnel_error(exc)}", source="tunnel")
 
     # ── Proactive OAuth token health check ───────────────────────────
-    with _startup_phase("oauth_token_health_check"):
-        await asyncio.to_thread(_check_oauth_tokens, True)
-    with _startup_phase("github_account_health_check"):
-        await asyncio.to_thread(_check_github_account_health, True)
+    from row_bot.application.client_diagnosis import connection_checks_enabled
+    if await asyncio.to_thread(connection_checks_enabled):
+        with _startup_phase("oauth_token_health_check"):
+            await asyncio.to_thread(_check_oauth_tokens, True)
+        with _startup_phase("github_account_health_check"):
+            await asyncio.to_thread(_check_github_account_health, True)
 
     # Schedule periodic re-check every 6 hours
     try:
@@ -887,6 +893,16 @@ async def _run_startup_sequence():
         _safe_console_print("[startup] ⏱️ Browser idle-tab eviction scheduled (every 5 min, 10 min TTL)")
     except Exception as exc:
         logger.warning("Could not schedule browser idle eviction: %s", exc)
+
+    # Monitor's checks run by themselves and are kept (B252): local ones
+    # every 15 minutes, connection ones hourly while their switch is on.
+    try:
+        from row_bot.application.client_diagnosis import schedule_health_checks
+        from row_bot.tasks import _get_scheduler
+        with _startup_phase("system_health_scheduler"):
+            schedule_health_checks(_get_scheduler())
+    except Exception as exc:
+        logger.warning("Could not schedule Monitor's checks: %s", exc)
 
     _set("✅ Ready")
     startup_state.ready = True

@@ -1287,6 +1287,13 @@ class ClientPlatformService:
                 except Exception:
                     _LOG.warning("Computer use was not released after a turn in %s", conversation_id,
                                  exc_info=True)
+                if status == "interrupted":
+                    # Monitor checks a failed local model's server again (B252).
+                    try:
+                        from row_bot.application.client_diagnosis import recheck_after_failed_turn
+                        recheck_after_failed_turn(model_ref)
+                    except Exception:
+                        _LOG.warning("Monitor could not recheck the model after a failed turn", exc_info=True)
                 after_platform_turn(conversation_id, generation_id=generation_id, status=status,
                                     assistant_text=final_text, model_ref=model_ref,
                                     goal_id=str((started_goal or {}).get("id") or ""),

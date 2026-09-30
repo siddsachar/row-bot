@@ -24,7 +24,7 @@ import type {
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
 import { writeClipboardText } from '../../platform/clipboard';
-import { Drawer } from '../../ui/overlays';
+import { Drawer, useNotify } from '../../ui/overlays';
 import {
   Button,
   CopyGlyph,
@@ -32,6 +32,7 @@ import {
   IconButton,
   InlineEmpty,
   Segmented,
+  SettingRow,
   StatusDot,
   Toggle,
   useCopyFeedback,
@@ -118,7 +119,7 @@ export type MonitorSnapshot = {
 /** Where each kind of problem is fixed. */
 const ATTENTION_PLACES: Record<
   AttentionProblem['place'],
-  { to: string; label: string }
+  { to: string; label: string } | null
 > = {
   channels: { to: '/settings/channels', label: 'Open Channels' },
   plugins: { to: '/settings/plugins', label: 'Open Plugins' },
@@ -126,14 +127,25 @@ const ATTENTION_PLACES: Record<
   access: { to: '/settings/access', label: 'Open Devices & remote access' },
   models: { to: '/settings/models', label: 'Open Models' },
   workflows: { to: '/?tab=workflows', label: 'Open Workflows' },
+  // A red check (B252): its tile is on this page, so no link.
+  health: null,
 };
+
+/** Kept results are re-read while Monitor is open; soon on the first run. */
+const HEALTH_READ_MS = 60_000;
+const FIRST_CHECKS_READ_MS = 5_000;
 
 export type MonitorHomeProps = {
   snapshot: MonitorSnapshot | null;
   loading: boolean;
   error?: string | null;
   onRefresh: () => void;
+  /** The last result of every check, kept by the server (B252). */
+  loadHealth?: (signal?: AbortSignal) => Promise<SystemDiagnosis>;
+  /** Run every check now; the results are kept. */
   onRunDiagnosis: () => Promise<SystemDiagnosis>;
+  /** Save "Check connections every hour". */
+  onSetHourlyChecks?: (enabled: boolean) => Promise<SystemDiagnosis>;
   /** Problems met while Row-Bot started (plugins, tunnel, tokens…). */
   startupWarnings?: readonly string[];
   /** Problems the sidebar indicator counts (parity rows 12, 13). */
@@ -265,8 +277,24 @@ type TileView = {
   tone: Tone;
   status: string;
   detail: string;
+  /** "checked 4 minutes ago", or "checked yesterday · Check again". */
+  checked: string;
   checks: SystemDiagnosisCheck[];
 };
+
+const checkedAt = (check: SystemDiagnosisCheck) =>
+  new Date(check.checked_at * 1000);
+
+/** When an area was checked: its oldest result once one is out of date. */
+function checkedWords(checks: readonly SystemDiagnosisCheck[], now: Date) {
+  if (!checks.length) return '';
+  const stale = checks.filter((check) => check.stale);
+  const times = (stale.length ? stale : checks).map((check) =>
+    checkedAt(check).getTime(),
+  );
+  const at = new Date(stale.length ? Math.min(...times) : Math.max(...times));
+  return `checked ${relativeTime(at, now)}${stale.length ? ' · Check again' : ''}`;
+}
 
 function groupChecks(checks: readonly SystemDiagnosisCheck[]) {
   const groups = new Map<TileKey, SystemDiagnosisCheck[]>(
@@ -282,13 +310,17 @@ function groupChecks(checks: readonly SystemDiagnosisCheck[]) {
 function tileFromChecks(
   tile: (typeof TILES)[number],
   checks: SystemDiagnosisCheck[],
+  now: Date,
 ): TileView {
+  // Every area has local checks, kept soon after start: none yet means the
+  // first run is under way.
   if (!checks.length)
     return {
       ...tile,
       tone: 'neutral',
-      status: 'Nothing to check',
-      detail: 'No services in this area',
+      status: 'Checking…',
+      detail: 'Running the first checks',
+      checked: '',
       checks,
     };
   const worst = [...checks].sort(
@@ -307,6 +339,7 @@ function tileFromChecks(
         : worst.status === 'inactive' && !ok
           ? 'Not set up'
           : `${ok} of ${checks.length} OK`,
+    checked: checkedWords(checks, now),
     checks,
   };
 }
@@ -870,7 +903,9 @@ export default function MonitorHome({
   loading,
   error,
   onRefresh,
+  loadHealth,
   onRunDiagnosis,
+  onSetHourlyChecks,
   startupWarnings,
   attention,
   loadLogs,
@@ -878,7 +913,8 @@ export default function MonitorHome({
   writeClipboard,
   now: suppliedNow,
 }: MonitorHomeProps) {
-  const [diagnosis, setDiagnosis] = useState<SystemDiagnosis | null>(null);
+  const notify = useNotify();
+  const [healthReload, setHealthReload] = useState(0);
   const [diagnosisBusy, setDiagnosisBusy] = useState(false);
   const [diagnosisError, setDiagnosisError] = useState('');
   const [copyNotice, setCopyNotice] = useState('');
@@ -887,14 +923,16 @@ export default function MonitorHome({
   const [range, setRange] = useState<'24h' | '7d'>('24h');
   const [history, setHistory] = useState<'dream' | 'extraction'>('dream');
   const [tasks, setTasks] = useState<TaskSummaryPage | null>(null);
+  const [health, setHealth] = useState<SystemDiagnosis | null>(null);
   const [clock, setClock] = useState(() => new Date());
   const now = suppliedNow ?? clock;
+  // New data is dated from now, not from the last minute tick.
   useEffect(() => {
     if (suppliedNow) return;
     setClock(new Date());
     const timer = window.setInterval(() => setClock(new Date()), 60_000);
     return () => window.clearInterval(timer);
-  }, [suppliedNow, snapshot]);
+  }, [suppliedNow, snapshot, health]);
 
   useEffect(() => {
     if (!loadTasks) return;
@@ -908,13 +946,43 @@ export default function MonitorHome({
     };
   }, [loadTasks]);
 
+  // The server checks by itself and keeps every result (B252); the page
+  // reads them, never runs a check. Soon again while the first run is on.
+  useEffect(() => {
+    if (!loadHealth) return;
+    const load = loadHealth;
+    const abort = new AbortController();
+    let timer = 0;
+    const later = (delay: number) => {
+      timer = window.setTimeout(read, delay);
+    };
+    const read = () => {
+      if (document.visibilityState === 'hidden') return later(HEALTH_READ_MS);
+      load(abort.signal).then(
+        (value) => {
+          if (abort.signal.aborted) return;
+          setHealth(value);
+          later(value.checks.length ? HEALTH_READ_MS : FIRST_CHECKS_READ_MS);
+        },
+        () => {
+          if (!abort.signal.aborted) later(HEALTH_READ_MS);
+        },
+      );
+    };
+    read();
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+  }, [healthReload, loadHealth]);
+
   async function runDiagnosis() {
     if (diagnosisBusy) return;
     setDiagnosisBusy(true);
     setDiagnosisError('');
     setCopyNotice('');
     try {
-      setDiagnosis(await onRunDiagnosis());
+      setHealth(await onRunDiagnosis());
     } catch (cause) {
       setDiagnosisError(clientError(cause).message);
     } finally {
@@ -922,12 +990,27 @@ export default function MonitorHome({
     }
   }
 
+  async function setHourlyChecks(enabled: boolean) {
+    if (!health || !onSetHourlyChecks) return;
+    const before = health;
+    setHealth({ ...health, hourly_network_checks: enabled });
+    try {
+      setHealth(await onSetHourlyChecks(enabled));
+    } catch (cause) {
+      setHealth(before);
+      notify(
+        `Could not save "Check connections every hour". ${clientError(cause).message}`,
+        'warning',
+      );
+    }
+  }
+
   async function copyDiagnosis() {
-    if (!diagnosis) return;
+    if (!health?.checks.length) return;
     const report = [
       'Row-Bot System Diagnosis',
       '========================================',
-      ...diagnosis.checks.map(
+      ...health.checks.map(
         (check) => `${check.name}: ${check.status} — ${check.detail}`,
       ),
     ].join('\n');
@@ -944,78 +1027,20 @@ export default function MonitorHome({
     const failing = (tasks?.items ?? []).filter((task) =>
       FAILED_RUN_STATUSES.has(String(task.last_status ?? '').toLowerCase()),
     ).length;
-    if (diagnosis) {
-      const groups = groupChecks(diagnosis.checks);
-      return TILES.map((tile) => {
-        const view = tileFromChecks(tile, groups.get(tile.key)!);
-        // Diagnosis checks the scheduler itself; failed runs still need you.
-        if (tile.key === 'scheduler' && failing && view.tone !== 'danger')
-          return {
-            ...view,
-            tone: 'warning',
-            status: 'Needs attention',
-            detail: `${plural(failing, 'workflow')} failed last time · ${view.detail}`,
-          };
-        return view;
-      });
-    }
+    const groups = groupChecks(health?.checks ?? []);
     return TILES.map((tile) => {
-      const base: TileView = {
-        ...tile,
-        tone: 'neutral',
-        status: 'Not checked',
-        detail: 'Run diagnosis to check',
-        checks: [],
-      };
-      if (tile.key === 'knowledge' && snapshot) {
-        const { extraction } = snapshot;
-        if (extraction.availability !== 'available')
-          return {
-            ...base,
-            tone: 'warning',
-            status: 'Needs attention',
-            detail: availabilityCopy('Extraction', extraction.availability),
-          };
-        const last = parseTimestamp(extraction.last_run);
-        const late =
-          !last ||
-          now.getTime() - last.getTime() >
-            extraction.interval_hours * 2 * 3_600_000;
+      const view = tileFromChecks(tile, groups.get(tile.key)!, now);
+      // The scheduler check sees the scheduler; failed runs still need you.
+      if (tile.key === 'scheduler' && failing && view.tone !== 'danger')
         return {
-          ...base,
-          tone: last && !late ? 'success' : 'neutral',
-          status: last ? (late ? 'Idle' : 'OK') : 'Not run yet',
-          detail: last
-            ? `Extraction ran ${relativeTime(extraction.last_run, now)}`
-            : 'Extraction starts automatically',
+          ...view,
+          tone: 'warning',
+          status: 'Needs attention',
+          detail: `${plural(failing, 'workflow')} failed last time · ${view.detail}`,
         };
-      }
-      if (tile.key === 'scheduler' && tasks) {
-        const scheduled = tasks.items.filter(
-          (task) => task.enabled && (task.schedule || task.at),
-        );
-        const next = scheduled
-          .map((task) => parseTimestamp(task.next_run))
-          .filter((date): date is Date => Boolean(date))
-          .sort((left, right) => left.getTime() - right.getTime())[0];
-        return {
-          ...base,
-          tone: failing ? 'warning' : scheduled.length ? 'success' : 'neutral',
-          status: failing
-            ? 'Needs attention'
-            : scheduled.length
-              ? 'OK'
-              : 'Idle',
-          detail: failing
-            ? `${plural(failing, 'workflow')} failed last time`
-            : scheduled.length
-              ? `${scheduled.length} scheduled${next ? ` · next ${relativeTime(next.toISOString(), now)}` : ''}`
-              : 'No scheduled workflows',
-        };
-      }
-      return base;
+      return view;
     });
-  }, [diagnosis, now, snapshot, tasks]);
+  }, [health, now, tasks]);
 
   const lanes = useMemo<Lane[]>(() => {
     const dated = (value: string) => parseTimestamp(value);
@@ -1137,8 +1162,8 @@ export default function MonitorHome({
   }, [snapshot]);
 
   const open = tiles.find((tile) => tile.key === drawer) ?? null;
-  const checkedAt = diagnosis?.checks.length
-    ? Math.max(...diagnosis.checks.map((check) => check.checked_at))
+  const newest = health?.checks.length
+    ? Math.max(...health.checks.map((check) => check.checked_at))
     : null;
   return (
     <section
@@ -1149,13 +1174,13 @@ export default function MonitorHome({
         <h2 id="monitor-heading">System Monitor</h2>
         <p className="home-caption" role="status">
           {diagnosisBusy
-            ? 'Checking local services…'
-            : checkedAt
-              ? `Checked ${relativeTime(new Date(checkedAt * 1000).toISOString(), now)}`
-              : 'Passive status. Run diagnosis to check every service.'}
+            ? 'Checking every service…'
+            : newest
+              ? `Checked ${relativeTime(new Date(newest * 1000), now)}`
+              : 'Checking…'}
         </p>
         <span className="home-page-header-spacer" />
-        {diagnosis && (
+        {newest && (
           <IconButton
             size="sm"
             label="Copy diagnosis report"
@@ -1172,7 +1197,10 @@ export default function MonitorHome({
           size="sm"
           label={loading ? 'Refreshing…' : 'Refresh monitor'}
           disabled={loading}
-          onClick={onRefresh}
+          onClick={() => {
+            onRefresh();
+            setHealthReload((value) => value + 1);
+          }}
         >
           <RefreshCw size={15} aria-hidden />
         </IconButton>
@@ -1217,20 +1245,22 @@ export default function MonitorHome({
             <h3 id="attention-heading">Needs attention</h3>
           </header>
           <ul className="monitor-startup-list">
-            {attention.map((problem) => (
-              <li key={problem.id}>
-                <TriangleAlert size={14} aria-hidden />
-                <span>
-                  <strong>{problem.title}</strong> {problem.detail}{' '}
-                  <Link
-                    className="settings-inline-action"
-                    to={ATTENTION_PLACES[problem.place].to}
-                  >
-                    {ATTENTION_PLACES[problem.place].label}
-                  </Link>
-                </span>
-              </li>
-            ))}
+            {attention.map((problem) => {
+              const place = ATTENTION_PLACES[problem.place];
+              return (
+                <li key={problem.id}>
+                  <TriangleAlert size={14} aria-hidden />
+                  <span>
+                    <strong>{problem.title}</strong> {problem.detail}{' '}
+                    {place && (
+                      <Link className="settings-inline-action" to={place.to}>
+                        {place.label}
+                      </Link>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -1254,14 +1284,34 @@ export default function MonitorHome({
                   tone={tile.tone}
                   label={tile.status}
                   showLabel
-                  pulse={diagnosisBusy}
+                  pulse={diagnosisBusy || !tile.checks.length}
                 />
                 <span className="health-tile-detail">{tile.detail}</span>
+                {tile.checked && (
+                  <span className="health-tile-time">{tile.checked}</span>
+                )}
               </button>
             </li>
           );
         })}
       </ul>
+      {health && (
+        <SettingRow
+          className="monitor-connection-checks"
+          label="Check connections every hour"
+          description="These checks contact your providers, accounts and the internet; turn this off to run them only when you choose Run diagnosis."
+          control={
+            <Toggle
+              label="Check connections every hour"
+              checked={health.hourly_network_checks}
+              disabled={!onSetHourlyChecks}
+              onChange={(event) =>
+                void setHourlyChecks(event.currentTarget.checked)
+              }
+            />
+          }
+        />
+      )}
       {startupWarnings && startupWarnings.length > 0 && (
         <section
           className="monitor-section monitor-startup"
@@ -1413,6 +1463,27 @@ export default function MonitorHome({
                         />
                       </div>
                       <p>{check.detail}</p>
+                      <p className="health-check-time">
+                        <time
+                          dateTime={checkedAt(check).toISOString()}
+                          title={absoluteTime(checkedAt(check))}
+                        >
+                          checked {relativeTime(checkedAt(check), now)}
+                        </time>
+                        {check.stale && (
+                          <>
+                            {' · '}
+                            <button
+                              type="button"
+                              className="settings-inline-action"
+                              disabled={diagnosisBusy}
+                              onClick={() => void runDiagnosis()}
+                            >
+                              Check again
+                            </button>
+                          </>
+                        )}
+                      </p>
                       {route && (
                         <Link
                           className="overview-section-link"
@@ -1427,9 +1498,8 @@ export default function MonitorHome({
               </ul>
             ) : (
               <InlineEmpty>
-                {diagnosis
-                  ? 'No services were checked in this area.'
-                  : 'Run diagnosis to check the services in this area. It may contact configured local services and test network reachability.'}
+                The first checks are running; their results appear here in a
+                moment.
               </InlineEmpty>
             )}
             <Button
@@ -1440,7 +1510,7 @@ export default function MonitorHome({
               <Stethoscope size={14} aria-hidden />
               {diagnosisBusy
                 ? 'Checking…'
-                : diagnosis
+                : open.checks.length
                   ? 'Run again'
                   : 'Run diagnosis'}
             </Button>

@@ -667,6 +667,11 @@ export interface ClientTransport {
   pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
   systemDiagnosis?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
+  systemHealth?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
+  setHourlyConnectionChecks?(
+    enabled: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.SystemDiagnosis>;
   updates?(signal?: AbortSignal): Promise<Wire.UpdateSnapshot>;
   updateCommand?(
     command: Wire.UpdateCommand,

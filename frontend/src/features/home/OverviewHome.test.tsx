@@ -970,3 +970,47 @@ it('lets interrupted agent work be resumed or dismissed from Needs you (B220)', 
   );
   expect(handlers.onOpenConversation).toHaveBeenCalledWith('chat-cut');
 });
+
+it('lists a Monitor check whose kept result is red under Needs you (B252)', async () => {
+  const checkedAt = new Date(2026, 8, 26, 9, 10, 0).getTime() / 1000;
+  const loadHealth = vi.fn().mockResolvedValue({
+    schema_version: 1,
+    hourly_network_checks: true,
+    checks: [
+      {
+        id: 'disk',
+        name: 'Disk',
+        status: 'error',
+        detail: '1.2 GB free (97% used)',
+        checked_at: checkedAt,
+        settings_tab: 'System',
+        network: false,
+        stale: false,
+      },
+      {
+        id: 'documents',
+        name: 'Documents',
+        status: 'warn',
+        detail: 'rebuild recommended',
+        checked_at: checkedAt,
+        settings_tab: 'Documents',
+        network: false,
+        stale: false,
+      },
+    ],
+  });
+  show({ loadHealth });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  expect(buttonNames('Needs you')).toEqual([
+    'Open Monitor: Disk needs attention',
+  ]);
+  expect(needs).toHaveTextContent('1.2 GB free (97% used)');
+  expect(needs).not.toHaveTextContent('Documents');
+  fireEvent.click(
+    within(needs).getByRole('button', {
+      name: 'Open Monitor: Disk needs attention',
+    }),
+  );
+  expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
+  expect(loadHealth).toHaveBeenCalledOnce();
+});

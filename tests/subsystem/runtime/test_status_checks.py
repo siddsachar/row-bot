@@ -49,7 +49,7 @@ def test_home_status_has_single_faiss_check(monkeypatch):
     import row_bot.github_account as github_account
     import row_bot.models as models
     import row_bot.status_checks as status_checks
-    from row_bot.status_checks import ALL_CHECKS, run_all_checks
+    from row_bot.status_checks import ALL_CHECKS, run_checks
 
     def offline(*_args, **_kwargs):
         raise OSError("offline")
@@ -62,8 +62,8 @@ def test_home_status_has_single_faiss_check(monkeypatch):
     faiss_check_count = sum(1 for fn in ALL_CHECKS if fn.__name__ == "check_faiss_index")
     assert faiss_check_count == 1
 
-    results = run_all_checks()
-    names = [result.name for result in results]
+    results = run_checks(tuple(ALL_CHECKS))
+    names = [result.name for _check_id, result in results]
     assert names.count("FAISS Index") == 1
     assert names.count("Disk") == 1
     assert names.count("Threads DB") == 1

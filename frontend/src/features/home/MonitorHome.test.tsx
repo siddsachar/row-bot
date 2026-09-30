@@ -111,12 +111,23 @@ function check(
   detail: string,
   settings_tab: string,
   checked_at = NOW_SECONDS,
+  kept: Partial<Pick<SystemDiagnosisCheck, 'network' | 'stale'>> = {},
 ): SystemDiagnosisCheck {
-  return { name, status, detail, checked_at, settings_tab };
+  return {
+    id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    name,
+    status,
+    detail,
+    checked_at,
+    settings_tab,
+    network: false,
+    stale: false,
+    ...kept,
+  };
 }
 
 function diagnosis(...checks: SystemDiagnosisCheck[]): SystemDiagnosis {
-  return { schema_version: 1, checks };
+  return { schema_version: 1, hourly_network_checks: true, checks };
 }
 
 function task(overrides: Partial<TaskSummary> & { id: string }): TaskSummary {
@@ -218,45 +229,37 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('runs diagnosis only on click and presents bounded results with a retry', async () => {
-  const first = deferred<SystemDiagnosis>();
-  const run = vi
-    .fn<() => Promise<SystemDiagnosis>>()
-    .mockReturnValueOnce(first.promise)
-    .mockResolvedValue(
-      diagnosis(check('Ollama', 'ok', 'Server ready', 'Models')),
-    );
-  renderMonitor({ onRunDiagnosis: run });
-
-  expect(run).not.toHaveBeenCalled();
-  expect(healthTile('Model runtime')).toHaveTextContent('Not checked');
-  expect(
-    screen.queryByRole('button', { name: 'Copy diagnosis report' }),
-  ).toBeNull();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
-  expect(screen.getByText('Checking local services…')).toBeVisible();
-  const busy = screen.getByRole('button', { name: 'Checking…' });
-  expect(busy).toBeDisabled();
-  fireEvent.click(busy);
-  expect(run).toHaveBeenCalledTimes(1);
-
-  await act(async () =>
-    first.resolve(
-      diagnosis(
-        check('Ollama', 'warn', 'Server offline', 'Models'),
-        check('Cloud API', 'ok', 'Reachable', 'Providers', NOW_SECONDS - 5),
-        check('Disk', 'ok', 'Ready', 'System', NOW_SECONDS - 10),
-      ),
-    ),
+it('shows the kept results after leaving the tab, without running anything', async () => {
+  const kept = diagnosis(
+    check('Ollama', 'warn', 'Server offline', 'Models', NOW_SECONDS - 240, {
+      network: true,
+    }),
+    check('Cloud API', 'ok', 'Keys configured', 'Providers', NOW_SECONDS - 240),
+    check('Disk', 'ok', '40.0 GB free', 'System', NOW_SECONDS - 240),
   );
-  expect(screen.getByText('Checked just now')).toBeVisible();
+  const loadHealth = vi.fn(async () => kept);
+  const run = vi.fn(async () => diagnosis());
+  const view = renderMonitor({ loadHealth, onRunDiagnosis: run });
+
+  await waitFor(() =>
+    expect(healthTile('System')).toHaveTextContent('1 of 1 OK'),
+  );
+  expect(healthTile('System')).toHaveTextContent('checked 4 minutes ago');
   expect(healthTile('Model runtime')).toHaveTextContent('Needs attention');
   expect(healthTile('Model runtime')).toHaveTextContent(
     'Ollama: Server offline',
   );
-  expect(healthTile('System')).toHaveTextContent('1 of 1 OK');
-  expect(healthTile('Channels')).toHaveTextContent('Nothing to check');
+  expect(screen.getByText('Checked 4 minutes ago')).toBeVisible();
+
+  // Another tab and back: the page mounts again and reads the kept results.
+  view.unmount();
+  renderMonitor({ loadHealth, onRunDiagnosis: run });
+  await waitFor(() =>
+    expect(healthTile('System')).toHaveTextContent('checked 4 minutes ago'),
+  );
+  expect(screen.queryByText(/Not checked/)).toBeNull();
+  expect(loadHealth).toHaveBeenCalledTimes(2);
+  expect(run).not.toHaveBeenCalled();
 
   fireEvent.click(healthTile('Model runtime'));
   const drawer = screen.getByRole('dialog', { name: 'Model runtime' });
@@ -268,20 +271,121 @@ it('runs diagnosis only on click and presents bounded results with a retry', asy
   });
   const [ollama, cloud] = within(checks).getAllByRole('listitem');
   expect(within(checks).getAllByRole('listitem')).toHaveLength(2);
-  expect(ollama).toHaveTextContent('Ollama');
   expect(ollama).toHaveTextContent('Needs attention');
   expect(ollama).toHaveTextContent('Server offline');
+  expect(ollama).toHaveTextContent('checked 4 minutes ago');
   expect(
     within(ollama).getByRole('link', { name: 'Open Models settings' }),
   ).toHaveAttribute('href', '/settings/models');
-  expect(cloud).toHaveTextContent('Cloud API');
   expect(cloud).toHaveTextContent('OK');
   expect(
     within(cloud).getByRole('link', { name: 'Open Providers settings' }),
   ).toHaveAttribute('href', '/settings/providers');
   // Checks from other areas stay in their own tile.
   expect(checks).not.toHaveTextContent('Disk');
+});
 
+it('says "Checking…" until the first checks are kept, then shows them', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(NOW);
+  const loadHealth = vi
+    .fn<() => Promise<SystemDiagnosis>>()
+    .mockResolvedValueOnce(diagnosis())
+    .mockResolvedValue(
+      diagnosis(check('Disk', 'ok', '40.0 GB free', 'System')),
+    );
+  renderMonitor({ loadHealth });
+  await act(async () => {});
+
+  expect(healthTile('System')).toHaveTextContent('Checking…');
+  expect(healthTile('Knowledge')).toHaveTextContent('Checking…');
+  expect(screen.queryByText(/Not checked/)).toBeNull();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5_000);
+  });
+  expect(healthTile('System')).toHaveTextContent('1 of 1 OK');
+  expect(healthTile('System')).toHaveTextContent('checked just now');
+});
+
+it('marks a stale connection result and checks again on request', async () => {
+  const run = vi.fn(async () =>
+    diagnosis(
+      check('GitHub', 'ok', 'Connected as fixture', 'Accounts', NOW_SECONDS, {
+        network: true,
+      }),
+      check('Tunnel', 'inactive', 'Ready (no active tunnels)', 'Access'),
+    ),
+  );
+  renderMonitor({
+    onRunDiagnosis: run,
+    loadHealth: vi.fn(async () =>
+      diagnosis(
+        check(
+          'GitHub',
+          'ok',
+          'Connected as fixture',
+          'Accounts',
+          NOW_SECONDS - 26 * 3_600,
+          { network: true, stale: true },
+        ),
+        check('Tunnel', 'inactive', 'Ready (no active tunnels)', 'Access'),
+      ),
+    ),
+  });
+
+  await waitFor(() =>
+    expect(healthTile('Channels')).toHaveTextContent(
+      'checked yesterday · Check again',
+    ),
+  );
+  fireEvent.click(healthTile('Channels'));
+  const drawer = screen.getByRole('dialog', { name: 'Channels' });
+  const github = within(drawer).getByText('GitHub').closest('li')!;
+  expect(github).toHaveTextContent('checked yesterday');
+  fireEvent.click(within(github).getByRole('button', { name: 'Check again' }));
+  expect(run).toHaveBeenCalledOnce();
+  await waitFor(() =>
+    expect(healthTile('Channels')).toHaveTextContent('checked just now'),
+  );
+  expect(healthTile('Channels')).not.toHaveTextContent('Check again');
+  expect(
+    within(drawer).queryByRole('button', { name: 'Check again' }),
+  ).toBeNull();
+});
+
+it('runs diagnosis on click and presents the new results', async () => {
+  const first = deferred<SystemDiagnosis>();
+  const run = vi
+    .fn<() => Promise<SystemDiagnosis>>()
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValue(
+      diagnosis(check('Ollama', 'ok', 'Server ready', 'Models')),
+    );
+  renderMonitor({ onRunDiagnosis: run });
+
+  expect(run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+  expect(screen.getByText('Checking every service…')).toBeVisible();
+  const busy = screen.getByRole('button', { name: 'Checking…' });
+  expect(busy).toBeDisabled();
+  fireEvent.click(busy);
+  expect(run).toHaveBeenCalledTimes(1);
+
+  await act(async () =>
+    first.resolve(
+      diagnosis(
+        check('Ollama', 'warn', 'Server offline', 'Models'),
+        check('Disk', 'ok', 'Ready', 'System', NOW_SECONDS - 10),
+      ),
+    ),
+  );
+  expect(screen.getByText('Checked just now')).toBeVisible();
+  expect(healthTile('Model runtime')).toHaveTextContent('Needs attention');
+  expect(healthTile('System')).toHaveTextContent('1 of 1 OK');
+
+  fireEvent.click(healthTile('Model runtime'));
+  const drawer = screen.getByRole('dialog', { name: 'Model runtime' });
   fireEvent.click(within(drawer).getByRole('button', { name: 'Run again' }));
   expect(run).toHaveBeenCalledTimes(2);
   expect(await within(drawer).findByText('Server ready')).toBeVisible();
@@ -289,17 +393,14 @@ it('runs diagnosis only on click and presents bounded results with a retry', asy
 });
 
 it('sends each check to the settings page that fixes it, by its name', async () => {
-  const run = vi
-    .fn<() => Promise<SystemDiagnosis>>()
-    .mockResolvedValue(
+  renderMonitor({
+    loadHealth: vi.fn(async () =>
       diagnosis(
         check('Tunnel', 'warn', 'Not running', 'Access'),
         check('Tools', 'ok', '12 / 14 enabled', 'Tools'),
       ),
-    );
-  renderMonitor({ onRunDiagnosis: run });
-
-  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
+    ),
+  });
   await screen.findByText('Checked just now');
 
   fireEvent.click(healthTile('Channels'));
@@ -322,7 +423,7 @@ it('sends each check to the settings page that fixes it, by its name', async () 
   ).toHaveAttribute('href', '/settings/tools');
 });
 
-it('shows a safe diagnosis failure and allows an explicit retry', async () => {
+it('shows a safe diagnosis failure, keeps the last results and allows a retry', async () => {
   const run = vi
     .fn()
     .mockRejectedValueOnce(new Error('secret stack detail'))
@@ -330,7 +431,17 @@ it('shows a safe diagnosis failure and allows an explicit retry', async () => {
       Object.assign(new Error('owner check traceback'), { status: 403 }),
     )
     .mockResolvedValueOnce(diagnosis(check('Disk', 'ok', 'Ready', 'System')));
-  renderMonitor({ onRunDiagnosis: run });
+  renderMonitor({
+    onRunDiagnosis: run,
+    loadHealth: vi.fn(async () =>
+      diagnosis(
+        check('Disk', 'warn', '3.0 GB free (90% used)', 'System', NOW_SECONDS),
+      ),
+    ),
+  });
+  await waitFor(() =>
+    expect(healthTile('System')).toHaveTextContent('Needs attention'),
+  );
 
   fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
   const alert = await screen.findByRole('alert');
@@ -338,10 +449,7 @@ it('shows a safe diagnosis failure and allows an explicit retry', async () => {
   // Only the mapped client message is shown, never the raw error text.
   expect(alert).toHaveTextContent(clientError(new Error()).message);
   expect(screen.queryByText(/secret stack detail/)).toBeNull();
-  expect(healthTile('System')).toHaveTextContent('Not checked');
-  expect(
-    screen.queryByRole('button', { name: 'Copy diagnosis report' }),
-  ).toBeNull();
+  expect(healthTile('System')).toHaveTextContent('Disk: 3.0 GB free');
 
   const denied = clientError({ status: 403 }).message;
   expect(denied).not.toBe(clientError(new Error()).message);
@@ -352,10 +460,11 @@ it('shows a safe diagnosis failure and allows an explicit retry', async () => {
   expect(screen.queryByText(/owner check traceback/)).toBeNull();
 
   fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
-  expect(await screen.findByText('Checked just now')).toBeVisible();
+  await waitFor(() =>
+    expect(healthTile('System')).toHaveTextContent('1 of 1 OK'),
+  );
   expect(run).toHaveBeenCalledTimes(3);
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(healthTile('System')).toHaveTextContent('1 of 1 OK');
 });
 
 it('copies the diagnosis report and reports clipboard failure', async () => {
@@ -368,11 +477,10 @@ it('copies the diagnosis report and reports clipboard failure', async () => {
     value: { writeText },
   });
   renderMonitor({
-    onRunDiagnosis: vi.fn(async () =>
+    loadHealth: vi.fn(async () =>
       diagnosis(check('Disk', 'ok', 'Ready', 'System', 1)),
     ),
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Run diagnosis' }));
   fireEvent.click(
     await screen.findByRole('button', { name: 'Copy diagnosis report' }),
   );
@@ -386,11 +494,50 @@ it('copies the diagnosis report and reports clipboard failure', async () => {
   );
 });
 
-it('announces loading without reading or mutating monitor state on mount', async () => {
+it('saves "Check connections every hour" and says what those checks contact', async () => {
+  const loadHealth = vi.fn(async () =>
+    diagnosis(check('Disk', 'ok', 'Ready', 'System')),
+  );
+  const save = vi.fn(async (enabled: boolean) => ({
+    ...diagnosis(check('Disk', 'ok', 'Ready', 'System')),
+    hourly_network_checks: enabled,
+  }));
+  renderMonitor({ loadHealth, onSetHourlyChecks: save });
+
+  const hourly = await screen.findByRole('switch', {
+    name: 'Check connections every hour',
+  });
+  expect(hourly).toBeChecked();
+  expect(
+    screen.getByRole('group', { name: 'Check connections every hour' }),
+  ).toHaveAccessibleDescription(
+    'These checks contact your providers, accounts and the internet; turn this off to run them only when you choose Run diagnosis.',
+  );
+  fireEvent.click(hourly);
+  expect(save).toHaveBeenCalledWith(false);
+  await waitFor(() => expect(hourly).not.toBeChecked());
+});
+
+it('keeps the switch as it was when saving it fails', async () => {
+  renderMonitor({
+    loadHealth: vi.fn(async () => diagnosis()),
+    onSetHourlyChecks: vi.fn(async () => {
+      throw new Error('offline');
+    }),
+  });
+  const hourly = await screen.findByRole('switch', {
+    name: 'Check connections every hour',
+  });
+  fireEvent.click(hourly);
+  await waitFor(() => expect(hourly).toBeChecked());
+});
+
+it('announces loading and only reads what it shows on mount', async () => {
   const onRefresh = vi.fn();
   const onRunDiagnosis = vi.fn(async () => diagnosis());
   const loadLogs = vi.fn(async () => logsResponse([]));
   const loadTasks = vi.fn(async () => taskPage([]));
+  const loadHealth = vi.fn(async () => diagnosis());
   renderMonitor({
     snapshot: null,
     loading: true,
@@ -398,6 +545,7 @@ it('announces loading without reading or mutating monitor state on mount', async
     onRunDiagnosis,
     loadLogs,
     loadTasks,
+    loadHealth,
   });
   await act(async () => {});
 
@@ -406,12 +554,12 @@ it('announces loading without reading or mutating monitor state on mount', async
     'status',
   );
   expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
-  expect(healthTile('Model runtime')).toHaveTextContent('Not checked');
   expect(onRefresh).not.toHaveBeenCalled();
   expect(onRunDiagnosis).not.toHaveBeenCalled();
   expect(loadLogs).not.toHaveBeenCalled();
-  // The only mount read is the documented workflow summary for the
-  // Scheduler tile and the workflow activity lane.
+  // The mount reads are the kept check results and the workflow summary for
+  // the Scheduler tile and the workflow activity lane.
+  expect(loadHealth).toHaveBeenCalledOnce();
   expect(loadTasks).toHaveBeenCalledOnce();
   expect(loadTasks).toHaveBeenCalledWith();
 });
@@ -431,13 +579,16 @@ it('keeps a refresh error actionable', () => {
   expect(onRefresh).toHaveBeenCalledOnce();
 });
 
-it('uses the explicit Refresh monitor control only when activated', () => {
+it('uses the explicit Refresh monitor control only when activated', async () => {
   const onRefresh = vi.fn();
-  const { rerenderWith } = renderMonitor({ onRefresh });
+  const loadHealth = vi.fn(async () => diagnosis());
+  const { rerenderWith } = renderMonitor({ onRefresh, loadHealth });
+  await act(async () => {});
 
   expect(onRefresh).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh monitor' }));
   expect(onRefresh).toHaveBeenCalledOnce();
+  await waitFor(() => expect(loadHealth).toHaveBeenCalledTimes(2));
 
   rerenderWith({ loading: true });
   const refreshing = screen.getByRole('button', { name: 'Refreshing…' });
@@ -446,10 +597,7 @@ it('uses the explicit Refresh monitor control only when activated', () => {
   expect(onRefresh).toHaveBeenCalledOnce();
 });
 
-it('explains health areas before diagnosis and derives passive knowledge and scheduler status', async () => {
-  const run = vi.fn(async () =>
-    diagnosis(check('Disk', 'ok', 'Ready', 'System')),
-  );
+it('adds failed workflows to the kept scheduler result', async () => {
   const loadTasks = vi.fn(async () =>
     taskPage([
       task({
@@ -461,41 +609,19 @@ it('explains health areas before diagnosis and derives passive knowledge and sch
       task({ id: 'weekly-report', last_status: 'failed' }),
     ]),
   );
-  renderMonitor({ onRunDiagnosis: run, loadTasks });
+  renderMonitor({
+    loadTasks,
+    loadHealth: vi.fn(async () =>
+      diagnosis(check('Workflows', 'ok', '1 scheduled · 0 running', 'System')),
+    ),
+  });
 
-  expect(healthTile('Knowledge')).toHaveTextContent('OK');
-  expect(healthTile('Knowledge')).toHaveTextContent(
-    'Extraction ran 3 hours ago',
+  await waitFor(() =>
+    expect(healthTile('Scheduler')).toHaveTextContent(
+      '1 workflow failed last time · 1 of 1 OK',
+    ),
   );
-  expect(await screen.findByText('1 workflow failed last time')).toBeVisible();
   expect(healthTile('Scheduler')).toHaveTextContent('Needs attention');
-
-  fireEvent.click(healthTile('Channels'));
-  const drawer = screen.getByRole('dialog', { name: 'Channels' });
-  expect(drawer).toHaveAccessibleDescription(
-    'Not checked · Run diagnosis to check',
-  );
-  expect(drawer).toHaveTextContent(
-    'Run diagnosis to check the services in this area. It may contact configured local services and test network reachability.',
-  );
-  // Opening an area explains it; it never starts a check by itself.
-  expect(run).not.toHaveBeenCalled();
-
-  fireEvent.click(
-    within(drawer).getByRole('button', { name: 'Run diagnosis' }),
-  );
-  expect(
-    await within(drawer).findByText('No services were checked in this area.'),
-  ).toBeVisible();
-  expect(run).toHaveBeenCalledOnce();
-  expect(
-    within(drawer).getByRole('button', { name: 'Run again' }),
-  ).toBeVisible();
-
-  fireEvent.click(
-    within(drawer).getByRole('button', { name: 'Close health detail' }),
-  );
-  expect(screen.queryByRole('dialog')).toBeNull();
 });
 
 it('shows extraction never-run and Dream Cycle disabled states independently', () => {
@@ -515,10 +641,6 @@ it('shows extraction never-run and Dream Cycle disabled states independently', (
   expect(maintenanceCaption()).toHaveTextContent(
     'Extraction has not run yet; it starts automatically. · Dream Cycle is off (Settings › Preferences).',
   );
-  expect(healthTile('Knowledge')).toHaveTextContent('Not run yet');
-  expect(healthTile('Knowledge')).toHaveTextContent(
-    'Extraction starts automatically',
-  );
 
   rerenderWith({
     snapshot: {
@@ -529,7 +651,6 @@ it('shows extraction never-run and Dream Cycle disabled states independently', (
   expect(maintenanceCaption()).toHaveTextContent(
     'Extraction every 6h · ran 3 hours ago · Dream Cycle 1:00 – 5:00 · not run yet',
   );
-  expect(healthTile('Knowledge')).toHaveTextContent('OK');
 });
 
 it('renders populated summaries and bounded journal details', () => {
@@ -794,10 +915,6 @@ it('preserves independent partial-unavailable and corrupt section states', () =>
 
   expect(maintenanceCaption()).toHaveTextContent(
     'Knowledge extraction status could not be read safely. · Dream Cycle has not produced status yet.',
-  );
-  expect(healthTile('Knowledge')).toHaveTextContent('Needs attention');
-  expect(healthTile('Knowledge')).toHaveTextContent(
-    'Extraction status could not be read safely.',
   );
   const alert = screen.getByRole('alert');
   expect(alert).toHaveTextContent('Logs unavailable');
@@ -1183,4 +1300,32 @@ it('shows recent lines without reading the full log when it is not offered', asy
   expect(screen.getByText(/available only to the local owner/)).toBeVisible();
   expect(screen.queryByText('Monitor fixture ready')).toBeNull();
   expect(loadLogs).not.toHaveBeenCalled();
+});
+
+it('lists a red check it found in the background without a link away', () => {
+  renderMonitor({
+    attention: [
+      {
+        id: 'health:disk',
+        title: 'Disk needs attention',
+        detail: '1.2 GB free (97% used)',
+        place: 'health',
+      },
+      {
+        id: 'channel:telegram',
+        title: 'Telegram stopped',
+        detail: 'It is set to start with Row-Bot but isn’t running.',
+        place: 'channels',
+      },
+    ],
+  });
+  const list = screen
+    .getByRole('heading', { name: 'Needs attention' })
+    .closest('section')!;
+  const [disk, telegram] = within(list).getAllByRole('listitem');
+  expect(disk).toHaveTextContent('Disk needs attention 1.2 GB free (97% used)');
+  expect(within(disk).queryByRole('link')).toBeNull();
+  expect(
+    within(telegram).getByRole('link', { name: 'Open Channels' }),
+  ).toHaveAttribute('href', '/settings/channels');
 });

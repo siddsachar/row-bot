@@ -192,6 +192,11 @@ export default function Home() {
     (signal?: AbortSignal) => controller.monitorLogs(200, signal),
     [controller],
   );
+  // The last result of every Monitor check, kept by the server (B252).
+  const loadHealth = useCallback(
+    (signal?: AbortSignal) => controller.systemHealth(signal),
+    [controller],
+  );
   const refreshConversation = useCallback(
     (id: string, signal: AbortSignal) =>
       controller.refreshListedConversation(id, signal),
@@ -403,6 +408,7 @@ export default function Home() {
                 setup={setup}
                 monitor={monitor}
                 loadTasks={identity ? loadTasks : undefined}
+                loadHealth={identity ? loadHealth : undefined}
                 refreshKey={identity ?? ''}
                 onOpenConversation={openConversation}
                 onOpenWorkflows={(taskId) =>
@@ -492,7 +498,11 @@ export default function Home() {
                 loading={monitorLoading}
                 error={monitorError}
                 onRefresh={() => setMonitorReload((value) => value + 1)}
+                loadHealth={identity ? loadHealth : undefined}
                 onRunDiagnosis={() => controller.systemDiagnosis()}
+                onSetHourlyChecks={(enabled) =>
+                  controller.setHourlyConnectionChecks(enabled)
+                }
                 startupWarnings={startupWarnings}
                 attention={attention}
                 loadLogs={loadLogs}

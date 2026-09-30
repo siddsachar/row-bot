@@ -2068,16 +2068,28 @@ class MonitorLogs(WireModel):
 
 
 class SystemDiagnosisCheck(WireModel):
+    """One check's last result, kept by the server with its time (B252)."""
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9:-]{0,63}$")
     name: str = Field(max_length=128)
     status: Literal["ok", "warn", "error", "inactive"]
     detail: str = Field(max_length=512)
     checked_at: float
     settings_tab: str = Field(max_length=64)
+    # It contacts a provider, an account or the internet.
+    network: bool
+    # Older than its schedule allows ("checked yesterday · Check again").
+    stale: bool
 
 
 class SystemDiagnosis(WireModel):
     schema_version: Literal[1]
+    # "Check connections every hour".
+    hourly_network_checks: bool
     checks: list[SystemDiagnosisCheck] = Field(max_length=64)
+
+
+class SystemDiagnosisSettings(WireModel):
+    hourly_network_checks: bool
 
 
 class UpdateRelease(WireModel):
@@ -4059,7 +4071,8 @@ class AttentionProblem(WireModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(max_length=160)
     detail: str = Field(max_length=512)
-    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows"]
+    # "health": a Monitor check whose last result is an error (B252).
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health"]
 
 
 class AttentionUpdate(WireModel):

@@ -21,7 +21,8 @@
             "mcp",
             "access",
             "models",
-            "workflows"
+            "workflows",
+            "health"
           ],
           "title": "Place",
           "type": "string"

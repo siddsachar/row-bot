@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -855,17 +856,35 @@ def status_result_order_key(result: CheckResult) -> tuple[float, str]:
     return (_RESULT_ORDER.get(result.name, 3.0), result.name)
 
 
-def order_status_results(results: list[CheckResult]) -> list[CheckResult]:
-    return sorted(results, key=status_result_order_key)
+# Checks that contact a provider, an account or the internet (B252). They run
+# hourly only while Monitor's "Check connections every hour" is on, and when
+# the person runs diagnosis. Every other check reads local state only and runs
+# by itself every 15 minutes.
+NETWORK_CHECKS = (
+    check_ollama,
+    check_gmail_oauth,
+    check_calendar_oauth,
+    check_x_oauth,
+    check_github_oauth,
+    check_network,
+)
+LOCAL_CHECKS = tuple(fn for fn in ALL_CHECKS if fn not in NETWORK_CHECKS)
+# Local checks slow enough (the vault is read file by file) to wait for a
+# quiet moment when they run in the background.
+SLOW_CHECKS = (check_wiki_vault,)
 
 
-def _run_checks(checks: list[Callable[[], CheckResult | list[CheckResult]]], *, kind: str) -> list[CheckResult]:
-    results: list[CheckResult] = []
-    for fn in checks:
-        results.extend(_run_timed_check(fn, kind=kind))
-    return results
+def _check_id(fn: Callable[[], CheckResult | list[CheckResult]], result: CheckResult) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", result.name.lower()).strip("-")[:48] or "check"
+    return f"channel:{slug}" if fn is check_channels else slug
 
 
-def run_all_checks() -> list[CheckResult]:
-    """Run every registered check and return results."""
-    return _run_checks(ALL_CHECKS, kind="full")
+def run_checks(
+    checks: tuple[Callable[[], CheckResult | list[CheckResult]], ...],
+) -> list[tuple[str, CheckResult]]:
+    """Run *checks* in order; each result with the id it is kept under."""
+    return [
+        (_check_id(fn, result), result)
+        for fn in checks
+        for result in _run_timed_check(fn, kind="full")
+    ]

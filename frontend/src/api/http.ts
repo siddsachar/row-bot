@@ -210,6 +210,17 @@ export class HttpTransport implements ClientTransport {
   systemDiagnosis(signal?: AbortSignal) {
     return wire.runSystemDiagnosis(this.base, this.session(), signal);
   }
+  systemHealth(signal?: AbortSignal) {
+    return wire.getSystemDiagnosis(this.base, this.session(), signal);
+  }
+  setHourlyConnectionChecks(enabled: boolean, signal?: AbortSignal) {
+    return wire.saveSystemDiagnosisSettings(
+      this.base,
+      this.session(),
+      { hourly_network_checks: enabled },
+      signal,
+    );
+  }
   updates(signal?: AbortSignal) {
     return wire.getUpdates(this.base, this.session(), signal);
   }

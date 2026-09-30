@@ -80,34 +80,83 @@ def test_monitor_api_separates_remote_log_authority(tmp_path, monkeypatch):
 
 
 def test_system_diagnosis_requires_local_explicit_request(tmp_path, monkeypatch):
+    """Reading the kept results runs nothing, on any device; running every
+    check (it contacts providers and the internet) is the local owner's."""
     _monitor_store(tmp_path, monkeypatch)
-    from row_bot.application import client_diagnosis
+    from row_bot import status_checks
     from row_bot.status_checks import CheckResult
 
     calls = []
 
-    def fake_checks():
-        calls.append("check")
-        return [CheckResult("Ollama", "warn", "Server offline", checked_at=1.0, settings_tab="Models")]
+    def fake_ollama():
+        calls.append("ollama")
+        return CheckResult("Ollama", "warn", "Server offline", checked_at=1.0, settings_tab="Models")
 
-    monkeypatch.setattr(client_diagnosis, "run_all_checks", fake_checks)
+    def fake_disk():
+        calls.append("disk")
+        return CheckResult("Disk", "ok", "40.0 GB free", checked_at=1.0, settings_tab="System")
+
+    monkeypatch.setattr(status_checks, "NETWORK_CHECKS", (fake_ollama,))
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (fake_disk,))
     local, _, _ = client_app()
     remote, _, _ = client_app(remote=True)
     with local, remote:
         _, local_headers = bootstrap(local)
         _, remote_headers = bootstrap(remote)
-        assert calls == []
-        assert local.get("/api/v1/monitor/diagnosis", headers=local_headers).status_code == 405
+        empty = {"schema_version": 1, "hourly_network_checks": True, "checks": []}
+        assert local.get("/api/v1/monitor/diagnosis", headers=local_headers).json() == empty
         assert calls == []
         assert remote.post("/api/v1/monitor/diagnosis", headers=remote_headers).status_code == 403
         assert calls == []
         result = local.post("/api/v1/monitor/diagnosis", headers=local_headers)
-    assert result.status_code == 200, result.text
-    assert result.json() == {"schema_version": 1, "checks": [{
-        "name": "Ollama", "status": "warn", "detail": "Server offline",
-        "checked_at": 1.0, "settings_tab": "Models",
-    }]}
-    assert calls == ["check"]
+        assert result.status_code == 200, result.text
+        kept = remote.get("/api/v1/monitor/diagnosis", headers=remote_headers)
+    assert result.json() == {"schema_version": 1, "hourly_network_checks": True, "checks": [
+        {"id": "ollama", "name": "Ollama", "status": "warn", "detail": "Server offline",
+         "checked_at": 1.0, "settings_tab": "Models", "network": True, "stale": True},
+        {"id": "disk", "name": "Disk", "status": "ok", "detail": "40.0 GB free",
+         "checked_at": 1.0, "settings_tab": "System", "network": False, "stale": True},
+    ]}
+    assert sorted(calls) == ["disk", "ollama"]
+    assert kept.status_code == 200 and kept.json() == result.json()
+
+
+def test_the_hourly_connection_switch_is_saved_and_read_back(tmp_path, monkeypatch):
+    _monitor_store(tmp_path, monkeypatch)
+    client, _, _ = client_app()
+    with client:
+        _, headers = bootstrap(client)
+        saved = client.post("/api/v1/monitor/diagnosis/settings", headers=headers,
+                            json={"hourly_network_checks": False})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["hourly_network_checks"] is False
+        read = client.get("/api/v1/monitor/diagnosis", headers=headers).json()
+        assert read["hourly_network_checks"] is False
+        invalid = client.post("/api/v1/monitor/diagnosis/settings", headers=headers,
+                              json={"hourly_network_checks": "no"})
+    assert invalid.status_code == 422
+
+
+def test_a_red_check_raises_the_attention_indicator_once(tmp_path, monkeypatch):
+    """A kept check whose last result is an error needs the person (B252);
+    the tunnel, channels, MCP and plugins keep their own finer readers."""
+    from row_bot import status_checks
+    from row_bot.application import client_diagnosis
+    from row_bot.status_checks import CheckResult
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    for name in ("_channel_problems", "_tunnel_problems", "_plugin_problems", "_mcp_problems"):
+        monkeypatch.setattr(client_monitor, name, lambda: [])
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (
+        lambda: CheckResult("Disk", "error", "1.2 GB free (97% used)", settings_tab="System"),
+        lambda: CheckResult("Tunnel", "error", "Not running: agent failed", settings_tab="Access"),
+        lambda: CheckResult("Documents", "warn", "rebuild recommended", settings_tab="Documents"),
+    ))
+    client_diagnosis.run_local_checks()
+    assert client_monitor.read_attention(include_update=False)["problems"] == [{
+        "id": "health:disk", "title": "Disk needs attention",
+        "detail": "1.2 GB free (97% used)", "place": "health",
+    }]
 
 
 def test_dream_run_requires_current_review_and_is_idempotent(tmp_path, monkeypatch):

@@ -109,6 +109,8 @@ const mock = vi.hoisted(() => ({
     executeDreamRun: vi.fn(),
     monitorLogs: vi.fn(),
     systemDiagnosis: vi.fn(),
+    systemHealth: vi.fn(),
+    setHourlyConnectionChecks: vi.fn(),
   },
 }));
 
@@ -183,6 +185,11 @@ beforeEach(() => {
   });
   mock.controller.savedTasks.mockResolvedValue(taskPage());
   mock.controller.monitorLogs.mockResolvedValue(monitorSnapshot.logs);
+  mock.controller.systemHealth.mockResolvedValue({
+    schema_version: 1,
+    hourly_network_checks: true,
+    checks: [],
+  });
   mock.state.status = 'ready';
   mock.state.handshake = {
     instance_id: 'server-a',
@@ -427,6 +434,8 @@ it('keeps Knowledge and Monitor as passive, truthful boundaries', async () => {
   await waitFor(() =>
     expect(mock.controller.monitorSnapshot).toHaveBeenCalled(),
   );
+  // Monitor reads the checks the server keeps; it never runs them itself.
+  await waitFor(() => expect(mock.controller.systemHealth).toHaveBeenCalled());
   expect(mock.controller.reviewDreamRun).not.toHaveBeenCalled();
   expect(mock.controller.executeDreamRun).not.toHaveBeenCalled();
   expect(mock.controller.systemDiagnosis).not.toHaveBeenCalled();

@@ -301,7 +301,8 @@ def read_monitor_snapshot(*, include_logs: bool) -> dict[str, Any]:
 # ── Attention (NiceGUI parity rows 12 and 13) ──────────────────────────────
 # One sidebar indicator: problems that need the person (it opens Monitor) and
 # an update (it opens Updates). Quiet when everything is healthy. Reads are
-# passive: Python state only, no probes, nothing started.
+# passive: Python state and Monitor's kept check results only, no probes,
+# nothing started.
 
 _MAX_PROBLEMS = 20
 _MODULE = __import__("sys").modules
@@ -418,11 +419,18 @@ def _available_update() -> Any:
         return None
 
 
+def _health_problems() -> list[dict[str, str]]:
+    """Monitor checks whose kept result is an error (B252): a file read."""
+    from row_bot.application.client_diagnosis import attention_problems
+
+    return attention_problems()
+
+
 def read_attention(*, include_update: bool) -> dict[str, Any]:
     """What needs the person now, for the sidebar's one indicator."""
     problems: list[dict[str, str]] = []
     for reader in (_channel_problems, _tunnel_problems, _plugin_problems,
-                   _mcp_problems):
+                   _mcp_problems, _health_problems):
         try:
             problems.extend(reader())
         except Exception:

@@ -2,6 +2,7 @@
   "$defs": {
     "SystemDiagnosisCheck": {
       "additionalProperties": false,
+      "description": "One check's last result, kept by the server with its time (B252).",
       "properties": {
         "checked_at": {
           "title": "Checked At",
@@ -12,15 +13,28 @@
           "title": "Detail",
           "type": "string"
         },
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9:-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
         "name": {
           "maxLength": 128,
           "title": "Name",
           "type": "string"
         },
+        "network": {
+          "title": "Network",
+          "type": "boolean"
+        },
         "settings_tab": {
           "maxLength": 64,
           "title": "Settings Tab",
           "type": "string"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
         },
         "status": {
           "enum": [
@@ -34,11 +48,14 @@
         }
       },
       "required": [
+        "id",
         "name",
         "status",
         "detail",
         "checked_at",
-        "settings_tab"
+        "settings_tab",
+        "network",
+        "stale"
       ],
       "title": "SystemDiagnosisCheck",
       "type": "object"
@@ -54,6 +71,10 @@
       "title": "Checks",
       "type": "array"
     },
+    "hourly_network_checks": {
+      "title": "Hourly Network Checks",
+      "type": "boolean"
+    },
     "schema_version": {
       "const": 1,
       "title": "Schema Version",
@@ -62,6 +83,7 @@
   },
   "required": [
     "schema_version",
+    "hourly_network_checks",
     "checks"
   ],
   "title": "SystemDiagnosis",

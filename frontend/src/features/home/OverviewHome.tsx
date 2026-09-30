@@ -17,6 +17,7 @@ import type {
   ConversationView,
   MonitorSnapshot,
   OnboardingSnapshot,
+  SystemDiagnosis,
   TaskSummary,
   TaskSummaryPage,
 } from '../../api/types';
@@ -45,6 +46,8 @@ export type OverviewHomeProps = {
   monitor: MonitorSnapshot | null;
   /** Absent until the workspace is connected. */
   loadTasks?: (signal: AbortSignal) => Promise<TaskSummaryPage>;
+  /** Monitor's kept check results (B252); a red one needs you. */
+  loadHealth?: (signal: AbortSignal) => Promise<SystemDiagnosis>;
   onOpenConversation: (id: string) => void;
   /** Workflows tab, optionally with one workflow's runs open. */
   onOpenWorkflows: (taskId?: string) => void;
@@ -159,6 +162,7 @@ export default function OverviewHome({
   setup,
   monitor,
   loadTasks,
+  loadHealth,
   onOpenConversation,
   onOpenWorkflows,
   onOpenTab,
@@ -172,8 +176,21 @@ export default function OverviewHome({
 }: OverviewHomeProps) {
   const [tasks, setTasks] = useState<readonly TaskSummary[] | null>(null);
   const [tasksError, setTasksError] = useState('');
+  const [health, setHealth] = useState<SystemDiagnosis | null>(null);
   const [clock, setClock] = useState(() => new Date());
   const now = suppliedNow ?? clock;
+
+  useEffect(() => {
+    if (!loadHealth) return;
+    const abort = new AbortController();
+    loadHealth(abort.signal).then(
+      (value) => {
+        if (!abort.signal.aborted) setHealth(value);
+      },
+      () => undefined,
+    );
+    return () => abort.abort();
+  }, [loadHealth, refreshKey]);
 
   useEffect(() => {
     if (!loadTasks) return;
@@ -337,6 +354,24 @@ export default function OverviewHome({
       label: `Open failed workflow: ${task.name}`,
       onOpen: () => onOpenWorkflows(task.id),
     })),
+    // A Monitor check that turned red, checked in the background (B252).
+    ...(health?.checks ?? [])
+      .filter((check) => check.status === 'error')
+      .map<Item>((check) => ({
+        key: `health:${check.id}`,
+        icon: <AlertTriangle size={16} />,
+        tone: 'danger',
+        title: `${check.name} needs attention`,
+        meta: check.detail,
+        time: (
+          <When
+            value={new Date(check.checked_at * 1000).toISOString()}
+            now={now}
+          />
+        ),
+        label: `Open Monitor: ${check.name} needs attention`,
+        onOpen: () => onOpenTab('monitor'),
+      })),
   ];
 
   const runningItems: Item[] = [
