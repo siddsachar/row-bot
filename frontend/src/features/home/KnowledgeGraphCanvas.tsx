@@ -6,8 +6,14 @@ import {
   useRef,
   useState,
 } from 'react';
+import type Graph from 'graphology';
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from './KnowledgeHome';
 import { plural } from './home-format';
+import type {
+  LayoutReply,
+  LayoutRequest,
+  LayoutSettings,
+} from './knowledge-layout';
 import {
   alpha,
   glAlpha,
@@ -25,6 +31,17 @@ export type KnowledgeGraphHandle = {
 };
 
 type GraphStatus = 'loading' | 'ready' | 'failed';
+type LayoutState = 'settling' | 'settled';
+type LayoutHelpers = typeof import('graphology-layout-forceatlas2/helpers.js');
+
+/** How long the graph visibly settles when motion is allowed. */
+const SETTLE_MS = 2500;
+
+/**
+ * Where each memory came to rest this session: coming back to Knowledge
+ * shows the same picture at once instead of settling it again.
+ */
+const restingPlaces = new Map<string, { x: number; y: number }>();
 
 type SigmaLike = {
   kill(): void;
@@ -77,6 +94,86 @@ export function nodeSize(node: KnowledgeGraphNode) {
   return Math.min(16, node.is_user ? Math.max(size, 11) : size);
 }
 
+/**
+ * Runs ForceAtlas2 in a worker (B250). When animating, each batch is placed
+ * on the canvas as it arrives and the batches are paced to finish in about
+ * SETTLE_MS; otherwise the whole layout is placed once. `onDone` says
+ * whether the layout ran. Returns a stop that leaves the graph where it is.
+ */
+function runLayout(
+  graph: Graph,
+  helpers: LayoutHelpers,
+  animate: boolean,
+  onDone: (laidOut: boolean) => void,
+): () => void {
+  const matrices = helpers.graphToByteArrays(graph, () => 1);
+  const total = graph.order > 400 ? 140 : 220;
+  const settings: LayoutSettings = {
+    linLogMode: false,
+    outboundAttractionDistribution: false,
+    adjustSizes: false,
+    edgeWeightInfluence: 1,
+    barnesHutTheta: 0.5,
+    gravity: 1.2,
+    strongGravityMode: true,
+    scalingRatio: 6,
+    slowDown: 3,
+    barnesHutOptimize: graph.order > 200,
+  };
+  const worker = new Worker(
+    new URL('./knowledge-layout.worker.ts', import.meta.url),
+    { type: 'module' },
+  );
+  const started = performance.now();
+  let done = 0;
+  let requests = 0;
+  let frame = 0;
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+    cancelAnimationFrame(frame);
+    worker.terminate();
+  };
+  const request = (nodes: ArrayBuffer) => {
+    const remaining = total - done;
+    let iterations = remaining;
+    if (animate) {
+      // What is left, spread over the frames left at the pace seen so far.
+      const elapsed = performance.now() - started;
+      const pace = requests ? elapsed / requests : 1000 / 60;
+      const frames = Math.max(1, (SETTLE_MS - elapsed) / pace);
+      iterations = Math.ceil(remaining / frames);
+    }
+    const message: LayoutRequest = { nodes, settings, iterations };
+    if (requests === 0) message.edges = matrices.edges.buffer;
+    worker.postMessage(
+      message,
+      message.edges ? [nodes, message.edges] : [nodes],
+    );
+    requests += 1;
+  };
+  worker.onmessage = ({ data }: MessageEvent<LayoutReply>) => {
+    if (stopped) return;
+    done += data.iterations;
+    const settled = data.converged || done >= total;
+    if (animate || settled)
+      helpers.assignLayoutChanges(graph, new Float32Array(data.nodes), null);
+    if (!settled) {
+      frame = requestAnimationFrame(() => request(data.nodes));
+      return;
+    }
+    stop();
+    onDone(true);
+  };
+  // A worker that cannot run leaves the memories where they started.
+  worker.onerror = () => {
+    stop();
+    onDone(false);
+  };
+  request(matrices.nodes.buffer);
+  return stop;
+}
+
 function roundRect(
   context: CanvasRenderingContext2D,
   x: number,
@@ -119,6 +216,9 @@ const KnowledgeGraphCanvas = forwardRef<
   const selectCallback = useRef(onSelect);
   const statusCallback = useRef(onStatus);
   const [status, setStatus] = useState<GraphStatus>('loading');
+  const [layout, setLayout] = useState<LayoutState>('settling');
+  /** Stops a settling layout where it is; set only while one runs. */
+  const interruptLayout = useRef<(() => void) | null>(null);
   visibleRef.current = visible;
   selectedRef.current = selectedId;
   selectCallback.current = onSelect;
@@ -132,14 +232,17 @@ const KnowledgeGraphCanvas = forwardRef<
       void camera.animate(state, { duration: 420, easing: 'quadraticInOut' });
   };
 
+  // Navigating stops a settling layout, so the view holds still under it.
   useImperativeHandle(forwardedRef, () => ({
     fit: () => {
+      interruptLayout.current?.();
       const camera = sigma.current?.getCamera();
       if (!camera) return;
       if (reducedMotion()) camera.setState({ x: 0.5, y: 0.5, ratio: 1 });
       else void camera.animatedReset({ duration: 320 });
     },
     zoom: (delta) => {
+      interruptLayout.current?.();
       const camera = sigma.current?.getCamera();
       if (!camera) return;
       const { ratio } = camera.getState();
@@ -148,6 +251,7 @@ const KnowledgeGraphCanvas = forwardRef<
       });
     },
     focus: (id) => {
+      interruptLayout.current?.();
       const data = sigma.current?.getNodeDisplayData(id);
       if (!data) return;
       const { ratio } = sigma.current!.getCamera().getState();
@@ -160,6 +264,7 @@ const KnowledgeGraphCanvas = forwardRef<
     let instance: SigmaLike | null = null;
     let observer: ResizeObserver | undefined;
     let themeObserver: MutationObserver | undefined;
+    let stopLayout: (() => void) | undefined;
     const element = root.current;
     const report = (next: GraphStatus) => {
       if (!active) return;
@@ -167,6 +272,7 @@ const KnowledgeGraphCanvas = forwardRef<
       statusCallback.current?.(next);
     };
     report('loading');
+    setLayout('settling');
     if (!element || !webglAvailable()) {
       report('failed');
       return () => {
@@ -176,21 +282,21 @@ const KnowledgeGraphCanvas = forwardRef<
     void Promise.all([
       import('graphology'),
       import('sigma'),
-      import('graphology-layout-forceatlas2'),
+      import('graphology-layout-forceatlas2/helpers.js'),
     ])
-      .then(([graphology, sigmaModule, layout]) => {
+      .then(async ([graphology, sigmaModule, helpers]) => {
         if (!active) return;
         const Graph = graphology.default;
         const Sigma = sigmaModule.default;
-        const forceAtlas2 = layout.default;
         const graph = new Graph({ multi: true, allowSelfLoops: false });
         for (const node of nodes) {
           const value = seed(node.id);
           const angle = ((value % 3600) / 3600) * Math.PI * 2;
           const radius = Math.sqrt(((value >>> 12) % 1000) / 1000) * 100;
+          const rested = restingPlaces.get(node.id);
           graph.addNode(node.id, {
-            x: Math.cos(angle) * radius,
-            y: Math.sin(angle) * radius,
+            x: rested?.x ?? Math.cos(angle) * radius,
+            y: rested?.y ?? Math.sin(angle) * radius,
             size: nodeSize(node),
             label: node.subject,
             slot: typeSlot(node.entity_type),
@@ -216,19 +322,26 @@ const KnowledgeGraphCanvas = forwardRef<
           link(edge.target_id, edge.source_id);
         }
         neighbours.current = links;
-        if (graph.order > 1) {
-          const settings = forceAtlas2.inferSettings(graph);
-          forceAtlas2.assign(graph, {
-            iterations: graph.order > 400 ? 140 : 220,
-            settings: {
-              ...settings,
-              gravity: 1.2,
-              strongGravityMode: true,
-              scalingRatio: 6,
-              slowDown: 3,
-              barnesHutOptimize: graph.order > 200,
-            },
+        const rest = (laidOut = true) => {
+          interruptLayout.current = null;
+          if (laidOut)
+            graph.forEachNode((key, { x, y }) =>
+              restingPlaces.set(key, { x, y }),
+            );
+          if (active) setLayout('settled');
+        };
+        // The seeded start is drawn at once and settles in view; with
+        // reduced motion the layout is placed before the first frame.
+        const settling =
+          graph.order > 1 && nodes.some((node) => !restingPlaces.has(node.id));
+        const animate = settling && !reducedMotion();
+        if (!settling) setLayout('settled');
+        else if (!animate) {
+          const laidOut = await new Promise<boolean>((resolve) => {
+            stopLayout = runLayout(graph, helpers, false, resolve);
           });
+          if (!active) return;
+          rest(laidOut);
         }
         themeRef.current = readGraphTheme();
         const theme = () => themeRef.current ?? readGraphTheme();
@@ -356,6 +469,14 @@ const KnowledgeGraphCanvas = forwardRef<
           element.style.cursor = '';
           instance?.refresh();
         });
+        // A press (drag, click, pinch) or the wheel stops the settling.
+        for (const event of [
+          'downNode',
+          'downStage',
+          'wheelNode',
+          'wheelStage',
+        ])
+          instance.on(event, () => interruptLayout.current?.());
         let size = { width: element.clientWidth, height: element.clientHeight };
         observer =
           typeof ResizeObserver === 'undefined'
@@ -384,10 +505,20 @@ const KnowledgeGraphCanvas = forwardRef<
           attributeFilter: ['data-theme', 'data-accent', 'style'],
         });
         report('ready');
+        if (animate) {
+          stopLayout = runLayout(graph, helpers, true, rest);
+          interruptLayout.current = () => {
+            stopLayout?.();
+            rest();
+          };
+        }
       })
       .catch(() => report('failed'));
     return () => {
       active = false;
+      // Leaving mid-settle keeps nothing: next time it settles again.
+      stopLayout?.();
+      interruptLayout.current = null;
       observer?.disconnect();
       themeObserver?.disconnect();
       instance?.kill();
@@ -410,7 +541,11 @@ const KnowledgeGraphCanvas = forwardRef<
   );
 
   return (
-    <div className="knowledge-network-shell" data-renderer-status={status}>
+    <div
+      className="knowledge-network-shell"
+      data-renderer-status={status}
+      data-layout={layout}
+    >
       <div
         ref={root}
         className="knowledge-network-canvas"

@@ -448,7 +448,7 @@ it('reuses monitor, knowledge, and workflow reads across tab switches for 20 sec
     expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(1),
   );
   expect(mock.controller.knowledgeGraph).toHaveBeenCalledWith(
-    250,
+    2000,
     expect.any(AbortSignal),
   );
   await screen.findByRole('button', { name: 'Run Dream Cycle' });
@@ -525,8 +525,9 @@ it('reads a bounded knowledge graph and raises the limit only when Show all is c
   show('/?tab=knowledge');
   const stats = await screen.findByLabelText('Knowledge statistics');
   expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(1);
+  // Up to 2,000 memories open at once; Show all asks for up to 5,000 (B251).
   expect(mock.controller.knowledgeGraph).toHaveBeenLastCalledWith(
-    250,
+    2000,
     expect.any(AbortSignal),
   );
   fireEvent.click(
@@ -536,7 +537,7 @@ it('reads a bounded knowledge graph and raises the limit only when Show all is c
     expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
   );
   expect(mock.controller.knowledgeGraph).toHaveBeenLastCalledWith(
-    1000,
+    5000,
     expect.any(AbortSignal),
   );
   await waitFor(() =>

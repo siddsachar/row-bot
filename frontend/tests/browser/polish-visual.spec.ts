@@ -66,6 +66,10 @@ test('conversation and Home keep their primary actions readable at every target 
         await page.locator('.home-view').evaluate((element) => {
           element.scrollTop = 0;
         });
+        // A knowledge graph is pictured once its layout has settled.
+        await expect(
+          page.locator('.knowledge-network-shell[data-layout="settling"]'),
+        ).toHaveCount(0);
         await assertNoOverflow(page);
         await screenshot(
           page,

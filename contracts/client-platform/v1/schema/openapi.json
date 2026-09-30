@@ -10700,7 +10700,7 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "maximum": 250,
+              "maximum": 5000,
               "minimum": 1,
               "type": "integer"
             }

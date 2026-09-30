@@ -29,8 +29,10 @@ import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
 /** Snapshots read in the last few seconds are reused when switching tabs. */
 const REUSE_MS = 20_000;
-const GRAPH_DEFAULT_LIMIT = 250;
-const GRAPH_ALL_LIMIT = 1000;
+// The knowledge graph opens with every memory up to 2,000 (a phone draws that
+// in well under a second) and "Show all" reads up to the server's 5,000 (B251).
+const GRAPH_DEFAULT_LIMIT = 2000;
+const GRAPH_ALL_LIMIT = 5000;
 
 export default function Home() {
   const state = useClientState();
@@ -408,6 +410,22 @@ export default function Home() {
                 }
                 onOpenTab={(next) => chooseTab(next)}
                 refreshConversation={refreshConversation}
+                onResumeAgentWork={async (row) => {
+                  await controller.intent(
+                    row.id,
+                    'agent.resume',
+                    {},
+                    row.revision,
+                  );
+                }}
+                onDismissAgentWork={async (row) => {
+                  await controller.intent(
+                    row.id,
+                    'agent.dismiss',
+                    {},
+                    row.revision,
+                  );
+                }}
                 onHideSetup={() => void dismissSetupReminder()}
                 setupError={setupDismissError}
               />

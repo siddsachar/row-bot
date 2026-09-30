@@ -23,6 +23,16 @@ for (const entry of Object.values(build)) {
   for (const file of [...(entry.css ?? []), ...(entry.assets ?? [])])
     paths.add(file);
 }
+// Vite emits worker bundles without manifest entries: add the workers the
+// built scripts start with new Worker(new URL(".../assets/<name>.js", ...)).
+const workerStart =
+  /new (?:Shared)?Worker\(new URL\(["'][^"']*\/assets\/([A-Za-z0-9_.-]+\.js)["']/g;
+for (const path of [...paths])
+  if (/^assets\/[A-Za-z0-9_.-]+\.js$/.test(path))
+    for (const [, name] of (
+      await readFile(resolve(root, path), 'utf8')
+    ).matchAll(workerStart))
+      paths.add(`assets/${name}`);
 const files = {};
 for (const path of [...paths].sort()) {
   if (

@@ -1575,7 +1575,7 @@ def outputs() -> dict[Path, str]:
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
         elif suffix == "/knowledge/graph":
-            query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 250})]
+            query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 5000})]
         elif suffix == "/monitor/logs":
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 200})]
         elif "/content/" in suffix:

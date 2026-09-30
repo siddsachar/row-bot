@@ -229,10 +229,10 @@ _STAGES = {
 _SQLITE_VALUE_LIMIT = 16 * 1024 * 1024
 _SQLITE_STEP_LIMIT = 10_000_000
 _QUERY_SECONDS = 2.0
-# The graph opens on the 250 best-connected memories; "Show all" asks for up to
-# this many, with at most _GRAPH_EDGE_LIMIT links between them.
-_GRAPH_NODE_LIMIT = 1000
-_GRAPH_EDGE_LIMIT = 4000
+# The graph opens on up to 2,000 best-connected memories; "Show all" asks for up
+# to this many, with at most _GRAPH_EDGE_LIMIT links between them (B251).
+_GRAPH_NODE_LIMIT = 5000
+_GRAPH_EDGE_LIMIT = 15000
 _LEGACY_MARKER_BYTES = 1024 * 1024
 _LEGACY_MARKER_ITEMS = 4096
 _AUDIT_FILE_BYTES = 512 * 1024
@@ -1441,11 +1441,13 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
             edges: list[KnowledgeGraphEdge] = []
             if node_ids:
                 placeholders = ",".join("?" for _ in node_ids)
+                # "+target_id" keeps SQLite from probing its index once per
+                # (source, target) pair, which squares with thousands of memories.
                 edge_rows = conn.execute(
                     f"""SELECT substr(id,1,129) id,substr(source_id,1,129) source_id,
                       substr(target_id,1,129) target_id,substr(relation_type,1,65) relation_type,
                       substr(updated_at,1,129) updated_at FROM relations
-                      WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
+                      WHERE source_id IN ({placeholders}) AND +target_id IN ({placeholders})
                       ORDER BY updated_at DESC,id LIMIT ?""",
                     (*node_ids, *node_ids, _GRAPH_EDGE_LIMIT + 1),
                 ).fetchall()

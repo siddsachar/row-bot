@@ -1945,12 +1945,12 @@ class KnowledgeGraphSnapshot(WireModel):
     schema_version: Literal[1]
     availability: Literal["available", "missing", "unavailable", "corrupt"]
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    nodes: list[KnowledgeGraphNode] = Field(max_length=1000)
-    edges: list[KnowledgeGraphEdge] = Field(max_length=4000)
+    nodes: list[KnowledgeGraphNode] = Field(max_length=5000)
+    edges: list[KnowledgeGraphEdge] = Field(max_length=15000)
     total_entities: int = Field(ge=0, le=9007199254740991)
     total_relations: int = Field(ge=0, le=9007199254740991)
-    shown_entities: int = Field(ge=0, le=1000)
-    shown_relations: int = Field(ge=0, le=4000)
+    shown_entities: int = Field(ge=0, le=5000)
+    shown_relations: int = Field(ge=0, le=15000)
     truncated: bool
     center_id: OpaqueId | None
     entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(

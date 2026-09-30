@@ -26,6 +26,8 @@ const ownedNames = [
   'icon-512.png',
   'private.txt',
 ];
+// Vite emits worker bundles without a manifest entry of their own.
+const worker = 'assets/layout.worker-abcdefgh.js';
 let scratch: string;
 let build: string;
 let stage: string;
@@ -68,7 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   // Remove only known fixture files/directories; never recursively delete output.
   for (const root of [stage, build]) {
-    for (const name of ownedNames) {
+    for (const name of [...ownedNames, worker]) {
       const path = join(root, name);
       if (existsSync(path)) unlinkSync(path);
     }
@@ -98,6 +100,31 @@ it('stages exactly the inventoried assets and both private manifests', () => {
     );
   }
   expect(existsSync(join(stage, 'private.txt'))).toBe(false);
+});
+
+it('inventories and stages the workers the built scripts start', () => {
+  writeFileSync(
+    join(build, 'assets/index-abcdefgh.js'),
+    'const w=new Worker(new URL("/app-v2/assets/layout.worker-abcdefgh.js",import.meta.url),{type:"module"});',
+  );
+  writeFileSync(join(build, worker), 'self.onmessage=()=>{};');
+  expect(packageFixture().status).toBe(0);
+  const inventory = JSON.parse(
+    readFileSync(join(build, 'asset-manifest.json'), 'utf8'),
+  ) as { files: Record<string, { size: number }> };
+  expect(inventory.files[worker].size).toBe(22);
+  expect(readFileSync(join(stage, worker), 'utf8')).toBe(
+    'self.onmessage=()=>{};',
+  );
+});
+
+it('fails a build whose script starts a worker that is missing', () => {
+  writeFileSync(
+    join(build, 'assets/index-abcdefgh.js'),
+    'const w=new Worker(new URL("/app-v2/assets/layout.worker-abcdefgh.js",import.meta.url),{type:"module"});',
+  );
+  expect(packageFixture().status).toBe(1);
+  expect(existsSync(stage)).toBe(false);
 });
 
 it('refuses a build without the desktop Buddy document', () => {

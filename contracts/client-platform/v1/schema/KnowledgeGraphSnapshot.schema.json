@@ -152,7 +152,7 @@
       "items": {
         "$ref": "#/$defs/KnowledgeGraphEdge"
       },
-      "maxItems": 4000,
+      "maxItems": 15000,
       "title": "Edges",
       "type": "array"
     },
@@ -169,7 +169,7 @@
       "items": {
         "$ref": "#/$defs/KnowledgeGraphNode"
       },
-      "maxItems": 1000,
+      "maxItems": 5000,
       "title": "Nodes",
       "type": "array"
     },
@@ -184,13 +184,13 @@
       "type": "integer"
     },
     "shown_entities": {
-      "maximum": 1000,
+      "maximum": 5000,
       "minimum": 0,
       "title": "Shown Entities",
       "type": "integer"
     },
     "shown_relations": {
-      "maximum": 4000,
+      "maximum": 15000,
       "minimum": 0,
       "title": "Shown Relations",
       "type": "integer"

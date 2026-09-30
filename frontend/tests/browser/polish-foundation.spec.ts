@@ -463,3 +463,51 @@ test('sheet close action and command search stay reachable with long content', a
     page.getByRole('button', { name: 'Open sheet', exact: true }),
   ).toBeFocused();
 });
+
+test('the knowledge graph settles in a same-origin worker and comes back settled (B250)', async ({
+  page,
+}, info) => {
+  const headers = {
+    'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
+    Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
+  };
+  const seed = (state: 'populated' | 'empty') =>
+    page.request.post(`/__p4_fixture/knowledge/${state}`, { headers });
+  expect((await seed('populated')).ok()).toBe(true);
+  try {
+    const workers: string[] = [];
+    const refused: string[] = [];
+    page.on('worker', (worker) => workers.push(worker.url()));
+    page.on('console', (message) => {
+      if (/Content Security Policy/i.test(message.text()))
+        refused.push(message.text());
+    });
+    await page.goto('/app-v2/?tab=knowledge');
+    const graph = page.locator('.knowledge-network-shell');
+    await expect(graph).toHaveAttribute(
+      'data-renderer-status',
+      /^(ready|failed)$/,
+    );
+    test.skip(
+      (await graph.getAttribute('data-renderer-status')) === 'failed',
+      'No WebGL in this browser: Knowledge lists the memories instead.',
+    );
+    // Drawn at once, then laid out by a worker this origin serves.
+    await expect.poll(() => workers.length).toBe(1);
+    expect(new URL(workers[0]).origin).toBe(new URL(page.url()).origin);
+    await expect(graph).toHaveAttribute('data-layout', 'settled', {
+      timeout: 15_000,
+    });
+    expect(refused).toEqual([]);
+    await screenshot(page, info, 'knowledge-graph-settled');
+
+    // Coming back to the tab shows the settled picture without a new layout.
+    await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+    await expect(graph).toHaveAttribute('data-renderer-status', 'ready');
+    await expect(graph).toHaveAttribute('data-layout', 'settled');
+    expect(workers).toHaveLength(1);
+  } finally {
+    await seed('empty');
+  }
+});

@@ -121,28 +121,51 @@ def test_graph_projection_caps_nodes_and_marks_truncation(saved):
     assert graph.total_entities == 205
     assert graph.truncated is True
 
-    # "Show all" asks for up to 1,000 memories; more is refused.
-    everything = views.read_knowledge_graph(limit=1000)
+    # "Show all" asks for up to 5,000 memories; more is refused.
+    everything = views.read_knowledge_graph(limit=5000)
     assert len(everything.nodes) == 205 and everything.truncated is False
     with pytest.raises(views.KnowledgeViewError, match="invalid_knowledge_query"):
-        views.read_knowledge_graph(limit=1001)
+        views.read_knowledge_graph(limit=5001)
 
 
-def test_show_all_graph_passes_the_wire_contract_beyond_the_default_page(saved):
+@pytest.mark.slow
+def test_show_all_reads_thousands_of_linked_memories_within_the_wire_contract(
+    tmp_path, monkeypatch
+):
     from row_bot.api.v1 import schemas as dto
 
-    with sqlite3.connect(saved.DB_PATH) as conn:
+    kg = fresh_knowledge_graph(tmp_path, monkeypatch)
+    with sqlite3.connect(kg.DB_PATH) as conn:
         conn.executemany(
             "INSERT INTO entities VALUES(?,?,?,?,?,?,?,?,?,?)",
             [
-                (f"extra-{i:04}", "concept", f"Extra {i}", "Synthetic", "", "", "{}",
-                 "extraction", "created", "updated")
-                for i in range(120)
+                (f"m-{i:04}", "fact", f"Memory {i}", "Synthetic", "", "", "{}",
+                 "manual", "created", "updated")
+                for i in range(5001)
             ],
         )
-    graph = views.read_knowledge_graph(limit=1000)
-    assert graph.shown_entities == 325 and graph.truncated is False
-    # The same projection the route returns: over 250 memories must validate.
+        # Three links from each of the first 5,000 memories, one more on the
+        # first: 15,001 links among the shown memories; the last has none.
+        links = [(i, (i + step) % 5000) for i in range(5000) for step in (1, 2, 3)]
+        conn.executemany(
+            "INSERT INTO relations VALUES(?,?,?,?,?,?,?,?,?)",
+            [
+                (f"r-{n:05}", f"m-{a:04}", f"m-{b:04}", "related_to", 0.9, "{}",
+                 "manual", "created", "updated")
+                for n, (a, b) in enumerate([*links, (0, 4)])
+            ],
+        )
+
+    graph = views.read_knowledge_graph(limit=5000)
+
+    assert graph.availability == "available"
+    assert graph.total_entities == 5001 and graph.total_relations == 15001
+    assert graph.shown_entities == len(graph.nodes) == 5000
+    assert "m-5000" not in {node.id for node in graph.nodes}
+    # Links are capped at three per shown memory, and the cut is reported.
+    assert graph.shown_relations == len(graph.edges) == 15000
+    assert graph.truncated is True
+    # The same projection the route returns validates at the new limits.
     dto.KnowledgeGraphSnapshot.model_validate(json.loads(json.dumps(asdict(graph))))
 
 
