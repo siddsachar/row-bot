@@ -720,11 +720,6 @@
 .navigation .buddy-companion > .button[aria-label='Buddy settings']:hover {
   --nav-buddy-ring: color-mix(in srgb, var(--accent-solid) 75%, transparent);
 }
-.buddy-avatar-named {
-  display: inline-grid;
-  justify-self: center;
-  align-self: center;
-}
 .navigation .buddy-drag-handle,
 .navigation-rail .buddy-drag-handle {
   position: relative;

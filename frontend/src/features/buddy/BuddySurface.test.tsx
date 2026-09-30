@@ -149,7 +149,12 @@ it('names the sidebar Buddy in its avatar tooltip, keeping the name for assistiv
   render(<BuddySurface />);
   const avatar = await screen.findByRole('button', { name: 'Buddy settings' });
   expect(screen.queryByRole('tooltip')).toBeNull();
-  await user.hover(avatar.querySelector('.buddy-avatar-frame')!);
+  // Keyboard focus shows the name as well as hover.
+  act(() => avatar.focus());
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Pip');
+  act(() => avatar.blur());
+  await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+  await user.hover(avatar);
   expect(await screen.findByRole('tooltip')).toHaveTextContent('Pip');
   // The companion still carries the custom name for screen readers.
   expect(

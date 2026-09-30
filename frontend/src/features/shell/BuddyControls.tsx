@@ -6,6 +6,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Button,
   ErrorState,
+  Hint,
   IconButton,
   Input,
   Segmented,
@@ -348,15 +349,18 @@ export default function BuddyControls(props: BuddyControlsProps) {
           aria-label="Buddy companion"
           aria-busy={busy}
         >
-          <Button
-            aria-label="Buddy settings"
-            variant="ghost"
-            onClick={props.onSettings}
-          >
-            {props.renderAvatar?.(snapshot) ?? (
-              <span aria-hidden="true">✦</span>
-            )}
-          </Button>
+          {/* The avatar's tooltip carries Buddy's name (B225). */}
+          <Hint label={snapshot.preferences.display_name || 'Buddy'}>
+            <Button
+              aria-label="Buddy settings"
+              variant="ghost"
+              onClick={props.onSettings}
+            >
+              {props.renderAvatar?.(snapshot) ?? (
+                <span aria-hidden="true">✦</span>
+              )}
+            </Button>
+          </Hint>
           <span className="buddy-companion-text">
             <span className="buddy-companion-name">
               {snapshot.preferences.display_name || 'Buddy'}

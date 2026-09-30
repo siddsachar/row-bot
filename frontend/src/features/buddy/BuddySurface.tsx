@@ -3,7 +3,6 @@ import {
   useMemo,
   useState,
   useSyncExternalStore,
-  type ReactNode,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
@@ -41,24 +40,6 @@ function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
     [controller],
   );
   return <BuddyAvatar {...props} loadMedia={loadMedia} />;
-}
-
-/**
- * The sidebar avatar carries Buddy's name as its tooltip; the sidebar shows
- * no name beside it (B225).
- */
-function NamedAvatar({
-  snapshot,
-  children,
-}: {
-  snapshot: BuddySnapshot;
-  children: ReactNode;
-}) {
-  return (
-    <Hint label={snapshot.preferences.display_name || 'Buddy'}>
-      <span className="buddy-avatar-named">{children}</span>
-    </Hint>
-  );
 }
 
 function GlobalBuddy() {
@@ -123,20 +104,21 @@ function GlobalBuddy() {
     );
   return (
     <aside className="buddy-companion" aria-label="Buddy companion">
-      <Button
-        aria-label="Buddy settings"
-        variant="ghost"
-        onClick={() => navigate('/settings/buddy')}
-      >
-        <NamedAvatar snapshot={snapshot}>
+      {/* The sidebar shows no name beside the avatar; it is the tooltip (B225). */}
+      <Hint label={snapshot.preferences.display_name || 'Buddy'}>
+        <Button
+          aria-label="Buddy settings"
+          variant="ghost"
+          onClick={() => navigate('/settings/buddy')}
+        >
           <BuddyDragHandle
             platform={platform}
             onTornOff={() => buddyPlacement.setPlacement('desktop')}
           >
             <Avatar conversation={null} pack={pack} snapshot={snapshot} />
           </BuddyDragHandle>
-        </NamedAvatar>
-      </Button>
+        </Button>
+      </Hint>
       <span className="buddy-companion-text">
         <span className="buddy-companion-name">
           {snapshot.preferences.display_name || 'Buddy'}
@@ -309,18 +291,16 @@ function OwnedBuddy({
             : undefined
         }
         renderAvatar={(snapshot) => (
-          <NamedAvatar snapshot={snapshot}>
-            <BuddyDragHandle
-              platform={platform}
-              onTornOff={() => buddyPlacement.setPlacement('desktop')}
-            >
-              <Avatar
-                conversation={conversation}
-                pack={view.selectedPack}
-                snapshot={snapshot}
-              />
-            </BuddyDragHandle>
-          </NamedAvatar>
+          <BuddyDragHandle
+            platform={platform}
+            onTornOff={() => buddyPlacement.setPlacement('desktop')}
+          >
+            <Avatar
+              conversation={conversation}
+              pack={view.selectedPack}
+              snapshot={snapshot}
+            />
+          </BuddyDragHandle>
         )}
         renderPackPreview={(pack) =>
           view.snapshot && (
