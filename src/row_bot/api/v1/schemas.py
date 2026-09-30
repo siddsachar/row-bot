@@ -4038,6 +4038,26 @@ class AttentionSnapshot(WireModel):
     update: AttentionUpdate | None
 
 
+class PendingApproval(WireModel):
+    """One approval waiting for the person: what it is, since when, and the
+    ids to answer it (``/approvals/{id}``) or open where it was raised."""
+    id: OpaqueId
+    source: Literal["workflow", "conversation", "agent"]
+    title: str = Field(max_length=160)
+    what: str = Field(max_length=512)
+    requested_at: str = Field(max_length=80)
+    expires_at: str | None = Field(max_length=80)
+    conversation_id: OpaqueId | None
+    task_id: OpaqueId | None
+
+
+class PendingApprovalPage(WireModel):
+    """Every pending approval, from workflows, conversations and agents (B255)."""
+    schema_version: Literal[1]
+    items: list[PendingApproval] = Field(max_length=50)
+    total: int = Field(ge=0)
+
+
 class McpChatState(WireModel):
     """Whether connected MCP servers' tools reach the chat ("Enable in chat", B130)."""
     schema_version: Literal[1]
@@ -6915,6 +6935,8 @@ class ApprovalView(WireModel):
     id: OpaqueId
     status: Literal["pending"]
     revision: Revision
+    # When it started waiting ("Waiting since 9:00", B255).
+    requested_at: str | None = Field(default=None, max_length=80)
     expires_at: str | None = Field(default=None, max_length=80)
     summary: str | None = Field(default=None, max_length=4096)
     action_label: str = Field(default="Requested action", max_length=180)

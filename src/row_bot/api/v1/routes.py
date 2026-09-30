@@ -5042,6 +5042,16 @@ def create_router(
         )
         return await respond(request, dto.AttentionSnapshot, result)
 
+    @router.get("/monitor/approvals")
+    async def monitor_approvals(request: Request) -> JSONResponse:
+        # Every pending approval, wherever it was raised (B255). Each one is
+        # answered through /approvals/{id}, like an approval card.
+        await session(request)
+        from row_bot.application.client_monitor import read_pending_approvals
+
+        result = await call(read_pending_approvals)
+        return await respond(request, dto.PendingApprovalPage, result)
+
     @router.get("/monitor/logs")
     async def monitor_logs(request: Request, limit: int = 200) -> JSONResponse:
         await session(request)
@@ -9639,6 +9649,7 @@ def create_router(
                 "id",
                 "status",
                 "revision",
+                "requested_at",
                 "expires_at",
                 "summary",
                 "action_label",

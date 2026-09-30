@@ -4340,6 +4340,7 @@ def run_task_background(
                                         sound="workflow",
                                         toast_type="warning",
                                         source="workflow",
+                                        in_app=False,  # the app lists pending approvals itself
                                     )
                                 break  # exit retry loop — approval will resume graph
                             if result:
@@ -4417,7 +4418,7 @@ def run_task_background(
                         prev_output=last_response,
                         step_outputs=step_outputs,
                     )
-                    timeout_min = step.get("timeout_minutes", 30)
+                    timeout_min = step.get("timeout_minutes") or 0
                     resume_token, approval_req_id = create_approval_request(
                         run_id=run_id,
                         task_id=task_id,
@@ -4456,6 +4457,7 @@ def run_task_background(
                             sound="workflow",
                             toast_type="warning",
                             source="workflow",
+                            in_app=False,  # the app lists pending approvals itself
                         )
                     break  # exit the step loop — resume will continue
 
@@ -5323,14 +5325,72 @@ def _prepare_task_thread(task: dict) -> str:
     return thread_id
 
 
+def _run_waiting_for_approval(task_id: str) -> dict | None:
+    """This workflow's run that waits on an unanswered approval, if any."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT r.thread_id, r.started_at FROM task_runs r "
+            "JOIN approval_requests a ON a.run_id = r.id "
+            "WHERE r.task_id = ? AND r.status IN ('paused', 'waiting_approval') "
+            "AND a.status = 'pending' AND (a.timeout_at IS NULL OR a.timeout_at >= ?) "
+            "ORDER BY r.started_at LIMIT 1",
+            (task_id, datetime.now().isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def _skip_scheduled_run(task: dict, waiting: dict) -> None:
+    """Record and announce a scheduled run skipped behind a waiting one (B255).
+
+    The skipped run points at the waiting run's conversation, where its
+    approval is answered.
+    """
+    now = datetime.now()
+    started = datetime.fromisoformat(waiting["started_at"])
+    if started.date() == now.date():
+        earlier = f"the {started.hour}:{started.minute:02d} run"
+    elif started.date() == (now - timedelta(days=1)).date():
+        earlier = "yesterday's run"
+    else:
+        earlier = f"the run from {started:%b} {started.day}"
+    message = f"Skipped {now.hour}:{now.minute:02d} run: {earlier} still waits for your approval"
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO task_runs (id, task_id, thread_id, started_at, finished_at, status, "
+            "status_message, steps_total, steps_done, task_name, task_icon) "
+            "VALUES (?, ?, ?, ?, ?, 'skipped', ?, ?, 0, ?, ?)",
+            (uuid.uuid4().hex[:12], task["id"], waiting["thread_id"], now.isoformat(), now.isoformat(),
+             message, 0 if task.get("notify_only") else len(task.get("steps") or []),
+             task.get("name", ""), task.get("icon", "")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.info("Skipped scheduled run of '%s': an earlier run waits for approval", task["name"])
+    from row_bot.notifications import notify
+    notify(title=task["name"], message=message, sound="none", toast_type="warning", source="workflow")
+
+
 def _on_task_fire(task_id: str) -> None:
-    """Callback invoked by APScheduler when a task's trigger fires."""
+    """Callback invoked by APScheduler when a task's trigger fires.
+
+    A recurring run never starts while the workflow's last run still waits
+    for an approval: it is recorded as skipped instead, so runs don't pile up.
+    """
     from row_bot.tools import registry as tool_registry
 
     task = get_task(task_id)
     if not task:
         return
     if not task.get("enabled", True):
+        return
+    waiting = None if task.get("at") else _run_waiting_for_approval(task_id)
+    if waiting:
+        _skip_scheduled_run(task, waiting)
         return
 
     logger.info("Scheduler firing task: %s", task["name"])
@@ -6247,7 +6307,7 @@ def create_approval_request(
     step_id: str,
     message: str,
     channel: str | None = None,
-    timeout_minutes: int = 30,
+    timeout_minutes: int = 0,
     agent_run_id: str = "",
     resume_kind: str = "",
     source_label: str = "",
@@ -6255,7 +6315,11 @@ def create_approval_request(
     parent_thread_id: str = "",
     approval_payload_json: Mapping[str, Any] | str | None = None,
 ) -> tuple[str, str]:
-    """Create an approval request and return ``(resume_token, request_id)``."""
+    """Create an approval request and return ``(resume_token, request_id)``.
+
+    It waits until someone answers it; only a positive *timeout_minutes* (a
+    workflow step that sets one) makes it expire, as a denial (B255).
+    """
     req_id = uuid.uuid4().hex[:12]
     resume_token = uuid.uuid4().hex
     timeout_at = None
@@ -6936,6 +7000,7 @@ def _resume_graph_interrupted(
                     sound="workflow",
                     toast_type="warning",
                     source="workflow",
+                    in_app=False,  # the app lists pending approvals itself
                 )
                 return
 
@@ -7956,7 +8021,6 @@ _DEFAULT_TASKS = [
             {
                 "type": "approval",
                 "message": "Review the research brief before Row-Bot prepares the final shareable report.",
-                "timeout_minutes": 120,
             },
             {
                 "type": "prompt",

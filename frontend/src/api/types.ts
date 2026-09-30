@@ -641,6 +641,7 @@ export interface ClientTransport {
   ): Promise<Wire.KnowledgeGraphSnapshot>;
   monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
   attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
+  pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
   systemDiagnosis?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
   updates?(signal?: AbortSignal): Promise<Wire.UpdateSnapshot>;

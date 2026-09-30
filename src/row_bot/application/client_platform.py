@@ -1458,6 +1458,7 @@ class ClientPlatformService:
             fallback_reason=str((context.get("reason") if agent_request else "") or row["message"] or ""),
         )
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
+                "requested_at": row["requested_at"],
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
                 "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
                 **public_context}

@@ -104,6 +104,7 @@ import NativeTerminal from '../panels/NativeTerminal';
 import { WorkspaceActionsContext } from './workspace-actions';
 import { openAgentProfiles } from './agent-profiles';
 import { useBackgroundNotices } from './background-notices';
+import { useApprovalNotices } from './InPlaceApproval';
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 
 const subscriptions = new PanelSubscriptions();
@@ -315,6 +316,7 @@ export default function Workspace() {
   );
   const creation = useNewChat();
   useBackgroundNotices();
+  useApprovalNotices(conversationId);
   const connectionAction =
     state.error?.recovery === 'update' ? (
       <Button onClick={() => window.location.reload()}>Reload</Button>

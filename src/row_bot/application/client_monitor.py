@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import sqlite3
 import stat
 from collections.abc import Callable
+from contextlib import closing
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -430,6 +433,69 @@ def read_attention(*, include_update: bool) -> dict[str, Any]:
         version = _bounded(getattr(available, "version", ""), 64) if available else ""
         update = {"version": version} if version else None
     return {"schema_version": 1, "problems": problems[:_MAX_PROBLEMS], "update": update}
+
+
+_MAX_APPROVALS = 50
+
+
+def _conversation_titles(conversation_ids: set[str]) -> dict[str, str]:
+    if not conversation_ids:
+        return {}
+    from row_bot import threads
+
+    threads._ensure_thread_db()
+    placeholders = ",".join("?" for _ in conversation_ids)
+    with closing(sqlite3.connect(threads.DB_PATH)) as conn:
+        rows = conn.execute(
+            f"SELECT thread_id, name FROM thread_meta WHERE thread_id IN ({placeholders})",
+            sorted(conversation_ids),
+        ).fetchall()
+    return {str(thread_id): str(name or "") for thread_id, name in rows}
+
+
+def read_pending_approvals() -> dict[str, Any]:
+    """Every approval waiting for the person, from a workflow, a conversation
+    or a delegated agent, newest first (B255).
+
+    Only what the list shows and the ids to answer or open one: never a resume
+    token or the stored action. An expired approval can no longer be answered,
+    so it is left out.
+    """
+    from row_bot.tasks import get_pending_approvals
+
+    now = datetime.now().isoformat()
+    rows = [row for row in get_pending_approvals()
+            if not row.get("timeout_at") or row["timeout_at"] >= now]
+    shown = rows[:_MAX_APPROVALS]
+    titles = _conversation_titles({
+        str(row.get("source_thread_id") or row.get("parent_thread_id") or "")
+        for row in shown if row.get("resume_kind") in {"conversation", "parent_orchestration"}
+    } - {""})
+    items = []
+    for row in shown:
+        kind = str(row.get("resume_kind") or "")
+        conversation_id = str(row.get("source_thread_id") or row.get("parent_thread_id") or "") or None
+        task_id = None
+        if kind == "conversation":
+            source, title = "conversation", titles.get(conversation_id or "") or "Untitled conversation"
+        elif kind == "agent_run":
+            source, title = "agent", str(row.get("source_label") or "") or "Agent"
+        elif kind == "parent_orchestration":
+            source, title = "agent", titles.get(conversation_id or "") or "Agent"
+        else:
+            source, title = "workflow", str(row.get("task_name") or "") or "Workflow"
+            conversation_id, task_id = None, str(row.get("task_id") or "") or None
+        items.append({
+            "id": str(row["id"]),
+            "source": source,
+            "title": _bounded(title, 160),
+            "what": _bounded(str(row.get("message") or "").strip(), 512),
+            "requested_at": _bounded(row.get("requested_at"), 80),
+            "expires_at": _bounded(row["timeout_at"], 80) if row.get("timeout_at") else None,
+            "conversation_id": conversation_id,
+            "task_id": task_id,
+        })
+    return {"schema_version": 1, "items": items, "total": len(rows)}
 
 
 def _digest(value: Any) -> str:

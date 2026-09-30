@@ -264,6 +264,40 @@ it('does not offer actions for a truncated or other-owner approval and opens its
   expect(callbacks.openConversation).toHaveBeenCalledWith('conversation-a');
 });
 
+it('says since when a workflow approval waits (B255)', async () => {
+  const callbacks = props({
+    loadHistory: vi
+      .fn()
+      .mockResolvedValue(history([runSummary('run-a', 'paused')])),
+    loadApprovals: vi.fn().mockResolvedValue(approvalPage([approval()])),
+  });
+  render(<TaskRun {...callbacks} />);
+  const card = await screen.findByRole('article', {
+    name: 'Pending task approval',
+  });
+  expect(card).toHaveTextContent(/Waiting since .*10:00/);
+});
+
+it('explains a skipped scheduled run and offers no Stop (B255)', async () => {
+  const callbacks = props({
+    loadHistory: vi
+      .fn()
+      .mockResolvedValue(
+        history([
+          runSummary('run-b', 'skipped'),
+          runSummary('run-a', 'paused'),
+        ]),
+      ),
+  });
+  render(<TaskRun {...callbacks} />);
+  const selected = await screen.findByRole('region', { name: 'Selected run' });
+  expect(selected).toHaveTextContent('Skipped');
+  expect(selected).toHaveTextContent(
+    'This scheduled run was skipped: an earlier run still waited for your approval.',
+  );
+  expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull();
+});
+
 it('shows a stop request without claiming cleanup completed', async () => {
   const callbacks = props({
     loadHistory: vi

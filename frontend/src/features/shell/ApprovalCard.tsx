@@ -6,6 +6,7 @@ import { useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
+import { WaitingSince } from './InPlaceApproval';
 import {
   approvalAction,
   approvalQuestion,
@@ -295,6 +296,11 @@ export default function ApprovalCard({
             )}
             {RISK[risk] && (
               <small className="approval-card-meta">{RISK[risk]}</small>
+            )}
+            {view.requested_at && (
+              <small className="approval-card-meta">
+                <WaitingSince value={view.requested_at} />
+              </small>
             )}
           </div>
           <div className="approval-card-actions">

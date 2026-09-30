@@ -67,3 +67,35 @@ def test_a_timed_out_agent_approval_settles_without_locking_the_database(service
     # Nothing is left holding the database: a second pass and a write go through.
     tasks._check_approval_timeouts()
     agent_runs.finish_agent_run(waiting["id"], "stopped", status_message="Synthetic stop")
+
+
+def test_agent_approvals_wait_until_they_are_answered(service, monkeypatch):  # noqa: F811
+    """B255: a delegated or parent Agent's approval never times out as a denial."""
+    from row_bot import agent_orchestrator, agent_runs, tasks, threads
+
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    run = agent_runs.create_agent_run(parent_thread_id=parent, display_name="Research",
+                                      status="waiting_approval", prompt="Synthetic task")
+    _token, child_approval = tasks.create_approval_request(
+        run_id=run["id"], task_id="", step_id="agent_interrupt", message="Run a synthetic command?",
+        agent_run_id=run["id"], resume_kind="agent_run", parent_thread_id=parent)
+    orchestration = agent_orchestrator.create_or_get_orchestration(
+        parent_thread_id=parent, parent_generation_id="generation-1", root_objective="Report one finding.",
+        model_ref="provider:model", approval_mode="block", runtime_surface="normal_chat",
+        orchestration_version=2)
+    agent_orchestrator.complete_parent_pass(orchestration["id"], {"type": "interrupt", "interrupts": [
+        {"__interrupt_id": "parent-interrupt", "tool": "run_command", "args": {"command": "synthetic"}}]},
+        foreground=False)
+    parent_approval = next(row["id"] for row in tasks.get_pending_approvals(parent_thread_id=parent)
+                           if row["resume_kind"] == "parent_orchestration")
+
+    class ALaterYear(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(days=365)
+
+    monkeypatch.setattr(tasks, "datetime", ALaterYear)
+    tasks._check_approval_timeouts()
+
+    assert _statuses(tasks, [child_approval, parent_approval]) == {
+        child_approval: "pending", parent_approval: "pending"}

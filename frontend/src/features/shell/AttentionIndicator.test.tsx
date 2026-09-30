@@ -1,8 +1,18 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { AttentionSnapshot } from '../../api/types';
+import type {
+  AttentionSnapshot,
+  PendingApproval,
+  PendingApprovalPage,
+} from '../../api/types';
 import AttentionIndicator, { remindLaterAbout } from './AttentionIndicator';
+
+const approval = vi.fn();
+const intent = vi.fn();
+vi.mock('../../runtime', () => ({
+  useRuntime: () => ({ controller: { approval, intent } }),
+}));
 
 function Where() {
   const location = useLocation();
@@ -81,4 +91,90 @@ it('offers an update, opens Updates, and "Remind me later" hides it for a day', 
       name: 'Update to 9.1.0 available. Open Updates',
     }),
   ).toBeInTheDocument();
+});
+
+function waiting(id: string, title: string): PendingApproval {
+  return {
+    id,
+    source: 'workflow',
+    title,
+    what: `${title}: continue?`,
+    requested_at: '2026-09-30T09:00:00',
+    expires_at: null,
+    conversation_id: null,
+    task_id: `task-${id}`,
+  };
+}
+
+it('counts waiting approvals and answers them in place (B255)', async () => {
+  const pages: PendingApprovalPage[] = [
+    {
+      schema_version: 1,
+      items: [
+        waiting('news', 'Daily News'),
+        waiting('report', 'Weekly report'),
+      ],
+      total: 2,
+    },
+    {
+      schema_version: 1,
+      items: [waiting('report', 'Weekly report')],
+      total: 1,
+    },
+  ];
+  const loadApprovals = vi.fn(async () => pages[0]);
+  approval.mockResolvedValue({ id: 'news', revision: '0', nonce: 'nonce' });
+  intent.mockResolvedValue({ status: 'completed' });
+  render(
+    <MemoryRouter>
+      <AttentionIndicator
+        load={async () => ({
+          schema_version: 1,
+          problems: [
+            {
+              id: 'channel:telegram',
+              title: 'Telegram stopped',
+              detail: 'It isn’t running.',
+              place: 'channels',
+            },
+          ],
+          update: null,
+        })}
+        loadApprovals={loadApprovals}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: '2 approvals are waiting. Review',
+    }),
+  );
+  const list = screen.getByRole('dialog', {
+    name: 'Waiting for your approval',
+  });
+  // The problems stay one step away.
+  expect(
+    within(list).getByRole('link', { name: /1 thing needs attention/ }),
+  ).toHaveAttribute('href', '/?tab=monitor');
+  const news = within(list).getByRole('listitem', {
+    name: 'Daily News needs your approval',
+  });
+  loadApprovals.mockImplementation(async () => pages[1]);
+  await act(async () =>
+    fireEvent.click(within(news).getByRole('button', { name: 'Approve' })),
+  );
+  expect(intent).toHaveBeenCalledWith(
+    'news',
+    'approval.resolve',
+    { decision: 'approve', nonce: 'nonce' },
+    '0',
+  );
+  expect(
+    await screen.findByRole('button', {
+      name: '1 approval is waiting. Review',
+    }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole('listitem', { name: 'Daily News needs your approval' }),
+  ).toBeNull();
 });

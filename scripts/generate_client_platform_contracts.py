@@ -46,7 +46,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpTestedCatalogPage", "McpCatalogRequest", "McpCatalogReview",
     "McpChatState", "McpChatReviewRequest", "McpChatReview", "McpChatOutcome",
-    "AttentionProblem", "AttentionUpdate", "AttentionSnapshot",
+    "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "PendingApproval", "PendingApprovalPage",
     "RuntimeInstallationSnapshot", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview", "RuntimeInstallationReceipt",
     "DocumentQueuePage", "DocumentControlReviewRequest", "DocumentControlReview", "DocumentControlReceipt",
     "DocumentUploadReviewRequest", "DocumentUploadReview", "DocumentUploadReceipt",
@@ -163,6 +163,7 @@ OPERATIONS = (
     ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
     ("get", "/monitor", None, "MonitorSnapshot"),
     ("get", "/monitor/attention", None, "AttentionSnapshot"),
+    ("get", "/monitor/approvals", None, "PendingApprovalPage"),
     ("get", "/monitor/logs", None, "MonitorLogs"),
     ("post", "/monitor/diagnosis", None, "SystemDiagnosis"),
     ("get", "/system/updates", None, "UpdateSnapshot"),
@@ -658,6 +659,8 @@ export const getMonitorSnapshot = (base: string, proof: SessionProof, signal?: A
   jsonRequest(base, '/monitor', 'MonitorSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
   jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getPendingApprovals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<PendingApprovalPage> =>
+  jsonRequest(base, '/monitor/approvals', 'PendingApprovalPage', proof, 'GET', undefined, undefined, signal);
 export const getMonitorLogs = (base: string, proof: SessionProof, limit = 200, signal?: AbortSignal): Promise<MonitorLogs> =>
   jsonRequest(base, '/monitor/logs' + query({limit}), 'MonitorLogs', proof, 'GET', undefined, undefined, signal);
 export const runSystemDiagnosis = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SystemDiagnosis> =>

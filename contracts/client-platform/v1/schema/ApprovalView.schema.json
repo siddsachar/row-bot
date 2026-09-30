@@ -69,6 +69,19 @@
       "title": "Reason",
       "type": "string"
     },
+    "requested_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested At"
+    },
     "requesting_trace_id": {
       "default": "",
       "maxLength": 256,

@@ -929,6 +929,7 @@ export default function Navigation({
       <footer className="nav-footer" aria-label="Workspace destinations">
         <AttentionIndicator
           load={controller.attention}
+          loadApprovals={controller.pendingApprovals}
           onNavigate={openRoute}
         />
         <div className="nav-footer-row">
@@ -1032,7 +1033,11 @@ export function NavigationRail({
         )}
       </div>
       <div className="navigation-rail-group navigation-rail-footer">
-        <AttentionIndicator load={controller.attention} compact />
+        <AttentionIndicator
+          load={controller.attention}
+          loadApprovals={controller.pendingApprovals}
+          compact
+        />
         <Hint label="Settings">
           <Link
             className="button ghost icon-button icon-action icon-action-md"

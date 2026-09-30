@@ -92,6 +92,15 @@ it('explains the action in plain words, without request ids or unrated risk', as
   expect(screen.queryByText(/No server expiry/)).toBeNull();
 });
 
+it('says since when the approval waits (B255)', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    requested_at: new Date(2026, 8, 30, 9, 0).toISOString(),
+  });
+  await renderCard();
+  expect(screen.getByText(/^Waiting since/)).toBeVisible();
+});
+
 it('asks to turn on a tool the work needs as a setup card (decision 12)', async () => {
   approval.mockResolvedValue({
     ...view,

@@ -2298,6 +2298,9 @@ export class ClientController {
   /** The sidebar's one indicator: problems and an update (rows 12, 13). */
   attention = (signal?: AbortSignal) =>
     this.query(() => this.transport.attention?.(signal));
+  /** Every approval waiting for the person, wherever it was raised (B255). */
+  pendingApprovals = (signal?: AbortSignal) =>
+    this.query(() => this.transport.pendingApprovals?.(signal));
   monitorLogs = (limit = 200, signal?: AbortSignal) =>
     this.query(() => this.transport.monitorLogs?.(limit, signal));
   systemDiagnosis = (signal?: AbortSignal) =>

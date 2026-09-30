@@ -93,7 +93,8 @@ function initialFields(kind: string): TaskGraphFields {
         if_false: 'end',
       };
     case 'approval':
-      return { ...fields, message: '', timeout_minutes: 30, if_denied: 'end' };
+      // Approvals wait until answered unless a timeout is set (B255).
+      return { ...fields, message: '', timeout_minutes: 0, if_denied: 'end' };
     case 'subtask':
       return { ...fields, task_id: '', pass_output: true, on_error: 'stop' };
     case 'notify':
@@ -704,7 +705,7 @@ export default function TaskGraphEditor({
                           'Approval timeout (minutes, 0 means no timeout)',
                           0,
                           1440,
-                          30,
+                          0,
                         )}
                         {branch('if_approved', 'When approved')}
                         {branch('if_denied', 'When denied', 'end')}

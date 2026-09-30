@@ -2411,13 +2411,13 @@ def _persist_parent_approval(
             approval_id = uuid.uuid4().hex[:12]
             resume_token = uuid.uuid4().hex
             requested_at = _now()
-            timeout_at = (datetime.now() + timedelta(minutes=30)).isoformat()
+            # No timeout: it waits until someone answers it (B255).
             conn.execute(
                 "INSERT INTO approval_requests "
                 "(id, run_id, task_id, step_id, resume_token, message, channel, "
                 "status, requested_at, timeout_at, agent_run_id, resume_kind, "
                 "source_label, source_thread_id, parent_thread_id, approval_payload_json) "
-                "VALUES (?, ?, '', ?, ?, ?, NULL, 'pending', ?, ?, '', "
+                "VALUES (?, ?, '', ?, ?, ?, NULL, 'pending', ?, NULL, '', "
                 "'parent_orchestration', 'Parent Agent', ?, ?, ?)",
                 (
                     approval_id,
@@ -2426,7 +2426,6 @@ def _persist_parent_approval(
                     resume_token,
                     message,
                     requested_at,
-                    timeout_at,
                     parent_thread_id,
                     parent_thread_id,
                     json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),

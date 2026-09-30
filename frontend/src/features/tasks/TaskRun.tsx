@@ -14,6 +14,7 @@ import { Play, RefreshCw } from 'lucide-react';
 import { Button, IconButton, InlineEmpty, Skeleton } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
 import { When, runStatus } from '../home/home-format';
+import { WaitingSince } from '../shell/InPlaceApproval';
 
 export interface TaskRunProps {
   taskId: string;
@@ -55,6 +56,7 @@ const terminal = new Set([
   'failed',
   'stopped',
   'blocked',
+  'skipped',
 ]);
 
 export default function TaskRun({
@@ -412,6 +414,12 @@ export default function TaskRun({
                   confirmed.
                 </p>
               )}
+              {selected.status === 'skipped' && (
+                <p className="home-caption">
+                  This scheduled run was skipped: an earlier run still waited
+                  for your approval.
+                </p>
+              )}
               <div className="task-run-actions">
                 <Button
                   className="small"
@@ -454,6 +462,9 @@ export default function TaskRun({
                 >
                   <h3>Approval needed</h3>
                   <p className="task-approval-message">{approval.message}</p>
+                  <p className="home-caption">
+                    <WaitingSince value={approval.requested_at} />
+                  </p>
                   {approval.expires_at && (
                     <p className="home-caption">
                       Expires <When value={approval.expires_at} />

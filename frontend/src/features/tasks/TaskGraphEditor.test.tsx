@@ -206,6 +206,18 @@ it('adds every retained type and edits branching without evaluation', async () =
   expect(saved[7].fields.if_true).toBe('review');
 });
 
+it('a new approval step waits until it is answered (B255)', async () => {
+  render(<TaskGraphEditor {...props()} />);
+  await screen.findByLabelText('Prompt');
+  fireEvent.change(screen.getByLabelText('New step type'), {
+    target: { value: 'approval' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add step' }));
+  expect(
+    screen.getByLabelText('Approval timeout (minutes, 0 means no timeout)'),
+  ).toHaveValue(0);
+});
+
 it('preserves zero approval timeout and explicit decline branch', async () => {
   const callbacks = props();
   render(<TaskGraphEditor {...callbacks} />);

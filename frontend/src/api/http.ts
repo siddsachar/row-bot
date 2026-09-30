@@ -201,6 +201,9 @@ export class HttpTransport implements ClientTransport {
   attention(signal?: AbortSignal) {
     return wire.getAttention(this.base, this.session(), signal);
   }
+  pendingApprovals(signal?: AbortSignal) {
+    return wire.getPendingApprovals(this.base, this.session(), signal);
+  }
   monitorLogs(limit = 200, signal?: AbortSignal) {
     return wire.getMonitorLogs(this.base, this.session(), limit, signal);
   }
