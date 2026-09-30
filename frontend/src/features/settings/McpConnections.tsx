@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { Button } from '../../ui/primitives';
 import McpCatalogAcceptance, {
   createMcpCatalogSession,
@@ -157,6 +157,16 @@ export default function McpConnectionsPanel({
 } & Omit<McpRuntimeControlsProps, 'session'>) {
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
   const selected = owner.selected();
+  // "Connection" on a server row brings its panel into view (B262); a panel
+  // already open when the page mounts leaves the focus where it is.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const shown = useRef(state.selected);
+  useEffect(() => {
+    if (!state.selected || shown.current === state.selected) return;
+    shown.current = state.selected;
+    heading.current?.scrollIntoView?.({ block: 'start' });
+    heading.current?.focus({ preventScroll: true });
+  }, [state.selected]);
   return (
     <section className="stack" aria-label="MCP connections">
       {policy && (
@@ -176,7 +186,9 @@ export default function McpConnectionsPanel({
       {state.message && <p role="status">{state.message}</p>}
       {selected && (
         <>
-          <h2>Connection: {selected.name}</h2>
+          <h2 ref={heading} tabIndex={-1}>
+            Connection: {selected.name}
+          </h2>
           <div
             className="actions"
             role="group"

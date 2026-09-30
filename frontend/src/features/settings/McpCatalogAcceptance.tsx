@@ -1,9 +1,10 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { Button, Field, Input } from '../../ui/primitives';
 import type {
   McpConfigurationReceipt,
   McpConfigurationReview,
 } from './CapabilitySettings';
+import { mcpRevision, reviewFresh } from './mcp-revision';
 
 export type McpTestedCatalogPage = {
   schema_version: 1;
@@ -134,6 +135,14 @@ export type McpCatalogAcceptanceProps = {
 };
 const label = (value: boolean | null) =>
   value === null ? 'Unknown' : value ? 'Enabled' : 'Disabled';
+const CATALOG_STATES: Record<string, string> = {
+  accepted: 'These tools are accepted.',
+  stale:
+    'The server changed since this Test. Test it again to accept its tools.',
+  recovery_required:
+    'An interrupted save needs to finish first. Check the saved servers above.',
+  unavailable: 'These tested tools aren’t available. Test the server again.',
+};
 
 export default function McpCatalogAcceptance({
   session,
@@ -142,40 +151,54 @@ export default function McpCatalogAcceptance({
   execute,
 }: McpCatalogAcceptanceProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const validPage = (page: McpTestedCatalogPage) =>
-    page.schema_version === 1 &&
-    page.server_id === session.serverId &&
-    page.test_command_id === session.testCommandId &&
-    page.items.length <= 50;
-  const read = async (query: string, cursor?: string) => {
-    const current = session.getSnapshot();
-    if (!current.active || current.busy) return;
-    const abort = session.beginRead();
-    session.update({ busy: 'load', reviewed: null });
-    try {
-      const page = await load(
-        {
-          server_id: session.serverId,
-          test_command_id: session.testCommandId,
-          query,
-          cursor,
-        },
-        abort.signal,
-      );
-      if (abort.signal.aborted) return;
-      if (!validPage(page)) throw Error();
-      session.update({ page, filter: query, cursor, busy: '', message: '' });
-    } catch {
-      if (!abort.signal.aborted)
-        session.update({
-          busy: '',
-          message:
-            'Tested tools are unavailable or changed. Return to the first page.',
-        });
-    } finally {
-      session.endRead(abort);
-    }
-  };
+  const read = useCallback(
+    async (query: string, cursor?: string) => {
+      const current = session.getSnapshot();
+      if (!current.active || current.busy) return;
+      const abort = session.beginRead();
+      session.update({ busy: 'load', reviewed: null });
+      try {
+        const page = await load(
+          {
+            server_id: session.serverId,
+            test_command_id: session.testCommandId,
+            query,
+            cursor,
+          },
+          abort.signal,
+        );
+        if (abort.signal.aborted) return;
+        if (
+          page.schema_version !== 1 ||
+          page.server_id !== session.serverId ||
+          page.test_command_id !== session.testCommandId ||
+          page.items.length > 50
+        )
+          throw Error();
+        session.update({ page, filter: query, cursor, busy: '', message: '' });
+      } catch {
+        if (!abort.signal.aborted)
+          session.update({
+            busy: '',
+            message:
+              'Tested tools are unavailable or changed. Return to the first page.',
+          });
+      } finally {
+        session.endRead(abort);
+      }
+    },
+    [session, load],
+  );
+  // Another MCP panel saved: a catalog still waiting for Accept reads the new revision.
+  useEffect(
+    () =>
+      mcpRevision.subscribe((source) => {
+        const current = session.getSnapshot();
+        if (source !== session && current.page?.availability === 'available')
+          void read(current.filter, current.cursor);
+      }),
+    [session, read],
+  );
   useEffect(() => {
     const current = session.getSnapshot();
     if (!current.active || current.page || current.busy) return;
@@ -225,20 +248,43 @@ export default function McpCatalogAcceptance({
       !available
     )
       return;
-    const command: McpCatalogCommand = {
-      command_id: crypto.randomUUID(),
-      type: 'mcp.catalog.accept',
-      payload: {
-        configuration_revision: current.page.configuration_revision,
-        server_id: session.serverId,
-        test_command_id: session.testCommandId,
-      },
-    };
+    const sent: { command?: McpCatalogCommand } = {};
     const abort = session.beginRead();
     session.update({ busy: 'review', reviewed: null, message: '' });
     try {
-      const result = await review(command.payload, abort.signal);
-      if (abort.signal.aborted) return;
+      const result = await reviewFresh(
+        (revision) => {
+          sent.command = {
+            command_id: crypto.randomUUID(),
+            type: 'mcp.catalog.accept',
+            payload: {
+              configuration_revision: revision,
+              server_id: session.serverId,
+              test_command_id: session.testCommandId,
+            },
+          };
+          return review(sent.command.payload, abort.signal);
+        },
+        current.page.configuration_revision,
+        async () => {
+          const page = await load(
+            {
+              server_id: session.serverId,
+              test_command_id: session.testCommandId,
+              query: current.filter,
+              cursor: current.cursor,
+            },
+            abort.signal,
+          );
+          if (page.test_command_id !== session.testCommandId) return null;
+          session.update({ page });
+          return page.availability === 'available'
+            ? page.configuration_revision
+            : null;
+        },
+      );
+      const command = sent.command;
+      if (abort.signal.aborted || !command) return;
       if (
         result.configuration_revision !==
           command.payload.configuration_revision ||
@@ -294,6 +340,7 @@ export default function McpCatalogAcceptance({
           message:
             'Tested tools accepted. Review saved tool permissions before connecting; no server was retested or started.',
         });
+        mcpRevision.saved(session);
       } else if (result.status === 'rejected') {
         session.update({
           pending: null,
@@ -337,10 +384,8 @@ export default function McpCatalogAcceptance({
       )}
       {state.page && !available && (
         <p role="status">
-          Catalog: {state.page.availability.replaceAll('_', ' ')}.{' '}
-          {state.page.availability === 'stale'
-            ? 'Run an explicit new Test for the changed configuration.'
-            : ''}
+          {CATALOG_STATES[state.page.availability] ??
+            'These tested tools can’t be accepted right now.'}
         </p>
       )}
       <Field label="Filter tested tools">

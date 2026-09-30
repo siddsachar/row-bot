@@ -11,6 +11,18 @@ from row_bot.mcp_client import config, marketplace
 from row_bot.mcp_client.conflicts import unique_server_name
 
 
+def _sign_in_required(entry: marketplace.MarketplaceEntry) -> bool:
+    """A remote server that needs an account but offers no header or variable for a token.
+
+    Such servers sign in through the browser (OAuth), which the MCP client
+    does not support yet; it sends only saved headers.
+    """
+    install = entry.install or {}
+    transport = install.get("transport") or entry.transport or "stdio"
+    return (bool(entry.requires_auth) and transport != "stdio"
+            and not install.get("headers") and not install.get("env"))
+
+
 def search_directory(query: str, *, validate: Callable[[], None]) -> dict[str, Any]:
     validate()
     if not isinstance(query, str) or len(query) > 128 or "\0" in query:
@@ -45,6 +57,7 @@ def search_directory(query: str, *, validate: Callable[[], None]) -> dict[str, A
                 )[:32],
                 "risk_level": str(entry.risk_level)[:32],
                 "requires_auth": bool(entry.requires_auth),
+                "sign_in_required": _sign_in_required(entry),
                 "recommended": bool(entry.recommended),
                 "import_json": payload,
             }

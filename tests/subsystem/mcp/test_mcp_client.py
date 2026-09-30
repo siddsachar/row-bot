@@ -735,7 +735,9 @@ class McpClientFoundationTests(unittest.TestCase):
             name="mcp_manual_delete_note",
             description="Delete a note through MCP.",
         )
-        self.assertEqual(_build_graph_and_call("approve", approve_tool), "ran")
+        # An approved result leads with its approval line (B235).
+        self.assertEqual(_build_graph_and_call("approve", approve_tool),
+                         "Approval: asked; approved by you\nran")
         self.assertEqual(len(interrupt_calls), 1)
         self.assertEqual(interrupt_calls[0]["tool"], "mcp_manual_delete_note")
 

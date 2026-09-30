@@ -205,6 +205,29 @@ def test_disabled_saved_server_can_only_be_tested_explicitly(owner):
     assert json.loads(config.CONFIG_PATH.read_text(encoding="utf-8"))["servers"]["Synthetic"]["enabled"] is False
 
 
+def test_a_turned_off_server_says_so_and_connects_once_turned_on(owner):
+    from row_bot.application import capability_policy_controls as policy
+    _, calls = owner
+    data = json.loads(config.CONFIG_PATH.read_text(encoding="utf-8"))
+    data["enabled"] = False
+    data["servers"]["Synthetic"]["enabled"] = False
+    config.CONFIG_PATH.write_text(json.dumps(data), encoding="utf-8")
+    server_id = configuration._server_id("Synthetic")
+    assert controls.read_mcp_runtime_state(server_id).enabled is False
+    with pytest.raises(controls.CapabilityRuntimeError, match="mcp_runtime_disabled"):
+        execute(request("connect"))
+    # "Turn on & connect": each switch is its own reviewed change, then Connect.
+    for intent in ({"operation": "global_enabled", "enabled": True},
+                   {"operation": "server_enabled", "server_id": server_id, "enabled": True}):
+        change = {"command_id": str(uuid4()), "type": "mcp.configuration.control", "expected_revision": "0",
+                  "payload": {"configuration_revision": policy.read_mcp_policy().revision, "intent": intent}}
+        assert policy.execute_mcp_policy_command(owner_id="synthetic-owner", key=change["command_id"], command=change,
+            validate=lambda: None, validate_review=lambda _: None)["status"] == "completed"
+    assert controls.read_mcp_runtime_state(server_id).enabled is True
+    connected = execute(request("connect"))
+    assert connected["mcp_runtime"]["state"] == "connected" and calls == ["connect", "list_tools"]
+
+
 def test_new_disconnect_review_works_when_config_is_unavailable(owner):
     _, _calls = owner
     connected = execute(request("connect"))

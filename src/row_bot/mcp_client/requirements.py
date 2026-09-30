@@ -33,6 +33,11 @@ ARCHIVE_BYTE_LIMIT = 256 * 1024 * 1024
 EXTRACTED_BYTE_LIMIT = 1024 * 1024 * 1024
 ARCHIVE_ENTRY_LIMIT = 20000
 METADATA_BYTE_LIMIT = 2 * 1024 * 1024
+# Unpacking may take the base time plus this much per archive entry; a Node.js
+# archive has about 2,000 of them.
+EXTRACTION_SECONDS = 120
+EXTRACTION_SECONDS_PER_ENTRY = 0.1
+_STAGING_PREFIX = ".install-"
 _INSTALL_LOCK = threading.RLock()
 
 
@@ -113,7 +118,9 @@ class _Directory:
             if (not stat.S_ISREG(before.st_mode) or before.st_size > maximum
                     or getattr(before, "st_file_attributes", 0) & 0x400):
                 raise RuntimeError("Invalid managed runtime file")
-            data = stream.read(maximum + 1)
+            # One byte past the size seen above shows growth; reading up to
+            # the maximum would allocate it for every file (~60 ms each).
+            data = stream.read(before.st_size + 1)
             after, named = os.fstat(stream.fileno()), self.stat(name)
             def key(value):
                 return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
@@ -144,6 +151,45 @@ def _owned_directory(path: Path, *, create=False):
         for part in reversed(missing):
             current = stack.enter_context(current.child(part, create=True))
         yield current
+
+
+def _discard_tree(owner: _Directory, name: str) -> None:
+    """Remove a folder this installer created inside an owned runtime folder."""
+    try:
+        # rmtree never follows links or junctions; POSIX removal stays under the held descriptor.
+        shutil.rmtree(owner.leaf(name), dir_fd=owner.fd)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        log_event("mcp.runtime_staging_retained", level=30, error=type(error).__name__)
+
+
+@contextlib.contextmanager
+def _staging(runtime: _Directory, name: str):
+    """A private staging folder, removed when the install ends whatever happened."""
+    os.mkdir(runtime.leaf(name), mode=0o700, dir_fd=runtime.fd)
+    try:
+        with runtime.child(name) as stage:
+            yield stage
+    finally:
+        _discard_tree(runtime, name)
+
+
+def discard_install_staging(runtime_id: str) -> None:
+    """Remove staging folders an install in a stopped process left behind.
+
+    Staged files are never advertised or adopted; a running install removes
+    its own, and holds the install lock while it has one.
+    """
+    _safe_component(runtime_id)
+    with _INSTALL_LOCK:
+        try:
+            with _owned_directory(RUNTIMES_DIR / runtime_id) as runtime:
+                for name in os.listdir(runtime.fd if runtime.fd is not None else runtime.path):
+                    if name.startswith(_STAGING_PREFIX):
+                        _discard_tree(runtime, name)
+        except FileNotFoundError:
+            return
 
 
 def _manifest_bytes(runtime_id):
@@ -413,6 +459,26 @@ def _read_manifest(runtime_id: str) -> dict[str, Any]:
         return value if isinstance(value, dict) else {}
     except Exception:
         return {}
+
+
+def owned_manifest(runtime_id: str) -> dict[str, Any]:
+    """The saved manifest, or {} when it describes a runtime outside this data folder.
+
+    A manifest copied from an older data folder (before the rename) points at
+    another user folder; it was never valid here and is replaced by the next install.
+    """
+    manifest = _read_manifest(runtime_id)
+    return manifest if _inside(runtime_id, manifest) else {}
+
+
+def _inside(runtime_id: str, manifest: dict[str, Any]) -> bool:
+    root = Path(str(manifest.get("root") or "")).absolute()
+    return root.parent == (RUNTIMES_DIR / runtime_id).absolute()
+
+
+def system_runtime_available(runtime_id: str) -> bool:
+    """Whether every command of this runtime is already on the system PATH."""
+    return all(shutil.which(command) for command in _RUNTIME_DEFS[runtime_id].commands)
 
 
 def _write_manifest(runtime_id: str, data: dict[str, Any], *, expected_revision: str | None = None,
@@ -859,12 +925,13 @@ def _archive_entries(handle, is_zip, *, internal_links=False):
     return entries, links
 
 
-def _extract_into(archive: Path, root: _Directory, *, internal_links=False, validate=lambda: None):
-    deadline = time.monotonic() + 120
+def _extract_into(archive: Path, root: _Directory, *, internal_links=False, validate=lambda: None,
+                  clock: Callable[[], float] = time.monotonic):
+    started, budget = clock(), EXTRACTION_SECONDS
     original_validate = validate
     def validate():
         original_validate()
-        if time.monotonic() >= deadline:
+        if clock() - started >= budget:
             raise RuntimeError("Runtime extraction exceeded its time budget")
     source = io.BytesIO(archive) if isinstance(archive, bytes) else archive
     is_zip = zipfile.is_zipfile(source)
@@ -913,6 +980,7 @@ def _extract_into(archive: Path, root: _Directory, *, internal_links=False, vali
         fileobj=source if hasattr(source, "read") else None, tarinfo=BoundedTarInfo)
     with archive_handle as handle:
         entries, links = _archive_entries(handle, is_zip, internal_links=internal_links)
+        budget += EXTRACTION_SECONDS_PER_ENTRY * len(entries)
         # Validate the complete graph before creating any archive member.
         for name, (member, kind, size, mode) in entries.items():
             validate()
@@ -1032,13 +1100,13 @@ def _install_archive_bytes(plan, data, *, progress=None, cancelled=None, validat
         with _owned_directory(RUNTIMES_DIR / plan.runtime_id, create=True) as runtime:
             baseline = runtime_install_revision(plan.runtime_id)
             previous = _read_manifest(plan.runtime_id)
-            stage_name = ".install-" + uuid.uuid4().hex
-            os.mkdir(runtime.leaf(stage_name), mode=0o700, dir_fd=runtime.fd)
+            stage_name = _STAGING_PREFIX + uuid.uuid4().hex
             backup = None
             activated = False
-            # Staged/failed generations stay retained on interruption. They are
-            # never advertised or automatically adopted without a fresh plan.
-            with runtime.child(stage_name) as stage:
+            manifest = None
+            # Staged files are never advertised or adopted; the staging folder
+            # is removed when this install ends, whatever happened.
+            with _staging(runtime, stage_name) as stage:
                 with stage.child("extracted", create=True) as extracted:
                     child = _extract_into(data, extracted, internal_links=plan.internal_links, validate=authority)
                     selected = extracted
@@ -1123,7 +1191,8 @@ def _install_archive_bytes(plan, data, *, progress=None, cancelled=None, validat
                         "source": "reviewed-pinned-archive", "generation_sha256": tree,
                         "system": plan.system, "arch": plan.arch, "internal_links": plan.internal_links,
                         "preserve_top_level_directory": plan.preserve_top_level_directory}
-                    if previous and (previous.get("doctor_ok") or plan.runtime_id in {"node", "uv"}):
+                    if previous and _inside(plan.runtime_id, previous) and (
+                            previous.get("doctor_ok") or plan.runtime_id in {"node", "uv"}):
                         retained = dict(previous)
                         retained.pop("previous_manifest", None)
                         manifest["previous_manifest"] = retained
@@ -1141,14 +1210,17 @@ def _install_archive_bytes(plan, data, *, progress=None, cancelled=None, validat
                         raise RuntimeError("Runtime publication is unconfirmed")
                     publication_authority()
                 except Exception:
-                    # Never recursively delete an uncertain or edited tree.
                     # For the legacy same-version layout repair, restore its
                     # original name only when the old manifest is still exact.
+                    # A generation activated but never published goes back into
+                    # the staging folder so it cannot block a retry.
                     if backup and activated and _read_manifest(plan.runtime_id) == previous:
                         runtime.rename(plan.version, ".failed-" + uuid.uuid4().hex)
                         runtime.rename(backup, plan.version)
                     elif backup and not activated:
                         runtime.rename(backup, plan.version)
+                    elif activated and not backup and _read_manifest(plan.runtime_id) != manifest:
+                        runtime.rename(plan.version, "unpublished", stage)
                     raise
     if progress:
         progress("The verified runtime generation was published")
@@ -1182,6 +1254,8 @@ def install_runtime_plan(plan: ArchiveRuntimePlan, *, progress: Callable[[str], 
             data = directory.read(archive.name, ARCHIVE_BYTE_LIMIT)
         if cancelled and cancelled():
             return RuntimeInstallResult(False, plan.runtime_id, "Installation cancelled after download.")
+        if checkpoint:
+            checkpoint("extracting", {})
         # Extraction consumes this same verified immutable byte string, so a
         # later archive pathname replacement cannot substitute unverified input.
         return _install_archive_bytes(plan, data, progress=progress, cancelled=cancelled, validate=validate,

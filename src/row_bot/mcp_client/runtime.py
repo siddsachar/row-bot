@@ -43,6 +43,8 @@ try:
     from mcp.client.streamable_http import streamablehttp_client
 except Exception:  # pragma: no cover
     streamablehttp_client = None
+# The SDK logs each server's session id at INFO; ids stay out of Row-Bot's logs.
+logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
 
 try:
     from mcp.client.sse import sse_client

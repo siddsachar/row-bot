@@ -4,10 +4,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import CapabilitySettings, {
   createCapabilitySettingsSession,
+  type CapabilitySettingsProps,
   type McpConfigurationPage,
   type McpConfigurationReceipt,
 } from './CapabilitySettings';
@@ -155,6 +157,7 @@ it('searches the MCP directory only on click and imports the chosen template dis
         transport: 'stdio',
         risk_level: 'low',
         requires_auth: false,
+        sign_in_required: false,
         recommended: true,
         import_json:
           '{"mcpServers":{"fixture":{"command":"synthetic","enabled":false}}}',
@@ -173,15 +176,97 @@ it('searches the MCP directory only on click and imports the chosen template dis
   fireEvent.click(screen.getByRole('button', { name: 'Search directories' }));
   expect(await screen.findByText('<img onerror=sentinel()>')).toBeVisible();
   expect(container.querySelector('img')).toBeNull();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Import Fixture disabled' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Import Fixture' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0].intent).toEqual({
     operation: 'import',
     import_json:
       '{"mcpServers":{"fixture":{"command":"synthetic","enabled":false}}}',
   });
+});
+
+function directory(
+  entries: Partial<
+    Awaited<
+      ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
+    >['items'][number]
+  >[],
+) {
+  return vi.fn(async () => ({
+    schema_version: 1 as const,
+    mode: 'curated' as const,
+    items: entries.map((entry, index) => ({
+      id: `entry-${index}`,
+      name: `Entry ${index}`,
+      description: 'Synthetic entry',
+      source: 'curated',
+      publisher: 'Synthetic',
+      transport: 'streamable_http',
+      risk_level: 'low',
+      requires_auth: false,
+      sign_in_required: false,
+      recommended: true,
+      import_json: `{"mcpServers":{"entry-${index}":{"url":"https://example.invalid/${index}"}}}`,
+      ...entry,
+    })),
+  }));
+}
+async function browse() {
+  await rowMenu('Synthetic');
+  fireEvent.click(screen.getByText('Browse MCP servers'));
+  fireEvent.click(screen.getByRole('button', { name: 'Search directories' }));
+}
+
+it('reads a changed revision again, retries the import once and says so next to the entry', async () => {
+  const props = options();
+  const searchDirectory = directory([{ name: 'Docs' }]);
+  props.review.mockRejectedValueOnce({
+    code: 'revision_conflict',
+    status: 409,
+  });
+  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
+  await browse();
+  props.load.mockResolvedValue({ ...page, revision: 'e'.repeat(64) });
+  fireEvent.click(await screen.findByRole('button', { name: 'Import Docs' }));
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
+  expect(
+    props.review.mock.calls.map((call) => call[0].configuration_revision),
+  ).toEqual(['a'.repeat(64), 'e'.repeat(64)]);
+  const entry = screen.getByRole('article', { name: 'Docs' });
+  expect(await within(entry).findByText(/^Saved/)).toBeVisible();
+});
+
+it('marks servers that sign in through the browser and offers no import for them', async () => {
+  const props = options();
+  const searchDirectory = directory([
+    { name: 'Notion MCP', requires_auth: true, sign_in_required: true },
+    { name: 'Xquik MCP', requires_auth: true },
+  ]);
+  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
+  await browse();
+  const notion = await screen.findByRole('article', { name: 'Notion MCP' });
+  expect(
+    within(notion).getByText('Needs sign-in (not supported yet)'),
+  ).toBeVisible();
+  expect(within(notion).queryByRole('button', { name: /Import/ })).toBeNull();
+  const xquik = screen.getByRole('article', { name: 'Xquik MCP' });
+  expect(
+    within(xquik).getByRole('button', { name: 'Import Xquik MCP' }),
+  ).toBeEnabled();
+});
+
+it('opens Add server with its name field focused', async () => {
+  const props = options();
+  render(<CapabilitySettings {...props} />);
+  await rowMenu('Synthetic');
+  fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Server name')).toHaveFocus(),
+  );
+  await choosePage('Import config');
+  await waitFor(() =>
+    expect(screen.getByLabelText('Server import JSON')).toHaveFocus(),
+  );
 });
 
 it('confirms configured-server deletion, then removes the row after the original command succeeds', async () => {
@@ -237,7 +322,7 @@ it('preserves the exact unsent draft across full unmount', async () => {
     'one two\n--exact',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
-  await screen.findByText(/^Saved disabled\./);
+  await screen.findByText(/^Saved\. It stays turned off/);
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review).toHaveBeenCalledOnce();
   expect(props.execute.mock.calls[0][0].payload.intent.fields.args).toEqual([
@@ -267,7 +352,7 @@ it('retains uncertain originals and only reconciles their exact request after re
   await choosePage('Refresh');
   await screen.findByText(/interrupted save requires recovery/);
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
-  await screen.findByText(/^Saved disabled\./);
+  await screen.findByText(/^Saved\. It stays turned off/);
   expect(props.execute.mock.calls[1]).toEqual(original);
   expect(props.review).toHaveBeenCalledTimes(1);
 });
@@ -387,7 +472,7 @@ it('supports explicit rename and import without launch activity', async () => {
     server_id: 'b'.repeat(64),
     fields: { name: 'Renamed synthetic' },
   });
-  await screen.findByText(/^Saved disabled\./);
+  await screen.findByText(/^Saved\. It stays turned off/);
   await choosePage('Refresh');
   await rowMenu('Synthetic');
   fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {

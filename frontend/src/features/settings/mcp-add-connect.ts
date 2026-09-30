@@ -94,7 +94,13 @@ async function runtimeStep(
   return { command, receipt };
 }
 
-async function policyChange(api: AddConnectApi, intent: McpPolicyIntent) {
+/** The saved-permission owners that turn MCP and a server on. */
+export type TurnOnApi = Pick<
+  AddConnectApi,
+  'policy' | 'reviewPolicy' | 'executeConfiguration'
+>;
+
+async function policyChange(api: TurnOnApi, intent: McpPolicyIntent) {
   const page = await api.policy({
     server_id: 'server_id' in intent ? intent.server_id : null,
     query: '',
@@ -115,6 +121,22 @@ async function policyChange(api: AddConnectApi, intent: McpPolicyIntent) {
   );
   if (receipt.status !== 'completed')
     throw new AddConnectStopped('enable', 'Row-Bot couldn’t turn it on.');
+}
+
+/**
+ * Turns MCP and one server on, each the same reviewed change as its switch;
+ * "Add and connect" and "Turn on & connect" (B262) both use it.
+ */
+export async function turnOnServer(api: TurnOnApi, serverId: string) {
+  const policy = await api.policy({ server_id: serverId, query: '' });
+  if (policy.global_enabled !== true)
+    await policyChange(api, { operation: 'global_enabled', enabled: true });
+  if (policy.server_enabled !== true)
+    await policyChange(api, {
+      operation: 'server_enabled',
+      server_id: serverId,
+      enabled: true,
+    });
 }
 
 /**
@@ -169,15 +191,7 @@ export async function addAndConnect(
   if (accepted.status !== 'completed')
     throw new AddConnectStopped('accept', 'Row-Bot couldn’t accept its tools.');
   onStep('enable');
-  const policy = await api.policy({ server_id: serverId, query: '' });
-  if (policy.global_enabled !== true)
-    await policyChange(api, { operation: 'global_enabled', enabled: true });
-  if (policy.server_enabled !== true)
-    await policyChange(api, {
-      operation: 'server_enabled',
-      server_id: serverId,
-      enabled: true,
-    });
+  await turnOnServer(api, serverId);
   onStep('connect');
   const connected = await runtimeStep(api, serverId, 'connect');
   if (connected.receipt.mcp_runtime?.state !== 'connected')

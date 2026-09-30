@@ -354,6 +354,8 @@ def recover(epoch: str) -> None:
                              (json.dumps(result, separators=(",", ":")), row["command_id"], row["conversation_id"]))
     from row_bot.application.client_queue import recover_queue
     recover_queue(epoch)
+    from row_bot.application.mcp_runtime_installation import recover_runtime_installations
+    recover_runtime_installations()
 
 
 def _owner_alive(row: dict) -> bool:

@@ -1,5 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { clientError } from '../../api/errors';
 import { Button } from '../../ui/primitives';
+import { mcpRevision, reviewFresh } from './mcp-revision';
 
 export type McpRuntimeState = {
   schema_version: 1;
@@ -10,6 +12,8 @@ export type McpRuntimeState = {
   runtime_id: string | null;
   state: string;
   session_quiesced: boolean | null;
+  /** MCP and this server are both turned on; Connect needs both. */
+  enabled: boolean | null;
 };
 export type McpRuntimeCommand = {
   command_id: string;
@@ -169,6 +173,11 @@ export type McpRuntimeControlsProps = {
     command: McpRuntimeCommand,
     review: McpRuntimeReview,
   ) => Promise<McpRuntimeReceipt>;
+  /**
+   * Turns MCP and this server on, each a reviewed change, so a turned-off
+   * server offers one "Turn on & connect" (B262).
+   */
+  turnOn?: (serverId: string) => Promise<void>;
 };
 
 const stateLabels: Record<string, string> = {
@@ -190,9 +199,18 @@ export default function McpRuntimeControls({
   load,
   review,
   execute,
+  turnOn,
 }: McpRuntimeControlsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const { snapshot, launch, cleanup } = state;
+  // A save in another MCP panel changes the revision this one reviews against.
+  useEffect(
+    () =>
+      mcpRevision.subscribe((source) => {
+        if (source !== session) session.refresh();
+      }),
+    [session],
+  );
   // Only passive reads repeat, with one request at a time and a finite visible window.
   // Unmount stops observation; the runtime session retains effect receipts.
   useEffect(() => {
@@ -275,12 +293,16 @@ export default function McpRuntimeControls({
     const name: SlotName = operation === 'disconnect' ? 'cleanup' : 'launch';
     const current = session.getSnapshot();
     if (!current.active || current[name].busy || current[name].pending) return;
-    const saved = current.snapshot;
-    const revision =
+    let saved = current.snapshot;
+    const revisionOf = (value: McpRuntimeState | null) =>
       operation === 'disconnect'
-        ? saved?.cleanup_revision
-        : saved?.configuration_revision;
-    if (!revision || (operation === 'disconnect' && !saved?.runtime_id)) return;
+        ? value?.cleanup_revision
+        : value?.configuration_revision;
+    if (
+      !revisionOf(saved) ||
+      (operation === 'disconnect' && !saved?.runtime_id)
+    )
+      return;
     if (
       name === 'launch' &&
       (current.cleanup.pending || current.cleanup.busy || saved?.runtime_id)
@@ -288,22 +310,46 @@ export default function McpRuntimeControls({
       return;
     const abort = session.beginRead();
     session.updateSlot(name, { busy: true, reviewed: null, message: '' });
-    const command: McpRuntimeCommand = {
-      command_id: crypto.randomUUID(),
-      type: 'mcp.runtime.control',
-      payload: {
-        resource_revision: revision,
-        server_id: current.serverId,
-        operation,
-        expected_runtime_id:
-          operation === 'disconnect' ? saved!.runtime_id : null,
-      },
+    const reread = async () => {
+      const value = await load(current.serverId, abort.signal);
+      if (value.server_id !== current.serverId || value.schema_version !== 1)
+        throw Error();
+      session.update({ snapshot: value });
+      saved = value;
+      return revisionOf(value) ?? null;
     };
     try {
-      const result = await review(command.payload, abort.signal);
-      if (abort.signal.aborted) return;
+      // "Turn on & connect": turn MCP and the server on, then connect.
+      if (operation === 'connect' && saved?.enabled === false && turnOn) {
+        await turnOn(current.serverId);
+        mcpRevision.saved(session);
+        await reread();
+        if (session.getSnapshot().snapshot?.enabled !== true)
+          throw Error('The server is still turned off. Try again.');
+      }
+      const sent: { command?: McpRuntimeCommand } = {};
+      const result = await reviewFresh(
+        (revision) => {
+          sent.command = {
+            command_id: crypto.randomUUID(),
+            type: 'mcp.runtime.control',
+            payload: {
+              resource_revision: revision,
+              server_id: current.serverId,
+              operation,
+              expected_runtime_id:
+                operation === 'disconnect' ? saved!.runtime_id : null,
+            },
+          };
+          return review(sent.command.payload, abort.signal);
+        },
+        revisionOf(saved)!,
+        reread,
+      );
+      const command = sent.command;
+      if (abort.signal.aborted || !command) return;
       if (
-        result.resource_revision !== revision ||
+        result.resource_revision !== command.payload.resource_revision ||
         result.server_id !== current.serverId ||
         result.operation !== operation ||
         result.runtime_id !== command.payload.expected_runtime_id
@@ -316,11 +362,16 @@ export default function McpRuntimeControls({
         message: '',
       });
       void submit(name, attempt);
-    } catch {
+    } catch (cause) {
       if (!abort.signal.aborted)
         session.updateSlot(name, {
           busy: false,
-          message: 'The action could not be validated. Refresh and try again.',
+          message:
+            cause instanceof Error && cause.message
+              ? cause.message
+              : (cause as { code?: string } | null)?.code
+                ? clientError(cause).message
+                : 'The action could not be validated. Refresh and try again.',
         });
     } finally {
       session.endRead(abort);
@@ -423,6 +474,8 @@ export default function McpRuntimeControls({
     Boolean(cleanup.pending) ||
     !snapshot?.runtime_id ||
     !snapshot.cleanup_revision;
+  // Connect is refused for a turned-off server; offer to turn it on first.
+  const turnedOff = snapshot?.enabled === false;
   return (
     <section
       aria-label="MCP connection"
@@ -446,6 +499,13 @@ export default function McpRuntimeControls({
         snapshot.state === 'cleanup_incomplete' && (
           <p>Session cleanup finished, but its record still needs checking.</p>
         )}
+      {turnedOff && !snapshot?.runtime_id && (
+        <p className="settings-help">
+          {turnOn
+            ? 'This server is turned off. Turn on & connect turns MCP and this server on, then connects.'
+            : 'This server is turned off. Turn it on in its permissions to connect.'}
+        </p>
+      )}
       <Button disabled={!state.active} onClick={() => session.refresh()}>
         Refresh connection
       </Button>
@@ -455,10 +515,10 @@ export default function McpRuntimeControls({
         aria-label="Start connection"
       >
         <Button
-          disabled={launchLocked}
+          disabled={launchLocked || (turnedOff && !turnOn)}
           onClick={() => void requestReview('connect')}
         >
-          Connect
+          {turnedOff && turnOn ? 'Turn on & connect' : 'Connect'}
         </Button>
         <Button
           disabled={launchLocked}

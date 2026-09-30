@@ -3382,6 +3382,14 @@
   color: var(--status-danger-text);
   font-size: var(--text-13);
 }
+/* A managed runtime: one status row, its message right under it (B262). */
+.settings-mcp-runtime {
+  display: grid;
+  gap: 6px;
+}
+.settings-mcp-runtime > p {
+  margin: 0;
+}
 .settings-mcp-pair {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;

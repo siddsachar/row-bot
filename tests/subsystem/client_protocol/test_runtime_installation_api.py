@@ -215,13 +215,15 @@ def test_cancellation_preserves_receive_ownership_and_never_blindly_restarts(ser
         assert runtimes.calls == calls and not runtimes.root.exists()
 
 
-def test_reviewed_checksum_corruption_never_publishes_runtime_or_leaks_private_error(service, runtimes, monkeypatch):
+@pytest.mark.slow
+def test_checksum_corruption_fails_finally_without_leaking_and_a_retry_installs(service, runtimes, monkeypatch):
     with _client(service) as client:
         _, headers = bootstrap(client)
         _, resolve = reviewed(client, headers)
         assert send(client, headers, resolve).status_code == 200
         settled(client, headers, resolve)
         _, install = reviewed(client, headers, operation="install", source=resolve["command_id"])
+        download = requirements._download
         def corrupt(_url, destination, progress=None, *, validate=lambda: None):
             validate()
             destination.write_bytes(b"wrong bytes")
@@ -230,9 +232,22 @@ def test_reviewed_checksum_corruption_never_publishes_runtime_or_leaks_private_e
         assert response.status_code == 200, response.text
         final = settled(client, headers, install)
         assert final.json()["status"] == "partial" and final.json()["installation"]["installed"] is not True
+        assert final.json()["installation"]["stage"] == "failed" and final.json()["code"] == "runtime_installation_failed"
         assert final.json()["installation"]["quiesced"] is True
         assert not (runtimes.root / "node/manifest.json").exists()
         assert str(runtimes.root) not in json.dumps(final.json())
+        # The failure is final: the runtime is free and a new install is accepted.
+        state = client.get(BASE + "/node", headers=headers).json()
+        assert state["availability"] == "missing" and state["active_command_id"] is None
+        monkeypatch.setattr(requirements, "_download", download)
+        _, again = reviewed(client, headers)
+        assert send(client, headers, again).status_code == 200
+        settled(client, headers, again)
+        _, retry = reviewed(client, headers, operation="install", source=again["command_id"])
+        assert send(client, headers, retry).status_code == 200
+        assert settled(client, headers, retry).json()["installation"]["installed"] is True
+        state = client.get(BASE + "/node", headers=headers).json()
+        assert state["availability"] == "available" and state["version"] == "v1.2.3"
 
 
 def test_actual_remote_auth_revocation_after_metadata_wait_prevents_next_stage(service, runtimes, monkeypatch):

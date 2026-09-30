@@ -1,9 +1,10 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { Button, Field, Input } from '../../ui/primitives';
 import type {
   McpConfigurationReceipt,
   McpConfigurationReview,
 } from './CapabilitySettings';
+import { mcpRevision, reviewFresh } from './mcp-revision';
 
 export type McpPolicyPage = {
   schema_version: 1;
@@ -155,41 +156,54 @@ export default function McpPolicyControls({
     page?.revision &&
     ['available', 'missing', 'partial'].includes(page.availability),
   );
-  const read = async (query: string, cursor?: string) => {
-    const current = session.getSnapshot();
-    if (!current.active || current.busy) return;
-    const abort = session.beginRead();
-    session.update({ busy: 'load', reviewed: null });
-    try {
-      const result = await load(
-        { server_id: current.serverId, query, cursor },
-        abort.signal,
-      );
-      if (abort.signal.aborted) return;
-      if (
-        result.schema_version !== 1 ||
-        result.server_id !== current.serverId ||
-        result.items.length > 50
-      )
-        throw Error();
-      session.update({
-        page: result,
-        filter: query,
-        cursor,
-        busy: '',
-        message: '',
-      });
-    } catch {
-      if (!abort.signal.aborted)
+  const read = useCallback(
+    async (query: string, cursor?: string, keepMessage = false) => {
+      const current = session.getSnapshot();
+      if (!current.active || current.busy) return;
+      const abort = session.beginRead();
+      session.update({ busy: 'load', reviewed: null });
+      try {
+        const result = await load(
+          { server_id: current.serverId, query, cursor },
+          abort.signal,
+        );
+        if (abort.signal.aborted) return;
+        if (
+          result.schema_version !== 1 ||
+          result.server_id !== current.serverId ||
+          result.items.length > 50
+        )
+          throw Error();
         session.update({
+          page: result,
+          filter: query,
+          cursor,
           busy: '',
-          message:
-            'Saved permissions are unavailable or changed. Return to the first page.',
+          ...(keepMessage ? {} : { message: '' }),
         });
-    } finally {
-      session.endRead(abort);
-    }
-  };
+      } catch {
+        if (!abort.signal.aborted)
+          session.update({
+            busy: '',
+            message:
+              'Saved permissions are unavailable or changed. Return to the first page.',
+          });
+      } finally {
+        session.endRead(abort);
+      }
+    },
+    [session, load],
+  );
+  // A save in any MCP panel changes the revision: read the permissions again.
+  useEffect(
+    () =>
+      mcpRevision.subscribe((source) => {
+        const current = session.getSnapshot();
+        if (source !== session && current.page)
+          void read(current.filter, current.cursor, true);
+      }),
+    [session, read],
+  );
   useEffect(() => {
     const current = session.getSnapshot();
     if (!current.active || current.page || current.busy) return;
@@ -245,19 +259,37 @@ export default function McpPolicyControls({
       !canSave
     )
       return;
-    const command: McpPolicyCommand = {
-      command_id: crypto.randomUUID(),
-      type: 'mcp.configuration.control',
-      payload: {
-        configuration_revision: current.page.revision,
-        intent: current.draft,
-      },
-    };
+    const intent = current.draft;
+    const sent: { command?: McpPolicyCommand } = {};
     const abort = session.beginRead();
     session.update({ busy: 'review', reviewed: null, message: '' });
     try {
-      const result = await review(command.payload, abort.signal);
-      if (abort.signal.aborted) return;
+      const result = await reviewFresh(
+        (revision) => {
+          sent.command = {
+            command_id: crypto.randomUUID(),
+            type: 'mcp.configuration.control',
+            payload: { configuration_revision: revision, intent },
+          };
+          return review(sent.command.payload, abort.signal);
+        },
+        current.page.revision,
+        async () => {
+          const page = await load(
+            {
+              server_id: current.serverId,
+              query: current.filter,
+              cursor: current.cursor,
+            },
+            abort.signal,
+          );
+          if (page.server_id !== current.serverId) return null;
+          session.update({ page });
+          return page.revision;
+        },
+      );
+      const command = sent.command;
+      if (abort.signal.aborted || !command) return;
       if (
         result.configuration_revision !== command.payload.configuration_revision
       )
@@ -297,17 +329,20 @@ export default function McpPolicyControls({
       if (
         result.status === 'completed' &&
         result.mcp_configuration?.status === 'saved'
-      )
+      ) {
         session.update({
           pending: null,
           draft: null,
           draftLabel: '',
           busy: '',
           page: page ? { ...page, revision: null } : null,
-          message:
-            'Permission saved. Refresh to view current settings. Connection cleanup was not requested.',
+          message: 'Permission saved.',
         });
-      else if (result.status === 'rejected')
+        // Every MCP panel reads the new revision; this one shows it now.
+        mcpRevision.saved(session);
+        const saved = session.getSnapshot();
+        void read(saved.filter, saved.cursor, true);
+      } else if (result.status === 'rejected')
         session.update({
           pending: null,
           busy: '',

@@ -37,7 +37,7 @@ export default function RuntimeInstallations() {
       <summary>
         <span>
           <strong>Managed runtimes</strong>
-          <small>Advanced Node.js and uv installation controls</small>
+          <small>Node.js and uv for servers that run on this device</small>
         </span>
       </summary>
       <section className="stack" aria-label="Managed runtimes">

@@ -856,7 +856,7 @@ test('Document queue reviews pause resume cancellation and clearing while preser
   });
 });
 
-test('Managed runtimes review metadata then install exact archive and retain route state', async ({
+test('Managed runtimes install the reviewed exact archive with one Install and keep their state across routes', async ({
   page,
 }, info) => {
   const headers = {
@@ -889,18 +889,21 @@ test('Managed runtimes review metadata then install exact archive and retain rou
     name: 'node managed runtime installation',
     exact: true,
   });
-  expect((await saved()).calls).toEqual([]);
-  // Resolution and installation are reviewed by the server and run in one step.
-  await runtime
-    .getByRole('button', { name: 'Resolve metadata', exact: true })
-    .click();
   await expect(
-    runtime.getByText(
-      'Original operation: resolved. Worker cleanup: confirmed.',
-      { exact: true },
-    ),
+    runtime.getByText('Not installed', { exact: true }),
   ).toBeVisible();
-  expect((await saved()).calls).toEqual(['resolve']);
+  expect((await saved()).calls).toEqual([]);
+  // One Install: the server reviews the metadata resolution and then the
+  // pinned archive, and the row follows it until it is installed.
+  await runtime.getByRole('button', { name: 'Install', exact: true }).click();
+  await expect(
+    runtime.getByText('Installed v1.2.3', { exact: true }),
+  ).toBeVisible();
+  expect(await saved()).toEqual({
+    calls: ['resolve', 'download'],
+    installed: true,
+    synthetic_bytes: true,
+  });
   await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'MCP',
@@ -908,39 +911,26 @@ test('Managed runtimes review metadata then install exact archive and retain rou
     headingName: 'MCP',
   });
   await expandRuntimes();
-  // The resolved operation is retained by its owner across navigation.
+  // The installed state is read again, not repeated, after navigation.
   await expect(
-    runtime.getByText(
-      'Original operation: resolved. Worker cleanup: confirmed.',
-      { exact: true },
-    ),
+    runtime.getByText('Installed v1.2.3', { exact: true }),
   ).toBeVisible();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
-    await screenshot(page, info, `runtime-installation-resolved-${appearance}`);
+    await screenshot(
+      page,
+      info,
+      `runtime-installation-installed-${appearance}`,
+    );
     await accessibility(
       page,
       info,
-      `runtime-installation-resolved-${appearance}`,
+      `runtime-installation-installed-${appearance}`,
     );
   }
   await runtime
-    .getByRole('button', { name: 'Install pinned runtime', exact: true })
-    .click();
-  await expect(
-    runtime.getByText(
-      'Original operation: installed. Worker cleanup: confirmed.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  expect(await saved()).toEqual({
-    calls: ['resolve', 'download'],
-    installed: true,
-    synthetic_bytes: true,
-  });
-  await runtime
-    .getByRole('button', { name: 'Refresh installation status', exact: true })
+    .getByRole('button', { name: 'Check Node.js again', exact: true })
     .click();
   expect((await saved()).calls).toEqual(['resolve', 'download']);
 });
@@ -1960,7 +1950,9 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
     await editor
       .getByRole('button', { name: 'Save Disabled', exact: true })
       .click();
-    await expect(editor.getByText(/^Saved disabled\./)).toBeVisible();
+    await expect(
+      editor.getByText(/^Saved\. It stays turned off/),
+    ).toBeVisible();
     await chooseFromMenu(editor, 'More MCP actions', 'Refresh');
     // The re-read unlocks the form; its empty Add draft waits for a name
     // and a command before Save Disabled is offered again.

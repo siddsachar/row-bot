@@ -336,6 +336,29 @@ def test_directory_search_is_explicit_and_returns_disabled_import(owner, monkeyp
     assert not config.CONFIG_PATH.exists()
 
 
+def test_every_curated_entry_imports_against_a_fresh_revision(owner, monkeypatch):
+    from row_bot.application.client_mcp_directory import search_directory
+    from row_bot.mcp_client import marketplace
+
+    catalog = list(marketplace.CURATED_STARTER_CATALOG)
+    monkeypatch.setattr(marketplace, "search_marketplace_with_status",
+        lambda query, *, limit: marketplace.MarketplaceSearchResult(catalog[:limit], "curated", query))
+    items = search_directory("", validate=lambda: None)["items"]
+    assert len(items) == min(len(catalog), 24)
+    for item in items:
+        # Each import reads the revision the previous save produced (B262).
+        value = command({"operation": "import", "import_json": item["import_json"]})
+        controls.review_mcp_configuration_command(
+            value["payload"]["configuration_revision"], value["payload"]["intent"], validate=lambda: None)
+        assert execute(value)["mcp_configuration"]["status"] == "saved", item["id"]
+    assert controls.read_mcp_configuration(limit=50).total == len(items)
+    # Remote servers that sign in through the browser are marked; token-based ones are not.
+    marked = {item["id"] for item in items if item["sign_in_required"]}
+    assert "makenotion-notion-mcp-server" in marked and "slack-mcp" in marked
+    assert not marked & {"xquik-mcp", "github-github-mcp-server", "upstash-context7", "microsoftdocs-mcp",
+                         "microsoft-playwright"}
+
+
 def test_response_loss_reconciles_owned_publication_without_new_write(
     owner, monkeypatch
 ):

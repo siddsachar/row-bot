@@ -24,7 +24,12 @@ import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
 import CapabilitySettings from './CapabilitySettings';
 import McpFacadeControls from './McpFacadeControls';
-import { addAndConnect, type AddConnectApi } from './mcp-add-connect';
+import {
+  addAndConnect,
+  turnOnServer,
+  type AddConnectApi,
+  type TurnOnApi,
+} from './mcp-add-connect';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
 import McpConnectionsPanel from './McpConnections';
@@ -520,6 +525,17 @@ export default function SettingRoute() {
                   review: controller.reviewMcpPolicy,
                   execute: controller.executeMcpConfiguration,
                 }}
+                turnOn={(serverId) =>
+                  turnOnServer(
+                    {
+                      policy: (query) => controller.mcpPolicy(query),
+                      reviewPolicy: (body) => controller.reviewMcpPolicy(body),
+                      executeConfiguration: (command, review) =>
+                        controller.executeMcpConfiguration(command, review),
+                    } as TurnOnApi,
+                    serverId,
+                  )
+                }
               />
             )}
             <RuntimeInstallations />

@@ -11,6 +11,7 @@ import McpPolicyControls, {
   type McpPolicyPage,
 } from './McpPolicyControls';
 import type { McpConfigurationReceipt } from './CapabilitySettings';
+import { mcpRevision } from './mcp-revision';
 
 const serverId = 'a'.repeat(64);
 const page: McpPolicyPage = {
@@ -75,6 +76,27 @@ async function selectPermission(button = 'Disable Server access') {
   await screen.findByRole('button', { name: button });
   fireEvent.click(screen.getByRole('button', { name: button }));
 }
+
+it('reads permissions again when another MCP panel saves, and after a conflict retries once', async () => {
+  const props = options();
+  render(<McpPolicyControls {...props} />);
+  await screen.findByText('2 saved tool permissions.');
+  const fresh = { ...page, revision: '9'.repeat(64) };
+  props.load.mockResolvedValue(fresh);
+  act(() => mcpRevision.saved('another panel'));
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  props.review.mockRejectedValueOnce({
+    code: 'revision_conflict',
+    status: 409,
+  });
+  props.load.mockResolvedValue({ ...page, revision: '8'.repeat(64) });
+  await selectPermission();
+  await screen.findByText('Permission saved.');
+  expect(
+    props.review.mock.calls.map((call) => call[0].configuration_revision),
+  ).toEqual(['9'.repeat(64), '8'.repeat(64)]);
+  expect(props.execute).toHaveBeenCalledOnce();
+});
 
 it('only reads saved policy on mount and preserves mandatory approval', async () => {
   const props = options();
@@ -141,9 +163,9 @@ it.each([
       configuration_revision: page.revision,
       intent,
     });
-    expect(
-      screen.getByText(/Connection cleanup was not requested/),
-    ).toBeVisible();
+    // The saved permissions are read again with the new revision.
+    await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Permission saved.')).toBeVisible();
     expect(props.session.hasRetained()).toBe(false);
   },
 );

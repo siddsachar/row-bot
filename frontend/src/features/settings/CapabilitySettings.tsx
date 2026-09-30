@@ -23,6 +23,7 @@ import {
 import { humanizeToken } from '../../ui/format';
 import { SettingsSummary, SummaryChip } from './anatomy';
 import type { AddConnectStep } from './mcp-add-connect';
+import { mcpRevision, reviewFresh } from './mcp-revision';
 
 export type McpConfigurationPage = {
   schema_version: 1;
@@ -117,6 +118,11 @@ type State = {
   pending: Attempt | null;
   busy: string;
   message: string;
+  /**
+   * Where the message is shown: next to what was clicked ("editor", "list",
+   * "directory:<id>"), or at the top of the page ("page").
+   */
+  origin: string;
   active: boolean;
 };
 
@@ -131,6 +137,7 @@ export function createCapabilitySettingsSession() {
     pending: null,
     busy: '',
     message: '',
+    origin: 'page',
     active: true,
   };
   const listeners = new Set<() => void>();
@@ -181,6 +188,7 @@ export function createCapabilitySettingsSession() {
         pending: null,
         busy: '',
         message: 'Sign in again to manage MCP settings.',
+        origin: 'page',
         active: false,
       };
       listeners.forEach((notify) => notify());
@@ -228,6 +236,8 @@ export type CapabilitySettingsProps = {
       transport: string;
       risk_level: string;
       requires_auth: boolean;
+      /** Signs in through the browser (OAuth), which is not supported yet. */
+      sign_in_required: boolean;
       recommended: boolean;
       import_json: string;
     }[];
@@ -399,10 +409,43 @@ export default function CapabilitySettings({
     name: string;
   } | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  // Add server and Import config open the editor with its first field focused.
+  const [focusField, setFocusField] = useState<'name' | 'import' | null>(null);
+  const nameField = useRef<HTMLInputElement>(null);
+  const importField = useRef<HTMLTextAreaElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   useEffect(() => () => clearTimeout(searchTimer.current), []);
+  useEffect(() => {
+    if (!focusField || !editorOpen) return;
+    const field = (focusField === 'name' ? nameField : importField).current;
+    field?.scrollIntoView?.({ block: 'center' });
+    field?.focus({ preventScroll: true });
+    setFocusField(null);
+  }, [focusField, editorOpen]);
+  // Another MCP panel saved: read the saved servers again for the new revision.
+  useEffect(
+    () =>
+      mcpRevision.subscribe((source) => {
+        const current = session.getSnapshot();
+        if (source === session || !current.active || !current.page) return;
+        const abort = session.beginRead();
+        void load(
+          { query: current.filter, cursor: current.cursor },
+          abort.signal,
+        )
+          .then(
+            (result) => {
+              if (!abort.signal.aborted && result.items.length <= 50)
+                session.update({ page: result });
+            },
+            () => undefined, // The next review reads again on a conflict.
+          )
+          .finally(() => session.endRead(abort));
+      }),
+    [session, load],
+  );
   const { page, draft, busy, pending } = state;
   const locked = Boolean(busy || pending || !state.active);
   const nameInvalid =
@@ -429,6 +472,7 @@ export default function CapabilitySettings({
             if (result.items.length > 50)
               session.update({
                 busy: '',
+                origin: 'page',
                 message:
                   'Saved MCP settings are unavailable. Refresh to try again.',
               });
@@ -439,6 +483,7 @@ export default function CapabilitySettings({
           if (!abort.signal.aborted)
             session.update({
               busy: '',
+              origin: 'page',
               message:
                 'Saved MCP settings are unavailable. Refresh to try again.',
             });
@@ -460,6 +505,7 @@ export default function CapabilitySettings({
       if (!abort.signal.aborted)
         session.update({
           busy: '',
+          origin: 'page',
           message:
             'Saved MCP settings changed or are unavailable. Return to the first page.',
         });
@@ -473,7 +519,10 @@ export default function CapabilitySettings({
       reviewed: null,
       message: '',
     });
-  const requestReview = async (override?: McpConfigurationIntent) => {
+  const requestReview = async (
+    override?: McpConfigurationIntent,
+    origin = 'editor',
+  ) => {
     if (
       session.getSnapshot().busy ||
       session.getSnapshot().pending ||
@@ -483,18 +532,34 @@ export default function CapabilitySettings({
     )
       return;
     const abort = session.beginRead();
-    session.update({ busy: 'review', reviewed: null, message: '' });
+    session.update({ busy: 'review', reviewed: null, message: '', origin });
     try {
       const intent = override ?? buildIntent(draft);
       if (new TextEncoder().encode(JSON.stringify(intent)).length > 128 * 1024)
         throw Error();
-      const command: McpConfigurationCommand = {
-        command_id: crypto.randomUUID(),
-        type: 'mcp.configuration.save',
-        payload: { configuration_revision: page.revision, intent },
-      };
-      const result = await review(command.payload, abort.signal);
+      const sent: { command?: McpConfigurationCommand } = {};
+      const result = await reviewFresh(
+        (revision) => {
+          sent.command = {
+            command_id: crypto.randomUUID(),
+            type: 'mcp.configuration.save',
+            payload: { configuration_revision: revision, intent },
+          };
+          return review(sent.command.payload, abort.signal);
+        },
+        page.revision,
+        async () => {
+          // A page cursor names the old revision; read the first page again.
+          const fresh = boundedPage(
+            await load({ query: session.getSnapshot().filter }, abort.signal),
+          );
+          session.update({ page: fresh, cursor: undefined });
+          return fresh.revision;
+        },
+      );
+      const command = sent.command;
       if (
+        !command ||
         result.configuration_revision !== command.payload.configuration_revision
       )
         throw Error();
@@ -507,12 +572,13 @@ export default function CapabilitySettings({
         });
         void save(attempt);
       }
-    } catch {
+    } catch (cause) {
       if (!abort.signal.aborted)
         session.update({
           busy: '',
-          message:
-            'The settings could not be validated. Check the fields and refresh saved settings.',
+          message: (cause as { code?: string } | null)?.code
+            ? clientError(cause).message
+            : 'The settings could not be validated. Check the fields and refresh saved settings.',
         });
     } finally {
       session.endRead(abort);
@@ -580,12 +646,17 @@ export default function CapabilitySettings({
             : null,
           message: deleted
             ? 'Server deleted. Its connection is stopped or no longer running.'
-            : 'Saved disabled. Connection cleanup was not requested.',
+            : 'Saved. It stays turned off until you connect it.',
         });
+        mcpRevision.saved(session);
         // Show the saved list as it is now; keep the outcome message.
-        const saved = session.getSnapshot().message;
-        await refresh(session.getSnapshot().filter);
-        if (!session.getSnapshot().message) session.update({ message: saved });
+        const refreshKeepingMessage = async () => {
+          const saved = session.getSnapshot().message;
+          await refresh(session.getSnapshot().filter);
+          if (!session.getSnapshot().message)
+            session.update({ message: saved });
+        };
+        await refreshKeepingMessage();
         const serverId = (
           result.mcp_configuration as { server_ids?: string[] } | undefined
         )?.server_ids?.[0];
@@ -609,7 +680,9 @@ export default function CapabilitySettings({
             });
           } finally {
             setConnecting('');
-            await refresh(session.getSnapshot().filter);
+            // Its tools were accepted and it was turned on: other panels read again.
+            mcpRevision.saved(session);
+            await refreshKeepingMessage();
             if (typeof name === 'string') onConnection?.(serverId, name);
           }
         }
@@ -642,6 +715,34 @@ export default function CapabilitySettings({
       });
     }
   };
+  // The message (and Check original save) sits next to what was clicked; if
+  // that place is gone (a new directory search), it shows at the top.
+  const shown = new Set([
+    'editor',
+    ...(page
+      ? [
+          'list',
+          ...(directoryResult?.items ?? []).map(
+            (entry) => `directory:${entry.source}:${entry.id}`,
+          ),
+        ]
+      : []),
+  ]);
+  const origin = shown.has(state.origin) ? state.origin : 'page';
+  const note = (at: string) =>
+    origin === at && (state.message || pending) ? (
+      <>
+        {state.message && <p role="status">{state.message}</p>}
+        {pending && (
+          <Button
+            disabled={Boolean(busy) || !state.active}
+            onClick={() => void save(pending)}
+          >
+            Check original save
+          </Button>
+        )}
+      </>
+    ) : null;
   return (
     <section
       aria-label="MCP configuration"
@@ -689,6 +790,7 @@ export default function CapabilitySettings({
               An interrupted save requires recovery before new changes.
             </p>
           )}
+          {note('page')}
           <form
             className="settings-list-toolbar settings-mcp-primary-actions"
             role="search"
@@ -730,6 +832,7 @@ export default function CapabilitySettings({
                   message: '',
                 });
                 setEditorOpen(true);
+                setFocusField('name');
               }}
             >
               <Plus size={15} aria-hidden />
@@ -753,6 +856,7 @@ export default function CapabilitySettings({
                     });
                     setEditorOpen(true);
                   },
+                  afterClose: () => setFocusField('import'),
                 },
                 {
                   label: 'Refresh',
@@ -810,7 +914,7 @@ export default function CapabilitySettings({
                 <span>
                   <strong>Browse MCP servers</strong>
                   <small>
-                    Directory results are saved disabled until tested
+                    Imported servers stay turned off until you connect them
                   </small>
                 </span>
               </summary>
@@ -846,6 +950,7 @@ export default function CapabilitySettings({
                   <article
                     className="card stack"
                     key={`${entry.source}:${entry.id}`}
+                    aria-label={entry.name}
                   >
                     <strong>{entry.name}</strong>
                     <p>{entry.description || 'No description provided.'}</p>
@@ -856,23 +961,40 @@ export default function CapabilitySettings({
                       {entry.risk_level
                         ? `${humanizeToken(entry.risk_level).toLowerCase()} risk`
                         : 'Risk unknown'}
-                      {entry.requires_auth ? ' · Account required' : ''}
+                      {entry.requires_auth && !entry.sign_in_required
+                        ? ' · Account required'
+                        : ''}
                     </small>
                     <details>
                       <summary>Configuration preview</summary>
                       <pre className="text-preview">{entry.import_json}</pre>
                     </details>
-                    <Button
-                      disabled={locked || !canSave}
-                      onClick={() =>
-                        void requestReview({
-                          operation: 'import',
-                          import_json: entry.import_json,
-                        })
-                      }
-                    >
-                      Import {entry.name} disabled
-                    </Button>
+                    {entry.sign_in_required ? (
+                      // Browser sign-in (OAuth) isn't supported yet (B262).
+                      <p className="settings-help">
+                        <strong>Needs sign-in (not supported yet)</strong>
+                        <br />
+                        This server signs in through the browser, which Row-Bot
+                        can’t do yet, so it couldn’t connect.
+                      </p>
+                    ) : (
+                      <Button
+                        aria-label={`Import ${entry.name}`}
+                        disabled={locked || !canSave}
+                        onClick={() =>
+                          void requestReview(
+                            {
+                              operation: 'import',
+                              import_json: entry.import_json,
+                            },
+                            `directory:${entry.source}:${entry.id}`,
+                          )
+                        }
+                      >
+                        Import
+                      </Button>
+                    )}
+                    {note(`directory:${entry.source}:${entry.id}`)}
                   </article>
                 ))}
                 {directoryResult?.items.length === 0 && (
@@ -884,6 +1006,7 @@ export default function CapabilitySettings({
               </div>
             </details>
           )}
+          {note('list')}
           <ul className="settings-results settings-mcp-server-list">
             {page.items.map((server) => (
               <li className="settings-mcp-server-row" key={server.server_id}>
@@ -1098,6 +1221,7 @@ export default function CapabilitySettings({
           {draft.operation === 'import' ? (
             <Field label="Server import JSON">
               <textarea
+                ref={importField}
                 className="input"
                 rows={6}
                 value={draft.imported}
@@ -1115,6 +1239,7 @@ export default function CapabilitySettings({
                 }
               >
                 <Input
+                  ref={nameField}
                   value={draft.name}
                   maxLength={128}
                   disabled={draft.operation === 'edit'}
@@ -1239,6 +1364,7 @@ export default function CapabilitySettings({
           </div>
           {connecting && <p role="status">{connecting}</p>}
         </fieldset>
+        {note('editor')}
       </details>
       <ModalTask
         open={deleteTarget !== null}
@@ -1258,25 +1384,17 @@ export default function CapabilitySettings({
               if (!deleteTarget) return;
               const target = deleteTarget;
               setDeleteTarget(null);
-              void requestReview({
-                operation: 'delete',
-                server_id: target.server_id,
-              });
+              void requestReview(
+                { operation: 'delete', server_id: target.server_id },
+                'list',
+              );
             }}
           >
             Delete server
           </Button>
         </div>
       </ModalTask>
-      {pending && (
-        <Button
-          disabled={Boolean(busy) || !state.active}
-          onClick={() => void save(pending)}
-        >
-          Check original save
-        </Button>
-      )}
-      {state.message && <p role="status">{state.message}</p>}
+      {!page && note('page')}
     </section>
   );
 }

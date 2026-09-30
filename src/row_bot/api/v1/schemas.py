@@ -1829,6 +1829,7 @@ class McpDirectoryEntry(WireModel):
     transport: str = Field(max_length=32)
     risk_level: str = Field(max_length=32)
     requires_auth: bool
+    sign_in_required: bool
     recommended: bool
     import_json: str = Field(max_length=8192)
 
@@ -3973,6 +3974,8 @@ class RuntimeInstallationSnapshot(WireModel):
     installed: bool | None
     active_command_id: UUID | None
     quiesced: bool | None
+    version: str | None = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+    system_available: bool | None
 
 
 class RuntimeInstallationReviewRequest(WireModel):
@@ -4238,6 +4241,8 @@ class McpRuntimeState(WireModel):
         "missing",
     ]
     session_quiesced: bool | None
+    # MCP and this server are both turned on; Connect is refused until they are.
+    enabled: bool | None
 
 
 class McpRuntimeReviewRequest(WireModel):

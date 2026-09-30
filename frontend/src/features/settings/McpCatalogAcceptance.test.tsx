@@ -171,7 +171,9 @@ it.each(['unavailable', 'stale', 'recovery_required'])(
     const props = options();
     props.load.mockResolvedValue({ ...page, availability });
     render(<McpCatalogAcceptance {...props} />);
-    await screen.findByText(/Catalog:/);
+    await screen.findByText(
+      /Test it again|needs to finish first|Test the server again/,
+    );
     expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
     expect(props.execute).not.toHaveBeenCalled();
   },
