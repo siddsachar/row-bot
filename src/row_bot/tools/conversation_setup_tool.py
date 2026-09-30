@@ -322,7 +322,10 @@ def _bound_folder(conversation_id: str, asked: str = "") -> str | None:
     title = descriptor.title
     context = current_execution_context()
     note = ""
-    if asked and asked.casefold() != title.casefold():
+    # Only another folder the person added under exactly that name is a
+    # different folder: a name nothing matches is answered by the folder
+    # they picked on the card (the resumed turn runs this tool again).
+    if asked and asked.casefold() != title.casefold() and _named(asked, _registered_folders())[0]:
         note = (f" A conversation works in one code folder: to use “{asked}” instead, the person "
                 f"removes “{title}” under Context › Working on first.")
     if context is not None and binding in context.bindings:

@@ -172,8 +172,13 @@ def test_several_matching_names_ask_which_on_a_card(creation, monkeypatch, tmp_p
     with _in(conversation):
         bound = json.loads(use_code_folder("web"))
     assert bound["ok"] is True and bound["resource_id"] == picked["resource_id"]
-    # The folder the person picked is the one they meant, whatever its name.
-    assert "one code folder" not in bound["next"]
+    # The folder the person picked is the one they meant, whatever its name,
+    # also when the resumed turn runs the tool again from the top.
+    _no_cards(monkeypatch)
+    with _in(conversation):
+        resumed = json.loads(use_code_folder("web"))
+    for answer in (bound, resumed):
+        assert answer["resource_id"] == picked["resource_id"] and "one code folder" not in answer["next"]
     assert [item.resource_id for item in list_bindings(conversation).bindings] == [picked["resource_id"]]
 
 
@@ -214,6 +219,11 @@ def test_no_match_offers_choose_folder_and_the_picked_folder_is_bound(creation, 
     assert "tide app" in shown[0]["description"]
     assert result["ok"] is True and result["kind"] == "resource_bound" and result["name"] == "tide-app"
     assert "one code folder" not in result["next"], "the pick answers the request, it isn't a second folder"
+    # The resumed turn runs the tool again from the top and finds it bound.
+    _no_cards(monkeypatch)
+    with _in(conversation):
+        resumed = json.loads(use_code_folder("tide app"))
+    assert resumed["binding_id"] == result["binding_id"] and "one code folder" not in resumed["next"]
     binding = list_bindings(conversation).bindings[0]
     assert binding.binding_id == result["binding_id"]
     assert Path(get_workspace(binding.resource_id).path) == picked
