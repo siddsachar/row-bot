@@ -223,8 +223,11 @@ test('a delegated agent can be messaged and stopped from Agents', async ({
     await card
       .getByRole('button', { name: 'Send to agent', exact: true })
       .click();
+    // Said in the card; the floating notice repeats it.
     await expect(
-      page.getByText('Message sent. The agent reads it at its next step.'),
+      page.getByText('Message sent. The agent reads it at its next step.', {
+        exact: true,
+      }),
     ).toBeVisible();
     await screenshot(page, testInfo, 'agent-message-sent');
     await child.hover();

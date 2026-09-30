@@ -110,7 +110,9 @@ test('subscription: ChatGPT device code with Copy and automatic checks', async (
     )
       reviews.push(String(request.postDataJSON()?.operation));
   });
-  await page.getByRole('button', { name: 'Connect' }).click();
+  // Exact: conversations named from their first words ("Read my calendar
+  // connect fixture", B230) are buttons too.
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(page.getByText('SYNTHETIC', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Copy device code' }),
