@@ -161,6 +161,11 @@
       "const": 1,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "skill_name": {
+      "maxLength": 160,
+      "title": "Skill Name",
+      "type": "string"
     }
   },
   "required": [
@@ -168,6 +173,7 @@
     "preview_id",
     "content_hash",
     "entry",
+    "skill_name",
     "primary_text",
     "files",
     "scan"

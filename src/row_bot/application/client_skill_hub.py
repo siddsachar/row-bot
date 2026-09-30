@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import time
+from dataclasses import replace
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -14,13 +16,20 @@ from row_bot.skills_hub.models import SkillBundle, SkillHubEntry
 from row_bot.skills_hub import provenance
 from row_bot.skills_hub.models import SkillInstallRecord
 from row_bot.skills_hub.scanner import scan_bundle
+from row_bot.skills_hub.source_registry import SkillSourceTimeout
+
+logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
-_CATALOGS: dict[str, tuple[float, str, dict[str, SkillHubEntry]]] = {}
+# Per owner, the last few result lists by revision: a skill opened from a list
+# still previews after "Load more" or a late source replaced that list.
+_CATALOGS: dict[str, dict[str, tuple[float, dict[str, SkillHubEntry]]]] = {}
+_CATALOG_REVISIONS = 4
 _PREVIEWS: dict[tuple[str, str], tuple[float, SkillBundle, dict[str, Any]]] = {}
 _COMMANDS: dict[tuple[str, str], tuple[str, dict[str, Any] | None]] = {}
 _MAINTENANCE: dict[tuple[str, str], tuple[str, dict[str, Any] | None]] = {}
 _TTL = 20 * 60
+MAX_RESULTS = 96
 
 
 class SkillHubCommandError(ValueError):
@@ -53,35 +62,47 @@ def search_public_skills(
     query: str,
     source: str = "all",
     refresh: bool = False,
+    limit: int = 24,
 ) -> dict[str, Any]:
-    if len(query) > 2000 or source not in {
-        "all",
-        "github",
-        "skills_sh",
-        "browse_sh",
-        "clawhub",
-        "lobehub",
-    }:
+    if (
+        len(query) > 2000
+        or not 1 <= limit <= MAX_RESULTS
+        or source
+        not in {
+            "all",
+            "github",
+            "skills_sh",
+            "browse_sh",
+            "clawhub",
+            "lobehub",
+        }
+    ):
         raise SkillHubCommandError("invalid_skill_query")
-    result = catalog.search_skills(
-        query.strip(), source=source, limit=24, force_refresh=refresh
-    )
-    entries = [entry for entry in result.entries if 0 < len(entry.id) <= 256][:24]
+    try:
+        # One more than shown says whether "Load more" has anything to add.
+        result = catalog.search_skills(
+            query.strip(), source=source, limit=limit + 1, force_refresh=refresh
+        )
+    except SkillSourceTimeout as exc:
+        raise SkillHubCommandError("skill_source_timeout") from exc
+    found = [entry for entry in result.entries if 0 < len(entry.id) <= 256]
+    entries = found[:limit]
     revision = _catalog_revision(entries)
     with _LOCK:
         if len(_CATALOGS) >= 32 and owner_id not in _CATALOGS:
             _CATALOGS.pop(next(iter(_CATALOGS)))
-        _CATALOGS[owner_id] = (
-            time.monotonic(),
-            revision,
-            {entry.id: entry for entry in entries},
-        )
+        lists = _CATALOGS.setdefault(owner_id, {})
+        lists.pop(revision, None)
+        lists[revision] = (time.monotonic(), {entry.id: entry for entry in entries})
+        while len(lists) > _CATALOG_REVISIONS:
+            lists.pop(next(iter(lists)))
     return {
         "schema_version": 1,
         "revision": revision,
         "mode": result.mode[:40],
         "query": result.query[:2000],
         "entries": [_entry_public(entry) for entry in entries],
+        "has_more": len(found) > limit,
         "source_statuses": [
             {
                 "source_id": status.source_id[:80],
@@ -101,21 +122,36 @@ def preview_public_skill(
     entry_id: str,
 ) -> dict[str, Any]:
     with _LOCK:
-        cached = _CATALOGS.get(owner_id)
-        if cached is None or time.monotonic() - cached[0] > _TTL:
+        now = time.monotonic()
+        lists = _CATALOGS.get(owner_id, {})
+        if not any(now - stamp <= _TTL for stamp, _entries in lists.values()):
             raise SkillHubCommandError("skill_catalog_expired")
-        if cached[1] != revision or entry_id not in cached[2]:
+        listed = lists.get(revision)
+        if listed is None or now - listed[0] > _TTL or entry_id not in listed[1]:
             raise SkillHubCommandError("skill_catalog_changed")
-        entry = cached[2][entry_id]
-    bundle = catalog.inspect_entry(entry)
+        entry = listed[1][entry_id]
+    try:
+        bundle = catalog.inspect_entry(entry)
+    except SkillSourceTimeout as exc:
+        raise SkillHubCommandError("skill_source_timeout") from exc
+    except Exception as exc:
+        logger.warning("Skill preview from %s failed: %s", entry.source, type(exc).__name__)
+        raise SkillHubCommandError("skill_preview_unavailable") from exc
+    # The install record keeps the listing it came from, so search can mark it
+    # installed even when the files came from another address.
+    bundle = replace(bundle, metadata={**bundle.metadata, "hub_entry_ref": entry.install_ref})
     scan = scan_bundle(bundle)
+    local_name, taken = installer.install_name(bundle)
+    shown = _entry_public(entry)
+    shown["installed"] = shown["installed"] or taken
     preview_id = uuid4().hex
     primary = bundle.primary_file()
     summary = {
         "schema_version": 1,
         "preview_id": preview_id,
         "content_hash": bundle.content_hash,
-        "entry": _entry_public(entry),
+        "entry": shown,
+        "skill_name": local_name[:160],
         "primary_text": (primary.text if primary else "")[:6000],
         "files": bundle.file_tree()[:100],
         "scan": {

@@ -1026,6 +1026,7 @@ class SkillHubSearchRequest(WireModel):
         "all"
     )
     refresh: bool = False
+    limit: int = Field(default=24, ge=1, le=96)
 
 
 class SkillHubSearchResult(WireModel):
@@ -1033,7 +1034,8 @@ class SkillHubSearchResult(WireModel):
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     mode: str = Field(max_length=40)
     query: str = Field(max_length=2000)
-    entries: list[SkillHubEntryView] = Field(max_length=24)
+    entries: list[SkillHubEntryView] = Field(max_length=96)
+    has_more: bool
     source_statuses: list[SkillHubSourceStatus] = Field(max_length=12)
     error: str = Field(max_length=500)
 
@@ -1061,6 +1063,7 @@ class SkillHubPreview(WireModel):
     preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     entry: SkillHubEntryView
+    skill_name: str = Field(max_length=160)
     primary_text: str = Field(max_length=6000)
     files: list[str] = Field(max_length=100)
     scan: SkillHubScanView

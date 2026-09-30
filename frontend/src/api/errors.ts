@@ -1987,6 +1987,11 @@ const CATALOG: Record<string, Entry> = {
     'retry',
     RETRY,
   ],
+  skill_preview_unavailable: [
+    "Row-Bot couldn't read this skill's files from its source. Try again later or choose another skill.",
+    'retry',
+    RETRY,
+  ],
   skill_proposal_changed: [
     'The suggested skill change was updated. Look at it again.',
     'retry',
@@ -2005,6 +2010,11 @@ const CATALOG: Record<string, Entry> = {
   skill_record_changed: ['The skill changed. Try again.', 'retry', RETRY],
   skill_revision_conflict: [
     'The skill changed somewhere else. Try again with the current version.',
+    'retry',
+    RETRY,
+  ],
+  skill_source_timeout: [
+    "The skill's source took too long to answer. Try again in a moment.",
     'retry',
     RETRY,
   ],

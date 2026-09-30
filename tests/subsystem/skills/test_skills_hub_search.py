@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
+import urllib.error
 from pathlib import Path
 
+import pytest
+
+from row_bot.skills_hub import github_source, provenance, source_registry
 from row_bot.skills_hub.catalog import search_skills
-from row_bot.skills_hub.models import SourceResult, SkillHubEntry
+from row_bot.skills_hub.models import (
+    SkillBundle,
+    SkillHubEntry,
+    SkillInstallRecord,
+    SourceResult,
+)
 from row_bot.skills_hub.search_index import search_entries, tokenize
 from row_bot.skills_hub.source_registry import SkillSourceRegistry
 
@@ -163,3 +174,229 @@ def test_source_cache_ignores_payloads_without_current_schema(tmp_path: Path, mo
     }), encoding="utf-8")
 
     assert source_registry._read_source_cache("skills_sh", "search", "python") is None
+
+
+@pytest.fixture
+def hub_cache(tmp_path: Path, monkeypatch):
+    """Keep the public index cache and install records in this test's folder."""
+    import row_bot.skills as skills
+
+    monkeypatch.setattr(skills, "USER_SKILLS_DIR", tmp_path / "skills")
+    return tmp_path
+
+
+class _EventSource:
+    """A fake public source; a test holds its answer back with an event."""
+
+    def __init__(
+        self,
+        source_id: str,
+        entries: list[SkillHubEntry],
+        *,
+        release: threading.Event | None = None,
+        failure: Exception | None = None,
+    ):
+        self.id = source_id
+        self.display_name = {"clawhub": "ClawHub", "skills_sh": "skills.sh"}.get(source_id, source_id)
+        self.trust_default = "community"
+        self.supports_browse = True
+        self.supports_search = True
+        self.supports_import = False
+        self.calls: list[str] = []
+        self._entries = entries
+        self._release = release
+        self._failure = failure
+
+    def _answer(self, operation: str) -> None:
+        self.calls.append(operation)
+        if self._release is not None:
+            assert self._release.wait(10)
+        if self._failure is not None:
+            raise self._failure
+
+    def browse(self, limit=50, cursor=None):
+        self._answer("browse")
+        return SourceResult(self._entries[:limit], self.id, "live")
+
+    def search(self, query, limit=24):
+        self._answer("search")
+        return search_entries(self._entries, query, limit=limit)
+
+
+def test_a_slow_source_does_not_hold_back_the_others(hub_cache, monkeypatch, caplog):
+    release = threading.Event()
+    fast = _EventSource("skills_sh", [_entry("skills_sh", "Blender Helper", "Model scenes in Blender")])
+    slow = _EventSource(
+        "clawhub",
+        [_entry("clawhub", "Blender Renderer", "Render Blender scenes")],
+        release=release,
+    )
+    registry = SkillSourceRegistry([fast, slow])
+    caplog.set_level(logging.INFO, logger="row_bot.skills_hub.source_registry")
+    monkeypatch.setattr(source_registry, "DEFAULT_SEARCH_TIMEOUT", 0.3)
+    try:
+        entries, statuses, _detected = registry.browse(query="blender")
+        by_source = {status.source_id: status for status in statuses}
+        assert [entry.name for entry in entries] == ["Blender Helper"]
+        assert by_source["skills_sh"].status == "live"
+        assert by_source["clawhub"].status == "pending"
+    finally:
+        release.set()
+
+    # The slow answer lands in the background: the next search shows it without
+    # asking either source again.
+    monkeypatch.setattr(source_registry, "DEFAULT_SEARCH_TIMEOUT", 5)
+    entries, _statuses, _detected = registry.browse(query="blender")
+    assert {entry.name for entry in entries} == {"Blender Helper", "Blender Renderer"}
+    assert fast.calls == ["search"]
+    assert slow.calls == ["search"]
+    # Each source's outcome and time are logged, never what was searched for.
+    assert "skills_sh" in caplog.text and "clawhub" in caplog.text
+    assert "blender" not in caplog.text.lower()
+
+
+def _github_tree(url: str) -> dict:
+    repo = url.split("/repos/", 1)[1].split("/git/", 1)[0]
+    root = next(item for item in github_source.PUBLIC_GITHUB_ROOTS if item.repo_full_name == repo)
+    slug = repo.replace("/", "-").lower()
+    return {"tree": [
+        {"path": f"{root.root}/blender-{slug}/SKILL.md", "type": "blob"},
+        {"path": f"{root.root}/notes-{slug}/SKILL.md", "type": "blob"},
+    ]}
+
+
+@pytest.fixture
+def fake_github(monkeypatch):
+    calls: list[str] = []
+
+    def fetch_json(url, *, headers=None, timeout=15):
+        calls.append(url)
+        return _github_tree(url)
+
+    monkeypatch.setattr(github_source, "fetch_json", fetch_json)
+    monkeypatch.setattr(github_source.github_account, "github_public_api_headers", lambda **_kwargs: {})
+    monkeypatch.setattr(github_source.GitHubSource, "_auth_status_message", lambda self: "")
+    monkeypatch.setattr(github_source, "_GITHUB_BACKOFF_UNTIL", 0)
+    return calls
+
+
+def test_github_keyword_search_is_served_from_the_browse_index(hub_cache, fake_github):
+    registry = SkillSourceRegistry([github_source.GitHubSource()])
+    registry.browse(query="")
+    browsed = len(fake_github)
+    assert browsed > 0
+
+    entries, statuses, _detected = registry.browse(query="blender")
+
+    assert len(fake_github) == browsed
+    assert statuses[0].status == "cached"
+    enabled = [root for root in github_source.PUBLIC_GITHUB_ROOTS if root.enabled_by_default]
+    assert len(entries) == len(enabled)
+    assert all(entry.name.startswith("Blender") for entry in entries)
+
+
+def test_resolve_returns_within_its_time_limit(hub_cache, monkeypatch):
+    release = threading.Event()
+
+    class _HangingResolver:
+        id = "github"
+        display_name = "GitHub"
+        supports_browse = False
+        supports_search = False
+
+        def can_resolve(self, value):
+            return True
+
+        def resolve(self, value):
+            release.wait(10)
+            return SourceResult([], self.id, "empty")
+
+    monkeypatch.setattr(source_registry, "DEFAULT_RESOLVE_TIMEOUT", 0.05)
+    registry = SkillSourceRegistry([_HangingResolver()])
+    outcome: dict[str, object] = {}
+
+    def resolve() -> None:
+        try:
+            outcome["result"] = registry.resolve("example/skills")
+        except Exception as exc:  # the outcome under test
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=resolve, daemon=True)
+    worker.start()
+    try:
+        worker.join(2)
+        assert not worker.is_alive()
+    finally:
+        release.set()
+    assert isinstance(outcome.get("error"), source_registry.SkillSourceTimeout)
+
+
+def test_preview_returns_within_its_time_limit(hub_cache, monkeypatch):
+    release = threading.Event()
+    entry = _entry("clawhub", "Blender Renderer", "Render Blender scenes")
+
+    class _HangingInspector(_EventSource):
+        def inspect(self, selected):
+            release.wait(10)
+            return SkillBundle("clawhub", selected.install_ref, "demo", "SKILL.md", [], {}, "", "")
+
+    monkeypatch.setattr(source_registry, "DEFAULT_PREVIEW_TIMEOUT", 0.05)
+    registry = SkillSourceRegistry([_HangingInspector("clawhub", [entry])])
+    outcome: dict[str, object] = {}
+
+    def inspect() -> None:
+        try:
+            outcome["bundle"] = registry.inspect_entry(entry)
+        except Exception as exc:  # the outcome under test
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=inspect, daemon=True)
+    worker.start()
+    try:
+        worker.join(2)
+        assert not worker.is_alive()
+    finally:
+        release.set()
+    assert isinstance(outcome.get("error"), source_registry.SkillSourceTimeout)
+
+
+def test_source_failures_are_described_in_plain_words(hub_cache):
+    failure = urllib.error.URLError(OSError(11001, "getaddrinfo failed"))
+    unreachable = _EventSource("clawhub", [], failure=failure)
+    registry = SkillSourceRegistry([unreachable])
+
+    _entries, statuses, _detected = registry.browse(query="blender", force_refresh=True)
+    assert statuses[0].status == "error"
+    assert statuses[0].message == "ClawHub couldn't be reached."
+
+    # A follow-up request reuses the recent failure; Refresh asks again.
+    _entries, statuses, _detected = registry.browse(query="blender")
+    assert statuses[0].message == "ClawHub couldn't be reached."
+    assert unreachable.calls == ["search"]
+    registry.browse(query="blender", force_refresh=True)
+    assert unreachable.calls == ["search", "search"]
+
+
+def test_search_marks_a_marketplace_skill_installed_after_install(hub_cache, monkeypatch):
+    # A marketplace page often installs from its GitHub folder, so the saved
+    # record names the page the person installed it from as well.
+    entry = _entry("skills_sh", "Research Brief", "Research public sources")
+    provenance.upsert_record(SkillInstallRecord(
+        local_name="research_brief",
+        source="skills_sh",
+        source_id="owner/repo",
+        install_ref="github:owner/repo/skills/research-brief",
+        installed_at="2026-09-30T00:00:00Z",
+        updated_at="2026-09-30T00:00:00Z",
+        content_hash="a" * 64,
+        enabled=True,
+        file_count=1,
+        scan_summary={},
+        metadata={"hub_entry_ref": entry.install_ref},
+    ))
+    monkeypatch.setattr(source_registry, "_write_source_cache", lambda *args, **kwargs: None)
+    registry = SkillSourceRegistry([_MockSource("skills_sh", [entry])])
+
+    result = search_skills("research", registry=registry, force_refresh=True)
+
+    assert result.entries[0].metadata["installed"] is True

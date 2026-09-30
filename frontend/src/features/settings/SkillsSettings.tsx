@@ -866,9 +866,9 @@ export default function SkillsSettings({
         onOpenChange={setImportOpen}
       >
         <p className="settings-help">
-          Browse public skills, inspect their source, then paste trusted
-          SKILL.md text here. Row-Bot validates the exact content before saving
-          it locally.
+          Paste the text of a SKILL.md file you wrote or trust. Row-Bot checks
+          the exact content before saving it locally. Public skills install from
+          Discover.
         </p>
         <Field label="Import SKILL.md text">
           <textarea

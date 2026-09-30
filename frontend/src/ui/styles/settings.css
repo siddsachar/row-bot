@@ -2667,6 +2667,81 @@
   grid-column: 1 / -1;
 }
 
+/* Public skills (B265): results, then one skill in its own dialog with a
+   bounded, wrapping SKILL.md so a long line never widens the page. */
+.skill-hub-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-size-metadata);
+}
+.skill-hub-results .skill-hub-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.dialog.skill-hub-dialog {
+  width: min(720px, calc(100vw - 48px));
+}
+.skill-hub-scan,
+.skill-hub-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.skill-hub-result[data-success='true'] {
+  color: var(--status-success-text);
+}
+.skill-hub-findings,
+.skill-hub-files {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--type-size-metadata);
+  overflow-wrap: anywhere;
+}
+.skill-hub-skill-md {
+  max-height: min(45dvh, 420px);
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: var(--type-size-metadata);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.skill-hub-install {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+.skill-hub-available {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.skill-hub-available > span:last-child {
+  display: grid;
+  gap: 1px;
+}
+.skill-hub-available small {
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+
 /* Phase 10: the key dialog's get-a-key link and format hint (U6). */
 .settings-key-link {
   margin: 0;

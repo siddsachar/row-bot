@@ -523,6 +523,8 @@ _STATUS.update(
         "skill_catalog_changed": 409,
         "skill_preview_expired": 410,
         "skill_preview_changed": 409,
+        "skill_preview_unavailable": 503,
+        "skill_source_timeout": 504,
         "skill_command_conflict": 409,
         "skill_install_pending": 409,
         "skill_receipt_missing": 404,
@@ -4518,6 +4520,7 @@ def create_router(
                 query=body.query,
                 source=body.source,
                 refresh=body.refresh,
+                limit=body.limit,
             )
         except SkillHubCommandError as exc:
             raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc

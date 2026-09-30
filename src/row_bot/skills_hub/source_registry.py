@@ -4,27 +4,60 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
+import threading
 import time
-from dataclasses import asdict
+import urllib.error
+from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Callable, Iterable
 
 from .input_detection import detect_source_input
 from .models import DetectedSourceInput, SourceHealth, SourceResult, SkillHubEntry
 from .provenance import hub_dir
 from .search_index import dedupe_entries, search_entries
 
+logger = logging.getLogger(__name__)
+
 BROWSE_CACHE_TTL_SECONDS = 6 * 60 * 60
 HEALTH_CACHE_TTL_SECONDS = 30 * 60
-DEFAULT_BROWSE_TIMEOUT = 10
-DEFAULT_SEARCH_TIMEOUT = 8
+# How long a browse or search waits before answering with the sources that have
+# replied. Slower sources keep going and are reported "pending"; their results
+# land in the cache, and the client asks again to pick them up.
+DEFAULT_BROWSE_TIMEOUT = 5
+DEFAULT_SEARCH_TIMEOUT = 5
 DEFAULT_RESOLVE_TIMEOUT = 20
-SOURCE_CACHE_SCHEMA_VERSION = 3
+DEFAULT_PREVIEW_TIMEOUT = 20
+# A source whose keyword search only filters its own list (`search_from_browse`)
+# keeps the whole list in its browse cache, so keyword searches need no network.
+SOURCE_INDEX_LIMIT = 1000
+# The most entries one source adds to an empty browse (and fetches per search).
+BROWSE_PER_SOURCE = 50
+# A finished live answer that wasn't cached (a failure, or nothing found) is
+# reused this long, so follow-up requests don't ask that source again.
+RECENT_ANSWER_SECONDS = 60
+SOURCE_CACHE_SCHEMA_VERSION = 4
+RESOLVE_FAILED_MESSAGE = (
+    "Row-Bot couldn't find a skill there. Try a GitHub folder, a SKILL.md link, "
+    "or a skills.sh, browse.sh, ClawHub or LobeHub page."
+)
+
+
+class SkillSourceTimeout(TimeoutError):
+    """A public source didn't answer within its time limit."""
+
+    def __init__(self, source_name: str) -> None:
+        super().__init__(f"{source_name} took too long to answer.")
+        self.source_name = source_name
 
 
 class SkillSourceRegistry:
     def __init__(self, sources: Iterable[object] | None = None) -> None:
         self._sources = list(sources) if sources is not None else build_default_sources()
+        # Live fetches by (source, operation, query) with their start time; a
+        # running one is shared by every request that needs it.
+        self._live: dict[tuple[str, str, str], tuple[float, concurrent.futures.Future]] = {}
+        self._live_lock = threading.Lock()
 
     @property
     def sources(self) -> list[object]:
@@ -78,7 +111,9 @@ class SkillSourceRegistry:
                 force_refresh=force_refresh,
                 timeout=DEFAULT_BROWSE_TIMEOUT,
             )
-            entries = dedupe_entries(entry for result in results for entry in result.entries)
+            entries = dedupe_entries(
+                entry for result in results for entry in result.entries[:BROWSE_PER_SOURCE]
+            )
             return search_entries(entries, "", limit=limit), results, detected
 
         results = self._run_sources(
@@ -109,7 +144,10 @@ class SkillSourceRegistry:
                 preferred.append(source)
 
         started = time.perf_counter()
-        messages: list[str] = []
+        # One time limit covers every source tried; a source still working when
+        # it runs out is left behind instead of holding the answer back.
+        deadline = time.monotonic() + DEFAULT_RESOLVE_TIMEOUT
+        timed_out = ""
         for source in preferred:
             can_resolve = getattr(source, "can_resolve", None)
             if callable(can_resolve) and not can_resolve(value):
@@ -117,22 +155,34 @@ class SkillSourceRegistry:
             resolver = getattr(source, "resolve", None)
             if not callable(resolver):
                 continue
+            source_id = str(getattr(source, "id", "source"))
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(resolver, value)
-                    result = future.result(timeout=DEFAULT_RESOLVE_TIMEOUT)
-                if isinstance(result, SourceResult) and result.entries:
-                    result.duration_ms = int((time.perf_counter() - started) * 1000)
-                    return result
-                if isinstance(result, SourceResult) and result.message:
-                    messages.append(f"{getattr(source, 'id', 'source')}: {result.message}")
+                result = _call_with_limit(
+                    source,
+                    resolver,
+                    value,
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+            except SkillSourceTimeout:
+                timed_out = timed_out or _display_name(source)
+                _log_outcome(source_id, "resolve", "timed_out", started)
+                if time.monotonic() >= deadline:
+                    break
+                continue
             except Exception as exc:
-                messages.append(f"{getattr(source, 'id', 'source')}: {exc}")
+                _log_outcome(source_id, "resolve", f"error {type(exc).__name__}", started)
+                continue
+            if isinstance(result, SourceResult) and result.entries:
+                result.duration_ms = int((time.perf_counter() - started) * 1000)
+                _log_outcome(source_id, "resolve", result.status, started, len(result.entries))
+                return result
+        if timed_out:
+            raise SkillSourceTimeout(timed_out)
         return SourceResult(
             [],
             detected.source_id or "unknown",
             "error",
-            "; ".join(messages) or "Could not resolve this skill source. Try a GitHub path, SKILL.md URL, well-known index URL, website URL, marketplace URL, or pasted markdown.",
+            RESOLVE_FAILED_MESSAGE,
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
 
@@ -143,7 +193,14 @@ class SkillSourceRegistry:
         inspect = getattr(source, "inspect", None)
         if not callable(inspect):
             raise ValueError(f"Source adapter cannot inspect entries: {entry.source}")
-        return inspect(entry)
+        started = time.perf_counter()
+        try:
+            bundle = _call_with_limit(source, inspect, entry, timeout=DEFAULT_PREVIEW_TIMEOUT)
+        except Exception as exc:
+            _log_outcome(entry.source, "preview", f"error {type(exc).__name__}", started)
+            raise
+        _log_outcome(entry.source, "preview", "live", started)
+        return bundle
 
     def fetch(self, source_id: str, install_ref: str):
         source = self.source(source_id)
@@ -195,76 +252,68 @@ class SkillSourceRegistry:
         query: str,
         limit: int,
         force_refresh: bool,
-        timeout: int,
+        timeout: float,
     ) -> list[SourceResult]:
         results: list[SourceResult] = []
-        live_sources: list[object] = []
+        waiting: dict[concurrent.futures.Future, tuple[object, str, str, bool]] = {}
 
         for source in sources:
+            source_id = str(getattr(source, "id", "unknown"))
+            from_index = bool(getattr(source, "search_from_browse", False))
+            # A keyword search of an index source filters its cached browse list.
+            filtered = from_index and operation == "search"
+            live_operation, live_query = ("browse", "") if filtered else (operation, query)
             cached = None
             if not force_refresh:
-                cached = _read_source_cache(getattr(source, "id", ""), operation, query)
+                cached = _read_source_cache(source_id, live_operation, live_query)
             if cached is not None:
-                results.append(cached)
+                results.append(_filtered(cached, query, limit) if filtered else cached)
                 continue
-            live_sources.append(source)
+            fetch_limit = SOURCE_INDEX_LIMIT if from_index else max(limit, BROWSE_PER_SOURCE)
+            future = self._live_fetch(
+                source, live_operation, live_query, fetch_limit, retry=force_refresh
+            )
+            waiting[future] = (source, live_operation, live_query, filtered)
 
-        if not live_sources:
+        if not waiting:
             return results
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(live_sources)))
-        try:
-            future_map = {
-                executor.submit(_call_source, source, operation, query, limit): source
-                for source in live_sources
-            }
-            done, pending = concurrent.futures.wait(
-                future_map,
-                timeout=timeout,
-                return_when=concurrent.futures.ALL_COMPLETED,
-            )
-            for future in pending:
-                future.cancel()
-            for future in done:
-                source = future_map[future]
-                source_id = getattr(source, "id", "unknown")
-                try:
-                    result = future.result(timeout=0)
-                except Exception as exc:
-                    stale = _read_source_cache(source_id, operation, query, allow_stale=True)
-                    if stale is not None:
-                        stale.status = "stale"
-                        stale.message = f"Live refresh failed: {exc}"
-                        results.append(stale)
-                    else:
-                        results.append(SourceResult([], source_id, "error", str(exc)))
-                    continue
-                if result.entries:
-                    _write_source_cache(result, operation, query)
-                elif result.status == "error":
-                    stale = _read_source_cache(source_id, operation, query, allow_stale=True)
-                    if stale is not None:
-                        stale.status = "stale"
-                        stale.message = result.message
-                        results.append(stale)
-                        continue
-                results.append(result)
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
-
-        seen_ids = {result.source_id for result in results}
-        for source in live_sources:
-            source_id = getattr(source, "id", "unknown")
-            if source_id in seen_ids:
-                continue
-            stale = _read_source_cache(source_id, operation, query, allow_stale=True)
-            if stale is not None:
-                stale.status = "stale"
-                stale.message = "Live source timed out."
-                results.append(stale)
+        done, _still_running = concurrent.futures.wait(waiting, timeout=timeout)
+        for future, (source, live_operation, live_query, filtered) in waiting.items():
+            source_id = str(getattr(source, "id", "unknown"))
+            stale = None
+            if future in done:
+                result = future.result()
+                if result.status == "error":
+                    stale = _read_source_cache(source_id, live_operation, live_query, allow_stale=True)
+                if stale is not None:
+                    stale.status = "stale"
+                    stale.message = result.message
+                    result = stale
             else:
-                results.append(SourceResult([], source_id, "error", "Live source timed out."))
+                # Still running: show older results meanwhile, if any.
+                stale = _read_source_cache(source_id, live_operation, live_query, allow_stale=True)
+                result = SourceResult(stale.entries if stale else [], source_id, "pending")
+            results.append(_filtered(result, query, limit) if filtered else result)
         return results
+
+    def _live_fetch(
+        self, source: object, operation: str, query: str, limit: int, *, retry: bool
+    ) -> concurrent.futures.Future:
+        """Start one live fetch per source, operation and query, or join the known one."""
+        key = (_normalize_source_id(getattr(source, "id", "")), operation, _normalize_source_id(query))
+        now = time.monotonic()
+        with self._live_lock:
+            for known, (started, future) in list(self._live.items()):
+                if future.done() and now - started >= RECENT_ANSWER_SECONDS:
+                    del self._live[known]
+            if key in self._live:
+                _started, future = self._live[key]
+                if not (retry and future.done()):
+                    return future
+            future = _in_background(source, _fetch_and_cache, source, operation, query, limit)
+            self._live[key] = (now, future)
+        return future
 
 
 def build_default_sources() -> list[object]:
@@ -306,6 +355,77 @@ def reset_default_registry() -> None:
     _DEFAULT_REGISTRY = None
 
 
+def _in_background(source: object, fn: Callable[..., Any], *args: Any) -> concurrent.futures.Future:
+    """Run `fn` on a daemon thread, so no caller ever waits past its own limit."""
+    future: concurrent.futures.Future = concurrent.futures.Future()
+
+    def run() -> None:
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            future.set_result(fn(*args))
+        except BaseException as exc:  # handed to whoever waits on the future
+            future.set_exception(exc)
+
+    name = f"skills-hub-{_normalize_source_id(getattr(source, 'id', 'source'))}"
+    threading.Thread(target=run, name=name, daemon=True).start()
+    return future
+
+
+def _call_with_limit(source: object, fn: Callable[..., Any], *args: Any, timeout: float) -> Any:
+    try:
+        return _in_background(source, fn, *args).result(timeout=timeout)
+    except TimeoutError as exc:
+        raise SkillSourceTimeout(_display_name(source)) from exc
+
+
+def _fetch_and_cache(source: object, operation: str, query: str, limit: int) -> SourceResult:
+    started = time.perf_counter()
+    result = _call_source(source, operation, query, limit)
+    _log_outcome(result.source_id, operation, result.status, started, len(result.entries))
+    if result.entries:
+        try:
+            _write_source_cache(result, operation, query)
+        except OSError as exc:
+            logger.warning(
+                "Skills hub %s %s results were not cached: %s",
+                result.source_id, operation, type(exc).__name__,
+            )
+    return result
+
+
+def _filtered(result: SourceResult, query: str, limit: int) -> SourceResult:
+    return replace(result, entries=search_entries(result.entries, query, limit=limit))
+
+
+def _display_name(source: object) -> str:
+    return str(getattr(source, "display_name", "") or getattr(source, "id", "") or "The source")
+
+
+def _failure_message(exc: BaseException, name: str) -> str:
+    """Why a source failed, in plain words; the raw error only reaches the log."""
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code in {403, 429}:
+            return f"{name} is limiting requests right now. Try again later."
+        if exc.code == 404:
+            return f"{name} couldn't find it."
+        return f"{name} had a problem answering. Try again later."
+    if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+        return f"{name} took too long to answer."
+    if isinstance(exc, (urllib.error.URLError, ConnectionError)):
+        return f"{name} couldn't be reached."
+    if isinstance(exc, ValueError):
+        return f"{name} sent something Row-Bot couldn't read."
+    return f"{name} couldn't be searched."
+
+
+def _log_outcome(source_id: str, operation: str, outcome: str, started: float, entries: int = 0) -> None:
+    logger.info(
+        "Skills hub %s %s: %s in %d ms, %d entries",
+        source_id, operation, outcome, int((time.perf_counter() - started) * 1000), entries,
+    )
+
+
 def _call_source(source: object, operation: str, query: str, limit: int) -> SourceResult:
     source_id = getattr(source, "id", "unknown")
     started = time.perf_counter()
@@ -329,7 +449,14 @@ def _call_source(source: object, operation: str, query: str, limit: int) -> Sour
                 entries = browse(limit=max(limit, 50)).entries if callable(browse) else []
                 result = SourceResult(search_entries(entries, query, limit=limit), source_id, "live")
     except Exception as exc:
-        return SourceResult([], source_id, "error", str(exc), duration_ms=int((time.perf_counter() - started) * 1000))
+        logger.warning("Skills hub %s %s failed: %s", source_id, operation, type(exc).__name__)
+        return SourceResult(
+            [],
+            source_id,
+            "error",
+            _failure_message(exc, _display_name(source)),
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
     if not isinstance(result, SourceResult):
         result = SourceResult(list(result or []), source_id, "live")
     result.source_id = result.source_id or source_id

@@ -704,6 +704,60 @@ def test_github_browse_reports_rate_limit_as_source_status(monkeypatch):
     assert "Settings -> Accounts" in result.message
 
 
+def _quiet_github(monkeypatch, fetch_json) -> list:
+    from row_bot.skills_hub import github_source
+
+    monkeypatch.setattr(github_source, "fetch_json", fetch_json)
+    monkeypatch.setattr(github_source.github_account, "github_public_api_headers", lambda **_kwargs: {})
+    monkeypatch.setattr(GitHubSource, "_auth_status_message", lambda self: "")
+    monkeypatch.setattr(github_source, "_GITHUB_BACKOFF_UNTIL", 0)
+    return [root for root in github_source.PUBLIC_GITHUB_ROOTS if root.enabled_by_default]
+
+
+def _one_skill_tree(url: str) -> dict:
+    from row_bot.skills_hub.github_source import PUBLIC_GITHUB_ROOTS
+
+    repo = url.split("/repos/", 1)[1].split("/git/", 1)[0]
+    root = next(item for item in PUBLIC_GITHUB_ROOTS if item.repo_full_name == repo)
+    return {"tree": [{"path": f"{root.root}/{repo.replace('/', '-')}/SKILL.md", "type": "blob"}]}
+
+
+def test_github_browse_reads_its_repositories_in_parallel(monkeypatch):
+    import threading
+
+    together: list[threading.Barrier] = []
+
+    def fetch_json(url, *, headers=None, timeout=15):
+        # Every repository's request must be in flight at once to pass.
+        together[0].wait()
+        return _one_skill_tree(url)
+
+    roots = _quiet_github(monkeypatch, fetch_json)
+    together.append(threading.Barrier(len(roots), timeout=5))
+
+    result = GitHubSource().browse(limit=100)
+
+    assert result.status == "live"
+    assert len(result.entries) == len(roots)
+
+
+def test_github_browse_describes_unreadable_repositories_in_plain_words(monkeypatch):
+    import urllib.error
+
+    def fetch_json(url, *, headers=None, timeout=15):
+        if "/repos/NVIDIA/skills/" in url:
+            raise urllib.error.URLError(OSError(11001, "getaddrinfo failed"))
+        return _one_skill_tree(url)
+
+    roots = _quiet_github(monkeypatch, fetch_json)
+
+    result = GitHubSource().browse(limit=100)
+
+    assert result.status == "partial"
+    assert len(result.entries) == len(roots) - 1
+    assert result.message == f"1 of {len(roots)} GitHub repositories couldn't be read."
+
+
 def _zip_bytes(files: dict[str, bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
