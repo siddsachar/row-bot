@@ -34,7 +34,32 @@ export interface MediaTransport {
     signal?: AbortSignal,
   ): Promise<AttachmentView>;
   download(reference: string, signal?: AbortSignal): Promise<Blob>;
+  /** Desktop app: the server writes a conversation export into Exports. */
+  saveToExports(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<{ file_name: string; folder: string }>;
+  revealExport(fileName: string): Promise<{ status: string }>;
 }
+
+/**
+ * Where a save went (B238): the file chosen in the Save dialog, a browser
+ * download (a page cannot tell whether it finished), or, while a desktop
+ * window reconnects, a copy the server wrote into the Exports folder.
+ */
+export type SavedFile =
+  | { kind: 'file' }
+  | { kind: 'download' }
+  | {
+      kind: 'exports';
+      fileName: string;
+      folder: string;
+      /** Show the copy in the file manager; false if it could not. */
+      reveal(): Promise<boolean>;
+    };
+
+/** Whether a desktop window's native features are bound right now. */
+export type NativeConnection = 'ready' | 'reconnecting';
 
 /**
  * Desktop Buddy placement actions. Main windows tear Buddy off, dock it and
@@ -111,7 +136,15 @@ export interface ClientPlatform {
     reference: string,
     name: string,
     signal?: AbortSignal,
-  ): Promise<CapabilityResult<null>>;
+  ): Promise<CapabilityResult<SavedFile>>;
+  /**
+   * Desktop windows: whether native features are bound, or reconnecting
+   * (the window binds its bridge again by itself; B231).
+   */
+  nativeConnection?: {
+    get(): NativeConnection;
+    subscribe(listener: () => void): () => void;
+  };
 }
 
 export const unavailable = (

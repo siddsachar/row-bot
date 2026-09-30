@@ -5,7 +5,9 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { expect, it, vi } from 'vitest';
+import { OverlayProvider } from '../../ui/overlays';
 import ConversationActions, {
   createConversationActionsSession,
   type ConversationActionReview,
@@ -26,6 +28,10 @@ const snapshot: ConversationActionSnapshot = {
     export: { available: true, code: null },
   },
 };
+
+// Saves confirm through the floating notices.
+const renderActions = (ui: ReactElement) =>
+  render(ui, { wrapper: OverlayProvider });
 
 function options() {
   const session = createConversationActionsSession('conversation-1');
@@ -69,14 +75,14 @@ function options() {
     load,
     review,
     execute,
-    download: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn().mockResolvedValue({ status: 'ok', value: { kind: 'file' } }),
     onChanged: vi.fn(),
   };
 }
 
 it('loads passively and explains the reversible archive boundary', async () => {
   const props = options();
-  render(<ConversationActions {...props} />);
+  renderActions(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
   expect(props.load).toHaveBeenCalledWith(
     'conversation-1',
@@ -91,7 +97,7 @@ it('loads passively and explains the reversible archive boundary', async () => {
 
 it('validates and applies an exact rename in one click', async () => {
   const props = options();
-  render(<ConversationActions {...props} />);
+  renderActions(<ConversationActions {...props} />);
   const name = await screen.findByLabelText('Conversation name');
   fireEvent.change(name, { target: { value: 'Reviewed name' } });
   fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
@@ -116,7 +122,7 @@ it('validates and applies an exact rename in one click', async () => {
 
 it('reviews and executes an initial pin request once, then uses the receipt', async () => {
   const props = options();
-  render(<ConversationActions {...props} initialPin />);
+  renderActions(<ConversationActions {...props} initialPin />);
   await screen.findByText('Conversation action completed.');
   expect(props.review).toHaveBeenCalledExactlyOnceWith(
     'conversation-1',
@@ -143,16 +149,16 @@ it('creates and downloads the local export with one click', async () => {
       checkpoint_revision: 'checkpoint-7',
     },
   }));
-  render(<ConversationActions {...props} />);
+  renderActions(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
   fireEvent.click(screen.getByRole('button', { name: 'Export as Markdown' }));
-  await screen.findByText('Conversation export downloaded.');
+  await screen.findByText('Conversation export saved.');
   expect(props.execute.mock.calls[0][1].payload).toEqual({
     checkpoint_revision: 'checkpoint-7',
     action_digest: 'a'.repeat(64),
     export_title: 'Saved conversation',
   });
-  expect(props.download).toHaveBeenCalledWith(
+  expect(props.save).toHaveBeenCalledWith(
     'conversation-1:export-1',
     'conversation-export.md',
   );
@@ -161,7 +167,7 @@ it('creates and downloads the local export with one click', async () => {
 it('retains an uncertain command across remount and checks the same identity', async () => {
   const props = options();
   props.execute.mockRejectedValueOnce(Error('response lost'));
-  const first = render(<ConversationActions {...props} />);
+  const first = renderActions(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
   fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
   const recover = await screen.findByRole('button', {
@@ -171,7 +177,7 @@ it('retains an uncertain command across remount and checks the same identity', a
   expect(props.session.hasRetained()).toBe(true);
   first.unmount();
 
-  render(<ConversationActions {...props} />);
+  renderActions(<ConversationActions {...props} />);
   await waitFor(() => expect(recover).not.toBeInTheDocument());
   const remounted = screen.getByRole('button', {
     name: 'Check original action',
@@ -185,7 +191,9 @@ it('retains an uncertain command across remount and checks the same identity', a
 
 it('fences a retained action from a different conversation', () => {
   const props = options();
-  render(<ConversationActions {...props} conversationId="conversation-2" />);
+  renderActions(
+    <ConversationActions {...props} conversationId="conversation-2" />,
+  );
   expect(screen.getByRole('alert')).toHaveTextContent(
     'belongs to another conversation',
   );
@@ -205,10 +213,10 @@ it('exports the same reviewed transcript as a PDF (parity row 2)', async () => {
       checkpoint_revision: 'checkpoint-7',
     },
   }));
-  render(<ConversationActions {...props} />);
+  renderActions(<ConversationActions {...props} />);
   await screen.findByDisplayValue('Saved conversation');
   fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
-  await screen.findByText('Conversation export downloaded.');
+  await screen.findByText('Conversation export saved.');
   expect(props.review.mock.calls[0][3]).toEqual({ format: 'pdf' });
   expect(props.execute.mock.calls[0][1].payload).toEqual({
     checkpoint_revision: 'checkpoint-7',
@@ -216,8 +224,74 @@ it('exports the same reviewed transcript as a PDF (parity row 2)', async () => {
     export_title: 'Saved conversation',
     export_format: 'pdf',
   });
-  expect(props.download).toHaveBeenCalledWith(
+  expect(props.save).toHaveBeenCalledWith(
     'conversation-1:export-2',
     'conversation-export.pdf',
   );
+});
+
+async function exportWith(save: ReturnType<typeof options>['save']) {
+  const props = { ...options(), save };
+  props.execute.mockImplementationOnce(async (_id, command) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    action: command.type,
+    export: {
+      attachment_ref: 'conversation-1:export-3',
+      file_name: 'conversation-export.md',
+      size_bytes: 321,
+      checkpoint_revision: 'checkpoint-7',
+    },
+  }));
+  renderActions(<ConversationActions {...props} />);
+  await screen.findByDisplayValue('Saved conversation');
+  fireEvent.click(screen.getByRole('button', { name: 'Export as Markdown' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  return props;
+}
+
+it('says a save into Exports went there, with Show in folder (B238)', async () => {
+  const reveal = vi.fn().mockResolvedValue(true);
+  await exportWith(
+    vi.fn().mockResolvedValue({
+      status: 'ok',
+      value: {
+        kind: 'exports',
+        fileName: 'conversation-export.md',
+        folder: 'Row-Bot › Exports',
+        reveal,
+      },
+    }),
+  );
+  await screen.findByText(
+    'Saved to Row-Bot › Exports as conversation-export.md.',
+  );
+  expect(screen.getByText('Saved to Row-Bot › Exports')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show in folder' }));
+  await waitFor(() => expect(reveal).toHaveBeenCalledTimes(1));
+});
+
+it('never says a browser download was saved (B238)', async () => {
+  await exportWith(
+    vi.fn().mockResolvedValue({ status: 'ok', value: { kind: 'download' } }),
+  );
+  await screen.findByText('Download started.');
+  expect(screen.queryByText(/export saved|Saved to/)).toBeNull();
+});
+
+it('says a file that could not be written was not saved, and a cancel says nothing (B238)', async () => {
+  const save = vi
+    .fn()
+    .mockResolvedValueOnce({ status: 'unavailable', reason: 'save_failed' })
+    .mockResolvedValueOnce({ status: 'cancelled' });
+  await exportWith(save);
+  await screen.findByText(
+    'Row-Bot couldn’t write the file there. Choose another folder and try again.',
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Download conversation export' }),
+  );
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText(/couldn’t write/)).toBeNull());
+  expect(screen.queryByText(/export saved|Saved to/)).toBeNull();
 });

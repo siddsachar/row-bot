@@ -486,10 +486,7 @@ export default function Navigation({
           load={controller.conversationActions}
           review={controller.reviewConversationAction}
           execute={controller.executeConversationAction}
-          download={async (reference, fileName) => {
-            const result = await platform.save(reference, fileName);
-            if (result.status !== 'ok') throw Error(result.status);
-          }}
+          save={platform.save}
           initialPin={initialPin}
           initialExport={initialExport}
           onChanged={() => {

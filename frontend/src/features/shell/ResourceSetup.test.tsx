@@ -277,6 +277,30 @@ it.each([
   },
 );
 
+it('says the desktop app is reconnecting, not that it needs the desktop window (B231)', async () => {
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
+  });
+  await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Folder setup'), {
+      target: { value: 'empty_folder' },
+    }),
+  );
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose parent folder' }),
+    ),
+  );
+  expect(
+    screen.getByText(
+      'Desktop features are reconnecting. Try again in a moment.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/requires the local desktop window/)).toBeNull();
+});
+
 it('requires an explicit name and parent before creating one empty workspace', async () => {
   mock.platform.selectFolder.mockResolvedValue({
     status: 'ok',

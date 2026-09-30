@@ -66,6 +66,9 @@ class Window:
         self.visible = not options.get("hidden", False)
         self.destroyed = False
         self.buddy_config_at_create = _buddy_config()
+        # What the next file dialogs answer, as the platform's dialog would.
+        self.dialog_answers: list[Any] = []
+        self.dialogs: list[list[Any]] = []
         windows.append(self)
 
     def _note(self, action: str, *args: Any) -> None:
@@ -101,6 +104,10 @@ class Window:
         self.scripts.append(script)
 
     run_js = evaluate_js
+
+    def create_file_dialog(self, dialog_type: int = OPEN_DIALOG, **kwargs: Any) -> Any:
+        self.dialogs.append([dialog_type, kwargs])
+        return self.dialog_answers.pop(0) if self.dialog_answers else None
 
     def expose(self, *functions: Callable[..., Any]) -> None:
         for function in functions:

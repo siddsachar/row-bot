@@ -1,4 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
+import type { CapabilityResult, SavedFile } from '../../platform';
+import { useOverlay } from '../../ui/overlays';
 import { Button, Field, Input, Skeleton } from '../../ui/primitives';
 
 export type ConversationAction =
@@ -156,7 +158,11 @@ export type ConversationActionsProps = {
     command: ConversationActionCommand,
     review: ConversationActionReview,
   ) => Promise<ConversationActionReceipt>;
-  download: (reference: string, fileName: string) => Promise<void>;
+  /** The platform's save: the Save dialog, Exports or a browser download. */
+  save: (
+    reference: string,
+    fileName: string,
+  ) => Promise<CapabilityResult<SavedFile>>;
   onChanged?: (
     conversation: NonNullable<ConversationActionReceipt['conversation']>,
   ) => void;
@@ -184,11 +190,12 @@ export default function ConversationActions({
   load,
   review,
   execute,
-  download,
+  save,
   onChanged,
   initialPin,
   initialExport,
 }: ConversationActionsProps) {
+  const { notify } = useOverlay();
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const wrongOwner = state.conversationId !== conversationId;
   const locked =
@@ -360,22 +367,55 @@ export default function ConversationActions({
     }
   };
 
+  // Says only what happened: saved where the Save dialog chose, written into
+  // Exports (with Show in folder), or a download started (B238).
   const saveExport = async () => {
     const current = session.getSnapshot();
     if (!current.exported || locked) return;
     session.update({ busy: 'download', message: '' });
-    try {
-      await download(
-        current.exported.attachment_ref,
-        current.exported.file_name,
-      );
-      session.update({ busy: '', message: 'Conversation export downloaded.' });
-    } catch {
+    const result = await save(
+      current.exported.attachment_ref,
+      current.exported.file_name,
+    ).catch((): CapabilityResult<SavedFile> => ({
+      status: 'unavailable',
+      reason: 'operation_failed',
+    }));
+    if (result.status !== 'ok') {
       session.update({
         busy: '',
-        message: 'The saved export could not be downloaded. Try again.',
+        message:
+          result.status === 'cancelled'
+            ? ''
+            : result.reason === 'save_failed'
+              ? 'Row-Bot couldn’t write the file there. Choose another folder and try again.'
+              : result.reason === 'user_gesture_required'
+                ? 'The export is ready. Choose Download conversation export to save it.'
+                : 'The export couldn’t be saved. Try again.',
       });
+      return;
     }
+    const saved = result.value;
+    if (saved.kind === 'exports') {
+      session.update({
+        busy: '',
+        message: `Saved to ${saved.folder} as ${saved.fileName}.`,
+      });
+      notify(`Saved to ${saved.folder}`, undefined, {
+        label: 'Show in folder',
+        onAction: () =>
+          void saved.reveal().then((shown) => {
+            if (!shown)
+              notify('Row-Bot couldn’t open the Exports folder.', 'warning');
+          }),
+      });
+    } else
+      session.update({
+        busy: '',
+        message:
+          saved.kind === 'file'
+            ? 'Conversation export saved.'
+            : 'Download started.',
+      });
   };
 
   const requestInitialPin = useEffectEvent((pinned: boolean) => {

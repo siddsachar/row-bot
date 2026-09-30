@@ -51,9 +51,9 @@ export function keepNativeLease(
 
 /**
  * The desktop Buddy holds no unsaved state (drafts save as they are typed),
- * so when its lease has already lapsed (the machine slept past it), or its
- * grant stays refused after a fresh attestation, it simply loads again, which
- * binds a new document. At most once a minute.
+ * so when its grant stays refused after a fresh attestation it simply loads
+ * again. At most once a minute. (A lapsed lease never reaches here: the
+ * desktop platform binds the window again by itself, B231.)
  */
 export function reloadWhenLeaseLapses<T extends ClientPlatform>(
   platform: T,
@@ -68,8 +68,7 @@ export function reloadWhenLeaseLapses<T extends ClientPlatform>(
       const value = result as { status?: string; reason?: string };
       if (
         value?.status === 'unavailable' &&
-        (value.reason === 'native_proof_required' ||
-          value.reason === 'native_authentication_required') &&
+        value.reason === 'native_authentication_required' &&
         now() - reloadedAt > CHECK_MS
       ) {
         reloadedAt = now();

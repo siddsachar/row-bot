@@ -2834,6 +2834,17 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  saveAttachmentExport(reference: string, signal?: AbortSignal) {
+    return wire.saveAttachmentExport(
+      this.base,
+      this.session(),
+      reference,
+      signal,
+    );
+  }
+  revealExport(body: wire.ExportRevealRequest, signal?: AbortSignal) {
+    return wire.revealExport(this.base, this.session(), body, signal);
+  }
   terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {
     return wire.readNativeTerminal(
       this.base,

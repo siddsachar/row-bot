@@ -167,3 +167,46 @@ def startup_and_tray(webview: Any, script: Any, report: dict[str, Any]) -> None:
     report["close"] = _control(script, "/buddy/close")
     report["after_close"] = [buddy.destroyed, _config()["placement"]]
     report["unknown"] = _control(script, "/buddy/collapse")
+
+
+def desktop_save_and_tear_off_rounds(webview: Any, script: Any, report: dict[str, Any]) -> None:
+    """Saves through the real Save-dialog path, and three tear-off/dock rounds
+    after which the main window's bridge still works (B224, B238)."""
+    main = webview.windows[0]
+    main.load()
+    main.dispatch("discover", {"attestation": "attest-main"})
+    downloads = os.path.join(os.path.dirname(os.environ["ROW_BOT_DATA_DIR"]), "Downloads")
+    os.makedirs(downloads)
+    chosen = os.path.join(downloads, "conversation-export.pdf")
+    save = {"reference": "conversation-1:export-1", "name": "conversation-export.pdf"}
+    # Windows' and macOS' save dialogs answer one plain string.
+    main.dialog_answers = [chosen]
+    report["save"] = main.dispatch("save", save)
+    with open(chosen, "rb") as stream:
+        report["saved_bytes"] = stream.read().decode("utf-8")
+    report["save_dialog"] = main.dialogs[-1]
+    # A relative answer, and a folder that cannot be written, save nothing and say so.
+    main.dialog_answers = ["C"]
+    report["save_relative"] = main.dispatch("save", save)
+    main.dialog_answers = [os.path.join(downloads, "missing", "conversation-export.pdf")]
+    report["save_unwritable"] = main.dispatch("save", save)
+    report["working_folder"] = sorted(os.listdir(os.getcwd()))
+
+    rounds = []
+    for number in range(3):
+        tear_off = main.dispatch("buddy_placement", {"action": "tear_off", "x": 900, "y": 600})
+        buddy = webview.windows[-1]
+        buddy.load()
+        buddy.dispatch("discover", {"attestation": f"attest-buddy-{number}"})
+        ready = buddy.dispatch("buddy_placement", {"action": "ready"})
+        # Docked from the desktop Buddy, then from the main window, in turn.
+        docker = buddy if number % 2 == 0 else main
+        dock = docker.dispatch("buddy_placement", {"action": "dock"})
+        main.dialog_answers = [chosen]
+        rounds.append({
+            "tear_off": tear_off, "ready": ready, "dock": dock["status"] if docker is buddy else dock,
+            "destroyed": buddy.destroyed, "main_status": main.dispatch("buddy_placement", {"action": "status"}),
+            "main_save": main.dispatch("save", save),
+        })
+    report["rounds"] = rounds
+    report["windows"] = len(webview.windows)

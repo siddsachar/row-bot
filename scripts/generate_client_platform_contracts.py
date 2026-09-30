@@ -85,6 +85,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "TaskRunReview", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskApprovalReview",
     "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport",
     "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult",
+    "ExportSaved", "ExportRevealRequest",
     "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
@@ -391,6 +392,8 @@ OPERATIONS = (
     ("delete", "/uploads/{upload_id}", None, "UploadCancelled"),
     ("get", "/attachments/{reference}/metadata", None, "AttachmentView"),
     ("get", "/attachments/{reference}", None, "bytes"),
+    ("post", "/attachments/{reference}/save", None, "ExportSaved"),
+    ("post", "/exports/reveal", "ExportRevealRequest", "ArtifactExportRevealResult"),
     ("get", "/native/bootstrap", None, "NativeBootstrapView"),
     ("post", "/native/attest", "NativeAttestationRequest", "NativeAttestationView"),
     ("post", "/native/authorize", "NativeGrantRequest", "NativeTerminalChanged"),
@@ -1280,6 +1283,10 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
 }
 export const getAttachmentMetadata = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<AttachmentView> =>
   jsonRequest(base, `/attachments/${id(reference)}/metadata`, 'AttachmentView', proof, 'GET', undefined, undefined, signal);
+export const saveAttachmentExport = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<ExportSaved> =>
+  jsonRequest(base, `/attachments/${id(reference)}/save`, 'ExportSaved', proof, 'POST', {}, undefined, signal);
+export const revealExport = (base: string, proof: SessionProof, body: ExportRevealRequest, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
+  jsonRequest(base, `/exports/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
 export const readNativeTerminal = (base: string, proof: SessionProof, terminal: string, cursor = 0, maxBytes = 65536, signal?: AbortSignal): Promise<NativeTerminalOutput> =>
   jsonRequest(base, `/native/terminals/${id(terminal)}` + query({cursor,max_bytes:maxBytes}), 'NativeTerminalOutput', proof, 'GET', undefined, undefined, signal);
 export const writeNativeTerminal = (base: string, proof: SessionProof, terminal: string, body: NativeTerminalInput, signal?: AbortSignal): Promise<NativeTerminalChanged> =>

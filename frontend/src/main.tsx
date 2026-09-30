@@ -21,6 +21,7 @@ import { installInputModality } from './ui/input-modality';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
 import Workspace, { panelMetrics } from './features/shell/Workspace';
 import { EditMenu } from './features/shell/EditMenu';
+import DesktopReconnecting from './features/shell/DesktopReconnecting';
 import { resourcePanelMetrics } from './features/panels/ResourcePanel';
 import { createWorkspaceEditSessions } from './features/panels/workspace-edit-sessions';
 import { createWorkspaceProcessSessions } from './features/panels/workspace-process-sessions';
@@ -384,6 +385,7 @@ async function start() {
             <OverlayProvider>
               <OpenConversationRequests />
               <EditMenu />
+              <DesktopReconnecting platform={platform} />
               <Suspense fallback={<Skeleton label="Opening workspace" />}>
                 <Routes>
                   <Route path="/" element={<Workspace />}>

@@ -5376,6 +5376,13 @@ export class ClientController {
       signal,
     );
   }
+  /** Desktop app: a conversation export saved into Exports by the server (B238). */
+  saveToExports = (reference: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.saveAttachmentExport?.(reference, signal));
+  revealExport = (fileName: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.revealExport?.({ file_name: fileName }, signal),
+    );
   dispose(): void {
     this.stopObservation(true);
     this.disposed = true;

@@ -15,6 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+from urllib.parse import unquote
 
 import pytest
 
@@ -66,6 +67,14 @@ class _NativeApi(BaseHTTPRequestHandler):
         elif self.path == "/api/v1/native/terminal/external":
             self.external.append(body)
             self._json({"ok": True})
+        elif (self.path.startswith("/api/v1/native/attachments/")
+              and body.get("authority_grant") == "grant-" + body.get("window_id", "")):
+            data = ("export " + unquote(self.path.rsplit("/", 1)[1])).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         else:
             self.send_response(404)
             self.end_headers()
@@ -167,7 +176,7 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
         "width": 380, "height": 230, "frameless": True, "on_top": True, "hidden": True,
         "resizable": False, "easy_drag": False, "x": 710, "y": 524}
     assert options["transparent"] is (sys.platform != "win32")
-    assert report["buddy_exposed"] == ["native_client_dispatch"]
+    assert report["buddy_exposed"] == ["native_client_dispatch", "native_client_rebind"]
     assert report["visible_before_ready"] is False
 
     # The overlay document gets exactly its three operations.
@@ -214,6 +223,30 @@ def test_tear_off_opens_the_react_overlay_with_its_own_restricted_bridge(tmp_pat
     assert {call.split(" ")[1] for call in api.RequestHandlerClass.calls} <= {
         "/api/v1/native/bootstrap", "/api/v1/native/attest", "/api/v1/native/authorize",
         "/api/v1/native/revoke", "/api/v1/native/terminal/external"}
+
+
+@pytest.mark.slow
+def test_desktop_saves_land_where_the_save_dialog_says_and_tear_off_repeats(tmp_path, api) -> None:
+    """The export went to a file named "C" in the app's working folder while
+    the app said it was saved (B238); tear-off worked once, then never (B224)."""
+    report = _run(tmp_path, api.server_address[1], "desktop_save_and_tear_off_rounds")
+    assert report["save"] == {"status": "ok", "value": None}
+    assert report["saved_bytes"] == "export conversation-1:export-1"
+    assert report["save_dialog"][1]["save_filename"] == "conversation-export.pdf"
+    assert report["save_relative"] == {"status": "unavailable", "reason": "save_failed"}
+    assert report["save_unwritable"] == {"status": "unavailable", "reason": "save_failed"}
+    assert report["working_folder"] == ["Downloads", "data"]
+
+    docked = {"status": "ok", "value": {"placement": "docked", "visible": True}}
+    for number, round_ in enumerate(report["rounds"]):
+        assert round_["tear_off"] == {"status": "ok", "value": {"placement": "desktop", "visible": True}}, number
+        assert round_["ready"] == {"status": "ok", "value": {"placement": "desktop", "visible": True}}
+        # Docking from Buddy closes its own document, so that call gets no answer.
+        assert round_["dock"] == ("unavailable" if number % 2 == 0 else docked)
+        assert round_["destroyed"] is True
+        assert round_["main_status"] == docked
+        assert round_["main_save"] == {"status": "ok", "value": None}
+    assert report["windows"] == 4
 
 
 def test_window_script_points_the_overlay_at_the_react_route() -> None:

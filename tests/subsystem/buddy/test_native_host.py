@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pytest
@@ -14,8 +15,9 @@ from row_bot.buddy.native_host import (
     valid_conversation_id,
 )
 from row_bot.buddy.overlay import ScreenArea
+from row_bot.native_client import NativeClientBridge, NativeDocumentAuthority, PyWebViewDriver
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 class Events:
@@ -286,3 +288,37 @@ def test_drop_and_moves_use_dips_on_a_scaled_display() -> None:
     assert harness.host.open() is True
     reopened = harness.windows[-1]
     assert (reopened.options["x"], reopened.options["y"]) == (3848, 631)
+
+
+def test_tear_off_and_dock_repeat_and_the_main_window_bridge_keeps_working() -> None:
+    """Buddy tore off once, then every tear-off failed (B224): three rounds,
+    docking from Buddy and from the main window in turn, through the main
+    window's own attested bridge."""
+    harness = Harness()
+    host = harness.host
+    driver = PyWebViewDriver(SimpleNamespace(), buddy_placement=placement_callback(host, "main"),
+                             read_clipboard=lambda: "fixture")
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="main", origin="http://127.0.0.1:8123",
+        current_url=lambda: "http://127.0.0.1:8123/app-v2/conversations/c-1", driver=driver,
+        authenticate_document=lambda _a, _c: NativeDocumentAuthority("session", "policy", "grant"),
+        authorize_document=lambda _a, _c: True)
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest"})["status"] == "ok"
+    buddy = placement_callback(host, "buddy")
+    desktop = {"placement": "desktop", "visible": True}
+    docked = {"placement": "docked", "visible": True}
+    for number in range(3):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "tear_off", "x": 900, "y": 600}) == {
+            "status": "ok", "value": desktop}, number
+        window = harness.windows[-1]
+        assert harness.attached[-1] is window
+        assert buddy("ready", None, None) == desktop
+        if number % 2:
+            assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "dock"})["value"] == docked
+        else:
+            assert buddy("dock", None, None) == docked
+        assert ("destroy",) in window.calls and host.window is None
+        assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "status"})["value"] == docked
+        assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {"status": "ok", "value": "fixture"}
+    assert len(harness.windows) == 3

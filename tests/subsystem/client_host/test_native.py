@@ -247,22 +247,82 @@ def test_native_exception_never_exposes_private_paths(native) -> None:
     assert bridge.native_client_dispatch(proof, "select_file", _picker_payload()) == {"status": "unavailable", "reason": "operation_failed"}
 
 
-def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import sys
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(OPEN_DIALOG="file", FOLDER_DIALOG="folder", SAVE_DIALOG="save"))
     calls = []
-    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: calls.append((kind, kwargs)) or ["/synthetic/file"])
+    chosen = str(tmp_path / "file")
+    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: calls.append((kind, kwargs)) or [chosen])
     saved = []
     driver = PyWebViewDriver(window, save_reference=lambda reference, path: saved.append((reference, path)) or True,
                              open_external=lambda url: calls.append(url) or True)
-    assert driver.select("file") == "/synthetic/file"
-    assert driver.select("folder") == "/synthetic/file"
+    assert driver.select("file") == chosen
+    assert driver.select("folder") == chosen
     assert not driver.save("fixture", "fixture.txt", lambda: False)
     assert saved == []
     assert driver.save("fixture", "fixture.txt", lambda: True)
-    assert saved == [("fixture", Path("/synthetic/file"))]
+    assert saved == [("fixture", Path(chosen))]
     assert driver.clipboard_read() is None
     assert not driver.managed_window("/app-v2/")
+
+
+def test_a_save_dialog_answering_one_path_saves_exactly_there(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """pywebview's Windows and macOS save dialogs answer a plain string, not a
+    tuple: the export was written to a file named after the drive letter in
+    the app's working folder, and the app said it was saved (B238)."""
+    import sys
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(OPEN_DIALOG=10, FOLDER_DIALOG=20, SAVE_DIALOG=30))
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: tmp_path))
+    (tmp_path / "Downloads").mkdir()
+    chosen = str(tmp_path / "Downloads" / "conversation-export.pdf")
+    answer: dict[str, object] = {"value": chosen}
+    dialogs: list[tuple[int, dict]] = []
+    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: dialogs.append((kind, kwargs)) or answer["value"])
+    saved: list[tuple[str, Path]] = []
+    driver = PyWebViewDriver(window, save_reference=lambda reference, path: saved.append((reference, path)) or True)
+
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert saved == [("fixture", Path(chosen))]
+    # The dialog opens in Downloads with the suggested name (pywebview's own
+    # Windows default folder has no drive).
+    assert dialogs[0] == (30, {"save_filename": "conversation-export.pdf", "directory": str(tmp_path / "Downloads")})
+    # A one-item tuple (GTK, Qt) is the same choice.
+    answer["value"] = (chosen,)
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert saved[-1] == ("fixture", Path(chosen))
+    # A cancelled dialog writes nothing and says so.
+    answer["value"] = None
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is None
+    # A relative answer is refused, never resolved against the working folder.
+    for relative in ("C", ("C",), "export.pdf"):
+        answer["value"] = relative
+        assert driver.save("fixture", "conversation-export.pdf", lambda: True) is False
+    assert len(saved) == 2
+
+
+def test_a_picker_answering_one_path_or_a_relative_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import sys
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(OPEN_DIALOG=10, FOLDER_DIALOG=20, SAVE_DIALOG=30))
+    answer: dict[str, object] = {"value": str(tmp_path)}
+    window = SimpleNamespace(create_file_dialog=lambda _kind, **_kwargs: answer["value"])
+    driver = PyWebViewDriver(window)
+    assert driver.select("folder") == str(tmp_path)
+    answer["value"] = (str(tmp_path),)
+    assert driver.select("folder") == str(tmp_path)
+    answer["value"] = ()
+    assert driver.select("file") is None
+    for relative in ("C", ("C",)):
+        answer["value"] = relative
+        with pytest.raises(ValueError):
+            driver.select("file")
+
+
+def test_a_save_the_host_could_not_write_is_reported_not_saved(native) -> None:
+    bridge, proof, driver, _, _ = native
+    driver.save = lambda _reference, _name, _authorized: False
+    assert bridge.native_client_dispatch(proof, "save", {"reference": "fixture", "name": "fixture.txt"}) == {
+        "status": "unavailable", "reason": "save_failed"}
 
 
 def test_trusted_attach_installs_document_scoped_hook_and_revokes_on_events() -> None:
@@ -279,10 +339,10 @@ def test_trusted_attach_installs_document_scoped_hook_and_revokes_on_events() ->
     exposed = []
     window = SimpleNamespace(uid="window", get_current_url=lambda: "http://localhost:8080/app-v2/",
                              events=SimpleNamespace(before_load=Event(), closed=Event(), loaded=Event()),
-                             expose=lambda callback: exposed.append(callback), evaluate_js=scripts.append)
+                             expose=lambda *callbacks: exposed.extend(callbacks), evaluate_js=scripts.append)
     bridge = attach_native_client(window, instance_id="i", origin="http://localhost:8080", driver=Driver())
     window.events.loaded.fire()
-    assert len(exposed) == 1 and exposed[0].__name__ == "native_client_dispatch"
+    assert sorted(callback.__name__ for callback in exposed) == ["native_client_dispatch", "native_client_rebind"]
     assert "__ROW_BOT_NATIVE_CLIENT__" in scripts[0] and "localStorage" not in scripts[0]
     assert "row-bot-native-ready" in scripts[0]
     assert bridge._token
@@ -657,17 +717,121 @@ def test_a_fresh_attestation_renews_the_document_lease_before_it_lapses() -> Non
     assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
     assert exchanged == ["attest-1"]
     state["clock"] += 1700
-    # A refused renewal keeps the current lease.
-    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "bogus"})["status"] == "ok"
+    # A refused renewal keeps the current lease, and says it was refused: it
+    # used to answer "ok", so the window believed it renewed (B231).
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "bogus"}) == {
+        "status": "unavailable", "reason": "native_renewal_refused"}
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
     assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
     state["clock"] += 1700  # past the first lease, inside the renewed one
     assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
     state["clock"] += 200  # the renewed lease lapses too
     assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
         "status": "unavailable", "reason": "native_proof_required"}
-    # A lapsed document cannot renew itself; only a reload binds a new one.
+    # A lapsed document cannot renew itself; only a new binding (a reload,
+    # or the host binding the document again) gives it a new proof.
     assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"})["status"] == "unavailable"
     assert "attest-3" not in exchanged
+
+
+class _Event:
+    def __init__(self) -> None:
+        self.handlers: list[Callable[..., object]] = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self) -> None:
+        for handler in self.handlers:
+            handler()
+
+
+class _ShellWindow:
+    """A pywebview window: its URL, events, exposed functions and injected scripts."""
+
+    def __init__(self, url: str) -> None:
+        self.uid = "window"
+        self.url = url
+        self.events = SimpleNamespace(before_load=_Event(), closed=_Event(), loaded=_Event())
+        self.exposed: dict[str, Callable[..., dict]] = {}
+        self.scripts: list[str] = []
+
+    def get_current_url(self) -> str:
+        return self.url
+
+    def expose(self, *functions) -> None:
+        for function in functions:
+            self.exposed[function.__name__] = function
+
+    def evaluate_js(self, script: str) -> None:
+        self.scripts.append(script)
+
+    def proof(self) -> dict:
+        import json
+        return json.loads(self.scripts[-1].split("const proof = ", 1)[1].split("; ", 1)[0])
+
+
+def test_a_window_whose_lease_lapsed_is_bound_again_only_at_the_shell() -> None:
+    """A main window whose lease lapsed (the computer slept past it) stayed
+    without desktop features until Row-Bot restarted (B231). It asks the host to
+    bind it again: exactly what loading the page does (a new epoch and token,
+    only while it shows the app), so no more than a reload, and without a fresh
+    attestation it still has no authority."""
+    exchanged: list[str] = []
+
+    def authenticate(attestation, _context):
+        if attestation in exchanged:
+            return None
+        exchanged.append(attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    window = _ShellWindow("http://localhost:8080/app-v2/conversations/c-1")
+    driver = Driver()
+    bridge = attach_native_client(window, instance_id="instance", origin="http://localhost:8080", driver=driver,
+                                  authenticate_document=authenticate, authorize_document=lambda _a, _c: True)
+    rebind = window.exposed["native_client_rebind"]
+    window.events.loaded.fire()
+    first = window.proof()
+    dispatch = window.exposed["native_client_dispatch"]
+    assert dispatch(first, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    bridge._invalidate()  # the lease lapsed
+    assert dispatch(first, "clipboard_read", {}) == {"status": "unavailable", "reason": "native_proof_required"}
+
+    # Away from the app there is nothing to bind.
+    window.url = "http://localhost:8080/legacy"
+    assert rebind() == {"status": "unavailable", "reason": "native_proof_required"}
+    assert len(window.scripts) == 1
+
+    window.url = "http://localhost:8080/app-v2/conversations/c-1"
+    assert rebind() == {"status": "ok"}
+    second = window.proof()
+    assert second["epoch"] > first["epoch"] and second["token"] != first["token"]
+    assert "row-bot-native-ready" in window.scripts[-1]
+    assert dispatch(first, "clipboard_read", {}) == {"status": "unavailable", "reason": "native_proof_required"}
+    # A new binding has no authority until it exchanges a fresh attestation.
+    assert dispatch(second, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert dispatch(second, "discover", {"attestation": "attest-1"}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert dispatch(second, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    assert dispatch(second, "clipboard_read", {})["status"] == "ok"
+    # Binding a live document again retires its current proof.
+    assert rebind() == {"status": "ok"}
+    assert dispatch(second, "clipboard_read", {}) == {"status": "unavailable", "reason": "native_proof_required"}
+    assert driver.calls == ["clipboard_read"]
+
+
+def test_the_desktop_buddy_is_bound_again_only_at_its_own_document() -> None:
+    window = _ShellWindow("http://localhost:8080/app-v2/")
+    attach_native_client(window, instance_id="instance", origin="http://localhost:8080", driver=Driver(),
+                         authenticate_document=lambda _a, _c: None, authorize_document=lambda _a, _c: False,
+                         shell_path="/app-v2/buddy-overlay")
+    assert window.exposed["native_client_rebind"]() == {"status": "unavailable", "reason": "native_proof_required"}
+    assert window.scripts == []
+    window.url = "http://localhost:8080/app-v2/buddy-overlay"
+    assert window.exposed["native_client_rebind"]() == {"status": "ok"}
+    assert "__ROW_BOT_NATIVE_CLIENT__" in window.scripts[-1]
 
 
 def test_a_lapsed_server_grant_is_replaced_by_a_fresh_attestation() -> None:

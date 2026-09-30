@@ -43,6 +43,10 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
   const [output, setOutput] = useState('');
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  // Reconnect opens the terminal again after a failure the desktop app can
+  // recover from.
+  const [attempt, setAttempt] = useState(0);
+  const [recoverable, setRecoverable] = useState(false);
   const [truncated, setTruncated] = useState(false);
   // Only the desktop app can open the person's own terminal app.
   const [external, setExternal] = useState(false);
@@ -78,7 +82,16 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
     void platform.openTerminal(conversationId).then(async (result) => {
       if (!alive) return;
       if (result.status !== 'ok') {
-        setError('The terminal needs the Row-Bot desktop app.');
+        // The real reason, not "needs the desktop app" inside it (B238).
+        const reason = result.status === 'unavailable' ? result.reason : '';
+        setRecoverable(reason !== 'terminal_requires_native');
+        setError(
+          reason === 'terminal_requires_native'
+            ? 'The terminal needs the Row-Bot desktop app.'
+            : reason === 'native_reconnecting'
+              ? 'Desktop features are reconnecting. Try again in a moment.'
+              : 'Row-Bot couldn’t start the terminal. Try again.',
+        );
         return;
       }
       terminal = result.value.terminalId;
@@ -95,7 +108,7 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
       if (terminal)
         void controller.terminalDisconnect(terminal).catch(() => {});
     };
-  }, [controller, conversationId, platform]);
+  }, [controller, conversationId, platform, attempt]);
 
   useEffect(() => {
     if (!visible || !terminalId) return;
@@ -170,7 +183,25 @@ export default function NativeTerminal({ visible }: { visible: boolean }) {
 
   if (!visible) return null;
   if (error && !terminalId)
-    return <EmptyState title="Terminal unavailable">{error}</EmptyState>;
+    return (
+      <EmptyState
+        title="Terminal unavailable"
+        action={
+          recoverable && (
+            <Button
+              onClick={() => {
+                setError('');
+                setAttempt((value) => value + 1);
+              }}
+            >
+              Reconnect
+            </Button>
+          )
+        }
+      >
+        {error}
+      </EmptyState>
+    );
   return (
     <section
       className="native-terminal stack"

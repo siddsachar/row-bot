@@ -13,10 +13,16 @@ const attachment = {
   size_bytes: 7,
   revision: '1',
 };
-const media = (): MediaTransport => ({
-  upload: vi.fn().mockResolvedValue(attachment),
-  download: vi.fn().mockResolvedValue(new Blob(['fixture'])),
-});
+const media = () =>
+  ({
+    upload: vi.fn().mockResolvedValue(attachment),
+    download: vi.fn().mockResolvedValue(new Blob(['fixture'])),
+    saveToExports: vi.fn().mockResolvedValue({
+      file_name: 'conversation-export.md',
+      folder: 'Row-Bot › Exports',
+    }),
+    revealExport: vi.fn().mockResolvedValue({ status: 'opened' }),
+  }) satisfies MediaTransport;
 afterEach(() => {
   vi.restoreAllMocks();
   document.body.innerHTML = '';
@@ -129,9 +135,10 @@ describe('browser capabilities', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
       () => undefined,
     );
+    // A page can only start a download; it never claims the file was saved.
     expect(await adapter.save('fixture', 'fixture.txt')).toEqual({
       status: 'ok',
-      value: null,
+      value: { kind: 'download' },
     });
     expect(transport.download).toHaveBeenCalledWith('fixture', undefined);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fixture');
@@ -331,10 +338,12 @@ describe('safe native and fake capabilities', () => {
         attestation: 'b'.repeat(32),
       },
     });
-    expect(await mismatched.discover()).toMatchObject({
-      status: 'ok',
-      value: { kind: 'browser' },
+    // A desktop window never falls back to the browser versions (B238).
+    expect(await mismatched.discover()).toEqual({
+      status: 'unavailable',
+      reason: 'native_reconnecting',
     });
+    expect(mismatched.nativeConnection?.get()).toBe('reconnecting');
     Reflect.deleteProperty(window, '__ROW_BOT_NATIVE_CLIENT__');
   });
   it('waits for the native loaded event before selecting the authorized adapter', async () => {
@@ -742,7 +751,7 @@ describe('native selection at a cold start (B95)', () => {
     });
   });
 
-  it('recognises WKWebView and gives up after the bound', async () => {
+  it('recognises WKWebView and stops waiting after the bound, reconnecting', async () => {
     vi.useFakeTimers();
     Object.assign(window, { webkit: { messageHandlers: { jsBridge: {} } } });
     let chosen: Awaited<ReturnType<typeof selectClientPlatform>> | null = null;
@@ -752,8 +761,9 @@ describe('native selection at a cold start (B95)', () => {
     await vi.advanceTimersByTimeAsync(7999);
     expect(chosen).toBeNull();
     await vi.advanceTimersByTimeAsync(1);
-    await expect(chosen!.discover()).resolves.toMatchObject({
-      value: { kind: 'browser' },
+    await expect(chosen!.discover()).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'native_reconnecting',
     });
   });
 
@@ -976,5 +986,245 @@ describe('refused native grants (B102)', () => {
       ['discover', { attestation: 'b'.repeat(32) }],
       ['discover', { attestation: 'b'.repeat(32) }],
     ]);
+  });
+});
+
+describe('desktop windows never run the browser versions silently (B231, B238)', () => {
+  const nativeAdapter = {
+    native_adapter: {
+      available: true,
+      proof_required: true as const,
+      instance_id: 'instance',
+      attestation: 'a'.repeat(32),
+    },
+  };
+  const info = {
+    status: 'ok',
+    value: {
+      kind: 'pywebview',
+      platform: 'windows',
+      capabilities: ['buddy_placement', 'save', 'select_folder'],
+      instanceId: 'instance',
+      windowId: 'window',
+      epoch: 1,
+    },
+  };
+  const reconnecting = { status: 'unavailable', reason: 'native_reconnecting' };
+  const lapsed = { status: 'unavailable', reason: 'native_proof_required' };
+  const status = {
+    status: 'ok',
+    value: { placement: 'docked', visible: true },
+  };
+  type Endpoint = { dispatch: ReturnType<typeof vi.fn> };
+  type Host = EventTarget & {
+    __ROW_BOT_NATIVE_CLIENT__?: Endpoint;
+    pywebview?: { api: { native_client_rebind: ReturnType<typeof vi.fn> } };
+  };
+  // A pywebview window of its own, so no other test hears its events.
+  const desktopWindow = (): Host =>
+    Object.assign(new EventTarget(), {
+      document,
+      navigator,
+      chrome: { webview: {} },
+      setTimeout: (handler: () => void, ms?: number) =>
+        window.setTimeout(handler, ms),
+      clearTimeout: (id?: number) => window.clearTimeout(id),
+    });
+  const asWindow = (host: Host) => host as unknown as Window;
+  // The host binds the document again: a new endpoint and the ready event.
+  const rebindingHost = (host: Host, next: () => Endpoint) => {
+    host.pywebview = {
+      api: {
+        native_client_rebind: vi.fn(async () => {
+          host.__ROW_BOT_NATIVE_CLIENT__ = next();
+          host.dispatchEvent(new Event('row-bot-native-ready'));
+          return { status: 'ok' };
+        }),
+      },
+    };
+    return host.pywebview.api.native_client_rebind;
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('says it is reconnecting while a slow bridge loads, saves into Exports, then binds it', async () => {
+    vi.useFakeTimers();
+    const host = desktopWindow();
+    const transport = media();
+    let chosen: Awaited<ReturnType<typeof selectClientPlatform>> | null = null;
+    void selectClientPlatform(
+      transport,
+      nativeAdapter,
+      asWindow(host),
+      async () => 'b'.repeat(32),
+    ).then((value) => {
+      chosen = value;
+    });
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(chosen!.nativeConnection?.get()).toBe('reconnecting');
+    expect(await chosen!.discover()).toEqual(reconnecting);
+    expect(await chosen!.buddyPlacement('status')).toEqual(reconnecting);
+    expect(await chosen!.openTerminal(null)).toEqual(reconnecting);
+    // No browser download (the desktop window cancels those): the server
+    // writes the export into Exports and says which file.
+    const saved = await chosen!.save('conversation-1:export-1', 'export.md');
+    expect(saved).toMatchObject({
+      status: 'ok',
+      value: {
+        kind: 'exports',
+        fileName: 'conversation-export.md',
+        folder: 'Row-Bot › Exports',
+      },
+    });
+    expect(transport.download).not.toHaveBeenCalled();
+    expect(transport.saveToExports).toHaveBeenCalledWith(
+      'conversation-1:export-1',
+      undefined,
+    );
+    if (saved.status === 'ok' && saved.value.kind === 'exports')
+      expect(await saved.value.reveal()).toBe(true);
+    expect(transport.revealExport).toHaveBeenCalledWith(
+      'conversation-export.md',
+    );
+
+    const endpoint = { dispatch: vi.fn().mockResolvedValue(info) };
+    host.__ROW_BOT_NATIVE_CLIENT__ = endpoint;
+    host.dispatchEvent(new Event('row-bot-native-ready'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chosen!.nativeConnection?.get()).toBe('ready');
+    expect(await chosen!.discover()).toMatchObject({
+      status: 'ok',
+      value: { kind: 'pywebview' },
+    });
+    expect(endpoint.dispatch).toHaveBeenCalledWith('discover', {
+      attestation: 'a'.repeat(32),
+    });
+  });
+
+  it('binds again with a fresh attestation when the first discovery fails', async () => {
+    const host = desktopWindow();
+    host.__ROW_BOT_NATIVE_CLIENT__ = {
+      dispatch: vi.fn().mockResolvedValue(lapsed),
+    };
+    const fresh = { dispatch: vi.fn().mockResolvedValue(info) };
+    const rebind = rebindingHost(host, () => fresh);
+    const reattest = vi.fn().mockResolvedValue('b'.repeat(32));
+    const chosen = await selectClientPlatform(
+      media(),
+      nativeAdapter,
+      asWindow(host),
+      reattest,
+    );
+    await vi.waitFor(() =>
+      expect(chosen.nativeConnection?.get()).toBe('ready'),
+    );
+    expect(rebind).toHaveBeenCalledTimes(1);
+    expect(fresh.dispatch).toHaveBeenCalledWith('discover', {
+      attestation: 'b'.repeat(32),
+    });
+    expect(await chosen.discover()).toMatchObject({ status: 'ok' });
+  });
+
+  it('binds a window whose lease lapsed again, without reloading it', async () => {
+    const host = desktopWindow();
+    const first = { dispatch: vi.fn().mockResolvedValue(info) };
+    host.__ROW_BOT_NATIVE_CLIENT__ = first;
+    const second = {
+      dispatch: vi.fn(async (operation: string) =>
+        operation === 'buddy_placement' ? status : info,
+      ),
+    };
+    const rebind = rebindingHost(host, () => second);
+    const reattest = vi.fn().mockResolvedValue('c'.repeat(32));
+    const chosen = await selectClientPlatform(
+      media(),
+      nativeAdapter,
+      asWindow(host),
+      reattest,
+    );
+    expect(chosen.nativeConnection?.get()).toBe('ready');
+    const seen: string[] = [];
+    chosen.nativeConnection!.subscribe(() =>
+      seen.push(chosen.nativeConnection!.get()),
+    );
+    // The computer slept past the lease: every call answers "proof required".
+    first.dispatch.mockResolvedValue(lapsed);
+    expect(await chosen.renewNative!('d'.repeat(32))).toEqual(reconnecting);
+    await vi.waitFor(() =>
+      expect(chosen.nativeConnection?.get()).toBe('ready'),
+    );
+    expect(seen).toEqual(['reconnecting', 'ready']);
+    expect(rebind).toHaveBeenCalledTimes(1);
+    expect(second.dispatch).toHaveBeenCalledWith('discover', {
+      attestation: 'c'.repeat(32),
+    });
+    expect(await chosen.buddyPlacement('status')).toEqual(status);
+  });
+
+  it('attaches through the browser file input while reconnecting; a folder pick says so', async () => {
+    const host = desktopWindow();
+    host.__ROW_BOT_NATIVE_CLIENT__ = {
+      dispatch: vi.fn().mockResolvedValue(lapsed),
+    };
+    const chosen = await selectClientPlatform(
+      media(),
+      nativeAdapter,
+      asWindow(host),
+    );
+    expect(chosen.nativeConnection?.get()).toBe('reconnecting');
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(
+      () => undefined,
+    );
+    const intent = {
+      intentId: 'intent',
+      intent: 'attachment',
+      conversationId: 'conversation-1',
+      destination: 'composer',
+    };
+    const picked = chosen.selectFile(undefined, intent);
+    await vi.waitFor(() =>
+      expect(document.querySelector('input')).not.toBeNull(),
+    );
+    const input = document.querySelector('input')!;
+    const file = new File(['fixture'], 'fixture.txt');
+    Object.defineProperty(input, 'files', { value: [file] });
+    input.dispatchEvent(new Event('change'));
+    expect(await picked).toEqual({
+      status: 'ok',
+      value: { kind: 'file', files: [file] },
+    });
+    expect(
+      await chosen.selectFolder(undefined, { ...intent, intent: 'workspace' }),
+    ).toEqual(reconnecting);
+  });
+
+  it('reports a native save truthfully and never saves elsewhere after a failed write', async () => {
+    const host = desktopWindow();
+    const dispatch = vi.fn().mockResolvedValue(info);
+    host.__ROW_BOT_NATIVE_CLIENT__ = { dispatch };
+    const transport = media();
+    const chosen = await selectClientPlatform(
+      transport,
+      nativeAdapter,
+      asWindow(host),
+    );
+    dispatch.mockResolvedValueOnce({ status: 'ok', value: null });
+    expect(await chosen.save('conversation-1:export-1', 'export.md')).toEqual({
+      status: 'ok',
+      value: { kind: 'file' },
+    });
+    dispatch.mockResolvedValueOnce({ status: 'cancelled' });
+    expect(await chosen.save('conversation-1:export-1', 'export.md')).toEqual({
+      status: 'cancelled',
+    });
+    dispatch.mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'save_failed',
+    });
+    expect(await chosen.save('conversation-1:export-1', 'export.md')).toEqual({
+      status: 'unavailable',
+      reason: 'save_failed',
+    });
+    expect(transport.saveToExports).not.toHaveBeenCalled();
+    expect(transport.download).not.toHaveBeenCalled();
   });
 });

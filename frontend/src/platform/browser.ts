@@ -156,17 +156,19 @@ export function createBrowserPlatform(
     moveWindow: () => false,
     openTerminal: async () => unavailable('terminal_requires_native'),
     openExternalTerminal: async () => unavailable('terminal_requires_native'),
-    save: (reference, name, signal) => {
-      if (!safeDownloadName(name))
-        return Promise.resolve(unavailable('invalid_name'));
-      if (!activated())
-        return Promise.resolve(unavailable('user_gesture_required'));
-      return saveBrowserDownload(
+    save: async (reference, name, signal) => {
+      if (!safeDownloadName(name)) return unavailable('invalid_name');
+      if (!activated()) return unavailable('user_gesture_required');
+      const result = await saveBrowserDownload(
         () => media.download(reference, signal),
         name,
         signal,
         target,
       );
+      // A page can only start a download, never tell that it was saved.
+      return result.status === 'ok'
+        ? { status: 'ok', value: { kind: 'download' } }
+        : result;
     },
   };
 }

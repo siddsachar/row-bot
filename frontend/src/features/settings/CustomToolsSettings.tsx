@@ -118,6 +118,14 @@ export default function CustomToolsSettings() {
       conversationId: null,
       destination: 'custom-tools',
     });
+    // Never silent in the desktop window while it reconnects (B231).
+    if (
+      picked.status === 'unavailable' &&
+      picked.reason === 'native_reconnecting'
+    ) {
+      setError('Desktop features are reconnecting. Try again in a moment.');
+      return;
+    }
     if (picked.status !== 'ok' || picked.value.kind !== 'folder') return;
     if (!('reference' in picked.value) || !picked.value.reference) {
       setError(

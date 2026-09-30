@@ -3,7 +3,7 @@ import { unavailable } from './types';
 
 type AsyncOperation = Exclude<
   keyof ClientPlatform,
-  'moveWindow' | 'renewNative'
+  'moveWindow' | 'renewNative' | 'nativeConnection'
 >;
 export type FakePlatformScript = Partial<{
   [Key in AsyncOperation]: Awaited<ReturnType<ClientPlatform[Key]>>;

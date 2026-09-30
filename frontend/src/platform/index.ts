@@ -1,6 +1,7 @@
 import type { HandshakeView } from '../api/types';
 import { createBrowserPlatform } from './browser';
-import { createPyWebViewPlatform, type NativeEndpoint } from './native';
+import { createDesktopPlatform } from './desktop';
+import type { NativeEndpoint } from './native';
 import type { ClientPlatform, MediaTransport } from './types';
 
 export type {
@@ -10,7 +11,9 @@ export type {
   CapabilityResult,
   ClientPlatform,
   MediaTransport,
+  NativeConnection,
   PlatformInfo,
+  SavedFile,
   Selection,
   SelectionIntent,
 } from './types';
@@ -50,47 +53,29 @@ export async function selectClientPlatform(
   handshake: Pick<HandshakeView, 'native_adapter'> | null | undefined,
   target: Window = window,
   // A fresh attestation from this document's session, used when the server
-  // refuses the one it holds (B102).
-  reattest?: () => Promise<string | null>,
+  // refuses the one it holds (B102) and to bind the window again (B231).
+  reattest: () => Promise<string | null> = async () => null,
 ): Promise<ClientPlatform> {
   const browser = createBrowserPlatform(media, target);
   const authorization = handshake?.native_adapter;
-  let endpoint = target.__ROW_BOT_NATIVE_CLIENT__;
-  // pywebview installs its API and the document-bound endpoint only when the
-  // navigation completes, often after a cold start's handshake (B95). This
-  // bounded wait grants no authority without the server attestation and
-  // native discovery.
-  if (!endpoint && authorization?.available && pywebviewHost(target)) {
-    await new Promise<void>((resolve) => {
-      const finished = () => {
-        target.removeEventListener('row-bot-native-ready', finished);
-        target.clearTimeout(timeout);
-        resolve();
-      };
-      const timeout = target.setTimeout(finished, NATIVE_READY_WAIT_MS);
-      target.addEventListener('row-bot-native-ready', finished, { once: true });
-      if (target.__ROW_BOT_NATIVE_CLIENT__) finished();
-    });
-    endpoint = target.__ROW_BOT_NATIVE_CLIENT__;
-  }
   if (
     !authorization?.available ||
     !authorization.attestation ||
     !authorization.instance_id ||
-    !endpoint
+    (!target.__ROW_BOT_NATIVE_CLIENT__ && !pywebviewHost(target))
   )
     return browser;
-  const native = createPyWebViewPlatform(
-    endpoint,
+  // A desktop window runs its native versions, or says they are reconnecting
+  // while it binds (again); it never silently runs the browser versions,
+  // which it cannot save with (B238). Waiting grants no authority without the
+  // server attestation and native discovery.
+  const desktop = createDesktopPlatform(
     media,
-    authorization.attestation,
-    target as Parameters<typeof createPyWebViewPlatform>[3],
+    browser,
+    target,
+    authorization.instance_id,
     reattest,
   );
-  const discovered = await native.discover();
-  return discovered.status === 'ok' &&
-    discovered.value.kind === 'pywebview' &&
-    discovered.value.instanceId === authorization.instance_id
-    ? native
-    : browser;
+  await desktop.connect(authorization.attestation, NATIVE_READY_WAIT_MS);
+  return desktop;
 }

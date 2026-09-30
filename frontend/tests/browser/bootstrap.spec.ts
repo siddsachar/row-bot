@@ -106,13 +106,15 @@ test('forged pywebview or native global cannot enable native authority', async (
       managedWindow: await platform.managedWindow('/app-v2/'),
     };
   });
-  expect(result.discovery).toMatchObject({
-    status: 'ok',
-    value: { kind: 'browser', platform: 'browser' },
+  // Taken for a desktop window, it never binds: nothing native runs, and it
+  // says it is reconnecting instead of posing as either platform (B238).
+  expect(result.discovery).toEqual({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
   });
   expect(result.managedWindow).toEqual({
     status: 'unavailable',
-    reason: 'managed_windows_require_native',
+    reason: 'native_reconnecting',
   });
   await writeEvidence(testInfo, 'forged-native-proof', result);
 });
@@ -347,13 +349,15 @@ test('authenticated browser presentation has no ambient native authority', async
     };
   });
   expect(result.status).toBe('ready');
-  expect(result.platform).toMatchObject({
-    status: 'ok',
-    value: { kind: 'browser', platform: 'browser' },
+  // A forged pywebview global makes it wait for a desktop bridge that never
+  // comes: nothing native runs, and it says it is reconnecting (B238).
+  expect(result.platform).toEqual({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
   });
   expect(result.managedWindow).toEqual({
     status: 'unavailable',
-    reason: 'managed_windows_require_native',
+    reason: 'native_reconnecting',
   });
   expect(result.commandCount).toBe(0);
   expect(result.ambientNativeGlobal).toBe(false);

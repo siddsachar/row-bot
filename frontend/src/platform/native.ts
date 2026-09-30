@@ -30,6 +30,11 @@ type PyWebViewHost = {
   };
 };
 
+const PASSED_REASONS = new Set([
+  'native_proof_required',
+  'native_authentication_required',
+  'save_failed',
+]);
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const reference = (value: unknown): value is string =>
@@ -107,12 +112,12 @@ export function createPyWebViewPlatform(
       )
         return call(operation, payload, valid, false);
       if (response.status === 'unavailable')
-        // A lapsed lease is told apart: its window can only recover by
-        // loading again (B99). A grant that stays refused may too (B102).
-        // Other reasons stay generic.
+        // A lapsed lease is told apart: its window must be bound again (B99,
+        // B231). So is a grant that stays refused (B102), and a file the host
+        // could not write (B238). Other reasons stay generic.
         return unavailable(
-          response.reason === 'native_proof_required' ||
-            response.reason === 'native_authentication_required'
+          typeof response.reason === 'string' &&
+            PASSED_REASONS.has(response.reason)
             ? response.reason
             : 'native_operation_unavailable',
         );
@@ -212,9 +217,11 @@ export function createPyWebViewPlatform(
         (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y))
       )
         return unavailable('invalid_drop_position');
+      // A plain discovery: sending the held attestation could race a renewal
+      // and be refused as a stale one (B231).
       const discovered = await call<PlatformInfo>(
         'discover',
-        () => ({ attestation }),
+        {},
         (value): value is PlatformInfo =>
           object(value) &&
           value.kind === 'pywebview' &&
@@ -279,7 +286,11 @@ export function createPyWebViewPlatform(
         return unavailable('invalid_request');
       const result = await call('save', { reference: ref, name }, nullValue);
       // Discard late completion; this cannot undo an already performed host save.
-      return signal?.aborted ? { status: 'cancelled' } : result;
+      if (signal?.aborted) return { status: 'cancelled' };
+      // The host answers ok only once the chosen file is written.
+      return result.status === 'ok'
+        ? { status: 'ok', value: { kind: 'file' } }
+        : result;
     },
   };
 }

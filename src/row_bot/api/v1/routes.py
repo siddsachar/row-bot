@@ -10060,6 +10060,40 @@ def create_router(
             },
         )
 
+    async def local_owner_session(request: Request) -> Any:
+        """Writing and showing files on this computer: the local owner only."""
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        if context.authentication_kind != "local_owner" or not context.direct_loopback:
+            raise ProtocolError("owner_local_only", 403)
+        return current
+
+    @router.post("/attachments/{reference}/save")
+    async def attachment_save(reference: str, request: Request) -> JSONResponse:
+        """Save a conversation export into Exports when the desktop window
+        cannot show its Save dialog (B238)."""
+        current = await local_owner_session(request)
+        from row_bot.application.attachments import read_attachment
+        from row_bot.application.export_folder import save_export
+
+        metadata, data = await call(read_attachment, reference)
+        result = await call(
+            save_export,
+            metadata["name"],
+            data,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.ExportSaved, result)
+
+    @router.post("/exports/reveal")
+    async def export_reveal(request: Request) -> JSONResponse:
+        await local_owner_session(request)
+        body = await _body(request, dto.ExportRevealRequest)
+        from row_bot.application.export_folder import reveal_export
+
+        result = await call(reveal_export, body.file_name)
+        return await respond(request, dto.ArtifactExportRevealResult, result)
+
     return router
 
 

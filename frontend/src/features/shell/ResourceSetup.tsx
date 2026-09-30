@@ -519,7 +519,14 @@ export default function ResourceSetup({
           name: 'Authorized folder',
         });
       else if (result.status === 'unavailable' || result.status === 'ok')
-        setError('Folder selection requires the local desktop window.');
+        // The desktop window says it is reconnecting, never "requires the
+        // desktop window" inside it (B231).
+        setError(
+          result.status === 'unavailable' &&
+            result.reason === 'native_reconnecting'
+            ? 'Desktop features are reconnecting. Try again in a moment.'
+            : 'Folder selection requires the local desktop window.',
+        );
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
     }

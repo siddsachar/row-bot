@@ -9,16 +9,27 @@
 .buddy-drag-handle video {
   -webkit-user-drag: none;
 }
+/* It keeps its pointer while dragged, so the drag always ends (B224). */
 .buddy-drag-handle[data-dragging='true'] {
   cursor: grabbing;
   position: relative;
   z-index: 10;
-  pointer-events: none;
 }
-.buddy-drag-error {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--status-warning-text);
+/* Why a tear-off did not happen, beside the avatar (B224). */
+.buddy-drag-notice {
+  position: fixed;
+  z-index: 70;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px 12px;
+  transform: translateY(-50%);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-modal);
+  font-size: 13px;
+  line-height: 1.35;
+  pointer-events: none;
 }
 .buddy-dock-placeholder {
   display: grid;

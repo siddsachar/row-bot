@@ -1,12 +1,15 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type PointerEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { ClientPlatform } from '../../platform';
+import { TONED_NOTICE_MS } from '../../ui/overlays';
 import { Button } from '../../ui/primitives';
 
 export function useBuddyPlacement(platform: ClientPlatform) {
@@ -63,6 +66,27 @@ export function useBuddyPlacement(platform: ClientPlatform) {
   return { placement, visible, supported, setPlacement, dock, tearOff };
 }
 
+/** Plain words for a tear-off that did not happen (B224). */
+function tearOffProblem(reason: string | null): string {
+  switch (reason) {
+    case 'buddy_placement_requires_native':
+      return 'Buddy can leave the window only in the Row-Bot desktop app.';
+    case 'native_reconnecting':
+      return 'Desktop features are reconnecting. Try again in a moment.';
+    case 'native_authentication_required':
+      return 'Row-Bot couldn’t confirm this window. Try again in a moment.';
+    case 'invalid_drop_position':
+      return 'Drop Buddy somewhere on your screen.';
+    default:
+      return 'Buddy couldn’t open its own window. Try again, or restart Row-Bot if it keeps happening.';
+  }
+}
+
+type Release = Pick<
+  PointerEvent,
+  'pointerId' | 'clientX' | 'clientY' | 'screenX' | 'screenY'
+>;
+
 export function BuddyDragHandle({
   children,
   platform,
@@ -81,13 +105,18 @@ export function BuddyDragHandle({
   } | null>(null);
   const suppressClick = useRef(false);
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
-  const [error, setError] = useState('');
-  const cancel = (event?: PointerEvent<HTMLSpanElement>) => {
+  // Beside the avatar, never inside it; the next drag clears it.
+  const [notice, setNotice] = useState<{
+    text: string;
+    left: number;
+    top: number;
+  } | null>(null);
+  const cancel = (event?: Pick<PointerEvent, 'pointerId'>) => {
     if (event && gesture.current?.id !== event.pointerId) return;
     gesture.current = null;
     setPoint(null);
   };
-  const end = (event: PointerEvent<HTMLSpanElement>) => {
+  const end = (event: Release) => {
     const current = gesture.current;
     if (!current || current.id !== event.pointerId) return;
     cancel(event);
@@ -104,11 +133,42 @@ export function BuddyDragHandle({
       .buddyPlacement('tear_off', { x: event.screenX, y: event.screenY })
       .then((result) => {
         if (result.status === 'ok' && result.value.placement === 'desktop') {
-          setError('');
           onTornOff();
-        } else setError('Buddy tear-off is unavailable here.');
+          return;
+        }
+        setNotice({
+          text: tearOffProblem(
+            result.status === 'unavailable' ? result.reason : null,
+          ),
+          left: Math.max(
+            8,
+            Math.min(current.dock.right + 8, window.innerWidth - 296),
+          ),
+          top: current.dock.top + current.dock.height / 2,
+        });
       });
   };
+  const release = useEffectEvent(end);
+  const lose = useEffectEvent(cancel);
+  const dragging = point !== null;
+  // A drag always ends, wherever the pointer is let go, and puts the avatar
+  // back even if the handle lost its pointer capture (B224).
+  useEffect(() => {
+    if (!dragging) return;
+    const up = (event: globalThis.PointerEvent) => release(event);
+    const lost = (event: globalThis.PointerEvent) => lose(event);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', lost);
+    return () => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', lost);
+    };
+  }, [dragging]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), TONED_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   return (
     <>
       <span
@@ -122,6 +182,7 @@ export function BuddyDragHandle({
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           suppressClick.current = false;
+          setNotice(null);
           const dock = event.currentTarget.getBoundingClientRect();
           gesture.current = {
             id: event.pointerId,
@@ -156,11 +217,17 @@ export function BuddyDragHandle({
       >
         {children}
       </span>
-      {error && (
-        <span className="buddy-drag-error" role="status">
-          {error}
-        </span>
-      )}
+      {notice &&
+        createPortal(
+          <span
+            className="buddy-drag-notice"
+            role="status"
+            style={{ left: notice.left, top: notice.top }}
+          >
+            {notice.text}
+          </span>,
+          document.body,
+        )}
     </>
   );
 }

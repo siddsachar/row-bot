@@ -832,9 +832,8 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   expect(markdown).toContain('_Exported from the saved Row-Bot conversation._');
   expect(markdown).not.toContain('system instructions');
   expect(bytes.length).toBeLessThan(1024 * 1024);
-  await expect(
-    actions.getByText('Conversation export downloaded.'),
-  ).toBeVisible();
+  // A browser can only start a download; it never claims the file was saved.
+  await expect(actions.getByText('Download started.')).toBeVisible();
   await writeEvidence(info, 'conversation-actions-result.json', {
     conversation,
     title: renamed,

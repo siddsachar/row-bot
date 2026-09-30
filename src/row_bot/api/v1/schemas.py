@@ -5063,6 +5063,16 @@ class ArtifactExportRevealResult(WireModel):
     status: Literal["opened", "not_found", "unavailable"]
 
 
+class ExportSaved(WireModel):
+    """A conversation export written into the workspace's Exports folder (local owner)."""
+    file_name: str = Field(min_length=1, max_length=256)
+    folder: str = Field(min_length=1, max_length=512)
+
+
+class ExportRevealRequest(WireModel):
+    file_name: str = Field(min_length=1, max_length=256)
+
+
 class ArtifactExport(WireModel):
     export_id: UUID
     resource_id: OpaqueId

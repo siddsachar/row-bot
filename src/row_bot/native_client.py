@@ -134,6 +134,32 @@ class NativeDriver(Protocol):
     def capabilities(self) -> list[str]: ...
 
 
+def _dialog_path(selected: object) -> str | None:
+    """The one path a pywebview dialog chose, or None when it was cancelled.
+
+    Most dialogs answer a tuple, but the Windows and macOS save dialogs answer
+    a plain string: indexing it wrote exports to a file named after the drive
+    letter in the working folder (B238). A relative answer is refused.
+    """
+    if isinstance(selected, (list, tuple)):
+        if not selected:
+            return None
+        if len(selected) != 1:
+            raise ValueError("invalid_dialog_answer")
+        selected = selected[0]
+    if not selected:
+        return None
+    if not isinstance(selected, str) or not Path(selected).is_absolute():
+        raise ValueError("invalid_dialog_answer")
+    return selected
+
+
+def _save_folder() -> str:
+    """Start the Save dialog in Downloads (pywebview's Windows default has no drive)."""
+    downloads = Path.home() / "Downloads"
+    return str(downloads if downloads.is_dir() else Path.home())
+
+
 def select_existing_workspace_folder() -> Path | None:
     """Explicit host picker callback; no native library is loaded before invocation."""
     from row_bot.application.client_platform import ClientPlatformError
@@ -193,9 +219,8 @@ class PyWebViewDriver:
 
     def select(self, kind: str) -> str | None:
         import webview
-        selected = self._window.create_file_dialog(webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG,
-                                                   allow_multiple=False)
-        return str(selected[0]) if selected else None
+        return _dialog_path(self._window.create_file_dialog(
+            webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG, allow_multiple=False))
 
     def clipboard_read(self) -> str | None:
         return self._read_clipboard() if self._read_clipboard is not None else None
@@ -227,12 +252,16 @@ class PyWebViewDriver:
         if self._save_reference is None:
             return False
         import webview
-        selected = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name)
-        if not selected:
+        try:
+            selected = _dialog_path(self._window.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename=suggested_name, directory=_save_folder()))
+        except ValueError:
+            return False
+        if selected is None:
             return None
         if not authorized():
             return False
-        return self._save_reference(reference, Path(selected[0]))
+        return self._save_reference(reference, Path(selected))
 
 
 class NativeClientBridge:
@@ -434,8 +463,14 @@ class NativeClientBridge:
             renewing = (operation == "discover" and authenticated
                         and payload.get("attestation") not in (None, self._attestation))
             if operation == "discover" and (not authenticated or renewing):
-                if not self._authenticate_discovery(proof, payload, epoch) and not authenticated:
-                    return _unavailable("native_authentication_required")
+                if not self._authenticate_discovery(proof, payload, epoch):
+                    if not authenticated:
+                        return _unavailable("native_authentication_required")
+                    # A refused renewal keeps the current lease, but is never
+                    # answered as renewed: the window asks again soon (B231).
+                    with self._lock:
+                        lapsed = epoch != self._epoch or not self._valid_document(proof)
+                    return _unavailable("native_proof_required" if lapsed else "native_renewal_refused")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     # Nothing has run yet. A document that is still bound
@@ -539,7 +574,9 @@ class NativeClientBridge:
                 result = self._driver.save(payload["reference"], payload["name"], authorized)
                 if not authorized():
                     return _unavailable("native_proof_required")
-                return {"status": "cancelled"} if result is None else ({"status": "ok", "value": None} if result else _unavailable())
+                # A file the host could not write is never reported as saved.
+                return ({"status": "cancelled"} if result is None
+                        else {"status": "ok", "value": None} if result else _unavailable("save_failed"))
             if operation == "buddy_follow":
                 publish = set(payload) == {"conversationId"}
                 if not (publish or not payload) or (
@@ -653,7 +690,7 @@ def attach_native_client(
                                 open_external_terminal=open_external_terminal,
                                 shell_path=shell_path)
 
-    def loaded(*_args: Any) -> None:
+    def bind() -> bool:
         proof = bridge._bind_loaded_document()
         if proof is not None:
             # Token is a closure value, never a storage item, URL or public flag.
@@ -662,9 +699,27 @@ def attach_native_client(
             script += "value: { dispatch: (operation, payload) => window.pywebview.api.native_client_dispatch(proof, operation, payload) } }); "
             script += "window.dispatchEvent(new Event('row-bot-native-ready')); })();"
             window.evaluate_js(script)
+        return proof is not None
+
+    def loaded(*_args: Any) -> None:
+        bind()
+
+    def native_client_rebind() -> dict[str, Any]:
+        """Bind the shown document again, exactly as loading it does (B231).
+
+        A window whose lease lapsed (the computer slept past it) or that never
+        received its proof asks for this instead of reloading and losing its
+        state. Only a window showing the app gets a new epoch and token, the
+        old proof stops working, and the new one has no authority until it
+        exchanges a fresh attestation through ``discover``.
+        """
+        try:
+            return {"status": "ok"} if bind() else _unavailable("native_proof_required")
+        except Exception:
+            return _unavailable("operation_failed")
 
     window.events.before_load += bridge._invalidate
     window.events.closed += bridge._invalidate
     window.events.loaded += loaded
-    window.expose(bridge.native_client_dispatch)
+    window.expose(bridge.native_client_dispatch, native_client_rebind)
     return bridge

@@ -210,6 +210,15 @@ export interface ClientTransport {
     body: Wire.ArtifactExportReveal,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactExportRevealResult>;
+  /** Local owner: write a conversation export into Exports (B238). */
+  saveAttachmentExport?(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ExportSaved>;
+  revealExport?(
+    body: Wire.ExportRevealRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactExportRevealResult>;
   artifactDownload?(
     conversation: string,
     binding: string,

@@ -212,6 +212,23 @@ it('adds from a folder picked in the desktop app, and explains it elsewhere', as
   ).toBeDisabled();
 });
 
+it('says the desktop app is reconnecting instead of doing nothing (B231)', async () => {
+  const user = userEvent.setup();
+  selectFolder.mockResolvedValue({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
+  });
+  render(<CustomToolsSettings />);
+  await screen.findByText('Weather');
+  await user.click(screen.getByRole('button', { name: 'Add from a folder' }));
+  expect(
+    await screen.findByText(
+      'Desktop features are reconnecting. Try again in a moment.',
+    ),
+  ).toBeInTheDocument();
+  expect(executeCustomToolLibrary).not.toHaveBeenCalled();
+});
+
 it('confirms before removing and keeps the files', async () => {
   const user = userEvent.setup();
   render(<CustomToolsSettings />);

@@ -56,15 +56,15 @@ it('does nothing in a browser', () => {
   release();
 });
 
-it('reloads the desktop Buddy once when its lease has lapsed', async () => {
+it('reloads the desktop Buddy at most once a minute when its grant stays refused', async () => {
   let clock = 0;
   const reload = vi.fn();
-  const lapsed = {
+  const refused = {
     status: 'unavailable',
-    reason: 'native_proof_required',
+    reason: 'native_authentication_required',
   } as const;
   const platform = reloadWhenLeaseLapses(
-    createFakePlatform({ buddyPlacement: lapsed, readBuddyTarget: lapsed }),
+    createFakePlatform({ buddyPlacement: refused, readBuddyTarget: refused }),
     reload,
     () => clock,
   );
@@ -87,18 +87,49 @@ it('reloads the desktop Buddy once when its lease has lapsed', async () => {
   expect(reload).toHaveBeenCalledTimes(2);
 });
 
-it('reloads the desktop Buddy when its grant stays refused (B102)', async () => {
+it('leaves a reconnecting desktop Buddy to bind itself again (B231)', async () => {
   const reload = vi.fn();
   const platform = reloadWhenLeaseLapses(
     createFakePlatform({
       readBuddyTarget: {
         status: 'unavailable',
-        reason: 'native_authentication_required',
+        reason: 'native_reconnecting',
       },
     }),
     reload,
     () => 0,
   );
   await platform.readBuddyTarget();
-  expect(reload).toHaveBeenCalledTimes(1);
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it('asks again at the next check when a renewal is refused, not 20 minutes later (B231)', async () => {
+  vi.useFakeTimers();
+  let clock = 0;
+  const controller = {
+    nativeAttestation: vi.fn().mockResolvedValue('fresh-attestation'),
+  };
+  const renewNative = vi
+    .fn()
+    .mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'native_operation_unavailable',
+    })
+    .mockResolvedValue({ status: 'ok', value: {} });
+  const release = keepNativeLease(
+    controller,
+    { renewNative },
+    window,
+    () => clock,
+  );
+  clock = NATIVE_RENEW_MS;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(renewNative).toHaveBeenCalledTimes(1);
+  clock += 60_000;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(renewNative).toHaveBeenCalledTimes(2);
+  clock += 60_000;
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(renewNative).toHaveBeenCalledTimes(2);
+  release();
 });

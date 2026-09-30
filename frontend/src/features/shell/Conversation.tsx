@@ -1724,6 +1724,17 @@ export default function Conversation({
         conversationId: target,
         destination: 'composer',
       });
+    // The desktop window falls back to the browser's own file input when its
+    // picker cannot open; anything else that fails is said, never dropped
+    // (B231).
+    if (picked.status === 'unavailable') {
+      setError(
+        picked.reason === 'user_gesture_required'
+          ? 'The file picker needs a click. Choose Attach file again, or drag files into the conversation.'
+          : 'Row-Bot couldn’t attach that file. Try again, or drag it into the conversation.',
+      );
+      return;
+    }
     if (picked.status !== 'ok') return;
     if ('files' in picked.value) {
       await attachFiles(picked.value.files);
@@ -1836,10 +1847,7 @@ export default function Conversation({
           load={controller.conversationActions}
           review={controller.reviewConversationAction}
           execute={controller.executeConversationAction}
-          download={async (reference, fileName) => {
-            const result = await platform.save(reference, fileName);
-            if (result.status !== 'ok') throw Error(result.status);
-          }}
+          save={platform.save}
           onChanged={() => {
             void Promise.all([
               controller.selectConversation(id),

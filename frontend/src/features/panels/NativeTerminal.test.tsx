@@ -63,6 +63,46 @@ async function view() {
   });
 }
 
+it('says the real reason the terminal did not open and reconnects (B238)', async () => {
+  const openTerminal = vi
+    .fn()
+    .mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'native_reconnecting',
+    })
+    .mockResolvedValue(opened);
+  mock.platform = { ...createFakePlatform(), openTerminal };
+  await view();
+  expect(
+    screen.getByRole('heading', { name: 'Terminal unavailable' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'Desktop features are reconnecting. Try again in a moment.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/needs the Row-Bot desktop app/)).toBeNull();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' })),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(openTerminal).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Terminal on this computer')).toBeInTheDocument();
+});
+
+it('says only a browser needs the desktop app, with nothing to reconnect', async () => {
+  mock.platform = createFakePlatform({
+    openTerminal: { status: 'unavailable', reason: 'terminal_requires_native' },
+  });
+  await view();
+  expect(
+    screen.getByText('The terminal needs the Row-Bot desktop app.'),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+});
+
 it('sends Ctrl+C to the running command from the Stop button', async () => {
   await view();
   const stop = screen.getByRole('button', {
