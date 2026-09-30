@@ -16,8 +16,11 @@ import {
   splitModelLabel,
 } from './model-choices';
 
-/** A list row: a model choice, with the plain reason when it is unavailable. */
-export type ListedModel = ModelChoice & { reason?: string };
+/**
+ * A list row: a model choice, with the plain reason when it is unavailable
+ * and an optional muted note after its name.
+ */
+export type ListedModel = ModelChoice & { reason?: string; detail?: string };
 type Row = { key: string; model: ListedModel };
 type Section = {
   key: string;
@@ -49,14 +52,17 @@ export function BillingTag({ billing }: { billing: ModelChoice['billing'] }) {
   );
 }
 
+const NO_ROWS: readonly ListedModel[] = [];
+
 /**
  * The one searchable model list (U12): the composer's picker, the default
- * model in Settings and Setup all use it. Grouped by provider with a status
+ * models in Settings and Setup all use it. Grouped by provider with a status
  * dot and a billing tag, recent choices first, on-device providers marked,
  * and providers that are not connected muted with Connect.
  */
 export default function ModelList({
   models,
+  leading = NO_ROWS,
   current,
   onChoose,
   onConnect,
@@ -65,6 +71,8 @@ export default function ModelList({
   emptyText = 'No cached models. Open Models in Settings.',
 }: {
   models: readonly ListedModel[];
+  /** Choices listed first, outside the provider groups ("Same as Brain"). */
+  leading?: readonly ListedModel[];
   current: string | undefined;
   onChoose: (model: ModelChoice) => void;
   /** Open provider setup (for providers that are not connected). */
@@ -82,6 +90,19 @@ export default function ModelList({
   const sections = useMemo<Section[]>(() => {
     const matching = models.filter((model) => matchesModel(model, query));
     const result: Section[] = [];
+    const first = leading.filter((model) => matchesModel(model, query));
+    if (first.length)
+      result.push({
+        key: 'leading',
+        label: '',
+        connected: true,
+        local: false,
+        billing: null,
+        rows: first.map((model) => ({
+          key: `leading:${model.model_ref}`,
+          model,
+        })),
+      });
     if (!query) {
       const recentModels = recent
         .map((ref) => models.find((model) => model.model_ref === ref))
@@ -117,7 +138,7 @@ export default function ModelList({
         })),
       });
     return result;
-  }, [current, models, query, recent]);
+  }, [current, leading, models, query, recent]);
   const rows = sections.flatMap((section) => section.rows);
   const enabled = rows.filter((row) => row.model.available);
   const activeRow =
@@ -160,6 +181,66 @@ export default function ModelList({
       if (activeRow) choose(activeRow.model);
     }
   };
+  const option = (section: Section, row: Row) => {
+    const label = splitModelLabel(row.model.label);
+    const isCurrent = row.model.model_ref === current;
+    return (
+      <div
+        key={row.key}
+        id={optionId(row.key)}
+        role="option"
+        className="model-picker-option"
+        aria-selected={row.key === activeRow?.key}
+        aria-disabled={!row.model.available || undefined}
+        data-current={isCurrent ? 'true' : undefined}
+        onMouseDown={(event) => event.preventDefault()}
+        onMouseMove={() => {
+          if (row.model.available && active !== row.key) setActive(row.key);
+        }}
+        onClick={() => choose(row.model)}
+      >
+        <span className="model-picker-option-name">{label.name}</span>
+        {row.model.detail && (
+          <span className="model-picker-option-provider">
+            {row.model.detail}
+          </span>
+        )}
+        {!row.model.available && row.model.reason && (
+          <span className="model-picker-option-reason" title={row.model.reason}>
+            {row.model.reason}
+          </span>
+        )}
+        {section.key === 'recent' && label.provider && (
+          <span className="model-picker-option-provider">
+            {label.provider}
+            {row.model.billing ? ` · ${billingLabel(row.model.billing)}` : ''}
+          </span>
+        )}
+        {!row.model.available && onConnect ? (
+          <button
+            type="button"
+            className="model-picker-connect"
+            tabIndex={-1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onConnect();
+            }}
+          >
+            Connect
+          </button>
+        ) : (
+          isCurrent && (
+            <Check
+              className="model-picker-check"
+              size={14}
+              role="img"
+              aria-label="Current"
+            />
+          )
+        )}
+      </div>
+    );
+  };
   return (
     <>
       <div className="model-picker-search">
@@ -195,107 +276,51 @@ export default function ModelList({
         aria-label="Models"
         className="model-picker-list"
       >
-        {sections.map((section, sectionIndex) => (
-          <div
-            key={section.key}
-            role="group"
-            aria-labelledby={`${id}-group-${sectionIndex}`}
-            className="model-picker-group"
-            data-connected={section.connected ? 'true' : 'false'}
-          >
+        {sections.map((section, sectionIndex) =>
+          section.key === 'leading' ? (
+            section.rows.map((row) => option(section, row))
+          ) : (
             <div
-              id={`${id}-group-${sectionIndex}`}
-              className="model-picker-group-label"
-              role="presentation"
+              key={section.key}
+              role="group"
+              aria-labelledby={`${id}-group-${sectionIndex}`}
+              className="model-picker-group"
+              data-connected={section.connected ? 'true' : 'false'}
             >
-              <span>{section.label}</span>
-              {section.key !== 'recent' && (
-                <StatusDot
-                  tone={section.connected ? 'success' : 'neutral'}
-                  label={section.connected ? 'Connected' : 'Not connected'}
-                  showLabel={!section.connected}
-                />
-              )}
-              {section.local && section.key !== 'recent' && (
-                <span
-                  className="model-picker-local"
-                  title="Runs on this device"
-                >
-                  <HardDrive size={12} aria-hidden />
-                  <span className="visually-hidden">Runs on this device</span>
-                </span>
-              )}
-              {section.key !== 'recent' && (
-                <BillingTag billing={section.billing} />
-              )}
+              <div
+                id={`${id}-group-${sectionIndex}`}
+                className="model-picker-group-label"
+                role="presentation"
+              >
+                <span>{section.label}</span>
+                {section.key !== 'recent' && (
+                  <StatusDot
+                    tone={section.connected ? 'success' : 'neutral'}
+                    label={section.connected ? 'Connected' : 'Not connected'}
+                    showLabel={!section.connected}
+                  />
+                )}
+                {section.local && section.key !== 'recent' && (
+                  <span
+                    className="model-picker-local"
+                    title="Runs on this device"
+                  >
+                    <HardDrive size={12} aria-hidden />
+                    <span className="visually-hidden">Runs on this device</span>
+                  </span>
+                )}
+                {section.key !== 'recent' && (
+                  <BillingTag billing={section.billing} />
+                )}
+              </div>
+              {section.rows.map((row) => option(section, row))}
             </div>
-            {section.rows.map((row) => {
-              const label = splitModelLabel(row.model.label);
-              const isCurrent = row.model.model_ref === current;
-              return (
-                <div
-                  key={row.key}
-                  id={optionId(row.key)}
-                  role="option"
-                  className="model-picker-option"
-                  aria-selected={row.key === activeRow?.key}
-                  aria-disabled={!row.model.available || undefined}
-                  data-current={isCurrent ? 'true' : undefined}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseMove={() => {
-                    if (row.model.available && active !== row.key)
-                      setActive(row.key);
-                  }}
-                  onClick={() => choose(row.model)}
-                >
-                  <span className="model-picker-option-name">{label.name}</span>
-                  {!row.model.available && row.model.reason && (
-                    <span
-                      className="model-picker-option-reason"
-                      title={row.model.reason}
-                    >
-                      {row.model.reason}
-                    </span>
-                  )}
-                  {section.key === 'recent' && label.provider && (
-                    <span className="model-picker-option-provider">
-                      {label.provider}
-                      {row.model.billing
-                        ? ` · ${billingLabel(row.model.billing)}`
-                        : ''}
-                    </span>
-                  )}
-                  {!row.model.available && onConnect ? (
-                    <button
-                      type="button"
-                      className="model-picker-connect"
-                      tabIndex={-1}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onConnect();
-                      }}
-                    >
-                      Connect
-                    </button>
-                  ) : (
-                    isCurrent && (
-                      <Check
-                        className="model-picker-check"
-                        size={14}
-                        role="img"
-                        aria-label="Current"
-                      />
-                    )
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+          ),
+        )}
       </div>
       {!rows.length && (
         <p className="model-picker-empty" role="status">
-          {models.length ? 'No models match.' : emptyText}
+          {models.length || leading.length ? 'No models match.' : emptyText}
         </p>
       )}
     </>

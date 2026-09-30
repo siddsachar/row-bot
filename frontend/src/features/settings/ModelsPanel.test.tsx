@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
@@ -185,9 +186,12 @@ function fixture() {
   } as unknown as ClientController;
   return controller;
 }
-/** The default model is the composer's searchable picker (U12). */
-async function chooseDefault(name: RegExp) {
-  fireEvent.click(await screen.findByRole('button', { name: 'Default model' }));
+/** Every Models picker is the composer's searchable list (U12, B227). */
+async function chooseDefault(name: RegExp, picker = 'Default model') {
+  const button = await screen.findByRole('button', { name: picker });
+  // A save in flight disables the pickers until it settles.
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
   const option = await screen.findByRole('option', { name });
   await act(async () => fireEvent.click(option));
 }
@@ -206,14 +210,14 @@ it('renders actual defaults and limits while leaving the catalog off the initial
   expect(
     await screen.findByRole('button', { name: 'Default model' }),
   ).toHaveTextContent('GPT-6-Astra');
-  expect(screen.getByRole('combobox', { name: 'Vision model' })).toHaveValue(
-    vision,
+  expect(
+    screen.getByRole('button', { name: 'Vision model' }),
+  ).toHaveTextContent('GPT-6-Astra');
+  expect(screen.getByRole('button', { name: 'Image model' })).toHaveTextContent(
+    'gpt-image-2',
   );
-  expect(screen.getByRole('combobox', { name: 'Image model' })).toHaveValue(
-    image,
-  );
-  expect(screen.getByRole('combobox', { name: 'Video model' })).toHaveValue(
-    video,
+  expect(screen.getByRole('button', { name: 'Video model' })).toHaveTextContent(
+    'Grok Imagine Video',
   );
   expect(
     screen.getByText(/Current Video default is unavailable/),
@@ -258,13 +262,15 @@ it('offers Download Ollama only when Ollama is not running (B117)', async () => 
   expect(screen.queryByRole('link', { name: 'Download Ollama' })).toBeNull();
 });
 
-it('lets Vision follow the chat model (decision 11)', async () => {
+it('lets Vision follow the Brain from the top of its list (decision 11, B227)', async () => {
   const { controller } = show();
-  const vision = await screen.findByRole('combobox', { name: 'Vision model' });
-  expect(
-    screen.getByRole('option', { name: 'Same as chat model' }),
-  ).toBeInTheDocument();
-  fireEvent.change(vision, { target: { value: '' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Vision model' }));
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  const [first] = within(list).getAllByRole('option');
+  expect(first).toHaveTextContent('Same as Brain');
+  // It names the model it follows.
+  expect(first).toHaveTextContent('GPT-6-Astra');
+  await act(async () => fireEvent.click(first));
   await waitFor(() =>
     expect(controller.updateModelSurface).toHaveBeenCalledWith({
       surface: 'vision',
@@ -272,6 +278,85 @@ it('lets Vision follow the chat model (decision 11)', async () => {
       selection_ref: '',
     }),
   );
+  expect(await screen.findByText('Vision settings saved.')).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Vision model' }),
+  ).toHaveTextContent('Same as Brain');
+});
+
+it('lists only the Vision choices, grouped by provider with how each is paid for (B227)', async () => {
+  const { controller } = show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Vision model' }));
+  const list = await screen.findByRole('listbox', { name: 'Models' });
+  expect(
+    within(list)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual([
+    expect.stringContaining('Same as Brain'),
+    expect.stringContaining('GPT-6-Astra'),
+    expect.stringContaining('GPT-4.1'),
+  ]);
+  // GPT-5.5 is a Brain choice the server did not offer for Vision.
+  expect(within(list).queryByRole('option', { name: /GPT-5\.5/ })).toBeNull();
+  expect(
+    within(list).getByRole('group', { name: /ChatGPT \/ Codex/ }),
+  ).toHaveTextContent('Subscription');
+  expect(within(list).getByRole('group', { name: /OpenAI/ })).toHaveTextContent(
+    'Pay per use',
+  );
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search models' }), {
+    target: { value: '4.1' },
+  });
+  expect(within(list).getAllByRole('option')).toHaveLength(1);
+  await act(async () =>
+    fireEvent.click(within(list).getByRole('option', { name: /GPT-4\.1/ })),
+  );
+  await waitFor(() =>
+    expect(controller.updateModelSurface).toHaveBeenCalledWith({
+      surface: 'vision',
+      action: 'default',
+      selection_ref: 'model:openai:gpt-4.1',
+    }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Vision model' }),
+  ).toHaveTextContent('GPT-4.1OpenAI · Pay per use');
+});
+
+it('keeps an unset Image model unset and lists an unavailable Video model with its reason (B227)', async () => {
+  const controller = fixture();
+  const state = structuredClone(baseState);
+  state.image.current_ref = '';
+  state.video.options[0] = {
+    ...state.video.options[0],
+    unavailable_reason: 'configuration_required',
+    reason: 'Connect this provider before using this model.',
+  };
+  vi.spyOn(controller, 'modelsSettings').mockResolvedValue(state);
+  show(controller);
+  const imagePicker = await screen.findByRole('button', {
+    name: 'Image model',
+  });
+  expect(imagePicker).toHaveTextContent('Choose a model');
+  fireEvent.click(imagePicker);
+  await screen.findByRole('listbox', { name: 'Models' });
+  // Only Vision can follow the Brain; Image and Video have no such row.
+  expect(screen.queryByRole('option', { name: /Same as Brain/ })).toBeNull();
+  fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search models' }), {
+    key: 'Escape',
+  });
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Video model' }));
+  const unavailable = await screen.findByRole('option', {
+    name: /Grok Imagine Video/,
+  });
+  expect(unavailable).toHaveAttribute('aria-disabled', 'true');
+  expect(unavailable).toHaveTextContent(
+    'Connect this provider before using this model.',
+  );
+  fireEvent.click(unavailable);
+  expect(controller.updateModelSurface).not.toHaveBeenCalled();
 });
 
 it('reviews and saves the selected Brain default internally with the exact qualified identity', async () => {
@@ -296,7 +381,7 @@ it('reviews and saves the selected Brain default internally with the exact quali
 
 it('updates media toggles, defaults, camera, context, and delegation through their typed owners', async () => {
   const { controller } = show();
-  await screen.findByRole('combobox', { name: 'Image model' });
+  await screen.findByRole('button', { name: 'Image model' });
   fireEvent.click(screen.getByRole('switch', { name: 'Enable image' }));
   await waitFor(() =>
     expect(controller.updateModelSurface).toHaveBeenCalledWith({
@@ -305,9 +390,7 @@ it('updates media toggles, defaults, camera, context, and delegation through the
       enabled: false,
     }),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Image model' }), {
-    target: { value: 'model:openai:gpt-image-1.5' },
-  });
+  await chooseDefault(/gpt-image-1\.5/, 'Image model');
   await waitFor(() =>
     expect(controller.updateModelSurface).toHaveBeenCalledWith({
       surface: 'image',
@@ -315,19 +398,7 @@ it('updates media toggles, defaults, camera, context, and delegation through the
       selection_ref: 'model:openai:gpt-image-1.5',
     }),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Vision model' }), {
-    target: { value: 'model:openai:gpt-4.1' },
-  });
-  await waitFor(() =>
-    expect(controller.updateModelSurface).toHaveBeenCalledWith({
-      surface: 'vision',
-      action: 'default',
-      selection_ref: 'model:openai:gpt-4.1',
-    }),
-  );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Video model' }), {
-    target: { value: 'model:google:veo-3.1' },
-  });
+  await chooseDefault(/Veo 3\.1/, 'Video model');
   await waitFor(() =>
     expect(controller.updateModelSurface).toHaveBeenCalledWith({
       surface: 'video',

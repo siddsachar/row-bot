@@ -30,6 +30,7 @@ import { type DefaultModelSession } from './DefaultModelSettings';
 import { useProviderSettingsValue } from './provider-settings-sessions';
 import ModelCatalog from './ModelCatalog';
 import DefaultModelPicker from './DefaultModelPicker';
+import { modelRefName, splitModelLabel } from '../shell/model-choices';
 
 type Surface = 'chat' | 'vision' | 'image' | 'video' | 'voice';
 type Media = 'vision' | 'image' | 'video';
@@ -770,33 +771,25 @@ export default function ModelsPanel({
                 layout="row"
                 label={`${surface[0].toUpperCase() + surface.slice(1)} model`}
               >
-                <Select
-                  value={picker.current_ref}
-                  disabled={!!busy}
-                  onChange={(event) =>
-                    void media(surface, 'default', event.target.value)
+                <DefaultModelPicker
+                  current={picker.current_ref}
+                  options={picker.options}
+                  // Most chat models see images too (decision 11).
+                  follow={
+                    surface === 'vision'
+                      ? {
+                          label: 'Same as Brain',
+                          detail: currentBrain
+                            ? splitModelLabel(currentBrain.label).name
+                            : modelRefName(state.brain.current_ref),
+                        }
+                      : undefined
                   }
-                >
-                  {surface === 'vision' ? (
-                    // Most chat models see images too (decision 11).
-                    <option value="">Same as chat model</option>
-                  ) : (
-                    <option value="" disabled>
-                      Choose a model
-                    </option>
-                  )}
-                  {picker.options.map((item) => (
-                    <option
-                      value={item.selection_ref}
-                      key={item.selection_ref}
-                      disabled={!item.available}
-                    >
-                      {item.available
-                        ? item.label
-                        : `Unavailable: ${item.label}`}
-                    </option>
-                  ))}
-                </Select>
+                  dialogLabel={`Choose the ${surface} model`}
+                  disabled={!!busy}
+                  onChoose={(ref) => void media(surface, 'default', ref)}
+                  onRefresh={() => void refreshCatalog()}
+                />
               </Field>
               {picker.warning && (
                 <p className="settings-model-warning">{picker.warning}</p>

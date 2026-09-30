@@ -25,16 +25,19 @@ export function pickerModel(option: ModelPickerOption): ListedModel {
 }
 
 /**
- * The default model in Settings › Models: the same searchable list as the
- * composer's picker (U12), with billing tags so one model reached through
- * a subscription and a pay-per-use route is never confused (U13). It lists
- * the page's own options, the one list the save accepts (B226).
+ * A default model in Settings › Models (Brain, Vision, Image, Video): the
+ * same searchable list as the composer's picker (U12, B227), with billing
+ * tags so one model reached through a subscription and a pay-per-use route
+ * is never confused (U13). It lists the page's own options, the one list
+ * the save accepts (B226).
  */
 export default function DefaultModelPicker({
   id,
   'aria-describedby': describedBy,
   current,
   options,
+  follow,
+  dialogLabel = 'Choose the default model',
   disabled,
   onChoose,
   onRefresh,
@@ -43,6 +46,9 @@ export default function DefaultModelPicker({
   'aria-describedby'?: string;
   current: string;
   options: readonly ModelPickerOption[];
+  /** A first choice saved as "" (Vision's "Same as Brain", decision 11). */
+  follow?: { label: string; detail: string };
+  dialogLabel?: string;
   disabled?: boolean;
   onChoose: (ref: string) => void;
   /** Refresh the saved catalog, offered while a model has no saved details. */
@@ -51,16 +57,36 @@ export default function DefaultModelPicker({
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const models = useMemo(() => options.map(pickerModel), [options]);
-  const selected = models.find((model) => model.model_ref === current);
+  const followLabel = follow?.label;
+  const followDetail = follow?.detail;
+  const leading = useMemo<ListedModel[]>(
+    () =>
+      followLabel === undefined
+        ? []
+        : [
+            {
+              provider_id: '',
+              model_ref: '',
+              label: followLabel,
+              detail: followDetail,
+              available: true,
+            },
+          ],
+    [followLabel, followDetail],
+  );
+  const selected = [...leading, ...models].find(
+    (model) => model.model_ref === current,
+  );
   const name = selected
     ? splitModelLabel(selected.label).name
     : modelRefName(current) || 'Choose a model';
   const Glyph =
     selected && isLocalProvider(selected.provider_id) ? HardDrive : Cloud;
   const detail = selected
-    ? [splitModelLabel(selected.label).provider, billingLabel(selected.billing)]
+    ? (selected.detail ??
+      [splitModelLabel(selected.label).provider, billingLabel(selected.billing)]
         .filter(Boolean)
-        .join(' · ')
+        .join(' · '))
     : '';
   const needsRefresh =
     !!onRefresh &&
@@ -91,7 +117,7 @@ export default function DefaultModelPicker({
           align="end"
           sideOffset={6}
           collisionPadding={12}
-          aria-label="Choose the default model"
+          aria-label={dialogLabel}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             input.current?.focus();
@@ -99,6 +125,7 @@ export default function DefaultModelPicker({
         >
           <ModelList
             models={models}
+            leading={leading}
             current={current}
             inputRef={input}
             showRecent={false}

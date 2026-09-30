@@ -46,18 +46,15 @@ test('Providers and Models share the contained shell and Models opens without pr
   expect((await providers.boundingBox())!.width).toBeLessThan(1200);
   await page.goto('/app-v2/settings/models');
   const models = page.locator('[aria-label="Models settings"]');
-  await expect(
-    models.getByRole('button', { name: 'Default model' }),
-  ).toBeVisible();
-  await expect(
-    models.getByRole('combobox', { name: 'Vision model' }),
-  ).toBeVisible();
-  await expect(
-    models.getByRole('combobox', { name: 'Image model' }),
-  ).toBeVisible();
-  await expect(
-    models.getByRole('combobox', { name: 'Video model' }),
-  ).toBeVisible();
+  const brain = models.getByRole('button', { name: 'Default model' });
+  await expect(brain).toBeVisible();
+  // Vision, Image and Video use the Brain's picker, at its height (B227).
+  const brainHeight = (await brain.boundingBox())!.height;
+  for (const name of ['Vision model', 'Image model', 'Video model']) {
+    const picker = models.getByRole('button', { name });
+    await expect(picker).toBeVisible();
+    expect((await picker.boundingBox())!.height).toBeCloseTo(brainHeight, 0);
+  }
   await expect(
     models.getByRole('button', { name: 'Model Catalog' }),
   ).toHaveAttribute('aria-expanded', 'false');
@@ -134,6 +131,18 @@ test('Vision, media, context, and delegation controls write local settings', asy
     models.getByRole('button', { name: 'Default model' }),
   ).toBeVisible();
   const vision = models.locator('[aria-label="vision"]');
+  // Vision's searchable list starts with following the Brain (B227).
+  const visionPicker = vision.getByRole('button', { name: 'Vision model' });
+  await visionPicker.click();
+  const visionList = page.getByRole('dialog', {
+    name: 'Choose the vision model',
+  });
+  await expect(visionList.getByRole('option').first()).toContainText(
+    'Same as Brain',
+  );
+  await visionList.getByRole('option').first().click();
+  await expect(visionList).toBeHidden();
+  await expect(visionPicker).toContainText('Same as Brain');
   await vision.getByRole('switch', { name: 'Enable vision' }).uncheck();
   await expect(
     vision.getByRole('switch', { name: 'Enable vision' }),
