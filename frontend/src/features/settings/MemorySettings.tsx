@@ -242,7 +242,7 @@ export default function MemorySettings({
         </SettingsStatus>
       )}
       {snapshot && (
-        <SettingsGroup title="Memory">
+        <SettingsGroup title="Remembering">
           <SettingsItem
             label="Memory"
             help="Row-Bot remembers what it learns and recalls it when it helps."
