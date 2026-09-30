@@ -104,6 +104,12 @@
       "title": "Deleted",
       "type": "array"
     },
+    "deleted_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Deleted Count",
+      "type": "integer"
+    },
     "missing": {
       "items": {
         "pattern": "^[A-Za-z0-9_-]{1,128}$",
@@ -113,6 +119,12 @@
       "title": "Missing",
       "type": "array"
     },
+    "missing_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Missing Count",
+      "type": "integer"
+    },
     "stale": {
       "items": {
         "pattern": "^[A-Za-z0-9_-]{1,128}$",
@@ -121,6 +133,12 @@
       "maxItems": 100,
       "title": "Stale",
       "type": "array"
+    },
+    "stale_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Stale Count",
+      "type": "integer"
     },
     "status": {
       "enum": [

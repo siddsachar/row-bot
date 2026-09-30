@@ -148,6 +148,25 @@ def test_delete_all_requires_exact_catalog_and_reports_cleanup_truthfully(client
     assert cleared == [True] and kg.count_entities() == 0
 
 
+def test_delete_all_of_more_than_a_hundred_entries_completes_and_counts_them_all(client, monkeypatch):
+    """Delete all on a store over 100 entries used to report it couldn't confirm (B283)."""
+    _, kg, context = client
+    monkeypatch.setattr(kg, '_skip_reindex', True)
+    from row_bot import wiki_vault
+    monkeypatch.setattr(wiki_vault, 'clear_wiki_folder', lambda: 0)
+    for index in range(105):
+        kg.save_entity('concept', f'Entry {index:03d}', 'A saved memory.')
+    command, review = reviewed_maintenance(client, 'knowledge.delete_all', [])
+    result = execute_maintenance(client, command, review)
+    assert result['status'] == 'completed'
+    assert result['deleted_count'] == 105 and len(result['deleted']) == 100
+    assert kg.count_entities() == 0
+    api, _, _ = client
+    again = api.read_knowledge_maintenance_command(owner_id=context['owner_id'], command_id=command['command_id'],
+                                                   validate=context['validate'])
+    assert again == result
+
+
 def test_maintenance_stale_review_rejects_before_deletion(client):
     _, kg, _ = client
     row = saved(client)

@@ -340,9 +340,8 @@ export default function MemorySettings({
           {deleteResult && deleteResult.status !== 'completed' && (
             <p role="alert">
               Deletion was {humanizeToken(deleteResult.status).toLowerCase()}.
-              Deleted {deleteResult.deleted.length}; stale{' '}
-              {deleteResult.stale.length}; missing {deleteResult.missing.length}
-              .
+              Deleted {deleteResult.deleted_count}; stale{' '}
+              {deleteResult.stale_count}; missing {deleteResult.missing_count}.
             </p>
           )}
           {deletePending && (

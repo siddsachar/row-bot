@@ -2563,6 +2563,10 @@ class KnowledgeMaintenanceReceipt(WireModel):
     missing: list[
         Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     ] = Field(max_length=100)
+    # The lists name at most 100 entries each; the counts are complete.
+    deleted_count: int = Field(default=0, ge=0)
+    stale_count: int = Field(default=0, ge=0)
+    missing_count: int = Field(default=0, ge=0)
     cleanup: KnowledgeCleanupResult
     code: (
         Literal[

@@ -369,19 +369,21 @@ def _maintenance_public(saved: dict) -> dict:
     status = saved.get('status')
     if status not in {'completed', 'partial', 'rejected'}:
         raise _error('knowledge_operation_unavailable')
+    lists = {name: saved.get(name, []) for name in ('deleted', 'stale', 'missing')}
+    if any(not isinstance(value, list) for value in lists.values()):
+        raise _error('knowledge_operation_unavailable')
+    # A receipt names at most 100 of each and counts them all: Delete all on
+    # a store over 100 entries otherwise failed to confirm (B283).
     result = {
         'command_id': command_id,
         'status': status,
         'action': saved.get('action'),
-        'deleted': saved.get('deleted', []),
-        'stale': saved.get('stale', []),
-        'missing': saved.get('missing', []),
+        **{name: value[:100] for name, value in lists.items()},
+        **{f'{name}_count': len(value) for name, value in lists.items()},
         'cleanup': saved.get('cleanup', {}),
         'code': saved.get('code'),
     }
     if result['action'] not in _MAINTENANCE_KINDS:
-        raise _error('knowledge_operation_unavailable')
-    if any(not isinstance(value, list) or len(value) > 100 for value in (result['deleted'], result['stale'], result['missing'])):
         raise _error('knowledge_operation_unavailable')
     if not isinstance(result['cleanup'], dict):
         raise _error('knowledge_operation_unavailable')
