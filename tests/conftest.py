@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import builtins
 import errno
+import importlib
 import io
 import ipaddress
 import os
 import pathlib
 import socket
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -266,6 +268,25 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(autouse=True)
+def _keep_module_identity():
+    """Put back the row_bot module objects a test popped and imported again.
+
+    Some tests re-import modules for a fresh data folder. Product modules keep
+    references to the original objects, so a later test that patched the new copy
+    would patch nothing (the stale developer.storage of B215).
+    """
+    before = {name: module for name, module in sys.modules.items()
+              if name == "row_bot" or name.startswith("row_bot.")}
+    yield
+    for name, module in before.items():
+        if sys.modules.get(name) is not module:
+            sys.modules[name] = module
+            parent, _, child = name.rpartition(".")
+            if parent in sys.modules:
+                setattr(sys.modules[parent], child, module)
+
+
+@pytest.fixture(autouse=True)
 def _reset_test_data_env_between_tests():
     _set_default_test_data_env()
     yield
@@ -280,3 +301,44 @@ def _isolate_desktop_notification_outputs(monkeypatch):
 
     monkeypatch.setattr(notifications, "_desktop_notify", lambda *args, **kwargs: None)
     monkeypatch.setattr(notifications, "_play_sound", lambda *args, **kwargs: None)
+
+
+@pytest.fixture
+def reload_for_data_dir(monkeypatch: pytest.MonkeyPatch):
+    """Reload modules that bind ROW_BOT_DATA_DIR paths at import, for a test's folder.
+
+    Afterwards each module gets back exactly the namespace it had (its classes,
+    singletons and paths), because other modules keep references to those:
+    reloading them back is not enough (a reloaded dataclass no longer compares
+    equal to the one other modules imported; B215). A module first imported by
+    the test is reloaded under the session's data folder instead.
+    """
+    saved: dict[str, dict[str, Any]] = {}
+    first_imported: list[str] = []
+
+    def reload(data_dir: Path, *names: str) -> list[Any]:
+        monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+        for name in names:
+            module = sys.modules.get(name)
+            if module is None:
+                if name not in first_imported:
+                    first_imported.append(name)
+            elif name not in saved and name not in first_imported:
+                saved[name] = dict(module.__dict__)
+            importlib.reload(importlib.import_module(name))
+        return [sys.modules[name] for name in names]
+
+    yield reload
+    threads = sys.modules.get("row_bot.threads")
+    if threads is not None and ("row_bot.threads" in saved or "row_bot.threads" in first_imported):
+        try:
+            threads.conn.close()  # the test's connection; the restored one stays open
+        except Exception:
+            pass
+    for name, namespace in saved.items():
+        module = sys.modules[name]
+        module.__dict__.clear()
+        module.__dict__.update(namespace)
+    monkeypatch.undo()
+    for name in first_imported:
+        importlib.reload(sys.modules[name])

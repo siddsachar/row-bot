@@ -1,31 +1,26 @@
 import importlib
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 
-def _fresh_modules(tmp_path, monkeypatch):
+def _fresh_modules(tmp_path, reload_for_data_dir):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
-    previous_threads = sys.modules.get("row_bot.threads")
-    if previous_threads is not None:
-        try:
-            previous_threads.conn.close()
-        except Exception:
-            pass
-    tasks = importlib.reload(importlib.import_module("row_bot.tasks"))
-    threads = importlib.reload(importlib.import_module("row_bot.threads"))
-    storage = importlib.reload(importlib.import_module("row_bot.developer.storage"))
-    importlib.reload(importlib.import_module("row_bot.developer.todos"))
-    importlib.reload(importlib.import_module("row_bot.developer.change_ledger"))
-    importlib.reload(importlib.import_module("row_bot.developer.sandbox_runtime"))
-    importlib.reload(importlib.import_module("row_bot.developer.inspector_snapshot"))
-    worktrees = importlib.reload(importlib.import_module("row_bot.developer.worktrees"))
-    importlib.reload(importlib.import_module("row_bot.thread_cleanup"))
+    tasks, threads, storage, *_rest, worktrees, _cleanup = reload_for_data_dir(
+        data_dir,
+        "row_bot.tasks",
+        "row_bot.threads",
+        "row_bot.developer.storage",
+        "row_bot.developer.todos",
+        "row_bot.developer.change_ledger",
+        "row_bot.developer.sandbox_runtime",
+        "row_bot.developer.inspector_snapshot",
+        "row_bot.developer.worktrees",
+        "row_bot.thread_cleanup",
+    )
 
     return (
         tasks,
@@ -82,8 +77,8 @@ def _create_repo(tmp_path):
 
 
 @pytest.mark.slow
-def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadata(tmp_path, monkeypatch):
-    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadata(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = _create_repo(tmp_path)
 
     parent = storage.add_or_update_local_workspace(str(repo))
@@ -130,8 +125,8 @@ def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadat
 
 
 @pytest.mark.slow
-def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repository(tmp_path, monkeypatch):
-    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repository(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     from row_bot.thread_cleanup import delete_thread
 
     repo = _create_repo(tmp_path)
@@ -162,8 +157,8 @@ def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repositor
 
 
 @pytest.mark.slow
-def test_child_delete_captures_owned_allocation_before_purging_run(tmp_path, monkeypatch):
-    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_child_delete_captures_owned_allocation_before_purging_run(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     importlib.reload(importlib.import_module("row_bot.agent_profiles"))
     runs = importlib.reload(importlib.import_module("row_bot.agent_runs"))
     from row_bot.developer.state import DeveloperWorkspace
@@ -199,8 +194,8 @@ def test_child_delete_captures_owned_allocation_before_purging_run(tmp_path, mon
 
 
 @pytest.mark.slow
-def test_thread_deletion_preserves_dirty_worktree_and_exposes_recovery_workspace(tmp_path, monkeypatch):
-    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_thread_deletion_preserves_dirty_worktree_and_exposes_recovery_workspace(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     from row_bot.thread_cleanup import delete_thread
 
     repo = _create_repo(tmp_path)
@@ -231,8 +226,8 @@ def test_thread_deletion_preserves_dirty_worktree_and_exposes_recovery_workspace
     assert recovery.default_thread_id == ""
 
 
-def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_changes(tmp_path, monkeypatch):
-    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_changes(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     from row_bot.thread_cleanup import delete_thread
     sandbox_runtime = importlib.import_module("row_bot.developer.sandbox_runtime")
 
@@ -274,8 +269,8 @@ def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_change
 
 
 @pytest.mark.slow
-def test_dirty_current_changes_seed_into_worktree_without_mutating_parent(tmp_path, monkeypatch):
-    _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_dirty_current_changes_seed_into_worktree_without_mutating_parent(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = _create_repo(tmp_path)
     (repo / "README.md").write_text("staged\nunstaged\n", encoding="utf-8")
     _run_git(repo, "add", "README.md")
@@ -316,8 +311,8 @@ def test_dirty_current_changes_seed_into_worktree_without_mutating_parent(tmp_pa
 
 
 @pytest.mark.slow
-def test_child_worktree_derives_from_dirty_parent_worktree(tmp_path, monkeypatch):
-    _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_child_worktree_derives_from_dirty_parent_worktree(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = _create_repo(tmp_path)
     parent = storage.add_or_update_local_workspace(str(repo))
     thread_wt = worktrees.allocate_thread_worktree("parent-thread", parent.id, objective="Parent")
@@ -345,8 +340,8 @@ def test_child_worktree_derives_from_dirty_parent_worktree(tmp_path, monkeypatch
     assert (repo / "README.md").read_text(encoding="utf-8") == "hello\n"
 
 
-def test_allocate_worktree_requires_git_repo(tmp_path, monkeypatch):
-    _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_allocate_worktree_requires_git_repo(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     folder = tmp_path / "plain"
     folder.mkdir()
     parent = storage.add_or_update_local_workspace(str(folder))
@@ -356,8 +351,8 @@ def test_allocate_worktree_requires_git_repo(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
-def test_git_summary_distinguishes_nested_folder_from_repo_root(tmp_path, monkeypatch):
-    _tasks, _threads, storage, _worktrees = _fresh_modules(tmp_path, monkeypatch)
+def test_git_summary_distinguishes_nested_folder_from_repo_root(tmp_path, monkeypatch, reload_for_data_dir):
+    _tasks, _threads, storage, _worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = _create_repo(tmp_path)
     nested = repo / "src" / "pkg"
     nested.mkdir(parents=True)
