@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -1234,6 +1235,8 @@ export type ComboboxOption = {
   disabled?: boolean;
   icon?: ReactNode;
   meta?: ReactNode;
+  /** How the label looks, e.g. a font's name shown in that font. */
+  labelStyle?: CSSProperties;
 };
 
 function comboboxMatches(option: ComboboxOption, query: string) {
@@ -1365,7 +1368,9 @@ export function Combobox({
         </span>
       )}
       <span className="combobox-option-text">
-        <span className="combobox-option-label">{option.label}</span>
+        <span className="combobox-option-label" style={option.labelStyle}>
+          {option.label}
+        </span>
         {option.description && (
           <small className="combobox-option-description">
             {option.description}
@@ -1404,7 +1409,11 @@ export function Combobox({
           disabled={disabled}
         >
           {icon}
-          <span id={`${id}-value`} className="combobox-value">
+          <span
+            id={`${id}-value`}
+            className="combobox-value"
+            style={selected?.labelStyle}
+          >
             {selected?.label ?? placeholder ?? 'Choose'}
           </span>
           <ChevronDown size={14} aria-hidden />

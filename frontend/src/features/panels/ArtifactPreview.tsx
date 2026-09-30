@@ -673,6 +673,15 @@ export default function ArtifactPreview({
     setRefresh((value) => value + 1);
   }
 
+  // An edit (yours, Row-Bot's or an undo) can take the selected element
+  // away; the inspector then reads the page without it and says so once.
+  function loseSelection(elementId: string) {
+    if (selectedElementId !== elementId) return;
+    setSelectedElementId(undefined);
+    setNotice('Selection cleared.');
+  }
+  const refreshPreview = () => setRefresh((value) => value + 1);
+
   function goToPage(next: string | undefined) {
     if (!next) return;
     setSelectedElementId(undefined);
@@ -1602,15 +1611,14 @@ export default function ArtifactPreview({
                                     pageId={current?.page_id}
                                     selectedElementId={selectedElementId}
                                     onSelectElement={setSelectedElementId}
+                                    onSelectionLost={loseSelection}
                                     onPageChange={goToPage}
                                     load={loadEditing}
                                     edit={edit}
                                     generateNotes={
                                       design?.session.generateNotes
                                     }
-                                    onEdited={() =>
-                                      setRefresh((value) => value + 1)
-                                    }
+                                    onEdited={refreshPreview}
                                   />
                                 )}
                                 {design && current && (
@@ -1621,6 +1629,8 @@ export default function ArtifactPreview({
                                     pageId={current.page_id}
                                     selectedElementId={selectedElementId}
                                     onSelectElement={setSelectedElementId}
+                                    onSelectionLost={loseSelection}
+                                    onReload={refreshPreview}
                                     visible={visible}
                                   />
                                 )}
@@ -1645,6 +1655,8 @@ export default function ArtifactPreview({
                                   setSelectedElementId(id);
                                   setInspectorTab('properties');
                                 }}
+                                onSelectionLost={loseSelection}
+                                onReload={refreshPreview}
                                 visible={visible}
                               />
                             ),
@@ -1660,6 +1672,8 @@ export default function ArtifactPreview({
                                 pageId={current.page_id}
                                 selectedElementId={selectedElementId}
                                 onSelectElement={setSelectedElementId}
+                                onSelectionLost={loseSelection}
+                                onReload={refreshPreview}
                                 visible={visible}
                               />
                             ),

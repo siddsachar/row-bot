@@ -323,6 +323,7 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/document-import-preview", "ArtifactDocumentImportPreviewRequest", "ArtifactDocumentImportPreview"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/lifecycle", None, "ArtifactLifecycleState"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/design-controls", None, "DesignControlsState"),
+    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/assets/{asset_id}/thumbnail", None, "bytes"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/design-review", None, "DesignReviewState"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/presentation", None, "DesignPresentationState"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/preset-review", "ArtifactPresetReviewRequest", "ArtifactPresetReview"),
@@ -1001,6 +1002,15 @@ export const getArtifactStaticPreview = (base: string, proof: SessionProof, conv
 export type DesignControlOptions = {page_id?: string; element_id?: string; section?: DesignControlsState['section']; cursor?: string; limit?: number};
 export const getDesignControls = (base: string, proof: SessionProof, conversation: string, binding: string, options: DesignControlOptions, signal?: AbortSignal): Promise<DesignControlsState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/design-controls` + query(options), 'DesignControlsState', proof, 'GET', undefined, undefined, signal);
+export async function getDesignAssetThumbnail(base: string, proof: SessionProof, conversation: string, binding: string, asset: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/assets/${id(asset)}/thumbnail`, {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 2097152) throw new Error('protocol_incompatible');
+  return data;
+}
 export type DesignReviewOptions = {page_id?: string; scope?: DesignReviewState['scope']; cursor?: string; limit?: number};
 export const getDesignReview = (base: string, proof: SessionProof, conversation: string, binding: string, options: DesignReviewOptions, signal?: AbortSignal): Promise<DesignReviewState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/design-review` + query(options), 'DesignReviewState', proof, 'GET', undefined, undefined, signal);

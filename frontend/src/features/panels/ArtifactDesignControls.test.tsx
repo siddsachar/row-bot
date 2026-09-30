@@ -4,13 +4,21 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, expect, it, vi } from 'vitest';
 import ArtifactDesignControls, {
+  type DesignControlItem,
   type DesignControlsProps,
   type DesignControlsState,
   type DesignReviewState,
 } from './ArtifactDesignControls';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
 
 const state: DesignControlsState = {
   resource_id: 'design-a',
@@ -83,10 +91,15 @@ function props(
     selectedElementId: 'element-a',
     visible: true,
     load: vi.fn(async () => state),
+    thumbnail: vi.fn(
+      async () => new Blob(['synthetic'], { type: 'image/png' }),
+    ),
     review: vi.fn(async () => report),
     apply: vi.fn(async () => ({ resource_revision: 'r2' })),
     upload: vi.fn(async () => ({ resource_revision: 'r2' })),
     onSelectElement: vi.fn(),
+    onSelectionLost: vi.fn(),
+    onReload: vi.fn(),
     ...overrides,
   };
 }
@@ -110,6 +123,68 @@ it('loads saved controls passively without a review or mutation', async () => {
   });
   expect(current.apply).not.toHaveBeenCalled();
   expect(current.review).not.toHaveBeenCalled();
+});
+
+it('clears a selection an edit removed without an error and loads the controls for the page', async () => {
+  const load = vi.fn(
+    async (options: Parameters<DesignControlsProps['load']>[0]) => {
+      if (options.element_id) throw { code: 'element_unavailable' };
+      return { ...state, element: null };
+    },
+  );
+  const current = props({ load });
+  const view = render(<ArtifactDesignControls {...current} />);
+  await waitFor(() =>
+    expect(current.onSelectionLost).toHaveBeenCalledWith('element-a'),
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+  view.rerender(
+    <ArtifactDesignControls {...current} selectedElementId={undefined} />,
+  );
+  await screen.findByRole('region', { name: 'Brand' });
+  expect(load).toHaveBeenLastCalledWith({
+    page_id: 'first',
+    element_id: undefined,
+    section: 'elements',
+  });
+  expect(screen.queryByRole('region', { name: 'Selection' })).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('reads the design again quietly when it moved on before the panel caught up', async () => {
+  const current = props({
+    load: vi.fn(async () => ({ ...state, resource_revision: 'r2' })),
+  });
+  const view = render(<ArtifactDesignControls {...current} />);
+  await waitFor(() => expect(current.onReload).toHaveBeenCalledOnce());
+  expect(screen.queryByRole('alert')).toBeNull();
+  view.rerender(<ArtifactDesignControls {...current} resourceRevision="r2" />);
+  await screen.findByRole('region', { name: 'Brand' });
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('says what failed and retries with the current design and selection', async () => {
+  const load = vi
+    .fn<DesignControlsProps['load']>()
+    .mockRejectedValueOnce({ code: 'design_catalog_unavailable' })
+    .mockResolvedValue(state);
+  const current = props({ load });
+  render(<ArtifactDesignControls {...current} />);
+  const card = await screen.findByRole('alert');
+  expect(card).toHaveTextContent('Design controls unavailable');
+  expect(card).toHaveTextContent(/couldn.t be read/);
+  expect(card).not.toHaveTextContent('Reload to retry');
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' })),
+  );
+  expect(current.onReload).toHaveBeenCalledOnce();
+  expect(load).toHaveBeenLastCalledWith({
+    page_id: 'first',
+    element_id: 'element-a',
+    section: 'elements',
+  });
+  await screen.findByRole('region', { name: 'Selection' });
+  expect(screen.queryByRole('alert')).toBeNull();
 });
 
 it('shows only the requested inspector section', async () => {
@@ -598,4 +673,168 @@ it('explains a website it may not read', async () => {
     screen.getByText(/pages on this computer or your local network/),
   ).toBeInTheDocument();
   expect(current.apply).not.toHaveBeenCalled();
+});
+
+function item(id: string, kind: string, label = id): DesignControlItem {
+  return { id, label, kind, detail: '', available: true };
+}
+
+/** Controls whose catalogs answer from these items; the brand follows saves. */
+function catalogProps(items: DesignControlItem[], logo = '') {
+  let brand = { ...state.brand, logo_asset_id: logo };
+  return props({
+    load: vi.fn(async (options: Parameters<DesignControlsProps['load']>[0]) =>
+      options.section === 'elements'
+        ? { ...state, brand }
+        : { ...state, brand, section: options.section, items },
+    ),
+    apply: vi.fn(async (_kind, payload) => {
+      brand = { ...brand, ...payload };
+      return { resource_revision: 'r1' };
+    }),
+  });
+}
+
+it('picks a font from a searchable list, each name in its own face, and saves the brand', async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal('FontFace', class {});
+  Object.defineProperty(document, 'fonts', {
+    configurable: true,
+    value: { add: vi.fn() },
+  });
+  localStorage.setItem(
+    'row-bot.design-fonts.recent.v1',
+    JSON.stringify(['Georgia']),
+  );
+  const current = catalogProps([
+    item('Inter', 'bundled'),
+    item('Playfair Display', 'bundled'),
+    item('Georgia', 'system'),
+    item('Pt Sans', 'cached'),
+  ]);
+  try {
+    render(<ArtifactDesignControls {...current} view="properties" />);
+    await user.click(
+      await screen.findByRole('button', { name: 'Heading font' }),
+    );
+    const list = await screen.findByRole('listbox', { name: 'Heading font' });
+    const names = (group: string) =>
+      within(within(list).getByRole('group', { name: group }))
+        .getAllByRole('option')
+        .map((option) => option.textContent);
+    expect(names('Recently used')).toEqual(['Georgia']);
+    expect(names('Bundled')).toEqual(['Inter', 'Playfair Display']);
+    expect(names('On this computer')).toEqual(['Pt Sans']);
+    await user.type(
+      screen.getByRole('combobox', { name: 'Search heading font' }),
+      'play',
+    );
+    const playfair = within(list).getByRole('option', {
+      name: 'Playfair Display',
+    });
+    expect(within(list).getAllByRole('option')).toHaveLength(1);
+    expect(
+      within(playfair).getByText('Playfair Display').style.fontFamily,
+    ).toContain('Playfair Display');
+    await user.click(playfair);
+    await waitFor(() =>
+      expect(current.apply).toHaveBeenCalledWith(
+        'brand',
+        expect.objectContaining({
+          heading_font: 'Playfair Display',
+          body_font: 'Inter',
+        }),
+        'r1',
+        'first',
+        'element-a',
+      ),
+    );
+    expect(
+      JSON.parse(localStorage.getItem('row-bot.design-fonts.recent.v1')!),
+    ).toEqual(['Playfair Display', 'Georgia']);
+  } finally {
+    delete (document as { fonts?: unknown }).fonts;
+  }
+});
+
+it('chooses the logo from the design’s pictures without an ID, sets where it goes, and No logo clears it', async () => {
+  const user = userEvent.setup();
+  Object.assign(URL, {
+    createObjectURL: vi.fn(() => 'blob:thumbnail'),
+    revokeObjectURL: vi.fn(),
+  });
+  const current = catalogProps([
+    item('asset-logo', 'image', 'logo.png'),
+    item('asset-jingle', 'audio', 'jingle.wav'),
+  ]);
+  render(<ArtifactDesignControls {...current} view="properties" />);
+  await user.click(await screen.findByText('Logo'));
+  const choices = await screen.findByRole('radiogroup', { name: 'Logo' });
+  expect(
+    within(choices).getByRole('radio', { name: 'No logo' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(
+    within(choices).queryByRole('radio', { name: 'jingle.wav' }),
+  ).toBeNull();
+  const logo = within(choices).getByRole('radio', { name: 'logo.png' });
+  await waitFor(() =>
+    expect(logo.querySelector('img')).toHaveAttribute('src', 'blob:thumbnail'),
+  );
+  expect(current.thumbnail).toHaveBeenCalledWith('asset-logo');
+  expect(
+    screen.queryByRole('radiogroup', { name: 'Logo placement' }),
+  ).toBeNull();
+  const brand = (change: Record<string, unknown>) =>
+    waitFor(() =>
+      expect(current.apply).toHaveBeenLastCalledWith(
+        'brand',
+        expect.objectContaining(change),
+        'r1',
+        'first',
+        'element-a',
+      ),
+    );
+  await user.click(logo);
+  await brand({ logo_asset_id: 'asset-logo' });
+  await user.click(await screen.findByRole('radio', { name: 'Bottom left' }));
+  await brand({ logo_asset_id: 'asset-logo', logo_position: 'bottom_left' });
+  await user.click(screen.getByRole('radio', { name: 'Large' }));
+  await brand({ logo_max_height: 120 });
+  await user.click(screen.getByRole('radio', { name: 'No logo' }));
+  await brand({ logo_asset_id: '' });
+  expect(screen.getByRole('radio', { name: 'No logo' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+});
+
+it('uploads a logo and makes it the logo once the design has it', async () => {
+  const current = {
+    ...catalogProps([]),
+    upload: vi.fn(async () => ({
+      resource_revision: 'r1',
+      asset_id: 'asset-new',
+    })),
+  };
+  render(<ArtifactDesignControls {...current} view="properties" />);
+  fireEvent.click(await screen.findByText('Logo'));
+  expect(
+    await screen.findByRole('button', { name: 'Upload logo…' }),
+  ).toBeEnabled();
+  const file = new File(['synthetic'], 'brand.png', { type: 'image/png' });
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Logo file'), {
+      target: { files: [file] },
+    }),
+  );
+  expect(current.upload).toHaveBeenCalledWith(file, 'r1');
+  await waitFor(() =>
+    expect(current.apply).toHaveBeenCalledWith(
+      'brand',
+      expect.objectContaining({ logo_asset_id: 'asset-new' }),
+      'r1',
+      'first',
+      'element-a',
+    ),
+  );
 });

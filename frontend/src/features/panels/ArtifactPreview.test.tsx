@@ -13,8 +13,14 @@ import type {
   ArtifactEditingState,
   ArtifactPreview as Preview,
   CommandReceipt,
+  ResourceView,
 } from '../../api/types';
+import type { DesignControlsState } from './ArtifactDesignControls';
 import ArtifactPreview, { type ArtifactPreviewProps } from './ArtifactPreview';
+import {
+  createArtifactDesignSessions,
+  type DesignSessionOwner,
+} from './artifact-design-sessions';
 import { designCommandSets } from './design-commands';
 
 afterEach(() => {
@@ -1132,6 +1138,131 @@ it('puts the request in the draft when the chat cannot take it', async () => {
   );
   expect(screen.getByText(/Added to your message/)).toBeInTheDocument();
 });
+
+it('clears a selection an edit took away, quietly, in both inspector panels', async () => {
+  const gone = 'a'.repeat(64);
+  const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());
+  const loadEditing = vi.fn(async (options: { elementId?: string }) => {
+    if (options.elementId === gone) throw { code: 'element_unavailable' };
+    return editing();
+  });
+  const controls = vi.fn<DesignSessionOwner['load']>(
+    async (_scope, options) => {
+      if (options.element_id === gone) throw { code: 'element_unavailable' };
+      return designControls();
+    },
+  );
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadEditing={loadEditing}
+        edit={vi.fn(async () => receipt('resource-2'))}
+        design={{ session: designSession(controls), onDraftText: vi.fn() }}
+      />,
+    ),
+  );
+  const region = screen.getByRole('region', { name: 'Design preview' });
+  region.getBoundingClientRect = () => ({ width: 900 }) as DOMRect;
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Edit' })),
+  );
+  await screen.findByRole('region', { name: 'Brand' });
+  const identity = load.mock.calls.at(-1)![3]!;
+  const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
+  // An inline edit names an element that the saved design no longer has.
+  await act(async () =>
+    window.dispatchEvent(
+      bridgeEvent(frame, identity, {
+        type: 'text-edit',
+        detail: {
+          newText: 'kSALE',
+          elementInfo: { tag: 'h1', elementId: gone },
+        },
+      }),
+    ),
+  );
+  expect(await screen.findByText('Selection cleared.')).toBeInTheDocument();
+  await waitFor(() =>
+    expect(loadEditing).toHaveBeenLastCalledWith(
+      { pageId: 'slide-0', elementId: undefined },
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(controls).toHaveBeenLastCalledWith(
+    expect.anything(),
+    { page_id: 'slide-0', element_id: undefined, section: 'elements' },
+    expect.any(AbortSignal),
+  );
+  expect(
+    await screen.findByRole('region', { name: 'Brand' }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+function designControls(): DesignControlsState {
+  return {
+    resource_id: 'deck-a',
+    resource_revision: 'resource-1',
+    mode: 'deck',
+    page_id: 'slide-0',
+    brand: {
+      primary_color: '#112233',
+      secondary_color: '#223344',
+      accent_color: '#334455',
+      bg_color: '#ffffff',
+      text_color: '#000000',
+      heading_font: 'Inter',
+      body_font: 'Inter',
+      logo_asset_id: '',
+      logo_mode: 'auto',
+      logo_scope: 'all',
+      logo_position: 'top_right',
+      logo_max_height: 72,
+      logo_padding: 24,
+    },
+    element: null,
+    section: 'elements',
+    items: [],
+    item_count: 0,
+    next_cursor: null,
+  };
+}
+
+function designSession(load: DesignSessionOwner['load']) {
+  const resource = {
+    available: true,
+    resource_revision: 'resource-1',
+    binding: {
+      kind: 'artifact',
+      resource_id: 'deck-a',
+      binding_id: 'binding',
+      revision: 'b1',
+    },
+  } as ResourceView;
+  const owner: DesignSessionOwner = {
+    getSnapshot: () => ({
+      identity: 'auth',
+      conversationId: 'chat',
+      conversationRevision: '1',
+      loading: false,
+      resources: [resource],
+    }),
+    subscribe: () => () => undefined,
+    load,
+    assetThumbnail: vi.fn(),
+    review: vi.fn(),
+    draftFix: vi.fn(),
+    stageUpload: vi.fn(),
+    presetReview: vi.fn(),
+    execute: vi.fn(),
+    receipt: vi.fn(),
+  };
+  return createArtifactDesignSessions(owner).get('chat', resource);
+}
 
 it('runs the canvas undo shortcut through the same reviewed restore', async () => {
   const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());

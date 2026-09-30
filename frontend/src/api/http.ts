@@ -2440,6 +2440,21 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  designAssetThumbnail(
+    conversation: string,
+    binding: string,
+    asset: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getDesignAssetThumbnail(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      asset,
+      signal,
+    );
+  }
   designReview(
     conversation: string,
     binding: string,

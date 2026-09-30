@@ -32,6 +32,8 @@ export type ArtifactEditorProps = {
   pageId?: string;
   selectedElementId?: string;
   onSelectElement?: (elementId: string) => void;
+  /** The selected element is no longer in the saved design. */
+  onSelectionLost?: (elementId: string) => void;
   onPageChange: (pageId: string) => void;
   load: (
     options: ArtifactEditingOptions,
@@ -102,11 +104,14 @@ export function historyLabel(label: string): string {
   return words ? `Before: ${words.toLowerCase()}` : 'Saved version';
 }
 
+function errorCode(error: unknown) {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : '';
+}
+
 function failure(error: unknown) {
-  const code =
-    typeof error === 'object' && error !== null && 'code' in error
-      ? error.code
-      : '';
+  const code = errorCode(error);
   if (
     [
       'action_denied',
@@ -114,7 +119,7 @@ function failure(error: unknown) {
       'resource_binding_revoked',
       'not_found',
       'resource_unavailable',
-    ].includes(String(code))
+    ].includes(code)
   )
     return {
       denied: true,
@@ -130,10 +135,15 @@ function failure(error: unknown) {
       denied: false,
       text: 'That saved version is unavailable. The design is unchanged.',
     };
-  if (code === 'element_unavailable' || code === 'page_unavailable')
+  if (code === 'element_unavailable')
     return {
       denied: false,
-      text: 'The selected page or element changed. Select it again.',
+      text: "That text is no longer in the design, so the edit wasn't saved. Choose the text again.",
+    };
+  if (code === 'page_unavailable')
+    return {
+      denied: false,
+      text: 'That page is no longer in the design. Choose a page to continue.',
     };
   if (code === 'editing_record_too_large')
     return {
@@ -236,9 +246,17 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
         },
         (reason: unknown) => {
           if (controller.signal.aborted || request !== epoch.current) return;
+          setLoading(false);
+          // The selected element is gone: the page is read without it.
+          if (
+            selectedElementId &&
+            errorCode(reason) === 'element_unavailable'
+          ) {
+            callbacks.current.onSelectionLost?.(selectedElementId);
+            return;
+          }
           const result = failure(reason);
           setError(result.text);
-          setLoading(false);
           if (result.denied) {
             saveScope.current = null;
             setState(null);

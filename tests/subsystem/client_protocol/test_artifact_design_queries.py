@@ -42,6 +42,32 @@ def test_bound_palette_is_explicit_revision_fenced_and_read_only(artifact_servic
         assert client.get(wrong + "/palette", params={"expected_revision": project.updated_at}, headers=headers).status_code == 403
 
 
+def test_image_thumbnail_is_bound_to_the_design_and_served_as_an_inert_image(artifact_service):
+    from io import BytesIO
+    from uuid import uuid4
+    from PIL import Image
+    from row_bot.designer import client_design_controls as controls
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        project = storage.load_project(created["resource_id"])
+        buffer = BytesIO()
+        Image.new("RGB", (400, 200), "blue").save(buffer, format="PNG")
+        project = controls.upload_asset(project.id, expected_revision=project.updated_at, command_id=str(uuid4()),
+                                        filename="logo.png", data=buffer.getvalue(),
+                                        validate=lambda: None, checkpoint=lambda _: None)
+        base = f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}"
+        path = f"/assets/{project.assets[0].id}/thumbnail"
+        response = client.get(base + path, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.content.startswith(b"\x89PNG")
+        assert response.headers["content-type"] == "image/png"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert "sandbox" in response.headers["content-security-policy"]
+        assert client.get(base + "/assets/asset-missing/thumbnail", headers=headers).status_code == 404
+        assert client.get(base.replace(created["binding_id"], "wrong") + path, headers=headers).status_code == 403
+
+
 @pytest.mark.parametrize("mode", ["deck", "document", "landing", "app_mockup", "storyboard"])
 def test_closed_passive_design_queries_and_static_page(artifact_service, mode):
     with _client(artifact_service) as client:

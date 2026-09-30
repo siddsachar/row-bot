@@ -96,6 +96,13 @@ def _unique_route_id(project: DesignerProject, title: str) -> str:
     return candidate
 
 
+def element_key(route_id: str, ordinal: int, tag_name: str) -> str:
+    """A page element's panel id: its place on the page, not its text, so an
+    element keeps its id (and stays selected) when its own text is edited."""
+    identity = json.dumps([route_id, ordinal, tag_name], ensure_ascii=False)
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
 def _text_targets(page):
     if not isinstance(page.html, str):
         raise ArtifactError("resource_state_invalid")
@@ -113,9 +120,7 @@ def _text_targets(page):
         text = tag.get_text()
         if not text.strip() or tag.find_parent(["head", "script", "style", "svg", "template"]):
             continue
-        identity = json.dumps([page.route_id, ordinal, tag.name, text], ensure_ascii=False)
-        target_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        targets.append((target_id, tag, text))
+        targets.append((element_key(page.route_id, ordinal, tag.name), tag, text))
     return soup, targets
 
 

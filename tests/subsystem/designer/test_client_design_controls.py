@@ -255,6 +255,34 @@ def test_unsafe_asset_content_rejected_before_any_file_publication(project, data
     assert storage.load_project(project.id).assets == []
 
 
+def test_fonts_say_where_they_come_from(project):
+    cached = fonts._CACHE_DIR / 'pt-sans'
+    cached.mkdir(parents=True)
+    (cached / 'pt-sans-400.woff2').write_bytes(b'wOF2')
+    kinds = {item.id: item.kind for item in client.read_controls(project.id, section='fonts', limit=50).items}
+    assert (kinds['Inter'], kinds['Pt Sans'], kinds['Georgia']) == ('bundled', 'cached', 'system')
+
+
+def test_image_thumbnails_are_small_and_read_only(project):
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new('RGB', (640, 320), 'red').save(buffer, format='JPEG')
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
+    current = upload(project, data=buffer.getvalue(), filename='photo.jpg')
+    current = upload(current, data=svg, filename='logo.svg')
+    current = upload(current, data=b'RIFF\x00\x00\x00\x00WAVEfmt ', filename='sound.wav')
+    photo, logo, sound = current.assets
+    before = storage.load_project(project.id).to_dict()
+    data, kind = client.read_asset_thumbnail(project.id, asset_id=photo.id)
+    with Image.open(io.BytesIO(data)) as image:
+        assert (kind, image.format, image.size) == ('image/png', 'PNG', (160, 80))
+    assert client.read_asset_thumbnail(project.id, asset_id=logo.id) == (svg, 'image/svg+xml')
+    for asset_id in (sound.id, 'asset-missing'):
+        with pytest.raises(ArtifactError, match='asset_unavailable'):
+            client.read_asset_thumbnail(project.id, asset_id=asset_id)
+    assert storage.load_project(project.id).to_dict() == before
+
+
 def test_safe_svg_preserves_original_bytes_without_fetching(project):
     data = b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#123456"/></svg>'
     updated = upload(project, data=data, filename='logo.svg')

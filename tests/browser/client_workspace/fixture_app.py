@@ -38,6 +38,18 @@ _wiki_fixture: dict[str, str] = {}
 _browser_control_fixture: dict[str, dict] = {}
 
 
+def _mount_static() -> None:
+    """Serve /static as the desktop app does (app.py): the Design panel's font
+    picker shows bundled fonts in their own face from /static/fonts."""
+    from starlette.staticfiles import StaticFiles
+    from row_bot.runtime_paths import static_dir
+
+    app.mount("/static", StaticFiles(directory=static_dir()), name="static")
+
+
+_mount_static()
+
+
 class _SyntheticBrowserControlBackend:
     """Local in-memory managed browser; it never launches or contacts a site."""
 

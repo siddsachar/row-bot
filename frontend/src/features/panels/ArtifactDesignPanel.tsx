@@ -11,6 +11,8 @@ export type ArtifactDesignPanelProps = {
   pageId: string;
   selectedElementId?: string;
   onSelectElement: (elementId: string) => void;
+  onSelectionLost: (elementId: string) => void;
+  onReload: () => void;
   visible: boolean;
   onDraftText: (text: string) => void;
   /** Which inspector section to show; all of them when omitted. */
@@ -83,6 +85,7 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
         session={session.form}
         blocked={Boolean(attempt)}
         load={session.load}
+        thumbnail={session.thumbnail}
         review={session.review}
         apply={session.apply}
         upload={session.upload}
@@ -90,6 +93,8 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
         draftFix={session.draftFix}
         suggestBrand={session.suggestBrand}
         onSelectElement={props.onSelectElement}
+        onSelectionLost={props.onSelectionLost}
+        onReload={props.onReload}
         onDraftText={(text) => {
           session.guard();
           props.onDraftText(text);

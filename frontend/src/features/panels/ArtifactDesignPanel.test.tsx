@@ -81,6 +81,7 @@ function fixture(mode = 'deck') {
       ...state,
       section: options.section,
     })),
+    assetThumbnail: vi.fn(),
     review: vi.fn(async () => ({
       resource_id: 'design',
       resource_revision: 'r1',
@@ -118,6 +119,8 @@ function fixture(mode = 'deck') {
     pageId: 'first',
     selectedElementId: 'heading',
     onSelectElement: vi.fn(),
+    onSelectionLost: vi.fn(),
+    onReload: vi.fn(),
     visible: true,
     onDraftText,
   };

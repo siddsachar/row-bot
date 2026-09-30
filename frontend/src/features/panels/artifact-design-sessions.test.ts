@@ -57,6 +57,7 @@ function fixture() {
       };
     },
     load: vi.fn(),
+    assetThumbnail: vi.fn(),
     review: vi.fn(),
     draftFix: vi.fn(async () => 'Local fix draft'),
     stageUpload: vi.fn(async () => ({

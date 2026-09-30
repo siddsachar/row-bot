@@ -4816,6 +4816,20 @@ export class ClientController {
     this.query(() =>
       this.transport.designControls?.(conversation, binding, options, signal),
     );
+  designAssetThumbnail = (
+    conversation: string,
+    binding: string,
+    asset: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.designAssetThumbnail?.(
+        conversation,
+        binding,
+        asset,
+        signal,
+      ),
+    );
   designReview = (
     conversation: string,
     binding: string,

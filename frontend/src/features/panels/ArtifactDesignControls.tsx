@@ -4,6 +4,9 @@ import {
   type DesignFormState,
 } from './artifact-design-sessions';
 import { MoreHorizontal } from 'lucide-react';
+import ArtifactFontPicker from './ArtifactFontPicker';
+import ArtifactLogoPicker from './ArtifactLogoPicker';
+import { useDesignCatalog } from './artifact-design-catalog';
 import { humanizeToken } from '../../ui/format';
 import { clientError } from '../../api/errors';
 import type { ArtifactBrandSuggestion } from '../../api/types';
@@ -97,7 +100,10 @@ export type DesignControlsProps = {
     element_id?: string;
     section: DesignSection;
     cursor?: string;
+    limit?: number;
   }) => Promise<DesignControlsState>;
+  /** A small picture of one of the design's images. */
+  thumbnail: (assetId: string) => Promise<Blob>;
   review: (options: {
     page_id: string;
     scope: 'page' | 'project';
@@ -123,8 +129,12 @@ export type DesignControlsProps = {
   upload: (
     file: File,
     expectedRevision: string,
-  ) => Promise<{ resource_revision: string }>;
+  ) => Promise<{ resource_revision: string; asset_id?: string }>;
   onSelectElement: (elementId: string) => void;
+  /** The selected element is no longer in the saved design. */
+  onSelectionLost: (elementId: string) => void;
+  /** Read the design shown again (its current revision). */
+  onReload: () => void;
   /** Brand › From a website (a guarded read of a public page). */
   suggestBrand?: (url: string) => Promise<ArtifactBrandSuggestion>;
   draftFix?: (
@@ -176,6 +186,14 @@ const sectionWords: Record<DesignSection, string> = {
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 /** Brand colours apply this long after the last change (auto-save). */
 const BRAND_DELAY = 700;
+/** A failure in words: a server error carries a code, a session guard names it. */
+function failure(reason: unknown) {
+  return clientError(
+    reason instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(reason.message)
+      ? { code: reason.message }
+      : reason,
+  );
+}
 /** A native colour picker needs #rrggbb. */
 function pickerValue(value: string) {
   if (/^#[0-9a-f]{6}$/i.test(value)) return value;
@@ -267,14 +285,16 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     })
       .then((value) => {
         if (!active) return;
-        if (
-          value.resource_id !== resourceId ||
-          value.resource_revision !== resourceRevision ||
-          value.page_id !== pageId
-        )
-          throw new Error('Resource changed');
+        if (value.resource_id !== resourceId || value.page_id !== pageId)
+          throw new Error('resource_changed');
+        if (value.resource_revision !== resourceRevision) {
+          // The design moved on (usually by one's own edit) before the
+          // canvas did: read it again, and these controls follow.
+          current.current.onReload();
+          return;
+        }
         if (value.items.length > 50)
-          throw new Error('Control page exceeded its bound');
+          throw new Error('design_catalog_too_large');
         session.set('state', value);
         session.set('controlPage', false);
         if (!session.getSnapshot().dirtySource) {
@@ -282,12 +302,13 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
           session.set('styles', value.element?.styles ?? {});
         }
       })
-      .catch(() => {
-        if (active)
-          session.set(
-            'error',
-            'Current design controls could not be loaded. Reload to retry.',
-          );
+      .catch((reason: unknown) => {
+        if (!active) return;
+        const problem = failure(reason);
+        // The selected element is gone: the page is read without it.
+        if (selectedElementId && problem.code === 'element_unavailable')
+          current.current.onSelectionLost(selectedElementId);
+        else session.set('error', problem.message);
       })
       .finally(() => {
         if (active) session.set('loading', false);
@@ -371,9 +392,11 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     }
   }
 
-  async function upload() {
-    if (!file || !state || operation.current || !props.visible) return;
-    if (file.size === 0 || file.size > 25 * 1024 * 1024) {
+  // An uploaded logo becomes the logo once the version with it is loaded.
+  const pendingLogo = useRef<string | null>(null);
+  async function upload(chosen: File | null = file, logo = false) {
+    if (!chosen || !state || operation.current || !props.visible) return;
+    if (chosen.size === 0 || chosen.size > 25 * 1024 * 1024) {
       setError('Choose a nonempty asset up to 25 MiB.');
       return;
     }
@@ -383,11 +406,14 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     setError('');
     const sourceId = props.resourceId;
     try {
-      const result = await props.upload(file, state.resource_revision);
+      const result = await props.upload(chosen, state.resource_revision);
       if (current.current.resourceId !== sourceId) return;
-      session.set('file', null);
-      session.committed('asset_upload');
-      setNotice('Asset added.');
+      if (logo) pendingLogo.current = result.asset_id ?? null;
+      else {
+        session.set('file', null);
+        session.committed('asset_upload');
+      }
+      setNotice(logo ? 'Logo added.' : 'Asset added.');
       if (result.resource_revision === current.current.resourceRevision)
         setReload((value) => value + 1);
       else setState(null);
@@ -689,6 +715,23 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     if (brandTimer.current) clearTimeout(brandTimer.current);
     brandTimer.current = setTimeout(() => commit('brand'), delay);
   }
+  useEffect(() => {
+    const logo = pendingLogo.current;
+    const saved = session.getSnapshot().brand;
+    if (!logo || !state || !saved || saving) return;
+    pendingLogo.current = null;
+    changeBrand({ ...saved, logo_asset_id: logo }, 0);
+    // Only a reload after the upload releases the new logo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, saving]);
+  // Fonts that need no download, for the Type pickers.
+  const fonts = useDesignCatalog(
+    load,
+    pageId,
+    'fonts',
+    visible && (!props.view || props.view === 'properties'),
+  );
+  const [logoOpen, setLogoOpen] = useState(false);
 
   if (!props.visible) return null;
   const busy = loading || saving || staleDraft || Boolean(props.blocked);
@@ -742,7 +785,11 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
           action={
             <Button
               disabled={saving}
-              onClick={() => setReload((value) => value + 1)}
+              onClick={() => {
+                // The design shown and these controls are both read again.
+                props.onReload();
+                setReload((value) => value + 1);
+              }}
             >
               Retry
             </Button>
@@ -890,111 +937,38 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                 ['body_font', 'Body font'],
               ] as const
             ).map(([key, label]) => (
-              <Field label={label} key={key}>
-                <Input
-                  aria-label={label}
+              <div className="design-font-row" key={key}>
+                <span className="design-font-caption" aria-hidden>
+                  {label}
+                </span>
+                <ArtifactFontPicker
+                  label={label}
                   value={brand[key]}
+                  catalog={fonts}
                   disabled={busy}
-                  maxLength={128}
-                  onChange={(event) =>
-                    setBrand({ ...brand, [key]: event.target.value })
-                  }
-                  onBlur={() => commit('brand')}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                  }}
+                  onChange={(font) => changeBrand({ ...brand, [key]: font }, 0)}
                 />
-              </Field>
+              </div>
             ))}
-            <p className="muted">
-              Bundled, cached or system fonts only. Opening this panel downloads
-              nothing.
-            </p>
           </section>
-          <Disclosure summary="Logo" className="inspector-disclosure">
-            <Field label="Logo asset">
-              <Input
-                aria-label="Logo asset"
+          <Disclosure
+            summary="Logo"
+            className="inspector-disclosure"
+            open={logoOpen}
+            onOpenChange={setLogoOpen}
+          >
+            {logoOpen && (
+              <ArtifactLogoPicker
+                logo={brand}
+                load={load}
+                thumbnail={props.thumbnail}
+                pageId={pageId}
+                resourceRevision={resourceRevision}
                 disabled={busy}
-                value={brand.logo_asset_id}
-                maxLength={256}
-                onChange={(event) =>
-                  setBrand({ ...brand, logo_asset_id: event.target.value })
-                }
-                onBlur={() => commit('brand')}
+                onChange={(change) => changeBrand({ ...brand, ...change }, 0)}
+                onUpload={(chosen) => void upload(chosen, true)}
               />
-            </Field>
-            <Field label="Logo placement">
-              <Select
-                aria-label="Logo placement"
-                disabled={busy}
-                value={brand.logo_position}
-                onChange={(event) =>
-                  changeBrand(
-                    { ...brand, logo_position: event.target.value },
-                    0,
-                  )
-                }
-              >
-                {(
-                  [
-                    ['top_left', 'Top left'],
-                    ['top_right', 'Top right'],
-                    ['bottom_left', 'Bottom left'],
-                    ['bottom_right', 'Bottom right'],
-                  ] as const
-                ).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Logo mode">
-              <Select
-                aria-label="Logo mode"
-                disabled={busy}
-                value={brand.logo_mode}
-                onChange={(event) =>
-                  changeBrand({ ...brand, logo_mode: event.target.value }, 0)
-                }
-              >
-                <option value="auto">Automatic overlay</option>
-                <option value="manual">Manual placeholder</option>
-              </Select>
-            </Field>
-            <Field label="Logo scope">
-              <Select
-                aria-label="Logo scope"
-                disabled={busy}
-                value={brand.logo_scope}
-                onChange={(event) =>
-                  changeBrand({ ...brand, logo_scope: event.target.value }, 0)
-                }
-              >
-                <option value="all">All pages</option>
-                <option value="first">First page</option>
-              </Select>
-            </Field>
-            {(
-              [
-                ['logo_max_height', 'Logo height'],
-                ['logo_padding', 'Logo padding'],
-              ] as const
-            ).map(([key, label]) => (
-              <Field key={key} label={label}>
-                <Input
-                  type="number"
-                  aria-label={label}
-                  disabled={busy}
-                  value={brand[key]}
-                  onChange={(event) =>
-                    setBrand({ ...brand, [key]: Number(event.target.value) })
-                  }
-                  onBlur={() => commit('brand')}
-                />
-              </Field>
-            ))}
+            )}
           </Disclosure>
           {pendingFields.length > 0 && !saving && !staleDraft && (
             <div className="inspector-action">

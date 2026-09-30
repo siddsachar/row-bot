@@ -17,7 +17,7 @@ from pathlib import Path
 from uuid import UUID
 
 from row_bot.designer import brand, fonts, history, hotspot_recorder, review, storage
-from row_bot.designer.client_editing import _paged, _selected, _text_targets
+from row_bot.designer.client_editing import _paged, _selected, _text_targets, element_key
 from row_bot.designer.client_service import ArtifactError, _identifier, read_artifact
 from row_bot.designer.state import BrandConfig, DesignerAsset, DesignerProject
 
@@ -169,6 +169,7 @@ def _entries(path, limit: int = 1024):
 
 
 def _font_items():
+    """Fonts that need no download; each kind says where it comes from."""
     result = []
     bundled = fonts.get_bundled_font_names()
     if len(bundled) > 1024:
@@ -176,7 +177,7 @@ def _font_items():
     for family in bundled:
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9 -]{0,127}', family):
             raise ArtifactError('design_catalog_unavailable')
-        result.append(DesignControlItem(family, family, 'font', 'Bundled · offline', True))
+        result.append(DesignControlItem(family, family, 'bundled', 'Bundled · offline', True))
     for directory in _entries(fonts._CACHE_DIR):
         if directory.is_symlink() or directory.is_junction() or not directory.is_dir():
             continue
@@ -189,10 +190,10 @@ def _font_items():
                         and not path.is_junction() for path in files)
         if available:
             name = directory.name.replace('-', ' ').title()
-            result.append(DesignControlItem(name, name, 'font', 'Cached · offline', True))
+            result.append(DesignControlItem(name, name, 'cached', 'Cached · offline', True))
     for name in ('Arial', 'Georgia', 'Times New Roman', 'system-ui', 'serif', 'sans-serif', 'monospace'):
         if name not in {item.id for item in result}:
-            result.append(DesignControlItem(name, name, 'font', 'System fallback', True))
+            result.append(DesignControlItem(name, name, 'system', 'System fallback', True))
     return sorted(result, key=lambda item: item.label)
 
 
@@ -219,16 +220,14 @@ def _brand_view(value: BrandConfig | None) -> DesignBrand:
 
 
 def _targets(page):
-    soup, text_targets = _text_targets(page)
-    text_ids = {id(tag): key for key, tag, _text in text_targets}
+    soup, _text = _text_targets(page)
     result = []
     for ordinal, tag in enumerate(soup.find_all(True)):
         if ordinal >= 10000:
             raise ArtifactError('design_page_too_complex')
         if tag.name in _EXCLUDED or tag.find_parent(['head', 'script', 'style', 'template', 'svg', 'iframe', 'object', 'embed']):
             continue
-        key = text_ids.get(id(tag)) or _hash([page.route_id, ordinal, tag.name])
-        result.append((key, tag))
+        result.append((element_key(page.route_id, ordinal, tag.name), tag))
     return soup, result
 
 
@@ -570,6 +569,30 @@ def _asset_bytes(project, asset):
         return data
     except (OSError, ValueError, TypeError):
         raise ArtifactError('asset_unavailable') from None
+
+
+def read_asset_thumbnail(project_id: str, *, asset_id: str) -> tuple[bytes, str]:
+    """A small picture of one of the design's images (for pickers); reads only.
+
+    Raster images are re-encoded as a PNG of at most 160 px; an SVG was
+    checked when it was added and is returned as it is, to be shown as an image.
+    """
+    from PIL import Image
+    project = read_artifact(project_id)
+    asset = next((item for item in project.assets if item.id == asset_id and item.kind == 'image'), None)
+    if asset is None:
+        raise ArtifactError('asset_unavailable')
+    data = _asset_bytes(project, asset)
+    if asset.mime_type == 'image/svg+xml':
+        return data, asset.mime_type
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.thumbnail((160, 160))
+            output = io.BytesIO()
+            image.convert('RGBA').save(output, format='PNG')
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise ArtifactError('asset_unavailable') from None
+    return output.getvalue(), 'image/png'
 
 
 def _asset_metadata(data: bytes, filename: str):

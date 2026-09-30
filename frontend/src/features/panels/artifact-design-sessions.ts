@@ -168,6 +168,12 @@ export type DesignSessionOwner = {
     options: Parameters<DesignControlsProps['load']>[0],
     signal: AbortSignal,
   ): Promise<DesignControlsState>;
+  /** A small picture of one of the design's images (for the logo picker). */
+  assetThumbnail(
+    scope: DesignScope,
+    asset: string,
+    signal: AbortSignal,
+  ): Promise<Blob>;
   review(
     scope: DesignScope,
     options: Parameters<DesignControlsProps['review']>[0],
@@ -448,6 +454,8 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
       },
       load: (options: Parameters<DesignControlsProps['load']>[0]) =>
         query((signal) => owner.load(scope, options, signal)),
+      thumbnail: (asset: string) =>
+        query((signal) => owner.assetThumbnail(scope, asset, signal)),
       review: (options: Parameters<DesignControlsProps['review']>[0]) =>
         query((signal) => owner.review(scope, options, signal)),
       draftFix: (

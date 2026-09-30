@@ -8216,6 +8216,35 @@ def create_router(
             limit=limit,
         )
 
+    @router.get(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/assets/{asset_id}/thumbnail"
+    )
+    async def design_asset_thumbnail(
+        conversation_id: str,
+        binding_id: str,
+        asset_id: str,
+        request: Request,
+    ) -> Response:
+        """A small picture of one of the design's images, for the panel's pickers."""
+        await session(request, lane="view")
+        if len(asset_id) > 128:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.designer.client_design_controls import read_asset_thumbnail
+
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        data, content_type = await call(read_asset_thumbnail, identity, asset_id=asset_id)
+        if await call(bound_resource, conversation_id, binding_id, "artifact") != identity:
+            raise ProtocolError("resource_binding_revoked", 403)
+        return Response(
+            data,
+            media_type=content_type,
+            headers={
+                **HEADERS,
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+
     @router.get("/conversations/{conversation_id}/artifacts/{binding_id}/design-review")
     async def design_review(
         conversation_id: str,

@@ -599,6 +599,69 @@
 .inspector-hex[aria-invalid='true'] {
   border-color: var(--status-danger-border);
 }
+/* Type and Logo pickers (B246) */
+.design-font-row,
+.design-logo-options {
+  display: grid;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+}
+.design-font-caption,
+.design-logo-caption {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.button.design-font-picker {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid var(--border-control);
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+}
+.design-logo-picker {
+  display: grid;
+  gap: 10px;
+}
+.design-logo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.segmented.design-logo-choices {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.design-logo-choices .segmented-option {
+  width: 52px;
+  height: 52px;
+  padding: 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.design-logo-choices .segmented-option[aria-checked='true'] {
+  border-color: var(--accent-solid);
+  box-shadow: 0 0 0 1px var(--accent-solid);
+}
+.design-logo-choices img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.design-logo-options .segmented {
+  justify-self: start;
+}
+.design-logo-note {
+  margin: 0;
+  font-size: var(--text-12);
+}
 .inspector-disclosure {
   padding: 8px 0;
   border-bottom: 1px solid var(--border-hairline);

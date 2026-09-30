@@ -1398,6 +1398,12 @@ export interface ClientTransport {
     options: Wire.DesignControlOptions,
     signal?: AbortSignal,
   ): Promise<Wire.DesignControlsState>;
+  designAssetThumbnail?(
+    conversation: string,
+    binding: string,
+    asset: string,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   designReview?(
     conversation: string,
     binding: string,

@@ -265,6 +265,22 @@ def test_exact_element_selection_jumps_to_its_real_descriptor_page(project):
         editing.read_editing(project.id, element_id='absent')
 
 
+def test_text_edits_keep_the_edited_element_selectable(project):
+    # Several inline edits in a row on the same text (B245): each edit names
+    # the element by the id the panel holds, and the panel keeps reading it.
+    from row_bot.designer.client_design_controls import read_controls
+    view = editing.read_editing(project.id)
+    before = [item.id for item in view.elements]
+    selected, revision = view.elements[1], view.resource_revision
+    for text in ("kSALE", "[]", "[y]"):
+        revision = editing.apply_edit(project.id, expected_revision=revision, operation="text",
+                                      page_id=view.page_id, element_id=selected.id, text=text).updated_at
+    after = editing.read_editing(project.id, element_id=selected.id)
+    assert (after.elements[0].id, after.elements[0].text) == (selected.id, "[y]")
+    assert [item.id for item in editing.read_editing(project.id).elements] == before
+    assert read_controls(project.id, element_id=selected.id).element.id == selected.id
+
+
 @pytest.mark.parametrize('case', ['html_type', 'html_unicode', 'title_unicode', 'other_title', 'canvas', 'route_id', 'history_name'])
 def test_unrepresentable_saved_state_has_explicit_error_without_source_mutation(project, case):
     data = project.to_dict()

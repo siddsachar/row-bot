@@ -15,7 +15,7 @@ import {
   markWorkspaceIdentity,
   newConversation,
 } from './unified-helpers';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 function fixtureHeaders() {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -604,6 +604,138 @@ for (const [mode, label] of [
     });
   });
 }
+
+/** The canvas has shown the saved design and stopped reloading. */
+async function settledCanvas(region: Locator, frame: Locator) {
+  let seen: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const now = await frame.getAttribute('srcdoc');
+        const updating = await region
+          .getByText('Updating preview…', { exact: true })
+          .count();
+        const settled = now !== null && now === seen && updating === 0;
+        seen = now;
+        return settled;
+      },
+      { intervals: [300] },
+    )
+    .toBe(true);
+}
+
+// A 1×1 PNG, the logo uploaded below.
+const LOGO_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+test('Design inline edits in a row keep the selection, and colour, font and logo choices save (B245, B246)', async ({
+  page,
+}, info) => {
+  await newConversation(page);
+  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
+  await setup
+    .getByRole('combobox', { name: 'Design type', exact: true })
+    .selectOption('deck');
+  await setup.getByRole('button', { name: 'Create Deck', exact: true }).click();
+  await expect(
+    setup.getByText('Resource ready', { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  const region = page.getByRole('region', {
+    name: 'Design preview',
+    exact: true,
+  });
+  const frame = region.locator('iframe[title*=" preview: "]');
+  await region.getByRole('radio', { name: 'Edit', exact: true }).click();
+  await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
+  const artwork = frame.contentFrame();
+  // Several inline edits in a row on the same text, each saved before the next.
+  for (const text of ['Bake sale one', 'Bake sale two', 'Bake sale three']) {
+    await settledCanvas(region, frame);
+    const target = artwork.locator('[data-row-bot-element-id]').first();
+    await target.dispatchEvent('dblclick');
+    await target.fill(text);
+    await target.press('Enter');
+    await expect(frame).toHaveAttribute('srcdoc', new RegExp(text));
+  }
+  await settledCanvas(region, frame);
+  const properties = region.getByRole('button', {
+    name: 'Design properties',
+    exact: true,
+  });
+  if ((await properties.getAttribute('aria-pressed')) !== 'true')
+    await properties.click();
+  const inspector = region.getByRole('complementary', {
+    name: 'Design inspector',
+    exact: true,
+  });
+  // The edited text is still the selection, and nothing reports an error.
+  await expect(
+    inspector.getByRole('textbox', { name: 'Element text', exact: true }),
+  ).toHaveValue('Bake sale three');
+  await expect(inspector.getByRole('alert')).toHaveCount(0);
+  const controls = inspector.getByRole('region', {
+    name: 'Design controls',
+    exact: true,
+  });
+  const colour = controls.getByRole('textbox', {
+    name: 'Element color',
+    exact: true,
+  });
+  await colour.fill('#aa3300');
+  await colour.blur();
+  await expect(controls.getByRole('status')).toHaveText('Saved.');
+  await expect(frame).toHaveAttribute('srcdoc', /#aa3300/i);
+  await expect(inspector.getByRole('alert')).toHaveCount(0);
+  // The heading font comes from a searchable list, not a text box.
+  await controls
+    .getByRole('button', { name: 'Heading font', exact: true })
+    .click();
+  await page
+    .getByRole('combobox', { name: 'Search heading font', exact: true })
+    .fill('Lora');
+  await page
+    .getByRole('listbox', { name: 'Heading font', exact: true })
+    .getByRole('option', { name: 'Lora', exact: true })
+    .click();
+  await expect(
+    controls.getByRole('button', { name: 'Heading font', exact: true }),
+  ).toHaveAccessibleDescription('Lora');
+  await expect(frame).toHaveAttribute('srcdoc', /Lora/);
+  // The logo is a picture: upload one, it becomes the logo, then place it.
+  await controls.getByText('Logo', { exact: true }).click();
+  const logo = controls.getByRole('radiogroup', { name: 'Logo', exact: true });
+  await expect(
+    logo.getByRole('radio', { name: 'No logo', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
+  await expect(
+    controls.getByRole('button', { name: 'Upload logo…', exact: true }),
+  ).toBeVisible();
+  await controls.getByLabel('Logo file', { exact: true }).setInputFiles({
+    name: 'bake-sale-logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(LOGO_PNG, 'base64'),
+  });
+  const uploaded = logo.getByRole('radio', {
+    name: 'bake-sale-logo.png',
+    exact: true,
+  });
+  await expect(uploaded).toHaveAttribute('aria-checked', 'true');
+  await expect(uploaded.locator('img')).toHaveAttribute('src', /^blob:/);
+  await controls
+    .getByRole('radio', { name: 'Bottom left', exact: true })
+    .click();
+  await expect(
+    controls.getByRole('radio', { name: 'Bottom left', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
+  await screenshot(page, info, 'design-pickers');
+  await logo.getByRole('radio', { name: 'No logo', exact: true }).click();
+  await expect(
+    controls.getByRole('radiogroup', { name: 'Logo placement', exact: true }),
+  ).toHaveCount(0);
+  await expect(inspector.getByRole('alert')).toHaveCount(0);
+});
 
 test('Phase 4 sandbox import and Undo retain reviews and restore exact original files', async ({
   page,

@@ -320,6 +320,35 @@ it('requests the exact selected element and does not offer an oversized source',
   ).toBeVisible();
 });
 
+it('hands back a selection that is gone instead of showing an error, and reads the page without it', async () => {
+  const load = vi.fn(async (options: { elementId?: string }) => {
+    if (options.elementId) throw { code: 'element_unavailable' };
+    return view();
+  });
+  const onSelectionLost = vi.fn();
+  const current = props({
+    selectedElementId: 'element-a',
+    load,
+    onSelectionLost,
+  });
+  const rendered = await act(async () =>
+    render(<ArtifactEditor {...current} />),
+  );
+  expect(onSelectionLost).toHaveBeenCalledWith('element-a');
+  expect(screen.queryByRole('alert')).toBeNull();
+  await act(async () =>
+    rendered.rerender(
+      <ArtifactEditor {...current} selectedElementId={undefined} />,
+    ),
+  );
+  expect(load).toHaveBeenLastCalledWith(
+    { pageId: undefined, elementId: undefined },
+    expect.any(AbortSignal),
+  );
+  expect(screen.getByLabelText('Page title')).toHaveValue('Opening');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
 it('restores only an available explicit history choice and keeps the captured revision', async () => {
   const current = props({
     view: 'history',
