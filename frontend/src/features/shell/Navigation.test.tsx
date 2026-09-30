@@ -13,14 +13,23 @@ import { FixtureTransport } from '../../api/fixtures';
 import { createFakePlatform } from '../../platform/fake';
 import { RuntimeContext } from '../../runtime';
 import { OverlayProvider } from '../../ui/overlays';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import Navigation, { NavigationRail } from './Navigation';
 import { createAuthenticatedEditorOwner } from '../settings/authenticated-editor-owner';
-import { createGoalProfileSettingsSession } from '../settings/GoalProfileSettings';
+import {
+  createGoalProfileSettingsSession,
+  type ProfileSummary,
+} from '../settings/GoalProfileSettings';
+import userEvent from '@testing-library/user-event';
 
 const clients: ClientController[] = [];
+const owners: { dispose(): void }[] = [];
 afterEach(() => {
+  owners.splice(0).forEach((owner) => owner.dispose());
   clients.splice(0).forEach((controller) => controller.dispose());
   localStorage.removeItem('row-bot.sidebar-type.v1');
+  localStorage.removeItem('row-bot.sidebar-agents.v1');
+  localStorage.removeItem('row-bot.agent-favourites.v1');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -184,7 +193,7 @@ it('opens the grouped profile panel with counts and starts the selected profile 
     </MemoryRouter>,
   );
   const entry = await screen.findByRole('button', {
-    name: /Agent profiles.*1 built-in.*0 custom/,
+    name: /^All agents \(1\).*1 built-in.*0 custom/,
   });
   fireEvent.click(entry);
   const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
@@ -201,6 +210,279 @@ it('opens the grouped profile panel with counts and starts the selected profile 
   await waitFor(() => expect(onStartProfileChat).toHaveBeenCalledWith(profile));
   expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull();
   owner.dispose();
+});
+
+function agentProfile(
+  id: string,
+  display_name: string,
+  extra: Partial<ProfileSummary> = {},
+): ProfileSummary {
+  return {
+    id,
+    slug: id.replace(/^builtin:/, ''),
+    display_name,
+    description: `${display_name} profile.`,
+    when_to_use: 'Synthetic work.',
+    scope: 'system',
+    surface_scope: 'global',
+    source: 'builtin',
+    group: 'Everyday',
+    enabled: true,
+    editable: false,
+    revision: '1',
+    capability: 'read_only',
+    allow_tools: [],
+    skills: [],
+    context_mode: 'auto',
+    workspace_mode: 'auto',
+    approval_mode: 'inherit',
+    instructions_preview: '',
+    instructions_truncated: true,
+    ...extra,
+  };
+}
+
+const AGENTS = [
+  agentProfile('builtin:row_bot_default', 'Row-Bot'),
+  agentProfile('builtin:plan', 'Planner'),
+  agentProfile('builtin:research', 'Researcher'),
+  agentProfile('builtin:write', 'Writer'),
+  agentProfile('builtin:ideas', 'Ideas'),
+  agentProfile('builtin:knowledge', 'Knowledge'),
+  agentProfile('builtin:data', 'Analyst'),
+  agentProfile('profile-old', 'Old helper', {
+    scope: 'user',
+    source: 'user_created',
+    group: undefined,
+    enabled: false,
+    editable: true,
+  }),
+];
+
+/** The expanded sidebar with the agent library's profiles loaded. */
+async function setupAgents(prepare?: (transport: FixtureTransport) => void) {
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  prepare?.(transport);
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  controller.profiles = vi.fn().mockResolvedValue({
+    schema_version: 1,
+    scope: 'global',
+    revision: 'a'.repeat(64),
+    items: AGENTS,
+    total: AGENTS.length,
+    next_cursor: null,
+  });
+  controller.profile = vi.fn().mockImplementation(async (id: string) => ({
+    schema_version: 1,
+    profile: AGENTS.find((item) => item.id === id),
+  }));
+  const owner = createAuthenticatedEditorOwner(
+    controller,
+    createGoalProfileSettingsSession,
+  );
+  owners.push(owner);
+  const onNewChat = vi.fn();
+  const onStartProfileChat = vi.fn();
+  const view = render(
+    <MemoryRouter>
+      <RuntimeContext.Provider
+        value={{
+          controller,
+          platform: createFakePlatform(),
+          goalProfileOwner: owner,
+        }}
+      >
+        <OverlayProvider>
+          <Navigation
+            showBuddy={false}
+            onNewChat={onNewChat}
+            onStartProfileChat={onStartProfileChat}
+          />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
+  await within(nav).findByRole('button', { name: /^All agents \(8\)/ });
+  return { controller, transport, nav, view, onNewChat, onStartProfileChat };
+}
+
+function avatarOf(seed: string) {
+  const { container, unmount } = render(<AgentAvatar seed={seed} />);
+  const id = container
+    .querySelector('.agent-avatar')!
+    .getAttribute('data-avatar');
+  unmount();
+  return id;
+}
+
+it('makes New chat the one primary button, with a ▾ for a chat with an agent (B268)', async () => {
+  const user = userEvent.setup();
+  const { nav, onNewChat, onStartProfileChat } = await setupAgents();
+  // One New chat in the sidebar: the header keeps no second pencil.
+  const newChat = within(nav).getByRole('button', { name: 'New chat' });
+  expect(within(nav).getAllByRole('button', { name: 'New chat' })).toHaveLength(
+    1,
+  );
+  expect(newChat).toHaveTextContent('New chat');
+  expect(newChat).toHaveAttribute('aria-keyshortcuts', 'Control+Shift+O');
+  await user.click(newChat);
+  expect(onNewChat).toHaveBeenCalledTimes(1);
+  await user.click(
+    within(nav).getByRole('button', { name: 'New chat with an agent…' }),
+  );
+  const menu = await screen.findByRole('menu', {
+    name: 'New chat with an agent…',
+  });
+  // Until a profile is pinned, the library's first five stand in; the
+  // Default profile is plain New chat and a disabled one can't start.
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent),
+  ).toEqual([
+    'Planner',
+    'Researcher',
+    'Writer',
+    'Ideas',
+    'Knowledge',
+    'All agents…',
+  ]);
+  await user.click(within(menu).getByRole('menuitem', { name: 'Researcher' }));
+  expect(onStartProfileChat).toHaveBeenCalledWith(AGENTS[2]);
+  expect(onNewChat).toHaveBeenCalledTimes(1);
+  await user.click(
+    within(nav).getByRole('button', { name: 'New chat with an agent…' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'All agents…' }),
+  );
+  expect(
+    await screen.findByRole('dialog', { name: 'Agent profiles' }),
+  ).toBeInTheDocument();
+});
+
+it('starts a chat with a favourite agent in one click and opens the library from the Agents section (B268)', async () => {
+  const user = userEvent.setup();
+  const { nav, onStartProfileChat } = await setupAgents();
+  const agents = within(nav).getByRole('region', { name: 'Agents' });
+  const favourites = within(agents).getByRole('group', {
+    name: 'Favourite agents',
+  });
+  const buttons = within(favourites).getAllByRole('button');
+  expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+    'New chat with Planner',
+    'New chat with Researcher',
+    'New chat with Writer',
+    'New chat with Ideas',
+    'New chat with Knowledge',
+  ]);
+  // A profile draws the same icon here as in the transcript and Agents.
+  expect(
+    buttons[1].querySelector('.agent-avatar')!.getAttribute('data-avatar'),
+  ).toBe(avatarOf(agentSeed('builtin:research', 'run-elsewhere')));
+  await user.click(buttons[1]);
+  expect(onStartProfileChat).toHaveBeenCalledTimes(1);
+  expect(onStartProfileChat).toHaveBeenCalledWith(AGENTS[2]);
+  await user.click(
+    within(agents).getByRole('button', {
+      name: 'All agents (8): 7 built-in · 1 custom',
+    }),
+  );
+  expect(
+    await screen.findByRole('dialog', { name: 'Agent profiles' }),
+  ).toBeInTheDocument();
+});
+
+it('shows pinned profiles as the favourites once one is pinned in the library (B268)', async () => {
+  const user = userEvent.setup();
+  const { nav } = await setupAgents();
+  await user.click(within(nav).getByRole('button', { name: /^All agents/ }));
+  const dialog = await screen.findByRole('dialog', { name: 'Agent profiles' });
+  const pin = await within(dialog).findByRole('button', {
+    name: 'Pin Analyst to the sidebar',
+  });
+  expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await user.click(pin);
+  expect(
+    within(dialog).getByRole('button', {
+      name: 'Unpin Analyst from the sidebar',
+    }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  // Pinned profiles replace the stand-ins, in the order they were pinned.
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Pin Writer to the sidebar' }),
+  );
+  await user.keyboard('{Escape}');
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Agent profiles' })).toBeNull(),
+  );
+  const favourites = within(nav).getByRole('group', {
+    name: 'Favourite agents',
+  });
+  expect(
+    within(favourites)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label')),
+  ).toEqual(['New chat with Analyst', 'New chat with Writer']);
+  await user.click(
+    within(nav).getByRole('button', { name: 'New chat with an agent…' }),
+  );
+  const menu = await screen.findByRole('menu');
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent),
+  ).toEqual(['Analyst', 'Writer', 'All agents…']);
+});
+
+it('keeps the Agents section collapsed across a reload and lists no agent runs (B268)', async () => {
+  const user = userEvent.setup();
+  const { nav, view } = await setupAgents((transport) => {
+    transport.conversations[1].activity_state = 'active';
+    transport.conversations[1].activity_phase = 'background';
+  });
+  const agents = within(nav).getByRole('region', { name: 'Agents' });
+  // Agents belong to their conversation: that row shows its own work, the
+  // section holds only the favourites and the library.
+  expect(within(agents).queryAllByRole('listitem')).toHaveLength(0);
+  expect(within(agents).queryByText(/working/i)).toBeNull();
+  expect(
+    within(nav).getByRole('img', { name: 'Background agents working' }),
+  ).toBeInTheDocument();
+  const heading = within(agents).getByRole('button', { name: 'Agents' });
+  expect(heading).toHaveAttribute('aria-expanded', 'true');
+  await user.click(heading);
+  expect(heading).toHaveAttribute('aria-expanded', 'false');
+  expect(
+    within(nav).queryByRole('group', { name: 'Favourite agents' }),
+  ).toBeNull();
+  expect(within(nav).queryByRole('button', { name: /^All agents/ })).toBeNull();
+  view.unmount();
+  render(
+    <MemoryRouter>
+      <RuntimeContext.Provider
+        value={{
+          controller: clients[0],
+          platform: createFakePlatform(),
+          goalProfileOwner: owners[0] as never,
+        }}
+      >
+        <OverlayProvider>
+          <Navigation showBuddy={false} />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const again = screen.getByRole('button', { name: 'Agents' });
+  expect(again).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('group', { name: 'Favourite agents' })).toBeNull();
+  await user.click(again);
+  expect(
+    await screen.findByRole('group', { name: 'Favourite agents' }),
+  ).toBeInTheDocument();
 });
 
 it('shows a scoped library failure with retry while retaining confirmed rows and selection', async () => {
@@ -445,6 +727,10 @@ it('opens Home without a creation, Stop, selection change or draft mutation', as
 it('delegates sidebar New chat and navigates Settings to the persistent shell', async () => {
   const { transport, onNewChat } = await setup();
   fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  // Settings is its own labelled row under Buddy (B225).
+  expect(screen.getByRole('link', { name: 'Settings' })).toHaveTextContent(
+    'Settings',
+  );
   fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
   expect(onNewChat).toHaveBeenCalledTimes(1);
   expect(screen.getByLabelText('Current route')).toHaveTextContent(
@@ -762,6 +1048,13 @@ it('keeps Home, New chat, commands and Settings reachable on the collapsed rail 
   expect(
     screen.queryByRole('navigation', { name: 'Workspace navigation' }),
   ).toBeNull();
+  // One New chat on the rail, with its shortcut; the ▾ lives in the sidebar.
+  expect(
+    within(rail).getAllByRole('button', { name: /New chat/ }),
+  ).toHaveLength(1);
+  expect(
+    within(rail).getByRole('button', { name: 'New chat' }),
+  ).toHaveAttribute('aria-keyshortcuts', 'Control+Shift+O');
   fireEvent.click(within(rail).getByRole('button', { name: 'New chat' }));
   expect(onNewChat).toHaveBeenCalledTimes(1);
   fireEvent.click(

@@ -107,6 +107,97 @@
   color: var(--text-primary);
 }
 
+/* New chat (B268): the sidebar's one primary action, full width under the
+   header. Its shortcut shows on hover and focus; ▾ starts a chat with an
+   agent. */
+.nav-new-chat {
+  display: flex;
+  align-items: stretch;
+  margin: 2px 0 8px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--border-hairline),
+    var(--shadow-raised);
+}
+.nav-new-chat .button.nav-new-chat-main {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px 8px 4px 5px;
+  border: 0;
+  border-radius: var(--radius-card);
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-semibold);
+}
+.nav-new-chat:has(.nav-new-chat-more) .button.nav-new-chat-main {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+.nav-new-chat .button.nav-new-chat-main:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+.nav-new-chat-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-solid);
+  color: var(--accent-on-solid);
+}
+.nav-new-chat-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-new-chat-kbd {
+  flex: none;
+  visibility: hidden;
+}
+.nav-new-chat-main:is(:hover, :focus-visible) .nav-new-chat-kbd {
+  visibility: visible;
+}
+.nav-new-chat .button.nav-new-chat-more {
+  flex: none;
+  width: 34px;
+  min-width: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-inline-start: 1px solid var(--border-hairline);
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  color: var(--text-muted);
+}
+.nav-new-chat .button.nav-new-chat-more:is(:hover, [aria-expanded='true']) {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+.nav-new-chat .button:disabled {
+  background: transparent;
+  color: var(--text-disabled);
+}
+.nav-new-chat .button:disabled .nav-new-chat-icon {
+  opacity: 0.5;
+}
+@media (pointer: coarse) {
+  .nav-new-chat .button.nav-new-chat-main {
+    min-height: 44px;
+  }
+  .nav-new-chat .button.nav-new-chat-more {
+    width: 44px;
+    min-width: 44px;
+  }
+}
+
 .nav-primary-actions {
   display: grid;
   grid-template-columns: none;
@@ -200,6 +291,54 @@
 }
 .nav-type-filter .segmented-option[aria-checked='true'] {
   color: var(--text-primary);
+}
+
+/* Agents (B268): favourite profiles as icons, then the library, in the
+   conversation rows' spacing and hover language. */
+.nav-agents {
+  display: grid;
+  gap: 1px;
+  padding-bottom: 6px;
+}
+.nav-agents-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 8px;
+  min-height: 34px;
+  padding: 2px 4px 0;
+}
+.nav-agents-body[hidden] {
+  display: none;
+}
+.nav-agent-favourites {
+  display: flex;
+  gap: 2px;
+}
+.navigation .button.nav-all-agents {
+  gap: 4px;
+  min-height: 28px;
+  margin-inline-start: auto;
+  padding: 2px 4px 2px 8px;
+  border: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.navigation .button.nav-all-agents:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+.nav-all-agents-count {
+  font-variant-numeric: tabular-nums;
+}
+@media (pointer: coarse) {
+  .navigation .button.nav-all-agents {
+    min-height: 44px;
+  }
 }
 
 /* The conversation list is flat: no card, grouped by recency. */
@@ -416,7 +555,8 @@
   font-size: var(--text-13);
 }
 
-/* Footer: Buddy on the left, Settings on the right. */
+/* Footer: Buddy's large avatar with its status and Undock beside it, then
+   Settings as its own row with the connection dot at its end (B225). */
 .nav-footer {
   position: sticky;
   bottom: -6px;
@@ -427,41 +567,33 @@
   border-top: 1px solid var(--border-hairline);
   background: var(--canvas);
 }
-.nav-footer-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-.nav-footer-spacer {
-  flex: 1;
-}
-.nav-footer .nav-settings.button {
-  flex: none;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
-  padding: 0;
-  justify-content: center;
-  color: var(--text-muted);
-}
-.nav-footer .nav-settings.button:hover,
-.nav-footer .nav-settings[aria-current='page'] {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-}
 
-/* Buddy in the footer: an avatar with an activity ring, name and status.
-   The ring is quiet at rest, turns while Buddy works, and takes the
-   approval, error and done tones. */
+/* Buddy in the footer: an avatar with an activity ring and its status; the
+   name is the avatar's tooltip. The ring is quiet at rest, turns while
+   Buddy works, and takes the approval, error and done tones. The collapsed
+   rail keeps a small avatar. */
 .navigation,
 .navigation-rail {
-  --nav-buddy-size: 44px;
+  --nav-buddy-size: 112px;
+  --nav-buddy-ring-width: 2.5px;
   --nav-buddy-ring: color-mix(in srgb, var(--accent-solid) 42%, transparent);
 }
 .navigation-rail {
   --nav-buddy-size: 30px;
+  --nav-buddy-ring-width: 2px;
+}
+/* A short sidebar keeps its room for the list: the avatar shrinks. Rows
+   scrolled or focused into view stay clear of the sticky footer. */
+.navigation-pane {
+  container: navigation-pane / size;
+}
+@container navigation-pane (max-height: 640px) {
+  .navigation {
+    --nav-buddy-size: 64px;
+  }
+}
+.navigation {
+  scroll-padding-bottom: calc(var(--nav-buddy-size) + 72px);
 }
 .navigation .buddy-companion,
 .navigation-rail .buddy-companion {
@@ -479,8 +611,27 @@
   box-shadow: none;
   transition: background-color var(--motion-popover) var(--ease-out);
 }
-.navigation .buddy-companion:hover {
-  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+/* The sidebar: the avatar spans the block; status, then Undock, beside it. */
+.navigation .buddy-companion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr auto auto 1fr;
+  align-items: center;
+  justify-items: start;
+  column-gap: 14px;
+  row-gap: 4px;
+  padding: 6px 4px 4px;
+}
+.navigation .buddy-companion > :first-child {
+  grid-row: 1 / -1;
+}
+.navigation .buddy-companion > :nth-child(2) {
+  grid-row: 2;
+  grid-column: 2;
+}
+.navigation .buddy-companion > :nth-child(3) {
+  grid-row: 3;
+  grid-column: 2;
 }
 .navigation .buddy-companion > .button[aria-label='Buddy settings'],
 .navigation-rail .buddy-companion > .button[aria-label='Buddy settings'] {
@@ -511,13 +662,13 @@
   background: var(--nav-buddy-ring);
   -webkit-mask: radial-gradient(
     farthest-side,
-    transparent calc(100% - 2px),
-    #000 calc(100% - 1.5px)
+    transparent calc(100% - var(--nav-buddy-ring-width)),
+    #000 calc(100% - var(--nav-buddy-ring-width) + 0.5px)
   );
   mask: radial-gradient(
     farthest-side,
-    transparent calc(100% - 2px),
-    #000 calc(100% - 1.5px)
+    transparent calc(100% - var(--nav-buddy-ring-width)),
+    #000 calc(100% - var(--nav-buddy-ring-width) + 0.5px)
   );
   pointer-events: none;
 }
@@ -569,6 +720,11 @@
 .navigation .buddy-companion > .button[aria-label='Buddy settings']:hover {
   --nav-buddy-ring: color-mix(in srgb, var(--accent-solid) 75%, transparent);
 }
+.buddy-avatar-named {
+  display: inline-grid;
+  justify-self: center;
+  align-self: center;
+}
 .navigation .buddy-drag-handle,
 .navigation-rail .buddy-drag-handle {
   position: relative;
@@ -617,13 +773,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The sidebar shows no name: it is the avatar's tooltip, and stays here for
+   screen readers (B225). */
+.navigation .buddy-companion-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .navigation .buddy-companion p,
 .navigation .buddy-companion-text p {
+  max-width: 100%;
   margin: 0;
   overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--text-12);
-  line-height: var(--leading-12);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
   text-align: start;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -631,18 +798,19 @@
 .navigation .buddy-companion-state {
   justify-content: flex-start;
 }
+.navigation .buddy-companion-state p {
+  white-space: normal;
+}
+/* Undock is always shown beside the status, not only on hover. */
 .navigation .buddy-companion .buddy-undock {
   position: static;
   flex: none;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  min-height: 28px;
-  margin-inline-start: auto;
+  margin-inline-start: -6px;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--text-muted);
+  opacity: 1;
 }
 .navigation .buddy-companion .buddy-undock:hover {
   color: var(--text-primary);
@@ -696,6 +864,21 @@
 .navigation-rail .buddy-companion {
   flex: none;
   justify-content: center;
+}
+/* The rail's one prominent action: New chat on an accent tile (B268). */
+.navigation-rail .button.icon-action.navigation-rail-new-chat {
+  margin: 4px 0;
+  border-radius: 9px;
+  background: var(--accent-solid);
+  color: var(--accent-on-solid);
+}
+.navigation-rail
+  .button.icon-action.navigation-rail-new-chat:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-solid) 86%, var(--text-primary));
+  color: var(--accent-on-solid);
+}
+.navigation-rail .button.icon-action.navigation-rail-new-chat:disabled {
+  opacity: 0.5;
 }
 
 /* ------------------------------------------------------ compact controls */

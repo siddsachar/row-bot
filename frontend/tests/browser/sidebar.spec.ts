@@ -1,5 +1,80 @@
-import { expect, screenshot, test } from './evidence';
+import { assertNoOverflow, expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
+import { blockFixtureServiceWorkers } from './unified-helpers';
+
+test('the sidebar leads with New chat and Agents and fits a large nameless Buddy above Settings (B225, B268)', async ({
+  context,
+  page,
+}, info) => {
+  await blockFixtureServiceWorkers(context);
+  const headers = {
+    'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
+    Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
+  };
+  expect(
+    (await page.request.post('/__p4_fixture/buddy', { headers })).ok(),
+  ).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/app-v2/conversations/p1-browser-a');
+  await expect(
+    page.getByRole('heading', { name: 'Phase 1 conversation A', exact: true }),
+  ).toBeVisible();
+  const nav = page.getByRole('navigation', {
+    name: 'Workspace navigation',
+    exact: true,
+  });
+  if (!(await nav.isVisible()))
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  // New chat is the one primary button; ▾ holds the agents.
+  await expect(
+    nav.getByRole('button', { name: 'New chat', exact: true }),
+  ).toBeVisible();
+  await expect(
+    nav.getByRole('button', { name: 'New chat with an agent…', exact: true }),
+  ).toBeVisible();
+  const agents = nav.getByRole('region', { name: 'Agents', exact: true });
+  await expect(
+    agents.getByRole('group', { name: 'Favourite agents', exact: true }),
+  ).toBeVisible();
+  await expect(
+    agents.getByRole('button', { name: /^All agents \(\d+\)/ }),
+  ).toBeVisible();
+  // Buddy: a large avatar, its name only in the tooltip, Settings below.
+  const buddy = nav.getByRole('complementary', {
+    name: 'Buddy companion',
+    exact: true,
+  });
+  const avatar = buddy.getByRole('button', {
+    name: 'Buddy settings',
+    exact: true,
+  });
+  await expect(avatar).toBeVisible();
+  const avatarBox = (await avatar.boundingBox())!;
+  expect(avatarBox.width).toBeGreaterThanOrEqual(112);
+  const name = buddy.locator('.buddy-companion-name');
+  expect((await name.boundingBox())!.width).toBeLessThanOrEqual(1);
+  const settings = nav.getByRole('link', { name: 'Settings', exact: true });
+  await settings.scrollIntoViewIfNeeded();
+  const buddyBox = (await buddy.boundingBox())!;
+  const settingsBox = (await settings.boundingBox())!;
+  expect(settingsBox.y).toBeGreaterThanOrEqual(
+    buddyBox.y + buddyBox.height - 1,
+  );
+  expect(settingsBox.height).toBeGreaterThanOrEqual(28);
+  expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(
+    page.viewportSize()!.height,
+  );
+  if (info.project.use.viewport!.width >= 1024) {
+    await avatar.hover();
+    await expect(page.getByRole('tooltip')).toHaveText(
+      (await name.textContent())!,
+    );
+  }
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'b225-b268-sidebar');
+});
 
 test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', async ({
   page,

@@ -350,6 +350,56 @@ it('manages grouped profiles without a conversation and starts a selected profil
   ).toBeInTheDocument();
 });
 
+it('pins a profile as a sidebar favourite on this device, and only one that can start a chat (B268)', async () => {
+  const props = options();
+  const disabled = {
+    ...userProfile,
+    id: 'profile-off',
+    display_name: 'Retired Helper',
+    enabled: false,
+  };
+  props.loadProfiles.mockResolvedValue({
+    ...profilePage,
+    items: [builtinProfile, userProfile, disabled],
+    total: 3,
+  });
+  const library = (
+    <GoalProfileSettings
+      {...props}
+      conversationId={undefined}
+      profilesOnly
+      onStartProfileChat={vi.fn()}
+    />
+  );
+  const view = render(library);
+  const pin = await screen.findByRole('button', {
+    name: 'Pin General Assistant to the sidebar',
+  });
+  expect(pin).toHaveAttribute('aria-pressed', 'false');
+  expect(
+    screen.queryByRole('button', { name: /Pin Retired Helper/ }),
+  ).toBeNull();
+  fireEvent.click(pin);
+  expect(
+    screen.getByRole('button', {
+      name: 'Unpin General Assistant from the sidebar',
+    }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  // Remembered: the library opens again with it pinned.
+  view.unmount();
+  render(library);
+  const unpin = await screen.findByRole('button', {
+    name: 'Unpin General Assistant from the sidebar',
+  });
+  fireEvent.click(unpin);
+  expect(
+    screen.getByRole('button', {
+      name: 'Pin General Assistant to the sidebar',
+    }),
+  ).toHaveAttribute('aria-pressed', 'false');
+  expect(props.reviewProfile).not.toHaveBeenCalled();
+});
+
 it('loads the profile panel after a retained session finishes another read', async () => {
   const props = options();
   props.session.update({ busy: 'load-goals' });

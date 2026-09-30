@@ -27,6 +27,7 @@ import {
   PencilLine,
   Pin,
   Settings,
+  SquarePen,
   Trash2,
   Upload,
   Workflow,
@@ -40,10 +41,12 @@ import {
   Button,
   Hint,
   IconButton,
+  Kbd,
   Menu,
   Segmented,
   Skeleton,
 } from '../../ui/primitives';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import type { ConversationView } from '../../api/types';
 import ConversationActions from '../settings/ConversationActions';
 import { deleteOneConversation } from './ConversationLibrary';
@@ -51,7 +54,8 @@ import type {
   GoalProfileSettingsSession,
   ProfileSummary,
 } from '../settings/GoalProfileSettings';
-import { openAgentProfiles } from './agent-profiles';
+import { DEFAULT_PROFILE_ID, openAgentProfiles } from './agent-profiles';
+import { useAgentFavourites } from './agent-favourites';
 import { ConversationGlyph } from './ConversationGlyph';
 import {
   CONVERSATION_TYPES,
@@ -61,11 +65,14 @@ import {
   recencyGroup,
   type ConversationType,
 } from './conversation-groups';
-import { absoluteTime } from '../../ui/format';
+import { absoluteTime, ariaKeyShortcut } from '../../ui/format';
 
 const PREVIEW_COUNT = 10;
 const PINNED_PREVIEW_COUNT = 5;
 const TYPE_KEY = 'row-bot.sidebar-type.v1';
+const AGENTS_KEY = 'row-bot.sidebar-agents.v1';
+const FAVOURITE_COUNT = 5;
+const NEW_CHAT_SHORTCUT = 'Mod+Shift+O';
 const RECENCY_LABELS = {
   today: 'Today',
   yesterday: 'Yesterday',
@@ -135,34 +142,42 @@ function readType(): ConversationType {
   }
 }
 
+function readAgentsOpen(): boolean {
+  try {
+    return localStorage.getItem(AGENTS_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+}
+
+const noSession = () => () => {};
+
 /**
- * Agent profile counts are a sidebar nicety: they are read once per server
- * instance, after the open conversation has loaded, never on a reconnect to
- * the same instance (B29).
+ * The agent library's profiles are a sidebar nicety: they are read once per
+ * server instance, after the open conversation has loaded, never on a
+ * reconnect to the same instance (B29).
  */
-function useProfileCounts(session: GoalProfileSettingsSession) {
+function useProfiles(
+  session: GoalProfileSettingsSession | undefined,
+): ProfileSummary[] | null {
   const { controller } = useRuntime();
   const state = useClientState();
   const refresh = useSyncExternalStore(
-    session.subscribe,
-    session.getSnapshot,
-  ).profilesRefresh;
-  const [counts, setCounts] = useState<{
-    builtins: number;
-    custom: number;
-  } | null>(null);
+    session?.subscribe ?? noSession,
+    () => session?.getSnapshot().profilesRefresh,
+  );
+  const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
   const loaded = useRef('');
   const instance = state.handshake?.instance_id ?? '';
   const settled = useShellSettled();
   useEffect(() => {
     const key = `${instance}\u0000${String(refresh)}`;
-    if (!settled || !instance || loaded.current === key) return;
+    if (!session || !settled || !instance || loaded.current === key) return;
     const abort = new AbortController();
     const load = async () => {
       try {
         let cursor: string | undefined;
-        let builtins = 0;
-        let custom = 0;
+        const items: ProfileSummary[] = [];
         do {
           const page = await controller.profiles(
             '',
@@ -172,79 +187,61 @@ function useProfileCounts(session: GoalProfileSettingsSession) {
           );
           if (page.schema_version !== 1 || page.scope !== 'global')
             throw Error('invalid profile page');
-          page.items.forEach((profile) => {
-            if (profile.source === 'builtin') builtins++;
-            else custom++;
-          });
+          items.push(...page.items);
           cursor = page.next_cursor ?? undefined;
         } while (cursor && !abort.signal.aborted);
         if (!abort.signal.aborted) {
           loaded.current = key;
-          setCounts({ builtins, custom });
+          setProfiles(items);
         }
       } catch {
-        if (!abort.signal.aborted) setCounts(null);
+        if (!abort.signal.aborted) setProfiles(null);
       }
     };
     void load();
     return () => abort.abort();
-  }, [controller, instance, refresh, settled]);
-  return counts;
+  }, [controller, instance, refresh, session, settled]);
+  return profiles;
 }
 
-function profileLabel(
-  counts: { builtins: number; custom: number } | null,
-): string {
-  return counts
-    ? `Agents: Agent profiles, ${counts.builtins} built-in · ${counts.custom} custom`
-    : 'Agents: Agent profiles';
+/**
+ * Favourite agents (B268): the pinned profiles, in pin order. Until one is
+ * pinned, the library's first five stand in (the Default profile is plain
+ * New chat, so it never stands in).
+ */
+function favouriteProfiles(
+  profiles: readonly ProfileSummary[],
+  pinned: readonly string[],
+): ProfileSummary[] {
+  const enabled = profiles.filter((profile) => profile.enabled);
+  const chosen = pinned.flatMap(
+    (id) => enabled.find((profile) => profile.id === id) ?? [],
+  );
+  return chosen.length
+    ? chosen
+    : enabled
+        .filter((profile) => profile.id !== DEFAULT_PROFILE_ID)
+        .slice(0, FAVOURITE_COUNT);
+}
+
+function allAgentsLabel(profiles: readonly ProfileSummary[] | null): string {
+  if (!profiles) return 'All agents';
+  const builtins = profiles.filter(
+    (profile) => profile.source === 'builtin',
+  ).length;
+  return `All agents (${profiles.length}): ${builtins} built-in · ${profiles.length - builtins} custom`;
 }
 
 function openProfiles(
-  event: MouseEvent<HTMLButtonElement>,
+  opener: HTMLElement | null,
   options: Omit<Parameters<typeof openAgentProfiles>[0], 'returnFocusTo'>,
 ) {
-  const returnFocusTo = event.currentTarget.closest('[role="dialog"]')
+  const returnFocusTo = opener?.closest('[role="dialog"]')
     ? document.querySelector<HTMLElement>(
         '.compact-controls [aria-label="Toggle navigation"]',
       )
-    : event.currentTarget;
+    : opener;
   openAgentProfiles({ ...options, returnFocusTo });
-}
-
-function AgentProfilesEntry({
-  session,
-  onStartProfileChat,
-}: {
-  session: GoalProfileSettingsSession;
-  onStartProfileChat?: (profile: ProfileSummary) => void;
-}) {
-  const { controller } = useRuntime();
-  const overlay = useOverlay();
-  const counts = useProfileCounts(session);
-  return (
-    <Button
-      className="nav-row nav-profiles"
-      variant="ghost"
-      aria-label={profileLabel(counts)}
-      onClick={(event) =>
-        openProfiles(event, {
-          overlay,
-          controller,
-          session,
-          onStartProfileChat,
-        })
-      }
-    >
-      <Bot size={16} aria-hidden />
-      <span className="nav-row-label">Agents</span>
-      {counts && (
-        <small className="nav-row-meta" aria-hidden>
-          {counts.builtins + counts.custom}
-        </small>
-      )}
-    </Button>
-  );
 }
 
 function activityLabel(
@@ -350,6 +347,36 @@ export default function Navigation({
     } catch {
       /* The filter still applies for this session. */
     }
+  };
+  const [agentsOpen, setAgentsOpenState] = useState(readAgentsOpen);
+  const toggleAgents = () => {
+    setAgentsOpenState(!agentsOpen);
+    try {
+      localStorage.setItem(AGENTS_KEY, agentsOpen ? 'collapsed' : 'open');
+    } catch {
+      /* The section still folds for this session. */
+    }
+  };
+  const agentsId = useId();
+  const profileSession = goalProfileOwner?.get();
+  const profiles = useProfiles(profileSession);
+  const favourites = favouriteProfiles(profiles ?? [], useAgentFavourites());
+  const newChatDisabled =
+    !onNewChat || creatingChat || state.status !== 'ready';
+  const profileChatDisabled =
+    !onStartProfileChat || creatingChat || state.status !== 'ready';
+  const startProfileChat = (profile: ProfileSummary) => {
+    overlay.close();
+    onStartProfileChat?.(profile);
+  };
+  const openLibrary = (opener: HTMLElement | null) => {
+    if (profileSession)
+      openProfiles(opener, {
+        overlay,
+        controller,
+        session: profileSession,
+        onStartProfileChat,
+      });
   };
   const [staleActivityIds, setStaleActivityIds] = useState<Set<string>>(
     () => new Set(),
@@ -692,24 +719,63 @@ export default function Navigation({
     <nav className="navigation" aria-label="Workspace navigation">
       <header className="nav-header">
         <Brand />
-        <div className="nav-header-actions">
-          <IconButton
-            size="sm"
-            label="New chat"
-            shortcut="Mod+Shift+O"
-            className="nav-new-chat"
-            disabled={!onNewChat || creatingChat || state.status !== 'ready'}
-            aria-busy={creatingChat || undefined}
-            onClick={() => {
-              overlay.close();
-              onNewChat?.();
-            }}
-          >
-            <PencilLine size={16} aria-hidden />
-          </IconButton>
-          {headerActions}
-        </div>
+        {headerActions && (
+          <div className="nav-header-actions">{headerActions}</div>
+        )}
       </header>
+      {/* The sidebar's one primary action; ▾ starts a chat with an agent
+          (B268). Its shortcut shows on hover and focus. */}
+      <div className="nav-new-chat">
+        <Button
+          variant="ghost"
+          className="nav-new-chat-main"
+          aria-keyshortcuts={ariaKeyShortcut(NEW_CHAT_SHORTCUT)}
+          disabled={newChatDisabled}
+          aria-busy={creatingChat || undefined}
+          onClick={() => {
+            overlay.close();
+            onNewChat?.();
+          }}
+        >
+          <span className="nav-new-chat-icon" aria-hidden>
+            <SquarePen size={15} />
+          </span>
+          <span className="nav-new-chat-label">New chat</span>
+          <span className="nav-new-chat-kbd" aria-hidden>
+            <Kbd keys={NEW_CHAT_SHORTCUT} />
+          </span>
+        </Button>
+        {profileSession && (
+          <Menu
+            label="New chat with an agent…"
+            hint="New chat with an agent…"
+            iconOnly
+            variant="ghost"
+            className="nav-new-chat-more"
+            actions={[
+              ...favourites.map((profile) => ({
+                label: profile.display_name,
+                icon: (
+                  <AgentAvatar
+                    seed={agentSeed(profile.id, profile.id)}
+                    size={18}
+                  />
+                ),
+                disabled: profileChatDisabled,
+                onSelect: () => startProfileChat(profile),
+              })),
+              {
+                label: 'All agents…',
+                icon: <Bot size={16} />,
+                separatorBefore: true,
+                onSelect: openLibrary,
+              },
+            ]}
+          >
+            <ChevronDown size={15} aria-hidden />
+          </Menu>
+        )}
+      </div>
       <div
         className="nav-primary-actions"
         role="group"
@@ -737,13 +803,72 @@ export default function Navigation({
           <Home size={16} aria-hidden />
           <span className="nav-row-label">Home</span>
         </Link>
-        {goalProfileOwner?.get() && (
-          <AgentProfilesEntry
-            session={goalProfileOwner.get()!}
-            onStartProfileChat={onStartProfileChat}
-          />
-        )}
       </div>
+      {/* Agents: favourite profiles start a chat in one click; the library
+          holds the rest. Runs belong to their conversation, so none show
+          here (B268). */}
+      {profileSession && (
+        <section className="nav-agents" aria-labelledby={`${agentsId}-heading`}>
+          <div className="nav-section-header">
+            <Button
+              id={`${agentsId}-heading`}
+              className="nav-heading"
+              variant="ghost"
+              aria-expanded={agentsOpen}
+              aria-controls={agentsId}
+              onClick={toggleAgents}
+            >
+              {agentsOpen ? (
+                <ChevronDown size={14} aria-hidden />
+              ) : (
+                <ChevronRight size={14} aria-hidden />
+              )}
+              Agents
+            </Button>
+          </div>
+          <div id={agentsId} className="nav-agents-body" hidden={!agentsOpen}>
+            {agentsOpen && (
+              <>
+                {favourites.length > 0 && (
+                  <div
+                    className="nav-agent-favourites"
+                    role="group"
+                    aria-label="Favourite agents"
+                  >
+                    {favourites.slice(0, FAVOURITE_COUNT).map((profile) => (
+                      <IconButton
+                        key={profile.id}
+                        label={`New chat with ${profile.display_name}`}
+                        disabled={profileChatDisabled}
+                        onClick={() => startProfileChat(profile)}
+                      >
+                        <AgentAvatar
+                          seed={agentSeed(profile.id, profile.id)}
+                          size={22}
+                        />
+                      </IconButton>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  variant="ghost"
+                  className="nav-all-agents"
+                  aria-label={allAgentsLabel(profiles)}
+                  onClick={(event) => openLibrary(event.currentTarget)}
+                >
+                  All agents
+                  {profiles && (
+                    <span className="nav-all-agents-count" aria-hidden>
+                      {profiles.length}
+                    </span>
+                  )}
+                  <ChevronRight size={14} aria-hidden />
+                </Button>
+              </>
+            )}
+          </div>
+        </section>
+      )}
       <div className="nav-section-header">
         <Button
           id={sectionHeadingId}
@@ -918,32 +1043,25 @@ export default function Navigation({
           loadApprovals={controller.pendingApprovals}
           onNavigate={openRoute}
         />
-        <div className="nav-footer-row">
-          {showBuddy ? (
-            <BuddySurface />
-          ) : (
-            <span className="nav-footer-spacer" />
-          )}
+        {showBuddy && <BuddySurface />}
+        {/* Settings is its own row under Buddy's large avatar (B225). */}
+        <Link
+          className="button ghost nav-row nav-settings"
+          to="/settings/providers"
+          aria-current={
+            location.pathname.startsWith('/settings') ? 'page' : undefined
+          }
+          onClick={openRoute('/settings/providers')}
+        >
+          <Settings size={16} aria-hidden />
+          <span className="nav-row-label">Settings</span>
           <span
             className="nav-connection"
             data-state={state.status}
             title={CONNECTION_LABELS[state.status] ?? state.status}
             aria-hidden
           />
-          <Hint label="Settings">
-            <Link
-              className="button ghost icon-button nav-settings"
-              to="/settings/providers"
-              aria-label="Settings"
-              aria-current={
-                location.pathname.startsWith('/settings') ? 'page' : undefined
-              }
-              onClick={openRoute('/settings/providers')}
-            >
-              <Settings size={16} aria-hidden />
-            </Link>
-          </Hint>
-        </div>
+        </Link>
       </footer>
     </nav>
   );
@@ -974,13 +1092,15 @@ export function NavigationRail({
     <nav className="navigation-rail" aria-label="Collapsed navigation">
       <div className="navigation-rail-group">
         {railActions}
+        {/* The rail's one prominent action (B268). */}
         <IconButton
           label="New chat"
-          shortcut="Mod+Shift+O"
+          shortcut={NEW_CHAT_SHORTCUT}
+          className="navigation-rail-new-chat"
           disabled={!onNewChat || creatingChat || state.status !== 'ready'}
           onClick={() => onNewChat?.()}
         >
-          <PencilLine size={18} aria-hidden />
+          <SquarePen size={18} aria-hidden />
         </IconButton>
         <Hint label="Home">
           <Link
@@ -996,7 +1116,7 @@ export function NavigationRail({
           <IconButton
             label="Agents"
             onClick={(event) =>
-              openProfiles(event, {
+              openProfiles(event.currentTarget, {
                 overlay,
                 controller,
                 session,

@@ -4755,18 +4755,6 @@ details[open] > summary > .settings-disclosure-chevron {
   width: 100%;
   border-color: transparent;
 }
-.nav-profiles {
-  width: 100%;
-  justify-content: flex-start;
-  border-color: transparent;
-  gap: 7px;
-}
-.nav-profiles small {
-  margin-inline-start: auto;
-  color: var(--text-muted);
-  font-size: 10px;
-  white-space: nowrap;
-}
 .profile-library-group {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);

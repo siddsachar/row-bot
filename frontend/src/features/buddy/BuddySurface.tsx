@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
-import { Button, EmptyState, IconButton } from '../../ui/primitives';
+import { Button, EmptyState, Hint, IconButton } from '../../ui/primitives';
 import { PictureInPicture2 } from 'lucide-react';
 import { useOverlay } from '../../ui/overlays';
 import BuddyPanel, { type BuddyPanelSession } from './BuddyPanel';
@@ -35,6 +41,24 @@ function Avatar(props: Omit<Parameters<typeof BuddyAvatar>[0], 'loadMedia'>) {
     [controller],
   );
   return <BuddyAvatar {...props} loadMedia={loadMedia} />;
+}
+
+/**
+ * The sidebar avatar carries Buddy's name as its tooltip; the sidebar shows
+ * no name beside it (B225).
+ */
+function NamedAvatar({
+  snapshot,
+  children,
+}: {
+  snapshot: BuddySnapshot;
+  children: ReactNode;
+}) {
+  return (
+    <Hint label={snapshot.preferences.display_name || 'Buddy'}>
+      <span className="buddy-avatar-named">{children}</span>
+    </Hint>
+  );
 }
 
 function GlobalBuddy() {
@@ -104,12 +128,14 @@ function GlobalBuddy() {
         variant="ghost"
         onClick={() => navigate('/settings/buddy')}
       >
-        <BuddyDragHandle
-          platform={platform}
-          onTornOff={() => buddyPlacement.setPlacement('desktop')}
-        >
-          <Avatar conversation={null} pack={pack} snapshot={snapshot} />
-        </BuddyDragHandle>
+        <NamedAvatar snapshot={snapshot}>
+          <BuddyDragHandle
+            platform={platform}
+            onTornOff={() => buddyPlacement.setPlacement('desktop')}
+          >
+            <Avatar conversation={null} pack={pack} snapshot={snapshot} />
+          </BuddyDragHandle>
+        </NamedAvatar>
       </Button>
       <span className="buddy-companion-text">
         <span className="buddy-companion-name">
@@ -178,16 +204,18 @@ function OwnedBuddy({
             : undefined
         }
         renderAvatar={(snapshot) => (
-          <BuddyDragHandle
-            platform={platform}
-            onTornOff={() => buddyPlacement.setPlacement('desktop')}
-          >
-            <Avatar
-              conversation={conversation}
-              pack={view.selectedPack}
-              snapshot={snapshot}
-            />
-          </BuddyDragHandle>
+          <NamedAvatar snapshot={snapshot}>
+            <BuddyDragHandle
+              platform={platform}
+              onTornOff={() => buddyPlacement.setPlacement('desktop')}
+            >
+              <Avatar
+                conversation={conversation}
+                pack={view.selectedPack}
+                snapshot={snapshot}
+              />
+            </BuddyDragHandle>
+          </NamedAvatar>
         )}
         renderPackPreview={(pack) =>
           view.snapshot && (

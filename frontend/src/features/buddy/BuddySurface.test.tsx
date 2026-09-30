@@ -5,7 +5,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BuddySurface, {
   BuddyAvatar,
@@ -129,6 +131,30 @@ it('renders passive global Buddy state without selecting a conversation', async 
     expect.any(AbortSignal),
   );
   expect(view.getByRole('status')).toHaveTextContent('Ready');
+});
+
+it('names the sidebar Buddy in its avatar tooltip, keeping the name for assistive tech (B225)', async () => {
+  surface.state.selectedConversationId = null;
+  surface.globalBuddy.mockResolvedValue({
+    ...snapshot,
+    preferences: { ...snapshot.preferences, display_name: 'Pip' },
+    conversation_id: null,
+    activity: 'idle',
+  });
+  surface.globalBuddyPack.mockResolvedValue(pack);
+  const user = userEvent.setup();
+  render(<BuddySurface />);
+  const avatar = await screen.findByRole('button', { name: 'Buddy settings' });
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  await user.hover(avatar.querySelector('.buddy-avatar-frame')!);
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Pip');
+  // The companion still carries the custom name for screen readers.
+  expect(
+    within(
+      screen.getByRole('complementary', { name: 'Buddy companion' }),
+    ).getByText('Pip'),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Ready');
 });
 
 it('hides the duplicate docked Buddy while native overlay is out and restores it on Dock', async () => {

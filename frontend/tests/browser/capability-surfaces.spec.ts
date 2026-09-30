@@ -862,7 +862,7 @@ test('profile library manages profiles and starts a selected chat', async ({
     name: 'Workspace navigation',
   });
   const entry = navigation.getByRole('button', {
-    name: /Agent profiles.*1 built-in.*0 custom/,
+    name: /^All agents \(1\).*1 built-in.*0 custom/,
   });
   await expect(entry).toBeVisible();
   await entry.click();

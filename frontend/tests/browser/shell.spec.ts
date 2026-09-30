@@ -49,7 +49,9 @@ test('simplified shell keeps controls and Home reachable', async ({
   await expect(
     nav.getByRole('list', { name: 'Recent conversations' }),
   ).toBeVisible();
-  await expect(nav.getByRole('button', { name: 'New chat' })).toBeVisible();
+  await expect(
+    nav.getByRole('button', { name: 'New chat', exact: true }),
+  ).toBeVisible();
   await screenshot(page, info, 'slice1-conversation-shell');
 
   await nav.getByRole('link', { name: 'Home' }).click();

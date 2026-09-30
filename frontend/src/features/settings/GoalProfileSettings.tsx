@@ -19,6 +19,7 @@ import {
   Network,
   Palette,
   Pencil,
+  Pin,
   Power,
   RefreshCw,
   Route,
@@ -41,6 +42,10 @@ import {
   Toggle,
 } from '../../ui/primitives';
 import { humanizeToken } from '../../ui/format';
+import {
+  toggleAgentFavourite,
+  useAgentFavourites,
+} from '../shell/agent-favourites';
 
 export type GoalStatus =
   | 'active'
@@ -529,6 +534,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     executeProfile,
   } = props;
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const favourites = useAgentFavourites();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(['Everyday']),
   );
@@ -1333,6 +1339,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
       profileIcons[profile.icon ?? ''] ??
       groupIcons[profileGroup(profile)] ??
       BadgeCheck;
+    const pinned = favourites.includes(profile.id);
     return (
       <li className="profile-library-row" key={profile.id}>
         <Icon size={16} aria-hidden />
@@ -1346,15 +1353,35 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
         </div>
         <div className="profile-library-actions">
           {profile.enabled && onStartProfileChat && (
-            <Button
-              variant="ghost"
-              iconOnly
-              disabled={locked}
-              aria-label={`Start chat with ${profile.display_name}`}
-              onClick={() => onStartProfileChat(profile)}
-            >
-              <MessageSquare size={14} aria-hidden />
-            </Button>
+            <>
+              {/* A pinned profile is a favourite in the sidebar (B268). */}
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label={
+                  pinned
+                    ? `Unpin ${profile.display_name} from the sidebar`
+                    : `Pin ${profile.display_name} to the sidebar`
+                }
+                aria-pressed={pinned}
+                onClick={() => toggleAgentFavourite(profile.id)}
+              >
+                <Pin
+                  size={14}
+                  fill={pinned ? 'currentColor' : 'none'}
+                  aria-hidden
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                disabled={locked}
+                aria-label={`Start chat with ${profile.display_name}`}
+                onClick={() => onStartProfileChat(profile)}
+              >
+                <MessageSquare size={14} aria-hidden />
+              </Button>
+            </>
           )}
           <Button
             variant="ghost"
