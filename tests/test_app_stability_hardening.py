@@ -1,17 +1,14 @@
 import importlib
 from types import SimpleNamespace
-import uuid
 from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
-def data_dir(monkeypatch):
-    root = Path(".tmp") / "pytest-app-stability-fixtures"
-    root.mkdir(parents=True, exist_ok=True)
-    path = root / f"case-{uuid.uuid4().hex}"
-    path.mkdir(parents=True, exist_ok=True)
+def data_dir(tmp_path, monkeypatch):
+    path = tmp_path / "data"
+    path.mkdir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(path))
     yield path
 

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import importlib
 import os
-import uuid
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,11 +13,9 @@ pytestmark = pytest.mark.platform
 
 
 @pytest.fixture
-def data_dir():
-    root = Path(".tmp") / "pytest-channel-auth-fixtures"
-    root.mkdir(parents=True, exist_ok=True)
-    path = root / f"case-{uuid.uuid4().hex}"
-    path.mkdir(parents=True, exist_ok=True)
+def data_dir(tmp_path):
+    path = tmp_path / "data"
+    path.mkdir()
     yield path
 
 
@@ -69,7 +65,7 @@ def test_channel_secret_falls_back_to_legacy_api_keys(data_dir, monkeypatch):
     )
 
     api_keys.set_key("SLACK_BOT_TOKEN", "legacy-slack-token")
-    os.environ.pop("SLACK_BOT_TOKEN", None)
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
 
     assert channel_auth.get_channel_secret(
         "slack",
@@ -88,7 +84,7 @@ def test_channel_status_detects_legacy_keyring_without_metadata(
     secret_store, api_keys, channel_auth, _backend = _reload_auth_modules(
         monkeypatch, data_dir,
     )
-    os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     secret_store.set_secret("TELEGRAM_BOT_TOKEN", "orphan-legacy-9999")
     assert api_keys.key_status("TELEGRAM_BOT_TOKEN")["configured"] is False
 

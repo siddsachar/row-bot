@@ -72,7 +72,7 @@ def test_provider_auth_store_prefers_legacy_environment(monkeypatch):
     assert get_provider_secret("openai") == "sk-env-secret"
     assert provider_secret_status("openai")["source"] == "environment"
 
-    os.environ.pop("OPENAI_API_KEY", None)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
 
 def test_minimax_provider_auth_store_uses_environment(monkeypatch):
@@ -81,7 +81,7 @@ def test_minimax_provider_auth_store_uses_environment(monkeypatch):
     assert get_provider_secret("minimax") == "minimax-env-secret"
     assert provider_secret_status("minimax")["source"] == "environment"
 
-    os.environ.pop("MINIMAX_API_KEY", None)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
 
 
 def test_ollama_cloud_provider_auth_store_uses_environment(monkeypatch):
@@ -90,7 +90,7 @@ def test_ollama_cloud_provider_auth_store_uses_environment(monkeypatch):
     assert get_provider_secret("ollama_cloud") == "ollama-cloud-env-secret"
     assert provider_secret_status("ollama_cloud")["source"] == "environment"
 
-    os.environ.pop("OLLAMA_API_KEY", None)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
 
 
 def test_atlascloud_provider_auth_store_uses_environment(monkeypatch):
@@ -99,7 +99,7 @@ def test_atlascloud_provider_auth_store_uses_environment(monkeypatch):
     assert get_provider_secret("atlascloud") == "atlascloud-env-secret"
     assert provider_secret_status("atlascloud")["source"] == "environment"
 
-    os.environ.pop("ATLASCLOUD_API_KEY", None)
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
 
 
 def test_provider_auth_store_reports_keyring_when_saved_key_is_loaded_into_env(tmp_path, monkeypatch):

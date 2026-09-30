@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 
 
-def _reload_skill_modules(tmp_path: Path):
-    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
-    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
+def _reload_skill_modules(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     for name in ("row_bot.skills", "row_bot.skills_activation", "row_bot.channels.commands"):
         if name in sys.modules:
             importlib.reload(sys.modules[name])
@@ -40,8 +38,8 @@ def _write_skill(root: Path, name: str, *, description: str, tools: list[str] | 
     (skill_dir / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def test_thread_scoped_command_tokens_include_reset_aliases(tmp_path):
-    _skills, _activation, commands = _reload_skill_modules(tmp_path)
+def test_thread_scoped_command_tokens_include_reset_aliases(tmp_path, monkeypatch):
+    _skills, _activation, commands = _reload_skill_modules(tmp_path, monkeypatch)
 
     for text in ("/skill foo", "/skills", "/skill-reset", "/skillreset", "/skill_reset", "/noskill", "/reasoning high"):
         assert commands.is_thread_scoped_command(text)
@@ -50,7 +48,7 @@ def test_thread_scoped_command_tokens_include_reset_aliases(tmp_path):
 
 
 def test_channel_reasoning_dispatch_uses_conversation_thread_id(tmp_path, monkeypatch):
-    _skills, _activation, commands = _reload_skill_modules(tmp_path)
+    _skills, _activation, commands = _reload_skill_modules(tmp_path, monkeypatch)
     import row_bot.agent as agent
     import row_bot.models as models
     import row_bot.providers.reasoning as reasoning
@@ -78,9 +76,9 @@ def test_channel_reasoning_dispatch_uses_conversation_thread_id(tmp_path, monkey
     assert calls == [("sms-thread", "model:openai:gpt-5", "high")]
 
 
-def test_channel_dispatch_skill_reset_aliases_use_thread_id(tmp_path):
+def test_channel_dispatch_skill_reset_aliases_use_thread_id(tmp_path, monkeypatch):
     _write_skill(tmp_path, "meeting_notes", description="Summarize meetings")
-    skills, activation, commands = _reload_skill_modules(tmp_path)
+    skills, activation, commands = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     commands.dispatch("sms", "/skill meeting_notes", thread_id="sms_1")
@@ -93,10 +91,10 @@ def test_channel_dispatch_skill_reset_aliases_use_thread_id(tmp_path):
         assert activation.resolve_active_skill_names("sms_1") == skills.get_default_active_skill_names("chat")
 
 
-def test_channel_skills_text_fallback_lists_available_runtime_skills(tmp_path):
+def test_channel_skills_text_fallback_lists_available_runtime_skills(tmp_path, monkeypatch):
     _write_skill(tmp_path, "meeting_notes", description="Summarize meetings")
     _write_skill(tmp_path, "browser_guide", description="Browser tool guide", tools=["browser"])
-    skills, _activation, commands = _reload_skill_modules(tmp_path)
+    skills, _activation, commands = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     response = commands.dispatch("slack", "/skills", thread_id="slack_1")
@@ -110,8 +108,8 @@ def test_channel_skills_text_fallback_lists_available_runtime_skills(tmp_path):
     assert "Meeting Notes" in response
 
 
-def test_channel_help_mentions_discoverable_skill_commands(tmp_path):
-    _skills, _activation, commands = _reload_skill_modules(tmp_path)
+def test_channel_help_mentions_discoverable_skill_commands(tmp_path, monkeypatch):
+    _skills, _activation, commands = _reload_skill_modules(tmp_path, monkeypatch)
 
     help_text = commands.cmd_help("discord")
     assert "/skills <query>" in help_text

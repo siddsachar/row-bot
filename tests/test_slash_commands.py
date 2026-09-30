@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 
@@ -15,9 +14,8 @@ def _trim_state(messages: list, logical_turn_id: str) -> dict:
     }
 
 
-def _reload_skill_command_modules(tmp_path: Path):
-    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
-    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
+def _reload_skill_command_modules(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     modules = [
         "row_bot.skills",
         "row_bot.skills_activation",
@@ -66,7 +64,7 @@ def _write_skill(
     (skill_dir / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def test_registry_aliases_generated_skills_and_hidden_entries(tmp_path):
+def test_registry_aliases_generated_skills_and_hidden_entries(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "meeting_notes",
@@ -85,7 +83,7 @@ def test_registry_aliases_generated_skills_and_hidden_entries(tmp_path):
         display_name="Browser Guide Like",
         tools=["browser"],
     )
-    skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path)
+    skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     specs = slash_commands.get_command_specs()
@@ -127,14 +125,14 @@ def test_registry_aliases_generated_skills_and_hidden_entries(tmp_path):
     assert "`/settings`" not in help_text
 
 
-def test_builtin_commands_win_skill_collisions(tmp_path):
+def test_builtin_commands_win_skill_collisions(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "status",
         display_name="Status",
         description="A colliding skill",
     )
-    skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path)
+    skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     resolved = slash_commands.resolve_command_token("/status")
@@ -143,8 +141,8 @@ def test_builtin_commands_win_skill_collisions(tmp_path):
     assert not any(spec.id == "skill:status" for spec in slash_commands.get_command_specs())
 
 
-def test_reasoning_is_a_builtin_chat_command_without_aliases(tmp_path):
-    _skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path)
+def test_reasoning_is_a_builtin_chat_command_without_aliases(tmp_path, monkeypatch):
+    _skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
 
     spec = slash_commands.resolve_command_token("/reasoning", include_skills=False)
 
@@ -155,14 +153,14 @@ def test_reasoning_is_a_builtin_chat_command_without_aliases(tmp_path):
     assert "`/reasoning`" in slash_commands.help_text(include_skills=False)
 
 
-def test_direct_skill_activation_and_reset_dispatch(tmp_path):
+def test_direct_skill_activation_and_reset_dispatch(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "deep_research",
         display_name="Deep Research",
         description="Research and summarize sources",
     )
-    skills, activation, slash_commands = _reload_skill_command_modules(tmp_path)
+    skills, activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     response = slash_commands.dispatch_text_command("thread-a", "/deep-research")
@@ -174,8 +172,8 @@ def test_direct_skill_activation_and_reset_dispatch(tmp_path):
     assert activation.resolve_active_skill_names("thread-a") == skills.get_default_active_skill_names("chat")
 
 
-def test_slash_token_replacement_preserves_draft_text(tmp_path):
-    _skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path)
+def test_slash_token_replacement_preserves_draft_text(tmp_path, monkeypatch):
+    _skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
 
     text = "Please /meeting-notes summarize this"
     cursor = text.index(" summarize")
@@ -192,7 +190,7 @@ def test_slash_token_replacement_preserves_draft_text(tmp_path):
     assert cursor_after == len(replaced)
 
 
-def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_path):
+def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "alpha_skill",
@@ -207,7 +205,7 @@ def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_pat
         description="Tool guide",
         tools=["browser"],
     )
-    skills, activation, slash_commands = _reload_skill_command_modules(tmp_path)
+    skills, activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     command_names = {spec.skill_name for spec in slash_commands.get_command_specs() if spec.skill_name}

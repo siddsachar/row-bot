@@ -3,16 +3,16 @@ import json
 import threading
 import time
 import tomllib
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
 
-def _case_dir():
-    path = Path(".tmp") / "pytest-embedding-provider-config" / f"case-{uuid.uuid4().hex}"
-    path.mkdir(parents=True, exist_ok=True)
+@pytest.fixture
+def case_dir(tmp_path):
+    path = tmp_path / "case"
+    path.mkdir()
     return path
 
 
@@ -40,8 +40,8 @@ def _dependency_names(entries):
     }
 
 
-def test_embedding_config_defaults_and_index_metadata(monkeypatch):
-    data_dir = _case_dir()
+def test_embedding_config_defaults_and_index_metadata(monkeypatch, case_dir):
+    data_dir = case_dir
     embedding_config = _reload_embedding_config(monkeypatch, data_dir)
 
     cfg = embedding_config.get_embedding_config()
@@ -73,8 +73,8 @@ def test_embedding_config_defaults_and_index_metadata(monkeypatch):
     assert not embedding_config.index_metadata_matches(vector_dir)
 
 
-def test_embedding_config_recovers_from_invalid_values(monkeypatch):
-    data_dir = _case_dir()
+def test_embedding_config_recovers_from_invalid_values(monkeypatch, case_dir):
+    data_dir = case_dir
     embedding_config = _reload_embedding_config(monkeypatch, data_dir)
     embedding_config.CONFIG_PATH.write_text(
         json.dumps(
@@ -609,10 +609,10 @@ def test_download_reuses_cached_snapshot_without_network(monkeypatch, tmp_path):
     assert calls == []
 
 
-def test_markdown_loader_uses_builtin_encoding_fallback():
+def test_markdown_loader_uses_builtin_encoding_fallback(case_dir):
     import row_bot.documents as documents
 
-    path = _case_dir() / "notes.md"
+    path = case_dir / "notes.md"
     path.write_bytes("# Cafe notes\n\nSmart quote: \x93hello\x94".encode("latin-1"))
 
     loader = documents.DocumentLoader.supported_file_types[".md"](str(path))

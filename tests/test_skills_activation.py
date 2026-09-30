@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -18,9 +17,8 @@ def _trim_state(messages: list, logical_turn_id: str) -> dict:
     }
 
 
-def _reload_skill_modules(tmp_path: Path):
-    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
-    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
+def _reload_skill_modules(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     for name in ("row_bot.skills", "row_bot.skills_activation", "row_bot.prompts", "row_bot.agent"):
         if name in sys.modules:
             importlib.reload(sys.modules[name])
@@ -75,8 +73,8 @@ def _disable_bundled_manual_skills(skills) -> None:
             skills.set_enabled(skill.name, False)
 
 
-def test_parse_skill_commands(tmp_path):
-    _skills, activation = _reload_skill_modules(tmp_path)
+def test_parse_skill_commands(tmp_path, monkeypatch):
+    _skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
 
     assert activation.parse_skill_command("/skills").action == "list"
     assert activation.parse_skill_command("/skill off").action == "off"
@@ -103,9 +101,9 @@ def test_bundled_self_reflection_uses_mirror_emoji():
     assert skill.icon == "🪞"
 
 
-def test_thread_scoped_state_off_and_reset(tmp_path):
+def test_thread_scoped_state_off_and_reset(tmp_path, monkeypatch):
     _write_skill(tmp_path, "research_brief", description="Research and summarize sources", tags=["research"])
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     assert "research_brief" in activation.apply_skill_command("thread-a", "/skill research_brief")
@@ -127,7 +125,7 @@ def test_thread_scoped_state_off_and_reset(tmp_path):
     assert activation.get_activation_snapshot("thread-a").smart_off is False
 
 
-def test_deterministic_suggestions_and_tool_guide_separation(tmp_path):
+def test_deterministic_suggestions_and_tool_guide_separation(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "meeting_notes",
@@ -140,7 +138,7 @@ def test_deterministic_suggestions_and_tool_guide_separation(tmp_path):
         description="Weather tool guide should not be suggested as a manual skill",
         tools=["weather"],
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     suggestions = activation.suggest_skills(
@@ -159,7 +157,7 @@ def test_deterministic_suggestions_and_tool_guide_separation(tmp_path):
     assert "meeting_notes" not in names_after_dismiss
 
 
-def test_suggestions_do_not_use_enabled_tool_metadata(tmp_path):
+def test_suggestions_do_not_use_enabled_tool_metadata(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "browser_advice",
@@ -172,7 +170,7 @@ def test_suggestions_do_not_use_enabled_tool_metadata(tmp_path):
         description="Research websites and summarize findings",
         tags=["research", "web"],
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     suggestions = activation.suggest_skills(
@@ -186,7 +184,7 @@ def test_suggestions_do_not_use_enabled_tool_metadata(tmp_path):
     assert all("enabled tools match" not in item.reason for item in suggestions)
 
 
-def test_suggestions_ignore_common_stopwords(tmp_path):
+def test_suggestions_ignore_common_stopwords(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "research_brief",
@@ -199,7 +197,7 @@ def test_suggestions_ignore_common_stopwords(tmp_path):
         description="Meeting decisions and action items",
         tags=["meeting", "notes"],
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     assert activation.suggest_skills("thread-a", "and the this with for") == []
@@ -213,7 +211,7 @@ def test_suggestions_ignore_common_stopwords(tmp_path):
     assert names and names[0] == "meeting_notes"
 
 
-def test_suggestions_use_instruction_headings_and_body_for_sparse_skills(tmp_path):
+def test_suggestions_use_instruction_headings_and_body_for_sparse_skills(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "office_docx",
@@ -232,7 +230,7 @@ def test_suggestions_use_instruction_headings_and_body_for_sparse_skills(tmp_pat
         description="Generic writing helper",
         instructions="Write concise prose for ordinary messages.",
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     suggestions = activation.suggest_skills(
@@ -245,7 +243,7 @@ def test_suggestions_use_instruction_headings_and_body_for_sparse_skills(tmp_pat
     assert "general_writer" not in {item.name for item in suggestions}
 
 
-def test_sparse_imported_style_skill_matches_without_activation_metadata(tmp_path):
+def test_sparse_imported_style_skill_matches_without_activation_metadata(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "crontab_generate",
@@ -257,7 +255,7 @@ def test_sparse_imported_style_skill_matches_without_activation_metadata(tmp_pat
             "Create cron schedules and validate crontab expressions for recurring jobs."
         ),
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     suggestions = activation.suggest_skills(
@@ -269,7 +267,7 @@ def test_sparse_imported_style_skill_matches_without_activation_metadata(tmp_pat
     assert suggestions[0].name == "crontab_generate"
 
 
-def test_shared_instruction_terms_do_not_create_broad_suggestions(tmp_path):
+def test_shared_instruction_terms_do_not_create_broad_suggestions(tmp_path, monkeypatch):
     for name in ("general_helper", "productivity_helper", "writing_helper"):
         _write_skill(
             tmp_path,
@@ -280,14 +278,14 @@ def test_shared_instruction_terms_do_not_create_broad_suggestions(tmp_path):
                 "Help create, review, improve, and organize content for routine work."
             ),
         )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
     _disable_bundled_manual_skills(skills)
 
     assert activation.suggest_skills("thread-a", "help me review and improve this content") == []
 
 
-def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
+def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "meeting_notes",
@@ -303,7 +301,7 @@ def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
         description="Research sources and produce a brief",
         tags=["research"],
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     choices = activation.list_skill_choices("thread-a", query="owners and deadlines")
@@ -312,7 +310,7 @@ def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
     assert choices[0].name == "meeting_notes"
 
 
-def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
+def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "meeting_notes",
@@ -325,7 +323,7 @@ def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
             "examples": ["Summarize these meeting notes and extract action items"],
         },
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
     _disable_bundled_manual_skills(skills)
 
@@ -361,7 +359,7 @@ def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
     assert "Summarize these meeting notes and extract action items" not in active_prompt
 
 
-def test_live_draft_suggestions_can_skip_trace_writes(tmp_path):
+def test_live_draft_suggestions_can_skip_trace_writes(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "meeting_notes",
@@ -371,7 +369,7 @@ def test_live_draft_suggestions_can_skip_trace_writes(tmp_path):
             "keywords": ["action items"],
         },
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     suggestions = activation.suggest_skills(
@@ -391,8 +389,8 @@ def test_live_draft_suggestions_can_skip_trace_writes(tmp_path):
     assert traces[0]["event"] == "suggest"
 
 
-def test_bundled_real_world_suggestion_matrix(tmp_path):
-    skills, activation = _reload_skill_modules(tmp_path)
+def test_bundled_real_world_suggestion_matrix(tmp_path, monkeypatch):
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     enabled_names = [
@@ -446,7 +444,7 @@ def test_bundled_real_world_suggestion_matrix(tmp_path):
         assert activation.suggest_skills(f"generic-{index}", prompt) == []
 
 
-def test_library_off_skills_are_not_selectable_or_suggested(tmp_path):
+def test_library_off_skills_are_not_selectable_or_suggested(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "meeting_notes",
@@ -454,7 +452,7 @@ def test_library_off_skills_are_not_selectable_or_suggested(tmp_path):
         tags=["meeting", "notes"],
         enabled_by_default=False,
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     response = activation.apply_skill_command("thread-a", "/skill meeting_notes")
@@ -468,7 +466,7 @@ def test_library_off_skills_are_not_selectable_or_suggested(tmp_path):
     assert activation.resolve_active_skill_names("thread-a") == ["meeting_notes"]
 
 
-def test_channel_skill_choices_are_deterministic_and_exclude_guides(tmp_path):
+def test_channel_skill_choices_are_deterministic_and_exclude_guides(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
         "research_brief",
@@ -493,7 +491,7 @@ def test_channel_skill_choices_are_deterministic_and_exclude_guides(tmp_path):
         description="Disabled library skill",
         enabled_by_default=False,
     )
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     choices = activation.list_skill_choices("thread-a")
@@ -523,10 +521,10 @@ def test_channel_skill_choices_are_deterministic_and_exclude_guides(tmp_path):
     assert activation.resolve_active_skill_names("thread-a") == []
 
 
-def test_channel_skill_list_filters_and_reset_aliases(tmp_path):
+def test_channel_skill_list_filters_and_reset_aliases(tmp_path, monkeypatch):
     _write_skill(tmp_path, "meeting_notes", description="Summarize meetings")
     _write_skill(tmp_path, "deep_research", description="Research reports")
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     result = activation.apply_channel_skill_command("thread-a", "/skills meeting")
@@ -545,9 +543,9 @@ def test_channel_skill_list_filters_and_reset_aliases(tmp_path):
         assert activation.resolve_active_skill_names("thread-a") == skills.get_default_active_skill_names("chat")
 
 
-def test_background_resolution_is_explicit_only(tmp_path):
+def test_background_resolution_is_explicit_only(tmp_path, monkeypatch):
     _write_skill(tmp_path, "research_brief", description="Research sources", tags=["research"])
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     activation.pin_skill("thread-a", "research_brief")
@@ -559,8 +557,8 @@ def test_background_resolution_is_explicit_only(tmp_path):
     ) == ["research_brief"]
 
 
-def test_manual_skill_crud_strips_tools_metadata(tmp_path):
-    skills, _activation = _reload_skill_modules(tmp_path)
+def test_manual_skill_crud_strips_tools_metadata(tmp_path, monkeypatch):
+    skills, _activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     created = skills.create_skill(
@@ -582,8 +580,8 @@ def test_manual_skill_crud_strips_tools_metadata(tmp_path):
     assert "tools:" not in (updated.path / "SKILL.md").read_text(encoding="utf-8")
 
 
-def test_tool_guide_prompt_injection_stays_tool_bound(tmp_path):
-    skills, _activation = _reload_skill_modules(tmp_path)
+def test_tool_guide_prompt_injection_stays_tool_bound(tmp_path, monkeypatch):
+    skills, _activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     no_guides = skills.get_skills_prompt([], active_tool_names=[])
@@ -620,8 +618,8 @@ def test_tool_guide_prompt_injection_stays_tool_bound(tmp_path):
     assert "## Skills" in manual_with_guide
 
 
-def test_bundled_manual_skills_default_enabled_without_tool_guides(tmp_path):
-    skills, _activation = _reload_skill_modules(tmp_path)
+def test_bundled_manual_skills_default_enabled_without_tool_guides(tmp_path, monkeypatch):
+    skills, _activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     assert skills.is_enabled("meeting_notes") is True
@@ -637,8 +635,8 @@ def test_bundled_manual_skills_default_enabled_without_tool_guides(tmp_path):
     assert "computer_use_guide" not in skills.get_pinned_skill_names()
 
 
-def test_computer_guide_is_not_manual_selectable_pinnable_or_suggested(tmp_path):
-    skills, activation = _reload_skill_modules(tmp_path)
+def test_computer_guide_is_not_manual_selectable_pinnable_or_suggested(tmp_path, monkeypatch):
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     response = activation.apply_skill_command(
@@ -657,8 +655,8 @@ def test_computer_guide_is_not_manual_selectable_pinnable_or_suggested(tmp_path)
         skills.set_pinned("computer_use_guide", True)
 
 
-def test_bundled_manual_default_migration_is_one_time(tmp_path):
-    skills, _activation = _reload_skill_modules(tmp_path)
+def test_bundled_manual_default_migration_is_one_time(tmp_path, monkeypatch):
+    skills, _activation = _reload_skill_modules(tmp_path, monkeypatch)
     config_path = tmp_path / "skills_config.json"
     config_path.write_text(
         json.dumps({"skills": {"meeting_notes": False}}),
@@ -672,17 +670,17 @@ def test_bundled_manual_default_migration_is_one_time(tmp_path):
     assert saved[skills.BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY] is True
 
     skills.set_enabled("meeting_notes", False)
-    skills, _activation = _reload_skill_modules(tmp_path)
+    skills, _activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     assert skills.is_enabled("meeting_notes") is False
 
 
 @pytest.mark.slow
-def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):
+def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path, monkeypatch):
     _write_skill(tmp_path, "alpha_skill", description="Alpha planning workflow", tags=["alpha"])
     _write_skill(tmp_path, "beta_skill", description="Beta review workflow", tags=["beta"])
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     import row_bot.agent as agent
@@ -726,9 +724,9 @@ def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):
     assert "Instructions for beta_skill." in beta_only_prompt
 
 
-def test_channel_dispatch_applies_skill_to_thread(tmp_path):
+def test_channel_dispatch_applies_skill_to_thread(tmp_path, monkeypatch):
     _write_skill(tmp_path, "research_brief", description="Research sources", tags=["research"])
-    skills, activation = _reload_skill_modules(tmp_path)
+    skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     from row_bot.channels import commands
@@ -739,7 +737,7 @@ def test_channel_dispatch_applies_skill_to_thread(tmp_path):
 
 
 def test_smart_off_retains_implicit_skill_but_disables_future_discovery(tmp_path, monkeypatch):
-    _skills, activation = _reload_skill_modules(tmp_path)
+    _skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     import row_bot.agent as agent
     import row_bot.skill_discovery as discovery
 
@@ -768,7 +766,7 @@ def test_smart_off_retains_implicit_skill_but_disables_future_discovery(tmp_path
 
 
 def test_noskill_removes_task_local_plugin_skill(tmp_path, monkeypatch):
-    _skills, activation = _reload_skill_modules(tmp_path)
+    _skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     import row_bot.skill_discovery as discovery
 
     record = discovery.SkillRecord(
@@ -799,7 +797,7 @@ def test_noskill_removes_task_local_plugin_skill(tmp_path, monkeypatch):
 
 
 def test_deleting_thread_removes_implicit_activation_state(tmp_path, monkeypatch):
-    _skills, activation = _reload_skill_modules(tmp_path)
+    _skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     import row_bot.threads as threads
 
     threads = importlib.reload(threads)

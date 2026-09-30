@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import importlib
-import uuid
-from pathlib import Path
+
+import pytest
 
 
-def _case_dir() -> Path:
-    path = Path(".tmp") / "pytest-onboarding-overhaul" / f"case-{uuid.uuid4().hex}"
-    path.mkdir(parents=True, exist_ok=True)
+@pytest.fixture
+def case_dir(tmp_path):
+    path = tmp_path / "case"
+    path.mkdir()
     return path
 
 
-def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(monkeypatch):
-    data_dir = _case_dir()
+def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(monkeypatch, case_dir):
+    data_dir = case_dir
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     import row_bot.tasks as tasks
 
@@ -61,8 +62,8 @@ def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(mon
     assert any(t.get("steps") for t in seeded)
 
 
-def test_existing_users_are_not_reseeded_automatically(monkeypatch):
-    data_dir = _case_dir()
+def test_existing_users_are_not_reseeded_automatically(monkeypatch, case_dir):
+    data_dir = case_dir
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     import row_bot.tasks as tasks
 
