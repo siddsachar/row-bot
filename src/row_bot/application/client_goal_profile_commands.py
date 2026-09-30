@@ -34,6 +34,7 @@ _CONTEXT_MODES = frozenset({"auto", "focused", "recent", "full", "empty", "resum
 _WORKSPACE_MODES = frozenset({"auto", "read_only", "single_writer", "worktree"})
 _APPROVAL_MODES = frozenset({"inherit", "block", "approve", "allow_all"})
 _MAX_ROWS = 500
+_MAX_GOAL_MINUTES = 60 * 24 * 7
 
 
 class GoalProfileCommandError(ValueError):
@@ -158,6 +159,10 @@ def _goal_public(goal: Mapping[str, Any], conversation_id: str) -> dict[str, Any
         "max_turns": max(0, int(goal.get("max_turns") or 0)),
         "token_budget": max(0, int(goal.get("token_budget") or 0)),
         "tokens_used": max(0, int(goal.get("tokens_used") or 0)),
+        # Time running and the optional time limit (B244).
+        "started_at": str(goal.get("created_at") or "")[:64],
+        "window_started_at": str(goal.get("window_started_at") or goal.get("created_at") or "")[:64],
+        "max_minutes": min(_MAX_GOAL_MINUTES, max(0, int(goal.get("max_minutes") or 0))),
         "last_progress": _public_text(goal.get("last_progress"), 2048),
         "last_reason": _public_text(goal.get("last_reason"), 2048),
         "evidence": [
@@ -281,6 +286,8 @@ def read_goals(
         "next_cursor": (
             f"{revision}:{offset + limit}" if offset + limit < len(items) else None
         ),
+        # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
+        "default_max_turns": min(1000, goal_owner.default_goal_max_turns()),
     }
 
 
@@ -373,7 +380,8 @@ def _goal_review(
     goal_owner: Any,
 ) -> dict[str, Any]:
     validate()
-    if not isinstance(payload, dict) or set(payload) != {
+    # ``max_minutes`` (an optional time limit, B244) may be left out.
+    if not isinstance(payload, dict) or set(payload) - {"max_minutes"} != {
         "conversation_id",
         "goal_id",
         "revision",
@@ -394,12 +402,18 @@ def _goal_review(
         raise GoalProfileCommandError("goal_revision_conflict", current_revision)
     objective: str | None = None
     max_turns: int | None = None
+    max_minutes = payload.get("max_minutes")
     reason: str | None = None
     if operation == "start":
         objective = _text(payload["objective"], 4096, required=True)
-        if (
+        # No count means no turn limit (B243), no minutes no time limit (B244).
+        if payload["max_turns"] is not None and (
             type(payload["max_turns"]) is not int
             or not 1 <= payload["max_turns"] <= 1000
+        ):
+            raise GoalProfileCommandError("invalid_fields")
+        if max_minutes is not None and (
+            type(max_minutes) is not int or not 1 <= max_minutes <= _MAX_GOAL_MINUTES
         ):
             raise GoalProfileCommandError("invalid_fields")
         max_turns = payload["max_turns"]
@@ -410,6 +424,7 @@ def _goal_review(
             not current
             or payload["objective"] is not None
             or payload["max_turns"] is not None
+            or max_minutes is not None
         ):
             raise GoalProfileCommandError("invalid_command")
         reason = _text(payload["reason"] or "", 1024)
@@ -428,6 +443,7 @@ def _goal_review(
         "operation": operation,
         "objective": objective,
         "max_turns": max_turns,
+        "max_minutes": max_minutes,
         "reason": reason,
     }
     validate()
@@ -664,14 +680,17 @@ def _execute_goal(
         return goal_owner.start_goal(
             conversation_id,
             review["objective"],
-            max_turns=review["max_turns"],
+            max_turns=review["max_turns"] or 0,
+            max_minutes=review["max_minutes"] or 0,
             replace=True,
         )
     goal_id = review["goal_id"]
     revision = int(review["revision"])
     if operation == "resume" and (current := goal_owner.get_goal(goal_id)):
-        if int(current.get("turns_used") or 0) >= int(current.get("max_turns") or 0):
+        if goal_owner.turn_limit_reached(current):
             goal_owner.extend_goal_budget(goal_id)
+        if goal_owner.time_limit_reached(current):
+            goal_owner.restart_time_window(goal_id)
     status, verdict, default_reason, finish = {
         "pause": ("paused", "paused", "Paused by user.", ""),
         "resume": ("active", "continue", "Goal resumed.", ""),

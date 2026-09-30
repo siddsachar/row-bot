@@ -60,7 +60,7 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "child_timeout_seconds": 0,
     "default_context_mode": "focused",
     "default_workspace_mode": "single_writer",
-    "goal_max_turns": 20,
+    "goal_max_turns": 0,
 }
 
 _CREATE_TABLE_SQL: dict[str, str] = {
@@ -159,7 +159,7 @@ _CREATE_TABLE_SQL: dict[str, str] = {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             turns_used INTEGER DEFAULT 0,
-            max_turns INTEGER DEFAULT 20,
+            max_turns INTEGER DEFAULT 0,
             token_budget INTEGER DEFAULT 0,
             tokens_used INTEGER DEFAULT 0,
             last_verdict TEXT DEFAULT '',
@@ -173,7 +173,13 @@ _CREATE_TABLE_SQL: dict[str, str] = {
             verifier_failures INTEGER DEFAULT 0,
             active_run_id TEXT DEFAULT '',
             last_turn_id TEXT DEFAULT '',
-            continuation_key TEXT DEFAULT ''
+            continuation_key TEXT DEFAULT '',
+            no_progress_count INTEGER DEFAULT 0,
+            failing_step TEXT DEFAULT '',
+            failing_step_count INTEGER DEFAULT 0,
+            max_minutes INTEGER DEFAULT 0,
+            window_started_at TEXT DEFAULT '',
+            tokens_counted_through TEXT DEFAULT ''
         )
     """,
     "agent_orchestrations": """
@@ -325,7 +331,7 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         "created_at": "TEXT NOT NULL",
         "updated_at": "TEXT NOT NULL",
         "turns_used": "INTEGER DEFAULT 0",
-        "max_turns": "INTEGER DEFAULT 20",
+        "max_turns": "INTEGER DEFAULT 0",
         "token_budget": "INTEGER DEFAULT 0",
         "tokens_used": "INTEGER DEFAULT 0",
         "last_verdict": "TEXT DEFAULT ''",
@@ -340,6 +346,16 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         "active_run_id": "TEXT DEFAULT ''",
         "last_turn_id": "TEXT DEFAULT ''",
         "continuation_key": "TEXT DEFAULT ''",
+        # Stall detection (B244): turns in a row without progress, and the
+        # step that keeps failing with how often it failed in a row.
+        "no_progress_count": "INTEGER DEFAULT 0",
+        "failing_step": "TEXT DEFAULT ''",
+        "failing_step_count": "INTEGER DEFAULT 0",
+        # Optional time limit (minutes, 0 = none) and when its window began.
+        "max_minutes": "INTEGER DEFAULT 0",
+        "window_started_at": "TEXT DEFAULT ''",
+        # The last assistant message whose tokens were added to tokens_used.
+        "tokens_counted_through": "TEXT DEFAULT ''",
     },
     "agent_orchestrations": {
         "id": "TEXT PRIMARY KEY",

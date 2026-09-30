@@ -89,3 +89,18 @@ def test_reset_persists_defaults(tmp_path, monkeypatch) -> None:
     assert json.loads(agent_runtime_settings_path().read_text(encoding="utf-8"))[
         "max_iterations"
     ] == 90
+
+
+def test_goal_turn_limit_defaults_to_none_and_older_files_keep_their_values(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    assert load_agent_runtime_settings().goal_max_turns == 0
+    older = {**AgentRuntimeSettings(max_iterations=120).to_dict()}
+    older.pop("goal_max_turns")
+    agent_runtime_settings_path().write_text(json.dumps(older), encoding="utf-8")
+
+    loaded = load_agent_runtime_settings()
+
+    assert (loaded.max_iterations, loaded.goal_max_turns) == (120, 0)
+    saved = save_agent_runtime_settings(loaded.to_dict() | {"goal_max_turns": 30})
+    assert load_agent_runtime_settings() == saved
+    assert saved.goal_max_turns == 30

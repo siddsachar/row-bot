@@ -263,6 +263,20 @@ def test_friendly_api_error_does_not_call_generic_400_tool_error(monkeypatch):
     assert "API error" in message
 
 
+def test_friendly_rate_limit_error_keeps_the_providers_wait():
+    """B244: a goal waits for the reset only if the message still says when."""
+    import row_bot.agent as agent
+
+    timed = agent._friendly_api_error(
+        "Error code: 429 - {'error': {'message': 'Rate limit reached for tokens per min. "
+        "Please try again in 1m26.4s. Visit the dashboard.'}}"
+    )
+    untimed = agent._friendly_api_error("Error code: 429 - rate_limit_error: too many tokens per minute")
+
+    assert timed.endswith("The provider says: try again in 1m26.4s.")
+    assert untimed == "⚠️ Rate limit reached — please wait a moment and try again."
+
+
 def test_stream_agent_auto_routes_visible_chat_only_without_graph(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent

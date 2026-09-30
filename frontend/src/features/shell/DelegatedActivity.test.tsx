@@ -608,3 +608,83 @@ it('keeps "Message sent" in a child thread while Agents re-reads (B163)', async 
     screen.getByText('Message sent. The agent reads it at its next step.'),
   ).toBeVisible();
 });
+
+it('offers Resume and Dismiss for interrupted agent work (B220)', async () => {
+  const resumeWork = vi.fn().mockResolvedValue(undefined);
+  const dismissWork = vi
+    .fn()
+    .mockRejectedValueOnce({ code: 'revision_conflict' })
+    .mockResolvedValue(undefined);
+  const loadPage = vi.fn(async () => ({
+    ...page,
+    items: [{ ...run, status: 'interrupted' }],
+  }));
+  const view = (resumable: boolean) => (
+    <OverlayProvider>
+      <DelegatedActivity
+        compact
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={loadPage}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+        interrupted={{ resumable }}
+        resumeWork={resumeWork}
+        dismissWork={dismissWork}
+      />
+    </OverlayProvider>
+  );
+  const { rerender } = render(view(true));
+  const work = await screen.findByRole('group', {
+    name: 'Interrupted agent work',
+  });
+  await act(async () => {
+    fireEvent.click(
+      within(work).getByRole('button', { name: 'Resume agent work' }),
+    );
+  });
+  expect(resumeWork).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(loadPage).toHaveBeenCalledTimes(2));
+
+  // Nothing left to run: Dismiss only; a failure says why and stays.
+  rerender(view(false));
+  expect(
+    within(work).queryByRole('button', { name: 'Resume agent work' }),
+  ).not.toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(
+      within(work).getByRole('button', { name: 'Dismiss agent work' }),
+    );
+  });
+  expect(within(work).getByRole('alert')).not.toBeEmptyDOMElement();
+  await act(async () => {
+    fireEvent.click(
+      within(work).getByRole('button', { name: 'Dismiss agent work' }),
+    );
+  });
+  expect(dismissWork).toHaveBeenCalledTimes(2);
+  expect(within(work).queryByRole('alert')).not.toBeInTheDocument();
+  expect(resumeWork).toHaveBeenCalledTimes(1);
+});
+
+it('shows no interrupted-work controls when nothing waits on the person', async () => {
+  render(
+    <OverlayProvider>
+      <DelegatedActivity
+        compact
+        conversationId="parent-a"
+        refreshKey=""
+        loadPage={async () => page}
+        loadRun={async () => run}
+        openConversation={async () => {}}
+        interrupted={null}
+        resumeWork={vi.fn()}
+        dismissWork={vi.fn()}
+      />
+    </OverlayProvider>,
+  );
+  await screen.findByText('Research task');
+  expect(
+    screen.queryByRole('group', { name: 'Interrupted agent work' }),
+  ).not.toBeInTheDocument();
+});

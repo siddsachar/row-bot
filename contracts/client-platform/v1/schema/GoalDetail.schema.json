@@ -46,6 +46,12 @@
           "title": "Last Reason",
           "type": "string"
         },
+        "max_minutes": {
+          "maximum": 10080,
+          "minimum": 0,
+          "title": "Max Minutes",
+          "type": "integer"
+        },
         "max_turns": {
           "maximum": 1000,
           "minimum": 0,
@@ -65,6 +71,11 @@
         "scope": {
           "const": "conversation",
           "title": "Scope",
+          "type": "string"
+        },
+        "started_at": {
+          "maxLength": 64,
+          "title": "Started At",
           "type": "string"
         },
         "status": {
@@ -93,6 +104,11 @@
           "minimum": 0,
           "title": "Turns Used",
           "type": "integer"
+        },
+        "window_started_at": {
+          "maxLength": 64,
+          "title": "Window Started At",
+          "type": "string"
         }
       },
       "required": [
@@ -106,6 +122,9 @@
         "max_turns",
         "token_budget",
         "tokens_used",
+        "started_at",
+        "window_started_at",
+        "max_minutes",
         "last_progress",
         "last_reason",
         "evidence",

@@ -43,6 +43,7 @@ const goalPage: GoalPage = {
   items: [currentGoal],
   total: 1,
   next_cursor: null,
+  default_max_turns: 0,
 };
 const builtinProfile: ProfileSummary = {
   id: 'builtin:general',
@@ -208,6 +209,24 @@ it('validates and applies the exact goal draft once', async () => {
   expect(props.executeGoal).toHaveBeenCalledTimes(1);
   expect(props.executeGoal.mock.calls[0][0].payload.operation).toBe('start');
   expect(props.session.hasRetained()).toBe(false);
+});
+
+it('starts a goal with no turn limit unless one is typed (B243)', async () => {
+  const props = options();
+  render(<GoalProfileSettings {...props} />);
+  await screen.findByText('Complete the migration');
+  expect(screen.getByLabelText('Maximum turns')).toHaveValue(null);
+  expect(screen.getByText('Active · 4 of 24 turns')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Goal objective'), {
+    target: { value: 'Keep going overnight' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  await screen.findByText('Goal change completed.');
+  expect(props.reviewGoal.mock.calls[0][0]).toMatchObject({
+    operation: 'start',
+    objective: 'Keep going overnight',
+    max_turns: null,
+  });
 });
 
 it('retains an uncertain goal attempt across remount for explicit recovery', async () => {

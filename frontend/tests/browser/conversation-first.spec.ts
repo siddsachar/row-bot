@@ -136,11 +136,12 @@ test('slash commands run with their argument instead of reaching the model', asy
   await send(page, '/goal Two quick fixture steps');
   const goal = (await revealContext(page)).locator('.context-goal');
   await expect(goal.getByText('Done', { exact: true })).toBeVisible();
-  await expect(goal.getByText('Turn 2 of 10', { exact: true })).toBeVisible();
+  // No turn limit by default (B243).
+  await expect(goal.getByText('Turn 2', { exact: true })).toBeVisible();
   await screenshot(page, testInfo, 'goal-done');
   await dismissContext(page);
   await expect(
-    page.getByRole('note').filter({ hasText: /^Goal · turn \d of 10$/ }),
+    page.getByRole('note').filter({ hasText: /^Goal · turn \d$/ }),
   ).toHaveCount(2);
   await expect(composer(page)).toHaveValue('');
   expect(

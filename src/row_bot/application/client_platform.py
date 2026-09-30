@@ -868,13 +868,17 @@ class ClientPlatformService:
         if kind == "resource.rename":
             from row_bot.application.conversation_resource_commands import rename
             return rename(self, target, str(payload["binding_id"]), str(payload["name"]))
-        if kind in {"agent.stop", "agent.message", "agent.start"}:
+        if kind in {"agent.stop", "agent.message", "agent.start", "agent.resume", "agent.dismiss"}:
             from row_bot.application import delegated_activity
             if kind == "agent.stop":
                 delegated_activity.stop_run(self, target, str(payload["run_id"]))
             elif kind == "agent.message":
                 delegated_activity.message_run(self, target, str(payload["run_id"]), str(payload["text"]),
                                                str(payload["message_id"]))
+            elif kind == "agent.resume":
+                delegated_activity.resume_work(self, target)
+            elif kind == "agent.dismiss":
+                delegated_activity.dismiss_work(self, target)
             else:
                 delegated_activity.start_run(self, target, str(payload["text"]))
             return {"conversation_id": target, "revision": str(row["client_revision"]), "status": "completed"}
@@ -1178,6 +1182,7 @@ class ClientPlatformService:
             from row_bot.application.conversation_followups import after_platform_turn, live_goal
             status = "interrupted"
             final_text = ""
+            error_text = ""  # A provider limit here makes a goal wait (B244).
             # The goal this turn works on, even if the model finishes it mid-turn.
             started_goal = live_goal(conversation_id)
             _buddy(conversation_id, "generation.started", "Thinking")
@@ -1266,6 +1271,7 @@ class ClientPlatformService:
                             status = "waiting_approval"
                         elif event[0] == "error":
                             status = "interrupted"
+                            error_text = str(event[1] if len(event) > 1 else "")
             except InterruptedError:
                 status = "stopped"
             except Exception:
@@ -1283,7 +1289,8 @@ class ClientPlatformService:
                                  exc_info=True)
                 after_platform_turn(conversation_id, generation_id=generation_id, status=status,
                                     assistant_text=final_text, model_ref=model_ref,
-                                    goal_id=str((started_goal or {}).get("id") or ""))
+                                    goal_id=str((started_goal or {}).get("id") or ""),
+                                    error_text=error_text)
                 self.finish_execution(handle, status)
                 from row_bot.application.conversation_naming import after_turn
                 after_turn(self, conversation_id, status=status, reply=final_text, model_ref=model_ref)

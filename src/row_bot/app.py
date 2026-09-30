@@ -250,6 +250,17 @@ async def _repair_orchestration_recovery_batch(after_id: str = "") -> None:
         )
 
 
+async def _continue_goals_after_restart() -> None:
+    """Active goals go on from their last saved turn once Row-Bot is ready (B244)."""
+
+    from row_bot.application.client_platform import client_platform_service
+    from row_bot.application.conversation_followups import continue_goals_after_restart
+
+    continued = await asyncio.to_thread(continue_goals_after_restart, client_platform_service)
+    if continued:
+        logger.info("Continued %d goal(s) after the restart", continued)
+
+
 async def _auto_start_channel_background(channel) -> None:
     channel_name = str(getattr(channel, "name", "") or "")
     display_name = str(getattr(channel, "display_name", channel_name) or channel_name)
@@ -882,6 +893,10 @@ async def _run_startup_sequence():
     _schedule_background_task(
         _repair_orchestration_recovery_batch(),
         name="row-bot-orchestration-recovery",
+    )
+    _schedule_background_task(
+        _continue_goals_after_restart(),
+        name="row-bot-goal-continuation",
     )
     _schedule_agent_graph_prewarm()
     _schedule_local_embedding_prewarm()

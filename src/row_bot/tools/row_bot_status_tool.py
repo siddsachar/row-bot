@@ -1277,10 +1277,11 @@ def _query_agent_profiles() -> str:
 def _query_goals() -> str:
     try:
         from row_bot.goals import (
-            DEFAULT_GOAL_MAX_TURNS,
             GOAL_TERMINAL_STATUSES,
+            default_goal_max_turns,
             get_current_goal,
             list_goals,
+            turn_words,
         )
 
         sampled_goals = list_goals(limit=200)
@@ -1292,7 +1293,7 @@ def _query_goals() -> str:
             "**Goals**",
             f"- Current goals: {len(current_goals)} active/attention from {len(sampled_goals)} sampled",
             f"- By status: {_counts_by(sampled_goals, 'status')}",
-            f"- Default turn budget: {DEFAULT_GOAL_MAX_TURNS}",
+            f"- Default turn limit: {default_goal_max_turns() or 'none'}",
         ]
         thread_id = _active_runtime_thread_id()
         if thread_id:
@@ -1302,7 +1303,7 @@ def _query_goals() -> str:
                 lines.append(
                     "- Current thread: "
                     f"{current.get('status')} - {objective} "
-                    f"({current.get('turns_used', 0)}/{current.get('max_turns', DEFAULT_GOAL_MAX_TURNS)} turns)"
+                    f"(turns {turn_words(current)})"
                 )
             else:
                 lines.append("- Current thread: no visible goal")
@@ -1329,8 +1330,7 @@ def _query_goals() -> str:
                 verifier = f", verifier failures {goal.get('verifier_failures')}"
             suffix = f" - {progress}" if progress else ""
             lines.append(
-                f"- {objective} [{status}, turns {goal.get('turns_used', 0)}/"
-                f"{goal.get('max_turns', DEFAULT_GOAL_MAX_TURNS)}{verifier}]{suffix}"
+                f"- {objective} [{status}, turns {turn_words(goal)}{verifier}]{suffix}"
             )
         if len(current_goals) > 8:
             lines.append(f"- ... and {len(current_goals) - 8} more current goals")

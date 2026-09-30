@@ -156,7 +156,7 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
     assert "ship status coverage" in goal_status
     assert "paused" in goal_status
     assert "Seeded the status checks" in goal_status
-    assert "Default turn budget: 20" in goal_status
+    assert "Default turn limit: none" in goal_status
 
 
 def test_row_bot_status_reports_plugin_tools_and_stale_plugins(tmp_path, monkeypatch):
@@ -219,7 +219,7 @@ def test_row_bot_status_agents_goals_empty_state_and_overview(tmp_path, monkeypa
 
     goals = status_tool._row_bot_status("goals")
     assert "No Goal Mode records yet." in goals
-    assert "Default turn budget: 20" in goals
+    assert "Default turn limit: none" in goals
 
     overview = status_tool._row_bot_status("overview")
     assert "**Agents**" in overview

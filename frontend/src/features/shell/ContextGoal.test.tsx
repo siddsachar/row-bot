@@ -4,6 +4,7 @@ import type { GoalPage, GoalSummary } from '../../api/types';
 import ContextGoal, {
   goalState,
   goalTurn,
+  goalUsage,
   resetContextGoals,
   type ContextGoalIO,
 } from './ContextGoal';
@@ -21,6 +22,9 @@ const goal: GoalSummary = {
   max_turns: 10,
   token_budget: 0,
   tokens_used: 0,
+  started_at: '',
+  window_started_at: '',
+  max_minutes: 0,
   last_progress: 'Outlined three sections',
   last_reason: 'Two sections are still empty.',
   evidence: [],
@@ -28,7 +32,7 @@ const goal: GoalSummary = {
   active_profile_id: '',
 };
 
-function page(items: GoalSummary[] = [goal]): GoalPage {
+function page(items: GoalSummary[] = [goal], defaultTurns = 0): GoalPage {
   return {
     schema_version: 1,
     scope: 'conversation',
@@ -39,6 +43,7 @@ function page(items: GoalSummary[] = [goal]): GoalPage {
     items,
     total: items.length,
     next_cursor: null,
+    default_max_turns: defaultTurns,
   };
 }
 
@@ -103,6 +108,9 @@ it('says Working only while a turn runs, never while idle (B123)', () => {
   expect(goalTurn(goal, true)).toBe('Turn 4 of 10');
   expect(goalTurn(goal, false)).toBe('Turn 3 of 10');
   expect(goalTurn({ ...goal, turns_used: 10 }, true)).toBe('Turn 10 of 10');
+  // No limit: just the turn (B243).
+  expect(goalTurn({ ...goal, max_turns: 0 }, true)).toBe('Turn 4');
+  expect(goalTurn({ ...goal, max_turns: 0 }, false)).toBe('Turn 3');
 });
 
 it('shows nothing without a goal until one is being set', async () => {
@@ -182,14 +190,16 @@ it('never counts backwards while the goal is re-read after a turn', async () => 
   expect(screen.queryByText('Turn 3 of 10')).toBeNull();
 });
 
-it('starts a goal from a labelled field with a limit of 10 by default', async () => {
+it('starts a goal with no turn limit by default (B243)', async () => {
   const api = io(page([]));
   const done = vi.fn();
   show(api, { compose: true, onComposeDone: done });
   await waitFor(() => expect(api.load).toHaveBeenCalled());
   const start = screen.getByRole('button', { name: 'Start goal' });
   expect(start).toBeDisabled();
-  expect(screen.getByLabelText('Turn limit')).toHaveValue(10);
+  const limit = screen.getByLabelText('Turn limit');
+  expect(limit).toHaveValue(null);
+  expect(limit).toHaveAttribute('placeholder', 'No limit');
   fireEvent.change(
     screen.getByRole('textbox', {
       name: 'What should this conversation achieve?',
@@ -204,9 +214,37 @@ it('starts a goal from a labelled field with a limit of 10 by default', async ()
     expect.objectContaining({
       operation: 'start',
       objective: 'Ship the settings pass',
-      max_turns: 10,
+      max_turns: null,
     }),
   );
+});
+
+it('starts with the Agent runtime default, which can be changed or cleared', async () => {
+  const api = io(page([], 30));
+  show(api, { compose: true });
+  const limit = await screen.findByLabelText('Turn limit');
+  await waitFor(() => expect(limit).toHaveValue(30));
+  const objective = screen.getByRole('textbox', {
+    name: 'What should this conversation achieve?',
+  });
+  fireEvent.change(objective, { target: { value: 'Overnight research' } });
+  fireEvent.change(limit, { target: { value: '0' } });
+  expect(screen.getByRole('button', { name: 'Start goal' })).toBeDisabled();
+  fireEvent.change(limit, { target: { value: '' } });
+  api.push(page([{ ...goal, objective: 'Overnight research', max_turns: 0 }]));
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  await waitFor(() => expect(api.execute).toHaveBeenCalledOnce());
+  expect(api.review).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({ operation: 'start', max_turns: null }),
+  );
+});
+
+it('reads "Turn 7" without a limit and draws no progress bar', async () => {
+  const unlimited = { ...goal, turns_used: 7, max_turns: 0 };
+  show(io(page([unlimited])));
+  expect(await screen.findByText('Turn 7')).toBeVisible();
+  expect(screen.queryByRole('progressbar')).toBeNull();
 });
 
 it('keeps earlier goals in the thread after the current one ends', async () => {
@@ -221,4 +259,76 @@ it('keeps earlier goals in the thread after the current one ends', async () => {
   fireEvent.click(screen.getByText('Earlier goals'));
   expect(screen.getByText('Draft the launch checklist')).toBeVisible();
   expect(screen.getByText(/Done · 3 of 10 turns/)).toBeVisible();
+});
+
+it('lists an earlier goal without a limit by its turns alone', async () => {
+  const done = {
+    ...goal,
+    id: 'goal-0',
+    status: 'completed' as const,
+    max_turns: 0,
+  };
+  show(
+    io({ ...page([done]), current_goal_id: null, current_revision: 'none' }),
+  );
+  fireEvent.click(await screen.findByText('Earlier goals'));
+  expect(screen.getByText(/Done · 3 turns/)).toBeVisible();
+});
+
+it('shows the time running and the tokens used, with the time limit (B244)', async () => {
+  const now = new Date('2026-09-30T23:10:00');
+  const running = {
+    ...goal,
+    status: 'active' as const,
+    started_at: '2026-09-30T21:00:00',
+    window_started_at: '2026-09-30T21:00:00',
+    tokens_used: 12400,
+  };
+  expect(goalUsage(running, now)).toEqual(['2 h 10 min', '12.4k tokens']);
+  expect(goalUsage({ ...running, max_minutes: 480 }, now)).toEqual([
+    '2 h 10 min of 8 h',
+    '12.4k tokens',
+  ]);
+  // A paused goal is not running; its tokens still show.
+  expect(
+    goalUsage({ ...running, status: 'paused', tokens_used: 950 }, now),
+  ).toEqual(['950 tokens']);
+  render(
+    <ContextGoal
+      conversationId="conversation-a"
+      activity="a"
+      running={false}
+      ready
+      io={io(page([{ ...running, turns_used: 7, max_turns: 0 }]))}
+      compose={false}
+      onComposeDone={vi.fn()}
+      now={now}
+    />,
+  );
+  expect(
+    await screen.findByText('Turn 7 · 2 h 10 min · 12.4k tokens'),
+  ).toBeVisible();
+});
+
+it('starts a goal with an optional time limit in hours', async () => {
+  const api = io(page([]));
+  show(api, { compose: true });
+  const hours = await screen.findByLabelText('Time limit (hours)');
+  expect(hours).toHaveAttribute('placeholder', 'No limit');
+  fireEvent.change(
+    screen.getByRole('textbox', {
+      name: 'What should this conversation achieve?',
+    }),
+    { target: { value: 'Research overnight' } },
+  );
+  fireEvent.change(hours, { target: { value: '200' } });
+  expect(screen.getByRole('button', { name: 'Start goal' })).toBeDisabled();
+  fireEvent.change(hours, { target: { value: '8' } });
+  api.push(page([{ ...goal, objective: 'Research overnight' }]));
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  await waitFor(() => expect(api.execute).toHaveBeenCalledOnce());
+  expect(api.review).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({ max_turns: null, max_minutes: 480 }),
+  );
 });

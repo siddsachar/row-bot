@@ -1,9 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleStop, MessageSquare } from 'lucide-react';
-import type { DelegatedActivityView, DelegatedRun } from '../../api/types';
+import { CircleStop, MessageSquare, Play, X } from 'lucide-react';
+import type {
+  ConversationView,
+  DelegatedActivityView,
+  DelegatedRun,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, IconButton, Skeleton } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
+
+/**
+ * Agent work of a conversation that a restart or a failed step cut off and
+ * that now waits on the person (B220): Resume while something is left to
+ * run, Dismiss always.
+ */
+export function interruptedWork(
+  row: Pick<ConversationView, 'activity_state' | 'activity_phase'> | null,
+): { resumable: boolean } | null {
+  if (row?.activity_state !== 'attention') return null;
+  if (row.activity_phase === 'resume_required') return { resumable: true };
+  if (row.activity_phase === 'interrupted') return { resumable: false };
+  return null;
+}
 
 type Props = {
   conversationId: string;
@@ -19,6 +37,12 @@ type Props = {
   stopRun?: (runId: string) => Promise<void>;
   /** Send a delegated agent a message it reads at its next step. */
   messageRun?: (runId: string, text: string) => Promise<void>;
+  /** The conversation's interrupted agent work, if any (`interruptedWork`). */
+  interrupted?: { resumable: boolean } | null;
+  /** Run the interrupted work again (a model call). */
+  resumeWork?: () => Promise<void>;
+  /** Close the interrupted work without running it. */
+  dismissWork?: () => Promise<void>;
   compact?: boolean;
   /** Reports whether there is anything to show once a load settles. */
   onContentChange?: (hasContent: boolean) => void;
@@ -207,6 +231,63 @@ export function AgentControls({
         </p>
       )}
     </div>
+  );
+}
+
+/** "Agent work was interrupted" with Resume and Dismiss (B220). */
+export function InterruptedWorkControls({
+  resumable,
+  resumeWork,
+  dismissWork,
+  onChanged,
+}: {
+  resumable: boolean;
+  resumeWork?: () => Promise<void>;
+  dismissWork?: () => Promise<void>;
+  onChanged?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function act(work: () => Promise<void>) {
+    setBusy(true);
+    setError('');
+    try {
+      await work();
+      onChanged?.();
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      {resumable && resumeWork && (
+        <IconButton
+          size="sm"
+          label="Resume agent work"
+          disabled={busy}
+          onClick={() => void act(resumeWork)}
+        >
+          <Play size={14} aria-hidden />
+        </IconButton>
+      )}
+      {dismissWork && (
+        <IconButton
+          size="sm"
+          label="Dismiss agent work"
+          disabled={busy}
+          onClick={() => void act(dismissWork)}
+        >
+          <X size={14} aria-hidden />
+        </IconButton>
+      )}
+      {error && (
+        <p role="alert" className="agent-controls-status">
+          {error}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -432,6 +513,7 @@ export default function DelegatedActivity(props: Props) {
   const hasContent =
     error ||
     laterPage ||
+    Boolean(props.interrupted) ||
     Boolean(page?.parent_conversation_id) ||
     Boolean(page?.items.length);
   useEffect(() => {
@@ -451,6 +533,25 @@ export default function DelegatedActivity(props: Props) {
       className="activity delegated-activity"
       aria-busy={loading}
     >
+      {props.interrupted && (
+        <div
+          className="delegated-interrupted"
+          role="group"
+          aria-label="Interrupted agent work"
+        >
+          <span className="delegated-run-name">
+            {props.interrupted.resumable
+              ? 'Agent work was interrupted before it finished.'
+              : 'Agent work was interrupted. Nothing is left to resume.'}
+          </span>
+          <InterruptedWorkControls
+            resumable={props.interrupted.resumable}
+            resumeWork={props.resumeWork}
+            dismissWork={props.dismissWork}
+            onChanged={() => setAttempt((value) => value + 1)}
+          />
+        </div>
+      )}
       {page?.own_run && (
         // Inside a delegated agent's own thread: its status, Stop and Message.
         <div className="delegated-own-run" aria-label="This agent" role="group">

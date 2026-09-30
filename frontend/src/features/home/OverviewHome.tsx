@@ -25,6 +25,10 @@ import { IconButton, InlineEmpty, type Tone } from '../../ui/primitives';
 import { humanizeToken, parseTimestamp } from '../../ui/format';
 import { ConversationGlyph } from '../shell/ConversationGlyph';
 import {
+  InterruptedWorkControls,
+  interruptedWork,
+} from '../shell/DelegatedActivity';
+import {
   FAILED_RUN_STATUSES,
   WAITING_RUN_STATUSES,
   When,
@@ -49,6 +53,10 @@ export type OverviewHomeProps = {
   setupError?: string;
   /** Re-read one listed conversation (approvals and runs change live). */
   refreshConversation?: (id: string, signal: AbortSignal) => Promise<void>;
+  /** Run a conversation's interrupted agent work again (B220). */
+  onResumeAgentWork?: (row: ConversationView) => Promise<void>;
+  /** Close a conversation's interrupted agent work without running it. */
+  onDismissAgentWork?: (row: ConversationView) => Promise<void>;
   now?: Date;
   /** Re-read workflows when this changes (e.g. after reconnecting). */
   refreshKey?: string | number;
@@ -63,6 +71,8 @@ type Item = {
   time?: ReactNode;
   label: string;
   onOpen: () => void;
+  /** Icon actions beside the row (never inside its button). */
+  actions?: ReactNode;
 };
 
 function waitingApproval(row: ConversationView) {
@@ -89,7 +99,10 @@ function working(row: ConversationView) {
 
 function Row({ item }: { item: Item }) {
   return (
-    <li className="overview-row" data-tone={item.tone}>
+    <li
+      className={`overview-row${item.actions ? ' overview-row-with-actions' : ''}`}
+      data-tone={item.tone}
+    >
       <button
         type="button"
         className="overview-row-button"
@@ -106,6 +119,9 @@ function Row({ item }: { item: Item }) {
         {item.time && <span className="overview-row-time">{item.time}</span>}
         <ChevronRight className="overview-row-chevron" size={15} aria-hidden />
       </button>
+      {item.actions && (
+        <div className="overview-row-actions">{item.actions}</div>
+      )}
     </li>
   );
 }
@@ -149,6 +165,8 @@ export default function OverviewHome({
   onHideSetup,
   setupError = '',
   refreshConversation,
+  onResumeAgentWork,
+  onDismissAgentWork,
   now: suppliedNow,
   refreshKey,
 }: OverviewHomeProps) {
@@ -256,20 +274,44 @@ export default function OverviewHome({
         setupDone + setupSkipped < setup.steps.length));
 
   const needs: Item[] = [
-    ...view.approvals.map<Item>((row) => ({
-      key: `approval:${row.id}`,
-      icon: <ShieldAlert size={16} />,
-      tone: 'warning',
-      title: row.title || 'Untitled conversation',
-      meta:
-        row.activity_state === 'attention' &&
-        row.activity_phase !== 'waiting_approval'
-          ? 'Agent work needs your attention'
-          : 'Waiting for your approval',
-      time: <When value={row.updated_at} now={now} />,
-      label: `Review approval in ${row.title || 'Untitled conversation'}`,
-      onOpen: () => onOpenConversation(row.id),
-    })),
+    ...view.approvals.map<Item>((row) => {
+      const title = row.title || 'Untitled conversation';
+      const work = interruptedWork(row);
+      if (work)
+        return {
+          key: `approval:${row.id}`,
+          icon: <AlertTriangle size={16} />,
+          tone: 'warning',
+          title,
+          meta: 'Agent work was interrupted',
+          time: <When value={row.updated_at} now={now} />,
+          label: `Review agent work in ${title}`,
+          onOpen: () => onOpenConversation(row.id),
+          actions: (
+            <InterruptedWorkControls
+              resumable={work.resumable}
+              resumeWork={onResumeAgentWork && (() => onResumeAgentWork(row))}
+              dismissWork={
+                onDismissAgentWork && (() => onDismissAgentWork(row))
+              }
+            />
+          ),
+        };
+      return {
+        key: `approval:${row.id}`,
+        icon: <ShieldAlert size={16} />,
+        tone: 'warning',
+        title,
+        meta:
+          row.activity_state === 'attention' &&
+          row.activity_phase !== 'waiting_approval'
+            ? 'Agent work needs your attention'
+            : 'Waiting for your approval',
+        time: <When value={row.updated_at} now={now} />,
+        label: `Review approval in ${title}`,
+        onOpen: () => onOpenConversation(row.id),
+      };
+    }),
     ...view.waitingWorkflows.map<Item>((task) => ({
       key: `workflow-approval:${task.id}`,
       icon: <ShieldAlert size={16} />,

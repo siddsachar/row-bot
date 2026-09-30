@@ -1,11 +1,14 @@
 """Bounded public navigation over the retained agent-run owner."""
 from __future__ import annotations
 
+import logging
 from contextlib import closing
 from typing import Any
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.application.conversation_search import _cursor, _decode
+
+_LOG = logging.getLogger(__name__)
 
 
 def _available(service: Any, conversation_id: str) -> bool:
@@ -69,6 +72,29 @@ def stop_run(service: Any, conversation_id: str, run_id: str) -> dict:
         else:
             agent_runner.stop_agent_run(run_id)
     return _public(service, agent_runs.get_agent_run(run_id) or run)
+
+
+def resume_work(service: Any, conversation_id: str) -> None:
+    """Resume the conversation's interrupted agent work (a model call; B220)."""
+    from row_bot import agent_orchestrator
+    _require(service, conversation_id)
+    if service.registry.active(conversation_id):
+        raise ClientPlatformError("generation_active")
+    activity = agent_orchestrator.get_thread_orchestration_activity([conversation_id]).get(conversation_id) or {}
+    if activity.get("phase") != "resume_required":
+        raise ClientPlatformError("agent_work_not_resumable")
+    try:
+        agent_orchestrator.resume_orchestration(str(activity["orchestration_id"]))
+    except agent_orchestrator.OrchestrationError as exc:
+        _LOG.info("Agent work in %s did not resume: %s", conversation_id, exc)
+        raise ClientPlatformError("agent_resume_unavailable") from exc
+
+
+def dismiss_work(service: Any, conversation_id: str) -> None:
+    """Close the conversation's interrupted agent work without running it."""
+    from row_bot import agent_orchestrator
+    _require(service, conversation_id)
+    agent_orchestrator.dismiss_orchestrations(conversation_id)
 
 
 def message_run(service: Any, conversation_id: str, run_id: str, text: str, message_id: str) -> dict:

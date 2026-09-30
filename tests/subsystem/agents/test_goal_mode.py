@@ -367,3 +367,121 @@ def test_goal_continuation_is_posted_to_shared_parent_runner(tmp_path, monkeypat
     assert captured[0]["parent_thread_id"] == thread_id
     assert captured[0]["enabled_tool_names"] == ["agents", "goal"]
     assert captured[0]["event_payload"]["goal_id"] == goal["id"]
+
+
+def test_saved_goals_keep_their_turn_limits_after_the_upgrade(tmp_path, reload_for_data_dir):
+    """B243 changes the default, never a goal someone already started."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    modules = ("row_bot.tasks", "row_bot.agent_runs", "row_bot.goals")
+    _tasks, _runs, goals = reload_for_data_dir(data_dir, *modules)
+    saved = goals.start_goal("thread", "Saved with a count", max_turns=3)
+
+    def keep_going(_goal, _context):
+        return {"verdict": "continue", "reason": "More to do."}
+
+    for turn in range(2):
+        goals.after_turn(thread_id="thread", turn_id=f"turn-{turn}", verifier=keep_going)
+
+    # The next version starts with the same data folder.
+    _tasks, _runs, goals = reload_for_data_dir(data_dir, *modules)
+    assert goals.get_goal(saved["id"])["max_turns"] == 3
+    decision = goals.after_turn(thread_id="thread", turn_id="turn-2", verifier=keep_going)
+    assert (decision.status, decision.goal["turns_used"]) == ("paused", 3)
+    assert goals.start_goal("other", "Started after the upgrade")["max_turns"] == 0
+
+
+def _goal_modules(tmp_path, reload_for_data_dir):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _tasks, _runs, goals = reload_for_data_dir(
+        data_dir, "row_bot.tasks", "row_bot.agent_runs", "row_bot.goals"
+    )
+    return goals
+
+
+def _judge(goals, thread: str, turn: int, **verdict):
+    return goals.after_turn(
+        thread_id=thread, turn_id=f"turn-{turn}", verifier=lambda _goal, _context: verdict
+    )
+
+
+def test_two_turns_without_progress_pause_the_goal_with_the_reason(tmp_path, reload_for_data_dir):
+    """B244: pause when a goal stops making progress, not after N turns."""
+    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goal = goals.start_goal("thread", "Find the flaky test")
+
+    first = _judge(goals, "thread", 1, progress="no_progress", reason="Re-read the same log.")
+    assert first.should_continue
+    second = _judge(goals, "thread", 2, progress="no_progress", reason="Still reading the same log.")
+
+    assert not second.should_continue
+    paused = goals.get_goal(goal["id"])
+    assert paused["status"] == "paused"
+    assert paused["last_reason"] == "No progress in the last 2 turns: Still reading the same log."
+
+
+def test_progress_resets_the_no_progress_count_and_resume_starts_it_again(tmp_path, reload_for_data_dir):
+    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goal = goals.start_goal("thread", "Find the flaky test")
+
+    assert _judge(goals, "thread", 1, progress="no_progress", reason="Nothing new.").should_continue
+    assert _judge(goals, "thread", 2, progress="progress", reason="Found the seed.").should_continue
+    assert _judge(goals, "thread", 3, progress="no_progress", reason="Nothing new.").should_continue
+    assert not _judge(goals, "thread", 4, progress="no_progress", reason="Nothing new.").should_continue
+
+    goals.resume_goal("thread")
+    assert _judge(goals, "thread", 5, progress="no_progress", reason="Nothing new.").should_continue
+    assert goals.get_goal(goal["id"])["status"] == "active"
+
+
+def test_the_same_failing_step_three_times_pauses_the_goal(tmp_path, reload_for_data_dir):
+    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    goal = goals.start_goal("thread", "Get the build green")
+    failing = {"progress": "progress", "reason": "Tried another fix.", "failing_step": "Run the test suite"}
+
+    assert _judge(goals, "thread", 1, **failing).should_continue
+    assert _judge(goals, "thread", 2, **{**failing, "failing_step": "run the test  suite"}).should_continue
+    assert not _judge(goals, "thread", 3, **failing).should_continue
+
+    paused = goals.get_goal(goal["id"])
+    assert paused["status"] == "paused"
+    assert paused["last_reason"] == "The same step failed 3 times: Run the test suite"
+
+
+def test_the_verifier_judgement_done_or_blocked_ends_the_goal(tmp_path, reload_for_data_dir):
+    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    done = goals.start_goal("thread", "Write the summary")
+    _judge(goals, "thread", 1, progress="done", reason="The summary is written.")
+    assert goals.get_goal(done["id"])["status"] == "completed"
+    blocked = goals.start_goal("other", "Deploy")
+    _judge(goals, "other", 1, progress="blocked", reason="Needs the deploy key.")
+    assert (goals.get_goal(blocked["id"])["status"], goals.get_goal(blocked["id"])["last_reason"]) == (
+        "blocked", "Needs the deploy key.")
+
+
+def test_a_time_limit_pauses_the_goal_and_resume_gives_another_window(tmp_path, reload_for_data_dir, monkeypatch):
+    """B244: optional time limit ("up to 8 hours"), checked between turns."""
+    from datetime import datetime, timedelta
+
+    goals = _goal_modules(tmp_path, reload_for_data_dir)
+    start = datetime(2026, 9, 30, 22, 0)
+    clock = {"now": start}
+    monkeypatch.setattr(goals, "_now", lambda: clock["now"].isoformat())
+    goal = goals.start_goal("thread", "Research overnight", max_minutes=480)
+    keep_going = {"progress": "progress", "reason": "Found more."}
+
+    clock["now"] = start + timedelta(hours=7, minutes=59)
+    assert _judge(goals, "thread", 1, **keep_going).should_continue
+    clock["now"] = start + timedelta(hours=8, minutes=1)
+    assert not _judge(goals, "thread", 2, **keep_going).should_continue
+    paused = goals.get_goal(goal["id"])
+    assert (paused["status"], paused["last_reason"]) == (
+        "paused", "Reached its time limit of 8 hours. Resume to keep going.")
+
+    clock["now"] = start + timedelta(hours=9)
+    goals.resume_goal("thread")
+    clock["now"] = start + timedelta(hours=16, minutes=59)
+    assert _judge(goals, "thread", 3, **keep_going).should_continue
+    clock["now"] = start + timedelta(hours=17, minutes=1)
+    assert not _judge(goals, "thread", 4, **keep_going).should_continue

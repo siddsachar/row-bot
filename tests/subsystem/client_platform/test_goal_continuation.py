@@ -86,12 +86,109 @@ def test_start_goal_works_at_once_and_continues_to_its_limit(goal_setup):
     latest = goals.get_goal(goal["id"])
     assert latest["turns_used"] == 3
     assert latest["status"] == "paused"
-    assert latest["last_reason"].startswith("Turn budget reached")
+    assert latest["last_reason"] == "Reached its limit of 3 turns. Resume to keep going."
+    assert "Turn budget: 1/3" in fake.prompts[1], "a set limit is in the prompt"
     notes = [row for row in platform.snapshot(CONVERSATION)["rows"] if row.get("note") == "continuation"]
     assert [row["blocks"][0]["text"] for row in notes] == [
         "Goal · turn 1 of 3", "Goal · turn 2 of 3", "Goal · turn 3 of 3",
     ]
     assert all("Goal mode" not in str(row) for row in notes), "the prompt never shows in the transcript"
+
+
+def test_a_goal_without_a_turn_limit_never_pauses_for_turns(goal_setup):
+    """B243: goals stopped after a fixed number of turns; by default none."""
+    from row_bot import goals
+    from row_bot.application import conversation_followups
+    platform, verdicts = goal_setup
+    verdicts.extend([{"verdict": "continue", "reason": "More to do."}] * 2
+                    + [{"verdict": "complete", "reason": "All notes are written."}])
+    fake = Recording(*(completed(f"step {index}") for index in range(6)))
+    platform.stream_factory = fake.stream
+    platform.resume_factory = fake.resume
+    goal = goals.start_goal(CONVERSATION, "Write synthetic notes until they are done")
+    conversation_followups.after_goal_change(platform, CONVERSATION, "start", goal)
+    wait_idle(platform, fake, 3)
+    latest = goals.get_goal(goal["id"])
+    assert latest["max_turns"] == 0, "no limit unless someone sets one"
+    assert (latest["status"], latest["turns_used"]) == ("completed", 3)
+    assert not any("Turn budget" in prompt for prompt in fake.prompts)
+    notes = [row for row in platform.snapshot(CONVERSATION)["rows"] if row.get("note") == "continuation"]
+    assert [row["blocks"][0]["text"] for row in notes] == [
+        "Goal · turn 1", "Goal · turn 2", "Goal · turn 3",
+    ]
+
+
+def test_a_goal_that_stops_making_progress_pauses_with_the_reason(goal_setup):
+    """B244: two turns in a row without progress pause the goal for the person."""
+    from row_bot import goals
+    platform, verdicts = goal_setup
+    verdicts.extend([{"progress": "no_progress", "reason": "Searched the same folder again."}] * 2)
+    fake = Recording(*(completed(f"step {index}") for index in range(4)))
+    goal = start(platform, fake, max_turns=0)
+    wait_idle(platform, fake, 2)
+    latest = goals.get_goal(goal["id"])
+    assert len(fake.calls) == 2, "nothing runs after the goal stalls"
+    assert latest["status"] == "paused"
+    assert latest["last_reason"] == "No progress in the last 2 turns: Searched the same folder again."
+
+
+def test_a_usage_limit_waits_for_the_reset_and_then_continues(goal_setup, monkeypatch):
+    """B244: a provider limit that says when it resets makes the goal wait, then go on."""
+    from row_bot import goals
+    from row_bot.application import conversation_followups
+    platform, verdicts = goal_setup
+    waits: list[tuple[float, object]] = []
+    monkeypatch.setattr(conversation_followups, "_schedule", lambda delay, run: waits.append((delay, run)))
+    verdicts.append({"verdict": "complete", "reason": "Notes written."})
+    limited = ("error", "⚠️ Rate limit reached — please wait a moment and try again. "
+                        "The provider says: try again in 1m30s.")
+    fake = Recording((limited,), completed("after the reset"))
+    goal = start(platform, fake, max_turns=0)
+    wait_idle(platform, fake, 1)
+    waiting = goals.get_goal(goal["id"])
+    assert waiting["status"] == "active"
+    assert waiting["last_reason"] == "The provider's usage limit was reached. Continuing in about 2 minutes."
+    assert [delay for delay, _run in waits] == [90.0]
+
+    waits[0][1]()  # The fake clock reaches the reset time.
+    wait_idle(platform, fake, 2)
+    assert goals.get_goal(goal["id"])["status"] == "completed"
+    assert fake.prompts[1].startswith("[Goal continuation]")
+
+
+def test_a_usage_limit_without_a_reset_time_pauses_and_says_so(goal_setup, monkeypatch):
+    from row_bot import goals
+    from row_bot.application import conversation_followups
+    platform, _ = goal_setup
+    waits: list[float] = []
+    monkeypatch.setattr(conversation_followups, "_schedule", lambda delay, run: waits.append(delay))
+    limited = ("error", "⚠️ API error: Claude subscription rate/usage limit reached: {\"type\": \"error\"}")
+    fake = Recording((limited,), completed("never runs"))
+    goal = start(platform, fake, max_turns=0)
+    wait_idle(platform, fake, 1)
+    latest = goals.get_goal(goal["id"])
+    assert (latest["status"], latest["last_reason"]) == (
+        "paused", "The provider's rate or usage limit stopped the goal. Resume it once the limit resets.")
+    assert waits == [] and len(fake.calls) == 1
+
+
+def test_the_goal_counts_the_tokens_its_turns_used(goal_setup):
+    """B244: the card shows the tokens the goal used, turn after turn."""
+    from row_bot import goals
+    platform, verdicts = goal_setup
+    verdicts.extend([{"verdict": "continue", "reason": "One more step."},
+                     {"verdict": "complete", "reason": "Both steps are done."}])
+
+    def with_usage(label: str, tokens: int):
+        native_id = fixture_id(label + ":assistant")
+        message = AIMessage(content=label, id=native_id, usage_metadata={
+            "input_tokens": tokens - 100, "output_tokens": 100, "total_tokens": tokens})
+        return (CheckpointCommit((message,), native_id), ("done", label))
+
+    fake = Recording(with_usage("step 0", 1200), with_usage("step 1", 800))
+    goal = start(platform, fake, max_turns=0)
+    wait_idle(platform, fake, 2)
+    assert goals.get_goal(goal["id"])["tokens_used"] == 2000
 
 
 def test_goal_ends_when_the_verifier_says_it_is_done(goal_setup):
@@ -192,13 +289,32 @@ def test_pause_keeps_the_running_turn_and_starts_nothing_after_it(goal_setup):
     assert goals.get_goal(goal["id"])["status"] == "paused"
 
 
-def test_a_restart_pauses_goals_left_working(goal_setup):
-    from row_bot import goals
-    goal = goals.start_goal(CONVERSATION, "Survive a restart", max_turns=4)
-    assert goals.settle_interrupted_goals() == 1
-    latest = goals.get_goal(goal["id"])
-    assert latest["status"] == "paused"
-    assert latest["last_reason"] == "Row-Bot restarted. Resume to continue."
+def test_an_active_goal_continues_after_a_restart_from_its_last_saved_turn(goal_setup):
+    """B244: overnight goals keep going when Row-Bot restarts."""
+    from row_bot import goals, tasks
+    from row_bot.application import conversation_followups
+    platform, verdicts = goal_setup
+    goal = goals.start_goal(CONVERSATION, "Survive a restart")
+    goals.update_goal_progress(goal_id=goal["id"], progress="Two of three notes written.")
+    channel_goal = goals.start_goal("channel-thread", "Answer on the channel")
+    tasks.record_thread_channel_ref("channel-thread", channel="sms", target="fixture-chat")
+    verdicts.append({"verdict": "complete", "reason": "All three notes are written."})
+    fake = Recording(completed("third note"))
+    platform.stream_factory = fake.stream
+    platform.resume_factory = fake.resume
+
+    # A new process: nothing is pending in memory, then start-up runs.
+    conversation_followups._PENDING.clear()
+    goals.settle_interrupted_goals()
+    assert conversation_followups.continue_goals_after_restart(platform) == 1
+    wait_idle(platform, fake, 1)
+
+    assert fake.prompts[0].startswith("[Goal continuation]")
+    assert "Two of three notes written." in fake.prompts[0]
+    assert goals.get_goal(goal["id"])["status"] == "completed"
+    # The channel's own runtime continues channel goals; here they pause.
+    channel = goals.get_goal(channel_goal["id"])
+    assert (channel["status"], channel["last_reason"]) == ("paused", "Row-Bot restarted. Resume to continue.")
 
 
 def test_the_agent_graph_input_keeps_the_follow_up_note(goal_setup):

@@ -139,6 +139,67 @@ def test_agent_start_spawns_a_delegated_agent_from_the_composer(service, monkeyp
         _agent_command(service, parent, "agent.start", {"text": "--model="})
 
 
+@pytest.fixture
+def interrupted_work(service):
+    """A conversation whose agent a restart cut off mid-run (B220)."""
+    from row_bot import agent_orchestrator, agent_runs, threads
+    parent = threads.create_thread("Parent", seed_default_skills=False)
+    orchestration = agent_orchestrator.create_or_get_orchestration(
+        parent_thread_id=parent, parent_generation_id="generation-1", root_objective="Survey the tide tables",
+        model_ref="provider:model", approval_mode="block", runtime_surface="normal_chat")
+    run = agent_runs.create_agent_run(parent_thread_id=parent, display_name="Research", status="running",
+                                      prompt="Synthetic task", model_override="provider:model")
+    agent_orchestrator.register_member(orchestration["id"], run["id"], required=True)
+    agent_orchestrator.finalize_parent_generation(
+        orchestration["id"], continuation_state={"config": {"configurable": {}}, "enabled_tool_names": []})
+    calls: list[str] = []
+    agent_orchestrator.set_test_executors(
+        synthesis=lambda *_args: calls.append("synthesis") or "Final answer",
+        retry=lambda *_args: calls.append("retry") or {},
+        delivery=lambda *_args: True,
+    )
+    agent_orchestrator.repair_interrupted_orchestrations_batch(limit=10)
+    assert (service.get_conversation(parent)["activity_state"],
+            service.get_conversation(parent)["activity_phase"]) == ("attention", "resume_required")
+    yield parent, orchestration["id"], run["id"], calls
+    agent_orchestrator.set_test_executors()
+
+
+def test_dismiss_clears_interrupted_agent_work_without_running_it(service, interrupted_work):
+    from row_bot import agent_orchestrator, agent_runs
+    parent, orchestration_id, run_id, calls = interrupted_work
+    client = _client(service)
+    _, headers = bootstrap(client)
+    from tests.subsystem.client_protocol.test_protocol_application import _command
+    response = _command(client, headers, "agent.dismiss", {}, target=parent,
+                        revision=str(service._metadata(parent)["client_revision"]))
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "completed"
+    assert agent_orchestrator.get_orchestration(orchestration_id)["status"] == "stopped"
+    assert agent_runs.get_agent_run(run_id)["status"] == "stopped"
+    assert service.get_conversation(parent)["activity_state"] != "attention"
+    assert calls == []
+
+
+def test_resume_reruns_interrupted_agent_work_only_while_something_is_left(service, interrupted_work, monkeypatch):
+    from row_bot import agent_orchestrator
+    from row_bot.application.client_platform import ClientPlatformError
+    parent, orchestration_id, run_id, calls = interrupted_work
+    monkeypatch.setattr("row_bot.tools.registry.is_enabled", lambda _name: False)
+    with pytest.raises(ClientPlatformError, match="agent_resume_unavailable"):
+        _agent_command(service, parent, "agent.resume", {})
+    assert calls == [] and service.get_conversation(parent)["activity_phase"] == "resume_required"
+
+    monkeypatch.setattr("row_bot.tools.registry.is_enabled", lambda name: name == "agents")
+    monkeypatch.setattr("row_bot.providers.readiness.ensure_agent_ready", lambda _model: object())
+    assert _agent_command(service, parent, "agent.resume", {})["status"] == "completed"
+    assert calls == ["retry"]
+    assert agent_orchestrator.get_orchestration(orchestration_id)["status"] != "interrupted"
+    with pytest.raises(ClientPlatformError, match="agent_work_not_resumable"):
+        _agent_command(service, parent, "agent.resume", {})
+    assert calls == ["retry"]
+
+
 def _statuses(tasks, ids: list[str]) -> dict[str, str]:
     """The saved status of each approval request, read from its row."""
     conn = tasks._get_conn()

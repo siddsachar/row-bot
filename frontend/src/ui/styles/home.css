@@ -267,6 +267,31 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
+/* A row with icon actions beside its button (Resume, Dismiss; B220). */
+.overview-row-with-actions {
+  display: flex;
+  align-items: center;
+}
+.overview-row-with-actions > .overview-row-button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.overview-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  max-width: 45%;
+  padding-inline-end: 8px;
+}
+.overview-row-actions > .agent-controls-status {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
 .overview-row-icon {
   display: grid;
   place-items: center;

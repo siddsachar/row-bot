@@ -1495,6 +1495,21 @@
 .delegated-own-run .agent-controls {
   grid-column: 1 / -1;
 }
+/* Interrupted agent work: a line with Resume and Dismiss (B220). */
+.delegated-interrupted {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-bottom: 8px;
+}
+.delegated-interrupted > .delegated-run-name {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.delegated-interrupted > .agent-controls-status {
+  flex-basis: 100%;
+}
 .agent-controls {
   display: grid;
   gap: 6px;

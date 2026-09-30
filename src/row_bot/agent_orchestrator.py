@@ -687,6 +687,11 @@ def get_thread_orchestration_activity(
         orchestration_ids = [str(row.get("id") or "") for row in orchestration_rows]
         member_rows: list[Any] = []
         approval_rows: list[Any] = []
+        parent_work = {
+            str(row.get("id") or "")
+            for row in orchestration_rows
+            if row.get("status") == "interrupted" and _parent_work_pending(conn, row)
+        }
         if orchestration_ids:
             member_rows = conn.execute(
                 "SELECT m.orchestration_id, m.run_id, m.required, "
@@ -799,7 +804,16 @@ def get_thread_orchestration_activity(
         effective_statuses = [status for _member, status in current_members]
         if interrupted or missing_parent_approval:
             state = "attention"
-            phase = "resume_required"
+            # Resume only while it would run something (B220); otherwise the
+            # person can only dismiss it.
+            resumable = interrupted and (
+                orchestration_id in parent_work
+                or any(
+                    bool(member.get("required")) and status == "interrupted"
+                    for member, status in current_members
+                )
+            )
+            phase = "resume_required" if resumable else "interrupted"
         elif not active:
             state = "terminal"
             phase = orchestration_status or "terminal"
@@ -3801,6 +3815,98 @@ def stop_orchestration(orchestration_id: str, *, run_id: str = "") -> dict[str, 
     return orchestration_overview(orchestration_id)
 
 
+def dismiss_orchestrations(parent_thread_id: str) -> int:
+    """Close the thread's delegated work that waits on the person; runs nothing.
+
+    Interrupted work, and work whose parent approval is gone, becomes
+    ``stopped``: agents a restart interrupted stop where they are. Work that
+    is still running or has a pending approval is left alone (B220).
+    """
+
+    _ensure_schema()
+    thread_id = str(parent_thread_id or "")
+    active = sorted(ACTIVE_ORCHESTRATION_STATUSES)
+    now = _now()
+    dismissed: list[str] = []
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT id, status FROM agent_orchestrations WHERE parent_thread_id = ? "
+            "AND (status = 'interrupted' OR ((status = 'waiting_approval' "
+            "OR parent_state = 'waiting_approval') "
+            f"AND status IN ({', '.join('?' for _ in active)})))",
+            (thread_id, *active),
+        ).fetchall()
+        pending = conn.execute(
+            "SELECT agent_run_id, step_id FROM approval_requests "
+            "WHERE status = 'pending' AND parent_thread_id = ?",
+            (thread_id,),
+        ).fetchall()
+        for row in rows:
+            orchestration_id = str(row["id"])
+            members = conn.execute(
+                "SELECT m.run_id, COALESCE(NULLIF(r.status, ''), m.status) AS status "
+                "FROM agent_orchestration_members m "
+                "LEFT JOIN agent_runs r ON r.id = m.run_id WHERE m.orchestration_id = ? "
+                "AND m.status NOT IN ('retried', 'transferred', 'cleared')",
+                (orchestration_id,),
+            ).fetchall()
+            run_ids = {str(member["run_id"]) for member in members}
+            if row["status"] != "interrupted" and (
+                any(
+                    str(approval["step_id"] or "") == f"orchestration:{orchestration_id}"
+                    or str(approval["agent_run_id"] or "") in run_ids
+                    for approval in pending
+                )
+                or any(
+                    str(member["status"]) not in TERMINAL_MEMBER_STATUSES | {"interrupted"}
+                    for member in members
+                )
+            ):
+                continue
+            changed = conn.execute(
+                "UPDATE agent_orchestrations SET status = 'stopped', "
+                "parent_state = CASE WHEN orchestration_version >= 2 "
+                "THEN 'completed' ELSE parent_state END, "
+                "lease_owner = '', lease_expires_at = '', wake_requested_at = '', "
+                "error_message = 'Dismissed', completed_at = ?, updated_at = ? "
+                "WHERE id = ? AND status = ?",
+                (now, now, orchestration_id, row["status"]),
+            ).rowcount
+            if not changed:
+                continue
+            interrupted = [
+                str(member["run_id"])
+                for member in members
+                if str(member["status"]) == "interrupted"
+            ]
+            for run_id in interrupted:
+                conn.execute(
+                    "UPDATE agent_runs SET status = 'stopped', status_message = 'Dismissed', "
+                    "finished_at = CASE WHEN finished_at = '' THEN ? ELSE finished_at END, "
+                    "heartbeat_at = '', updated_at = ? WHERE id = ? AND status = 'interrupted'",
+                    (now, now, run_id),
+                )
+                conn.execute(
+                    "UPDATE agent_orchestration_members SET status = 'stopped' "
+                    "WHERE orchestration_id = ? AND run_id = ?",
+                    (orchestration_id, run_id),
+                )
+            dismissed.append(orchestration_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    for orchestration_id in dismissed:
+        row = get_orchestration(orchestration_id)
+        if row:
+            _emit_orchestration_buddy_event(row, terminal=True)
+    return len(dismissed)
+
+
 _TERMINAL_EVENT_STATUS = {
     "run.completed": "completed",
     "run.failed": "failed",
@@ -3826,6 +3932,37 @@ def _latest_recorded_terminal_status(
     )
 
 
+def _parent_work_pending(conn: Any, orchestration: Mapping[str, Any]) -> bool:
+    """Whether Resume would still run the parent once every agent has finished:
+    a v2 parent has events it never read, a v1 group has its answer to write."""
+
+    if _is_unified_parent(orchestration):
+        return conn.execute(
+            "SELECT 1 FROM agent_orchestration_messages WHERE orchestration_id = ? "
+            "AND kind LIKE 'event.%' AND consumed_at = '' LIMIT 1",
+            (str(orchestration.get("id") or ""),),
+        ).fetchone() is not None
+    continuation = _parse_object(orchestration.get("continuation_state_json"))
+    return bool(continuation.get("finalization_ready"))
+
+
+def _conversation_moved_on(conn: Any, conversation_id: str, generation_id: str) -> bool:
+    """Whether the conversation had a turn after the one that started the work."""
+
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'generation_passes'"
+    ).fetchone() is None:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM generation_passes own JOIN generation_passes later "
+        "ON later.conversation_id = own.conversation_id "
+        "AND later.admission_sequence > own.admission_sequence "
+        "WHERE own.conversation_id = ? AND own.generation_id = ? "
+        "AND later.state != 'cancelled' LIMIT 1",
+        (conversation_id, generation_id),
+    ).fetchone() is not None
+
+
 def repair_interrupted_orchestrations_batch(
     *,
     limit: int = 20,
@@ -3843,6 +3980,7 @@ def repair_interrupted_orchestrations_batch(
     interrupted_members = 0
     restored_runs = 0
     next_cursor = cursor
+    settled = 0
     conn = _conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -3856,6 +3994,7 @@ def repair_interrupted_orchestrations_batch(
             orchestration_id = str(orchestration.get("id") or "")
             next_cursor = orchestration_id
             processed += 1
+            member_statuses: list[str] = []
             member_rows = conn.execute(
                 "SELECT m.run_id, m.status AS member_status, r.status AS run_status "
                 "FROM agent_orchestration_members m "
@@ -3904,6 +4043,7 @@ def repair_interrupted_orchestrations_batch(
                     desired_status = "waiting_approval"
                 else:
                     desired_status = "interrupted"
+                member_statuses.append(desired_status)
 
                 if desired_status in TERMINAL_MEMBER_STATUSES and run_status not in TERMINAL_MEMBER_STATUSES:
                     restored_runs += conn.execute(
@@ -3946,6 +4086,25 @@ def repair_interrupted_orchestrations_batch(
                     "WHERE id = ?",
                     (now, orchestration_id),
                 )
+            elif all(status in TERMINAL_MEMBER_STATUSES for status in member_statuses) and (
+                not _parent_work_pending(conn, orchestration)
+                or _conversation_moved_on(
+                    conn,
+                    parent_thread_id,
+                    str(orchestration.get("parent_generation_id") or ""),
+                )
+            ):
+                # Every agent had finished: nothing to resume, or the
+                # conversation moved on past the answer it would write (B220).
+                settled += conn.execute(
+                    "UPDATE agent_orchestrations SET status = 'stopped', "
+                    "parent_state = CASE WHEN orchestration_version >= 2 "
+                    "THEN 'completed' ELSE parent_state END, "
+                    "lease_owner = '', lease_expires_at = '', wake_requested_at = '', "
+                    "error_message = 'Every agent had already finished when Row-Bot restarted', "
+                    "completed_at = ?, updated_at = ? WHERE id = ?",
+                    (now, now, orchestration_id),
+                ).rowcount
             else:
                 conn.execute(
                     "UPDATE agent_orchestrations SET status = 'interrupted', "
@@ -3971,7 +4130,8 @@ def repair_interrupted_orchestrations_batch(
         conn.close()
     return {
         "processed": processed,
-        "orchestrations_interrupted": processed,
+        "orchestrations_interrupted": processed - settled,
+        "orchestrations_settled": settled,
         "members_interrupted": interrupted_members,
         "runs_restored": restored_runs,
         "next_cursor": next_cursor,
@@ -3992,7 +4152,9 @@ def recover_interrupted_orchestrations() -> dict[str, int]:
             limit=50,
             after_id=cursor,
         )
-        totals["orchestrations_interrupted"] += int(result.get("processed") or 0)
+        totals["orchestrations_interrupted"] += int(
+            result.get("orchestrations_interrupted") or 0
+        )
         totals["members_interrupted"] += int(
             result.get("members_interrupted") or 0
         )

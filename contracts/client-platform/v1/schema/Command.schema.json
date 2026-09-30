@@ -1,5 +1,42 @@
 {
   "$defs": {
+    "AgentDismissCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        },
+        "type": {
+          "const": "agent.dismiss",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "AgentDismissCommand",
+      "type": "object"
+    },
     "AgentMessageCommand": {
       "additionalProperties": false,
       "properties": {
@@ -65,6 +102,43 @@
         "text"
       ],
       "title": "AgentMessagePayload",
+      "type": "object"
+    },
+    "AgentResumeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        },
+        "type": {
+          "const": "agent.resume",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "AgentResumeCommand",
       "type": "object"
     },
     "AgentStartCommand": {
@@ -3927,6 +4001,20 @@
             }
           ],
           "title": "Goal Id"
+        },
+        "max_minutes": {
+          "anyOf": [
+            {
+              "maximum": 10080,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Minutes"
         },
         "max_turns": {
           "anyOf": [
@@ -10968,7 +11056,9 @@
   },
   "discriminator": {
     "mapping": {
+      "agent.dismiss": "#/$defs/AgentDismissCommand",
       "agent.message": "#/$defs/AgentMessageCommand",
+      "agent.resume": "#/$defs/AgentResumeCommand",
       "agent.start": "#/$defs/AgentStartCommand",
       "agent.stop": "#/$defs/AgentStopCommand",
       "approval.resolve": "#/$defs/ApprovalResolveCommand",
@@ -11186,6 +11276,12 @@
     },
     {
       "$ref": "#/$defs/AgentStartCommand"
+    },
+    {
+      "$ref": "#/$defs/AgentResumeCommand"
+    },
+    {
+      "$ref": "#/$defs/AgentDismissCommand"
     },
     {
       "$ref": "#/$defs/MediaSaveCommand"

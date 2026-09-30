@@ -29,6 +29,8 @@ class AgentRuntimeSettings:
     max_concurrent_children: int = 3
     max_active_children_global: int = 8
     child_timeout_seconds: int = 0
+    # Turns a new goal may take unless its start says otherwise; 0 = no limit.
+    goal_max_turns: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return asdict(self)
@@ -72,6 +74,12 @@ def validate_agent_runtime_settings(
         child_timeout_seconds=_strict_int(
             raw.get("child_timeout_seconds"),
             "Child timeout",
+            allow_zero=True,
+        ),
+        # Files saved before goals had a default limit have no such key.
+        goal_max_turns=_strict_int(
+            raw.get("goal_max_turns", 0),
+            "Goal turn limit",
             allow_zero=True,
         ),
     )

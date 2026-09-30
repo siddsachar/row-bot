@@ -1056,7 +1056,11 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return "⚠️ API quota exceeded — please check your billing dashboard."
     if "rate_limit" in s or "rate limit" in s or "429" in s:
-        return "⚠️ Rate limit reached — please wait a moment and try again."
+        # Keep the provider's own wait, so a goal can wait for the reset (B244).
+        wait = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+(?:\d+(?:\.\d+)?\s*[a-z]*\s?)+",
+                         exc_str, re.IGNORECASE)
+        hint = f" The provider says: {wait.group(0).strip()}." if wait else ""
+        return "⚠️ Rate limit reached — please wait a moment and try again." + hint
     if "invalid_api_key" in s or "incorrect api key" in s or "authentication" in s or "unauthorized" in s:
         return "⚠️ Authentication failed — please verify your API key in Settings → Providers."
     if "billing" in s:

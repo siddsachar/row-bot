@@ -99,6 +99,7 @@ const agent: AgentRuntimeSettingsState = {
   max_concurrent_children: 3,
   max_active_children_global: 8,
   child_timeout_seconds: 0,
+  goal_max_turns: 0,
 };
 const clientSnapshot = { handshake: { models: [] } };
 function fixture() {
@@ -449,6 +450,28 @@ it('updates media toggles, defaults, camera, context, and delegation through the
   );
   await waitFor(() =>
     expect(controller.resetAgentRuntimeSettings).toHaveBeenCalledTimes(1),
+  );
+});
+
+it('sets a default goal turn limit, where 0 means no limit (B243)', async () => {
+  const { controller } = show();
+  const limit = await screen.findByRole('spinbutton', {
+    name: /Goal turn limit/,
+  });
+  expect(limit).toHaveValue(0);
+  fireEvent.change(limit, { target: { value: '30' } });
+  fireEvent.blur(limit);
+  await waitFor(() =>
+    expect(controller.saveAgentRuntimeSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ goal_max_turns: 30 }),
+    ),
+  );
+  fireEvent.change(limit, { target: { value: '0' } });
+  fireEvent.blur(limit);
+  await waitFor(() =>
+    expect(controller.saveAgentRuntimeSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ goal_max_turns: 0 }),
+    ),
   );
 });
 

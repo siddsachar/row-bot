@@ -68,7 +68,14 @@ const agentFields: {
     label: 'Child active-time limit (seconds; 0 disables)',
     help: 'Queue time is not counted.',
   },
+  {
+    key: 'goal_max_turns',
+    label: 'Goal turn limit (0 = no limit)',
+    help: 'New goals start with this limit; each goal can change it.',
+  },
 ];
+/** Fields where 0 switches the limit off. */
+const ZERO_OFF = new Set(['child_timeout_seconds', 'goal_max_turns']);
 const contextPresets = {
   local: [16384, 32768, 65536, 131072, 262144],
   provider: [16384, 32768, 65536, 131072, 262144, 524288, 1048576],
@@ -438,10 +445,7 @@ export default function ModelsPanel({
         const values = Object.fromEntries(
           agentFields.map(({ key, label }) => {
             const raw = draft[key]?.trim() ?? '';
-            if (
-              !/^\d+$/.test(raw) ||
-              (!Number(raw) && key !== 'child_timeout_seconds')
-            )
+            if (!/^\d+$/.test(raw) || (!Number(raw) && !ZERO_OFF.has(key)))
               throw new Error(`${label} must be a whole number.`);
             return [key, Number(raw)];
           }),
@@ -857,8 +861,8 @@ export default function ModelsPanel({
                 <Field label={label} hint={help} key={key} layout="row">
                   <Input
                     type="number"
-                    min={key === 'child_timeout_seconds' ? 0 : 1}
-                    max={1000000}
+                    min={ZERO_OFF.has(key) ? 0 : 1}
+                    max={key === 'goal_max_turns' ? 1000 : 1000000}
                     step={1}
                     value={agentDraft[key] ?? ''}
                     onChange={(event) =>

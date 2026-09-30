@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from row_bot.agent_runs import (
-    DEFAULT_AGENT_SETTINGS,
     append_agent_event,
     create_agent_run,
     ensure_agent_run_schema,
@@ -34,7 +33,11 @@ GOAL_VISIBLE_STATUSES = {
 GOAL_TERMINAL_STATUSES = {"completed", "cleared", "blocked"}
 GOAL_CONTROL_TOKENS = {"pause", "resume", "clear", "done", "status", "show"}
 GOAL_VERDICTS = {"continue", "complete", "blocked", "needs_user", "paused"}
-DEFAULT_GOAL_MAX_TURNS = int(DEFAULT_AGENT_SETTINGS.get("goal_max_turns", 20) or 20)
+GOAL_PROGRESS = {"progress", "no_progress", "done", "blocked"}
+# A goal pauses after this many turns in a row without progress, or when the
+# same step failed this many times in a row (B244).
+GOAL_NO_PROGRESS_PAUSE = 2
+GOAL_SAME_FAILURE_PAUSE = 3
 _GOAL_STATUS_ORDER = ("active", "waiting_approval", "paused", "blocked", "completed", "cleared")
 
 
@@ -60,6 +63,20 @@ def _now() -> str:
     from datetime import datetime
 
     return datetime.now().isoformat()
+
+
+def default_goal_max_turns() -> int:
+    """The turn limit a goal gets when its start names none; 0 = no limit (B243)."""
+    from row_bot.agent_settings import load_agent_runtime_settings
+
+    return load_agent_runtime_settings().goal_max_turns
+
+
+def turn_words(goal: Mapping[str, Any]) -> str:
+    """"7 of 30" with a limit, "7" without."""
+    used = int(goal.get("turns_used") or 0)
+    limit = int(goal.get("max_turns") or 0)
+    return f"{used} of {limit}" if limit else str(used)
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -132,6 +149,74 @@ def _normalize_verdict(verdict: str, *, default: str = "continue") -> str:
     return value if value in GOAL_VERDICTS else default
 
 
+def _judgement(result: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    """``(verdict, progress, reason, failing_step)`` from one verifier answer.
+
+    The verifier judges each turn as progress, no progress, done or blocked
+    (B244); an answer with only a verdict counts as progress.
+    """
+    verdict = _normalize_verdict(str(result.get("verdict") or "continue"))
+    progress = str(result.get("progress") or "").strip().lower().replace(" ", "_")
+    progress = {"no": "no_progress", "none": "no_progress", "stalled": "no_progress",
+                "complete": "done", "completed": "done"}.get(progress, progress)
+    if progress == "done":
+        verdict = "complete"
+    elif progress == "blocked":
+        verdict = "blocked"
+    elif progress not in GOAL_PROGRESS:
+        progress = {"complete": "done", "blocked": "blocked", "needs_user": "blocked"}.get(verdict, "progress")
+    reason = " ".join(str(result.get("reason") or "").split())
+    failing_step = " ".join(str(result.get("failing_step") or "").split())[:200]
+    return verdict, progress, reason, failing_step
+
+
+_LIMIT_MARKERS = ("rate limit", "rate_limit", "usage limit", "rate/usage limit", "quota",
+                  "too many requests", "429")
+_LIMIT_WAIT = re.compile(
+    r"(?:try again|retry|resets?)\s+(?:in|after)\s+"
+    r"((?:\d+(?:\.\d+)?\s*(?:milliseconds?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)"
+    r"(?![a-z])\s*)+)",
+    re.IGNORECASE,
+)
+_LIMIT_PART = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(milliseconds?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)(?![a-z])",
+    re.IGNORECASE,
+)
+
+
+def provider_limit_wait(error_text: str) -> float | None:
+    """Seconds until a provider's rate or usage limit resets, from its error.
+
+    ``None`` when the error is not a limit, ``0.0`` when it is one but the
+    provider did not say when it resets (B244).
+    """
+    text = str(error_text or "")
+    lowered = text.lower()
+    if not any(marker in lowered for marker in _LIMIT_MARKERS):
+        return None
+    match = _LIMIT_WAIT.search(text)
+    if not match:
+        return 0.0
+    seconds = 0.0
+    for amount, unit in _LIMIT_PART.findall(match.group(1)):
+        unit = unit.lower()
+        scale = (0.001 if unit.startswith("ms") or unit.startswith("milli")
+                 else 3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1)
+        seconds += float(amount) * scale
+    return seconds
+
+
+def _stall_reason(goal: Mapping[str, Any], reason: str) -> str:
+    """Why the goal should stop for the person, if it stalled (B244)."""
+    stalled = int(goal.get("no_progress_count") or 0)
+    if stalled >= GOAL_NO_PROGRESS_PAUSE:
+        return f"No progress in the last {stalled} turns" + (f": {reason}" if reason else ".")
+    failures = int(goal.get("failing_step_count") or 0)
+    if failures >= GOAL_SAME_FAILURE_PAUSE:
+        return f"The same step failed {failures} times: {goal.get('failing_step')}"
+    return ""
+
+
 def _coerce_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
@@ -178,6 +263,9 @@ def _goal_from_row(row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, Any
         "tokens_used",
         "blocker_count",
         "verifier_failures",
+        "no_progress_count",
+        "failing_step_count",
+        "max_minutes",
     ):
         try:
             data[field] = int(data.get(field) or 0)
@@ -273,9 +361,15 @@ def start_goal(
     objective: str,
     *,
     max_turns: int | None = None,
+    max_minutes: int = 0,
     replace: bool = True,
 ) -> dict[str, Any]:
-    """Create or replace the active goal for a thread."""
+    """Create or replace the active goal for a thread.
+
+    ``max_turns`` is the goal's turn limit: ``None`` takes the Agent runtime
+    default, ``0`` means no limit. ``max_minutes`` is an optional time limit
+    (B244), checked between turns.
+    """
     _ensure_goal_schema()
     thread_id = str(thread_id or "").strip()
     objective = str(objective or "").strip()
@@ -283,7 +377,7 @@ def start_goal(
         raise GoalError("A thread id is required to start a goal.")
     if not objective:
         raise GoalError("A goal objective is required.")
-    max_turns = max(1, int(max_turns or DEFAULT_GOAL_MAX_TURNS))
+    max_turns = max(0, int(default_goal_max_turns() if max_turns is None else max_turns))
     now = _now()
     goal_id = uuid.uuid4().hex[:12]
     if replace:
@@ -320,8 +414,8 @@ def start_goal(
             "INSERT INTO thread_goals "
             "(id, thread_id, objective, status, created_at, updated_at, turns_used, max_turns, "
             "last_verdict, last_reason, last_progress, evidence_json, subgoals_json, blockers_json, "
-            "active_run_id, last_turn_id, continuation_key) "
-            "VALUES (?, ?, ?, 'active', ?, ?, 0, ?, 'continue', ?, '', '[]', '[]', '[]', ?, '', '')",
+            "active_run_id, last_turn_id, continuation_key, max_minutes, window_started_at) "
+            "VALUES (?, ?, ?, 'active', ?, ?, 0, ?, 'continue', ?, '', '[]', '[]', '[]', ?, '', '', ?, ?)",
             (
                 goal_id,
                 thread_id,
@@ -331,6 +425,8 @@ def start_goal(
                 max_turns,
                 "Goal started.",
                 run_id,
+                max(0, int(max_minutes or 0)),
+                now,
             ),
         )
         conn.commit()
@@ -365,10 +461,69 @@ def resume_goal(thread_id: str) -> dict[str, Any] | None:
         verdict="continue",
         source_statuses=("paused", "blocked", "waiting_approval"),
     )
-    if goal and int(goal.get("turns_used") or 0) >= int(goal.get("max_turns") or DEFAULT_GOAL_MAX_TURNS):
+    if goal and turn_limit_reached(goal):
         extend_goal_budget(goal["id"])
         goal = get_goal(goal["id"])
+    if goal and time_limit_reached(goal):
+        goal = restart_time_window(goal["id"])
     return goal
+
+
+def turn_limit_reached(goal: Mapping[str, Any]) -> bool:
+    """Only a limit someone set stops a goal for turns (B243)."""
+    limit = int(goal.get("max_turns") or 0)
+    return bool(limit) and int(goal.get("turns_used") or 0) >= limit
+
+
+def time_limit_reached(goal: Mapping[str, Any]) -> bool:
+    """Whether the goal's optional time limit has run out for this window (B244)."""
+    limit = int(goal.get("max_minutes") or 0)
+    if not limit:
+        return False
+    from datetime import datetime
+
+    began = str(goal.get("window_started_at") or goal.get("created_at") or "")
+    try:
+        elapsed = datetime.fromisoformat(_now()) - datetime.fromisoformat(began)
+    except ValueError:
+        return False
+    return elapsed.total_seconds() >= limit * 60
+
+
+def restart_time_window(goal_id: str) -> dict[str, Any] | None:
+    """Resume at the time limit gives the goal its time limit again, from now."""
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        conn.execute("UPDATE thread_goals SET window_started_at = ? WHERE id = ?", (_now(), str(goal_id)))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_goal(goal_id)
+
+
+def record_goal_tokens(goal_id: str, tokens: int, counted_through: str) -> None:
+    """Add a turn's tokens to the goal's total (B244); ``counted_through`` is the
+    last assistant message counted, so a resumed turn is never counted twice."""
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE thread_goals SET tokens_used = COALESCE(tokens_used, 0) + ?, "
+            "tokens_counted_through = ? WHERE id = ?",
+            (max(0, int(tokens)), str(counted_through or ""), str(goal_id)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def duration_words(minutes: int) -> str:
+    """"8 hours", "90 minutes", "1 hour"."""
+    if minutes % 60:
+        return f"{minutes} minute{'' if minutes == 1 else 's'}"
+    hours = minutes // 60
+    return f"{hours} hour{'' if hours == 1 else 's'}"
 
 
 def clear_goal(thread_id: str, *, reason: str = "Cleared by user.") -> dict[str, Any] | None:
@@ -405,8 +560,13 @@ def block_goal(thread_id: str, *, reason: str = "Goal blocked.") -> dict[str, An
 
 
 def extend_goal_budget(goal_id: str, *, turns: int | None = None) -> dict[str, Any] | None:
+    """Give a goal at its limit another window: the Agent runtime default, else
+    as many turns as its limit again."""
     _ensure_goal_schema()
-    turns = max(1, int(turns or DEFAULT_GOAL_MAX_TURNS))
+    goal = get_goal(goal_id)
+    if not goal or not int(goal.get("max_turns") or 0):
+        return goal
+    turns = max(1, int(turns or default_goal_max_turns() or goal["max_turns"]))
     now = _now()
     conn = _get_conn()
     try:
@@ -461,10 +621,14 @@ def set_goal_status(
     now = _now()
     conn = _get_conn()
     try:
+        # Going on again (Resume, an approval) starts stall detection afresh.
         conn.execute(
-            "UPDATE thread_goals SET status = ?, last_verdict = ?, last_reason = ?, updated_at = ?, revision=revision+1 "
+            "UPDATE thread_goals SET status = ?, last_verdict = ?, last_reason = ?, updated_at = ?, revision=revision+1, "
+            "no_progress_count = CASE WHEN ? = 'active' THEN 0 ELSE no_progress_count END, "
+            "failing_step_count = CASE WHEN ? = 'active' THEN 0 ELSE failing_step_count END "
             "WHERE id = ? AND (? IS NULL OR revision=?)",
-            (status, verdict, str(reason or ""), now, str(goal_id), expected_revision, expected_revision),
+            (status, verdict, str(reason or ""), now, status, status, str(goal_id),
+             expected_revision, expected_revision),
         )
         changed = conn.total_changes
         conn.commit()
@@ -614,10 +778,12 @@ def handle_goal_command(thread_id: str | None, arg: str = "") -> str:
         goal = complete_goal(thread_id, reason=reason)
         return _goal_action_response(goal, "Goal marked complete.", "No goal to complete.")
     goal = start_goal(thread_id, raw)
+    limit = int(goal.get("max_turns") or 0)
     return (
         f"Goal started: **{goal['objective']}**\n\n"
-        f"Turn budget: {goal['turns_used']}/{goal['max_turns']}. "
-        "Row-Bot will continue after each turn until the goal completes, pauses, blocks, or hits the budget."
+        + (f"Turn limit: {limit}. " if limit else "")
+        + "Row-Bot will continue after each turn until the goal completes, pauses or blocks"
+        + (", or reaches the limit." if limit else ".")
     )
 
 
@@ -636,7 +802,7 @@ def format_goal_status(thread_id: str) -> str:
         "**Goal**",
         f"Status: `{goal.get('status')}`",
         f"Objective: {goal.get('objective')}",
-        f"Turns: {goal.get('turns_used', 0)}/{goal.get('max_turns', DEFAULT_GOAL_MAX_TURNS)}",
+        f"Turns: {turn_words(goal)}",
     ]
     if goal.get("last_progress"):
         lines.append(f"Progress: {goal.get('last_progress')}")
@@ -674,8 +840,9 @@ def build_continuation_prompt(goal: Mapping[str, Any]) -> str:
     parts = [
         "[Goal continuation]",
         f"Objective: {goal.get('objective')}",
-        f"Turns used: {goal.get('turns_used', 0)}/{goal.get('max_turns', DEFAULT_GOAL_MAX_TURNS)}",
     ]
+    if int(goal.get("max_turns") or 0):
+        parts.append(f"Turn budget: {goal.get('turns_used', 0)}/{goal.get('max_turns')}")
     if progress:
         parts.append(f"Last progress: {progress}")
     if reason:
@@ -692,15 +859,20 @@ def build_continuation_prompt(goal: Mapping[str, Any]) -> str:
 
 
 def settle_interrupted_goals() -> int:
-    """Pause goals a previous process left working (nothing continues them).
+    """Pause channel goals a previous process left working (nothing here continues them).
 
-    A goal waiting for an approval stays waiting: the approval survives a
-    restart and deciding it lets the goal go on.
+    A conversation's goal goes on by itself once Row-Bot is ready
+    (``conversation_followups.continue_goals_after_restart``; B244). A goal
+    waiting for an approval stays waiting: the approval survives a restart and
+    deciding it lets the goal go on.
     """
     _ensure_goal_schema()
     conn = _get_conn()
     try:
-        rows = conn.execute("SELECT id, revision FROM thread_goals WHERE status = 'active'").fetchall()
+        rows = conn.execute(
+            "SELECT g.id, g.revision FROM thread_goals g "
+            "JOIN channel_thread_refs c ON c.thread_id = g.thread_id WHERE g.status = 'active'"
+        ).fetchall()
     finally:
         conn.close()
     settled = 0
@@ -709,6 +881,20 @@ def settle_interrupted_goals() -> int:
                            verdict="paused", expected_revision=int(row[1] or 0)):
             settled += 1
     return settled
+
+
+def goals_left_working() -> list[dict[str, Any]]:
+    """Active conversation goals (not channel ones), to continue after a restart."""
+    _ensure_goal_schema()
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM thread_goals WHERE status = 'active' AND thread_id NOT IN "
+            "(SELECT thread_id FROM channel_thread_refs) ORDER BY updated_at"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [goal for row in rows if (goal := _goal_from_row(row))]
 
 
 def after_turn(
@@ -737,14 +923,22 @@ def after_turn(
     if status != "active":
         return GoalContinuationDecision(goal, False, reason=f"goal status is {status}", status=status)
 
-    if int(goal.get("turns_used") or 0) >= int(goal.get("max_turns") or DEFAULT_GOAL_MAX_TURNS):
+    if turn_limit_reached(goal):
         goal = set_goal_status(
             goal["id"],
             "paused",
-            reason="Turn budget reached. Resume extends the goal by another default budget window.",
+            reason=f"Reached its limit of {goal['max_turns']} turns. Resume to keep going.",
             verdict="paused",
         ) or goal
-        return GoalContinuationDecision(goal, False, reason="turn budget reached", status="paused")
+        return GoalContinuationDecision(goal, False, reason="turn limit reached", status="paused")
+    if time_limit_reached(goal):
+        goal = set_goal_status(
+            goal["id"],
+            "paused",
+            reason=f"Reached its time limit of {duration_words(goal['max_minutes'])}. Resume to keep going.",
+            verdict="paused",
+        ) or goal
+        return GoalContinuationDecision(goal, False, reason="time limit reached", status="paused")
 
     deterministic = _deterministic_goal_decision(goal)
     if deterministic in {"completed", "blocked", "paused"}:
@@ -768,8 +962,7 @@ def after_turn(
     if not latest_goal or int(latest_goal.get("revision") or 0) != int(goal.get("revision") or 0):
         return GoalContinuationDecision(latest_goal, False, reason="goal changed during verification",
                                         status=str((latest_goal or {}).get("status") or "cleared"))
-    verdict = _normalize_verdict(str(verifier_result.get("verdict") or "continue"))
-    reason = str(verifier_result.get("reason") or "")
+    verdict, progress, reason, failing_step = _judgement(verifier_result)
     if verdict == "complete":
         updated = set_goal_status(
             goal["id"],
@@ -802,13 +995,22 @@ def after_turn(
         )
         goal = updated or get_goal(goal["id"]) or goal
         return GoalContinuationDecision(goal, False, reason="verifier paused" if updated else "goal changed during verification", status=str(goal["status"]))
-    if reason:
-        updated = _record_verifier_reason(goal["id"], verdict, reason, expected_revision=int(goal.get("revision") or 0))
-        if not updated:
-            latest = get_goal(goal["id"]) or goal
-            return GoalContinuationDecision(latest, False, reason="goal changed during verification", status=str(latest["status"]))
-        goal = updated
-    claimed = _claim_continuation(goal["id"], turn_id, expected_revision=int(goal.get("revision") or 0))
+    updated = _record_verifier_reason(
+        goal["id"], verdict, reason, progress=progress, failing_step=failing_step,
+        expected_revision=int(goal.get("revision") or 0),
+    )
+    if not updated:
+        latest = get_goal(goal["id"]) or goal
+        return GoalContinuationDecision(latest, False, reason="goal changed during verification", status=str(latest["status"]))
+    goal = updated
+    stalled = _stall_reason(goal, reason)
+    if stalled:
+        goal = set_goal_status(
+            goal["id"], "paused", reason=stalled, verdict="paused",
+            expected_revision=int(goal.get("revision") or 0),
+        ) or get_goal(goal["id"]) or goal
+        return GoalContinuationDecision(goal, False, reason="no progress", status=str(goal["status"]))
+    claimed =_claim_continuation(goal["id"], turn_id, expected_revision=int(goal.get("revision") or 0))
     if not claimed:
         latest = get_goal(goal["id"])
         return GoalContinuationDecision(latest or goal, False, reason="continuation already claimed or goal changed", status=str((latest or goal).get("status") or "cleared"))
@@ -1043,15 +1245,18 @@ def _invoke_goal_verifier(goal: dict[str, Any], context: dict[str, Any]) -> Mapp
     else:
         llm = get_llm()
     system = (
-        "You are Row-Bot's goal verifier. Return strict JSON only with keys "
-        "`verdict` (continue|complete|blocked|needs_user|paused), `reason`, "
-        "and optional `confidence` from 0 to 1. Do not use tools."
+        "You are Row-Bot's goal verifier. Judge the latest turn against the objective "
+        "and return strict JSON only with keys `progress` (progress: it moved closer; "
+        "no_progress: nothing new since the last turn; done: the objective is met with "
+        "evidence; blocked: it cannot go on without the user), `reason` (one short line), "
+        "and `failing_step` (the step that failed this turn, in a few words, or an empty "
+        "string). Do not use tools."
     )
     payload = {
         "objective": goal.get("objective"),
         "status": goal.get("status"),
         "turns_used": goal.get("turns_used"),
-        "max_turns": goal.get("max_turns"),
+        "max_turns": goal.get("max_turns") or None,
         "last_progress": goal.get("last_progress"),
         "last_verdict": goal.get("last_verdict"),
         "last_reason": goal.get("last_reason"),
@@ -1084,9 +1289,9 @@ def _parse_verifier_json(text: str) -> Mapping[str, Any]:
         parsed = json.loads(match.group(0))
     if not isinstance(parsed, dict):
         raise GoalError("Goal verifier JSON must be an object.")
-    parsed["verdict"] = _normalize_verdict(str(parsed.get("verdict") or "continue"))
-    parsed["reason"] = str(parsed.get("reason") or "")
-    return parsed
+    verdict, progress, reason, failing_step = _judgement(parsed)
+    return {**parsed, "verdict": verdict, "progress": progress, "reason": reason,
+            "failing_step": failing_step}
 
 
 def _record_verifier_failure(goal_id: str, reason: str) -> Mapping[str, Any]:
@@ -1107,14 +1312,22 @@ def _record_verifier_failure(goal_id: str, reason: str) -> Mapping[str, Any]:
     return {"verdict": "continue", "reason": reason}
 
 
-def _record_verifier_reason(goal_id: str, verdict: str, reason: str, *, expected_revision: int | None = None) -> dict[str, Any] | None:
+def _record_verifier_reason(goal_id: str, verdict: str, reason: str, *, progress: str = "progress",
+                            failing_step: str = "", expected_revision: int | None = None) -> dict[str, Any] | None:
+    """Keep the verifier's judgement of a turn and count stalls (B244)."""
     _ensure_goal_schema()
     now = _now()
     conn = _get_conn()
     try:
         conn.execute(
-            "UPDATE thread_goals SET last_verdict = ?, last_reason = ?, updated_at = ?,revision=revision+1 WHERE id = ? AND (? IS NULL OR revision=?)",
-            (_normalize_verdict(verdict), str(reason or ""), now, str(goal_id), expected_revision, expected_revision),
+            "UPDATE thread_goals SET last_verdict = ?, "
+            "last_reason = CASE WHEN ? = '' THEN last_reason ELSE ? END, updated_at = ?, revision=revision+1, "
+            "no_progress_count = CASE WHEN ? = 'no_progress' THEN COALESCE(no_progress_count, 0) + 1 ELSE 0 END, "
+            "failing_step_count = CASE WHEN ? = '' THEN 0 "
+            "WHEN lower(COALESCE(failing_step, '')) = lower(?) THEN COALESCE(failing_step_count, 0) + 1 ELSE 1 END, "
+            "failing_step = ? WHERE id = ? AND (? IS NULL OR revision=?)",
+            (_normalize_verdict(verdict), str(reason or ""), str(reason or ""), now, progress,
+             failing_step, failing_step, failing_step, str(goal_id), expected_revision, expected_revision),
         )
         changed = conn.total_changes
         conn.commit()

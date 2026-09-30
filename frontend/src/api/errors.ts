@@ -123,6 +123,14 @@ const CATALOG: Record<string, Entry> = {
     'This agent has already finished, so it can’t take a message.',
     'none',
   ],
+  agent_work_not_resumable: [
+    'Nothing is left to resume. Dismiss it to clear the notice.',
+    'none',
+  ],
+  agent_resume_unavailable: [
+    'This agent work can’t resume: turn on the Agents tool and check that its model is ready, or dismiss it.',
+    'review',
+  ],
   action_unavailable: ["That isn't available here.", 'none'],
   authentication_required: [
     'Connect to Row-Bot to continue.',

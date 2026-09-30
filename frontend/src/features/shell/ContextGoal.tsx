@@ -33,9 +33,6 @@ export type ContextGoalIO = {
   ) => Promise<GoalReceipt>;
 };
 
-/** A new goal works for up to this many turns unless the person says. */
-export const DEFAULT_GOAL_TURNS = 10;
-
 /**
  * The goal's state in words. "Working" only while a turn of this
  * conversation actually runs; an active goal between turns is about to
@@ -63,27 +60,88 @@ export function goalState(
   }
 }
 
-/** "Turn 3 of 10": the turn under way, else the turns done. */
+/**
+ * "Turn 3", or "Turn 3 of 10" when the goal has a limit (0 is none): the
+ * turn under way, else the turns done.
+ */
 export function goalTurn(
   goal: Pick<GoalSummary, 'turns_used' | 'max_turns' | 'status'>,
   running: boolean,
 ) {
   const working = running && goal.status === 'active';
-  const turn = working
-    ? Math.min(goal.turns_used + 1, goal.max_turns)
-    : goal.turns_used;
-  return `Turn ${turn} of ${goal.max_turns}`;
+  const limit = goal.max_turns;
+  const next = limit
+    ? Math.min(goal.turns_used + 1, limit)
+    : goal.turns_used + 1;
+  const turn = working ? next : goal.turns_used;
+  return limit ? `Turn ${turn} of ${limit}` : `Turn ${turn}`;
+}
+
+/** "2 h 10 min", "45 min", "under a minute". */
+function span(minutes: number) {
+  if (minutes < 1) return 'under a minute';
+  const hours = Math.floor(minutes / 60);
+  const rest = Math.floor(minutes % 60);
+  if (!hours) return `${rest} min`;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/** "12.4k tokens", "950 tokens". */
+function tokenWords(tokens: number) {
+  if (tokens < 1000) return `${tokens} ${tokens === 1 ? 'token' : 'tokens'}`;
+  const thousands = tokens / 1000;
+  return `${thousands < 100 ? thousands.toFixed(1).replace(/\.0$/, '') : Math.round(thousands)}k tokens`;
+}
+
+/**
+ * What the goal has used (B244): time running while it is live ("2 h 10 min
+ * of 8 h" with a time limit) and its tokens.
+ */
+export function goalUsage(
+  goal: Pick<
+    GoalSummary,
+    | 'status'
+    | 'tokens_used'
+    | 'started_at'
+    | 'window_started_at'
+    | 'max_minutes'
+  >,
+  now: Date,
+) {
+  const parts: string[] = [];
+  const began = Date.parse(
+    goal.max_minutes ? goal.window_started_at : goal.started_at,
+  );
+  if (
+    ['active', 'waiting_approval'].includes(goal.status) &&
+    !Number.isNaN(began)
+  ) {
+    const elapsed = span(Math.max(0, (now.getTime() - began) / 60_000));
+    parts.push(
+      goal.max_minutes ? `${elapsed} of ${span(goal.max_minutes)}` : elapsed,
+    );
+  }
+  if (goal.tokens_used > 0) parts.push(tokenWords(goal.tokens_used));
+  return parts;
+}
+
+/** "3 of 10 turns", or "3 turns" without a limit. */
+function turnsDone(goal: Pick<GoalSummary, 'turns_used' | 'max_turns'>) {
+  return goal.max_turns
+    ? `${goal.turns_used} of ${goal.max_turns} turns`
+    : `${goal.turns_used} ${goal.turns_used === 1 ? 'turn' : 'turns'}`;
 }
 
 /** Goal pages read per conversation, reused across remounts in a session. */
 const pages = new Map<string, GoalPage>();
 
 /**
- * The conversation's goal, in Context (decision 16): the objective, "Turn 3
- * of 10", the verifier's latest reason, and Pause / Resume / Stop. Starting
- * one begins work at once and the server continues it turn after turn up to
- * its limit; it stops for approvals and when it needs the person. It re-reads
- * whenever a turn of this conversation starts or ends.
+ * The conversation's goal, in Context (decision 16): the objective, "Turn 3"
+ * (or "Turn 3 of 10" with a limit), the verifier's latest reason, and Pause /
+ * Resume / Stop. Starting one begins work at once and the server continues it
+ * turn after turn (up to its limit, if it has one); it stops for approvals
+ * and when it needs the person. It re-reads whenever a turn of this
+ * conversation starts or ends.
  */
 export default function ContextGoal({
   conversationId,
@@ -94,6 +152,7 @@ export default function ContextGoal({
   compose,
   onComposeDone,
   onStopTurn,
+  now: suppliedNow,
 }: {
   conversationId: string;
   /** Changes when a turn of this conversation starts or ends. */
@@ -106,6 +165,8 @@ export default function ContextGoal({
   onComposeDone: () => void;
   /** Stop the running turn (Stop ends the goal and what it is doing). */
   onStopTurn?: () => void;
+  /** The clock for "time running"; it advances by itself when not given. */
+  now?: Date;
 }) {
   const [page, setPage] = useState<GoalPage | null>(
     () => pages.get(conversationId) ?? null,
@@ -113,7 +174,11 @@ export default function ContextGoal({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [objective, setObjective] = useState('');
-  const [maxTurns, setMaxTurns] = useState(String(DEFAULT_GOAL_TURNS));
+  // Untouched, the limit field shows the Agent runtime default ("" = none).
+  const [typedTurns, setTypedTurns] = useState<string | null>(null);
+  const [hours, setHours] = useState('');
+  const [clock, setClock] = useState(() => new Date());
+  const now = suppliedNow ?? clock;
   const ioRef = useRef(io);
   ioRef.current = io;
   const runningRef = useRef(running);
@@ -164,6 +229,13 @@ export default function ContextGoal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activity, live, ready, running]);
 
+  // Keep "time running" honest while a goal is live.
+  useEffect(() => {
+    if (suppliedNow || !live) return;
+    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [suppliedNow, live]);
+
   async function run(
     operation: GoalCommandPayload['operation'],
     extra: Partial<GoalCommandPayload> = {},
@@ -201,6 +273,8 @@ export default function ContextGoal({
       await read();
       if (operation === 'start') {
         setObjective('');
+        setTypedTurns(null);
+        setHours('');
         onComposeDone();
       }
     } catch (cause) {
@@ -222,8 +296,18 @@ export default function ContextGoal({
     ) ?? [];
   if (!started && !compose && !earlier.length) return null;
   const state = current ? goalState(current, running) : null;
-  const turns = Number(maxTurns);
-  const validTurns = Number.isInteger(turns) && turns >= 1 && turns <= 1000;
+  const maxTurns =
+    typedTurns ??
+    (page?.default_max_turns ? String(page.default_max_turns) : '');
+  // No number means no limit (B243).
+  const turns = maxTurns.trim() ? Number(maxTurns) : null;
+  const validTurns =
+    turns === null || (Number.isInteger(turns) && turns >= 1 && turns <= 1000);
+  // An optional time limit in whole hours, up to a week (B244).
+  const limitHours = hours.trim() ? Number(hours) : null;
+  const validHours =
+    limitHours === null ||
+    (Number.isInteger(limitHours) && limitHours >= 1 && limitHours <= 168);
   const reason = current?.last_reason || current?.last_progress || '';
   return (
     <div className="context-goal-slot">
@@ -245,23 +329,28 @@ export default function ContextGoal({
         {started && current && (
           <div className="context-goal-body" aria-label="Goal" role="group">
             <p className="context-goal-objective">{current.objective}</p>
-            <div
-              className="context-goal-progress"
-              role="progressbar"
-              aria-label="Goal turns"
-              aria-valuetext={goalTurn(current, readRunning)}
-              aria-valuemin={0}
-              aria-valuemax={current.max_turns}
-              aria-valuenow={current.turns_used}
-            >
-              <span
-                style={{
-                  width: `${Math.min(100, (current.turns_used / Math.max(1, current.max_turns)) * 100)}%`,
-                }}
-              />
-            </div>
+            {current.max_turns > 0 && (
+              <div
+                className="context-goal-progress"
+                role="progressbar"
+                aria-label="Goal turns"
+                aria-valuetext={goalTurn(current, readRunning)}
+                aria-valuemin={0}
+                aria-valuemax={current.max_turns}
+                aria-valuenow={current.turns_used}
+              >
+                <span
+                  style={{
+                    width: `${Math.min(100, (current.turns_used / current.max_turns) * 100)}%`,
+                  }}
+                />
+              </div>
+            )}
             <small className="context-goal-meta">
-              {goalTurn(current, readRunning)}
+              {[
+                goalTurn(current, readRunning),
+                ...goalUsage(current, now),
+              ].join(' · ')}
             </small>
             {reason && <p className="context-goal-reason">{reason}</p>}
             {['active', 'waiting_approval', 'paused', 'blocked'].includes(
@@ -298,10 +387,11 @@ export default function ContextGoal({
             aria-label="Set a goal"
             onSubmit={(event) => {
               event.preventDefault();
-              if (!objective.trim() || !validTurns) return;
+              if (!objective.trim() || !validTurns || !validHours) return;
               void run('start', {
                 objective: objective.trim(),
                 max_turns: turns,
+                max_minutes: limitHours === null ? null : limitHours * 60,
                 reason: null,
               });
             }}
@@ -325,9 +415,22 @@ export default function ContextGoal({
                   type="number"
                   min={1}
                   max={1000}
+                  placeholder="No limit"
                   value={maxTurns}
                   disabled={busy || !page}
-                  onChange={(event) => setMaxTurns(event.target.value)}
+                  onChange={(event) => setTypedTurns(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Time limit (hours)</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={168}
+                  placeholder="No limit"
+                  value={hours}
+                  disabled={busy || !page}
+                  onChange={(event) => setHours(event.target.value)}
                 />
               </label>
               <Button
@@ -335,6 +438,8 @@ export default function ContextGoal({
                 disabled={busy}
                 onClick={() => {
                   setObjective('');
+                  setTypedTurns(null);
+                  setHours('');
                   onComposeDone();
                 }}
               >
@@ -343,7 +448,13 @@ export default function ContextGoal({
               <Button
                 type="submit"
                 variant="primary"
-                disabled={busy || !page || !objective.trim() || !validTurns}
+                disabled={
+                  busy ||
+                  !page ||
+                  !objective.trim() ||
+                  !validTurns ||
+                  !validHours
+                }
               >
                 <Target size={14} aria-hidden /> Start goal
               </Button>
@@ -368,8 +479,7 @@ export default function ContextGoal({
                 <li key={goal.id}>
                   <span>{goal.objective}</span>
                   <small>
-                    {goalState(goal, false).label} · {goal.turns_used} of{' '}
-                    {goal.max_turns} turns
+                    {goalState(goal, false).label} · {turnsDone(goal)}
                   </small>
                 </li>
               ))}

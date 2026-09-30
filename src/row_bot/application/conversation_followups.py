@@ -1,6 +1,6 @@
 """Turns the server starts to continue a conversation after a reply ends.
 
-A goal keeps working turn after turn up to its limit, and work the assistant
+A goal keeps working turn after turn (up to its limit, if it has one), and work the assistant
 set up in a reply (a new design or code folder) continues in a follow-up turn
 once that reply has finished, when the new resource is bound for the turn.
 
@@ -9,20 +9,45 @@ an approval pause, and a message the person queued goes first. Its prompt is
 stored as an internal input whose public text is a short note ("Goal · turn 3
 of 10"), so the transcript explains why the assistant continues.
 
-Pending follow-ups live in memory: a restart drops them, and active goals are
-paused at start (``goals.settle_interrupted_goals``) so nothing reads "Working"
-while idle.
+Pending follow-ups live in memory: a restart drops them, and once Row-Bot is
+ready again every active goal takes its next turn from its last saved state
+(``continue_goals_after_restart``; B244).
+
+A turn stopped by a provider's rate or usage limit makes the goal wait and
+continue by itself when the provider said when the limit resets; without a
+reset time the goal pauses and says so (B244).
 """
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 _LOG = logging.getLogger(__name__)
 _LOCK = threading.Lock()
+# Goals waiting for a provider limit to reset: conversation -> seconds.
+_LIMIT_WAITS: dict[str, float] = {}
+
+
+def _schedule(delay: float, run: Callable[[], None]) -> None:
+    """Run ``run`` once, ``delay`` seconds from now."""
+    timer = threading.Timer(delay, run)
+    timer.daemon = True
+    timer.start()
+
+
+def _about(seconds: float) -> str:
+    """"about 2 minutes" for a wait, rounded up."""
+    if seconds < 60:
+        count, unit = max(1, math.ceil(seconds)), "second"
+    elif seconds < 3600:
+        count, unit = math.ceil(seconds / 60), "minute"
+    else:
+        count, unit = math.ceil(seconds / 3600), "hour"
+    return f"{count} {unit}{'' if count == 1 else 's'}"
 
 FollowupKind = Literal["goal", "resource"]
 
@@ -113,6 +138,11 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
     conversation_id = handle.conversation_id
     if status != "completed":
         discard(conversation_id)
+        with _LOCK:
+            wait = _LIMIT_WAITS.pop(conversation_id, None)
+        if wait:
+            _schedule(wait, lambda: _after_limit_reset(service, conversation_id))
+            return
         goal = live_goal(conversation_id)
         # Stop can land while the goal step was still deciding.
         if goal is not None and goal.get("status") == "active" and status != "waiting_approval":
@@ -140,7 +170,7 @@ def after_finish(service: Any, handle: Any, status: str) -> None:
 def goal_note(goal: dict[str, Any]) -> str:
     used = int(goal.get("turns_used") or 0)
     limit = int(goal.get("max_turns") or 0)
-    return f"Goal · turn {min(used + 1, limit) if limit else used + 1} of {limit}" if limit else "Goal"
+    return f"Goal · turn {min(used + 1, limit)} of {limit}" if limit else f"Goal · turn {used + 1}"
 
 
 def live_goal(conversation_id: str) -> dict[str, Any] | None:
@@ -152,16 +182,23 @@ def live_goal(conversation_id: str) -> dict[str, Any] | None:
 
 
 def after_platform_turn(conversation_id: str, *, generation_id: str, status: str,
-                        assistant_text: str, model_ref: str, goal_id: str = "") -> None:
+                        assistant_text: str, model_ref: str, goal_id: str = "",
+                        error_text: str = "") -> None:
     """Advance the conversation's goal after one of its turns ended.
 
     Completed turns count toward the goal and may schedule the next step;
     an approval pause marks the goal as waiting; Stop and failures pause it
     with the reason, so it never reads as working while nothing runs. A turn
     in which the model finished the goal (``goal_id`` was live when it began)
-    still counts, so the card reads "Done · Turn 3 of 3".
+    still counts, so the card reads "Done · Turn 3 of 3". A provider limit
+    with a reset time makes the goal wait instead (``error_text``).
     """
     from row_bot import goals
+    if goal_id:
+        try:
+            _count_turn_tokens(conversation_id, goal_id)
+        except Exception:
+            _LOG.warning("The goal's tokens were not counted for %s", conversation_id, exc_info=True)
     goal = live_goal(conversation_id)
     if goal is None:
         finished = (goals.get_current_goal(conversation_id, include_terminal=True)
@@ -190,12 +227,58 @@ def after_platform_turn(conversation_id: str, *, generation_id: str, status: str
             discard(conversation_id, "goal")
         else:
             discard(conversation_id, "goal")
+            wait = goals.provider_limit_wait(error_text) if status == "interrupted" else None
+            if wait:
+                # It goes on by itself once the limit resets (after_finish).
+                with _LOCK:
+                    _LIMIT_WAITS[conversation_id] = wait
+                goals.set_goal_status(
+                    str(goal["id"]), "active", verdict="continue",
+                    reason=f"The provider's usage limit was reached. Continuing in about {_about(wait)}.",
+                    expected_revision=int(goal.get("revision") or 0))
+                return
             reason = ("You stopped the reply." if status == "stopped"
+                      else "The provider's rate or usage limit stopped the goal. "
+                           "Resume it once the limit resets." if wait == 0.0
                       else "The reply didn't finish.")
             goals.set_goal_status(str(goal["id"]), "paused", reason=reason, verdict="paused",
                                   expected_revision=int(goal.get("revision") or 0))
     except Exception:
         _LOG.exception("Goal step after a turn failed for %s", conversation_id)
+
+
+def _count_turn_tokens(conversation_id: str, goal_id: str) -> None:
+    """Add the tokens this turn's replies used to the goal's total (B244).
+
+    The turn's replies are the assistant messages after its input; a turn
+    resumed after an approval skips the ones its first part already counted.
+    """
+    from row_bot import goals, threads
+    goal = goals.get_goal(goal_id)
+    if not goal:
+        return
+    saved = threads.checkpointer.get_tuple({"configurable": {"thread_id": conversation_id, "checkpoint_ns": ""}})
+    messages = list(saved.checkpoint.get("channel_values", {}).get("messages", []) or []) if saved else []
+    start = next((index + 1 for index in range(len(messages) - 1, -1, -1)
+                  if getattr(messages[index], "type", "") == "human"), 0)
+    turn = messages[start:]
+    ids = [str(getattr(message, "id", "") or "") for message in turn]
+    counted = str(goal.get("tokens_counted_through") or "")
+    if counted in ids:
+        turn = turn[ids.index(counted) + 1:]
+    replies = [message for message in turn if getattr(message, "type", "") == "ai"]
+    if replies:
+        tokens = sum(int((getattr(message, "usage_metadata", None) or {}).get("total_tokens") or 0)
+                     for message in replies)
+        goals.record_goal_tokens(goal_id, tokens, str(getattr(replies[-1], "id", "") or ""))
+
+
+def _after_limit_reset(service: Any, conversation_id: str) -> None:
+    """The provider's limit has reset: the waiting goal takes its next turn."""
+    goal = live_goal(conversation_id)
+    if goal is None or goal.get("status") != "active":
+        return  # Paused, stopped or done while it waited.
+    start_goal_turn(service, conversation_id, goal, initial=False)
 
 
 def start_goal_turn(service: Any, conversation_id: str, goal: dict[str, Any], *,
@@ -213,6 +296,20 @@ def start_goal_turn(service: Any, conversation_id: str, goal: dict[str, Any], *,
         goals.set_goal_status(str(goal["id"]), "paused",
                               reason="The goal couldn't start. Choose a model, then resume it.",
                               verdict="paused", expected_revision=int(goal.get("revision") or 0))
+
+
+def continue_goals_after_restart(service: Any) -> int:
+    """Goals left working when Row-Bot closed go on from their last saved turn (B244).
+
+    Their next turn gets the continuation prompt with the saved progress; a goal
+    waiting for an approval keeps waiting for it, and channel goals are paused
+    at start (``goals.settle_interrupted_goals``).
+    """
+    from row_bot import goals
+    goals_left = goals.goals_left_working()
+    for goal in goals_left:
+        start_goal_turn(service, str(goal["thread_id"]), goal, initial=False)
+    return len(goals_left)
 
 
 def after_goal_change(service: Any, conversation_id: str, operation: str,

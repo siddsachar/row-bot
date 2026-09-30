@@ -3318,6 +3318,10 @@ class GoalSummary(WireModel):
     max_turns: int = Field(ge=0, le=1000)
     token_budget: int = Field(ge=0)
     tokens_used: int = Field(ge=0)
+    # Time running and the optional time limit (minutes, 0 = none; B244).
+    started_at: str = Field(max_length=64)
+    window_started_at: str = Field(max_length=64)
+    max_minutes: int = Field(ge=0, le=10080)
     last_progress: str = Field(max_length=2049)
     last_reason: str = Field(max_length=2049)
     evidence: list[str] = Field(max_length=10)
@@ -3335,6 +3339,8 @@ class GoalPage(WireModel):
     items: list[GoalSummary] = Field(max_length=50)
     total: int = Field(ge=0, le=500)
     next_cursor: str | None = Field(max_length=80)
+    # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
+    default_max_turns: int = Field(ge=0, le=1000)
 
 
 class GoalDetail(WireModel):
@@ -3349,6 +3355,7 @@ class GoalCommandPayload(WireModel):
     operation: GoalOperation
     objective: str | None = Field(max_length=4096)
     max_turns: int | None = Field(ge=1, le=1000)
+    max_minutes: int | None = Field(default=None, ge=1, le=10080)
     reason: str | None = Field(max_length=1024)
 
 
@@ -4494,6 +4501,8 @@ class AgentRuntimeSettingsState(WireModel):
     max_concurrent_children: int = Field(ge=1, le=1000000)
     max_active_children_global: int = Field(ge=1, le=1000000)
     child_timeout_seconds: int = Field(ge=0, le=1000000)
+    # Turns a new goal may take unless its start says otherwise; 0 = no limit.
+    goal_max_turns: int = Field(ge=0, le=1000)
 
 
 class ModelCatalogProviderSummary(WireModel):
@@ -5775,6 +5784,8 @@ class Command(WireModel):
         "agent.stop",
         "agent.message",
         "agent.start",
+        "agent.resume",
+        "agent.dismiss",
         "media.save",
         "conversation.queue.edit",
         "conversation.queue.remove",
@@ -5953,6 +5964,9 @@ COMMAND_PAYLOADS = {
     "agent.stop": AgentStopPayload,
     "agent.message": AgentMessagePayload,
     "agent.start": AgentStartPayload,
+    # The conversation's interrupted agent work: Resume runs it, Dismiss stops it.
+    "agent.resume": EmptyPayload,
+    "agent.dismiss": EmptyPayload,
     "media.save": MediaSavePayload,
     "conversation.queue.edit": QueueEditPayload,
     "conversation.queue.remove": QueueItemCommand,

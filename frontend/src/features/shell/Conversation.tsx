@@ -61,7 +61,10 @@ import WaitingMessages, {
   type WaitingMessage,
 } from './WaitingMessages';
 import ContextUsage from './ContextUsage';
-import DelegatedActivity, { recentReads } from './DelegatedActivity';
+import DelegatedActivity, {
+  interruptedWork,
+  recentReads,
+} from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
 import { ContextSlot, useContextHost } from './context-host';
 import {
@@ -80,7 +83,7 @@ import {
   slashArgument,
   type SlashArgument,
 } from './slash-arguments';
-import { DEFAULT_GOAL_TURNS, resetContextGoals } from './ContextGoal';
+import { resetContextGoals } from './ContextGoal';
 import {
   currentProfileChoice,
   openAgentProfiles,
@@ -927,7 +930,8 @@ export default function Conversation({
           revision: page.current_revision,
           operation: request.operation,
           objective: start ? request.objective : null,
-          max_turns: start ? DEFAULT_GOAL_TURNS : null,
+          // The Agent runtime default, else no limit (B243).
+          max_turns: start ? page.default_max_turns || null : null,
           reason: start ? null : '',
         };
         const review = await controller.reviewGoal(target, payload);
@@ -1954,6 +1958,23 @@ export default function Conversation({
           id,
           'agent.message',
           { run_id: run, message_id: crypto.randomUUID(), text },
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
+      interrupted={interruptedWork(state.conversation)}
+      resumeWork={async () => {
+        await controller.intent(
+          id,
+          'agent.resume',
+          {},
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
+      dismissWork={async () => {
+        await controller.intent(
+          id,
+          'agent.dismiss',
+          {},
           controller.getSnapshot().conversation?.revision ?? '0',
         );
       }}

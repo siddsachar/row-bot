@@ -919,3 +919,54 @@ it('advances its own clock every minute when no time is supplied', () => {
     vi.useRealTimers();
   }
 });
+
+it('lets interrupted agent work be resumed or dismissed from Needs you (B220)', async () => {
+  const resumable = conversation('chat-cut', 'Phase 5 developer', {
+    activity_state: 'attention',
+    activity_phase: 'resume_required',
+  });
+  const finished = conversation('chat-done', 'Secure storage', {
+    activity_state: 'attention',
+    activity_phase: 'interrupted',
+  });
+  const onResumeAgentWork = vi.fn().mockResolvedValue(undefined);
+  const onDismissAgentWork = vi.fn().mockResolvedValue(undefined);
+  show({
+    conversations: [resumable, finished],
+    onResumeAgentWork,
+    onDismissAgentWork,
+  });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  const row = (title: string) =>
+    within(needs)
+      .getByRole('button', { name: `Review agent work in ${title}` })
+      .closest('li')!;
+  const cut = row('Phase 5 developer');
+  expect(cut).toHaveTextContent('Agent work was interrupted');
+  await act(async () => {
+    fireEvent.click(
+      within(cut).getByRole('button', { name: 'Resume agent work' }),
+    );
+  });
+  expect(onResumeAgentWork).toHaveBeenCalledWith(resumable);
+
+  // Nothing left to run there: Dismiss only.
+  const done = row('Secure storage');
+  expect(
+    within(done).queryByRole('button', { name: 'Resume agent work' }),
+  ).not.toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(
+      within(done).getByRole('button', { name: 'Dismiss agent work' }),
+    );
+  });
+  expect(onDismissAgentWork).toHaveBeenCalledWith(finished);
+  expect(handlers.onOpenConversation).not.toHaveBeenCalled();
+
+  fireEvent.click(
+    within(needs).getByRole('button', {
+      name: 'Review agent work in Phase 5 developer',
+    }),
+  );
+  expect(handlers.onOpenConversation).toHaveBeenCalledWith('chat-cut');
+});

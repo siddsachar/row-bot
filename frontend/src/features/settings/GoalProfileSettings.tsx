@@ -76,6 +76,8 @@ export type GoalPage = {
   items: GoalSummary[];
   total: number;
   next_cursor: string | null;
+  /** The turn limit a new goal starts with; 0 = no limit. */
+  default_max_turns: number;
 };
 export type GoalOperation = 'start' | 'pause' | 'resume' | 'complete' | 'clear';
 export type GoalPayload = {
@@ -283,7 +285,8 @@ type State = {
   profileQuery: string;
   profileScope: '' | ProfileScope;
   objective: string;
-  maxTurns: string;
+  /** Typed turn limit; null shows the page's default ("" = no limit). */
+  maxTurns: string | null;
   reason: string;
   profileMode: '' | 'create' | 'edit' | 'duplicate' | 'view';
   profileDraft: ProfileDraft;
@@ -324,7 +327,7 @@ export function createGoalProfileSettingsSession() {
     profileQuery: '',
     profileScope: '',
     objective: '',
-    maxTurns: '24',
+    maxTurns: null,
     reason: '',
     profileMode: '',
     profileDraft: emptyProfileDraft(),
@@ -385,6 +388,7 @@ export function createGoalProfileSettingsSession() {
         profilePage: null,
         selectedProfile: null,
         objective: '',
+        maxTurns: null,
         reason: '',
         profileMode: '',
         profileDraft: emptyProfileDraft(),
@@ -435,6 +439,13 @@ export type GoalProfileSettingsProps = {
     review: ProfileReview,
   ) => Promise<ProfileReceipt>;
 };
+
+/** The limit field: what was typed, else the default ("" = no limit). */
+function shownTurns(typed: string | null, page: GoalPage | null) {
+  return (
+    typed ?? (page?.default_max_turns ? String(page.default_max_turns) : '')
+  );
+}
 
 function validGoalPage(page: GoalPage, conversationId: string) {
   if (
@@ -680,16 +691,17 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
       current.pending
     )
       return;
-    const maxTurns = Number(current.maxTurns);
+    const typed = shownTurns(current.maxTurns, page).trim();
+    // No number means no turn limit (B243).
+    const maxTurns = typed ? Number(typed) : null;
     if (
       operation === 'start' &&
       (!current.objective.trim() ||
-        !Number.isInteger(maxTurns) ||
-        maxTurns < 1 ||
-        maxTurns > 1000)
+        (maxTurns !== null &&
+          (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 1000)))
     ) {
       session.update({
-        message: 'Enter a goal and a turn limit from 1 to 1000.',
+        message: 'Enter a goal, and a turn limit from 1 to 1000 or none.',
       });
       return;
     }
@@ -1002,7 +1014,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             type="number"
             min={1}
             max={1000}
-            value={state.maxTurns}
+            placeholder="No limit"
+            value={shownTurns(state.maxTurns, state.goalPage)}
             onChange={(event) =>
               session.update({ maxTurns: event.target.value, reviewed: null })
             }
@@ -1030,8 +1043,10 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           <li className="surface" key={goal.id}>
             <strong>{goal.objective}</strong>
             <p>
-              {humanizeToken(goal.status)} · {goal.turns_used} of{' '}
-              {goal.max_turns} turns
+              {humanizeToken(goal.status)} ·{' '}
+              {goal.max_turns
+                ? `${goal.turns_used} of ${goal.max_turns} turns`
+                : `${goal.turns_used} turns`}
             </p>
             {goal.last_progress && <p>{goal.last_progress}</p>}
             {goal.last_reason && <p>{goal.last_reason}</p>}

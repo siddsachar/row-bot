@@ -2694,12 +2694,13 @@ it('starts a delegated agent with /agent and its task', async () => {
   );
 });
 
-it('starts a goal at once with /goal and a limit of 10', async () => {
+it('starts a goal at once with /goal and no turn limit unless Agent runtime sets one (B243)', async () => {
   withCommands();
   mock.goals.mockResolvedValue({
     conversation_id: 'conversation-a',
     current_goal_id: null,
     current_revision: 'none',
+    default_max_turns: 0,
     items: [],
   });
   mock.reviewGoal.mockImplementation(async (_id: string, payload) => ({
@@ -2713,7 +2714,7 @@ it('starts a goal at once with /goal and a limit of 10', async () => {
     expect.objectContaining({
       operation: 'start',
       objective: 'Draft three posts about tides',
-      max_turns: 10,
+      max_turns: null,
     }),
   );
   expect(mock.executeGoal.mock.calls[0][1]).toMatchObject({
