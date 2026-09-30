@@ -44,6 +44,11 @@ def test_knowledge_graph_requires_auth_and_returns_bounded_snapshot(saved):
     graph = response.json()
     assert len(graph["nodes"]) == 25
     assert graph["total_entities"] == 205 and graph["truncated"] is True
+    # Each memory says its review status and recall tier (B264).
+    assert {(node["status"], node["tier"]) for node in graph["nodes"]} == {
+        ("active", "resource")
+    }
+    assert graph["status_counts"]["active"] == 205
     assert service.commands == []
 
 

@@ -81,7 +81,8 @@ const descriptions: Record<string, string> = {
   providers: 'Where Row-Bot’s models come from. Defaults live in Models.',
   models: 'Which model does each job.',
   voice: 'Talk, dictation and read-aloud.',
-  knowledge: 'The memory graph, the wiki vault and stored knowledge.',
+  knowledge:
+    'Memory, graph health and the wiki vault. Memories live in Knowledge.',
   documents: 'Files Row-Bot can search and learn from.',
   tracker: 'Habits, symptoms and health events you track.',
   tools: 'Search, research and built-in tools the assistant can use.',

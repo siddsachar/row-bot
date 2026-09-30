@@ -175,6 +175,16 @@ class KnowledgeGraphNode:
     relation_count: int
     orphan: bool
     is_user: bool
+    status: Literal["active", "needs_review", "superseded", "archived"]
+    tier: Literal["core", "semantic", "episodic", "resource"]
+
+
+@dataclass(frozen=True)
+class KnowledgeStatusCounts:
+    active: int
+    needs_review: int
+    superseded: int
+    archived: int
 
 
 @dataclass(frozen=True)
@@ -201,6 +211,7 @@ class KnowledgeGraphSnapshot:
     center_id: str | None
     entity_types: tuple[str, ...]
     sources: tuple[str, ...]
+    status_counts: KnowledgeStatusCounts
 
 
 _STATUSES = {
@@ -726,6 +737,23 @@ def _source_bucket(source: str, props: dict[str, Any]) -> str:
     return "other"
 
 
+def _status_and_tier(
+    props: dict[str, Any], source: str, entity_type: str
+) -> tuple[str, str]:
+    """A memory's review status and recall tier, as the saved list filters them."""
+    status = str(props.get("status") or "active").lower()
+    if status not in _ENTITY_STATUSES:
+        status = "active"
+    tier = str(props.get("memory_tier") or "").lower()
+    if tier not in _ENTITY_TIERS:
+        tier = (
+            "resource"
+            if source.startswith("document:") or entity_type == "media"
+            else "semantic"
+        )
+    return status, tier
+
+
 def _empty_detail(availability: str) -> EntityDetail:
     return EntityDetail(
         1,
@@ -828,17 +856,7 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
     # A recall is not an edit: the stamp stays out of the detail's revision.
     recalled_at = entity.pop("recalled_at")
     props = _safe_properties(entity["properties"])
-    status = str(props.get("status") or "active").lower()
-    if status not in _ENTITY_STATUSES:
-        status = "active"
-    tier = str(props.get("memory_tier") or "").lower()
-    if tier not in _ENTITY_TIERS:
-        tier = (
-            "resource"
-            if entity["source"].startswith("document:")
-            or entity["entity_type"] == "media"
-            else "semantic"
-        )
+    status, tier = _status_and_tier(props, entity["source"], entity["entity_type"])
     confidence = props.get("confidence")
     try:
         confidence = (
@@ -1282,6 +1300,7 @@ def _empty_graph_snapshot(
         None,
         (),
         (),
+        KnowledgeStatusCounts(0, 0, 0, 0),
     )
 
 
@@ -1374,6 +1393,18 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                 "SELECT (SELECT COUNT(*) FROM entities),(SELECT COUNT(*) FROM relations)"
             ).fetchone()
             total_entities, total_relations = int(totals[0]), int(totals[1])
+            # Every memory's status, normalized as the saved list filters it.
+            status_counts = dict.fromkeys(_ENTITY_STATUSES, 0)
+            for status, count in conn.execute(
+                """
+                SELECT CASE WHEN json_valid(properties) THEN
+                  CASE lower(COALESCE(json_extract(properties,'$.status'),'active'))
+                    WHEN 'needs_review' THEN 'needs_review' WHEN 'superseded' THEN 'superseded'
+                    WHEN 'archived' THEN 'archived' ELSE 'active' END
+                  ELSE 'active' END,COUNT(*) FROM entities GROUP BY 1
+                """
+            ):
+                status_counts[status] = int(count)
             rows = conn.execute(
                 """
                 WITH degree AS (
@@ -1423,6 +1454,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                 updated_at = _bounded_text(raw["updated_at"], 128)
                 props = _safe_properties(raw["properties"])
                 source = _source_bucket(raw["source"], props)
+                status, tier = _status_and_tier(props, raw["source"], raw["entity_type"])
                 aliases, _alias_count = _string_items(
                     raw["aliases"], limit=64, item_limit=256
                 )
@@ -1443,6 +1475,8 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                     relation_count,
                     relation_count == 0,
                     "user" in normalized,
+                    status,
+                    tier,
                 )
                 nodes.append(node)
                 node_ids.append(identifier)
@@ -1503,6 +1537,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                 center_id,
                 tuple(sorted(entity_types)),
                 tuple(sorted(sources)),
+                KnowledgeStatusCounts(**status_counts),
             )
         finally:
             conn.close()

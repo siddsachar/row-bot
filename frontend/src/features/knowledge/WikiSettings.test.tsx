@@ -322,7 +322,7 @@ it('shows the saved wiki vault and counts without authorizing or mutating it', a
   ).toBeDisabled();
   expect(
     screen.getByRole('link', { name: 'Browse or create knowledge' }),
-  ).toHaveAttribute('href', '/app-v2/settings/knowledge');
+  ).toHaveAttribute('href', '/app-v2/?tab=knowledge');
 });
 
 it('reports the one-time vault tidy until it is dismissed', async () => {

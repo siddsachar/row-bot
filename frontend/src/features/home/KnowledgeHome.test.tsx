@@ -1,11 +1,13 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import type { EntitySummary, EntitySummaryPage } from '../../api/types';
 import KnowledgeHome, {
   type KnowledgeDreamState,
   type KnowledgeGraphEdge,
   type KnowledgeGraphNode,
   type KnowledgeGraphSnapshot,
+  type KnowledgeMemoryQuery,
   type KnowledgeNodeDetail,
 } from './KnowledgeHome';
 import type { KnowledgeGraphHandle } from './KnowledgeGraphCanvas';
@@ -89,6 +91,8 @@ const populated: KnowledgeGraphSnapshot = {
       relation_count: 1,
       orphan: false,
       is_user: true,
+      status: 'active',
+      tier: 'core',
     },
     {
       id: 'alpha',
@@ -101,6 +105,8 @@ const populated: KnowledgeGraphSnapshot = {
       relation_count: 1,
       orphan: false,
       is_user: false,
+      status: 'needs_review',
+      tier: 'episodic',
     },
     {
       id: 'quiet',
@@ -113,6 +119,8 @@ const populated: KnowledgeGraphSnapshot = {
       relation_count: 0,
       orphan: true,
       is_user: false,
+      status: 'archived',
+      tier: 'resource',
     },
   ],
   edges: [
@@ -132,6 +140,7 @@ const populated: KnowledgeGraphSnapshot = {
   center_id: 'user',
   entity_types: ['fact', 'person', 'preference'],
   sources: ['document', 'extraction', 'manual'],
+  status_counts: { active: 1, needs_review: 1, superseded: 0, archived: 1 },
 };
 
 const empty: KnowledgeGraphSnapshot = {
@@ -145,6 +154,7 @@ const empty: KnowledgeGraphSnapshot = {
   center_id: null,
   entity_types: [],
   sources: [],
+  status_counts: {},
 };
 
 const idleDream: KnowledgeDreamState = {
@@ -953,9 +963,15 @@ describe('memory inspector', () => {
     expect(
       within(connections).getByRole('button', { name: /Archived memory$/ }),
     ).toBeDisabled();
+    // The rest are listed in the editor's relations (B264).
     expect(
-      within(connections).getByText('2 more connections in Settings › Memory.'),
+      within(connections).getByText(/^2 more connections\./),
     ).toBeVisible();
+    await user.click(
+      within(connections).getByRole('button', { name: 'Show all connections' }),
+    );
+    expect(onMerge).toHaveBeenLastCalledWith('alpha');
+    onMerge.mockClear();
 
     await user.click(
       within(inspector).getByRole('button', { name: 'Merge or replace' }),
@@ -1334,5 +1350,428 @@ describe('Dream Cycle', () => {
       'Dream Cycle is already running.',
     );
     expect(onDream).toHaveBeenCalledTimes(2);
+  });
+});
+
+function saved(
+  id: string,
+  subject: string,
+  entity_type = 'fact',
+): EntitySummary {
+  return {
+    id,
+    entity_type,
+    subject,
+    description: '',
+    updated_at: '2026-09-19T10:00:00Z',
+    truncated: false,
+    saved_state: 'saved',
+    semantic_state: 'unknown',
+  };
+}
+
+function savedPage(items: EntitySummary[]): EntitySummaryPage {
+  return {
+    schema_version: 1,
+    revision: 'r'.repeat(64),
+    items,
+    total: items.length,
+    next_cursor: null,
+    availability: 'available',
+  };
+}
+
+function optionTexts(select: HTMLElement) {
+  return within(select)
+    .getAllByRole('option')
+    .map((option) => option.textContent);
+}
+
+// Everything Settings › Memory used to hold, now in Knowledge (B264).
+describe('the saved library in Knowledge', () => {
+  it('filters by status and memory type, with counts, and Show everything clears them', async () => {
+    const user = userEvent.setup();
+    render(<KnowledgeHome {...props()} />);
+    const filters = await openFilters(user);
+    const status = within(filters).getByRole('combobox', { name: 'Status' });
+    expect(optionTexts(status)).toEqual([
+      'All statuses',
+      'Active · 1',
+      'Needs review · 1',
+      'Superseded · 0',
+      'Archived · 1',
+    ]);
+    await user.selectOptions(status, 'needs_review');
+    expect(listedMemories()).toEqual(['Alpha project']);
+    await user.selectOptions(status, 'archived');
+    expect(listedMemories()).toEqual(['Quiet preference']);
+    await user.selectOptions(status, '');
+
+    const tier = within(filters).getByRole('combobox', { name: 'Memory type' });
+    expect(optionTexts(tier)).toEqual([
+      'All memory types',
+      'Core · always recalled · 1',
+      'Long-term knowledge · 0',
+      'From a conversation · 1',
+      'From a document or media · 1',
+    ]);
+    await user.selectOptions(tier, 'core');
+    expect(listedMemories()).toEqual(['User']);
+    expect(stats()).toHaveTextContent('showing 1 of 3');
+    await user.click(
+      within(filters).getByRole('button', { name: 'Show everything' }),
+    );
+    expect(listedMemories()).toHaveLength(3);
+    expect(tier).toHaveValue('');
+    expect(status).toHaveValue('');
+  });
+
+  it('reviews every memory Row-Bot was unsure about: mark reviewed, edit, archive or open', async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn();
+    const onLifecycle = vi.fn(async () => true);
+    const listMemories = vi.fn(async (query: KnowledgeMemoryQuery) =>
+      savedPage(
+        query.status === 'needs_review'
+          ? [saved('alpha', 'Alpha project'), saved('far', 'Far memory')]
+          : [],
+      ),
+    );
+    const loadDetail = vi.fn(async (id: string) => ({
+      ...detail(id),
+      id,
+      subject: id === 'far' ? 'Far memory' : detail(id).subject,
+      revision: `${id}-revision`,
+    }));
+    render(
+      <KnowledgeHome
+        {...props({ onEdit, onLifecycle, listMemories, loadDetail })}
+      />,
+    );
+    // The whole library's count, from the snapshot, leads to the queue.
+    await user.click(
+      within(stats()).getByRole('button', { name: '1 needs review' }),
+    );
+    expect(screen.getByRole('radio', { name: 'Review' })).toBeChecked();
+    const review = screen.getByRole('region', { name: 'Needs review' });
+    expect(listMemories).toHaveBeenCalledWith(
+      { status: 'needs_review' },
+      undefined,
+      expect.any(AbortSignal),
+    );
+    const far = await within(review).findByRole('group', {
+      name: 'Far memory',
+    });
+    expect(review).toHaveTextContent('2 memories Row-Bot was unsure about.');
+
+    // Each change is reviewed at the memory's current revision.
+    await user.click(
+      within(far).getByRole('button', { name: 'Mark as reviewed' }),
+    );
+    expect(onLifecycle).toHaveBeenLastCalledWith(
+      'far',
+      'far-revision',
+      'knowledge.resolve',
+      'Far memory',
+    );
+    await waitFor(() => expect(listMemories).toHaveBeenCalledTimes(2));
+    const alpha = within(review).getByRole('group', { name: 'Alpha project' });
+    await user.click(
+      within(alpha).getByRole('button', { name: 'Archive memory' }),
+    );
+    expect(onLifecycle).toHaveBeenLastCalledWith(
+      'alpha',
+      'alpha-revision',
+      'knowledge.archive',
+      'Alpha project',
+    );
+    await user.click(
+      within(alpha).getByRole('button', { name: 'Edit memory' }),
+    );
+    expect(onEdit).toHaveBeenCalledWith('alpha');
+
+    // A memory the map does not include still opens.
+    await user.click(within(far).getByRole('button', { name: /^Far memory/ }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Far memory' }),
+    ).toBeInTheDocument();
+    expect(loadDetail).toHaveBeenLastCalledWith('far');
+  });
+
+  it('says when nothing needs review', async () => {
+    const user = userEvent.setup();
+    render(
+      <KnowledgeHome
+        {...props({
+          onLifecycle: vi.fn(),
+          listMemories: vi.fn(async () => savedPage([])),
+        })}
+      />,
+    );
+    await user.click(screen.getByRole('radio', { name: 'Review' }));
+    expect(await screen.findByText('Nothing needs review')).toBeVisible();
+    // The map's legend and caption belong to Graph and List.
+    expect(screen.queryByRole('group', { name: 'Memory types' })).toBeNull();
+    expect(screen.queryByLabelText('Knowledge statistics')).toBeNull();
+  });
+
+  it('ticks memories in the list and deletes them together', async () => {
+    const user = userEvent.setup();
+    const onDeleteMany = vi
+      .fn<(memories: { id: string; subject: string }[]) => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    render(<KnowledgeHome {...props({ onDeleteMany })} />);
+    // Only the List view offers tick boxes.
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    await user.click(screen.getByRole('radio', { name: 'List' }));
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select Alpha project' }),
+    );
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select Quiet preference' }),
+    );
+    // Ticking a row does not open it.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const bar = screen.getByRole('toolbar', { name: 'Selected memories' });
+    expect(bar).toHaveTextContent('2 selected');
+    expect(screen.queryByLabelText('Knowledge statistics')).toBeNull();
+
+    await user.click(
+      within(bar).getByRole('button', { name: 'Delete selected memories' }),
+    );
+    expect(onDeleteMany).toHaveBeenLastCalledWith([
+      { id: 'alpha', subject: 'Alpha project' },
+      { id: 'quiet', subject: 'Quiet preference' },
+    ]);
+    // Declined: the ticks stay. Done: they clear.
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Alpha project' }),
+    ).toBeChecked();
+    await user.click(
+      within(bar).getByRole('button', { name: 'Delete selected memories' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('toolbar', { name: 'Selected memories' }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Alpha project' }),
+    ).not.toBeChecked();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select User' }));
+    await user.click(
+      within(
+        screen.getByRole('toolbar', { name: 'Selected memories' }),
+      ).getByRole('button', { name: 'Clear selection' }),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Select User' }),
+    ).not.toBeChecked();
+    expect(onDeleteMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('searches the whole saved library, including memories the map does not show', async () => {
+    const user = userEvent.setup();
+    const listMemories = vi.fn(async () =>
+      savedPage([
+        saved('quiet', 'Quiet preference', 'preference'),
+        saved('far', 'Far memory', 'project'),
+      ]),
+    );
+    const loadDetail = vi.fn(async (id: string) =>
+      id === 'far'
+        ? { ...detail('quiet'), id, subject: 'Far memory' }
+        : detail(id),
+    );
+    render(
+      <KnowledgeHome
+        {...props({ listMemories, loadDetail, onLifecycle: vi.fn() })}
+      />,
+    );
+    const search = screen.getByRole('combobox', { name: 'Search memories' });
+    // An alias or tag: nothing loaded matches it by name or description.
+    await user.type(search, 'nickname');
+    expect(screen.getByText('Searching every memory…')).toBeInTheDocument();
+    const results = await screen.findByRole('listbox', {
+      name: 'Matching memories',
+    });
+    expect(optionTexts(results)).toEqual([
+      'Quiet preferencePreference · 0',
+      'Far memoryProject · not in the map',
+    ]);
+    // One read after typing stops, not one per key.
+    expect(listMemories).toHaveBeenCalledExactlyOnceWith(
+      { query: 'nickname' },
+      undefined,
+      expect.any(AbortSignal),
+    );
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(
+      await screen.findByRole('dialog', { name: 'Far memory' }),
+    ).toBeInTheDocument();
+    expect(loadDetail).toHaveBeenLastCalledWith('far');
+  });
+
+  it('shows the full record, the review reason and archive, restore and review actions', async () => {
+    const user = userEvent.setup();
+    const onLifecycle = vi.fn(async () => true);
+    const loadDetail = vi.fn(
+      async (id: string): Promise<KnowledgeNodeDetail> =>
+        id === 'alpha'
+          ? {
+              ...detail(id),
+              status: 'needs_review',
+              review_reason: 'Two sources disagree',
+              can_archive: true,
+              can_resolve: true,
+              created_at: '2026-09-10T10:00:00Z',
+              last_user_modified_at: '2026-09-12T10:00:00Z',
+              last_evolved_at: '2026-09-13T10:00:00Z',
+              last_recalled_at: '2026-09-14T10:00:00Z',
+              source_context: ['actor: extraction', 'thread name: Planning'],
+              evidence: ['Said on Monday'],
+              evidence_count: 3,
+            }
+          : id === 'quiet'
+            ? {
+                ...detail(id),
+                status: 'superseded',
+                superseded_by: 'user',
+                can_archive: true,
+              }
+            : { ...detail(id), status: 'archived', can_restore: true },
+    );
+    render(<KnowledgeHome {...props({ loadDetail, onLifecycle })} />);
+    let inspector = await openMemory(user, 'Alpha project');
+    const note = await within(inspector).findByRole('note', {
+      name: 'Needs review',
+    });
+    expect(note).toHaveTextContent('Two sources disagree');
+    await user.click(
+      within(note).getByRole('button', { name: 'Mark as reviewed' }),
+    );
+    expect(onLifecycle).toHaveBeenLastCalledWith(
+      'alpha',
+      revision,
+      'knowledge.resolve',
+      'Alpha project',
+    );
+    // The memory is read again once it changed.
+    await waitFor(() =>
+      expect(
+        loadDetail.mock.calls.filter(([id]) => id === 'alpha'),
+      ).toHaveLength(2),
+    );
+    await user.click(
+      await within(inspector).findByRole('button', { name: 'Archive memory' }),
+    );
+    expect(onLifecycle).toHaveBeenLastCalledWith(
+      'alpha',
+      revision,
+      'knowledge.archive',
+      'Alpha project',
+    );
+
+    // The record waits behind Details.
+    const fact = (term: string) =>
+      within(inspector).getByText(term, { selector: 'dt' }).nextElementSibling;
+    expect(fact('ID')).not.toBeVisible();
+    await user.click(within(inspector).getByText('Details'));
+    expect(fact('ID')).toHaveTextContent('alpha');
+    for (const term of [
+      'Created',
+      'Edited by you',
+      'Refined by Row-Bot',
+      'Last recalled',
+    ])
+      expect(fact(term)?.querySelector('time')).toBeVisible();
+    expect(within(inspector).getByText('thread name: Planning')).toBeVisible();
+    expect(within(inspector).getByText('Said on Monday')).toBeVisible();
+    expect(
+      within(inspector).getByText('2 more pieces of evidence'),
+    ).toBeVisible();
+
+    // A replaced memory leads to the one that replaced it.
+    inspector = await openMemory(user, 'Quiet preference');
+    await user.click(
+      await within(inspector).findByRole('button', {
+        name: 'Open the newer memory',
+      }),
+    );
+    inspector = await screen.findByRole('dialog', { name: 'User' });
+    await user.click(
+      await within(inspector).findByRole('button', { name: 'Restore memory' }),
+    );
+    expect(onLifecycle).toHaveBeenLastCalledWith(
+      'user',
+      revision,
+      'knowledge.restore',
+      'User',
+    );
+    expect(
+      within(inspector).queryByRole('button', { name: 'Archive memory' }),
+    ).toBeNull();
+  });
+
+  it('reads the change and recall logs only when Activity opens', async () => {
+    const user = userEvent.setup();
+    const loadChangeLog = vi.fn(async () => ({
+      schema_version: 1 as const,
+      availability: 'available' as const,
+      items: [
+        {
+          timestamp: '2026-09-19T11:00:00Z',
+          action: 'user_modified',
+          actor: 'manual',
+          old_status: 'needs_review',
+          new_status: 'active',
+          subjects: ['Alpha project'],
+          additional_subjects: 2,
+          reason: 'resolve_review',
+        },
+      ],
+    }));
+    const loadRecalls = vi.fn(async () => ({
+      schema_version: 1 as const,
+      availability: 'available' as const,
+      items: [
+        {
+          timestamp: '2026-09-19T10:00:00Z',
+          outcome: 'used' as const,
+          reason: 'Relevant to the question',
+          candidate_count: 2,
+          selected_count: 1,
+          context_characters: 120,
+          candidates: [{ subject: 'Alpha project', score: 0.91 }],
+          rejection_reasons: [],
+        },
+      ],
+    }));
+    render(<KnowledgeHome {...props({ loadChangeLog, loadRecalls })} />);
+    expect(loadChangeLog).not.toHaveBeenCalled();
+    expect(loadRecalls).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('radio', { name: 'Activity' }));
+
+    const changes = screen.getByRole('region', { name: 'Memory changes' });
+    expect(await within(changes).findByText('User modified')).toBeVisible();
+    expect(within(changes).getByText('Alpha project +2 more')).toBeVisible();
+    // Status codes read as words (U59).
+    expect(
+      within(changes).getByText('Status: needs review → active'),
+    ).toBeVisible();
+    expect(within(changes).getByText('resolve review')).toBeVisible();
+
+    const recalls = screen.getByRole('region', { name: 'Recall decisions' });
+    expect(await within(recalls).findByText('Memory used')).toBeVisible();
+    expect(
+      within(recalls).getByText('Candidates: Alpha project (0.91)'),
+    ).toBeVisible();
+    expect(within(recalls).getByText(/1 of 2 used/)).toBeVisible();
+    // Times read in words, with the full date on hover (U59).
+    expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
+    expect(loadChangeLog).toHaveBeenCalledOnce();
+    expect(loadRecalls).toHaveBeenCalledOnce();
   });
 });

@@ -1348,8 +1348,7 @@
 }
 
 /* Legacy owner pieces inside the new anatomy: no boxes, no tinted fills. -- */
-.settings-page-content .settings-reviewed-action,
-.settings-page-content .settings-knowledge-review-queue {
+.settings-page-content .settings-reviewed-action {
   border: 0;
   border-radius: 0;
   background: none;
@@ -2183,25 +2182,8 @@
 }
 
 /* Memory, Wiki vault, Buddy, accounts and agent pages: flat sections. -- */
-.settings-page-content .settings-knowledge-page {
-  gap: 28px;
-}
-.settings-page-content .settings-knowledge-page > .settings-snapshot-section,
-.settings-page-content
-  .settings-knowledge-page
-  > .settings-knowledge-wiki-panel,
-.settings-page-content .settings-knowledge-catalog,
-.settings-page-content .settings-knowledge-danger {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-}
-.settings-page-content .settings-knowledge-graph h2,
 .settings-page-content .settings-knowledge-wiki-panel h2,
-.settings-page-content .settings-saved-catalog h2,
-.settings-page-content .settings-knowledge-catalog h2,
-.settings-page-content .settings-knowledge-page h2 {
+.settings-page-content .settings-saved-catalog h2 {
   margin: 0;
   color: var(--text-primary);
   font-size: var(--text-14);
@@ -2229,9 +2211,6 @@
   color: var(--text-muted);
   font-size: var(--type-size-metadata);
   font-weight: var(--weight-regular);
-}
-.settings-page-content .settings-knowledge-types {
-  margin: 0;
 }
 .settings-page-content
   .settings-knowledge-wiki-panel
@@ -2262,9 +2241,6 @@
 }
 .settings-wiki-tidy code {
   overflow-wrap: anywhere;
-}
-.settings-page-content .settings-knowledge-lifecycle .status-chip {
-  background: none;
 }
 
 /* Buddy. */
@@ -3615,6 +3591,12 @@
 }
 .settings-row[data-layout='stacked'] > .settings-row-control {
   justify-content: stretch;
+}
+/* A read-only value in a row's control column (Memory › Graph health). */
+.settings-row-value {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-variant-numeric: tabular-nums;
 }
 .settings-row-extra {
   display: grid;

@@ -33,15 +33,23 @@ const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
 /**
  * Every visible memory as a dense, sortable table. Only the rows in view are
  * rendered; the spacer rows keep the scroll height and row positions honest.
+ * With `checked`, each row has a tick box for bulk actions (B264).
  */
 export default function KnowledgeList({
   nodes,
   selectedId,
   onSelect,
+  checked,
+  onCheck,
+  checkFull = false,
 }: {
   nodes: readonly KnowledgeGraphNode[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  checked?: ReadonlySet<string>;
+  onCheck?: (id: string) => void;
+  /** The bulk limit is reached: only ticked rows can change. */
+  checkFull?: boolean;
 }) {
   const [sort, setSort] = useState<{ key: SortKey; direction: 1 | -1 }>({
     key: 'relation_count',
@@ -171,17 +179,34 @@ export default function KnowledgeList({
               onClick={() => onSelect(node.id)}
             >
               <td>
-                <button
-                  type="button"
-                  className="knowledge-list-open"
-                  aria-current={node.id === selectedId ? 'true' : undefined}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSelect(node.id);
-                  }}
-                >
-                  {node.subject}
-                </button>
+                <span className="knowledge-list-memory">
+                  {checked && onCheck && (
+                    // The label is the larger touch target.
+                    <label
+                      className="knowledge-list-check"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${node.subject}`}
+                        checked={checked.has(node.id)}
+                        disabled={checkFull && !checked.has(node.id)}
+                        onChange={() => onCheck(node.id)}
+                      />
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    className="knowledge-list-open"
+                    aria-current={node.id === selectedId ? 'true' : undefined}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect(node.id);
+                    }}
+                  >
+                    {node.subject}
+                  </button>
+                </span>
               </td>
               <td>
                 <span className="knowledge-type">

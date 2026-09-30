@@ -1,5 +1,11 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
@@ -17,7 +23,7 @@ import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
 import CustomToolsSettings from './CustomToolsSettings';
-import KnowledgeCatalog from './KnowledgeCatalog';
+import MemorySettings from './MemorySettings';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
@@ -38,7 +44,6 @@ import SubscriptionOptions from './SubscriptionOptions';
 import McpConnectionsPanel, { type McpConnections } from './McpConnections';
 import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
-import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
 import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
@@ -196,6 +201,12 @@ export default function SettingRoute() {
     settingsSnapshotReload,
     state.handshake?.server_epoch,
   ]);
+  // Settings › Memory's "Delete all" is reviewed against this catalog (B264).
+  const loadKnowledgeCatalog = useCallback(
+    (signal?: AbortSignal) =>
+      controller.savedEntities('', undefined, undefined, signal),
+    [controller],
+  );
   if (THREAD_SETTINGS.has(setting.toLowerCase())) {
     // Goals belong to one conversation: open it, where Context shows them.
     const conversation =
@@ -500,95 +511,45 @@ export default function SettingRoute() {
             />
           </>
         ) : leaf.id === 'knowledge' ? (
-          <>
-            <KnowledgeCatalog
-              key={session}
-              loadFiltered={(filters, cursor, signal) =>
-                controller.knowledgeEntities(
-                  filters.query,
-                  filters.entityType || undefined,
-                  filters.status || undefined,
-                  filters.source || undefined,
-                  filters.tier || undefined,
-                  cursor,
+          // B264: settings only; memories are browsed and edited in Knowledge.
+          <MemorySettings
+            key={session}
+            loadCatalog={loadKnowledgeCatalog}
+            maintenance={{
+              review: (action, catalogRevision, targets, signal) =>
+                controller.reviewKnowledgeMaintenance(
+                  {
+                    action,
+                    catalog_revision: catalogRevision,
+                    targets,
+                  },
                   signal,
-                )
-              }
-              loadDetail={controller.knowledgeEntityDetail}
-              loadRecalls={controller.knowledgeRecalls}
-              loadChangeLog={controller.knowledgeChangeLog}
-              maintenance={{
-                review: (action, catalogRevision, targets, signal) =>
-                  controller.reviewKnowledgeMaintenance(
-                    {
-                      action,
-                      catalog_revision: catalogRevision,
-                      targets,
-                    },
-                    signal,
-                  ),
-                execute: (review, commandId) =>
-                  controller.executeKnowledgeMaintenance({
-                    command_id: commandId,
-                    type: review.action,
-                    payload: {
-                      catalog_revision: review.catalog_revision,
-                      targets: review.targets,
-                      action_digest: review.action_digest,
-                      review_id: review.review_id,
-                    },
-                  }),
-                receipt: controller.knowledgeMaintenanceReceipt,
-              }}
-              settingsMutation={mutation}
-              wikiSession={wikiOwner?.get()}
-              wikiSnapshot={settingsSnapshot?.wiki}
-              onOpen={(id) => knowledgeOwner?.get()?.open(id)}
-              onCreate={
-                knowledgeOwner?.get()
-                  ? () => knowledgeOwner.get()?.open(null)
-                  : undefined
-              }
-              onLifecycle={async (id, revision, action) => {
-                const review = await controller.reviewKnowledge(action, {
-                  entity_id: id,
-                  revision,
-                });
-                const receipt = await controller.executeKnowledge({
-                  command_id: crypto.randomUUID(),
-                  type: action,
+                ),
+              execute: (review, commandId) =>
+                controller.executeKnowledgeMaintenance({
+                  command_id: commandId,
+                  type: review.action,
                   payload: {
-                    entity_id: id,
-                    revision: review.revision,
+                    catalog_revision: review.catalog_revision,
+                    targets: review.targets,
+                    action_digest: review.action_digest,
                     review_id: review.review_id,
                   },
-                });
-                if (receipt.status !== 'completed')
-                  throw { code: receipt.code ?? 'knowledge_outcome_uncertain' };
-                setKnowledgeRefresh((value) => value + 1);
-                setSettingsSnapshotReload((value) => value + 1);
-                void wikiOwner?.get()?.load();
-              }}
-              onMutation={() => {
-                knowledgeOwner?.get()?.close();
-                setKnowledgeRefresh((value) => value + 1);
-                setSettingsSnapshotReload((value) => value + 1);
-                void wikiOwner?.get()?.load();
-              }}
-              snapshot={settingsSnapshot?.knowledge}
-              refreshToken={knowledgeRefresh}
-            />
-            {knowledgeOwner?.get() && (
-              <KnowledgeEditorDialog
-                owner={knowledgeOwner.get()!}
-                onMutation={() => {
-                  setKnowledgeRefresh((value) => value + 1);
-                  setSettingsSnapshotReload((value) => value + 1);
-                  void wikiOwner?.get()?.load();
-                }}
-              />
-            )}
-          </>
+                }),
+              receipt: controller.knowledgeMaintenanceReceipt,
+            }}
+            settingsMutation={mutation}
+            wikiSession={wikiOwner?.get()}
+            wikiSnapshot={settingsSnapshot?.wiki}
+            onMutation={() => {
+              knowledgeOwner?.get()?.close();
+              setKnowledgeRefresh((value) => value + 1);
+              setSettingsSnapshotReload((value) => value + 1);
+              void wikiOwner?.get()?.load();
+            }}
+            snapshot={settingsSnapshot?.knowledge}
+            refreshToken={knowledgeRefresh}
+          />
         ) : leaf.id === 'channels' && channelOwner?.get() ? (
           <ChannelSettings
             session={channelOwner.get()!}

@@ -19,7 +19,11 @@ import { useClientState, useRuntime } from '../../runtime';
 import { Tabs } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import TaskLibrary from '../tasks/TaskLibrary';
-import KnowledgeHome, { type KnowledgeDreamState } from '../home/KnowledgeHome';
+import KnowledgeHome, {
+  type KnowledgeDreamState,
+  type KnowledgeMemoryQuery,
+} from '../home/KnowledgeHome';
+import type { KnowledgeLifecycleAction } from '../home/KnowledgeReview';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
 import OverviewHome from '../home/OverviewHome';
@@ -188,6 +192,20 @@ export default function Home() {
     (id: string) => controller.knowledgeEntityDetail(id),
     [controller],
   );
+  // The whole saved library (search, the review queue), not only the map.
+  const listMemories = useCallback(
+    (query: KnowledgeMemoryQuery, cursor?: string, signal?: AbortSignal) =>
+      controller.knowledgeEntities(
+        query.query ?? '',
+        undefined,
+        query.status,
+        undefined,
+        undefined,
+        cursor,
+        signal,
+      ),
+    [controller],
+  );
   const loadLogs = useCallback(
     (signal?: AbortSignal) => controller.monitorLogs(200, signal),
     [controller],
@@ -316,18 +334,29 @@ export default function Home() {
     };
     attempt();
   };
-  /** Review one memory's deletion, confirm it, then delete it. */
-  const deleteMemory = async (id: string, subject: string) => {
+  /**
+   * Review the deletion of one memory or up to 100 at their current
+   * revisions, confirm it, then delete them.
+   */
+  const deleteMemories = async (
+    memories: { id: string; subject: string }[],
+  ) => {
+    const one = memories.length === 1 ? memories[0] : null;
     let review;
     try {
-      const [catalog, detail] = await Promise.all([
+      const [catalog, ...details] = await Promise.all([
         controller.savedEntities(),
-        controller.knowledgeEntityDetail(id),
+        ...memories.map((memory) =>
+          controller.knowledgeEntityDetail(memory.id),
+        ),
       ]);
       review = await controller.reviewKnowledgeMaintenance({
-        action: 'knowledge.delete',
+        action: one ? 'knowledge.delete' : 'knowledge.delete.bulk',
         catalog_revision: catalog.revision,
-        targets: [{ entity_id: id, revision: detail.revision }],
+        targets: memories.map((memory, index) => ({
+          entity_id: memory.id,
+          revision: details[index].revision,
+        })),
       });
     } catch (cause) {
       overlay.notify(
@@ -338,10 +367,15 @@ export default function Home() {
     return new Promise<boolean>((resolve) => {
       overlay.open({
         kind: 'alert',
-        title: `Delete '${subject}'?`,
-        description:
-          'This permanently removes the memory, its connections and its search entries. It cannot be undone.',
-        confirmLabel: 'Delete memory',
+        title: one
+          ? `Delete '${one.subject}'?`
+          : `Delete ${memories.length} memories?`,
+        description: one
+          ? 'This permanently removes the memory, its connections and its search entries. It cannot be undone.'
+          : 'This permanently removes these memories, their connections and their search entries. It cannot be undone.',
+        confirmLabel: one
+          ? 'Delete memory'
+          : `Delete ${memories.length} memories`,
         onConfirm: () => {
           void controller
             .executeKnowledgeMaintenance({
@@ -358,9 +392,11 @@ export default function Home() {
               (receipt) => {
                 const done = receipt.status === 'completed';
                 overlay.notify(
-                  done
-                    ? `${subject} deleted.`
-                    : 'The deletion did not complete. Nothing else changed.',
+                  !done
+                    ? 'The deletion did not complete. Nothing else changed.'
+                    : one
+                      ? `${one.subject} deleted.`
+                      : `${memories.length} memories deleted.`,
                 );
                 if (done) setKnowledgeReload((value) => value + 1);
                 resolve(done);
@@ -373,6 +409,43 @@ export default function Home() {
         },
       });
     });
+  };
+  /** Archive, restore or mark reviewed, reviewed at the revision shown. */
+  const changeMemory = async (
+    id: string,
+    revision: string,
+    action: KnowledgeLifecycleAction,
+    subject: string,
+  ) => {
+    try {
+      const review = await controller.reviewKnowledge(action, {
+        entity_id: id,
+        revision,
+      });
+      const receipt = await controller.executeKnowledge({
+        command_id: crypto.randomUUID(),
+        type: action,
+        payload: {
+          entity_id: id,
+          revision: review.revision,
+          review_id: review.review_id,
+        },
+      });
+      if (receipt.status !== 'completed')
+        throw { code: receipt.code ?? 'knowledge_outcome_uncertain' };
+    } catch (cause) {
+      overlay.notify(clientError(cause).message, 'danger');
+      return false;
+    }
+    overlay.notify(
+      action === 'knowledge.archive'
+        ? `${subject} archived.`
+        : action === 'knowledge.restore'
+          ? `${subject} restored.`
+          : `${subject} marked as reviewed.`,
+    );
+    setKnowledgeReload((value) => value + 1);
+    return true;
   };
   // Wait for the one onboarding read only while connected; a disconnected
   // Home still shows its connection state.
@@ -475,7 +548,12 @@ export default function Home() {
                     : undefined
                 }
                 onMerge={mergeMemory}
-                onDelete={deleteMemory}
+                onDelete={(id, subject) => deleteMemories([{ id, subject }])}
+                onDeleteMany={deleteMemories}
+                onLifecycle={changeMemory}
+                listMemories={listMemories}
+                loadRecalls={controller.knowledgeRecalls}
+                loadChangeLog={controller.knowledgeChangeLog}
                 onOpenConversation={openConversation}
                 dream={dreamState}
                 dreamLastRun={monitor?.dream.last_run ?? null}

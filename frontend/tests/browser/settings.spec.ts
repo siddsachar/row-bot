@@ -931,7 +931,21 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
   expect((await saved()).calls).toEqual(['resolve', 'download']);
 });
 
-test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecycle changes', async ({
+/** Home › Knowledge as a list (the graph needs WebGL), then one memory. */
+async function openKnowledgeMemory(page: Page, subject: string) {
+  await page.getByRole('radio', { name: 'List', exact: true }).click();
+  await page
+    .getByRole('table', { name: 'Knowledge entities', exact: true })
+    .getByRole('button', { name: subject, exact: true })
+    .click();
+  const inspector = page.getByRole('dialog', { name: subject, exact: true });
+  await expect(inspector).toBeVisible();
+  return inspector;
+}
+
+// B264: memories are browsed and edited in Knowledge; Settings › Memory keeps
+// the settings and leads there.
+test('Knowledge adds memory, searches the library, retains editor drafts, and confirms lifecycle changes', async ({
   page,
 }, info) => {
   const headers = {
@@ -944,6 +958,9 @@ test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecyc
     ).ok(),
   ).toBe(true);
   await page.goto('/app-v2/settings/knowledge');
+  await expect(page.getByRole('searchbox')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Open Knowledge', exact: true }).click();
+  await expect(page).toHaveURL(/\/app-v2\/\?tab=knowledge$/);
   // Phase 13: Add memory opens a blank editor (closing it keeps nothing).
   await page.getByRole('button', { name: 'Add memory', exact: true }).click();
   const adding = page.getByRole('dialog', { name: 'Add memory', exact: true });
@@ -952,32 +969,29 @@ test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecyc
   );
   await page.keyboard.press('Escape');
   await expect(adding).toHaveCount(0);
-  // Earlier specs in the shared fixture may add entries; the page size is fixed.
-  await expect(
-    page.getByText(/^Showing 25 of \d+ matching entries\.$/),
-  ).toBeVisible();
-  await page
-    .getByRole('searchbox', { name: 'Search knowledge' })
-    .fill('Phase 4 knowledge 002');
-  await expect(
-    page.getByText('Showing 1 of 1 matching entries.'),
-  ).toBeVisible();
-  const filtered = page.waitForResponse((response) => {
+  // Search reads the whole saved library, not only the memories in the map.
+  const searched = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return (
       url.pathname.endsWith('/knowledge/entities') &&
-      url.searchParams.get('query') === 'Phase 4 knowledge 002' &&
-      url.searchParams.get('status') === 'active'
+      url.searchParams.get('query') === 'Phase 4 knowledge 002'
     );
   });
-  await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
-  await filtered;
-  await expect(
-    page.getByText('Showing 1 of 1 matching entries.'),
-  ).toBeVisible();
-  const entry = page.locator('.settings-knowledge-result').first();
-  await entry.locator('summary').click();
-  await entry.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Search memories', exact: true })
+    .fill('Phase 4 knowledge 002');
+  expect((await searched).ok()).toBe(true);
+  await page
+    .getByRole('listbox', { name: 'Matching memories', exact: true })
+    .getByRole('option', { name: /^Phase 4 knowledge 002/ })
+    .click();
+  let inspector = page.getByRole('dialog', {
+    name: 'Phase 4 knowledge 002',
+    exact: true,
+  });
+  await inspector
+    .getByRole('button', { name: 'Edit memory', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'Edit knowledge' });
   const editor = dialog;
   await expect(dialog).toBeVisible();
@@ -987,41 +1001,15 @@ test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecyc
   // Close without saving: the owner retains the unsaved draft.
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
-  await openHomeThroughNavigation(page);
   await openSettingsRouteFromHome(page, {
     linkName: 'Memory',
     path: '/app-v2/settings/knowledge',
     headingName: 'Memory',
   });
-  await expect(
-    page.getByText(/^Showing 25 of \d+ matching entries\.$/),
-  ).toBeVisible();
-  await page
-    .getByRole('searchbox', { name: 'Search knowledge' })
-    .fill('Phase 4 knowledge 002');
-  await expect(
-    page.getByText('Showing 1 of 1 matching entries.'),
-  ).toBeVisible();
-  const reopenedFilter = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return (
-      url.pathname.endsWith('/knowledge/entities') &&
-      url.searchParams.get('query') === 'Phase 4 knowledge 002' &&
-      url.searchParams.get('status') === 'active'
-    );
-  });
-  await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
-  await reopenedFilter;
-  await expect(
-    page.getByText('Showing 1 of 1 matching entries.'),
-  ).toBeVisible();
-  const reopenedEntry = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Phase 4 knowledge 002' })
-    .first();
-  await reopenedEntry.locator('summary').click();
-  await reopenedEntry
-    .getByRole('button', { name: 'Edit', exact: true })
+  await page.getByRole('link', { name: 'Open Knowledge', exact: true }).click();
+  inspector = await openKnowledgeMemory(page, 'Phase 4 knowledge 002');
+  await inspector
+    .getByRole('button', { name: 'Edit memory', exact: true })
     .click();
   await expect(dialog).toBeVisible();
   await expect(
@@ -1037,45 +1025,37 @@ test('Knowledge Settings adds memory, retains modal drafts, and confirms lifecyc
       { exact: true },
     ),
   ).toBeVisible();
-  const refreshedCatalog = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return (
-      url.pathname.endsWith('/knowledge/entities') &&
-      url.searchParams.get('query') === 'Phase 4 knowledge 002' &&
-      url.searchParams.get('status') === 'active'
-    );
-  });
   await editor.getByRole('button', { name: /reload saved entry$/i }).click();
-  await refreshedCatalog;
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
-  const archive = reopenedEntry.getByRole('button', {
-    name: 'Archive',
+  // Archive and restore are reviewed by the server and applied in one step.
+  await inspector
+    .getByRole('button', { name: 'Archive memory', exact: true })
+    .click();
+  await expect(
+    page.getByText('Phase 4 knowledge 002 archived.', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Memory filters', exact: true })
+    .getByRole('combobox', { name: 'Status', exact: true })
+    .selectOption('archived');
+  await page.keyboard.press('Escape');
+  const list = page.getByRole('table', {
+    name: 'Knowledge entities',
     exact: true,
   });
-  // The reloaded catalog can replace the row (collapsed) at any moment, so
-  // open it idempotently until its details are showing.
-  await expect(async () => {
-    const open = await reopenedEntry
-      .locator('details')
-      .first()
-      .evaluate((element) => (element as HTMLDetailsElement).open);
-    if (!open) await reopenedEntry.locator('summary').first().click();
-    await expect(
-      reopenedEntry.getByText('p4-entity-002', { exact: true }),
-    ).toBeVisible({ timeout: 1_000 });
-  }).toPass();
-  // Archive and restore are reviewed by the server and applied in one step.
-  await archive.click();
-  await expect(page.getByText('No matching knowledge')).toBeVisible();
-  await page.getByRole('combobox', { name: 'Status' }).selectOption('archived');
-  const archived = page.locator('.settings-knowledge-result').first();
-  await archived.locator('summary').click();
-  await archived.getByRole('button', { name: 'Restore', exact: true }).click();
   await expect(
-    page.locator('.settings-knowledge-result', {
-      hasText: 'Phase 4 knowledge 002',
-    }),
+    list.getByRole('button', { name: 'Phase 4 knowledge 002', exact: true }),
+  ).toBeVisible();
+  await inspector
+    .getByRole('button', { name: 'Restore memory', exact: true })
+    .click();
+  await expect(
+    page.getByText('Phase 4 knowledge 002 restored.', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    list.getByRole('button', { name: 'Phase 4 knowledge 002', exact: true }),
   ).toHaveCount(0);
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
@@ -1097,15 +1077,10 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
       await page.request.post('/__p4_fixture/knowledge/populated', { headers })
     ).ok(),
   ).toBe(true);
-  await page.goto('/app-v2/settings/knowledge');
-  const entry = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Phase 4 knowledge 000' })
-    .first();
-  await entry.locator('summary').click();
-  await entry.getByRole('button', { name: 'Edit', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Relations and replacement', exact: true })
+  await page.goto('/app-v2/?tab=knowledge');
+  let inspector = await openKnowledgeMemory(page, 'Phase 4 knowledge 000');
+  await inspector
+    .getByRole('button', { name: 'Merge or replace', exact: true })
     .click();
   const relations = page.getByRole('region', {
     name: 'Knowledge relations',
@@ -1124,18 +1099,10 @@ test('Knowledge relations retain reviewed targets and save directed edges remova
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
   await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Memory',
-    path: '/app-v2/settings/knowledge',
-    headingName: 'Memory',
-  });
-  const reopenedEntry = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Phase 4 knowledge 000' })
-    .first();
-  await reopenedEntry.locator('summary').click();
-  await reopenedEntry
-    .getByRole('button', { name: 'Edit', exact: true })
+  await page.getByRole('tab', { name: 'Knowledge', exact: true }).click();
+  inspector = await openKnowledgeMemory(page, 'Phase 4 knowledge 000');
+  await inspector
+    .getByRole('button', { name: 'Edit memory', exact: true })
     .click();
   await expect(relations).toBeVisible();
   await expect(
@@ -2036,70 +2003,98 @@ test.describe('Knowledge settings', () => {
   // system appearance; Knowledge also runs on the native network path.
   test.use({ nativeNetwork: true });
 
-  test('Knowledge Settings keeps its hierarchy, filters, review and delete flows', async ({
+  // B264: the library's filters, search, record, activity and bulk deletion
+  // live in Knowledge; Settings › Memory keeps the switch, the wiki vault and
+  // Delete all.
+  test('Knowledge keeps the library flows and Settings keeps memory, the wiki vault and Delete all', async ({
     page,
   }, info) => {
     await seedKnowledge(page, 'populated');
-    await page.goto('/app-v2/settings/knowledge');
-
-    await expect(
-      page.getByRole('region', { name: 'Memory graph summary' }),
-    ).toBeVisible();
-    const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
-    await expect(wiki).toBeVisible();
-    await expect(
-      wiki.getByRole('button', { name: 'Browse', exact: true }),
-    ).toBeVisible();
-    await expect(
-      wiki.getByRole('button', { name: 'Check vault sync', exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('heading', { name: 'Needs Review' }),
-    ).toBeVisible();
-    await expect(
-      page.locator('.settings-knowledge-filters').getByRole('combobox'),
-    ).toHaveCount(4);
-    await expect(page.locator('.settings-knowledge-result')).toHaveCount(25);
-    // Earlier specs in the shared fixture may add entries; the page size is fixed.
-    const showing = page.getByText(/^Showing 25 of \d+ matching entries\.$/);
-    await expect(showing).toBeVisible();
-    const total = Number(/of (\d+)/.exec((await showing.textContent())!)![1]);
+    await page.goto('/app-v2/?tab=knowledge');
+    const stats = page.getByLabel('Knowledge statistics', { exact: true });
+    await expect(stats).toBeVisible();
+    // Earlier specs in the shared fixture may add entries.
+    const total = Number(
+      /^([\d,]+) memor/
+        .exec((await stats.textContent())!)![1]
+        .replaceAll(',', ''),
+    );
     expect(total).toBeGreaterThanOrEqual(105);
 
-    const memory = page.getByRole('switch', { name: 'Enable Memory' });
-    const wasEnabled = await memory.isChecked();
-    // The memory setting is reviewed by the server and applied in one step.
-    await memory.click();
-    await expect(memory).toBeChecked({ checked: !wasEnabled });
+    // The review queue reads the whole library.
+    await stats.getByRole('button', { name: /needs? review$/ }).click();
     await expect(
-      page.getByRole('region', { name: 'Memory graph summary' }),
-    ).toContainText(wasEnabled ? 'Memory disabled' : 'Memory enabled');
-    // Later specs share this fixture: put the setting back.
-    await memory.click();
-    await expect(memory).toBeChecked({ checked: wasEnabled });
-
-    const search = page.getByRole('searchbox', { name: 'Search knowledge' });
-    await search.fill('tail needle');
-    await expect(page.locator('.settings-knowledge-result')).toHaveCount(1);
-    await page.getByRole('combobox', { name: 'Category' }).selectOption('fact');
-    await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
-    await page
-      .getByRole('combobox', { name: 'Source' })
-      .selectOption('extraction');
-    await page.getByRole('combobox', { name: 'Tier' }).selectOption('semantic');
-    await expect(page.locator('.settings-knowledge-result')).toHaveCount(1);
-
-    const row = page.locator('.settings-knowledge-result').first();
-    await row.locator('summary').click();
-    await expect(row.getByText('p4-entity-104', { exact: true })).toBeVisible();
-    await expect(row.getByText('semantic', { exact: true })).toBeVisible();
-    await row.getByText('Provenance', { exact: true }).click();
-    await expect(
-      row.getByText('Source: synthetic', { exact: true }),
+      page
+        .getByRole('region', { name: 'Needs review', exact: true })
+        .getByRole('group', { name: 'Phase 4 knowledge 000', exact: true }),
     ).toBeVisible();
-    await row.getByRole('button', { name: /Edit/ }).click();
+
+    // Status and memory type filters.
+    await page.getByRole('radio', { name: 'List', exact: true }).click();
+    const list = page.getByRole('table', {
+      name: 'Knowledge entities',
+      exact: true,
+    });
+    await page.getByRole('button', { name: 'Filters', exact: true }).click();
+    const filters = page.getByRole('dialog', {
+      name: 'Memory filters',
+      exact: true,
+    });
+    await filters
+      .getByRole('combobox', { name: 'Status', exact: true })
+      .selectOption('archived');
+    await expect(
+      list.getByRole('button', { name: 'Phase 4 knowledge 001', exact: true }),
+    ).toBeVisible();
+    await expect(
+      list.getByRole('button', { name: 'Phase 4 knowledge 002', exact: true }),
+    ).toHaveCount(0);
+    await filters
+      .getByRole('combobox', { name: 'Status', exact: true })
+      .selectOption('');
+    await filters
+      .getByRole('combobox', { name: 'Memory type', exact: true })
+      .selectOption('core');
+    await expect(
+      list.getByRole('button', { name: 'Phase 4 knowledge 000', exact: true }),
+    ).toBeVisible();
+    await expect(
+      list.getByRole('button', { name: 'Phase 4 knowledge 002', exact: true }),
+    ).toHaveCount(0);
+    await filters
+      .getByRole('button', { name: 'Show everything', exact: true })
+      .click();
+    await page.keyboard.press('Escape');
+
+    // Search reads the whole library: these words sit past the part of the
+    // description the map loads.
+    await page
+      .getByRole('combobox', { name: 'Search memories', exact: true })
+      .fill('tail needle');
+    await page
+      .getByRole('listbox', { name: 'Matching memories', exact: true })
+      .getByRole('option', { name: /^Phase 4 knowledge 104/ })
+      .click();
+    const inspector = page.getByRole('dialog', {
+      name: 'Phase 4 knowledge 104',
+      exact: true,
+    });
+    await expect(
+      inspector.getByText('Long-term knowledge', { exact: true }),
+    ).toBeVisible();
+    await inspector.getByText('Details', { exact: true }).click();
+    await expect(
+      inspector.getByText('p4-entity-104', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      inspector.getByText('Synthetic browser evidence', { exact: true }),
+    ).toBeVisible();
+    const edit = inspector.getByRole('button', {
+      name: 'Edit memory',
+      exact: true,
+    });
+    await edit.click();
     const editor = page.getByRole('dialog', { name: 'Edit knowledge' });
-    await expect(editor).toBeVisible();
     await expect(editor.getByRole('textbox', { name: 'Subject' })).toHaveValue(
       'Phase 4 knowledge 104',
     );
@@ -2107,22 +2102,25 @@ test.describe('Knowledge settings', () => {
       .getByRole('button', { name: 'Close knowledge editor' })
       .click();
     await expect(editor).toHaveCount(0);
-    await expect(row.getByRole('button', { name: /Edit/ })).toBeFocused();
+    await expect(edit).toBeFocused();
 
-    await page.getByText('Recent recall decisions', { exact: true }).click();
-    await expect(page.getByText('Memory used', { exact: true })).toBeVisible();
+    // Activity: what recall used and what changed.
+    await page.getByRole('radio', { name: 'Activity', exact: true }).click();
+    const recalls = page.getByRole('region', {
+      name: 'Recall decisions',
+      exact: true,
+    });
     await expect(
-      page.getByText(/Phase 4 knowledge 000 \(0\.93\)/),
+      recalls.getByText('Memory used', { exact: true }),
     ).toBeVisible();
-    await page.getByText('Memory change log', { exact: true }).click();
     await expect(
-      page.getByText('Mark needs review', { exact: true }),
+      recalls.getByText(/Phase 4 knowledge 000 \(0\.93\)/),
     ).toBeVisible();
-    // The page is titled Memory since the Phase 3 regroup (id stays knowledge).
-    await page
-      .getByRole('heading', { name: 'Memory', exact: true, level: 2 })
-      .scrollIntoViewIfNeeded();
-
+    await expect(
+      page
+        .getByRole('region', { name: 'Memory changes', exact: true })
+        .getByText('Mark needs review', { exact: true }),
+    ).toBeVisible();
     for (const appearance of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: appearance });
       await expect(page.locator('html')).toHaveAttribute(
@@ -2134,25 +2132,58 @@ test.describe('Knowledge settings', () => {
       await accessibility(page, info, `knowledge-parity-${appearance}`);
     }
 
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
-    await row
-      .getByRole('checkbox', { name: 'Select Phase 4 knowledge 104' })
+    // Bulk deletion stays destructive: the reviewed selection needs a confirm.
+    await page.getByRole('radio', { name: 'List', exact: true }).click();
+    const memoryColumn = list.getByRole('button', {
+      name: 'Memory',
+      exact: true,
+    });
+    await memoryColumn.click();
+    await memoryColumn.click();
+    await list
+      .getByRole('checkbox', {
+        name: 'Select Phase 4 knowledge 104',
+        exact: true,
+      })
       .click();
-    // Deletion stays destructive: the reviewed selection still needs a confirm.
+    const selection = page.getByRole('toolbar', {
+      name: 'Selected memories',
+      exact: true,
+    });
+    await expect(selection).toContainText('1 selected');
+    await selection
+      .getByRole('button', { name: 'Delete selected memories', exact: true })
+      .click();
     await page
-      .getByRole('group', { name: 'Knowledge selection actions' })
-      .getByRole('button', { name: 'Delete selected', exact: true })
+      .getByRole('alertdialog', { name: "Delete 'Phase 4 knowledge 104'?" })
+      .getByRole('button', { name: 'Delete memory', exact: true })
       .click();
-    await page
-      .getByRole('button', { name: 'Confirm permanent deletion' })
-      .click();
-    await expect(page.getByText('No matching knowledge')).toBeVisible();
+    await expect(
+      page.getByText('Phase 4 knowledge 104 deleted.', { exact: true }),
+    ).toBeVisible();
 
-    await search.fill('');
-    await page.getByRole('combobox', { name: 'Category' }).selectOption('');
-    await page.getByRole('combobox', { name: 'Status' }).selectOption('');
-    await page.getByRole('combobox', { name: 'Source' }).selectOption('');
-    await page.getByRole('combobox', { name: 'Tier' }).selectOption('');
+    // Settings › Memory: settings only.
+    await page.goto('/app-v2/settings/knowledge');
+    await expect(page.getByRole('searchbox')).toHaveCount(0);
+    const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
+    await expect(
+      wiki.getByRole('button', { name: 'Browse', exact: true }),
+    ).toBeVisible();
+    await expect(
+      wiki.getByRole('button', { name: 'Check vault sync', exact: true }),
+    ).toBeVisible();
+    const memory = page.getByRole('switch', { name: 'Enable Memory' });
+    const wasEnabled = await memory.isChecked();
+    // The memory setting is reviewed by the server and applied in one step.
+    await memory.click();
+    await expect(memory).toBeChecked({ checked: !wasEnabled });
+    await expect(
+      page.getByText(wasEnabled ? 'Memory off' : 'Memory on', { exact: true }),
+    ).toBeVisible();
+    // Later specs share this fixture: put the setting back.
+    await memory.click();
+    await expect(memory).toBeChecked({ checked: wasEnabled });
+
     // Store-wide deletion lives in the collapsed Danger zone.
     const dangerZone = page.locator('.settings-danger-zone details');
     await expect(dangerZone).not.toHaveAttribute('open', '');
@@ -2169,6 +2200,8 @@ test.describe('Knowledge settings', () => {
     await page
       .getByRole('button', { name: 'Confirm permanent deletion' })
       .click();
-    await expect(page.getByText('No matching knowledge')).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Delete all knowledge (0)' }),
+    ).toBeDisabled();
   });
 });

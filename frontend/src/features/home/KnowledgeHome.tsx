@@ -9,9 +9,13 @@ import {
 } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   GitMerge,
+  History,
+  ListChecks,
   ListFilter,
   Maximize2,
   Moon,
@@ -22,23 +26,36 @@ import {
   Rows3,
   Search,
   Trash2,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
+import type {
+  EntitySummary,
+  EntitySummaryPage,
+  KnowledgeMemoryChangePage,
+  KnowledgeRecallPage,
+} from '../../api/types';
 import {
   Button,
+  Disclosure,
   IconButton,
   Segmented,
   Select,
   Toggle,
   Toolbar,
   ToolbarSeparator,
+  type SegmentedOption,
 } from '../../ui/primitives';
 import { Drawer } from '../../ui/overlays';
 import KnowledgeGraphCanvas, {
   type KnowledgeGraphHandle,
 } from './KnowledgeGraphCanvas';
 import KnowledgeList, { sourceWords } from './KnowledgeList';
+import KnowledgeReview, {
+  type KnowledgeLifecycleAction,
+} from './KnowledgeReview';
+import KnowledgeActivity from './KnowledgeActivity';
 import { typeSlot } from './knowledge-palette';
 import { When, plural } from './home-format';
 import { humanizeToken, relativeTime } from '../../ui/format';
@@ -64,6 +81,19 @@ function memorySourceLabel(source: string) {
   return humanizeToken(value);
 }
 
+export type KnowledgeStatus =
+  'active' | 'needs_review' | 'superseded' | 'archived';
+export type KnowledgeTier = 'core' | 'semantic' | 'episodic' | 'resource';
+
+const STATUSES: KnowledgeStatus[] = [
+  'active',
+  'needs_review',
+  'superseded',
+  'archived',
+];
+/** Most memories bulk actions take at once (the reviewed command's limit). */
+const BULK_LIMIT = 100;
+
 export type KnowledgeGraphNode = {
   id: string;
   revision: string;
@@ -75,6 +105,8 @@ export type KnowledgeGraphNode = {
   relation_count: number;
   orphan: boolean;
   is_user: boolean;
+  status: KnowledgeStatus;
+  tier: KnowledgeTier;
 };
 
 export type KnowledgeGraphEdge = {
@@ -99,6 +131,8 @@ export type KnowledgeGraphSnapshot = {
   center_id: string | null;
   entity_types: string[];
   sources: string[];
+  /** Every saved memory's status, not only the shown ones. */
+  status_counts: Partial<Record<KnowledgeStatus, number>>;
 };
 
 export type KnowledgeNodeRelation = {
@@ -124,7 +158,23 @@ export type KnowledgeNodeDetail = {
   tags?: string[];
   relations?: KnowledgeNodeRelation[];
   source_context?: string[];
+  source_bucket?: string;
+  created_at?: string;
+  last_user_modified_at?: string;
+  last_evolved_at?: string;
+  last_recalled_at?: string;
+  recall_count?: number | null;
+  review_reason?: string;
+  superseded_by?: string;
+  evidence?: string[];
+  evidence_count?: number;
+  can_archive?: boolean;
+  can_restore?: boolean;
+  can_resolve?: boolean;
 };
+
+/** A whole-library read of saved memories (search, the review queue). */
+export type KnowledgeMemoryQuery = { query?: string; status?: KnowledgeStatus };
 
 export type KnowledgeDreamState = {
   available: boolean;
@@ -146,6 +196,25 @@ export type KnowledgeHomeProps = {
   onMerge?: (id: string) => void;
   /** Review, confirm and delete one memory; resolves once it is gone. */
   onDelete?: (id: string, subject: string) => Promise<boolean>;
+  /** Review, confirm and delete up to 100 memories at once. */
+  onDeleteMany?: (
+    memories: { id: string; subject: string }[],
+  ) => Promise<boolean>;
+  /** Archive, restore or mark reviewed at the revision shown; true once done. */
+  onLifecycle?: (
+    id: string,
+    revision: string,
+    action: KnowledgeLifecycleAction,
+    subject: string,
+  ) => Promise<boolean>;
+  /** Search and review the whole saved library, not only what is loaded. */
+  listMemories?: (
+    query: KnowledgeMemoryQuery,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => Promise<EntitySummaryPage>;
+  loadRecalls?: (signal?: AbortSignal) => Promise<KnowledgeRecallPage>;
+  loadChangeLog?: (signal?: AbortSignal) => Promise<KnowledgeMemoryChangePage>;
   onOpenConversation?: (id: string) => void;
   /** True once every memory up to the server limit is loaded. */
   showingAll?: boolean;
@@ -163,6 +232,14 @@ type DetailRecord = {
 
 type SourceFilter =
   '' | 'manual' | 'extraction' | 'document' | 'wiki' | 'other';
+
+type KnowledgeView = 'graph' | 'list' | 'review' | 'activity';
+
+/** What is known of a memory opened from outside the loaded map. */
+type MemorySummary = Pick<
+  EntitySummary,
+  'id' | 'subject' | 'entity_type' | 'description' | 'updated_at'
+>;
 
 function errorMessage(cause: unknown) {
   return cause instanceof Error
@@ -206,12 +283,23 @@ function TypeDot({ type }: { type: string }) {
   );
 }
 
-/** Typeahead over memory names: choosing one focuses it and its neighbours. */
+/** A search suggestion: a loaded memory, or one only the library search found. */
+type SearchMatch =
+  | { kind: 'node'; node: KnowledgeGraphNode }
+  | { kind: 'saved'; memory: MemorySummary };
+
+/**
+ * Typeahead over memory names: choosing one focuses it and its neighbours.
+ * With `searchAll`, the saved library is searched too (names, descriptions,
+ * aliases and tags), so memories the map does not show are found as well.
+ */
 function KnowledgeSearch({
   nodes,
   onChoose,
   total,
   onSearchAll,
+  searchAll,
+  onOpenSaved,
 }: {
   nodes: readonly KnowledgeGraphNode[];
   onChoose: (node: KnowledgeGraphNode) => void;
@@ -219,29 +307,63 @@ function KnowledgeSearch({
   total?: number;
   /** Load every memory so the search covers them all. */
   onSearchAll?: () => void;
+  searchAll?: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<EntitySummaryPage>;
+  onOpenSaved?: (memory: MemorySummary) => void;
 }) {
   const id = useId();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const matches = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return [];
+  const [saved, setSaved] = useState<{
+    query: string;
+    items: EntitySummary[];
+  } | null>(null);
+  const needle = query.trim();
+  const library = Boolean(searchAll && onOpenSaved);
+  useEffect(() => {
+    if (!searchAll || !library || needle.length < 2) return;
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      searchAll(needle, abort.signal).then(
+        (page) => {
+          if (!abort.signal.aborted)
+            setSaved({
+              query: needle,
+              items: page.availability === 'available' ? page.items : [],
+            });
+        },
+        () => {
+          if (!abort.signal.aborted) setSaved({ query: needle, items: [] });
+        },
+      );
+    }, 250);
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+  }, [library, needle, searchAll]);
+  const searching = library && needle.length >= 2 && saved?.query !== needle;
+  const matches = useMemo<SearchMatch[]>(() => {
+    const lowered = needle.toLocaleLowerCase();
+    if (!lowered) return [];
     const scored: { node: KnowledgeGraphNode; score: number }[] = [];
     for (const node of nodes) {
       const subject = node.subject.toLocaleLowerCase();
-      const score = subject.startsWith(needle)
+      const score = subject.startsWith(lowered)
         ? 0
-        : subject.includes(needle)
+        : subject.includes(lowered)
           ? 1
           : `${node.description} ${node.entity_type}`
                 .toLocaleLowerCase()
-                .includes(needle)
+                .includes(lowered)
             ? 2
             : -1;
       if (score >= 0) scored.push({ node, score });
     }
-    return scored
+    const local = scored
       .sort(
         (left, right) =>
           left.score - right.score ||
@@ -249,10 +371,28 @@ function KnowledgeSearch({
       )
       .slice(0, 8)
       .map((item) => item.node);
-  }, [nodes, query]);
-  const choose = (node: KnowledgeGraphNode) => {
-    onChoose(node);
-    setQuery(node.subject);
+    const found: SearchMatch[] = local.map((node) => ({ kind: 'node', node }));
+    if (saved?.query !== needle) return found;
+    // The library also matches aliases and tags, and memories not loaded.
+    const shown = new Set(local.map((node) => node.id));
+    const loaded = new Map(nodes.map((node) => [node.id, node]));
+    for (const item of saved.items) {
+      if (shown.has(item.id)) continue;
+      const node = loaded.get(item.id);
+      found.push(
+        node ? { kind: 'node', node } : { kind: 'saved', memory: item },
+      );
+    }
+    return found.slice(0, 10);
+  }, [needle, nodes, saved]);
+  const choose = (match: SearchMatch) => {
+    if (match.kind === 'node') {
+      onChoose(match.node);
+      setQuery(match.node.subject);
+    } else {
+      onOpenSaved?.(match.memory);
+      setQuery(match.memory.subject);
+    }
     setOpen(false);
   };
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -265,8 +405,8 @@ function KnowledgeSearch({
       );
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      const node = matches[active] ?? matches[0];
-      if (node) choose(node);
+      const match = matches[active] ?? matches[0];
+      if (match) choose(match);
     } else if (event.key === 'Escape') {
       if (open) {
         event.preventDefault();
@@ -302,7 +442,9 @@ function KnowledgeSearch({
       />
       {query && matches.length === 0 && open && (
         <p className="knowledge-search-empty" role="status">
-          {onSearchAll && total ? (
+          {searching ? (
+            <>Searching every memory…</>
+          ) : !library && onSearchAll && total ? (
             <>
               No match in the {nodes.length} shown.{' '}
               <button
@@ -315,7 +457,7 @@ function KnowledgeSearch({
               </button>
             </>
           ) : (
-            <>No memory matches “{query.trim()}”.</>
+            <>No memory matches “{needle}”.</>
           )}
         </p>
       )}
@@ -326,23 +468,29 @@ function KnowledgeSearch({
         className="knowledge-search-results"
         hidden={!expanded}
       >
-        {matches.map((node, index) => (
-          <li
-            key={node.id}
-            id={`${id}-option-${index}`}
-            role="option"
-            aria-selected={index === active}
-            onMouseDown={(event) => event.preventDefault()}
-            onMouseEnter={() => setActive(index)}
-            onClick={() => choose(node)}
-          >
-            <TypeDot type={node.entity_type} />
-            <span className="knowledge-search-subject">{node.subject}</span>
-            <span className="knowledge-search-meta">
-              {humanizeToken(node.entity_type)} · {node.relation_count}
-            </span>
-          </li>
-        ))}
+        {matches.map((match, index) => {
+          const memory = match.kind === 'node' ? match.node : match.memory;
+          return (
+            <li
+              key={memory.id}
+              id={`${id}-option-${index}`}
+              role="option"
+              aria-selected={index === active}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActive(index)}
+              onClick={() => choose(match)}
+            >
+              <TypeDot type={memory.entity_type} />
+              <span className="knowledge-search-subject">{memory.subject}</span>
+              <span className="knowledge-search-meta">
+                {humanizeToken(memory.entity_type)}
+                {match.kind === 'node'
+                  ? ` · ${match.node.relation_count}`
+                  : ' · not in the map'}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -358,6 +506,11 @@ export default function KnowledgeHome({
   onAdd,
   onMerge,
   onDelete,
+  onDeleteMany,
+  onLifecycle,
+  listMemories,
+  loadRecalls,
+  loadChangeLog,
   onOpenConversation,
   showingAll = false,
   onShowAll,
@@ -365,14 +518,21 @@ export default function KnowledgeHome({
   dreamLastRun,
   onDream,
 }: KnowledgeHomeProps) {
-  const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [view, setView] = useState<KnowledgeView>('graph');
   const [hiddenTypes, setHiddenTypes] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const [source, setSource] = useState<SourceFilter>('');
+  const [status, setStatus] = useState<'' | KnowledgeStatus>('');
+  const [tier, setTier] = useState<'' | KnowledgeTier>('');
   const [showUserHub, setShowUserHub] = useState(true);
   const [hideOrphans, setHideOrphans] = useState(false);
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+  const [changing, setChanging] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // A memory opened from the library search or the review queue that the
+  // loaded map does not include.
+  const [outside, setOutside] = useState<MemorySummary | null>(null);
   const [details, setDetails] = useState<Record<string, DetailRecord>>({});
   const [announcement, setAnnouncement] = useState('');
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -384,9 +544,11 @@ export default function KnowledgeHome({
   const requestTicket = useRef(0);
   const graphRef = useRef<KnowledgeGraphHandle>(null);
   const selectedRef = useRef<string | null>(null);
+  const outsideRef = useRef<string | null>(null);
   const loadDetailRef = useRef(loadDetail);
   useEffect(() => {
     selectedRef.current = selectedId;
+    outsideRef.current = outside?.id ?? null;
     loadDetailRef.current = loadDetail;
   });
 
@@ -410,17 +572,22 @@ export default function KnowledgeHome({
   }, []);
 
   // A new snapshot drops loaded details. A selection that is still in the
-  // graph stays open and its detail is read again.
+  // graph (or was opened from outside it) stays open and is read again.
+  // Ticks on memories that are gone are dropped.
   useEffect(() => {
     setDetails({});
     requestTicket.current += 1;
     const current = selectedRef.current;
     const kept =
-      current && snapshot?.nodes.some((node) => node.id === current)
+      current &&
+      (current === outsideRef.current ||
+        snapshot?.nodes.some((node) => node.id === current))
         ? current
         : null;
     setSelectedId(kept);
     if (kept) void readDetail(kept);
+    const present = new Set(snapshot?.nodes.map((node) => node.id));
+    setChecked((value) => new Set([...value].filter((id) => present.has(id))));
   }, [readDetail, snapshot?.revision, snapshot?.nodes]);
 
   const allNodes = useMemo(() => snapshot?.nodes ?? [], [snapshot?.nodes]);
@@ -436,6 +603,15 @@ export default function KnowledgeHome({
         left[0].localeCompare(right[0]),
     );
   }, [allNodes]);
+  const loadedCounts = useMemo(() => {
+    const statuses = new Map<string, number>();
+    const tiers = new Map<string, number>();
+    for (const node of allNodes) {
+      statuses.set(node.status, (statuses.get(node.status) ?? 0) + 1);
+      tiers.set(node.tier, (tiers.get(node.tier) ?? 0) + 1);
+    }
+    return { statuses, tiers };
+  }, [allNodes]);
   const visibleNodes = useMemo(
     () =>
       allNodes.filter((node) => {
@@ -443,9 +619,11 @@ export default function KnowledgeHome({
         if (!showUserHub && node.is_user) return false;
         if (hideOrphans && node.orphan) return false;
         if (source && node.source !== source) return false;
+        if (status && node.status !== status) return false;
+        if (tier && node.tier !== tier) return false;
         return true;
       }),
-    [allNodes, hiddenTypes, hideOrphans, showUserHub, source],
+    [allNodes, hiddenTypes, hideOrphans, showUserHub, source, status, tier],
   );
   const visibleIds = useMemo(
     () => new Set(visibleNodes.map((node) => node.id)),
@@ -460,9 +638,61 @@ export default function KnowledgeHome({
     [allEdges, visibleIds],
   );
   const filtered =
-    hiddenTypes.size > 0 || Boolean(source) || !showUserHub || hideOrphans;
-  const selectedNode = allNodes.find((node) => node.id === selectedId) ?? null;
+    hiddenTypes.size > 0 ||
+    Boolean(source || status || tier) ||
+    !showUserHub ||
+    hideOrphans;
+  const selectedNode: KnowledgeGraphNode | null =
+    allNodes.find((node) => node.id === selectedId) ??
+    (outside && outside.id === selectedId
+      ? {
+          ...outside,
+          revision: '',
+          source: 'other',
+          relation_count: 0,
+          orphan: false,
+          is_user: false,
+          status: 'active',
+          tier: 'semantic',
+        }
+      : null);
   const selectedDetail = selectedId ? details[selectedId] : undefined;
+  const selectedValue =
+    selectedDetail?.state === 'ready' ? selectedDetail.value : undefined;
+  const needsReview = snapshot?.status_counts?.needs_review ?? 0;
+  const views: SegmentedOption<KnowledgeView>[] = [
+    { value: 'graph', label: 'Graph', icon: <Network size={14} aria-hidden /> },
+    { value: 'list', label: 'List', icon: <Rows3 size={14} aria-hidden /> },
+  ];
+  if (listMemories && onLifecycle)
+    views.push({
+      value: 'review',
+      label: 'Review',
+      icon: <ListChecks size={14} aria-hidden />,
+    });
+  if (loadRecalls || loadChangeLog)
+    views.push({
+      value: 'activity',
+      label: 'Activity',
+      icon: <History size={14} aria-hidden />,
+    });
+  // Graph and List browse the loaded map; Review and Activity read the library.
+  const browsing = view === 'graph' || view === 'list';
+  const checkable = view === 'list' && Boolean(onDeleteMany);
+  const searchAll = useMemo(
+    () =>
+      listMemories &&
+      ((query: string, signal: AbortSignal) =>
+        listMemories({ query }, undefined, signal)),
+    [listMemories],
+  );
+  const loadReview = useMemo(
+    () =>
+      listMemories &&
+      ((cursor?: string, signal?: AbortSignal) =>
+        listMemories({ status: 'needs_review' }, cursor, signal)),
+    [listMemories],
+  );
 
   async function select(id: string | null, force = false) {
     setSelectedId(id);
@@ -475,6 +705,8 @@ export default function KnowledgeHome({
   function clearFilters() {
     setHiddenTypes(new Set());
     setSource('');
+    setStatus('');
+    setTier('');
     setShowUserHub(true);
     setHideOrphans(false);
     setAnnouncement('All memories and connections are shown.');
@@ -488,6 +720,54 @@ export default function KnowledgeHome({
     setAnnouncement(`${node.subject} and its connections are highlighted.`);
     // Wait a frame so newly shown memories are placed before the camera moves.
     requestAnimationFrame(() => graphRef.current?.focus(id));
+  }
+
+  /** Open any saved memory: in the map when it is loaded, else on its own. */
+  function openMemory(memory: MemorySummary) {
+    if (allNodes.some((node) => node.id === memory.id)) {
+      focusMemory(memory.id);
+      return;
+    }
+    setOutside(memory);
+    void select(memory.id);
+  }
+
+  async function changeLifecycle(action: KnowledgeLifecycleAction) {
+    if (!onLifecycle || !selectedNode || !selectedValue?.revision) return;
+    const id = selectedNode.id;
+    setChanging(true);
+    try {
+      if (
+        await onLifecycle(
+          id,
+          selectedValue.revision,
+          action,
+          selectedValue.subject || selectedNode.subject,
+        )
+      )
+        await readDetail(id);
+    } finally {
+      setChanging(false);
+    }
+  }
+
+  function toggleChecked(id: string) {
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < BULK_LIMIT) next.add(id);
+      return next;
+    });
+  }
+
+  function deleteChecked() {
+    if (!onDeleteMany) return;
+    const memories = allNodes
+      .filter((node) => checked.has(node.id))
+      .map((node) => ({ id: node.id, subject: node.subject }));
+    void onDeleteMany(memories).then((deleted) => {
+      if (deleted) setChecked(new Set());
+    });
   }
 
   function toggleType(type: string) {
@@ -575,7 +855,28 @@ export default function KnowledgeHome({
               )}
             </div>
           )}
-        {hasGraph && (
+        {hasGraph && view === 'review' && loadReview && onLifecycle && (
+          <div className="knowledge-view-frame">
+            <KnowledgeReview
+              load={loadReview}
+              loadRevision={async (id) => (await loadDetail(id)).revision ?? ''}
+              refreshKey={snapshot.revision}
+              onOpen={openMemory}
+              onEdit={onEdit}
+              onLifecycle={onLifecycle}
+            />
+          </div>
+        )}
+        {hasGraph && view === 'activity' && (
+          <div className="knowledge-view-frame">
+            <KnowledgeActivity
+              loadChanges={loadChangeLog}
+              loadRecalls={loadRecalls}
+              refreshKey={snapshot.revision}
+            />
+          </div>
+        )}
+        {hasGraph && browsing && (
           <>
             {view === 'graph' && graphStatus !== 'failed' ? (
               <KnowledgeGraphCanvas
@@ -599,6 +900,9 @@ export default function KnowledgeHome({
                   nodes={visibleNodes}
                   selectedId={selectedId}
                   onSelect={(id) => void select(id)}
+                  checked={checkable ? checked : undefined}
+                  onCheck={checkable ? toggleChecked : undefined}
+                  checkFull={checked.size >= BULK_LIMIT}
                 />
               </div>
             )}
@@ -628,6 +932,8 @@ export default function KnowledgeHome({
                   onSearchAll={
                     snapshot.truncated && !showingAll ? onShowAll : undefined
                   }
+                  searchAll={searchAll}
+                  onOpenSaved={openMemory}
                 />
                 <ToolbarSeparator />
                 <Segmented
@@ -635,18 +941,7 @@ export default function KnowledgeHome({
                   size="sm"
                   value={view}
                   onChange={setView}
-                  options={[
-                    {
-                      value: 'graph',
-                      label: 'Graph',
-                      icon: <Network size={14} aria-hidden />,
-                    },
-                    {
-                      value: 'list',
-                      label: 'List',
-                      icon: <Rows3 size={14} aria-hidden />,
-                    },
-                  ]}
+                  options={views}
                 />
                 <ToolbarSeparator />
                 <Popover.Root>
@@ -701,6 +996,44 @@ export default function KnowledgeHome({
                           {snapshot.sources.map((item) => (
                             <option key={item} value={item}>
                               {sourceWords(item)}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <label className="knowledge-filter-row">
+                        <span>Status</span>
+                        <Select
+                          aria-label="Status"
+                          value={status}
+                          onChange={(event) =>
+                            setStatus(
+                              event.currentTarget.value as '' | KnowledgeStatus,
+                            )
+                          }
+                        >
+                          <option value="">All statuses</option>
+                          {STATUSES.map((item) => (
+                            <option key={item} value={item}>
+                              {`${humanizeToken(item)} · ${(loadedCounts.statuses.get(item) ?? 0).toLocaleString()}`}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <label className="knowledge-filter-row">
+                        <span>Memory type</span>
+                        <Select
+                          aria-label="Memory type"
+                          value={tier}
+                          onChange={(event) =>
+                            setTier(
+                              event.currentTarget.value as '' | KnowledgeTier,
+                            )
+                          }
+                        >
+                          <option value="">All memory types</option>
+                          {Object.entries(MEMORY_TIERS).map(([item, words]) => (
+                            <option key={item} value={item}>
+                              {`${words} · ${(loadedCounts.tiers.get(item) ?? 0).toLocaleString()}`}
                             </option>
                           ))}
                         </Select>
@@ -766,7 +1099,7 @@ export default function KnowledgeHome({
             {dreamError || dream.message}
           </p>
         )}
-        {hasGraph && typeCounts.length > 0 && (
+        {hasGraph && browsing && typeCounts.length > 0 && (
           <div
             className="knowledge-legend"
             role="group"
@@ -840,11 +1173,53 @@ export default function KnowledgeHome({
             </IconButton>
           </Toolbar>
         )}
-        {hasGraph && (
+        {hasGraph && checkable && checked.size > 0 && (
+          <Toolbar
+            floating
+            placement="bottom-left"
+            label="Selected memories"
+            className="knowledge-selection"
+          >
+            <span className="knowledge-selection-count" aria-live="polite">
+              {checked.size.toLocaleString()} selected
+              {checked.size >= BULK_LIMIT ? ` · ${BULK_LIMIT} at most` : ''}
+            </span>
+            <ToolbarSeparator />
+            <IconButton
+              size="sm"
+              label="Delete selected memories"
+              variant="danger"
+              onClick={deleteChecked}
+            >
+              <Trash2 size={15} aria-hidden />
+            </IconButton>
+            <IconButton
+              size="sm"
+              label="Clear selection"
+              onClick={() => setChecked(new Set())}
+            >
+              <X size={15} aria-hidden />
+            </IconButton>
+          </Toolbar>
+        )}
+        {hasGraph && browsing && !(checkable && checked.size > 0) && (
           <p className="knowledge-caption" aria-label="Knowledge statistics">
             <span>{plural(snapshot.total_entities, 'memory', 'memories')}</span>
             <span aria-hidden>·</span>
             <span>{plural(snapshot.total_relations, 'link')}</span>
+            {needsReview > 0 &&
+              views.some((item) => item.value === 'review') && (
+                <>
+                  <span aria-hidden>·</span>
+                  <button
+                    type="button"
+                    className="knowledge-caption-action"
+                    onClick={() => setView('review')}
+                  >
+                    {plural(needsReview, 'needs review', 'need review')}
+                  </button>
+                </>
+              )}
             {(snapshot.truncated || filtered) && (
               <>
                 <span aria-hidden>·</span>
@@ -895,7 +1270,7 @@ export default function KnowledgeHome({
             }
             description={
               selectedNode
-                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedNode.source)}`
+                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedValue?.source_bucket ?? selectedNode.source)}`
                 : undefined
             }
             closeLabel="Close memory detail"
@@ -917,6 +1292,26 @@ export default function KnowledgeHome({
                       onClick={() => onMerge(selectedNode.id)}
                     >
                       <GitMerge size={14} aria-hidden />
+                    </IconButton>
+                  )}
+                  {onLifecycle && selectedValue?.can_archive && (
+                    <IconButton
+                      size="sm"
+                      label="Archive memory"
+                      disabled={changing}
+                      onClick={() => void changeLifecycle('knowledge.archive')}
+                    >
+                      <Archive size={14} aria-hidden />
+                    </IconButton>
+                  )}
+                  {onLifecycle && selectedValue?.can_restore && (
+                    <IconButton
+                      size="sm"
+                      label="Restore memory"
+                      disabled={changing}
+                      onClick={() => void changeLifecycle('knowledge.restore')}
+                    >
+                      <ArchiveRestore size={14} aria-hidden />
                     </IconButton>
                   )}
                   {onDelete && (
@@ -983,6 +1378,50 @@ export default function KnowledgeHome({
                     {summaryOpen ? 'Show less' : 'Show more'}
                   </button>
                 )}
+                {selectedValue?.status === 'needs_review' && (
+                  <div
+                    className="knowledge-review-note"
+                    role="note"
+                    aria-label="Needs review"
+                  >
+                    <strong>Needs review</strong>
+                    {selectedValue.review_reason && (
+                      <p>{selectedValue.review_reason}</p>
+                    )}
+                    {onLifecycle && selectedValue.can_resolve && (
+                      <Button
+                        className="small"
+                        disabled={changing}
+                        onClick={() =>
+                          void changeLifecycle('knowledge.resolve')
+                        }
+                      >
+                        Mark as reviewed
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {selectedValue?.status === 'superseded' &&
+                  selectedValue.superseded_by && (
+                    <p className="home-caption">
+                      A newer memory replaces this one.{' '}
+                      <button
+                        type="button"
+                        className="knowledge-caption-action"
+                        onClick={() =>
+                          openMemory({
+                            id: selectedValue.superseded_by ?? '',
+                            subject: '',
+                            entity_type: '',
+                            description: '',
+                            updated_at: '',
+                          })
+                        }
+                      >
+                        Open the newer memory
+                      </button>
+                    </p>
+                  )}
                 <dl className="knowledge-detail-facts">
                   <div>
                     <dt>Updated</dt>
@@ -1083,8 +1522,20 @@ export default function KnowledgeHome({
                     selectedDetail?.value?.relation_count ??
                     selectedNode.relation_count
                   }
-                  onFocus={focusMemory}
+                  onOpen={(id, subject) =>
+                    openMemory({
+                      id,
+                      subject,
+                      entity_type: '',
+                      description: '',
+                      updated_at: '',
+                    })
+                  }
+                  onShowAll={
+                    onMerge ? () => onMerge(selectedNode.id) : undefined
+                  }
                 />
+                {selectedValue && <MemoryRecord detail={selectedValue} />}
               </div>
             )}
           </Drawer>
@@ -1097,11 +1548,14 @@ export default function KnowledgeHome({
 function Connections({
   relations,
   total,
-  onFocus,
+  onOpen,
+  onShowAll,
 }: {
   relations: readonly KnowledgeNodeRelation[];
   total: number;
-  onFocus: (id: string) => void;
+  onOpen: (id: string, subject: string) => void;
+  /** Every connection, in the editor's relations. */
+  onShowAll?: () => void;
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, KnowledgeNodeRelation[]>();
@@ -1128,7 +1582,10 @@ function Connections({
                   type="button"
                   className="knowledge-connection"
                   disabled={!relation.peer_id}
-                  onClick={() => relation.peer_id && onFocus(relation.peer_id)}
+                  onClick={() =>
+                    relation.peer_id &&
+                    onOpen(relation.peer_id, relation.peer_subject ?? '')
+                  }
                 >
                   {relation.direction === 'incoming' ? (
                     <ArrowLeft size={12} aria-hidden />
@@ -1147,10 +1604,81 @@ function Connections({
       ))}
       {relations.length < total && (
         <p className="home-caption">
-          {plural(total - relations.length, 'more connection')} in Settings ›
-          Memory.
+          {plural(total - relations.length, 'more connection')}.{' '}
+          {onShowAll && (
+            <button
+              type="button"
+              className="knowledge-caption-action"
+              aria-label="Show all connections"
+              onClick={onShowAll}
+            >
+              Show all
+            </button>
+          )}
         </p>
       )}
     </section>
+  );
+}
+
+/** The memory's record: when it changed, where it came from, its evidence. */
+function MemoryRecord({ detail }: { detail: KnowledgeNodeDetail }) {
+  const times: [string, string | undefined][] = [
+    ['Created', detail.created_at],
+    ['Edited by you', detail.last_user_modified_at],
+    ['Refined by Row-Bot', detail.last_evolved_at],
+    ['Last recalled', detail.last_recalled_at],
+  ];
+  const evidence = detail.evidence ?? [];
+  const context = detail.source_context ?? [];
+  return (
+    <Disclosure summary="Details" className="knowledge-record">
+      <dl className="knowledge-detail-facts">
+        <div>
+          <dt>ID</dt>
+          <dd title={detail.id}>{detail.id}</dd>
+        </div>
+        {times
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>
+                <When value={value} />
+              </dd>
+            </div>
+          ))}
+      </dl>
+      {context.length > 0 && (
+        <div className="knowledge-record-list">
+          <h4>Where it came from</h4>
+          <ul>
+            {context.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {evidence.length > 0 && (
+        <div className="knowledge-record-list">
+          <h4>Evidence</h4>
+          <ul>
+            {evidence.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {(detail.evidence_count ?? 0) > evidence.length && (
+            <p className="home-caption">
+              {plural(
+                (detail.evidence_count ?? 0) - evidence.length,
+                'more piece',
+                'more pieces',
+              )}{' '}
+              of evidence
+            </p>
+          )}
+        </div>
+      )}
+    </Disclosure>
   );
 }

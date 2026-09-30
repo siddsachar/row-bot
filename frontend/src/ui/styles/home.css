@@ -1907,7 +1907,181 @@
   align-items: center;
   gap: 7px;
 }
+/* B264: a tick box before each memory in List, for bulk deletion. */
+.knowledge-list-memory {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.knowledge-list-memory .knowledge-list-open {
+  min-width: 0;
+}
+.knowledge-list-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-inline-start: -6px;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .knowledge-list-check {
+    width: 44px;
+    height: 36px;
+  }
+}
+.knowledge-selection.ui-toolbar-floating {
+  z-index: 6;
+  gap: 4px;
+}
+.knowledge-selection-count {
+  padding: 0 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Review and Activity: a readable column under the controls. */
+.knowledge-view-frame {
+  position: absolute;
+  inset: 60px 0 0;
+  padding: 0 12px 24px;
+  overflow: auto;
+}
+.knowledge-review,
+.knowledge-activity {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.knowledge-view-head {
+  display: grid;
+  gap: 2px;
+}
+.knowledge-view-head h3 {
+  margin: 0;
+  font-size: var(--text-15);
+}
+.knowledge-view-head p,
+.knowledge-view-empty span {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+.knowledge-view-empty {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  margin: 24px 0;
+  font-size: var(--text-13);
+}
+.knowledge-view-more {
+  justify-self: start;
+}
+.knowledge-review-list,
+.knowledge-activity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+.knowledge-review-list > li + li,
+.knowledge-activity-list > li + li {
+  border-top: 1px solid var(--border-hairline);
+}
+.knowledge-review-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 8px 4px 4px;
+}
+.knowledge-review-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  text-align: start;
+  cursor: pointer;
+}
+.knowledge-review-open:hover {
+  background: var(--surface-hover);
+}
+.knowledge-review-subject {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.knowledge-review-meta {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.knowledge-review-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.knowledge-activity-log {
+  display: grid;
+  gap: 6px;
+}
+.knowledge-activity-log h4 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+.knowledge-activity-list > li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  font-size: var(--text-13);
+}
+.knowledge-activity-list p {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.knowledge-activity-meta {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
 @container knowledge (max-width: 700px) {
+  .knowledge-view-frame {
+    top: 104px;
+  }
+  .knowledge-review-meta {
+    display: none;
+  }
+  /* The four views fit beside the search as icons; their names stay for
+     assistive technology. */
+  .knowledge-controls .segmented-option > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   /* Above the stats caption, which can wrap to two lines here. */
   .knowledge-legend {
     top: auto;
@@ -2067,6 +2241,51 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.knowledge-review-note {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--status-warning-background);
+  box-shadow: inset 0 0 0 1px var(--status-warning-border);
+  font-size: var(--text-13);
+}
+.knowledge-review-note strong {
+  color: var(--status-warning-text);
+}
+.knowledge-review-note p {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.knowledge-record {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: var(--text-13);
+}
+.knowledge-record .disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+}
+.knowledge-record-list h4 {
+  margin: 0 0 2px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+.knowledge-record-list ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-inline-start: 16px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.knowledge-record-list p {
+  margin: 2px 0 0;
 }
 
 /* Monitor --------------------------------------------------------------- */

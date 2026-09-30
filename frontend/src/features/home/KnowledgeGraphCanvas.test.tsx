@@ -167,6 +167,8 @@ function node(
     relation_count: 0,
     orphan: true,
     is_user: false,
+    status: 'active',
+    tier: 'semantic',
     ...overrides,
   };
 }

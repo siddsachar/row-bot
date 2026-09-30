@@ -1946,6 +1946,8 @@ class KnowledgeGraphNode(WireModel):
     relation_count: int = Field(ge=0, le=9007199254740991)
     orphan: bool
     is_user: bool
+    status: Literal["active", "needs_review", "superseded", "archived"]
+    tier: Literal["core", "semantic", "episodic", "resource"]
 
 
 class KnowledgeGraphEdge(WireModel):
@@ -1974,6 +1976,8 @@ class KnowledgeGraphSnapshot(WireModel):
     sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
         max_length=5
     )
+    # Every saved memory's status, not only the shown ones (B264).
+    status_counts: KnowledgeStatusCounts
 
 
 MonitorAvailability = Literal["available", "missing", "unavailable", "corrupt"]

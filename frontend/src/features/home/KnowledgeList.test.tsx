@@ -21,6 +21,8 @@ function node(
     relation_count: 0,
     orphan: true,
     is_user: false,
+    status: 'active',
+    tier: 'semantic',
     ...overrides,
   };
 }
@@ -243,6 +245,44 @@ describe('KnowledgeList', () => {
       <KnowledgeList nodes={many} selectedId="m150" onSelect={vi.fn()} />,
     );
     expect(scroller.scrollTop).toBe(150 * 36);
+  });
+
+  it('ticks rows without opening them, and stops at the bulk limit', () => {
+    const onCheck = vi.fn();
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <KnowledgeList
+        nodes={nodes}
+        selectedId={null}
+        onSelect={onSelect}
+        checked={new Set(['alpha'])}
+        onCheck={onCheck}
+      />,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Carol' }));
+    expect(onCheck).toHaveBeenCalledWith('carol');
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Alpha project' }),
+    ).toBeChecked();
+
+    // At the limit only ticked rows can change.
+    rerender(
+      <KnowledgeList
+        nodes={nodes}
+        selectedId={null}
+        onSelect={onSelect}
+        checked={new Set(['alpha'])}
+        onCheck={onCheck}
+        checkFull
+      />,
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Carol' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Alpha project' }),
+    ).toBeEnabled();
   });
 });
 

@@ -128,6 +128,54 @@ def test_graph_projection_caps_nodes_and_marks_truncation(saved):
         views.read_knowledge_graph(limit=5001)
 
 
+def test_graph_nodes_carry_status_and_tier_and_counts_cover_the_library(saved):
+    from row_bot.api.v1 import schemas as dto
+
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute(
+            "UPDATE entities SET properties=?, source='manual' WHERE id='entity-0001'",
+            (json.dumps({"status": "needs_review", "memory_tier": "core"}),),
+        )
+        conn.execute(
+            "UPDATE entities SET properties=?, source='manual' WHERE id='entity-0002'",
+            (json.dumps({"status": "Archived"}),),
+        )
+        conn.execute(
+            "UPDATE entities SET properties='not-json', source='manual'"
+            " WHERE id='entity-0003'"
+        )
+
+    graph = views.read_knowledge_graph(limit=20)
+
+    nodes = {node.id: node for node in graph.nodes}
+    assert (nodes["entity-0000"].status, nodes["entity-0000"].tier) == (
+        "active",
+        "resource",
+    )
+    assert (nodes["entity-0001"].status, nodes["entity-0001"].tier) == (
+        "needs_review",
+        "core",
+    )
+    assert (nodes["entity-0002"].status, nodes["entity-0002"].tier) == (
+        "archived",
+        "semantic",
+    )
+    assert (nodes["entity-0003"].status, nodes["entity-0003"].tier) == (
+        "active",
+        "semantic",
+    )
+    # Twenty memories are shown; the counts cover the whole library, as the
+    # saved list's status filter does.
+    counts = asdict(graph.status_counts)
+    assert counts == {"active": 203, "needs_review": 1, "superseded": 0, "archived": 1}
+    for status, count in counts.items():
+        assert views.list_saved_entities(status=status).total == count
+    for node in graph.nodes[:4]:
+        detail = views.read_saved_entity_detail(node.id)
+        assert (node.status, node.tier) == (detail.status, detail.tier)
+    dto.KnowledgeGraphSnapshot.model_validate(json.loads(json.dumps(asdict(graph))))
+
+
 @pytest.mark.slow
 def test_show_all_reads_thousands_of_linked_memories_within_the_wire_contract(
     tmp_path, monkeypatch

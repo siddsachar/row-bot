@@ -602,7 +602,7 @@ export default function WikiSettings({
           Open vault folder
         </Button>
         {!compact && (
-          <AppLink className="button secondary" to="/settings/knowledge">
+          <AppLink className="button secondary" to="/?tab=knowledge">
             Browse or create knowledge
           </AppLink>
         )}

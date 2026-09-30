@@ -39,6 +39,7 @@ const emptyGraph = {
   center_id: null,
   entity_types: [],
   sources: [],
+  status_counts: { active: 0, needs_review: 0, superseded: 0, archived: 0 },
 };
 
 const monitorSnapshot = {
@@ -82,11 +83,14 @@ const taskPage = (items: unknown[] = []) => ({
 
 const mock = vi.hoisted(() => ({
   overlayOpen: vi.fn(),
+  overlayNotify: vi.fn(),
+  taskEditSessions: { open: vi.fn() },
   state: {
     status: 'ready',
     handshake: { instance_id: 'server-a', client_session_id: 'session-a' } as {
       instance_id: string;
       client_session_id: string;
+      authentication_kind?: string;
     } | null,
     conversations: [] as {
       id: string;
@@ -105,12 +109,18 @@ const mock = vi.hoisted(() => ({
     attention: vi.fn(),
     savedTasks: vi.fn(),
     knowledgeEntityDetail: vi.fn(),
+    savedEntities: vi.fn(),
+    reviewKnowledgeMaintenance: vi.fn(),
+    executeKnowledgeMaintenance: vi.fn(),
+    reviewKnowledge: vi.fn(),
+    executeKnowledge: vi.fn(),
     reviewDreamRun: vi.fn(),
     executeDreamRun: vi.fn(),
     monitorLogs: vi.fn(),
     systemDiagnosis: vi.fn(),
     systemHealth: vi.fn(),
     setHourlyConnectionChecks: vi.fn(),
+    insights: vi.fn(),
   },
 }));
 
@@ -119,12 +129,16 @@ vi.mock('../../runtime', () => ({
   useRuntime: () => ({
     controller: mock.controller,
     platform: { writeClipboard: vi.fn() },
+    taskEditSessions: mock.taskEditSessions,
   }),
 }));
 
 vi.mock('../../ui/overlays', async (load) => {
   const actual = await load<typeof import('../../ui/overlays')>();
-  return { ...actual, useOverlay: () => ({ open: mock.overlayOpen }) };
+  return {
+    ...actual,
+    useOverlay: () => ({ open: mock.overlayOpen, notify: mock.overlayNotify }),
+  };
 });
 
 vi.mock('../tasks/TaskLibrary', () => ({
@@ -168,6 +182,8 @@ beforeEach(() => {
   // they open it the way "Set up later" does (the gate has its own tests).
   sessionStorage.setItem('row-bot:setup-later:v1', '1');
   mock.overlayOpen.mockReset();
+  mock.overlayNotify.mockReset();
+  mock.taskEditSessions.open.mockReset();
   for (const fn of Object.values(mock.controller)) fn.mockReset();
   mock.controller.onboarding.mockResolvedValue(onboarding());
   mock.controller.knowledgeGraph.mockResolvedValue(emptyGraph);
@@ -445,6 +461,11 @@ it('keeps Knowledge and Monitor as passive, truthful boundaries', async () => {
 it('reuses monitor, knowledge, and workflow reads across tab switches for 20 seconds', async () => {
   let clock = 1_000_000;
   vi.spyOn(Date, 'now').mockImplementation(() => clock);
+  // Overview's Memory card reads 8 memories; Knowledge reads the map.
+  const graphReads = (limit: number) =>
+    mock.controller.knowledgeGraph.mock.calls.filter(
+      ([value]) => value === limit,
+    ).length;
   show();
   await waitFor(() =>
     expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(1),
@@ -557,6 +578,155 @@ it('reads a bounded knowledge graph and raises the limit only when Show all is c
   expect(
     screen.queryByRole('button', { name: 'Show all memories' }),
   ).toBeNull();
+});
+
+function memoryNode(id: string) {
+  return {
+    id,
+    revision: `r-${id}`,
+    subject: `Memory ${id}`,
+    description: '',
+    entity_type: 'fact',
+    source: 'manual',
+    updated_at: '2026-09-25T10:00:00',
+    relation_count: 0,
+    orphan: true,
+    is_user: false,
+    status: 'active',
+    tier: 'semantic',
+  };
+}
+
+function graphOf(ids: string[]) {
+  return {
+    ...emptyGraph,
+    nodes: ids.map(memoryNode),
+    total_entities: ids.length,
+    shown_entities: ids.length,
+    entity_types: ['fact'],
+    sources: ['manual'],
+    status_counts: { ...emptyGraph.status_counts, active: ids.length },
+  };
+}
+
+// B264: bulk deletion moved from Settings › Memory to Knowledge; it keeps the
+// reviewed maintenance command, bound to the catalog and each revision.
+it('deletes ticked memories in one reviewed bulk deletion at their current revisions', async () => {
+  mock.controller.knowledgeGraph.mockResolvedValue(graphOf(['a', 'b', 'c']));
+  mock.controller.savedEntities.mockResolvedValue({ revision: 'c'.repeat(64) });
+  mock.controller.knowledgeEntityDetail.mockImplementation(
+    async (id: string) => ({ id, revision: id.repeat(64) }),
+  );
+  const targets = [
+    { entity_id: 'a', revision: 'a'.repeat(64) },
+    { entity_id: 'b', revision: 'b'.repeat(64) },
+  ];
+  mock.controller.reviewKnowledgeMaintenance.mockResolvedValue({
+    action: 'knowledge.delete.bulk',
+    catalog_revision: 'c'.repeat(64),
+    targets,
+    action_digest: 'd'.repeat(64),
+    review_id: 'review-bulk',
+  });
+  mock.controller.executeKnowledgeMaintenance.mockResolvedValue({
+    status: 'completed',
+  });
+  show('/?tab=knowledge');
+  fireEvent.click(await screen.findByRole('radio', { name: 'List' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Memory a' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Memory b' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete selected memories' }),
+  );
+  await waitFor(() => expect(mock.overlayOpen).toHaveBeenCalledTimes(1));
+  expect(mock.controller.reviewKnowledgeMaintenance).toHaveBeenCalledWith({
+    action: 'knowledge.delete.bulk',
+    catalog_revision: 'c'.repeat(64),
+    targets,
+  });
+  const dialog = mock.overlayOpen.mock.calls[0][0] as {
+    title: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  };
+  expect(dialog.title).toBe('Delete 2 memories?');
+  expect(dialog.confirmLabel).toBe('Delete 2 memories');
+  // Nothing is deleted before the confirmation.
+  expect(mock.controller.executeKnowledgeMaintenance).not.toHaveBeenCalled();
+  await act(async () => dialog.onConfirm());
+  expect(mock.controller.executeKnowledgeMaintenance).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'knowledge.delete.bulk',
+      payload: {
+        catalog_revision: 'c'.repeat(64),
+        targets,
+        action_digest: 'd'.repeat(64),
+        review_id: 'review-bulk',
+      },
+    }),
+  );
+  expect(mock.overlayNotify).toHaveBeenCalledWith('2 memories deleted.');
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
+  );
+});
+
+it('archives a memory through the reviewed knowledge command, then re-reads the map', async () => {
+  mock.controller.knowledgeGraph.mockResolvedValue(graphOf(['a']));
+  mock.controller.knowledgeEntityDetail.mockResolvedValue({
+    id: 'a',
+    revision: 'a'.repeat(64),
+    subject: 'Memory a',
+    status: 'active',
+    can_archive: true,
+  });
+  mock.controller.reviewKnowledge.mockResolvedValue({
+    revision: 'f'.repeat(64),
+    review_id: 'review-archive',
+  });
+  mock.controller.executeKnowledge
+    .mockResolvedValueOnce({ status: 'completed' })
+    .mockResolvedValueOnce({ status: 'rejected', code: 'knowledge_changed' });
+  show('/?tab=knowledge');
+  fireEvent.click(await screen.findByRole('button', { name: 'Memory a' }));
+  const inspector = await screen.findByRole('dialog', { name: 'Memory a' });
+  fireEvent.click(
+    await within(inspector).findByRole('button', { name: 'Archive memory' }),
+  );
+  await waitFor(() =>
+    expect(mock.overlayNotify).toHaveBeenCalledWith('Memory a archived.'),
+  );
+  expect(mock.controller.reviewKnowledge).toHaveBeenCalledWith(
+    'knowledge.archive',
+    { entity_id: 'a', revision: 'a'.repeat(64) },
+  );
+  expect(mock.controller.executeKnowledge).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'knowledge.archive',
+      payload: {
+        entity_id: 'a',
+        revision: 'f'.repeat(64),
+        review_id: 'review-archive',
+      },
+    }),
+  );
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
+  );
+
+  // A change the server turns down is said and nothing is re-read.
+  fireEvent.click(
+    await within(
+      await screen.findByRole('dialog', { name: 'Memory a' }),
+    ).findByRole('button', { name: 'Archive memory' }),
+  );
+  await waitFor(() =>
+    expect(mock.overlayNotify).toHaveBeenLastCalledWith(
+      expect.any(String),
+      'danger',
+    ),
+  );
+  expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2);
 });
 
 // Suspected product bug: Home.tsx passes loadLogs as a new inline function on
