@@ -2055,6 +2055,9 @@ def main() -> None:
     from row_bot import goals as goal_owner
     # Goals verify with a scripted verdict, never a model call.
     goal_owner._invoke_goal_verifier = _goal_verifier
+    from row_bot.application import conversation_naming
+    # A new conversation keeps its first-words name: its title is never a model call.
+    conversation_naming._ask = lambda model_ref, message, reply: ""
     from row_bot import agent_orchestrator as orchestration
     # The explicit fixture control is the scheduler barrier. Every pass still
     # uses the real owner lease, batch selection, acknowledgement and projection.

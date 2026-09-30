@@ -249,10 +249,15 @@ class ClientPlatformService:
                 # A server-started follow-up: the transcript shows the note,
                 # the model reads the prompt.
                 public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
+            first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
             if text is not None and not threads.append_checkpoint_messages(
                     conversation_id, [HumanMessage(content=text, id=submission_id,
                                                    additional_kwargs=public_metadata)]):
                 raise ClientPlatformError("checkpoint_unavailable")
+            if first_message:
+                # Named before the cut is published, so pages re-reading it see the name (B230).
+                from row_bot.application.conversation_naming import name_first_message
+                name_first_message(conversation_id, text)
             # Admission is already durable at this point. Publish that exact
             # checkpoint cut before exposing the running generation so every
             # client can adopt the submitted user row without waiting for the
@@ -1242,6 +1247,8 @@ class ClientPlatformService:
                                     assistant_text=final_text, model_ref=model_ref,
                                     goal_id=str((started_goal or {}).get("id") or ""))
                 self.finish_execution(handle, status)
+                from row_bot.application.conversation_naming import after_turn
+                after_turn(self, conversation_id, status=status, reply=final_text, model_ref=model_ref)
         def start_failed(_exc: BaseException) -> None:
             try:
                 self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})

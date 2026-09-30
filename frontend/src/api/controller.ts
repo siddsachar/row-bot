@@ -1749,7 +1749,15 @@ export class ClientController {
         this.transport.getConversation(id, this.selection.signal),
       ]);
       if (ticket === this.selectionNumber && !this.selection.signal.aborted)
-        this.update({ workspace, conversation });
+        this.update({
+          workspace,
+          conversation,
+          // The sidebar and header read the listed row, so a name the server
+          // gave the conversation meanwhile shows there too (B230).
+          conversations: this.state.conversations.map((row) =>
+            row.id === conversation.id ? conversation : row,
+          ),
+        });
     } catch (error) {
       if (!aborted(error) && ticket === this.selectionNumber)
         this.failed(error);
