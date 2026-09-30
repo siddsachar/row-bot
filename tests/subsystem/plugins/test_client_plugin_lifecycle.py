@@ -363,7 +363,11 @@ def test_lifecycle_api_requires_command_identity(workspace_api, monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("code", ["plugin_checksum_unavailable", "plugin_source_unsupported"])
+@pytest.mark.parametrize("code", [
+    "plugin_checksum_unavailable", "plugin_source_unsupported",
+    # Refusals the review raises for the plugin's own state (B273).
+    "plugin_already_installed", "plugin_not_installed", "plugin_update_unavailable",
+])
 def test_an_entry_that_cannot_install_is_refused_with_its_own_code(workspace_api, monkeypatch, code):
     _, _, _, client, headers, _, _ = workspace_api
 

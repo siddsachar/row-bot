@@ -1920,6 +1920,15 @@ const CATALOG: Record<string, Entry> = {
     'This plugin can’t be installed from where its marketplace entry points.',
     'none',
   ],
+  plugin_already_installed: [
+    'This plugin is already installed. Update it instead.',
+    'none',
+  ],
+  plugin_not_installed: ['This plugin isn’t installed.', 'none'],
+  plugin_update_unavailable: [
+    'There’s no newer version of this plugin to update to.',
+    'none',
+  ],
   invalid_skill_action: ["That skill action isn't valid.", 'review', SKILLS],
   invalid_skill_command: ["That skill action isn't valid.", 'review', SKILLS],
   invalid_skill_fields: [

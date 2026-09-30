@@ -339,6 +339,9 @@ _STATUS.update(
         "plugin_source_unavailable": 409,
         "plugin_source_unsupported": 409,
         "plugin_checksum_unavailable": 409,
+        "plugin_already_installed": 409,
+        "plugin_not_installed": 409,
+        "plugin_update_unavailable": 409,
         "plugin_lifecycle_changed": 409,
         "plugin_lifecycle_receipt_unavailable": 404,
     }
