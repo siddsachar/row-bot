@@ -16,7 +16,8 @@ import { Button, IconButton } from './primitives';
 type Overlay = {
   key?: string;
   className?: string;
-  title: string;
+  /** Usually text; a node can follow live state, e.g. a renamed item. */
+  title: ReactNode;
   description: string;
   content?: ReactNode;
   /** A palette has no header or footer chrome; Escape closes it. */

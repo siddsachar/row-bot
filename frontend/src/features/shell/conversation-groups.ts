@@ -100,6 +100,22 @@ export function recencyGroup(
   return 'older';
 }
 
+/** "14:05" today, a weekday this week, "22 Sep" before that. */
+export function shortTime(value: string | undefined, now = new Date()): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const group = recencyGroup(value, now);
+  return new Intl.DateTimeFormat(
+    undefined,
+    group === 'today'
+      ? { hour: 'numeric', minute: '2-digit' }
+      : group === 'older'
+        ? { month: 'short', day: 'numeric' }
+        : { weekday: 'short' },
+  ).format(date);
+}
+
 /**
  * Adds the open conversation to a list that does not show it, where the
  * list's own order would put it (pinned first, then newest first), so the

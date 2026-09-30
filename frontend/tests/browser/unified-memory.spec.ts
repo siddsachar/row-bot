@@ -16,22 +16,13 @@ async function pinOpenConversation(page: Page): Promise<void> {
   await page
     .getByRole('menuitem', { name: 'Manage conversation', exact: true })
     .click();
-  const dialog = page.getByRole('dialog', {
-    name: 'Conversation actions',
-    exact: true,
-  });
-  const actions = dialog.getByRole('region', {
-    name: 'Conversation actions',
-    exact: true,
-  });
-  const unpin = actions.getByRole('button', { name: 'Unpin', exact: true });
+  // The dialog is named after the conversation (B237).
+  const dialog = page.getByRole('dialog');
+  const pin = dialog.getByRole('switch', { name: 'Pin', exact: true });
   // Pinning persists in the shared fixture; an earlier run may have pinned it.
-  await expect(
-    actions.getByRole('button', { name: /^(Pin|Unpin)$/ }),
-  ).toBeVisible();
-  if (!(await unpin.isVisible()))
-    await actions.getByRole('button', { name: 'Pin', exact: true }).click();
-  await expect(unpin).toBeVisible();
+  await expect(pin).toBeVisible();
+  if (!(await pin.isChecked())) await pin.click();
+  await expect(pin).toBeChecked();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 }

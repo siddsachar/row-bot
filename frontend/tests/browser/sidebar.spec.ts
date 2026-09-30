@@ -210,11 +210,14 @@ test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', 
   await nav
     .getByRole('button', { name: 'Unpin A place for your ideas' })
     .click();
+  // The actions dialog is named after the conversation (B237); × closes it.
+  const actions = page.getByRole('dialog', { name: 'A place for your ideas' });
+  await expect(actions).toBeVisible();
+  await expect(actions.getByText('Unpinned.')).toBeVisible();
   await expect(
-    page.getByRole('dialog', { name: 'Conversation actions' }),
-  ).toBeVisible();
-  await expect(page.getByText('Conversation action completed.')).toBeVisible();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+    actions.getByRole('switch', { name: 'Pin', exact: true }),
+  ).not.toBeChecked();
+  await actions.getByRole('button', { name: 'Close dialog' }).click();
   if (info.project.use.viewport!.width < 1024 && !(await nav.isVisible()))
     await page.getByRole('button', { name: 'Toggle navigation' }).click();
   await expect(
@@ -252,4 +255,76 @@ test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', 
       .locator('..')
       .locator('.nav-conversation-link'),
   ).toHaveAccessibleName('A place for your ideas');
+});
+
+test('the conversation library keeps its selection bar in view over a long list (B270)', async ({
+  page,
+}, info) => {
+  await openFixture(page);
+  await page.evaluate(async () => {
+    const { controller, transport } = (window as FixtureWindow)
+      .__ROW_BOT_FIXTURE__;
+    const source = transport.conversations[0];
+    const rows = Array.from({ length: 150 }, (_, index) => ({
+      ...source,
+      id: index === 0 ? source.id : `library-fixture-${index + 1}`,
+      title: `Library conversation ${String(index + 1).padStart(3, '0')}`,
+      pinned: false,
+      generation_state: [],
+      resource_bindings: [],
+      updated_at: '2026-09-25T09:30:00Z',
+    }));
+    transport.conversations.splice(0, transport.conversations.length, ...rows);
+    await controller.loadMoreConversations(true);
+  });
+  const nav = page.getByRole('navigation', {
+    name: 'Workspace navigation',
+    exact: true,
+  });
+  if (!(await nav.isVisible()))
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  await nav
+    .getByRole('link', { name: 'Conversation library', exact: true })
+    .click();
+  const library = page.getByRole('region', {
+    name: 'Conversation library',
+    exact: true,
+  });
+  await expect(
+    library.getByText('150 conversations · newest first'),
+  ).toBeVisible();
+  const bar = library.getByRole('toolbar', { name: 'Selected conversations' });
+  await expect(bar).toHaveCount(0);
+
+  // Ticking starts a selection; Shift extends it.
+  await library
+    .getByRole('checkbox', { name: 'Select Library conversation 002' })
+    .check();
+  await expect(bar.getByText('1 selected')).toBeVisible();
+  await library
+    .getByRole('checkbox', { name: 'Select Library conversation 005' })
+    .click({ modifiers: ['Shift'] });
+  await expect(bar.getByText('4 selected')).toBeVisible();
+  for (const name of ['Pin', 'Export', 'Delete…', 'Clear selection'])
+    await expect(bar.getByRole('button', { name, exact: true })).toBeVisible();
+
+  // Far down the list the bar still sits at the top of the view.
+  await library
+    .getByRole('checkbox', { name: 'Select Library conversation 090' })
+    .scrollIntoViewIfNeeded();
+  const view = (await page.locator('.routed-view').boundingBox())!;
+  const barBox = (await bar.boundingBox())!;
+  expect(barBox.y).toBeGreaterThanOrEqual(view.y - 1);
+  expect(barBox.y).toBeLessThanOrEqual(view.y + 8);
+  await screenshot(page, info, 'b270-library-selection-scrolled');
+  await assertNoOverflow(page);
+
+  // Esc clears the selection.
+  await library
+    .getByRole('checkbox', { name: 'Select Library conversation 005' })
+    .focus();
+  await page.keyboard.press('Escape');
+  await expect(bar).toHaveCount(0);
 });

@@ -1509,10 +1509,12 @@
 
 /* ------------------------------------------------------------ library page */
 
+/* One compact bar for search and filters, then rows in the sidebar's anatomy
+   under a selection bar that stays in view while the list scrolls (B270). */
 .library-page {
   display: grid;
-  gap: 20px;
-  max-width: 880px;
+  gap: 14px;
+  max-width: 820px;
   margin: 8px auto 24px;
 }
 .library-header h1 {
@@ -1521,75 +1523,401 @@
   line-height: var(--leading-20);
   font-weight: var(--weight-semibold);
 }
-.library-header p {
-  margin: 4px 0 0;
-}
-.library-page .conversation-search,
-.library-page .conversation-library {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.library-page .conversation-search {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+/* A flex column, not a grid: a sticky grid item could not leave its own
+   row, so the selection bar would not stay in view. */
+.conversation-library {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
-.library-page .conversation-search > :not(.field):not(.button) {
-  grid-column: 1 / -1;
+.conversation-library > .button {
+  align-self: flex-start;
 }
-.library-page .conversation-search > .button {
-  min-width: 96px;
-}
-.library-page .conversation-library > .button-row:first-of-type {
+.library-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.library-page .conversation-library > .button-row:first-of-type .select {
-  width: auto;
-  min-width: 180px;
-}
-.library-page .conversation-library-list {
-  max-height: none;
-}
-.library-page .conversation-library-list li {
-  align-items: center;
-  padding: 0;
-  border-bottom: 1px solid var(--border-hairline);
-}
-.library-row-link {
+.library-search {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 10px;
+  min-width: 0;
+}
+.library-search > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.library-search > .input {
+  width: 100%;
+  min-height: 34px;
+  padding-left: 34px;
+}
+.segmented.library-types {
+  flex: none;
+}
+.library-types .segmented-option {
+  gap: 6px;
+}
+.library-bar {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin: 0 -8px;
+  padding: 0 8px 0 10px;
+}
+.library-bar[data-selecting] {
+  position: sticky;
+  /* The routed view's padding: the bar meets the top edge. */
+  top: -20px;
+  z-index: 5;
+  border-radius: var(--radius-card);
+  background: var(--surface-overlay);
+  box-shadow:
+    0 0 0 1px var(--border-hairline),
+    var(--shadow-overlay);
+}
+.library-selection {
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+.library-summary {
+  margin: 0;
+  padding-left: 2px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.library-check,
+.library-check-all {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+}
+.library-check input,
+.library-check-all input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.library-count {
+  margin: 0 6px 0 4px;
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.library-bar-spacer {
+  flex: 1;
+}
+.library-list ul {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.library-group {
+  margin: 12px 8px 4px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-medium);
+}
+.library-group:first-child {
+  margin-top: 4px;
+}
+.library-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-control);
+}
+.library-row:is(:hover, :focus-within) {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+.library-row[data-selected] {
+  background: color-mix(in srgb, var(--accent-solid) 12%, transparent);
+}
+.library-check,
+.library-type {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+}
+.library-check {
+  z-index: 1;
+}
+.library-type {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.library-row-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 16px;
   min-width: 0;
   min-height: 40px;
-  padding: 6px 8px;
+  padding: 6px 10px 6px 42px;
   border-radius: var(--radius-control);
   color: var(--text-primary);
   text-decoration: none;
 }
-.library-row-link:hover {
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
-}
-.library-row-link > svg {
-  flex: none;
-  color: var(--text-muted);
-}
 .library-row-title {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+  font-weight: var(--weight-medium);
 }
-.library-row-meta {
+.library-row-date {
   flex: none;
-  padding-inline-end: 8px;
+  color: var(--text-muted);
   font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+.library-pages {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+/* With a mouse the checkbox takes the type icon's place on hover and
+   focus, and everywhere once anything is selected. */
+@media (hover: hover) {
+  .library-check {
+    opacity: 0;
+  }
+  .library-row:is(:hover, :focus-within) .library-check,
+  .library-list[data-selecting] .library-check {
+    opacity: 1;
+  }
+  .library-row:is(:hover, :focus-within) .library-type,
+  .library-list[data-selecting] .library-type {
+    opacity: 0;
+  }
+}
+/* On touch both show: a 44 px checkbox, the type icon beside it. */
+@media (hover: none) {
+  .library-check,
+  .library-check-all {
+    width: 44px;
+    height: 44px;
+  }
+  .library-check {
+    left: 0;
+  }
+  .library-check input,
+  .library-check-all input {
+    width: 20px;
+    height: 20px;
+  }
+  .library-type {
+    left: 40px;
+  }
+  .library-row-link {
+    min-height: 52px;
+    padding-left: 72px;
+  }
+  .library-bar {
+    min-height: 52px;
+    padding-left: 0;
+  }
+}
+@media (max-width: 767px) {
+  .library-bar[data-selecting] {
+    top: -16px;
+  }
+}
+@media (max-width: 600px) {
+  .library-toolbar {
+    flex-wrap: wrap;
+  }
+  .library-search {
+    flex-basis: 100%;
+  }
+  .library-search > .input {
+    min-height: 44px;
+  }
+  .segmented.library-types {
+    flex: 1;
+  }
+  .library-types .segmented-option {
+    flex: 1;
+    justify-content: center;
+  }
+  /* Icons only; the words stay the options' names. */
+  .library-types .segmented-option > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Search hits, grouped by conversation (Library and Find in conversation). */
+.search-results ol,
+.search-results ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.search-result-group {
+  display: grid;
+  gap: 2px;
+}
+.search-result-group + .search-result-group {
+  margin-top: 8px;
+}
+.search-result-title {
+  padding: 4px 8px 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  font-weight: var(--weight-medium);
+}
+.search-result-group .button {
+  width: 100%;
+}
+.library-search-results .search-results {
+  max-height: none;
+  overflow: visible;
+}
+
+/* ------------------------------------------------- conversation actions */
+
+/* One dialog named after the conversation (B237); the header's × is the one
+   way to close, and Delete sits where the footer was. */
+.dialog.conversation-actions-dialog {
+  width: min(480px, calc(100vw - 48px));
+}
+.conversation-actions-dialog > .dialog-header {
+  padding: 20px 20px 12px 24px;
+}
+.conversation-actions-dialog .dialog-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-17);
+  line-height: var(--leading-17);
+}
+.conversation-actions-dialog .dialog-description {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.dialog.conversation-actions-dialog > .dialog-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.conversation-actions-dialog > .dialog-footer {
+  display: none;
+}
+.conversation-actions-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+.conversation-actions-rows {
+  display: grid;
+  align-content: start;
+  padding: 4px 24px 12px;
+}
+.conversation-actions-name {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 12px;
+}
+.conversation-actions-label {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  line-height: var(--leading-14);
+  font-weight: var(--weight-medium);
+}
+.conversation-actions-name-row {
+  display: flex;
+  gap: 8px;
+}
+.conversation-actions-name-row > .input {
+  flex: 1;
+  min-width: 0;
+}
+.conversation-actions-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.conversation-actions-export .button {
+  gap: 6px;
+}
+.conversation-actions-rows > .button {
+  justify-self: start;
+  margin-top: 8px;
+}
+.conversation-actions-status {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+.conversation-actions-footer {
+  margin-top: auto;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-hairline);
+}
+.button.conversation-actions-delete:not(:disabled) {
+  color: var(--status-danger-text);
+}
+.button.conversation-actions-delete:hover:not(:disabled) {
+  background: var(--status-danger-background);
+}
+@media (max-width: 767px) {
+  .conversation-actions-dialog > .dialog-header {
+    padding: 16px 12px 8px 16px;
+  }
+  .conversation-actions-rows {
+    padding: 4px 16px 12px;
+  }
+  .conversation-actions-footer {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 480px) {
+  /* The switch stays beside its label; the two exports share the width. */
+  .conversation-actions-panel
+    .ui-setting-row:not(.conversation-actions-export) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .conversation-actions-export .setting-row-control > .button {
+    flex: 1;
+  }
 }
 
 @media (forced-colors: active) {

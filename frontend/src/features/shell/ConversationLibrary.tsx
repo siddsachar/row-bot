@@ -1,15 +1,54 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Code2,
+  Download,
+  FileDown,
+  FileText,
+  Layers,
+  MessageSquare,
+  Palette,
+  Pin,
+  RefreshCw,
+  Search,
+  Trash2,
+  Workflow,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import type { ClientController } from '../../api/controller';
 import { clientError } from '../../api/errors';
 import type { Command, ConversationView } from '../../api/types';
+import type { CapabilityResult, SavedFile } from '../../platform';
+import { useClientSelector, useRuntime } from '../../runtime';
+import { absoluteTime } from '../../ui/format';
 import { useOverlay } from '../../ui/overlays';
-import { Button, Select, Skeleton } from '../../ui/primitives';
-import { absoluteTime, relativeTime } from '../../ui/format';
+import {
+  Button,
+  IconButton,
+  Input,
+  Menu,
+  Segmented,
+  Skeleton,
+  Toolbar,
+  ToolbarSeparator,
+} from '../../ui/primitives';
+import {
+  runConversationAction,
+  type ConversationActionsApi,
+} from '../settings/ConversationActions';
 import { ConversationGlyph } from './ConversationGlyph';
-import { conversationKinds, matchesType } from './conversation-groups';
+import {
+  CONVERSATION_TYPES,
+  groupConversations,
+  matchesType,
+  shortTime,
+  type ConversationType,
+} from './conversation-groups';
+import { SearchResults } from './SearchConversations';
 
-type Category = 'all' | 'chat' | 'designer' | 'code' | 'workflow';
 type FailedDelete = {
   row: ConversationView;
   command: Command;
@@ -58,15 +97,20 @@ function clearPendingRecovery(key: string) {
     // The library refresh remains the fallback reconciliation path.
   }
 }
-const LABELS: Record<Category, string> = {
-  all: 'All',
-  chat: 'Chats',
-  designer: 'Design',
-  code: 'Code',
-  workflow: 'Workflows',
+const TYPE_ICONS: Record<ConversationType, LucideIcon> = {
+  all: Layers,
+  chat: MessageSquare,
+  designer: Palette,
+  code: Code2,
+  workflow: Workflow,
 };
+const count = (value: number) =>
+  `${value.toLocaleString()} conversation${value === 1 ? '' : 's'}`;
+const titleOf = (row: ConversationView) => row.title || 'Untitled conversation';
+/** The sidebar's order: pinned first, then Today, Yesterday, … */
+const inGroupOrder = (rows: ConversationView[], now: Date) =>
+  groupConversations(rows, now).flatMap((group) => group.rows);
 
-/** "Design · Code" for a thread holding both; "Chats" for a plain one. */
 export type SingleDeleteOutcome =
   | { status: 'deleted'; notice: string }
   | { status: 'not_stopped' | 'failed' | 'uncertain'; message: string };
@@ -126,45 +170,46 @@ export async function deleteOneConversation(
   }
 }
 
-function typeLabel(row: ConversationView): string {
-  const kinds = conversationKinds(row);
-  return kinds.length
-    ? kinds.map((kind) => LABELS[kind]).join(' · ')
-    : LABELS.chat;
-}
-
-/** Explicit library read and revision-fenced per-conversation deletion. */
+/**
+ * Every conversation: one search for titles and messages, a type filter, and
+ * selection by ticking rows, with a bar that stays in view (B270). Bulk Pin
+ * and Export run the reviewed conversation actions one by one; deletion is
+ * revision-fenced per conversation with receipts.
+ */
 export default function ConversationLibrary({
-  controller,
   initialSelectedId,
-  linkRows = false,
 }: {
-  controller: ClientController;
   initialSelectedId?: string;
-  /** On the Library page, rows open their conversation. */
-  linkRows?: boolean;
 }) {
+  const { controller, platform } = useRuntime();
+  // Only the search: token updates elsewhere must not re-render the list.
+  const hasSearch = useClientSelector((state) => Boolean(state.search));
   const overlay = useOverlay();
   const navigate = useNavigate();
   const [rows, setRows] = useState<ConversationView[] | null>(null);
   const [error, setError] = useState('');
   const [fresh, setFresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<Category>('all');
+  const [filter, setFilter] = useState<ConversationType>('all');
   const [page, setPage] = useState(0);
-  const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'' | 'delete' | 'bulk'>('');
   const [completed, setCompleted] = useState(0);
   const [notStarted, setNotStarted] = useState(0);
   const [failures, setFailures] = useState<FailedDelete[]>([]);
   const [retainedNotices, setRetainedNotices] = useState<string[]>([]);
   const [pendingRecovery, setPendingRecovery] = useState(readPendingRecovery);
   const [recoveryStatus, setRecoveryStatus] = useState('');
+  const [query, setQuery] = useState('');
+  const [searchedFor, setSearchedFor] = useState('');
+  const [searchError, setSearchError] = useState('');
   const cancel = useRef(false);
   const mounted = useRef(true);
   const running = useRef(false);
+  const bulkAbort = useRef<AbortController | null>(null);
+  const anchor = useRef<string | null>(null);
   const initialSelection = useRef(Boolean(initialSelectedId));
+  const headingId = useId();
 
   async function refresh(signal?: AbortSignal) {
     setError('');
@@ -177,8 +222,9 @@ export default function ConversationLibrary({
       setFresh(true);
       if (initialSelection.current && initialSelectedId) {
         initialSelection.current = false;
-        const index = result.findIndex((row) => row.id === initialSelectedId);
-        setSelectionMode(index >= 0);
+        const index = inGroupOrder(result, new Date()).findIndex(
+          (row) => row.id === initialSelectedId,
+        );
         setPage(index >= 0 ? Math.floor(index / PAGE_SIZE) : 0);
         setSelected(index >= 0 ? new Set([initialSelectedId]) : new Set());
       } else {
@@ -203,23 +249,45 @@ export default function ConversationLibrary({
     return () => {
       mounted.current = false;
       cancel.current = true;
+      bulkAbort.current?.abort();
       abort.abort();
     };
     // The controller is the stable owner of this mounted library task.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller]);
 
-  const matching = (rows ?? []).filter((row) => matchesType(row, filter));
+  const now = new Date();
+  const matching = inGroupOrder(
+    (rows ?? []).filter((row) => matchesType(row, filter)),
+    now,
+  );
   const visible = matching.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const selectedRows = (rows ?? []).filter((row) => selected.has(row.id));
   const allSelected =
     matching.length > 0 && matching.every((row) => selected.has(row.id));
+  const someSelected = matching.some((row) => selected.has(row.id));
+  const allPinned =
+    selectedRows.length > 0 && selectedRows.every((row) => row.pinned);
+  const searching = Boolean(searchedFor) && hasSearch;
 
-  function toggleOne(id: string) {
+  // A tick toggles one row; Shift extends from the last ticked row to this
+  // one, setting the whole range the way this row goes.
+  function toggle(id: string, range: boolean) {
+    const ids = visible.map((row) => row.id);
+    const from = anchor.current ? ids.indexOf(anchor.current) : -1;
+    const to = ids.indexOf(id);
+    const targets =
+      range && from >= 0 && to >= 0
+        ? ids.slice(Math.min(from, to), Math.max(from, to) + 1)
+        : [id];
+    anchor.current = id;
     setSelected((previous) => {
       const next = new Set(previous);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const on = !previous.has(id);
+      for (const target of targets) {
+        if (on) next.add(target);
+        else next.delete(target);
+      }
       return next;
     });
   }
@@ -235,6 +303,119 @@ export default function ConversationLibrary({
     });
   }
 
+  async function runSearch(cursor?: string) {
+    const text = cursor ? searchedFor : query.trim();
+    if (!text) return;
+    setSearchError('');
+    setSearchedFor(text);
+    try {
+      await controller.searchLibrary(text, undefined, cursor);
+    } catch (cause) {
+      if (mounted.current) setSearchError(clientError(cause).message);
+    }
+  }
+
+  function clearSearch() {
+    setSearchedFor('');
+    setSearchError('');
+    void controller.searchLibrary('');
+  }
+
+  async function bulk(kind: 'pin' | 'markdown' | 'pdf') {
+    if (running.current || !selectedRows.length) return;
+    const api: ConversationActionsApi = {
+      load: controller.conversationActions,
+      review: controller.reviewConversationAction,
+      execute: controller.executeConversationAction,
+    };
+    const pinned = !allPinned;
+    const targets =
+      kind === 'pin'
+        ? selectedRows.filter((row) => row.pinned !== pinned)
+        : [...selectedRows];
+    running.current = true;
+    cancel.current = false;
+    const abort = new AbortController();
+    bulkAbort.current = abort;
+    setBusy('bulk');
+    const failed: string[] = [];
+    let done = 0;
+    let saved: SavedFile | null = null;
+    try {
+      for (const row of targets) {
+        if (cancel.current) break;
+        const outcome = await runConversationAction(
+          api,
+          row.id,
+          kind === 'pin' ? 'conversation.pin' : 'conversation.export',
+          kind === 'pin' ? { pinned } : kind === 'pdf' ? { format: 'pdf' } : {},
+          abort.signal,
+        );
+        const exported =
+          outcome.status === 'completed' ? outcome.receipt.export : undefined;
+        if (outcome.status !== 'completed' || (kind !== 'pin' && !exported)) {
+          failed.push(titleOf(row));
+          continue;
+        }
+        if (exported) {
+          const result = await platform
+            .save(exported.attachment_ref, exported.file_name)
+            .catch((): CapabilityResult<SavedFile> => ({
+              status: 'unavailable',
+              reason: 'operation_failed',
+            }));
+          // Cancelling one Save dialog stops the rest.
+          if (result.status === 'cancelled') break;
+          if (result.status !== 'ok') {
+            failed.push(titleOf(row));
+            continue;
+          }
+          saved = result.value;
+        }
+        done += 1;
+      }
+    } finally {
+      running.current = false;
+      bulkAbort.current = null;
+    }
+    if (!mounted.current) return;
+    setBusy('');
+    if (kind === 'pin' && done)
+      await Promise.all([refresh(), controller.loadMoreConversations(true)]);
+    if (!done && !failed.length) return;
+    const problems = failed.length
+      ? ` ${failed.length} couldn’t be ${kind === 'pin' ? 'changed' : 'exported'}: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ` and ${failed.length - 3} more` : ''}.`
+      : '';
+    const tone = failed.length ? 'warning' : undefined;
+    const folder = saved?.kind === 'exports' ? saved : null;
+    if (kind === 'pin')
+      overlay.notify(
+        `${pinned ? 'Pinned' : 'Unpinned'} ${count(done)}.${problems}`,
+        tone,
+      );
+    else if (folder)
+      overlay.notify(
+        `Saved ${count(done)} to ${folder.folder}.${problems}`,
+        tone,
+        {
+          label: 'Show in folder',
+          onAction: () =>
+            void folder.reveal().then((shown) => {
+              if (!shown)
+                overlay.notify(
+                  'Row-Bot couldn’t open the Exports folder.',
+                  'warning',
+                );
+            }),
+        },
+      );
+    else
+      overlay.notify(
+        `${saved?.kind === 'download' ? `Started ${done} download${done === 1 ? '' : 's'}` : `Exported ${count(done)}`}.${problems}`,
+        tone,
+      );
+  }
+
   async function deleteReviewed(reviewed: ConversationView[]) {
     if (running.current || pendingRecovery) return;
     const session = controller.getSnapshot().handshake?.client_session_id;
@@ -246,7 +427,7 @@ export default function ConversationLibrary({
     }
     running.current = true;
     cancel.current = false;
-    setBusy(true);
+    setBusy('delete');
     setCompleted(0);
     setNotStarted(0);
     setFailures([]);
@@ -328,7 +509,7 @@ export default function ConversationLibrary({
         const skipped = reviewed.slice(done + failed.length);
         setNotStarted(skipped.length);
         setFailures(failed);
-        setBusy(false);
+        setBusy('');
         setSelected(
           new Set([
             ...failed.map(({ row }) => row.id),
@@ -340,7 +521,7 @@ export default function ConversationLibrary({
     }
   }
 
-  function reviewDelete() {
+  function reviewDelete(opener: HTMLElement) {
     if (!selectedRows.length || busy || !fresh || pendingRecovery) return;
     const reviewed = [...selectedRows];
     overlay.open({
@@ -359,6 +540,7 @@ export default function ConversationLibrary({
         </p>
       ),
       confirmLabel: `Delete ${reviewed.length} conversation${reviewed.length === 1 ? '' : 's'}`,
+      returnFocusTo: opener,
       onConfirm: () => void deleteReviewed(reviewed),
     });
   }
@@ -367,7 +549,7 @@ export default function ConversationLibrary({
     if (running.current) return;
     running.current = true;
     cancel.current = false;
-    setBusy(true);
+    setBusy('delete');
     const remaining: FailedDelete[] = [];
     try {
       for (const item of failures) {
@@ -425,7 +607,7 @@ export default function ConversationLibrary({
       running.current = false;
       if (mounted.current) {
         setFailures(remaining);
-        setBusy(false);
+        setBusy('');
         setSelected(new Set(remaining.map(({ row }) => row.id)));
         await Promise.all([refresh(), controller.loadMoreConversations(true)]);
       }
@@ -495,23 +677,91 @@ export default function ConversationLibrary({
     }
   }
 
+  const pages = Math.ceil(matching.length / PAGE_SIZE);
   return (
     <section
-      className="stack conversation-library"
+      className="conversation-library"
       aria-label="Conversation library"
+      onKeyDown={(event) => {
+        // Esc clears the selection, but not from the search field or from a
+        // menu opened here (its portal is outside this section).
+        const target = event.target as HTMLElement;
+        if (
+          event.key !== 'Escape' ||
+          !selected.size ||
+          busy ||
+          !event.currentTarget.contains(target) ||
+          (target instanceof HTMLInputElement && target.type !== 'checkbox')
+        )
+          return;
+        event.preventDefault();
+        setSelected(new Set());
+      }}
     >
+      <div className="library-toolbar">
+        <form
+          className="library-search"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runSearch();
+          }}
+        >
+          <Search size={16} aria-hidden />
+          <Input
+            type="search"
+            aria-label="Search titles and messages"
+            placeholder="Search titles and messages"
+            value={query}
+            maxLength={200}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              if (!event.target.value.trim() && searchedFor) clearSearch();
+            }}
+          />
+        </form>
+        <Segmented
+          size="sm"
+          className="library-types"
+          label="Conversation type"
+          value={filter}
+          onChange={(value) => {
+            setFilter(value);
+            setPage(0);
+          }}
+          options={CONVERSATION_TYPES.map((option) => {
+            const Icon = TYPE_ICONS[option.value];
+            return {
+              value: option.value,
+              label: option.label,
+              icon: <Icon size={15} aria-hidden />,
+            };
+          })}
+        />
+        <IconButton
+          label="Refresh library"
+          disabled={Boolean(busy) || refreshing}
+          onClick={() => void refresh()}
+        >
+          <RefreshCw size={16} aria-hidden />
+        </IconButton>
+      </div>
       {error && <p role="alert">{error}</p>}
+      {searchError && <p role="alert">{searchError}</p>}
       {pendingRecovery && (
         <div role="status">
           <p>
             An earlier deletion has an uncertain result. Check its original
             receipt or reconcile the current library before another batch.
           </p>
-          <Button disabled={busy} onClick={() => void checkOriginalReceipt()}>
+          <Button
+            disabled={Boolean(busy)}
+            onClick={() => void checkOriginalReceipt()}
+          >
             Check deletion
           </Button>
           <Button
-            disabled={busy || refreshing}
+            disabled={Boolean(busy) || refreshing}
             onClick={() => void reconcileFromLibrary()}
           >
             Reconcile current library
@@ -522,7 +772,11 @@ export default function ConversationLibrary({
       {rows && !fresh && (
         <p role="status">Refresh the library before reviewing deletion.</p>
       )}
-      {!rows ? (
+      {searching ? (
+        <div className="library-search-results">
+          <SearchResults onContinue={(cursor) => void runSearch(cursor)} />
+        </div>
+      ) : !rows ? (
         <>
           <Skeleton label="Loading all conversations" />
           <Button disabled={refreshing} onClick={() => void refresh()}>
@@ -531,145 +785,93 @@ export default function ConversationLibrary({
         </>
       ) : (
         <>
-          <div className="button-row">
-            <Select
-              aria-label="Conversation type"
-              value={filter}
-              disabled={busy || refreshing}
-              onChange={(event) => {
-                setFilter(event.target.value as Category);
-                setPage(0);
-              }}
-            >
-              {(Object.keys(LABELS) as Category[]).map((category) => (
-                <option key={category} value={category}>
-                  {LABELS[category]}{' '}
-                  {category === 'all'
-                    ? rows.length
-                    : rows.filter((row) => matchesType(row, category)).length}
-                </option>
-              ))}
-            </Select>
-            <Button
-              disabled={busy || !fresh}
-              onClick={() => {
-                setSelectionMode((value) => !value);
-                setSelected(new Set());
-              }}
-            >
-              {selectionMode ? 'Done' : 'Select'}
-            </Button>
-            <Button
-              disabled={busy || refreshing}
-              onClick={() => void refresh()}
-            >
-              Refresh library
-            </Button>
-          </div>
-          {selectionMode && (
-            <div className="button-row">
-              <Button
-                disabled={busy || !fresh || matching.length === 0}
-                onClick={toggleAll}
+          <div
+            className="library-bar"
+            data-selecting={selected.size > 0 || undefined}
+          >
+            {selected.size > 0 ? (
+              <Toolbar
+                label="Selected conversations"
+                className="library-selection"
               >
-                {allSelected ? 'Clear all in filter' : 'Select all in filter'}
-              </Button>
-              <Button
-                disabled={
-                  busy || !fresh || !!pendingRecovery || selected.size === 0
-                }
-                onClick={() => setSelected(new Set())}
-              >
-                Clear selection
-              </Button>
-              <span>{selected.size} selected</span>
-            </div>
-          )}
-          {matching.length === 0 ? (
-            <p>Nothing in this filter.</p>
-          ) : (
-            <ul className="conversation-library-list">
-              {visible.map((row) => (
-                <li key={row.id}>
-                  {selectionMode ? (
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(row.id)}
-                        disabled={busy || !fresh}
-                        onChange={() => toggleOne(row.id)}
-                      />{' '}
-                      {row.title || 'Untitled conversation'}
-                    </label>
-                  ) : linkRows ? (
-                    <Link
-                      className="library-row-link"
-                      to={`/conversations/${encodeURIComponent(row.id)}`}
-                    >
-                      <ConversationGlyph row={row} />
-                      <span className="library-row-title">
-                        {row.title || 'Untitled conversation'}
-                      </span>
-                    </Link>
-                  ) : (
-                    <span>{row.title || 'Untitled conversation'}</span>
-                  )}
-                  <span className="muted library-row-meta">
-                    {typeLabel(row)}
-                    {linkRows && row.updated_at && (
-                      <>
-                        {' · '}
-                        <time
-                          dateTime={row.updated_at}
-                          title={absoluteTime(row.updated_at)}
-                        >
-                          {relativeTime(row.updated_at)}
-                        </time>
-                      </>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {matching.length > PAGE_SIZE && (
-            <div className="button-row" role="group" aria-label="Library pages">
-              <Button
-                disabled={page === 0 || busy}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                Previous rows
-              </Button>
-              <span>
-                Page {page + 1} of {Math.ceil(matching.length / PAGE_SIZE)}
-              </span>
-              <Button
-                disabled={(page + 1) * PAGE_SIZE >= matching.length || busy}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                Next rows
-              </Button>
-            </div>
-          )}
-          {selectionMode && (
-            <div className="button-row">
-              <Button
-                variant="danger"
-                disabled={busy || !fresh || selected.size === 0}
-                onClick={reviewDelete}
-              >
-                Delete selected
-              </Button>
-              {busy && (
-                <Button
-                  onClick={() => {
-                    cancel.current = true;
-                  }}
+                <label className="library-check-all">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select all ${matching.length.toLocaleString()} in this filter`}
+                    checked={allSelected}
+                    ref={(element) => {
+                      if (element)
+                        element.indeterminate = someSelected && !allSelected;
+                    }}
+                    disabled={Boolean(busy) || matching.length === 0}
+                    onChange={toggleAll}
+                  />
+                </label>
+                <span className="library-count" aria-live="polite">
+                  {selected.size.toLocaleString()} selected
+                </span>
+                <ToolbarSeparator />
+                <IconButton
+                  label={allPinned ? 'Unpin' : 'Pin'}
+                  disabled={Boolean(busy)}
+                  onClick={() => void bulk('pin')}
                 >
-                  Stop after current deletion
-                </Button>
-              )}
-            </div>
+                  <Pin size={16} aria-hidden />
+                </IconButton>
+                <Menu
+                  label="Export"
+                  hint="Export as Markdown or PDF"
+                  iconOnly
+                  variant="ghost"
+                  className="icon-action icon-action-md"
+                  disabled={Boolean(busy)}
+                  actions={[
+                    {
+                      label: 'Markdown',
+                      icon: <FileText size={16} />,
+                      onSelect: () => void bulk('markdown'),
+                    },
+                    {
+                      label: 'PDF',
+                      icon: <FileDown size={16} />,
+                      onSelect: () => void bulk('pdf'),
+                    },
+                  ]}
+                >
+                  <Download size={16} aria-hidden />
+                </Menu>
+                <IconButton
+                  label="Delete…"
+                  variant="danger"
+                  disabled={Boolean(busy) || !fresh || !!pendingRecovery}
+                  onClick={(event) => reviewDelete(event.currentTarget)}
+                >
+                  <Trash2 size={16} aria-hidden />
+                </IconButton>
+                <span className="library-bar-spacer" />
+                <IconButton
+                  label="Clear selection"
+                  shortcut="Escape"
+                  disabled={Boolean(busy)}
+                  onClick={() => setSelected(new Set())}
+                >
+                  <X size={16} aria-hidden />
+                </IconButton>
+              </Toolbar>
+            ) : (
+              <p className="library-summary">
+                {count(matching.length)} · newest first
+              </p>
+            )}
+          </div>
+          {busy === 'delete' && (
+            <Button
+              onClick={() => {
+                cancel.current = true;
+              }}
+            >
+              Stop after current deletion
+            </Button>
           )}
           {(completed > 0 || failures.length > 0 || notStarted > 0) && (
             <div role="status">
@@ -685,7 +887,10 @@ export default function ConversationLibrary({
                 </ul>
               )}
               {failures.some((item) => item.uncertain) && (
-                <Button disabled={busy} onClick={() => void retryUncertain()}>
+                <Button
+                  disabled={Boolean(busy)}
+                  onClick={() => void retryUncertain()}
+                >
                   Retry uncertain deletions
                 </Button>
               )}
@@ -699,6 +904,103 @@ export default function ConversationLibrary({
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+          {matching.length === 0 ? (
+            <p>Nothing in this filter.</p>
+          ) : (
+            <div
+              className="library-list"
+              data-selecting={selected.size > 0 || undefined}
+            >
+              {groupConversations(visible, now).map((group) => (
+                <Fragment key={group.id}>
+                  <h2 id={`${headingId}-${group.id}`} className="library-group">
+                    {group.label}
+                  </h2>
+                  <ul aria-labelledby={`${headingId}-${group.id}`}>
+                    {group.rows.map((row) => {
+                      const title = titleOf(row);
+                      const date = shortTime(row.updated_at, now);
+                      const checked = selected.has(row.id);
+                      return (
+                        <li
+                          key={row.id}
+                          className="library-row"
+                          data-selected={checked || undefined}
+                        >
+                          {/* The label is the 44 px touch target. */}
+                          <label className="library-check">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${title}`}
+                              checked={checked}
+                              disabled={Boolean(busy)}
+                              onChange={(event) =>
+                                toggle(
+                                  row.id,
+                                  Boolean(
+                                    (event.nativeEvent as MouseEvent).shiftKey,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <span className="library-type" aria-hidden>
+                            <ConversationGlyph row={row} />
+                          </span>
+                          <Link
+                            className="library-row-link"
+                            to={`/conversations/${encodeURIComponent(row.id)}`}
+                            onKeyDown={(event) => {
+                              // Space ticks the focused row (Enter opens it).
+                              if (event.key !== ' ' || busy) return;
+                              event.preventDefault();
+                              toggle(row.id, event.shiftKey);
+                            }}
+                          >
+                            <span className="library-row-title">{title}</span>
+                            {date && (
+                              <time
+                                className="library-row-date"
+                                dateTime={row.updated_at}
+                                title={absoluteTime(row.updated_at)}
+                              >
+                                {date}
+                              </time>
+                            )}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </Fragment>
+              ))}
+            </div>
+          )}
+          {pages > 1 && (
+            <div
+              className="library-pages"
+              role="group"
+              aria-label="Library pages"
+            >
+              <IconButton
+                label="Previous rows"
+                disabled={page === 0 || Boolean(busy)}
+                onClick={() => setPage((value) => value - 1)}
+              >
+                <ChevronLeft size={16} aria-hidden />
+              </IconButton>
+              <span>
+                Page {page + 1} of {pages}
+              </span>
+              <IconButton
+                label="Next rows"
+                disabled={page + 1 >= pages || Boolean(busy)}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                <ChevronRight size={16} aria-hidden />
+              </IconButton>
             </div>
           )}
         </>

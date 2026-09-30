@@ -680,16 +680,14 @@ it('opens reviewed conversation management from the existing action menu', async
     await screen.findByRole('menuitem', { name: 'Manage conversation' }),
   );
   const options = mock.open.mock.lastCall?.[0];
-  expect(options).toMatchObject({
-    title: 'Conversation actions',
-    description:
-      'Review changes to this saved conversation and keep its resources in place.',
-  });
+  // Titled with the conversation's name; the meta line says its type (B237).
+  expect(options.description).toMatch(/^Chat/);
   expect(options.content.props).toMatchObject({
     conversationId: 'conversation-a',
     load: mock.conversationActions,
     review: mock.reviewConversationAction,
     execute: mock.executeConversationAction,
+    onDelete: expect.any(Function),
   });
 });
 

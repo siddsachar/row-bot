@@ -48,7 +48,9 @@ import {
 } from '../../ui/primitives';
 import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import type { ConversationView } from '../../api/types';
-import ConversationActions from '../settings/ConversationActions';
+import ConversationActions, {
+  conversationActionsDialog,
+} from '../settings/ConversationActions';
 import { deleteOneConversation } from './ConversationLibrary';
 import type {
   GoalProfileSettingsSession,
@@ -63,6 +65,7 @@ import {
   matchesType,
   withRetainedRow,
   recencyGroup,
+  shortTime,
   type ConversationType,
 } from './conversation-groups';
 import { absoluteTime, ariaKeyShortcut } from '../../ui/format';
@@ -281,22 +284,6 @@ function activityLabel(
   return null;
 }
 
-/** "14:05" today, a weekday this week, "22 Sep" before that. */
-function shortTime(value: string | undefined, now = new Date()): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const group = recencyGroup(value, now);
-  return new Intl.DateTimeFormat(
-    undefined,
-    group === 'today'
-      ? { hour: 'numeric', minute: '2-digit' }
-      : group === 'older'
-        ? { month: 'short', day: 'numeric' }
-        : { weekday: 'short' },
-  ).format(date);
-}
-
 /** Live store subscription also updates the compact modal's mounted content. */
 export default function Navigation({
   onOpenConversation,
@@ -503,10 +490,10 @@ export default function Navigation({
       );
       return;
     }
-    overlay.open({
-      title: 'Conversation actions',
-      description: `Review changes to ${conversation.title || 'this conversation'}.`,
-      content: (
+    overlay.open(
+      conversationActionsDialog(
+        conversation,
+        session,
         <ConversationActions
           conversationId={conversation.id}
           session={session}
@@ -521,9 +508,24 @@ export default function Navigation({
             if (state.selectedConversationId === conversation.id)
               void controller.selectConversation(conversation.id);
           }}
-        />
+          onDelete={(closeActions) => {
+            // A rename or pin in the dialog moved the revision on.
+            const saved = session.getSnapshot().snapshot;
+            openDelete(
+              saved
+                ? {
+                    ...conversation,
+                    revision: saved.revision,
+                    title: saved.title,
+                  }
+                : conversation,
+              undefined,
+              closeActions,
+            );
+          }}
+        />,
       ),
-    });
+    );
   }
   const now = new Date();
   function conversationRow(conversation: ConversationView, heading?: string) {
@@ -688,9 +690,11 @@ export default function Navigation({
     });
   }
   // One conversation is one confirmation; bulk deletion lives in the Library.
+  // From the actions dialog, confirming closes the dialog too (B237).
   function openDelete(
     conversation: ConversationView,
     opener?: HTMLElement | null,
+    closeActions?: () => void,
   ) {
     const title = conversation.title || 'this conversation';
     overlay.open({
@@ -700,7 +704,8 @@ export default function Navigation({
         'This removes the conversation history. Bound designs and workspaces remain. Running work must stop before deletion can finish.',
       confirmLabel: 'Delete conversation',
       returnFocusTo: opener,
-      onConfirm: () =>
+      onConfirm: () => {
+        closeActions?.();
         void deleteOneConversation(controller, conversation).then((outcome) => {
           if (outcome.status === 'deleted') {
             if (state.selectedConversationId === conversation.id) navigate('/');
@@ -712,7 +717,8 @@ export default function Navigation({
             );
           } else overlay.notify(outcome.message);
           void controller.loadMoreConversations(true);
-        }),
+        });
+      },
     });
   }
   return (

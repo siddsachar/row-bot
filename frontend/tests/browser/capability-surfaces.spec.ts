@@ -758,29 +758,28 @@ test('Conversation actions rename, pin, and export through one recoverable overl
     .getByRole('menuitem', { name: 'Manage conversation', exact: true })
     .click();
 
-  let dialog = page.getByRole('dialog', {
-    name: 'Conversation actions',
-    exact: true,
-  });
-  let actions = dialog.getByRole('region', {
-    name: 'Conversation actions',
-    exact: true,
-  });
+  // One dialog named after the conversation (B237): one heading, no archive
+  // text, and the header's × as the only way to close.
+  let dialog = page.getByRole('dialog');
+  const name = dialog.getByLabel('Name', { exact: true });
+  await expect(name).toBeVisible();
+  await expect(dialog.getByRole('heading')).toHaveCount(1);
+  await expect(dialog.getByText(/archive/i)).toHaveCount(0);
   await expect(
-    actions.getByLabel('Conversation name', { exact: true }),
-  ).toBeVisible();
+    dialog.getByRole('button', { name: 'Close', exact: true }),
+  ).toHaveCount(0);
   const renamed = `Phase 4 actions ${conversation.slice(0, 8)}`;
-  await actions.getByLabel('Conversation name', { exact: true }).fill(renamed);
-  await actions.getByRole('button', { name: 'Rename', exact: true }).click();
+  await name.fill(renamed);
+  await name.press('Enter');
+  await expect(dialog.getByText('Name saved.')).toBeVisible();
   await expect(
-    actions.getByText('Conversation action completed.'),
+    page.getByRole('dialog', { name: renamed, exact: true }),
   ).toBeVisible();
 
-  await actions.getByRole('button', { name: 'Pin', exact: true }).click();
-  await expect(
-    actions.getByRole('button', { name: 'Unpin', exact: true }),
-  ).toBeVisible();
-  await expect(actions.getByText(/Archive is unavailable/)).toBeVisible();
+  const pin = dialog.getByRole('switch', { name: 'Pin', exact: true });
+  await pin.click();
+  await expect(pin).toBeChecked();
+  await expect(dialog.getByText('Pinned.')).toBeVisible();
   await visualCheck(page, info, 'conversation-actions-pinned');
 
   await page.keyboard.press('Escape');
@@ -803,31 +802,15 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   await page
     .getByRole('menuitem', { name: 'Manage conversation', exact: true })
     .click();
-  dialog = page.getByRole('dialog', {
-    name: 'Conversation actions',
-    exact: true,
-  });
-  actions = dialog.getByRole('region', {
-    name: 'Conversation actions',
-    exact: true,
-  });
+  dialog = page.getByRole('dialog', { name: renamed, exact: true });
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(renamed);
   await expect(
-    actions.getByLabel('Conversation name', { exact: true }),
-  ).toHaveValue(renamed);
-  await expect(
-    actions.getByRole('button', { name: 'Unpin', exact: true }),
-  ).toBeVisible();
+    dialog.getByRole('switch', { name: 'Pin', exact: true }),
+  ).toBeChecked();
 
-  await actions
-    .getByRole('button', { name: 'Export as Markdown', exact: true })
-    .click();
-  const downloadButton = actions.getByRole('button', {
-    name: 'Download conversation export',
-    exact: true,
-  });
-  await expect(downloadButton).toBeVisible();
+  // Markdown saves in one click; the dialog closes and the notice confirms.
   const download = await captureBrowserDownload(page, () =>
-    downloadButton.click(),
+    dialog.getByRole('button', { name: 'Markdown', exact: true }).click(),
   );
   expect(download.name).toBe('conversation-export.md');
   expect(download.mimeType).toBe('application/octet-stream');
@@ -838,7 +821,10 @@ test('Conversation actions rename, pin, and export through one recoverable overl
   expect(markdown).not.toContain('system instructions');
   expect(bytes.length).toBeLessThan(1024 * 1024);
   // A browser can only start a download; it never claims the file was saved.
-  await expect(actions.getByText('Download started.')).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.locator('.toast').filter({ hasText: 'Download started.' }),
+  ).toBeVisible();
   await writeEvidence(info, 'conversation-actions-result.json', {
     conversation,
     title: renamed,

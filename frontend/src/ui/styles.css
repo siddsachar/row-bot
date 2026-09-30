@@ -1296,24 +1296,6 @@ small {
   padding: 8px 24px 24px;
   min-height: 0;
 }
-.conversation-library-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  max-height: 45dvh;
-  overflow: auto;
-}
-.conversation-library-list li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-subtle);
-  overflow-wrap: anywhere;
-}
-.conversation-library-list li label {
-  min-width: 0;
-}
 .dialog-footer {
   display: flex;
   justify-content: end;

@@ -53,7 +53,9 @@ import {
   X,
 } from 'lucide-react';
 import SearchConversations from './SearchConversations';
-import ConversationActions from '../settings/ConversationActions';
+import ConversationActions, {
+  conversationActionsDialog,
+} from '../settings/ConversationActions';
 import DraftConflict from './DraftConflict';
 import WaitingMessages, {
   sendable,
@@ -1889,11 +1891,10 @@ export default function Conversation({
       );
       return;
     }
-    overlay.open({
-      title: 'Conversation actions',
-      description:
-        'Review changes to this saved conversation and keep its resources in place.',
-      content: (
+    overlay.open(
+      conversationActionsDialog(
+        state.conversation ?? { title: '' },
+        session,
         <ConversationActions
           conversationId={id}
           session={session}
@@ -1907,9 +1908,15 @@ export default function Conversation({
               controller.loadMoreConversations(true),
             ]);
           }}
-        />
+          onDelete={(closeActions) =>
+            deleteConversation(
+              closeActions,
+              session.getSnapshot().snapshot?.revision,
+            )
+          }
+        />,
       ),
-    });
+    );
   }
   function manageBrowser() {
     if (!id) return;
@@ -1936,8 +1943,12 @@ export default function Conversation({
       setError(clientError(e).message),
     );
   }
-  function deleteConversation() {
+  // From the actions dialog (B237) the confirmation opens over it, its
+  // confirm closes both, and the dialog passes the revision it last saw (a
+  // rename or pin there moves it on).
+  function deleteConversation(closeActions?: () => void, revision?: string) {
     if (!id || !state.conversation) return;
+    const expected = revision ?? state.conversation.revision;
     overlay.open({
       kind: 'alert',
       title: 'Delete conversation?',
@@ -1945,9 +1956,10 @@ export default function Conversation({
         'This removes its history. Bound resources are retained. Running work must stop before deletion completes.',
       confirmLabel: 'Delete conversation',
       onConfirm: () => {
+        closeActions?.();
         overlay.close();
         void controller
-          .intent(id, 'conversation.delete', {}, state.conversation!.revision)
+          .intent(id, 'conversation.delete', {}, expected)
           .then((receipt) => {
             if (receipt.status === 'DeleteCompleted') navigate('/');
             else
@@ -2112,7 +2124,7 @@ export default function Conversation({
       onUnbindResource={unbindResource}
       onManageConversation={manageConversation}
       onManageBrowser={manageBrowser}
-      onDeleteConversation={deleteConversation}
+      onDeleteConversation={() => deleteConversation()}
       onOpenSuggestion={(suggestion) => {
         onPanel(suggestion.descriptor);
         controller.dismissSuggestion(suggestion);
