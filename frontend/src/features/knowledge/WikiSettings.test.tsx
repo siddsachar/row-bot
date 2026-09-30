@@ -260,3 +260,67 @@ it('purges retained content and ignores late passive reads after disposal', asyn
   expect(session.getSnapshot().status).toBeNull();
   expect(session.hasRetained()).toBe(false);
 });
+
+it('shows the saved wiki vault and counts without authorizing or mutating it', async () => {
+  const io: WikiSettingsIO = {
+    status: vi.fn(async () => ({
+      schema_version: 1,
+      revision,
+      enabled: true,
+      availability: 'scope_required' as const,
+      scope_id: null,
+      articles: null,
+      edited: null,
+      conflicts: null,
+    })),
+    articles: vi.fn(async () => {
+      throw new Error('an unauthorized vault must not be read');
+    }),
+    article: vi.fn(async () => {
+      throw new Error('not called');
+    }),
+    review: vi.fn(async () => {
+      throw new Error('not called');
+    }),
+    execute: vi.fn(async () => {
+      throw new Error('not called');
+    }),
+    receipt: vi.fn(async () => null),
+  };
+  const snapshot: WikiSettingsSnapshot = {
+    availability: 'available',
+    enabled: true,
+    vault_path: 'C:\\Synthetic\\wiki-vault',
+    path_state: 'available',
+    articles: 601,
+    conversations: 14,
+  };
+  render(
+    <WikiSettings session={new WikiSettingsSession(io)} snapshot={snapshot} />,
+  );
+
+  expect(screen.getByText('C:\\Synthetic\\wiki-vault')).toBeVisible();
+  expect(screen.getByText('601')).toBeVisible();
+  expect(screen.getByText('14')).toBeVisible();
+  expect(
+    await screen.findByText(
+      'Sync status: Select an authorized vault to read or change its files.',
+    ),
+  ).toBeVisible();
+  expect(io.status).toHaveBeenCalledTimes(1);
+  expect(io.articles).not.toHaveBeenCalled();
+  expect(io.review).not.toHaveBeenCalled();
+  expect(io.execute).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('button', { name: 'Check vault sync' }),
+  ).toBeEnabled();
+  expect(
+    screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Open vault folder' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('link', { name: 'Browse or create knowledge' }),
+  ).toHaveAttribute('href', '/app-v2/settings/knowledge');
+});

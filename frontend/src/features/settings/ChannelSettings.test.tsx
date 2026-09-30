@@ -313,3 +313,65 @@ it('shows WhatsApp’s live link code while it waits for a scan and resets only 
     expect.any(AbortSignal),
   );
 });
+
+it('lists unloaded core channels collapsed and passive, with no password field', async () => {
+  const names = ['Telegram', 'Slack', 'SMS', 'Discord', 'WhatsApp'];
+  const props = options();
+  props.load.mockResolvedValue({
+    schema_version: 1,
+    total: names.length,
+    truncated: false,
+    items: [...names].reverse().map((displayName) => ({
+      schema_version: 1,
+      channel_id: displayName.toLowerCase(),
+      display_name: displayName,
+      source: { kind: 'core', label: 'Bundled channel' },
+      revision,
+      configured: displayName === 'Telegram',
+      running: false,
+      activity: 'unknown',
+      activity_history: [],
+      fields: [
+        {
+          key: 'credential',
+          label: 'Credential',
+          field_type: 'password',
+          storage: 'env',
+          help_text: '',
+          configured: displayName === 'Telegram',
+          source: displayName === 'Telegram' ? 'channel keyring' : '',
+          fingerprint: displayName === 'Telegram' ? 'fp:masked' : '',
+          externally_managed: false,
+          writable: false,
+        },
+      ],
+      paired_identities: [],
+      capabilities: ['streaming'],
+      availability: {
+        configuration: 'limited',
+        lifecycle: 'configuration_required',
+        pairing: 'unsupported',
+        monitor: 'unavailable',
+      },
+    })),
+  } satisfies ChannelPage);
+  const { container } = render(<ChannelSettings {...props} />);
+
+  await screen.findByText('1 configured');
+  expect(screen.getByText('0 running')).toBeVisible();
+  expect(
+    Array.from(
+      container.querySelectorAll('summary strong'),
+      (node) => node.textContent,
+    ),
+  ).toEqual(names);
+  expect(container.querySelector('details[open]')).toBeNull();
+  expect(container.querySelector('input[type="password"]')).toBeNull();
+
+  fireEvent.click(screen.getByText('Telegram').closest('summary')!);
+  expect(
+    screen.getByText('Saved via channel keyring (fp:masked)'),
+  ).toBeVisible();
+  expect(props.review).not.toHaveBeenCalled();
+  expect(props.execute).not.toHaveBeenCalled();
+});

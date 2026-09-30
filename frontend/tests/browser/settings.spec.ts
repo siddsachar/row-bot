@@ -10,10 +10,6 @@ import { blockFixtureServiceWorkers } from './unified-helpers';
 import type { Locator, Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 
-// Legacy Providers cases below exercise the removed review/reload page. The
-// row-based Providers route has browser coverage in providers-parity.spec.ts;
-// retained command and receipt behavior remains in focused component/API tests.
-
 async function seed(page: Page, state: 'populated' | 'empty' | 'changed') {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
   const base = process.env.ROW_BOT_BROWSER_BASE_URL;
@@ -1521,165 +1517,6 @@ test('Buddy plays the saved bundled motion and switches to its still for reduced
   await accessibility(page, info, 'buddy-reduced-motion');
 });
 
-test.skip('Subscription checks retain the original review and expose actual cancellation without replay', async ({
-  page,
-}, info) => {
-  if (info.project.use.browserName !== 'firefox')
-    info.annotations.push({
-      type: 'expected-console-error',
-      description: JSON.stringify({
-        signature:
-          'Failed to load resource: the server responded with a status of 409 (Conflict)',
-        count: 1,
-        owner: 'subscription-probes',
-        fixture:
-          'Explicitly cancelled original synthetic provider request returns subscription_cancelled',
-      }),
-    });
-  const headers = {
-    'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-    Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
-  };
-  expect(
-    (
-      await page.request.post('/__p4_fixture/subscription-probes/ready', {
-        headers,
-      })
-    ).ok(),
-  ).toBe(true);
-  await page.goto('/app-v2/settings/providers');
-  const editor = page.getByRole('region', {
-    name: 'Subscription checks',
-    exact: true,
-  });
-  await editor
-    .getByRole('button', { name: 'Review check', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm check', exact: true })
-    .click();
-  await expect(
-    editor.getByText(/Last result: Codex.*(?:missing|unavailable)/),
-  ).toBeVisible();
-  await editor
-    .getByRole('button', { name: 'Reload saved checks', exact: true })
-    .click();
-  await editor
-    .getByLabel('Subscription provider', { exact: true })
-    .selectOption('xai_oauth');
-  await editor
-    .getByLabel('Check type', { exact: true })
-    .selectOption('runtime');
-  await editor
-    .getByLabel('Provider-qualified model reference', { exact: true })
-    .fill('model:xai_oauth:grok-4');
-  await editor
-    .getByRole('button', { name: 'Review check', exact: true })
-    .click();
-  await expect(editor.getByText(/Reviewed: xAI subscription/)).toBeVisible();
-  await activateRoute(
-    page,
-    editor.getByRole('button', {
-      name: 'Browse saved models',
-      exact: true,
-    }),
-    { path: '/app-v2/settings/models', headingName: 'Models' },
-  );
-  await openHomeThroughNavigation(page);
-  await expectFocusedHome(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Providers',
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
-  });
-  await expect(editor.getByText(/Reviewed: xAI subscription/)).toBeVisible();
-  await editor
-    .getByRole('button', { name: 'Confirm check', exact: true })
-    .click();
-  await expect(
-    editor.getByText(/Last result: xAI subscription.*passed/),
-  ).toBeVisible();
-  const success = await page.request.get('/__p4_fixture/subscription-probes', {
-    headers,
-  });
-  expect((await success.json()).calls).toBe(3);
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `subscription-checks-${appearance}`);
-    await accessibility(page, info, `subscription-checks-${appearance}`);
-  }
-  expect(
-    (
-      await page.request.post('/__p4_fixture/subscription-probes/blocked', {
-        headers,
-      })
-    ).ok(),
-  ).toBe(true);
-  await editor
-    .getByRole('button', { name: 'Reload saved checks', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Review check', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm check', exact: true })
-    .click();
-  try {
-    await expect
-      .poll(
-        async () =>
-          (
-            await (
-              await page.request.get('/__p4_fixture/subscription-probes', {
-                headers,
-              })
-            ).json()
-          ).entered,
-      )
-      .toBe(true);
-    await editor
-      .getByRole('button', { name: 'Cancel original check', exact: true })
-      .click();
-    await expect(
-      editor.getByText(/Cancellation requested. Waiting/),
-    ).toBeVisible();
-    await expect(
-      editor.getByRole('button', { name: 'Confirm check', exact: true }),
-    ).toBeDisabled();
-  } finally {
-    expect(
-      (
-        await page.request.post('/__p4_fixture/subscription-probes/release', {
-          headers,
-        })
-      ).ok(),
-    ).toBe(true);
-  }
-  await expect(
-    editor.getByRole('button', {
-      name: 'Check status',
-      exact: true,
-    }),
-  ).toBeEnabled();
-  await editor
-    .getByRole('button', { name: 'Check status', exact: true })
-    .click();
-  await expect(
-    editor.getByText(/Original work: cancelled. Stopped./),
-  ).toBeVisible();
-  await expect(
-    editor.getByRole('button', { name: 'Confirm check', exact: true }),
-  ).toBeDisabled();
-  expect(
-    (
-      await (
-        await page.request.get('/__p4_fixture/subscription-probes', { headers })
-      ).json()
-    ).calls,
-  ).toBe(1);
-  await screenshot(page, info, 'subscription-checks-cancelled-original');
-});
 test.beforeEach(async ({ context, page }) => {
   await blockFixtureServiceWorkers(context);
   await page.addInitScript(() => {
@@ -1738,77 +1575,6 @@ test('Models catalog applies a default and retains it across Providers navigatio
   await accessibility(page, info, 'models-default-retained');
 });
 
-test.skip('Phase 4 saved providers lead to bounded searchable model details without a live probe', async ({
-  page,
-}, info) => {
-  await seed(page, 'populated');
-  await page.goto('/app-v2/settings');
-  await activateRoute(
-    page,
-    page.getByRole('link', { name: 'Providers', exact: true }),
-    { path: '/app-v2/settings/providers', headingName: 'Providers' },
-  );
-  await expect(
-    page.getByText(
-      /Account access and runtime readiness have not been checked/,
-    ),
-  ).toBeVisible();
-  const provider = page
-    .locator('.settings-results a')
-    .filter({ hasText: '106 saved models' });
-  await expect(provider).toHaveCount(1);
-  await screenshot(page, info, 'saved-providers');
-  await accessibility(page, info, 'saved-providers');
-  await activateRoute(page, provider, {
-    path: '/app-v2/settings/models',
-    headingName: 'Models',
-  });
-  await expect(page.getByText('106 matching models')).toBeVisible();
-  await expect(page.locator('.settings-results > li')).toHaveCount(50);
-  await page
-    .getByRole('button', { name: 'Load more models', exact: true })
-    .click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(100);
-  await page
-    .getByRole('button', { name: 'Load more models', exact: true })
-    .click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(106);
-  await expect(
-    page.getByRole('button', { name: 'Load more models', exact: true }),
-  ).toHaveCount(0);
-  await page
-    .getByRole('searchbox', { name: 'Search models' })
-    .fill('Long model');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.locator('.settings-results > li')).toHaveCount(1);
-  await page.locator('.settings-results summary').click();
-  await expect(
-    page.locator('.settings-results dd').filter({ hasText: /^Unknown$/ }),
-  ).toHaveCount(6);
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await expect(page.locator('html')).toHaveAttribute(
-      'data-theme',
-      appearance,
-    );
-    await assertNoOverflow(page);
-    await screenshot(page, info, `saved-model-long-identity-${appearance}`);
-    await accessibility(page, info, `saved-model-${appearance}`);
-  }
-  await page.reload();
-  await expect(
-    page.getByRole('combobox', { name: 'Provider', exact: true }),
-  ).toHaveValue('openai');
-  await expect(page.getByText('106 matching models')).toBeVisible();
-  await writeEvidence(info, 'saved-catalog-reads', {
-    provider: 'openai',
-    models: 106,
-    pages: [50, 50, 6],
-    query: 'Long model',
-    runtimeReadiness: 'unknown',
-  });
-});
-
 test('Models catalog recovers an expired page cursor only when requested', async ({
   page,
 }, info) => {
@@ -1850,174 +1616,6 @@ test('Models catalog recovers an expired page cursor only when requested', async
   await assertNoOverflow(page);
   await screenshot(page, info, 'saved-models-empty');
   await accessibility(page, info, 'saved-models-empty');
-});
-
-test.skip('Phase 4 credentials retain a private reviewed draft and save disconnect restore locally', async ({
-  page,
-}, info) => {
-  await seed(page, 'populated');
-  const response = await page.request.post(
-    '/__p4_fixture/provider-credentials',
-    {
-      headers: {
-        'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-        Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
-      },
-    },
-  );
-  expect(response.ok()).toBe(true);
-  await page.goto('/app-v2/settings/providers');
-  const open = page.getByRole('button', {
-    name: 'Edit OpenAI API credentials',
-    exact: true,
-  });
-  await open.click();
-  const editor = page.getByRole('region', {
-    name: 'Provider credential settings',
-    exact: true,
-  });
-  await editor
-    .getByLabel('New API key', { exact: true })
-    .fill('synthetic-browser-replacement');
-  await openHomeThroughNavigation(page);
-  await expect(editor).toHaveCount(0);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Providers',
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
-  });
-  await open.click();
-  await expect(editor.getByLabel('New API key', { exact: true })).toHaveValue(
-    'synthetic-browser-replacement',
-  );
-  await editor
-    .getByRole('button', { name: 'Review change', exact: true })
-    .click();
-  await expect(
-    editor.getByRole('button', { name: 'Confirm replacement', exact: true }),
-  ).toBeEnabled();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `provider-credential-review-${appearance}`);
-    await accessibility(page, info, `provider-credential-review-${appearance}`);
-  }
-  await editor
-    .getByRole('button', { name: 'Confirm replacement', exact: true })
-    .click();
-  await expect(
-    page.getByText('Credential settings saved.', { exact: true }),
-  ).toBeVisible();
-  for (const [action, button] of [
-    ['clear', 'Confirm disconnect'],
-    ['restore', 'Confirm restore'],
-  ]) {
-    await open.click();
-    await editor
-      .getByRole('combobox', { name: 'Credential action', exact: true })
-      .selectOption(action);
-    await editor
-      .getByRole('button', { name: 'Review change', exact: true })
-      .click();
-    await editor.getByRole('button', { name: button, exact: true }).click();
-    await expect(
-      page.getByText('Credential settings saved.', { exact: true }),
-    ).toBeVisible();
-  }
-  await open.click();
-  await expect(editor.getByText(/Credential configured/)).toBeVisible();
-  await editor
-    .getByRole('combobox', { name: 'Credential action', exact: true })
-    .selectOption('save');
-  await expect(editor.getByLabel('New API key', { exact: true })).toHaveValue(
-    '',
-  );
-});
-
-test.skip('Phase 4 endpoint configuration retains drafts and reviews create edit remove', async ({
-  page,
-}, info) => {
-  await seed(page, 'populated');
-  await page.goto('/app-v2/settings/providers');
-  const editor = page.getByRole('region', {
-    name: 'Provider configuration',
-    exact: true,
-  });
-  await editor
-    .getByRole('button', { name: 'New endpoint', exact: true })
-    .click();
-  const id = `browser-${info.project.name}`;
-  await editor.getByLabel('Endpoint ID', { exact: true }).fill(id);
-  await editor
-    .getByLabel('Display name', { exact: true })
-    .fill('Synthetic reviewed endpoint');
-  await editor
-    .getByLabel('Base URL', { exact: true })
-    .fill('http://127.0.0.1:9/v1');
-  await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Providers',
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
-  });
-  await expect(editor.getByLabel('Endpoint ID', { exact: true })).toHaveValue(
-    id,
-  );
-  const confirm = async () => {
-    await editor
-      .getByRole('button', { name: 'Review configuration', exact: true })
-      .click();
-    await expect(
-      editor.getByText(
-        'Review complete. Confirm the displayed action and target.',
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await editor
-      .getByRole('button', { name: 'Confirm configuration', exact: true })
-      .click();
-    await expect(
-      editor.getByText('Configuration saved. No model was started.', {
-        exact: true,
-      }),
-    ).toBeVisible();
-    await editor
-      .getByRole('button', { name: 'Reload saved configuration', exact: true })
-      .click();
-  };
-  await confirm();
-  await editor
-    .getByRole('button', {
-      name: 'Edit Synthetic reviewed endpoint',
-      exact: true,
-    })
-    .click();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `provider-configuration-${appearance}`);
-    await accessibility(page, info, `provider-configuration-${appearance}`);
-  }
-  await editor
-    .getByLabel('Display name', { exact: true })
-    .fill('Synthetic edited endpoint');
-  await confirm();
-  await editor
-    .getByRole('button', {
-      name: 'Edit Synthetic edited endpoint',
-      exact: true,
-    })
-    .click();
-  await editor
-    .getByRole('combobox', { name: 'Configuration action', exact: true })
-    .selectOption('provider.endpoint.delete');
-  await confirm();
-  await expect(
-    editor.getByRole('button', {
-      name: 'Edit Synthetic edited endpoint',
-      exact: true,
-    }),
-  ).toHaveCount(0);
 });
 
 test('MCP tested tools retain their review and accept the saved catalog without retesting', async ({
@@ -2147,149 +1745,6 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
   await expect(
     connection.getByRole('button', { name: 'Connect', exact: true }),
   ).toBeEnabled();
-});
-
-test.skip('Subscription accounts retain the reviewed sign-in and publish disconnect recover synthetic credentials', async ({
-  page,
-}, info) => {
-  const seeded = await page.request.post('/__p4_fixture/subscriptions', {
-    headers: {
-      'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-      Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
-    },
-  });
-  expect(seeded.ok()).toBe(true);
-  await page.goto('/app-v2/settings/providers');
-  const editor = page.getByRole('region', {
-    name: 'Subscription accounts',
-    exact: true,
-  });
-  await editor
-    .getByRole('button', { name: 'Review sign-in', exact: true })
-    .click();
-  await expect(
-    editor.getByRole('region', { name: 'Review account action' }),
-  ).toContainText('Confirm start for ChatGPT / Codex');
-  await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Providers',
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
-  });
-  await editor
-    .getByRole('button', { name: 'Confirm account action', exact: true })
-    .click();
-  await expect(editor.getByLabel('Device code', { exact: true })).toHaveValue(
-    'SYNTHETIC',
-  );
-  await expect(
-    editor.getByRole('link', { name: 'Open ChatGPT / Codex sign-in' }),
-  ).toHaveAttribute('href', 'https://example.invalid/device');
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `subscription-signin-${appearance}`);
-    await accessibility(page, info, `subscription-signin-${appearance}`);
-  }
-  await editor
-    .getByRole('button', { name: 'Review login check', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm account action', exact: true })
-    .click();
-  await expect(editor.getByText(/Saved status: saved/)).toBeVisible();
-  await expect(editor.getByLabel('Device code', { exact: true })).toHaveCount(
-    0,
-  );
-  await editor
-    .getByRole('button', { name: 'Review disconnect', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm account action', exact: true })
-    .click();
-  await expect(editor.getByText(/Saved status: disconnected/)).toBeVisible();
-  await editor
-    .getByRole('button', { name: 'Review account recovery', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm account action', exact: true })
-    .click();
-  await expect(editor.getByText(/Saved status: saved/)).toBeVisible();
-});
-
-test.skip('Subscription options retain exact reviews and save reference override reset through canonical owners', async ({
-  page,
-}, info) => {
-  const seeded = await page.request.post('/__p4_fixture/subscription-options', {
-    headers: {
-      'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-      Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
-    },
-  });
-  expect(seeded.ok()).toBe(true);
-  await page.goto('/app-v2/settings/providers');
-  const editor = page.getByRole('region', {
-    name: 'Subscription account options',
-    exact: true,
-  });
-  await editor
-    .getByRole('button', { name: 'Review Codex CLI reference', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm account option', exact: true })
-    .click();
-  await expect(
-    editor.getByText('Codex CLI: metadata reference saved', { exact: true }),
-  ).toBeVisible();
-  await editor
-    .getByRole('button', { name: 'Review Claude Code reference', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm account option', exact: true })
-    .click();
-  await expect(
-    editor.getByText('Claude Code: metadata reference saved', { exact: true }),
-  ).toBeVisible();
-  await editor
-    .getByLabel('xAI OAuth client ID override', { exact: true })
-    .fill('synthetic-browser-client');
-  await editor
-    .getByRole('button', { name: 'Review client ID override', exact: true })
-    .click();
-  await openHomeThroughNavigation(page);
-  await expectFocusedHome(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'Providers',
-    path: '/app-v2/settings/providers',
-    headingName: 'Providers',
-  });
-  await expect(
-    editor.getByRole('status').filter({ hasText: 'Reviewed:' }),
-  ).toContainText('synthetic-browser-client');
-  await editor
-    .getByRole('button', { name: 'Confirm account option', exact: true })
-    .click();
-  await expect(
-    editor.getByText(/xAI OAuth client source: override/),
-  ).toBeVisible();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `subscription-options-${appearance}`);
-    await accessibility(page, info, `subscription-options-${appearance}`);
-  }
-  await editor
-    .getByRole('button', { name: 'Review reset to default', exact: true })
-    .click();
-  await editor
-    .getByRole('button', { name: 'Confirm account option', exact: true })
-    .click();
-  await expect(
-    editor.getByLabel('xAI OAuth client ID override', { exact: true }),
-  ).toHaveValue('');
-  await expect(
-    editor.getByText(/xAI OAuth client source: override/),
-  ).toHaveCount(0);
 });
 
 test('MCP saved permissions preserve mandatory approval and apply explicit reviewed access changes', async ({
@@ -2556,4 +2011,151 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
     await screenshot(page, info, `mcp-settings-${appearance}`);
     await accessibility(page, info, `mcp-settings-${appearance}`);
   }
+});
+
+async function seedKnowledge(page: Page, state: 'populated' | 'empty') {
+  const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
+  const base = process.env.ROW_BOT_BROWSER_BASE_URL;
+  if (!token || !base) throw new Error('Use the isolated Phase 4 runner');
+  const response = await page.request.post(`/__p4_fixture/knowledge/${state}`, {
+    headers: { 'X-Fixture-Token': token, Origin: new URL(base).origin },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
+test.describe('Knowledge settings', () => {
+  // The file-level hooks already block service workers and seed the same
+  // system appearance; Knowledge also runs on the native network path.
+  test.use({ nativeNetwork: true });
+
+  test('Knowledge Settings matches the reviewed NiceGUI hierarchy and workflows', async ({
+    page,
+  }, info) => {
+    await seedKnowledge(page, 'populated');
+    await page.goto('/app-v2/settings/knowledge');
+
+    await expect(
+      page.getByRole('region', { name: 'Memory graph summary' }),
+    ).toBeVisible();
+    const wiki = page.getByRole('region', { name: 'Wiki vault', exact: true });
+    await expect(wiki).toBeVisible();
+    await expect(
+      wiki.getByRole('button', { name: 'Browse', exact: true }),
+    ).toBeVisible();
+    await expect(
+      wiki.getByRole('button', { name: 'Check vault sync', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Needs Review' }),
+    ).toBeVisible();
+    await expect(
+      page.locator('.settings-knowledge-filters').getByRole('combobox'),
+    ).toHaveCount(4);
+    await expect(page.locator('.settings-knowledge-result')).toHaveCount(25);
+    await expect(
+      page.getByText('Showing 25 of 105 matching entries.'),
+    ).toBeVisible();
+
+    const memory = page.getByRole('switch', { name: 'Enable Memory' });
+    const wasEnabled = await memory.isChecked();
+    // The memory setting is reviewed by the server and applied in one step.
+    await memory.click();
+    await expect(memory).toBeChecked({ checked: !wasEnabled });
+    await expect(
+      page.getByRole('region', { name: 'Memory graph summary' }),
+    ).toContainText(wasEnabled ? 'Memory disabled' : 'Memory enabled');
+
+    const search = page.getByRole('searchbox', { name: 'Search knowledge' });
+    await search.fill('tail needle');
+    await expect(page.locator('.settings-knowledge-result')).toHaveCount(1);
+    await page.getByRole('combobox', { name: 'Category' }).selectOption('fact');
+    await page.getByRole('combobox', { name: 'Status' }).selectOption('active');
+    await page
+      .getByRole('combobox', { name: 'Source' })
+      .selectOption('extraction');
+    await page.getByRole('combobox', { name: 'Tier' }).selectOption('semantic');
+    await expect(page.locator('.settings-knowledge-result')).toHaveCount(1);
+
+    const row = page.locator('.settings-knowledge-result').first();
+    await row.locator('summary').click();
+    await expect(row.getByText('p4-entity-104', { exact: true })).toBeVisible();
+    await expect(row.getByText('semantic', { exact: true })).toBeVisible();
+    await row.getByText('Provenance', { exact: true }).click();
+    await expect(
+      row.getByText('Source: synthetic', { exact: true }),
+    ).toBeVisible();
+    await row.getByRole('button', { name: /Edit/ }).click();
+    const editor = page.getByRole('dialog', { name: 'Edit knowledge' });
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('textbox', { name: 'Subject' })).toHaveValue(
+      'Phase 4 knowledge 104',
+    );
+    await editor
+      .getByRole('button', { name: 'Close knowledge editor' })
+      .click();
+    await expect(editor).toHaveCount(0);
+    await expect(row.getByRole('button', { name: /Edit/ })).toBeFocused();
+
+    await page.getByText('Recent recall decisions', { exact: true }).click();
+    await expect(page.getByText('Memory used', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(/Phase 4 knowledge 000 \(0\.93\)/),
+    ).toBeVisible();
+    await page.getByText('Memory change log', { exact: true }).click();
+    await expect(
+      page.getByText('Mark needs review', { exact: true }),
+    ).toBeVisible();
+    // The page is titled Memory since the Phase 3 regroup (id stays knowledge).
+    await page
+      .getByRole('heading', { name: 'Memory', exact: true, level: 2 })
+      .scrollIntoViewIfNeeded();
+
+    for (const appearance of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: appearance });
+      await expect(page.locator('html')).toHaveAttribute(
+        'data-theme',
+        appearance,
+      );
+      await assertNoOverflow(page);
+      await screenshot(page, info, `knowledge-parity-${appearance}`);
+      await accessibility(page, info, `knowledge-parity-${appearance}`);
+    }
+
+    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await row
+      .getByRole('checkbox', { name: 'Select Phase 4 knowledge 104' })
+      .click();
+    // Deletion stays destructive: the reviewed selection still needs a confirm.
+    await page
+      .getByRole('group', { name: 'Knowledge selection actions' })
+      .getByRole('button', { name: 'Delete selected', exact: true })
+      .click();
+    await page
+      .getByRole('button', { name: 'Confirm permanent deletion' })
+      .click();
+    await expect(page.getByText('No matching knowledge')).toBeVisible();
+
+    await search.fill('');
+    await page.getByRole('combobox', { name: 'Category' }).selectOption('');
+    await page.getByRole('combobox', { name: 'Status' }).selectOption('');
+    await page.getByRole('combobox', { name: 'Source' }).selectOption('');
+    await page.getByRole('combobox', { name: 'Tier' }).selectOption('');
+    // Store-wide deletion lives in the collapsed Danger zone.
+    const dangerZone = page.locator('.settings-danger-zone details');
+    await expect(dangerZone).not.toHaveAttribute('open', '');
+    await dangerZone.locator('summary').click();
+    await expect(dangerZone).toHaveAttribute('open', '');
+    const deleteAll = page.getByRole('button', {
+      name: /Delete all knowledge/,
+    });
+    await expect(deleteAll).toBeEnabled();
+    await deleteAll.click();
+    await expect(
+      page.getByRole('region', { name: 'Reviewed knowledge deletion' }),
+    ).toContainText('104 entries');
+    await page
+      .getByRole('button', { name: 'Confirm permanent deletion' })
+      .click();
+    await expect(page.getByText('No matching knowledge')).toBeVisible();
+  });
 });

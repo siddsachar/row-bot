@@ -1,5 +1,5 @@
 import { expect, test, writeEvidence } from './evidence';
-import { captureSurface, openHome } from './phase5-helpers';
+import { captureSurface, openHome } from './surface-helpers';
 
 test('manifest and installed service worker cache only immutable public assets', async ({
   context,

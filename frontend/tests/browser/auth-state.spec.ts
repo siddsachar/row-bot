@@ -1,11 +1,11 @@
 import { expect, test, writeEvidence } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
-import { captureSurface } from './phase5-helpers';
+import { captureSurface } from './surface-helpers';
 
 test('expired, revoked and unauthorized projects converge on a fenced recovery surface', async ({
   page,
 }, testInfo) => {
-  const scenario = String(testInfo.project.metadata.phase5Scenario ?? '');
+  const scenario = String(testInfo.project.metadata.authScenario ?? '');
   expect(['expired', 'revoked', 'unauthorized']).toContain(scenario);
 
   if (scenario === 'unauthorized') {

@@ -51,18 +51,55 @@ APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 # One PR browser pass: boot, first run, shell, overlays, a turn's lifecycle, chat,
 # providers, restart recovery, the desktop Buddy window and the UI primitives.
 BROWSER_SMOKE_SPECS = (
-    "bootstrap.spec",
-    "setup-first-run.spec",
-    "shell-slice1.spec",
-    "overlays.spec",
-    "unified-lifecycle.spec",
-    "conversation-first.spec",
-    "providers-parity.spec",
-    "unified-restart.spec",
-    "buddy-overlay.spec",
-    "polish-foundation.spec",
+    "bootstrap",
+    "setup-first-run",
+    "shell",
+    "overlays",
+    "unified-lifecycle",
+    "conversation-first",
+    "settings-providers",
+    "unified-restart",
+    "buddy-overlay",
+    "polish-foundation",
 )
-BROWSER_RUNNER = ("uv", "run", "python", "tests/browser/client_workspace/run_browser.py", "--engine", "chromium")
+# Nightly at desktop width, in three fixture runs (each run starts a fresh backend).
+BROWSER_NIGHTLY_SPECS = (
+    "capability-surfaces", "conversation-layout", "media", "message-content",
+    "navigation", "panels", "persistence", "polish-visual", "resources",
+    "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
+    "theme", "visual-alignment", "voice", "workflows",
+)
+BROWSER_UNIFIED_SPECS = (
+    "unified-history", "unified-panels", "unified-quality", "unified-recovery",
+    "unified-resources", "unified-waiting",
+)
+# Specs that run only in their own windows (auth states, compact sizes, offline, PWA, remote).
+BROWSER_DEDICATED_PROJECTS = tuple(f"--project=chromium-{name}" for name in (
+    "auth-expired", "auth-revoked", "auth-unauthorized", "compact-phone", "compact-tablet", "compact-narrow",
+    "offline-reconnect", "pwa-update", "remote-resource",
+))
+# Nightly at phone width: the shell, settings and conversation surfaces.
+BROWSER_PHONE_SPECS = (
+    "capability-surfaces", "conversation-layout", "message-content", "overlays",
+    "polish-foundation", "polish-visual", "settings-models", "settings-providers",
+    "settings-routes", "settings", "shell", "sidebar", "theme",
+    "unified-panels", "unified-quality", "visual-alignment",
+)
+# Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
+BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")
+
+
+def _specs(*names: str) -> tuple[str, ...]:
+    # Playwright matches file filters as regular expressions against the path;
+    # "/name\.spec\.ts" selects exactly that file (not "unified-<name>.spec.ts").
+    return tuple(rf"/{name}\.spec\.ts" for name in names)
+
+
+def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> CommandSpec:
+    # Needs a local browser: Playwright's own (CI) or, for Chromium, an installed
+    # channel named by ROW_BOT_BROWSER_CHANNEL (msedge on the maintainer's machine).
+    return _cmd(name, "uv", "run", "python", "tests/browser/client_workspace/run_browser.py", "--engine", engine,
+                "--timeout", "7200", "--", *playwright_args, env=TEST_ENV)
 
 
 def _pytest(name: str, *args: str, marker: str = DETERMINISTIC, env: dict[str, str] = TEST_ENV) -> CommandSpec:
@@ -120,12 +157,22 @@ COMMANDS: dict[str, CommandSpec] = {
     "subsystem": _pytest("subsystem", "tests/subsystem"),
     "installer-contracts": _pytest("installer-contracts", "tests/subsystem/installer", "tests/contracts/installers"),
     "docs": _pytest("docs", "tests/docs", "tests/marketing"),
-    # Needs a local Chromium: Playwright's (CI) or an installed channel via ROW_BOT_BROWSER_CHANNEL.
-    "browser-smoke": _cmd(
-        "browser-smoke", *BROWSER_RUNNER, "--timeout", "1800", "--",
-        "--project=chromium-desktop", "--project=chromium-buddy-overlay", *BROWSER_SMOKE_SPECS,
-        env=TEST_ENV,
+    "browser-smoke": _browser(
+        "browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*BROWSER_SMOKE_SPECS),
     ),
+    "browser-nightly-desktop": _browser("browser-nightly-desktop", "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
+    "browser-nightly-unified": _browser("browser-nightly-unified", "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
+    "browser-nightly-dedicated": _browser("browser-nightly-dedicated", *BROWSER_DEDICATED_PROJECTS),
+    "browser-nightly-phone": _browser("browser-nightly-phone", "--project=chromium-phone", *_specs(*BROWSER_PHONE_SPECS)),
+    "browser-firefox": _browser(
+        "browser-firefox", "--project=firefox-desktop", *_specs(*(s for s in BROWSER_SMOKE_SPECS if s != "buddy-overlay")),
+        engine="firefox",
+    ),
+    "browser-webkit": _browser(
+        "browser-webkit", "--project=webkit-desktop", *_specs(*(s for s in BROWSER_SMOKE_SPECS if s != "buddy-overlay")),
+        engine="webkit",
+    ),
+    "browser-budgets": _browser("browser-budgets", "--project=chromium-desktop", *_specs(*BROWSER_BUDGET_SPECS)),
 }
 
 
@@ -144,6 +191,12 @@ TIER_COMMANDS: dict[str, tuple[str, ...]] = {
     "python": ("python",),
     "platform": ("runtime-deps", "platform", "launcher-smoke"),
     "browser-smoke": ("browser-smoke",),
+    "browser-nightly": (
+        "browser-nightly-desktop", "browser-nightly-unified", "browser-nightly-dedicated", "browser-nightly-phone",
+    ),
+    "browser-firefox": ("browser-firefox",),
+    "browser-webkit": ("browser-webkit",),
+    "browser-budgets": ("browser-budgets",),
     "app-smoke": ("app-smoke",),
     # What the Linux PR lane runs, in one local command.
     "pr": (*QUALITY, "client-foundation", "runtime-deps", "python", "app-smoke"),

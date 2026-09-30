@@ -115,7 +115,7 @@ test worker; it is not a pure browser-heap measurement. Splitter checks verify
 visible hit geometry and numeric ARIA ranges as well as pointer/keyboard behavior,
 including collapse persistence and restoration of the same panel after reload.
 
-The named resize-work calibration captures only renderer task, frame and user
+The resize calibration in `unified-performance.spec.ts` captures only renderer task, frame and user
 timing categories through CDP. Its retained trace removes event arguments and
 unrelated events; it contains no screenshots, network records or object snapshots.
 Per-frame work unions overlapping top-level task intervals, clips them to every

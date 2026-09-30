@@ -103,7 +103,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--node", default="node")
     parser.add_argument("--engine", choices=("chromium", "firefox", "webkit"))
-    parser.add_argument("--channel", help="Explicit installed Chromium channel, such as msedge")
+    parser.add_argument("--channel", default=os.environ.get("ROW_BOT_BROWSER_CHANNEL") or None,
+                        help="Installed Chromium channel, such as msedge (default: $ROW_BOT_BROWSER_CHANNEL)")
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("playwright_args", nargs=argparse.REMAINDER)
     options = parser.parse_args()

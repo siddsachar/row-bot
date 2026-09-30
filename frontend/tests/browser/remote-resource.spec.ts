@@ -1,7 +1,7 @@
 import { captureBrowserDownload } from './download-helpers';
 import { expect, test, writeEvidence } from './evidence';
 import { fixtureResources, openConversation } from './unified-helpers';
-import { captureSurface } from './phase5-helpers';
+import { captureSurface } from './surface-helpers';
 
 test('browser resource setup uses server IDs and exports through a bounded download', async ({
   page,

@@ -6,7 +6,7 @@ import {
   openHome,
   openSeedConversation,
   setVisualViewportHeight,
-} from './phase5-helpers';
+} from './surface-helpers';
 
 test.beforeEach(async ({ page }) => {
   await installVisualViewportFixture(page);

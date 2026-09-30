@@ -3,7 +3,7 @@ import {
   captureSurface,
   fixtureHeaders,
   openSeedConversation,
-} from './phase5-helpers';
+} from './surface-helpers';
 
 test('offline and reconnect keep the compact draft without replaying a command', async ({
   context,

@@ -484,3 +484,78 @@ it('offers Add memory only when a knowledge editor can open', async () => {
   await screen.findByRole('heading', { name: 'Stored Knowledge' });
   expect(screen.queryByRole('button', { name: 'Add memory' })).toBeNull();
 });
+
+it('presents saved graph totals and pages the knowledge catalog on request', async () => {
+  const graphSnapshot: KnowledgeSettingsSnapshot = {
+    availability: 'available',
+    memory_available: true,
+    memory_enabled: true,
+    entities: 599,
+    relations: 956,
+    entity_types: [
+      { kind: 'fact', count: 411 },
+      { kind: 'person', count: 23 },
+    ],
+    connected_components: 60,
+    largest_component: 538,
+    isolated_entities: 57,
+    status_counts: {
+      active: 597,
+      needs_review: 0,
+      superseded: 0,
+      archived: 2,
+    },
+  };
+  render(
+    <KnowledgeCatalog
+      snapshot={graphSnapshot}
+      load={async (_query, _type, cursor) => ({
+        schema_version: 1,
+        revision: 'saved-knowledge',
+        availability: 'available',
+        total: 30,
+        next_cursor: cursor ? null : 'next',
+        items: Array.from({ length: cursor ? 5 : 25 }, (_, offset) => {
+          const index = offset + (cursor ? 25 : 0);
+          return {
+            id: `knowledge-${index}`,
+            entity_type: index % 2 ? 'person' : 'fact',
+            subject: `Knowledge ${index}`,
+            description: 'Saved description',
+            updated_at: '2026-09-14',
+            truncated: false,
+            saved_state: 'saved' as const,
+            semantic_state: 'unknown' as const,
+          };
+        }),
+      })}
+    />,
+  );
+
+  await screen.findByLabelText('Knowledge 0 · Fact');
+  expect(screen.getByText('Showing 25 of 30 matching entries.')).toBeVisible();
+  expect(screen.getAllByRole('combobox')[0]).toHaveValue('');
+  expect(screen.getByRole('option', { name: 'All categories' })).toBeVisible();
+  expect(screen.getByRole('option', { name: 'Person' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+  await screen.findByLabelText('Knowledge 29 · Person');
+  expect(screen.getByText('Showing 30 of 30 matching entries.')).toBeVisible();
+  expect(screen.getByText('599 entities')).toBeVisible();
+  expect(screen.getByText('956 relations')).toBeVisible();
+  expect(screen.getByText('Fact 411 · Person 23')).toBeVisible();
+  expect(screen.getByText('538 entities')).toBeVisible();
+  expect(screen.getByText('597 active')).toBeVisible();
+  expect(screen.getByText('2 archived')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Open Wiki settings' })).toBeNull();
+  expect(screen.getByText('Recent recall decisions')).toBeVisible();
+  expect(screen.getByText('Memory change log')).toBeVisible();
+  // Store-wide deletion needs a maintenance owner; none is supplied here.
+  expect(
+    screen.getByRole('button', { name: /Delete all knowledge/ }),
+  ).toBeDisabled();
+  const graph = screen.getByRole('heading', { name: 'Memory graph' });
+  const catalog = screen.getByRole('heading', { name: 'Stored Knowledge' });
+  expect(
+    graph.compareDocumentPosition(catalog) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
