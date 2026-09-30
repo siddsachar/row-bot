@@ -635,9 +635,12 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     exact: true,
   });
   await expect(preview.locator('iframe')).toBeVisible();
-  // Capabilities and review requirements live in an info popover.
+  // Capabilities and review requirements open from ⋯, beside it (B247).
   await preview
-    .getByRole('button', { name: 'Design capabilities', exact: true })
+    .getByRole('button', { name: 'More design actions', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Design capabilities', exact: true })
     .click();
   const capabilities = page.getByRole('dialog', {
     name: 'Design capabilities',
@@ -682,7 +685,24 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
   }
 
   const actions = preview.getByRole('toolbar', { name: 'Design actions' });
-  await actions.getByRole('button', { name: 'Present', exact: true }).click();
+  // A phone-width panel keeps Present, Share and Export in one menu (B247).
+  const phone = await actions
+    .getByRole('button', { name: 'Share or export', exact: true })
+    .isVisible();
+  const designAction = async (name: 'Present' | 'Share' | 'Export') => {
+    if (!phone)
+      return actions.getByRole('button', { name, exact: true }).click();
+    await actions
+      .getByRole('button', { name: 'Share or export', exact: true })
+      .click();
+    await page
+      .getByRole('menuitem', {
+        name: name === 'Present' ? name : `${name}…`,
+        exact: true,
+      })
+      .click();
+  };
+  await designAction('Present');
   await expect(
     preview.getByRole('heading', { name: 'Presentation', exact: true }),
   ).toBeVisible();
@@ -699,28 +719,27 @@ test('Design lifecycle opens presentation, export, and sharing inside the unifie
     .poll(() => page.evaluate(() => !!document.fullscreenElement))
     .toBe(false);
   await expect(
-    actions.getByRole('button', { name: 'Present', exact: true }),
+    actions.getByRole('button', {
+      name: phone ? 'Share or export' : 'Present',
+      exact: true,
+    }),
   ).toBeFocused();
-  await actions.getByRole('button', { name: 'Export', exact: true }).click();
+  await designAction('Export');
   await expect(
     preview.getByRole('region', { name: 'Design export', exact: true }),
   ).toBeVisible();
-  await actions.getByRole('button', { name: 'Share', exact: true }).click();
+  await designAction('Share');
   await expect(
     preview.getByRole('region', { name: 'Design sharing', exact: true }),
   ).toBeVisible();
   await visualCheck(page, info, 'artifact-lifecycle-sharing');
-  await actions.getByRole('button', { name: 'Share', exact: true }).click();
+  await preview
+    .getByRole('button', { name: 'Close sharing', exact: true })
+    .click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(preview.locator('iframe')).toBeVisible();
-  for (const name of [
-    'Design history',
-    'Design properties',
-    'Present',
-    'Export',
-    'Design capabilities',
-    'More design actions',
-  ])
+  // One short toolbar row on a phone; the rest waits in ⋯.
+  for (const name of ['Undo', 'Redo', 'Share or export', 'More design actions'])
     await expect(
       preview.getByRole('button', { name, exact: true }),
     ).toBeVisible();

@@ -93,6 +93,7 @@ it('selects an element with its box, tag and short text for the anchored prompt'
     tag: 'h1',
     text: 'Launch day',
     rect: { x: 10, y: 20, w: 300, h: 40 },
+    look: {},
   });
   // Elements without an editable id can still be asked about, never edited.
   expect(select({ elementId: '', tag: 'img', text: '' })).toMatchObject({
@@ -113,6 +114,43 @@ it('selects an element with its box, tag and short text for the anchored prompt'
   expect(
     select({ elementId, tag: 'p', rect: { x: 'a', y: 0, w: 1, h: 1 } }),
   ).toMatchObject({ rect: null });
+});
+it('carries how a selected element looks now, only as short plain listed values', () => {
+  const message = artifactBridgeMessage(
+    event({
+      data: {
+        ...identity,
+        revision: 'revision',
+        type: 'element-click',
+        detail: {
+          elementId,
+          tag: 'h1',
+          style: {
+            'font-size': '46px',
+            color: 'rgb(20, 25, 34)',
+            'font-family': '"Georgia", serif',
+            'background-image': 'url(https://example.invalid/x.png)',
+            'text-align': 'left; color: red',
+            width: 'x'.repeat(200),
+            opacity: 1,
+          },
+        },
+      },
+    }),
+    frame,
+    identity,
+    'revision',
+  );
+  expect(message).toEqual(
+    expect.objectContaining({
+      type: 'select',
+      look: {
+        'font-size': '46px',
+        color: 'rgb(20, 25, 34)',
+        'font-family': '"Georgia", serif',
+      },
+    }),
+  );
 });
 it('turns canvas undo and redo shortcuts into panel actions', () => {
   const shortcut = (type: string, extra = {}) =>

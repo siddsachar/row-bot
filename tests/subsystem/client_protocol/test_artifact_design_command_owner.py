@@ -396,3 +396,35 @@ def test_confirmed_checkpoint_survives_module_reload_and_policy_withdrawal(owner
     importlib.reload(commands)
     monkeypatch.setattr(controls, 'apply_control', lambda *_a, **_kw: pytest.fail('Recovery repeated blocked effect'))
     assert owner.execute(body)['artifact_design']['status'] == 'saved'
+
+
+def test_change_to_an_element_that_is_gone_is_refused_not_left_unconfirmed(owner):
+    before = storage.load_project(owner.project.id).to_dict()
+    body = owner.body(operation='style', parameters={'color': '#334455'}, page_id='first', element_id='0' * 64)
+    with pytest.raises(ClientPlatformError, match='element_unavailable'):
+        owner.execute(body)
+    assert admissions.receipt(owner.instance, body['command_id'])['status'] == 'rejected'
+    assert storage.load_project(owner.project.id).to_dict() == before
+    assert not history.HISTORY_DIR.exists()
+
+
+def test_fix_all_safe_issues_runs_through_the_command_owner(owner):
+    project = storage.load_project(owner.project.id)
+    project.pages[0].html = '<h2>Heading</h2><img src="row-bot-asset:missing">'
+    storage.save_project(project)
+    body = owner.body(operation='review_fix_all', parameters={'scope': 'page'}, page_id='first')
+    assert owner.execute(body)['artifact_design']['status'] == 'saved'
+    assert 'alt=""' in storage.load_project(project.id).pages[0].html
+
+
+def test_image_control_runs_through_the_command_owner(owner):
+    uploaded = owner.execute(owner.body('artifact.asset.upload'))['artifact_design']['asset_id']
+    project = storage.load_project(owner.project.id)
+    project.pages[0].html = '<h1>Hello</h1><img src="data:image/png;base64,AAAA">'
+    storage.save_project(project)
+    image = next(item.id for item in controls.read_controls(project.id).items if item.kind == 'img')
+    body = owner.body(operation='image', parameters={'asset_id': uploaded, 'alt': 'Logo'}, page_id='first',
+                      element_id=image)
+    assert owner.execute(body)['artifact_design']['status'] == 'saved'
+    assert f'src="asset://{uploaded}"' in storage.load_project(project.id).pages[0].html
+

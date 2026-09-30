@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
@@ -62,9 +63,20 @@ const state: ArtifactLifecycleState = {
 
 function Harness(props: ArtifactLifecyclePanelProps) {
   const lifecycle = useDesignLifecycle(props);
+  const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
   return (
     <>
-      <DesignCapabilities lifecycle={lifecycle} />
+      <DesignCapabilities
+        lifecycle={lifecycle}
+        open={open}
+        onOpenChange={setOpen}
+        returnFocus={() => opener.current}
+      >
+        <button ref={opener} type="button" onClick={() => setOpen(true)}>
+          Design capabilities
+        </button>
+      </DesignCapabilities>
       {(['presentation', 'export', 'sharing'] as LifecycleView[]).map(
         (view) => (
           <p key={view}>

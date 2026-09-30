@@ -4894,6 +4894,10 @@ class DesignElement(WireModel):
         Annotated[str, StringConstraints(max_length=256)],
     ] = Field(max_length=32)
     action: str = Field(max_length=256)
+    kind: Literal["text", "image", "shape", "layout"]
+    text: str = Field(max_length=120)
+    alt: str = Field(max_length=512)
+    asset_id: str = Field(max_length=128)
 
 
 class DesignControlItem(WireModel):
@@ -4953,6 +4957,7 @@ class ArtifactDesignControlPayload(WireModel):
         "preset",
         "style",
         "hotspot",
+        "image",
         "review_fix",
         "review_fix_all",
         "asset_insert",

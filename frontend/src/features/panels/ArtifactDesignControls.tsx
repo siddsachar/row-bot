@@ -1,20 +1,42 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import {
   DesignFormSession,
   type DesignFormState,
 } from './artifact-design-sessions';
-import { MoreHorizontal } from 'lucide-react';
+import {
+  Image as ImageGlyph,
+  LayoutGrid,
+  MoreHorizontal,
+  Sparkles,
+  Square,
+  Type,
+  X,
+} from 'lucide-react';
 import ArtifactFontPicker from './ArtifactFontPicker';
 import ArtifactLogoPicker from './ArtifactLogoPicker';
+import ArtifactDesignLibrary from './ArtifactDesignLibrary';
+import ArtifactDesignStyles, {
+  DesignGroup,
+  DesignRow,
+  SETTLE_DELAY,
+} from './ArtifactDesignStyles';
 import { useDesignCatalog } from './artifact-design-catalog';
+import type { DesignLook } from './artifact-design-values';
+import { elementWord } from './DesignSelection';
 import { humanizeToken } from '../../ui/format';
 import { clientError } from '../../api/errors';
 import type { ArtifactBrandSuggestion } from '../../api/types';
 import {
   Button,
-  Disclosure,
   ErrorState,
   Field,
+  IconButton,
   Input,
   Menu,
   Segmented,
@@ -46,18 +68,24 @@ export type DesignControlItem = {
 };
 export type DesignSection =
   'elements' | 'assets' | 'fonts' | 'presets' | 'interactions' | 'blocks';
+/** The selected element, and what it is (so its controls can match). */
+export type DesignElementView = {
+  id: string;
+  tag: string;
+  styles: Record<string, string>;
+  action: string;
+  kind: 'text' | 'image' | 'shape' | 'layout';
+  text: string;
+  alt: string;
+  asset_id: string;
+};
 export type DesignControlsState = {
   resource_id: string;
   resource_revision: string;
   mode: string;
   page_id: string;
   brand: DesignBrand;
-  element: {
-    id: string;
-    tag: string;
-    styles: Record<string, string>;
-    action: string;
-  } | null;
+  element: DesignElementView | null;
   section: DesignSection;
   items: DesignControlItem[];
   item_count: number;
@@ -84,16 +112,20 @@ export type DesignReviewState = {
   finding_count: number;
   next_cursor: string | null;
 };
-export type DesignControlsView = 'properties' | 'library' | 'review';
+export type DesignControlsView = 'selection' | 'brand' | 'library' | 'review';
 export type DesignControlsProps = {
-  /** Which inspector section this instance shows (all three by default). */
-  view?: DesignControlsView;
+  /** Which inspector view this instance shows. */
+  view: DesignControlsView;
   resourceId: string;
   session?: DesignFormSession;
   blocked?: boolean;
   resourceRevision: string;
   pageId: string;
   selectedElementId?: string;
+  /** How the selected element looks on the canvas now (display only). */
+  look?: DesignLook;
+  /** The selected text's own text field, shown under its heading. */
+  textEditor?: ReactNode;
   visible: boolean;
   load: (options: {
     page_id: string;
@@ -115,6 +147,7 @@ export type DesignControlsProps = {
       | 'preset'
       | 'style'
       | 'hotspot'
+      | 'image'
       | 'review_fix'
       | 'review_fix_all'
       | 'asset_insert'
@@ -131,6 +164,8 @@ export type DesignControlsProps = {
     expectedRevision: string,
   ) => Promise<{ resource_revision: string; asset_id?: string }>;
   onSelectElement: (elementId: string) => void;
+  /** Leave the selection (the page's own controls show). */
+  onClearSelection?: () => void;
   /** The selected element is no longer in the saved design. */
   onSelectionLost: (elementId: string) => void;
   /** Read the design shown again (its current revision). */
@@ -162,30 +197,40 @@ const colors = [
   ['bg_color', 'Background colour'],
   ['text_color', 'Text colour'],
 ] as const;
-const styleFields = [
-  ['color', 'Text colour'],
-  ['background-color', 'Fill'],
-  ['font-size', 'Font size'],
-  ['font-weight', 'Weight'],
-  ['line-height', 'Line height'],
-  ['padding', 'Padding'],
-  ['margin', 'Margin'],
-  ['gap', 'Gap'],
-  ['border-radius', 'Radius'],
-  ['width', 'Width'],
-  ['height', 'Height'],
+/** Edit as CSS…: every saved style the design controls accept, as text. */
+const cssFields = [
+  'color',
+  'background-color',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'padding',
+  'margin',
+  'gap',
+  'border-radius',
+  'border-style',
+  'border-width',
+  'border-color',
+  'opacity',
+  'width',
+  'height',
+  'object-fit',
+  'object-position',
 ] as const;
-const sectionWords: Record<DesignSection, string> = {
-  elements: 'Elements',
-  assets: 'Assets',
-  fonts: 'Fonts',
-  presets: 'Presets',
-  interactions: 'Interactions',
-  blocks: 'Blocks',
-};
+const KIND_ICONS = {
+  text: Type,
+  image: ImageGlyph,
+  shape: Square,
+  layout: LayoutGrid,
+} as const;
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 /** Brand colours apply this long after the last change (auto-save). */
 const BRAND_DELAY = 700;
+/** At most this many elements show under "On this page". */
+const PAGE_CHIPS = 12;
 /** A failure in words: a server error carries a code, a session guard names it. */
 function failure(reason: unknown) {
   return clientError(
@@ -201,6 +246,24 @@ function pickerValue(value: string) {
     return `#${[...value.slice(1)].map((c) => c + c).join('')}`;
   return '#000000';
 }
+/** The selected element in words: what it is and what it says. */
+function describe(element: DesignElementView) {
+  const quote = (text: string) =>
+    `“${text.length > 40 ? `${text.slice(0, 39)}…` : text}”`;
+  if (element.kind === 'image')
+    return { title: 'Image', detail: element.alt || 'No description yet' };
+  if (element.kind === 'text') {
+    const word = elementWord(element.tag);
+    return {
+      title: ['Block', 'Section'].includes(word) ? 'Text' : word,
+      detail: element.text ? quote(element.text) : '',
+    };
+  }
+  return {
+    title: element.kind === 'shape' ? 'Shape' : 'Group',
+    detail: element.text ? quote(element.text) : elementWord(element.tag),
+  };
+}
 export default function ArtifactDesignControls(props: DesignControlsProps) {
   const {
     resourceId,
@@ -209,12 +272,12 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     selectedElementId,
     visible,
     load,
+    view,
   } = props;
   const [local] = useState(() => new DesignFormSession());
   const session = props.session ?? local;
   const retained = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const {
-    section,
     state,
     brand,
     styles,
@@ -250,8 +313,6 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       if (dirty) session.markDirty(key, sourceKey);
       session.set(key, value);
     };
-  const setSection = setter('section');
-  const setState = setter('state');
   const setBrand = setter('brand', true);
   const setStyles = setter('styles', true);
   const setReview = setter('review');
@@ -273,7 +334,16 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
   }, [props]);
   useEffect(() => {
     let active = true;
-    session.set('state', null);
+    // A newer version of the same selection keeps its controls in place
+    // (and focus in them) while it is read; anything else starts afresh.
+    const held = session.getSnapshot().state;
+    if (
+      !held ||
+      held.resource_id !== resourceId ||
+      held.page_id !== pageId ||
+      (held.element?.id ?? '') !== (selectedElementId ?? '')
+    )
+      session.set('state', null);
     session.set('review', null);
     session.set('error', '');
     if (!visible) return;
@@ -281,7 +351,8 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     void load({
       page_id: pageId,
       element_id: selectedElementId,
-      section,
+      section: 'elements',
+      limit: 50,
     })
       .then((value) => {
         if (!active) return;
@@ -296,7 +367,6 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         if (value.items.length > 50)
           throw new Error('design_catalog_too_large');
         session.set('state', value);
-        session.set('controlPage', false);
         if (!session.getSnapshot().dirtySource) {
           session.set('brand', value.brand);
           session.set('styles', value.element?.styles ?? {});
@@ -308,7 +378,10 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         // The selected element is gone: the page is read without it.
         if (selectedElementId && problem.code === 'element_unavailable')
           current.current.onSelectionLost(selectedElementId);
-        else session.set('error', problem.message);
+        else {
+          session.set('state', null);
+          session.set('error', problem.message);
+        }
       })
       .finally(() => {
         if (active) session.set('loading', false);
@@ -323,7 +396,6 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     selectedElementId,
     visible,
     load,
-    section,
     reload,
     session,
   ]);
@@ -340,6 +412,9 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
   useEffect(() => {
     session.set('presetReview', null);
   }, [session, props.resourceRevision]);
+  // Edit as CSS… stays open for one selection.
+  const [css, setCss] = useState({ open: false, element: '' });
+  const cssOpen = css.open && css.element === (selectedElementId ?? '');
 
   async function changePreset(change = presetReview) {
     if (
@@ -372,8 +447,8 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       session.committed('preset_' + change.action);
       setNotice(
         result.action === 'delete'
-          ? 'Global preset removed. Previous bytes are retained for recovery.'
-          : 'Global preset saved.',
+          ? 'Style removed. The saved copy is kept for recovery.'
+          : 'Style saved.',
       );
       setReload((value) => value + 1);
     } catch {
@@ -382,7 +457,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         current.current.resourceRevision === sourceRevision
       )
         setError(
-          'Global preset change was not confirmed. Previous bytes are retained. Review recovery before retrying.',
+          "The style change wasn't confirmed. The previous copy is kept; check the saved styles before trying again.",
         );
     } finally {
       if (operation.current === token) {
@@ -392,12 +467,16 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     }
   }
 
-  // An uploaded logo becomes the logo once the version with it is loaded.
-  const pendingLogo = useRef<string | null>(null);
-  async function upload(chosen: File | null = file, logo = false) {
+  // An uploaded logo (or replacement picture) is used once the version with
+  // it is loaded.
+  const pending = useRef<{ use: 'logo' | 'image'; asset: string } | null>(null);
+  async function upload(
+    chosen: File | null = file,
+    use: 'asset' | 'logo' | 'image' = 'asset',
+  ) {
     if (!chosen || !state || operation.current || !props.visible) return;
     if (chosen.size === 0 || chosen.size > 25 * 1024 * 1024) {
-      setError('Choose a nonempty asset up to 25 MiB.');
+      setError('Choose a file that is not empty and up to 25 MB.');
       return;
     }
     const token = Symbol('asset-upload');
@@ -408,19 +487,23 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     try {
       const result = await props.upload(chosen, state.resource_revision);
       if (current.current.resourceId !== sourceId) return;
-      if (logo) pendingLogo.current = result.asset_id ?? null;
+      if (use !== 'asset')
+        pending.current = result.asset_id
+          ? { use, asset: result.asset_id }
+          : null;
       else {
         session.set('file', null);
         session.committed('asset_upload');
       }
-      setNotice(logo ? 'Logo added.' : 'Asset added.');
+      setNotice(use === 'logo' ? 'Logo added.' : 'Image added.');
       if (result.resource_revision === current.current.resourceRevision)
         setReload((value) => value + 1);
-      else setState(null);
+      // The design moved on: controls wait until its new version is read.
+      else session.set('loading', true);
     } catch {
       if (current.current.resourceId === sourceId)
         setError(
-          'Asset attachment was not confirmed. Uploaded files are retained for recovery; reload before retrying.',
+          "The upload wasn't confirmed. The file is kept for recovery; reload the design before trying again.",
         );
     } finally {
       if (operation.current === token) {
@@ -442,35 +525,39 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     setError('');
     setNotice('');
     const sourceId = props.resourceId;
+    const selected = props.selectedElementId;
+    const same = () =>
+      current.current.resourceId === sourceId &&
+      current.current.pageId === props.pageId &&
+      current.current.selectedElementId === selected;
     try {
       const result = await props.apply(
         kind,
         payload,
         state.resource_revision,
         pageId,
-        props.selectedElementId,
+        selected,
       );
-      if (
-        current.current.resourceId === sourceId &&
-        current.current.pageId === props.pageId &&
-        current.current.selectedElementId === props.selectedElementId
-      ) {
+      if (same()) {
         session.committed(kind);
         setNotice('Changes saved.');
         setReview(null);
         if (result.resource_revision === current.current.resourceRevision)
           setReload((value) => value + 1);
-        else setState(null);
+        else session.set('loading', true);
       }
-    } catch {
-      if (
-        current.current.resourceId === sourceId &&
-        current.current.pageId === props.pageId &&
-        current.current.selectedElementId === props.selectedElementId
-      )
-        setError(
-          'Changes were not confirmed. Reload the current design before retrying.',
-        );
+    } catch (reason) {
+      if (!same()) return;
+      // The element went away meanwhile (an undo, Row-Bot's edit): nothing
+      // was changed, so the selection simply clears.
+      if (selected && failure(reason).code === 'element_unavailable') {
+        session.committed(kind);
+        current.current.onSelectionLost(selected);
+        return;
+      }
+      setError(
+        "That change wasn't confirmed. Reload the design before trying again.",
+      );
     } finally {
       if (operation.current === token) {
         operation.current = null;
@@ -513,9 +600,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         current.current.pageId === source.page_id
       ) {
         setReview(null);
-        setError(
-          'Review is unavailable. No clean result has been established.',
-        );
+        setError("The check couldn't run, so there is no result yet.");
       }
     } finally {
       if (operation.current === token) {
@@ -544,16 +629,14 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         current.current.pageId === source.page_id
       ) {
         props.onDraftText(text);
-        setNotice('AI fix drafted in chat. Review and send it when ready.');
+        setNotice('A fix is drafted in the chat. Review it and send it.');
       }
     } catch {
       if (
         current.current.resourceId === source.resource_id &&
         current.current.resourceRevision === source.resource_revision
       )
-        setError(
-          'The fix draft is unavailable. Run the current design review again.',
-        );
+        setError("The fix couldn't be drafted. Run the check again.");
     } finally {
       if (operation.current === token) {
         operation.current = null;
@@ -561,68 +644,30 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       }
     }
   }
-  async function more() {
-    if (!state?.next_cursor || operation.current) return;
-    const token = Symbol('design-page');
-    operation.current = token;
-    setSaving(true);
-    const source = state;
-    try {
-      const value = await props.load({
-        page_id: props.pageId,
-        element_id: props.selectedElementId,
-        section,
-        cursor: state.next_cursor,
-      });
-      if (
-        current.current.resourceId !== source.resource_id ||
-        current.current.resourceRevision !== source.resource_revision ||
-        current.current.pageId !== source.page_id
-      )
-        return;
-      if (
-        value.resource_id !== source.resource_id ||
-        value.resource_revision !== source.resource_revision ||
-        value.section !== source.section
-      )
-        throw new Error('Resource changed');
-      if (value.items.length > 50)
-        throw new Error('Control page exceeded its bound');
-      setState(value);
-      session.set('controlPage', true);
-    } catch {
-      if (
-        current.current.resourceId === source.resource_id &&
-        current.current.pageId === source.page_id
-      )
-        setError(
-          'More controls could not be loaded. Reload the current design.',
-        );
-    } finally {
-      if (operation.current === token) {
-        operation.current = null;
-        setSaving(false);
-      }
-    }
-  }
-  // Auto-save: brand colours apply shortly after the last change, other
-  // fields when they lose focus. A change made while another save runs waits
-  // for it and then applies against the reloaded revision.
-  const brandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Auto-save: brand colours and steppers apply shortly after the last
+  // change, choices at once, text fields when they lose focus. A change made
+  // while another save runs waits for it and then applies against the
+  // reloaded revision.
+  const timers = useRef<{
+    brand: ReturnType<typeof setTimeout> | null;
+    styles: ReturnType<typeof setTimeout> | null;
+  }>({ brand: null, styles: null });
   const queued = useRef<{ brand: boolean; styles: boolean }>({
     brand: false,
     styles: false,
   });
-  useEffect(
-    () => () => {
-      if (brandTimer.current) clearTimeout(brandTimer.current);
-    },
-    [],
-  );
+  useEffect(() => {
+    const pendingTimers = timers.current;
+    return () => {
+      if (pendingTimers.brand) clearTimeout(pendingTimers.brand);
+      if (pendingTimers.styles) clearTimeout(pendingTimers.styles);
+    };
+  }, []);
   function commit(kind: 'brand' | 'styles') {
-    if (kind === 'brand' && brandTimer.current) {
-      clearTimeout(brandTimer.current);
-      brandTimer.current = null;
+    const timer = timers.current[kind];
+    if (timer) {
+      clearTimeout(timer);
+      timers.current[kind] = null;
     }
     const snapshot = session.getSnapshot();
     if (!snapshot.dirtyFields.includes(kind) || staleDraft || props.blocked)
@@ -633,7 +678,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         !colors.every(([key]) => HEX.test(snapshot.brand![key])))
     )
       return;
-    if (operation.current || !snapshot.state) {
+    if (operation.current || !snapshot.state || snapshot.loading) {
       queued.current[kind] = true;
       return;
     }
@@ -643,19 +688,23 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       kind === 'brand' ? snapshot.brand! : snapshot.styles,
     );
   }
+  function schedule(kind: 'brand' | 'styles', delay: number) {
+    const timer = timers.current[kind];
+    if (timer) clearTimeout(timer);
+    timers.current[kind] = setTimeout(() => commit(kind), delay);
+  }
   useEffect(() => {
-    if (saving || !state) return;
+    if (saving || loading || !state) return;
     if (queued.current.brand) commit('brand');
     else if (queued.current.styles) commit('styles');
     // Only a settled save or a reload releases queued changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saving, state]);
-  // The Review tab checks the design by itself, and again after every saved
+  }, [saving, loading, state]);
+  // The Review view checks the design by itself, and again after every saved
   // change: once per saved version, page and scope, so a failure never loops.
   const checked = useRef('');
   useEffect(() => {
-    if (!visible || props.view !== 'review' || !state || saving || loading)
-      return;
+    if (!visible || view !== 'review' || !state || saving || loading) return;
     const key = JSON.stringify([
       state.resource_id,
       state.resource_revision,
@@ -667,14 +716,14 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     void scan();
     // scan reads the current state and scope itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, props.view, state, saving, loading, scope]);
+  }, [visible, view, state, saving, loading, scope]);
   // Brand › From a website: read the page once, then apply what it uses
   // through the normal brand control (so the panel's Undo brings it back).
-  const [website, setWebsite] = useState('');
+  const [website, setWebsite] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   async function fromWebsite() {
     if (!props.suggestBrand || !brand || reading || operation.current) return;
-    let address = website.trim();
+    let address = (website ?? '').trim();
     if (!/^https?:\/\//i.test(address)) address = `https://${address}`;
     setReading(true);
     setError('');
@@ -699,7 +748,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         return;
       }
       setBrand(next);
-      setWebsite('');
+      setWebsite(null);
       await apply('brand', next);
       setNotice(
         `Used ${used === 1 ? 'a colour' : `${used} colours`}${found.heading_font || found.body_font ? ' and fonts' : ''} from ${found.site}.`,
@@ -712,34 +761,43 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
   }
   function changeBrand(next: DesignBrand, delay = BRAND_DELAY) {
     setBrand(next);
-    if (brandTimer.current) clearTimeout(brandTimer.current);
-    brandTimer.current = setTimeout(() => commit('brand'), delay);
+    schedule('brand', delay);
+  }
+  function changeStyle(patch: Record<string, string>, settle = false) {
+    setStyles({ ...session.getSnapshot().styles, ...patch });
+    schedule('styles', settle ? SETTLE_DELAY : 0);
   }
   useEffect(() => {
-    const logo = pendingLogo.current;
+    const used = pending.current;
     const saved = session.getSnapshot().brand;
-    if (!logo || !state || !saved || saving) return;
-    pendingLogo.current = null;
-    changeBrand({ ...saved, logo_asset_id: logo }, 0);
-    // Only a reload after the upload releases the new logo.
+    if (!used || !state || !saved || saving) return;
+    pending.current = null;
+    if (used.use === 'logo')
+      changeBrand({ ...saved, logo_asset_id: used.asset }, 0);
+    else void apply('image', { asset_id: used.asset });
+    // Only a reload after the upload releases the new picture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, saving]);
-  // Fonts that need no download, for the Type pickers.
+  const element = state?.element ?? null;
+  // Fonts that need no download, for the font pickers.
   const fonts = useDesignCatalog(
     load,
     pageId,
     'fonts',
-    visible && (!props.view || props.view === 'properties'),
+    visible &&
+      (view === 'brand' || (view === 'selection' && element?.kind === 'text')),
   );
-  const [logoOpen, setLogoOpen] = useState(false);
+  // The design's pictures, for Replace.
+  const pictures = useDesignCatalog(
+    load,
+    pageId,
+    'assets',
+    visible && view === 'selection' && element?.kind === 'image',
+    resourceRevision,
+  );
 
   if (!props.visible) return null;
   const busy = loading || saving || staleDraft || Boolean(props.blocked);
-  const view = props.view;
-  const showProperties = !view || view === 'properties';
-  const showLibrary = !view || view === 'library';
-  // The Review tab checks the design by itself (parity row 25).
-  const showReview = view === 'review';
   const safeCount =
     review?.findings.filter((finding) => finding.auto_fixable).length ?? 0;
   const pendingFields = retained.dirtyFields.filter((field) =>
@@ -750,6 +808,13 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     : notice === 'Changes saved.'
       ? 'Saved.'
       : notice;
+  const hotspots =
+    !!state && ['landing', 'app_mockup', 'storyboard'].includes(state.mode);
+  const chips = (state?.items ?? []).filter((item) =>
+    ['text', 'image', 'shape'].includes(item.detail),
+  );
+  const described = element ? describe(element) : null;
+  const KindIcon = element ? KIND_ICONS[element.kind] : null;
   return (
     <section
       className="design-controls"
@@ -758,16 +823,17 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
           ? 'Design library'
           : view === 'review'
             ? 'Design review'
-            : 'Design controls'
+            : view === 'brand'
+              ? 'Design brand'
+              : 'Design controls'
       }
       aria-busy={busy}
     >
       {staleDraft && (
         <div className="inspector-callout" role="status">
           <p>
-            Your unsaved design change belongs to an earlier page, element or
-            version. Go back to it, or discard the change to edit the current
-            design.
+            Your unsaved change belongs to another page, element or version. Go
+            back to it, or discard it to change the design as it is now.
           </p>
         </div>
       )}
@@ -776,12 +842,12 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
           disabled={saving || Boolean(props.blocked)}
           onClick={() => session.reset()}
         >
-          Discard design draft
+          Discard unsaved change
         </Button>
       )}
       {error && (
         <ErrorState
-          title="Design controls unavailable"
+          title="That didn't work"
           action={
             <Button
               disabled={saving}
@@ -798,36 +864,97 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
           {error}
         </ErrorState>
       )}
-      {showProperties && state?.element && (
-        <section className="inspector-section" aria-label="Selection">
-          <h4>
-            Selection <span className="inspector-tag">{state.element.tag}</span>
-          </h4>
-          <div className="inspector-grid">
-            {styleFields.map(([key, label]) => (
-              <label key={key} className="inspector-field">
-                <span>{label}</span>
-                <Input
-                  aria-label={`Element ${key}`}
-                  maxLength={256}
-                  disabled={busy}
-                  value={styles[key] ?? ''}
-                  placeholder="—"
-                  onChange={(event) =>
-                    setStyles({ ...styles, [key]: event.target.value })
-                  }
-                  onBlur={() => commit('styles')}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                  }}
-                />
-              </label>
-            ))}
-          </div>
-          {['landing', 'app_mockup', 'storyboard'].includes(state.mode) && (
-            <div className="inspector-subsection">
-              <h5>Interaction</h5>
-              <Field label="Hotspot action">
+      {view === 'selection' && element && described && KindIcon && (
+        <>
+          <header className="design-what">
+            <span className="design-what-tile" data-kind={element.kind}>
+              <KindIcon size={16} aria-hidden />
+            </span>
+            <span className="design-what-text">
+              <strong>{described.title}</strong>
+              {described.detail && <small>{described.detail}</small>}
+            </span>
+            <Menu
+              label="More for this element"
+              iconOnly
+              variant="ghost"
+              actions={[
+                {
+                  label: cssOpen ? 'Hide CSS' : 'Edit as CSS…',
+                  onSelect: () =>
+                    setCss({ open: !cssOpen, element: element.id }),
+                },
+                ...(props.onClearSelection
+                  ? [
+                      {
+                        label: 'Clear selection',
+                        onSelect: props.onClearSelection,
+                      },
+                    ]
+                  : []),
+              ]}
+            >
+              <MoreHorizontal size={15} aria-hidden />
+            </Menu>
+          </header>
+          {element.kind === 'text' && props.textEditor}
+          {brand && (
+            <ArtifactDesignStyles
+              element={element}
+              styles={styles}
+              look={props.look}
+              brand={brand}
+              fonts={fonts}
+              busy={busy}
+              onStyle={changeStyle}
+              image={{
+                images: pictures.items,
+                thumbnail: props.thumbnail,
+                onReplace: (asset) => void apply('image', { asset_id: asset }),
+                onUpload: (chosen) => void upload(chosen, 'image'),
+                onDescribe: (alt) => void apply('image', { alt }),
+              }}
+            />
+          )}
+          {cssOpen && (
+            <DesignGroup
+              title="CSS"
+              action={
+                <IconButton
+                  size="sm"
+                  label="Close CSS"
+                  onClick={() => setCss({ open: false, element: '' })}
+                >
+                  <X size={14} aria-hidden />
+                </IconButton>
+              }
+            >
+              <div className="inspector-grid">
+                {cssFields.map((key) => (
+                  <label key={key} className="inspector-field">
+                    <span>{key}</span>
+                    <Input
+                      aria-label={`Element ${key}`}
+                      maxLength={256}
+                      disabled={busy}
+                      value={styles[key] ?? ''}
+                      placeholder="—"
+                      onChange={(event) =>
+                        setStyles({ ...styles, [key]: event.target.value })
+                      }
+                      onBlur={() => commit('styles')}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur();
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </DesignGroup>
+          )}
+          {hotspots && (
+            <DesignGroup title="Interaction">
+              <Field label="When clicked">
                 <Select
                   aria-label="Hotspot action"
                   disabled={busy}
@@ -841,7 +968,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                 </Select>
               </Field>
               {action !== 'clear' && (
-                <Field label="Hotspot target">
+                <Field label="Target">
                   <Input
                     aria-label="Hotspot target"
                     disabled={busy}
@@ -857,17 +984,97 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
               >
                 Apply interaction
               </Button>
-            </div>
+            </DesignGroup>
           )}
-        </section>
+          {(element.kind === 'text' || element.kind === 'image') && (
+            <p className="design-hint-line">
+              <Sparkles size={14} aria-hidden />
+              <span>
+                {element.kind === 'text'
+                  ? 'Double-click the text on the page to edit it. Every change can be undone.'
+                  : 'Or ask Row-Bot about it: “make the photo warmer”.'}
+              </span>
+            </p>
+          )}
+        </>
       )}
-      {showProperties && brand && state && (
+      {view === 'selection' && state && !element && chips.length > 0 && (
+        <DesignGroup
+          title="On this page"
+          action={<small className="design-group-count">{chips.length}</small>}
+        >
+          <div className="design-chips">
+            {chips.slice(0, PAGE_CHIPS).map((item) => {
+              const Icon =
+                KIND_ICONS[item.detail as keyof typeof KIND_ICONS] ?? Square;
+              const name =
+                item.label === item.kind ? elementWord(item.kind) : item.label;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="design-chip"
+                  aria-label={`Select ${item.label}`}
+                  disabled={busy || !item.available}
+                  onClick={() => props.onSelectElement(item.id)}
+                >
+                  <Icon size={12} aria-hidden />
+                  <span>
+                    {name.length > 24 ? `${name.slice(0, 23)}…` : name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </DesignGroup>
+      )}
+      {view === 'brand' && brand && state && (
         <>
-          <section className="inspector-section" aria-label="Brand">
-            <h4>Brand</h4>
-            <div className="inspector-swatches">
+          <DesignGroup
+            title="Colours"
+            action={
+              props.suggestBrand && (
+                <Button
+                  variant="ghost"
+                  className="design-group-link"
+                  aria-expanded={website !== null}
+                  onClick={() => setWebsite(website === null ? '' : null)}
+                >
+                  From a website…
+                </Button>
+              )
+            }
+          >
+            {website !== null && (
+              <form
+                className="inspector-inline-form"
+                aria-label="Brand from a website"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void fromWebsite();
+                }}
+              >
+                <Input
+                  aria-label="Website address"
+                  inputMode="url"
+                  autoComplete="url"
+                  placeholder="https://…"
+                  value={website}
+                  maxLength={2048}
+                  disabled={busy || reading}
+                  onChange={(event) => setWebsite(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  disabled={busy || reading || !website.trim()}
+                >
+                  {reading ? 'Reading…' : 'Use its colours'}
+                </Button>
+              </form>
+            )}
+            <div className="design-brand-colours">
               {colors.map(([key, label]) => (
-                <div key={key} className="inspector-swatch">
+                <div key={key} className="design-brand-colour">
                   <input
                     type="color"
                     aria-label={`${label} picker`}
@@ -877,12 +1084,12 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                       changeBrand({ ...brand, [key]: event.target.value })
                     }
                   />
-                  <span className="inspector-swatch-name" aria-hidden>
+                  <span className="design-brand-name" aria-hidden>
                     {label.replace(' colour', '')}
                   </span>
                   <Input
                     aria-label={label}
-                    className="inspector-hex"
+                    className="design-brand-hex"
                     value={brand[key]}
                     disabled={busy}
                     maxLength={7}
@@ -901,46 +1108,15 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
             {!colors.every(([key]) => HEX.test(brand[key])) && (
               <p className="muted">Use hex colours such as #2563EB.</p>
             )}
-            {props.suggestBrand && (
-              <form
-                className="inspector-inline-form"
-                aria-label="Brand from a website"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void fromWebsite();
-                }}
-              >
-                <Input
-                  aria-label="Website address"
-                  inputMode="url"
-                  autoComplete="url"
-                  placeholder="From a website: https://…"
-                  value={website}
-                  maxLength={2048}
-                  disabled={busy || reading}
-                  onChange={(event) => setWebsite(event.target.value)}
-                />
-                <Button
-                  type="submit"
-                  disabled={busy || reading || !website.trim()}
-                >
-                  {reading ? 'Reading…' : 'Use its colours'}
-                </Button>
-              </form>
-            )}
-          </section>
-          <section className="inspector-section" aria-label="Type">
-            <h4>Type</h4>
+          </DesignGroup>
+          <DesignGroup title="Fonts">
             {(
               [
-                ['heading_font', 'Heading font'],
-                ['body_font', 'Body font'],
+                ['heading_font', 'Headings', 'Heading font'],
+                ['body_font', 'Body', 'Body font'],
               ] as const
-            ).map(([key, label]) => (
-              <div className="design-font-row" key={key}>
-                <span className="design-font-caption" aria-hidden>
-                  {label}
-                </span>
+            ).map(([key, caption, label]) => (
+              <DesignRow key={key} label={caption}>
                 <ArtifactFontPicker
                   label={label}
                   value={brand[key]}
@@ -948,116 +1124,84 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
                   disabled={busy}
                   onChange={(font) => changeBrand({ ...brand, [key]: font }, 0)}
                 />
-              </div>
+              </DesignRow>
             ))}
-          </section>
-          <Disclosure
-            summary="Logo"
-            className="inspector-disclosure"
-            open={logoOpen}
-            onOpenChange={setLogoOpen}
-          >
-            {logoOpen && (
-              <ArtifactLogoPicker
-                logo={brand}
-                load={load}
-                thumbnail={props.thumbnail}
-                pageId={pageId}
-                resourceRevision={resourceRevision}
-                disabled={busy}
-                onChange={(change) => changeBrand({ ...brand, ...change }, 0)}
-                onUpload={(chosen) => void upload(chosen, true)}
-              />
-            )}
-          </Disclosure>
-          {pendingFields.length > 0 && !saving && !staleDraft && (
-            <div className="inspector-action">
-              <span className="muted">Unsaved change</span>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  pendingFields.includes('brand')
-                    ? commit('brand')
-                    : commit('styles')
-                }
-              >
-                Apply now
-              </Button>
-            </div>
-          )}
+          </DesignGroup>
+          <DesignGroup title="Logo">
+            <ArtifactLogoPicker
+              logo={brand}
+              load={load}
+              thumbnail={props.thumbnail}
+              pageId={pageId}
+              resourceRevision={resourceRevision}
+              disabled={busy}
+              onChange={(change) => changeBrand({ ...brand, ...change }, 0)}
+              onUpload={(chosen) => void upload(chosen, 'logo')}
+            />
+          </DesignGroup>
         </>
       )}
-      {showLibrary && (
-        <section className="inspector-section" aria-label="Library">
-          <Segmented
-            size="sm"
-            label="Library section"
-            className="inspector-segmented"
-            value={section}
-            onChange={(value) => setSection(value)}
-            options={(
-              [
-                'elements',
-                'assets',
-                'fonts',
-                'presets',
-                'interactions',
-                ...(state?.mode === 'deck' || state?.mode === 'landing'
-                  ? (['blocks'] as const)
-                  : []),
-              ] as DesignSection[]
-            ).map((key) => ({
-              value: key,
-              label: sectionWords[key],
-              disabled: busy,
-            }))}
-          />
-          {section === 'presets' && props.mutatePreset && (
-            <div className="inspector-inline-form">
-              <Input
-                aria-label="New global preset name"
-                placeholder="Preset name"
-                value={presetName}
-                maxLength={256}
-                disabled={busy}
-                onChange={(event) => setPresetName(event.target.value)}
-              />
-              <Button
-                disabled={busy || !state || !presetName.trim()}
-                onClick={() =>
-                  void changePreset({ action: 'save', name: presetName.trim() })
-                }
-              >
-                Save current brand as preset
-              </Button>
-            </div>
-          )}
-          {presetReview?.action === 'delete' && (
-            <div
-              className="inspector-callout"
-              role="group"
-              aria-label="Confirm global preset deletion"
+      {(view === 'selection' || view === 'brand') &&
+        pendingFields.length > 0 &&
+        !saving &&
+        !staleDraft && (
+          <div className="inspector-action">
+            <span className="muted">Unsaved change</span>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                pendingFields.includes('brand')
+                  ? commit('brand')
+                  : commit('styles')
+              }
             >
-              <p>
-                Delete global preset “{presetReview.name}”? This changes the
-                shared catalog for all projects; saved project brands stay
-                unchanged.
-              </p>
-              <div className="action-cluster">
-                <Button disabled={busy} onClick={() => setPresetReview(null)}>
-                  Keep preset
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={busy}
-                  onClick={() => void changePreset()}
-                >
-                  Confirm preset deletion
-                </Button>
-              </div>
-            </div>
-          )}
-          {section === 'assets' && (
+              Apply now
+            </Button>
+          </div>
+        )}
+      {view === 'library' && state && (
+        <ArtifactDesignLibrary
+          blocks={state.mode === 'deck' || state.mode === 'landing'}
+          load={load}
+          thumbnail={props.thumbnail}
+          pageId={pageId}
+          resourceRevision={resourceRevision}
+          busy={busy}
+          onInsertBlock={(id) =>
+            void apply('block_insert', { component_name: id })
+          }
+          onInsertAsset={(id) => void apply('asset_insert', { asset_id: id })}
+          onRemoveAsset={(id) => void apply('asset_remove', { asset_id: id })}
+          onForgetAsset={(id) => void apply('asset_forget', { asset_id: id })}
+          onApplyPreset={(id) => void apply('preset', { preset_id: id })}
+          presetActions={
+            props.mutatePreset
+              ? (item) => [
+                  {
+                    label: `Replace ${item.label} with current brand`,
+                    disabled: busy || !item.available,
+                    onSelect: () =>
+                      void changePreset({
+                        action: 'save',
+                        name: item.label,
+                        preset_id: item.id,
+                      }),
+                  },
+                  {
+                    label: `Delete ${item.label} preset`,
+                    danger: true,
+                    disabled: busy || !item.available,
+                    onSelect: () =>
+                      setPresetReview({
+                        action: 'delete',
+                        name: item.label,
+                        preset_id: item.id,
+                      }),
+                  },
+                ]
+              : undefined
+          }
+          uploader={
             <div className="inspector-inline-form">
               <Input
                 type="file"
@@ -1072,165 +1216,67 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
               >
                 Add asset
               </Button>
-              {file && (
-                <p className="muted">Selected local asset: {file.name}</p>
-              )}
-              <p className="muted">
-                Assets stay saved when removed from a page; original files are
-                kept for history and recovery.
-              </p>
+              {file && <p className="muted">Chosen: {file.name}</p>}
             </div>
-          )}
-          {state && (
-            <>
-              <p className="inspector-meta">
-                {state.items.length} of {state.item_count}{' '}
-                {sectionWords[section].toLowerCase()}
-              </p>
-              <ul className="inspector-list">
-                {state.items.map((item) => (
-                  <li key={item.id}>
-                    <span className="inspector-list-text">
-                      <span className="inspector-list-name">{item.label}</span>
-                      {item.detail && (
-                        <span className="inspector-list-detail">
-                          {item.detail}
-                        </span>
-                      )}
-                    </span>
-                    <span className="inspector-list-actions">
-                      {section === 'elements' && (
-                        <Button
-                          disabled={busy || !item.available}
-                          aria-label={`Select ${item.label}`}
-                          onClick={() => props.onSelectElement(item.id)}
-                        >
-                          Select
-                        </Button>
-                      )}
-                      {section === 'presets' && (
-                        <>
-                          <Button
-                            disabled={busy || !item.available}
-                            aria-label={`Apply ${item.label}`}
-                            onClick={() =>
-                              void apply('preset', { preset_id: item.id })
-                            }
-                          >
-                            Apply
-                          </Button>
-                          {props.mutatePreset && (
-                            <Menu
-                              label={`More actions for ${item.label}`}
-                              iconOnly
-                              actions={[
-                                {
-                                  label: `Replace ${item.label} with current brand`,
-                                  disabled: busy || !item.available,
-                                  onSelect: () =>
-                                    void changePreset({
-                                      action: 'save',
-                                      name: item.label,
-                                      preset_id: item.id,
-                                    }),
-                                },
-                                {
-                                  label: `Delete ${item.label} preset`,
-                                  danger: true,
-                                  disabled: busy || !item.available,
-                                  onSelect: () =>
-                                    setPresetReview({
-                                      action: 'delete',
-                                      name: item.label,
-                                      preset_id: item.id,
-                                    }),
-                                },
-                              ]}
-                            >
-                              <MoreHorizontal size={15} aria-hidden />
-                            </Menu>
-                          )}
-                        </>
-                      )}
-                      {section === 'assets' && (
-                        <>
-                          <Button
-                            disabled={busy || !item.available}
-                            aria-label={`Insert ${item.label}`}
-                            onClick={() =>
-                              void apply('asset_insert', { asset_id: item.id })
-                            }
-                          >
-                            Insert
-                          </Button>
-                          <Menu
-                            label={`More actions for ${item.label}`}
-                            iconOnly
-                            actions={[
-                              {
-                                label: `Remove ${item.label} from page`,
-                                disabled: busy,
-                                onSelect: () =>
-                                  void apply('asset_remove', {
-                                    asset_id: item.id,
-                                  }),
-                              },
-                              {
-                                label: `Remove ${item.label} from list`,
-                                disabled: busy,
-                                onSelect: () =>
-                                  void apply('asset_forget', {
-                                    asset_id: item.id,
-                                  }),
-                              },
-                            ]}
-                          >
-                            <MoreHorizontal size={15} aria-hidden />
-                          </Menu>
-                        </>
-                      )}
-                      {section === 'blocks' && (
-                        <Button
-                          disabled={busy || !item.available}
-                          aria-label={`Insert ${item.label}`}
-                          onClick={() =>
-                            void apply('block_insert', {
-                              component_name: item.id,
-                            })
-                          }
-                        >
-                          Insert
-                        </Button>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {!state.items.length && (
-                <p className="muted">
-                  Nothing in {sectionWords[section].toLowerCase()} yet.
-                </p>
-              )}
-              <div className="action-cluster">
-                {retained.controlPage && (
-                  <Button
+          }
+          presetForm={
+            props.mutatePreset && (
+              <>
+                <div className="inspector-inline-form">
+                  <Input
+                    aria-label="New global preset name"
+                    placeholder="Style name"
+                    value={presetName}
+                    maxLength={256}
                     disabled={busy}
-                    onClick={() => setReload((value) => value + 1)}
+                    onChange={(event) => setPresetName(event.target.value)}
+                  />
+                  <Button
+                    disabled={busy || !state || !presetName.trim()}
+                    onClick={() =>
+                      void changePreset({
+                        action: 'save',
+                        name: presetName.trim(),
+                      })
+                    }
                   >
-                    First controls page
+                    Save current brand as preset
                   </Button>
+                </div>
+                {presetReview?.action === 'delete' && (
+                  <div
+                    className="inspector-callout"
+                    role="group"
+                    aria-label="Confirm global preset deletion"
+                  >
+                    <p>
+                      Delete the style “{presetReview.name}”? Every design
+                      shares it; brands already saved in designs stay as they
+                      are.
+                    </p>
+                    <div className="action-cluster">
+                      <Button
+                        disabled={busy}
+                        onClick={() => setPresetReview(null)}
+                      >
+                        Keep preset
+                      </Button>
+                      <Button
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => void changePreset()}
+                      >
+                        Confirm preset deletion
+                      </Button>
+                    </div>
+                  </div>
                 )}
-                {state.next_cursor && (
-                  <Button disabled={busy} onClick={() => void more()}>
-                    Next controls page
-                  </Button>
-                )}
-              </div>
-            </>
-          )}
-        </section>
+              </>
+            )
+          }
+        />
       )}
-      {showReview && (
+      {view === 'review' && (
         <section className="inspector-section" aria-label="Review">
           <div className="inspector-inline-form">
             <Segmented
@@ -1259,8 +1305,8 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
             )}
           </div>
           <p className="muted">
-            A quick heuristic check of layout, text and brand; it checks again
-            after every change. It doesn't replace your own look at the design.
+            A quick check of layout, text and brand; it checks again after every
+            change. It doesn&apos;t replace your own look at the design.
           </p>
           {!review && !error && state && (
             <p className="muted" role="status">

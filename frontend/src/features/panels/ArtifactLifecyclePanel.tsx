@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Info } from 'lucide-react';
-import { Button, IconButton, StatusDot } from '../../ui/primitives';
+import { Button, StatusDot } from '../../ui/primitives';
 
 export type ArtifactLifecycleCapability = {
   id:
@@ -128,20 +127,28 @@ const stateWords: Record<
   unavailable: { text: 'Unavailable', tone: 'warning' },
 };
 
-/** ⓘ in the design top bar: capabilities and review requirements. */
+/**
+ * Capabilities and review requirements, opened from the design's ⋯ menu and
+ * shown beside it (`children` is what it is anchored to).
+ */
 export function DesignCapabilities({
   lifecycle,
+  open,
+  onOpenChange,
+  returnFocus,
+  children,
 }: {
   lifecycle: DesignLifecycle;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Where focus goes when it closes (the menu button). */
+  returnFocus: () => HTMLElement | null;
+  children: ReactNode;
 }) {
   const { state, error } = lifecycle;
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <IconButton size="sm" label="Design capabilities">
-          <Info size={15} aria-hidden />
-        </IconButton>
-      </Popover.Trigger>
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Anchor asChild>{children}</Popover.Anchor>
       <Popover.Portal>
         <Popover.Content
           className="popover design-capabilities"
@@ -149,6 +156,10 @@ export function DesignCapabilities({
           align="end"
           sideOffset={8}
           collisionPadding={12}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            returnFocus()?.focus({ preventScroll: true });
+          }}
         >
           <p className="design-capabilities-title">
             Capabilities and review requirements

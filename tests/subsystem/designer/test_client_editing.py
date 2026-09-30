@@ -265,6 +265,72 @@ def test_exact_element_selection_jumps_to_its_real_descriptor_page(project):
         editing.read_editing(project.id, element_id='absent')
 
 
+def test_a_selected_picture_or_box_reads_the_page_and_only_a_gone_element_is_an_error(project):
+    # The panel selects any element (B247); text editing reads the page without
+    # a text cursor for a picture, and still says when the element is gone.
+    from row_bot.designer.client_design_controls import read_controls
+    project.pages[0].html = '<section><h1>Title</h1><img src="data:image/png;base64,AAAA"></section>'
+    storage.save_project(project)
+    image = next(item.id for item in read_controls(project.id).items if item.kind == 'img')
+    view = editing.read_editing(project.id, element_id=image)
+    assert [item.text for item in view.elements] == ['Title']
+    with pytest.raises(service.ArtifactError, match='element_unavailable'):
+        editing.read_editing(project.id, element_id='0' * 64)
+
+
+def test_authoring_preview_marks_every_element_and_only_panel_text_as_editable(project):
+    from row_bot.designer.client_design_controls import read_controls
+    project.pages[0].html = ('<section><h1>Title</h1><mark>Note</mark><img src="data:image/png;base64,AAAA">'
+                             '<p>' + 'x' * 20001 + '</p></section>')
+    storage.save_project(project)
+    preview = service.read_preview(project.id, authoring=True, preview_id='editor-frame-123456',
+                                   capability='capability-123456789')
+    soup = BeautifulSoup(preview.html, 'html.parser')
+    marked = {tag.name: tag for tag in soup.find_all(attrs={'data-row-bot-element-id': True})}
+    ids = {item.kind: item.id for item in read_controls(project.id, limit=50).items}
+    for name in ('section', 'h1', 'mark', 'img', 'p'):
+        assert marked[name]['data-row-bot-element-id'] == ids[name]
+    assert [tag.name for tag in soup.find_all(attrs={'data-row-bot-text': True})] == ['h1']
+
+
+@pytest.mark.slow
+def test_authoring_bridge_selects_any_element_with_its_current_look(project):
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is required for the deterministic Designer bridge behavior test')
+    project.pages[0].html = ('<html><body><h1 style="font-size: 40px; color: #aa3300">Title</h1>'
+                             '<img src="data:image/png;base64,AAAA" style="object-fit: cover"></body></html>')
+    storage.save_project(project)
+    preview = service.read_preview(project.id, authoring=True, preview_id='editor-frame-123456',
+                                   capability='capability-123456789')
+    script = r'''
+const fs = require('node:fs');
+const { JSDOM } = require('./frontend/node_modules/jsdom');
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const messages = [];
+const dom = new JSDOM(input.html, { runScripts: 'dangerously', beforeParse(window) {
+  window.TextEncoder = TextEncoder;
+  Object.defineProperty(window, 'parent', {value: {postMessage(message) {messages.push(message);}}});
+}});
+for (const selector of ['h1', 'img'])
+  dom.window.document.querySelector(selector).dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true}));
+process.stdout.write(JSON.stringify(messages));
+dom.window.close();
+'''
+    result = subprocess.run([node, '-e', script], input=json.dumps({'html': preview.html}),
+                            cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True,
+                            encoding='utf-8', timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    heading, image = [item['detail'] for item in json.loads(result.stdout) if item['type'] == 'element-click']
+    from row_bot.designer.client_design_controls import read_controls
+    ids = {item.kind: item.id for item in read_controls(project.id, limit=50).items}
+    assert (heading['elementId'], image['elementId']) == (ids['h1'], ids['img'])
+    assert heading['style']['font-size'] == '40px'
+    assert heading['style']['color'] == 'rgb(170, 51, 0)'
+    assert image['style']['object-fit'] == 'cover'
+    assert all(isinstance(value, str) and len(value) <= 128 for value in heading['style'].values())
+
+
 def test_text_edits_keep_the_edited_element_selectable(project):
     # Several inline edits in a row on the same text (B245): each edit names
     # the element by the id the panel holds, and the panel keeps reading it.
@@ -328,7 +394,7 @@ const dom = new JSDOM(input.html, { runScripts: 'dangerously', beforeParse(windo
   window.TextEncoder = TextEncoder;
   Object.defineProperty(window, 'parent', {value: {postMessage(message) {messages.push(message);}}});
 }});
-const el = dom.window.document.querySelector('[data-row-bot-element-id]');
+const el = dom.window.document.querySelector('[data-row-bot-text]');
 el.dispatchEvent(new dom.window.MouseEvent('dblclick', {bubbles: true}));
 el.innerHTML = input.replacement;
 el.dispatchEvent(new dom.window.Event('blur'));

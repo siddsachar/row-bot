@@ -1,20 +1,62 @@
 import type { ArtifactAuthoring } from '../../api/types';
+import type { DesignLook } from './artifact-design-values';
 
 export type ArtifactBridgeRect = { x: number; y: number; w: number; h: number };
 
 export type ArtifactBridgeMessage =
   | {
       type: 'select';
-      /** Editable text elements carry an id; other elements select for Ask only. */
+      /** Page elements carry their panel id; others select for Ask only. */
       elementId: string | null;
       tag: string;
       text: string;
       rect: ArtifactBridgeRect | null;
+      /** How it looks now, for the inspector's controls to start from. */
+      look: DesignLook;
     }
   | { type: 'edit'; elementId: string; text: string }
   | { type: 'unavailable' }
   | { type: 'undo' }
   | { type: 'redo' };
+
+/** The computed properties the preview reports (interaction.py's LOOK). */
+const LOOK_KEYS = new Set([
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'color',
+  'text-align',
+  'background-color',
+  'border-top-left-radius',
+  'border-top-style',
+  'border-top-width',
+  'border-top-color',
+  'opacity',
+  'width',
+  'height',
+  'padding-top',
+  'margin-top',
+  'row-gap',
+  'object-fit',
+  'object-position',
+]);
+
+/** Only listed properties, as short plain values (display only). */
+function lookOf(value: unknown): DesignLook {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const look: DesignLook = {};
+  for (const [key, item] of Object.entries(value))
+    if (
+      LOOK_KEYS.has(key) &&
+      typeof item === 'string' &&
+      item.length <= 128 &&
+      !/[<>{};\\]/.test(item)
+    )
+      look[key] = item;
+  return look;
+}
 
 function rectOf(value: unknown): ArtifactBridgeRect | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -88,9 +130,9 @@ export function artifactBridgeMessage(
         ? element.tag
         : '';
     if (!tag) return null;
-    // Only an editable text id is kept. Elements without one (or inside an
-    // agent-marked block, whose internal id is not editable) can still be
-    // asked about; they are just never edited from the panel.
+    // Only a panel id is kept. Elements without one (inside an SVG, or an
+    // agent-marked block's internal id) can still be asked about; they are
+    // just never changed from the panel.
     return {
       type: 'select',
       elementId: validId ? (elementId as string) : null,
@@ -100,6 +142,7 @@ export function artifactBridgeMessage(
           ? element.text.replace(/\s+/g, ' ').trim().slice(0, 200)
           : '',
       rect: rectOf(element.rect),
+      look: lookOf(element.style),
     };
   }
   if (

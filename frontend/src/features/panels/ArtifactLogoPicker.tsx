@@ -50,8 +50,8 @@ const SPACING = [
  * freed when the picker closes. A picture that can't be read keeps the
  * glyph; its name still says which one it is.
  */
-function useThumbnails(
-  images: DesignControlItem[],
+export function useThumbnails(
+  images: readonly Pick<DesignControlItem, 'id'>[],
   thumbnail: DesignControlsProps['thumbnail'],
 ) {
   const [urls, setUrls] = useState<Record<string, string>>({});

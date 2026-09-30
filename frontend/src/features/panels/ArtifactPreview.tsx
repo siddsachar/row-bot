@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import * as TabsPrimitive from '@radix-ui/react-tabs';
+import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
   Eye,
+  File as PageGlyph,
   History,
+  ListChecks,
   Monitor,
   MoreHorizontal,
   MousePointer2,
@@ -28,14 +39,16 @@ import {
   Button,
   ErrorState,
   IconButton,
+  Kbd,
   Menu,
   Segmented,
   Select,
   Skeleton,
-  Tabs,
   Toolbar,
   ToolbarSeparator,
 } from '../../ui/primitives';
+import { DesignRow } from './ArtifactDesignStyles';
+import type { DesignLook } from './artifact-design-values';
 import { ModalTask } from '../../ui/overlays';
 import ArtifactEditor, { type ArtifactEditorProps } from './ArtifactEditor';
 import { artifactBridgeMessage } from './artifact-bridge';
@@ -111,7 +124,9 @@ export type ArtifactPreviewProps = {
   onAsk?: (text: string) => AskOutcome;
 };
 
-type InspectorTab = 'properties' | 'library' | 'review' | 'history';
+/** The inspector's tabs; Review and Versions open from the toolbar. */
+type Pane = 'selection' | 'brand' | 'library';
+type InspectorView = Pane | 'review' | 'history';
 type Side = 'inspector' | 'export' | 'share';
 type Device = 'desktop' | 'tablet' | 'phone';
 
@@ -150,8 +165,8 @@ function structureFailure(reason: unknown) {
     : 'That change was not saved. The design is unchanged.';
 }
 
-/** Panel width from which the inspector sits beside the canvas (panels.css). */
-const SIDE_BY_SIDE = 720;
+/** Panel width up to which the toolbar is one short phone row (panels.css). */
+const COMPACT = 460;
 const noLifecycle = () => new Promise<never>(() => {});
 
 function failureText(error: unknown): string {
@@ -236,11 +251,39 @@ export default function ArtifactPreview({
     view: null,
   });
   const sideView = side.resourceId === resourceId ? side.view : null;
-  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('properties');
+  const [pane, setPane] = useState<Pane>('selection');
+  const [inspectorMode, setInspectorMode] = useState<
+    'panes' | 'review' | 'history'
+  >('panes');
+  const showing: InspectorView | null =
+    sideView !== 'inspector'
+      ? null
+      : inspectorMode === 'panes'
+        ? pane
+        : inspectorMode;
   const [presenting, setPresenting] = useState(false);
   const [authoring, setAuthoring] = useState(false);
   const [selectedElementId, setSelectedElementId] = useState<string>();
   const [picked, setPicked] = useState<DesignSelectionState | null>(null);
+  // How the element last clicked looks on the canvas, for its controls.
+  const [look, setLook] = useState<{
+    elementId: string;
+    values: DesignLook;
+  } | null>(null);
+  const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
+  const moreButton = useRef<HTMLButtonElement | null>(null);
+  // A phone-width panel: one short toolbar row, the rest in ⋯.
+  const [compact, setCompact] = useState(false);
+  // The inspector as a sheet on a narrow panel: half height or full.
+  const [sheet, setSheet] = useState<'half' | 'full'>('half');
+  const [sheetDrag, setSheetDrag] = useState<number | null>(null);
+  const dragged = useRef(false);
+  const body = useRef<HTMLDivElement>(null);
+  // Suggestions from a quick check of the page shown, for the Review button.
+  const [suggestions, setSuggestions] = useState<{
+    key: string;
+    count: number;
+  } | null>(null);
   const [notice, setNotice] = useState('');
   const [chain, setChain] = useState<UndoChain | null>(null);
   const [historyBusy, setHistoryBusy] = useState(false);
@@ -420,6 +463,32 @@ export default function ArtifactPreview({
       !!current &&
       current.resource_revision === resourceRevision,
   });
+  // The Review button counts the page's suggestions: one quick check per
+  // saved version and page while the panel shows it; a failed check shows
+  // no count.
+  const designSession = design?.session;
+  const checkRevision =
+    current?.resource_revision === resourceRevision ? resourceRevision : '';
+  const checkPage = current?.page_id ?? '';
+  useEffect(() => {
+    if (!visible || !designSession || !checkRevision || !checkPage) return;
+    let active = true;
+    const key = `${resourceId}:${checkRevision}:${checkPage}`;
+    designSession
+      .review({ page_id: checkPage, scope: 'page' })
+      .then((value) => {
+        if (active && value.resource_revision === checkRevision)
+          setSuggestions({ key, count: value.finding_count });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [visible, designSession, resourceId, checkRevision, checkPage]);
+  const suggestionCount =
+    suggestions?.key === `${resourceId}:${checkRevision}:${checkPage}`
+      ? suggestions.count
+      : 0;
   const pageLabel = current?.mode === 'deck' || !current ? 'Slide' : 'Page';
   const interactive =
     current?.scripts_allowed === true &&
@@ -469,7 +538,13 @@ export default function ArtifactPreview({
           pageId: current.page_id,
           revision: current.preview_revision,
         });
-        if (message.elementId) setSelectedElementId(message.elementId);
+        if (message.elementId) {
+          setSelectedElementId(message.elementId);
+          setLook({ elementId: message.elementId, values: message.look });
+          // Its controls are on the Selection tab.
+          setPane('selection');
+          setInspectorMode('panes');
+        }
         return;
       }
       setSelectedElementId(message.elementId);
@@ -524,6 +599,8 @@ export default function ArtifactPreview({
     let active = true;
     const measure = () => {
       if (!active || frameHost.current !== element) return;
+      const whole = panel.current?.getBoundingClientRect().width ?? 0;
+      setCompact(whole > 0 && whole <= COMPACT);
       const width = element.clientWidth,
         height = element.clientHeight;
       if (
@@ -711,20 +788,65 @@ export default function ArtifactPreview({
     if (view) setPresenting(false);
   }
 
-  function openInspector(tab: InspectorTab) {
-    setInspectorTab(tab);
+  function openInspector(view: InspectorView) {
+    if (view === 'review' || view === 'history') setInspectorMode(view);
+    else {
+      setInspectorMode('panes');
+      setPane(view);
+    }
     openSide('inspector');
+  }
+
+  /** A toolbar button opens its view, or closes it when it is showing. */
+  function toggleInspector(view: InspectorView) {
+    const panes = ['selection', 'brand', 'library'];
+    if (
+      showing === view ||
+      (panes.includes(view) && panes.includes(showing ?? ''))
+    )
+      openSide(null);
+    else openInspector(view === 'selection' ? pane : view);
   }
 
   function setMode(next: 'preview' | 'edit') {
     setAuthoring(next === 'edit');
     setPicked(null);
-    // Beside the canvas the inspector helps; as a sheet over a narrow panel
-    // it would cover what you are about to select, so there it waits.
-    const width = panel.current?.getBoundingClientRect().width ?? 0;
-    if (next === 'edit') {
-      if (width >= SIDE_BY_SIDE) openInspector('properties');
-    } else if (sideView === 'inspector') openSide(null);
+    // The inspector sits beside the canvas, or as a half-height sheet under
+    // it on a narrow panel, so the page stays in view either way.
+    if (next === 'edit') openInspector(pane);
+    else if (sideView === 'inspector') openSide(null);
+  }
+
+  function clearSelection() {
+    setSelectedElementId(undefined);
+    setPicked(null);
+  }
+
+  // Dragging the sheet's handle sizes it; letting go settles at half or full.
+  function dragSheet(event: ReactPointerEvent<HTMLButtonElement>) {
+    const area = body.current?.getBoundingClientRect();
+    if (!area || !area.height) return;
+    const handle = event.currentTarget;
+    const start = event.clientY;
+    dragged.current = false;
+    handle.setPointerCapture?.(event.pointerId);
+    const height = (y: number) =>
+      Math.min(area.height, Math.max(120, area.bottom - y));
+    const move = (moved: PointerEvent) => {
+      if (Math.abs(moved.clientY - start) > 4) dragged.current = true;
+      if (dragged.current) setSheetDrag(height(moved.clientY));
+    };
+    const end = (ended: PointerEvent) => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      if (dragged.current)
+        setSheet(height(ended.clientY) > area.height * 0.75 ? 'full' : 'half');
+      setSheetDrag(null);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
   }
 
   // ------------------------------------------------ undo, redo and rename
@@ -979,27 +1101,33 @@ export default function ArtifactPreview({
   const size = current
     ? designSize(current.canvas_width, current.canvas_height)
     : undefined;
+  const canVersions = !!loadEditing && !!edit;
+  const reviewLabel = suggestionCount
+    ? `Review · ${suggestionCount} ${suggestionCount === 1 ? 'suggestion' : 'suggestions'}`
+    : 'Review';
   const moreActions = [
+    // A phone-width toolbar keeps these here instead.
+    ...(compact && canVersions
+      ? [{ label: 'Versions', onSelect: () => openInspector('history') }]
+      : []),
+    ...(compact && design
+      ? [{ label: reviewLabel, onSelect: () => openInspector('review') }]
+      : []),
+    ...(compact && hasInspector
+      ? [{ label: 'Inspector', onSelect: () => openInspector(pane) }]
+      : []),
     ...(loadPalette && onDraftText && current
       ? [
           {
             label: 'Search design tools, pages & assets',
+            separatorBefore: compact,
             disabled: loading,
             onSelect: () => setPaletteOpen(true),
           },
         ]
       : []),
     ...(design
-      ? [
-          {
-            label: 'Insert blocks and assets',
-            onSelect: () => openInspector('library'),
-          },
-          {
-            label: 'Review design',
-            onSelect: () => openInspector('review'),
-          },
-        ]
+      ? [{ label: 'Library', onSelect: () => openInspector('library') }]
       : []),
     ...(design && current && ['deck', 'document'].includes(current.mode)
       ? [{ label: 'Import document', onSelect: () => setImportOpen(true) }]
@@ -1014,7 +1142,88 @@ export default function ArtifactPreview({
           },
         ]
       : []),
+    ...(lifecycle
+      ? [
+          {
+            label: 'Design capabilities',
+            separatorBefore: true,
+            onSelect: () => undefined,
+            // Opens once the menu has closed and let go of focus.
+            afterClose: () => setCapabilitiesOpen(true),
+          },
+        ]
+      : []),
   ];
+  const modeSwitch = loadEditing && edit && (
+    <Segmented
+      size="sm"
+      label="Design mode"
+      value={authoring ? 'edit' : 'preview'}
+      onChange={setMode}
+      options={[
+        {
+          value: 'preview',
+          label: 'Preview',
+          icon: <Eye size={14} aria-hidden />,
+        },
+        {
+          value: 'edit',
+          label: 'Edit',
+          icon: <MousePointer2 size={14} aria-hidden />,
+        },
+      ]}
+    />
+  );
+  const moreMenu = moreActions.length > 0 && (
+    <Menu
+      label="More design actions"
+      iconOnly
+      variant="ghost"
+      triggerRef={moreButton}
+      actions={moreActions}
+    >
+      <MoreHorizontal size={15} aria-hidden />
+    </Menu>
+  );
+  const sheetStyle = {
+    '--design-sheet':
+      sheetDrag !== null ? `${sheetDrag}px` : sheet === 'full' ? '100%' : '50%',
+  } as CSSProperties;
+  const panes = [
+    ...(hasInspector ? [{ id: 'selection' as const, label: 'Selection' }] : []),
+    ...(design && current
+      ? [
+          { id: 'brand' as const, label: 'Brand' },
+          { id: 'library' as const, label: 'Library' },
+        ]
+      : []),
+  ];
+  const designProps = design &&
+    current && {
+      ...design,
+      resourceRevision: current.resource_revision,
+      pageId: current.page_id,
+      selectedElementId,
+      onSelectElement: setSelectedElementId,
+      onSelectionLost: loseSelection,
+      onReload: refreshPreview,
+      visible,
+    };
+  const textEditor = loadEditing && edit && selectedElementId && (
+    <ArtifactEditor
+      view="text"
+      resourceId={resourceId}
+      resourceRevision={editorRevision}
+      visible={visible}
+      pageId={current?.page_id}
+      selectedElementId={selectedElementId}
+      onSelectionLost={loseSelection}
+      onPageChange={goToPage}
+      load={loadEditing}
+      edit={edit}
+      onEdited={refreshPreview}
+    />
+  );
   const zoomLabel = (value: string) =>
     value === 'fit'
       ? `Fit · ${Math.round(fitScale * 100)}%`
@@ -1062,30 +1271,12 @@ export default function ArtifactPreview({
               }
             }}
           />
-          {loadEditing && edit && (
-            <Segmented
-              size="sm"
-              label="Design mode"
-              value={authoring ? 'edit' : 'preview'}
-              onChange={setMode}
-              options={[
-                {
-                  value: 'preview',
-                  label: 'Preview',
-                  icon: <Eye size={14} aria-hidden />,
-                },
-                {
-                  value: 'edit',
-                  label: 'Edit',
-                  icon: <MousePointer2 size={14} aria-hidden />,
-                },
-              ]}
-            />
-          )}
+          {!compact && modeSwitch}
         </div>
         <Toolbar label="Design actions" className="design-topbar-actions">
+          {compact && modeSwitch}
           {canHistory && (
-            <>
+            <span className="design-tool-group">
               <IconButton
                 size="sm"
                 label="Undo"
@@ -1104,84 +1295,141 @@ export default function ArtifactPreview({
               >
                 <Redo2 size={15} aria-hidden />
               </IconButton>
-              <ToolbarSeparator />
-            </>
+            </span>
           )}
-          {loadEditing && edit && (
-            <IconButton
-              size="sm"
-              label="Design history"
-              pressed={sideView === 'inspector' && inspectorTab === 'history'}
-              onClick={() =>
-                sideView === 'inspector' && inspectorTab === 'history'
-                  ? openSide(null)
-                  : openInspector('history')
-              }
-            >
-              <History size={15} aria-hidden />
-            </IconButton>
+          {!compact && (canVersions || design || hasInspector) && (
+            <span className="design-tool-group">
+              {canVersions && (
+                <IconButton
+                  size="sm"
+                  label="Versions"
+                  pressed={showing === 'history'}
+                  onClick={() => toggleInspector('history')}
+                >
+                  <History size={15} aria-hidden />
+                </IconButton>
+              )}
+              {design && (
+                <IconButton
+                  size="sm"
+                  label={reviewLabel}
+                  pressed={showing === 'review'}
+                  onClick={() => toggleInspector('review')}
+                >
+                  <ListChecks size={15} aria-hidden />
+                  {suggestionCount > 0 && (
+                    <span className="design-tool-dot" aria-hidden />
+                  )}
+                </IconButton>
+              )}
+              {hasInspector && (
+                <IconButton
+                  size="sm"
+                  label="Inspector"
+                  pressed={
+                    showing === 'selection' ||
+                    showing === 'brand' ||
+                    showing === 'library'
+                  }
+                  onClick={() => toggleInspector('selection')}
+                >
+                  <PanelRight size={15} aria-hidden />
+                </IconButton>
+              )}
+            </span>
           )}
-          {hasInspector && (
-            <IconButton
-              size="sm"
-              label="Design properties"
-              pressed={sideView === 'inspector' && inspectorTab !== 'history'}
-              onClick={() =>
-                sideView === 'inspector' && inspectorTab !== 'history'
-                  ? openSide(null)
-                  : openInspector(
-                      loadEditing && edit ? 'properties' : 'library',
-                    )
-              }
-            >
-              <PanelRight size={15} aria-hidden />
-            </IconButton>
+          {!compact && (presentation || sharing || createExport) && (
+            <span className="design-tool-group">
+              {presentation && (
+                <IconButton
+                  ref={presentButton}
+                  size="sm"
+                  label="Present"
+                  pressed={presenting}
+                  disabled={!canPresent || (!presenting && !presentReady)}
+                  onClick={present}
+                >
+                  <Play size={15} aria-hidden />
+                </IconButton>
+              )}
+              {sharing && (
+                <IconButton
+                  size="sm"
+                  label="Share"
+                  pressed={sideView === 'share'}
+                  disabled={!canShare}
+                  onClick={() =>
+                    openSide(sideView === 'share' ? null : 'share')
+                  }
+                >
+                  <Share2 size={15} aria-hidden />
+                </IconButton>
+              )}
+              {createExport && downloadExport && (
+                <IconButton
+                  size="sm"
+                  label="Export"
+                  pressed={sideView === 'export'}
+                  disabled={!canExport}
+                  onClick={() =>
+                    openSide(sideView === 'export' ? null : 'export')
+                  }
+                >
+                  <Download size={15} aria-hidden />
+                </IconButton>
+              )}
+            </span>
           )}
-          {(presentation || sharing || createExport) && <ToolbarSeparator />}
-          {presentation && (
-            <IconButton
-              ref={presentButton}
-              size="sm"
-              label="Present"
-              pressed={presenting}
-              disabled={!canPresent || (!presenting && !presentReady)}
-              onClick={present}
-            >
-              <Play size={15} aria-hidden />
-            </IconButton>
-          )}
-          {sharing && (
-            <IconButton
-              size="sm"
-              label="Share"
-              pressed={sideView === 'share'}
-              disabled={!canShare}
-              onClick={() => openSide(sideView === 'share' ? null : 'share')}
-            >
-              <Share2 size={15} aria-hidden />
-            </IconButton>
-          )}
-          {createExport && downloadExport && (
-            <IconButton
-              size="sm"
-              label="Export"
-              pressed={sideView === 'export'}
-              disabled={!canExport}
-              onClick={() => openSide(sideView === 'export' ? null : 'export')}
-            >
-              <Download size={15} aria-hidden />
-            </IconButton>
-          )}
-          {lifecycle && <DesignCapabilities lifecycle={lifecycleState} />}
-          {moreActions.length > 0 && (
+          {compact && (presentation || sharing || createExport) && (
             <Menu
-              label="More design actions"
+              label="Share or export"
               iconOnly
               variant="ghost"
-              actions={moreActions}
+              triggerRef={presentButton}
+              actions={[
+                ...(presentation
+                  ? [
+                      {
+                        label: 'Present',
+                        disabled: !canPresent || (!presenting && !presentReady),
+                        onSelect: present,
+                      },
+                    ]
+                  : []),
+                ...(sharing
+                  ? [
+                      {
+                        label: 'Share…',
+                        disabled: !canShare,
+                        onSelect: () => openSide('share'),
+                      },
+                    ]
+                  : []),
+                ...(createExport && downloadExport
+                  ? [
+                      {
+                        label: 'Export…',
+                        disabled: !canExport,
+                        onSelect: () => openSide('export'),
+                      },
+                    ]
+                  : []),
+              ]}
             >
-              <MoreHorizontal size={15} aria-hidden />
+              <Share2 size={15} aria-hidden />
             </Menu>
+          )}
+          {lifecycle && moreMenu ? (
+            <DesignCapabilities
+              lifecycle={lifecycleState}
+              open={capabilitiesOpen}
+              onOpenChange={setCapabilitiesOpen}
+              returnFocus={() => moreButton.current}
+            >
+              <span className="design-more-anchor">{moreMenu}</span>
+            </DesignCapabilities>
+          ) : (
+            moreMenu
           )}
         </Toolbar>
       </header>
@@ -1248,7 +1496,7 @@ export default function ArtifactPreview({
           onImported={() => setRefresh((value) => value + 1)}
         />
       )}
-      <div className="design-body" data-side={sideView ?? undefined}>
+      <div ref={body} className="design-body" data-side={sideView ?? undefined}>
         {!presenting && pages.length > 1 && current && (
           <DesignPageStrip
             pages={pages}
@@ -1557,6 +1805,8 @@ export default function ArtifactPreview({
         {sideView && (
           <aside
             className="design-side"
+            data-sheet={sheet}
+            style={sheetStyle}
             aria-label={
               sideView === 'inspector'
                 ? 'Design inspector'
@@ -1565,175 +1815,250 @@ export default function ArtifactPreview({
                   : 'Share design'
             }
           >
-            <header className="design-side-header">
-              <h3>
-                {sideView === 'inspector'
-                  ? 'Inspector'
-                  : sideView === 'export'
-                    ? 'Export'
-                    : 'Share'}
-              </h3>
-              <IconButton
-                size="sm"
-                label={
-                  sideView === 'inspector'
-                    ? 'Close inspector'
-                    : sideView === 'export'
-                      ? 'Close export'
-                      : 'Close sharing'
-                }
-                onClick={() => openSide(null)}
+            {/* A narrow panel shows this side as a sheet: drag or press to size it. */}
+            <button
+              type="button"
+              className="design-sheet-grab"
+              aria-label={
+                sheet === 'full'
+                  ? 'Shrink to half height'
+                  : 'Expand to full height'
+              }
+              onPointerDown={dragSheet}
+              onClick={() => {
+                if (!dragged.current)
+                  setSheet((value) => (value === 'full' ? 'half' : 'full'));
+                dragged.current = false;
+              }}
+            >
+              <span aria-hidden />
+            </button>
+            {showing && inspectorMode === 'panes' ? (
+              <TabsPrimitive.Root
+                className="design-inspector"
+                value={pane}
+                onValueChange={(value) => setPane(value as Pane)}
               >
-                <X size={15} aria-hidden />
-              </IconButton>
-            </header>
-            <div className="design-side-body">
-              {sideView === 'inspector' && (
-                <Tabs
-                  label="Inspector sections"
-                  className="design-inspector-tabs"
-                  value={inspectorTab}
-                  onChange={(value) => setInspectorTab(value as InspectorTab)}
-                  items={[
-                    ...(hasInspector
-                      ? [
-                          {
-                            id: 'properties',
-                            label: 'Properties',
-                            content: (
-                              <div className="design-inspector-stack">
-                                {loadEditing && edit && (
-                                  <ArtifactEditor
-                                    view="properties"
-                                    resourceId={resourceId}
-                                    resourceRevision={editorRevision}
-                                    visible={visible}
-                                    pageId={current?.page_id}
-                                    selectedElementId={selectedElementId}
-                                    onSelectElement={setSelectedElementId}
-                                    onSelectionLost={loseSelection}
-                                    onPageChange={goToPage}
-                                    load={loadEditing}
-                                    edit={edit}
-                                    generateNotes={
-                                      design?.session.generateNotes
-                                    }
-                                    onEdited={refreshPreview}
-                                  />
-                                )}
-                                {design && current && (
-                                  <ArtifactDesignPanel
-                                    {...design}
-                                    view="properties"
-                                    resourceRevision={current.resource_revision}
-                                    pageId={current.page_id}
-                                    selectedElementId={selectedElementId}
-                                    onSelectElement={setSelectedElementId}
-                                    onSelectionLost={loseSelection}
-                                    onReload={refreshPreview}
-                                    visible={visible}
-                                  />
-                                )}
-                              </div>
-                            ),
-                          },
-                        ]
-                      : []),
-                    ...(design && current
-                      ? [
-                          {
-                            id: 'library',
-                            label: 'Library',
-                            content: (
-                              <ArtifactDesignPanel
-                                {...design}
-                                view="library"
-                                resourceRevision={current.resource_revision}
-                                pageId={current.page_id}
-                                selectedElementId={selectedElementId}
-                                onSelectElement={(id) => {
-                                  setSelectedElementId(id);
-                                  setInspectorTab('properties');
-                                }}
-                                onSelectionLost={loseSelection}
-                                onReload={refreshPreview}
-                                visible={visible}
-                              />
-                            ),
-                          },
-                          {
-                            id: 'review',
-                            label: 'Review',
-                            content: (
-                              <ArtifactDesignPanel
-                                {...design}
-                                view="review"
-                                resourceRevision={current.resource_revision}
-                                pageId={current.page_id}
-                                selectedElementId={selectedElementId}
-                                onSelectElement={setSelectedElementId}
-                                onSelectionLost={loseSelection}
-                                onReload={refreshPreview}
-                                visible={visible}
-                              />
-                            ),
-                          },
-                        ]
-                      : []),
-                    ...(loadEditing && edit
-                      ? [
-                          {
-                            id: 'history',
-                            label: 'History',
-                            content: (
-                              <ArtifactEditor
-                                view="history"
-                                resourceId={resourceId}
-                                resourceRevision={editorRevision}
-                                visible={visible}
-                                pageId={current?.page_id}
-                                onPageChange={goToPage}
-                                load={loadEditing}
-                                edit={edit}
-                                onEdited={() => {
-                                  setChain(null);
-                                  setRefresh((value) => value + 1);
-                                }}
-                              />
-                            ),
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
-              )}
-              {sideView === 'export' && createExport && downloadExport && (
-                <ArtifactExports
-                  resourceId={resourceId}
-                  resourceRevision={
-                    current?.resource_revision ?? resourceRevision
-                  }
-                  visible={visible}
-                  updating={loading}
-                  currentPageIndex={current?.page_index ?? 0}
-                  pageCount={current?.page_count ?? 0}
-                  create={createExport}
-                  download={downloadExport}
-                  save={saveExport}
-                  reveal={revealExport}
-                />
-              )}
-              {sideView === 'share' && sharing && (
-                <ArtifactSharingPanel
-                  {...sharing}
-                  resourceId={resourceId}
-                  resourceRevision={
-                    current?.resource_revision ?? resourceRevision
-                  }
-                  visible={visible}
-                />
-              )}
-            </div>
+                <header className="design-side-header design-side-tabs">
+                  <TabsPrimitive.List
+                    className="design-tabs"
+                    aria-label="Inspector"
+                  >
+                    {panes.map((item) => (
+                      <TabsPrimitive.Trigger
+                        key={item.id}
+                        value={item.id}
+                        className="design-tab"
+                      >
+                        {item.label}
+                      </TabsPrimitive.Trigger>
+                    ))}
+                  </TabsPrimitive.List>
+                  <IconButton
+                    size="sm"
+                    label="Close inspector"
+                    onClick={() => openSide(null)}
+                  >
+                    <X size={15} aria-hidden />
+                  </IconButton>
+                </header>
+                <div className="design-side-body">
+                  <TabsPrimitive.Content
+                    value="selection"
+                    className="design-pane"
+                  >
+                    {selectedElementId ? (
+                      designProps ? (
+                        <ArtifactDesignPanel
+                          {...designProps}
+                          view="selection"
+                          look={
+                            look?.elementId === selectedElementId
+                              ? look.values
+                              : undefined
+                          }
+                          textEditor={textEditor}
+                          onClearSelection={clearSelection}
+                        />
+                      ) : (
+                        textEditor
+                      )
+                    ) : (
+                      <>
+                        <header className="design-what">
+                          <span className="design-what-tile" data-kind="page">
+                            <PageGlyph size={16} aria-hidden />
+                          </span>
+                          <span className="design-what-text">
+                            <strong>This {pageLabel.toLowerCase()}</strong>
+                            {current && (
+                              <small>
+                                {pageLabel} {current.page_index + 1} of{' '}
+                                {current.page_count} · {current.page_title}
+                              </small>
+                            )}
+                          </span>
+                        </header>
+                        <p className="design-hint-line">
+                          <MousePointer2 size={14} aria-hidden />
+                          <span>
+                            {authoring
+                              ? 'Click anything on the page to change it, or ask Row-Bot about it.'
+                              : 'Choose Edit, then click anything on the page to change it.'}
+                          </span>
+                        </p>
+                        {loadEditing && edit && (
+                          <ArtifactEditor
+                            view="page"
+                            resourceId={resourceId}
+                            resourceRevision={editorRevision}
+                            visible={visible}
+                            pageId={current?.page_id}
+                            onSelectionLost={loseSelection}
+                            onPageChange={goToPage}
+                            load={loadEditing}
+                            edit={edit}
+                            generateNotes={design?.session.generateNotes}
+                            onEdited={refreshPreview}
+                            pageExtras={
+                              sized &&
+                              current && (
+                                <DesignRow label="Size">
+                                  <Menu
+                                    label={`Page size: ${size?.label ?? 'Custom'}. Change the size`}
+                                    className="design-size-picker"
+                                    disabled={!canStructure}
+                                    actions={DESIGN_SIZES.map((option) => ({
+                                      label: option.label,
+                                      selected: option.ratio === size?.ratio,
+                                      onSelect: () => {
+                                        if (option.ratio !== size?.ratio)
+                                          resize(option.ratio);
+                                      },
+                                    }))}
+                                  >
+                                    <span aria-hidden>
+                                      {size?.label ?? 'Custom size'}
+                                    </span>
+                                  </Menu>
+                                </DesignRow>
+                              )
+                            }
+                          />
+                        )}
+                        {designProps && (
+                          <ArtifactDesignPanel
+                            {...designProps}
+                            view="selection"
+                          />
+                        )}
+                      </>
+                    )}
+                  </TabsPrimitive.Content>
+                  {designProps && (
+                    <>
+                      <TabsPrimitive.Content
+                        value="brand"
+                        className="design-pane"
+                      >
+                        <ArtifactDesignPanel {...designProps} view="brand" />
+                      </TabsPrimitive.Content>
+                      <TabsPrimitive.Content
+                        value="library"
+                        className="design-pane"
+                      >
+                        <ArtifactDesignPanel {...designProps} view="library" />
+                      </TabsPrimitive.Content>
+                    </>
+                  )}
+                </div>
+                <footer className="design-side-foot">
+                  <Check size={13} aria-hidden />
+                  <span>Changes save as you go</span>
+                  {canHistory && <Kbd keys="Mod+Z" />}
+                </footer>
+              </TabsPrimitive.Root>
+            ) : (
+              <>
+                <header className="design-side-header">
+                  <h3>
+                    {showing === 'review'
+                      ? 'Review'
+                      : showing === 'history'
+                        ? 'Versions'
+                        : sideView === 'export'
+                          ? 'Export'
+                          : 'Share'}
+                  </h3>
+                  <IconButton
+                    size="sm"
+                    label={
+                      showing === 'review'
+                        ? 'Close review'
+                        : showing === 'history'
+                          ? 'Close versions'
+                          : sideView === 'export'
+                            ? 'Close export'
+                            : 'Close sharing'
+                    }
+                    onClick={() => openSide(null)}
+                  >
+                    <X size={15} aria-hidden />
+                  </IconButton>
+                </header>
+                <div className="design-side-body">
+                  {showing === 'review' && designProps && (
+                    <div className="design-pane">
+                      <ArtifactDesignPanel {...designProps} view="review" />
+                    </div>
+                  )}
+                  {showing === 'history' && loadEditing && edit && (
+                    <div className="design-pane">
+                      <ArtifactEditor
+                        view="history"
+                        resourceId={resourceId}
+                        resourceRevision={editorRevision}
+                        visible={visible}
+                        pageId={current?.page_id}
+                        onPageChange={goToPage}
+                        load={loadEditing}
+                        edit={edit}
+                        onEdited={() => {
+                          setChain(null);
+                          setRefresh((value) => value + 1);
+                        }}
+                      />
+                    </div>
+                  )}
+                  {sideView === 'export' && createExport && downloadExport && (
+                    <ArtifactExports
+                      resourceId={resourceId}
+                      resourceRevision={
+                        current?.resource_revision ?? resourceRevision
+                      }
+                      visible={visible}
+                      updating={loading}
+                      currentPageIndex={current?.page_index ?? 0}
+                      pageCount={current?.page_count ?? 0}
+                      create={createExport}
+                      download={downloadExport}
+                      save={saveExport}
+                      reveal={revealExport}
+                    />
+                  )}
+                  {sideView === 'share' && sharing && (
+                    <ArtifactSharingPanel
+                      {...sharing}
+                      resourceId={resourceId}
+                      resourceRevision={
+                        current?.resource_revision ?? resourceRevision
+                      }
+                      visible={visible}
+                    />
+                  )}
+                </div>
+              </>
+            )}
           </aside>
         )}
       </div>

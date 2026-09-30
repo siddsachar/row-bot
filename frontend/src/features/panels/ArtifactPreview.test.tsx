@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { Profiler } from 'react';
 import userEvent from '@testing-library/user-event';
@@ -133,8 +134,8 @@ it('shows a top bar, a floating dock and a canvas without loading anything else'
     'Next slide',
     'Undo',
     'Redo',
-    'Design history',
-    'Design properties',
+    'Versions',
+    'Inspector',
     'More design actions',
   ])
     expect(screen.getByRole('button', { name })).toBeInTheDocument();
@@ -199,21 +200,27 @@ it('switches to Edit with an authoring identity and opens the inspector', async 
   expect(
     screen.getByRole('complementary', { name: 'Design inspector' }),
   ).toBeInTheDocument();
-  expect(screen.getByRole('tab', { name: 'Properties' })).toHaveAttribute(
+  expect(screen.getByRole('tab', { name: 'Selection' })).toHaveAttribute(
     'aria-selected',
     'true',
   );
+  // Nothing is selected: the page's own settings and how to select.
+  expect(
+    screen.getByText(
+      'Click anything on the page to change it, or ask Row-Bot about it.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByText('Changes save as you go')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('radio', { name: 'Preview' }));
   expect(
     screen.queryByRole('complementary', { name: 'Design inspector' }),
   ).toBeNull();
-  // A narrow panel keeps the canvas clear to select on; the sheet waits.
+  // A narrow panel shows it as a half-height sheet under the page.
   region.getBoundingClientRect = () => ({ width: 420 }) as DOMRect;
   fireEvent.click(screen.getByRole('radio', { name: 'Edit' }));
-  expect(screen.getByRole('radio', { name: 'Edit' })).toBeChecked();
   expect(
-    screen.queryByRole('complementary', { name: 'Design inspector' }),
-  ).toBeNull();
+    screen.getByRole('complementary', { name: 'Design inspector' }),
+  ).toHaveAttribute('data-sheet', 'half');
 });
 
 it('opens the bound Designer palette from the menu and picks a page or draft', async () => {
@@ -846,11 +853,12 @@ it('opens history, export and sharing as side sheets inside the panel', async ()
       />,
     ),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Design history' }));
-  expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute(
-    'aria-selected',
+  fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
+  expect(screen.getByRole('button', { name: 'Versions' })).toHaveAttribute(
+    'aria-pressed',
     'true',
   );
+  expect(screen.getByRole('heading', { name: 'Versions' })).toBeInTheDocument();
   await screen.findByRole('region', { name: 'Design history' });
   fireEvent.click(screen.getByRole('button', { name: 'Export' }));
   const preview = screen.getByRole('region', { name: 'Design preview' });
@@ -867,9 +875,21 @@ it('opens history, export and sharing as side sheets inside the panel', async ()
   expect(screen.queryByRole('region', { name: 'Design export' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Close sharing' }));
   expect(screen.queryByRole('complementary')).toBeNull();
+  // What the design can do sits in ⋯, shown beside it.
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Design capabilities' }),
+  );
   expect(
-    screen.getByRole('button', { name: 'Design capabilities' }),
-  ).toBeInTheDocument();
+    await screen.findByRole('dialog', { name: 'Design capabilities' }),
+  ).toHaveTextContent('Capabilities and review requirements');
+  await user.keyboard('{Escape}');
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'More design actions' }),
+    ).toHaveFocus(),
+  );
 });
 
 it('waits for the newly saved preview revision before allowing presentation', async () => {
@@ -1170,7 +1190,7 @@ it('clears a selection an edit took away, quietly, in both inspector panels', as
   await act(async () =>
     fireEvent.click(screen.getByRole('radio', { name: 'Edit' })),
   );
-  await screen.findByRole('region', { name: 'Brand' });
+  await screen.findByRole('region', { name: 'Design controls' });
   const identity = load.mock.calls.at(-1)![3]!;
   const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
   // An inline edit names an element that the saved design no longer has.
@@ -1194,11 +1214,16 @@ it('clears a selection an edit took away, quietly, in both inspector panels', as
   );
   expect(controls).toHaveBeenLastCalledWith(
     expect.anything(),
-    { page_id: 'slide-0', element_id: undefined, section: 'elements' },
+    {
+      page_id: 'slide-0',
+      element_id: undefined,
+      section: 'elements',
+      limit: 50,
+    },
     expect.any(AbortSignal),
   );
   expect(
-    await screen.findByRole('region', { name: 'Brand' }),
+    await screen.findByRole('region', { name: 'Design controls' }),
   ).toBeInTheDocument();
   expect(screen.queryByRole('alert')).toBeNull();
 });
@@ -1232,7 +1257,10 @@ function designControls(): DesignControlsState {
   };
 }
 
-function designSession(load: DesignSessionOwner['load']) {
+function designSession(
+  load: DesignSessionOwner['load'],
+  review: DesignSessionOwner['review'] = vi.fn(),
+) {
   const resource = {
     available: true,
     resource_revision: 'resource-1',
@@ -1254,7 +1282,7 @@ function designSession(load: DesignSessionOwner['load']) {
     subscribe: () => () => undefined,
     load,
     assetThumbnail: vi.fn(),
-    review: vi.fn(),
+    review,
     draftFix: vi.fn(),
     stageUpload: vi.fn(),
     presetReview: vi.fn(),
@@ -1581,7 +1609,7 @@ it('offers the actions of the shown design to the global palette while visible',
     set!.commands.find((command) => command.id === 'duplicate')!.run(),
   );
   expect(duplicate).toHaveBeenCalledOnce();
-  await user.click(screen.getByRole('button', { name: 'Design history' }));
+  await user.click(screen.getByRole('button', { name: 'Versions' }));
   view.rerender(
     <ArtifactPreview
       resourceId="deck-a"
@@ -1672,4 +1700,267 @@ it('hands focus back to Present only once full screen has ended', async () => {
     .requestFullscreen;
   delete (document as { fullscreenElement?: unknown }).fullscreenElement;
   delete (document as { exitFullscreen?: unknown }).exitFullscreen;
+});
+
+function reviewWith(count: number): DesignSessionOwner['review'] {
+  return vi.fn(async () => ({
+    resource_id: 'deck-a',
+    resource_revision: 'resource-1',
+    page_id: 'slide-0',
+    scope: 'page' as const,
+    heuristic: true,
+    score: 70,
+    findings: Array.from({ length: count }, (_, index) => ({
+      id: `finding-${index}`,
+      source: 'critique',
+      category: 'spacing',
+      severity: 'low',
+      message: `Suggestion ${index}`,
+      suggested_fix: 'Add space',
+      page_id: 'slide-0',
+      auto_fixable: false,
+    })),
+    finding_count: count,
+    next_cursor: null,
+  }));
+}
+
+it('groups the toolbar, and Review and Versions open from it beside the three inspector tabs (B247)', async () => {
+  const user = userEvent.setup();
+  const review = reviewWith(2);
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        loadEditing={vi.fn(async () => editing())}
+        edit={vi.fn()}
+        createExport={vi.fn()}
+        downloadExport={vi.fn()}
+        design={{
+          session: designSession(
+            vi.fn(async () => designControls()),
+            review,
+          ),
+          onDraftText: vi.fn(),
+        }}
+      />,
+    ),
+  );
+  const actions = screen.getByRole('toolbar', { name: 'Design actions' });
+  // The page is checked once for this version; its suggestions show as a dot.
+  const reviewButton = await within(actions).findByRole('button', {
+    name: 'Review · 2 suggestions',
+  });
+  expect(review).toHaveBeenCalledWith(
+    expect.anything(),
+    { page_id: 'slide-0', scope: 'page' },
+    expect.any(AbortSignal),
+  );
+  expect(
+    within(actions)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label')),
+  ).toEqual([
+    'Undo',
+    'Redo',
+    'Versions',
+    'Review · 2 suggestions',
+    'Inspector',
+    'Export',
+    'More design actions',
+  ]);
+  await user.click(reviewButton);
+  expect(reviewButton).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument();
+  expect(
+    await screen.findByRole('group', { name: 'Design review findings' }),
+  ).toHaveTextContent('Suggestion 1');
+  // The inspector keeps three tabs.
+  await user.click(within(actions).getByRole('button', { name: 'Inspector' }));
+  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+    'Selection',
+    'Brand',
+    'Library',
+  ]);
+  await user.click(screen.getByRole('tab', { name: 'Brand' }));
+  expect(
+    await screen.findByRole('region', { name: 'Colours' }),
+  ).toBeInTheDocument();
+  await user.click(within(actions).getByRole('button', { name: 'Inspector' }));
+  expect(screen.queryByRole('complementary')).toBeNull();
+  // It opens again where it was.
+  await user.click(within(actions).getByRole('button', { name: 'Inspector' }));
+  expect(screen.getByRole('tab', { name: 'Brand' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+it('selects anything on the canvas and shows its own controls from how it looks', async () => {
+  const photo = 'b'.repeat(64);
+  const load = vi.fn<ArtifactPreviewProps['load']>(async () => snapshot());
+  const controls = vi.fn<DesignSessionOwner['load']>(async (_scope, options) =>
+    options.element_id === photo
+      ? {
+          ...designControls(),
+          element: {
+            id: photo,
+            tag: 'img',
+            styles: {},
+            action: '',
+            kind: 'image' as const,
+            text: '',
+            alt: 'A rye loaf',
+            asset_id: '',
+          },
+        }
+      : designControls(),
+  );
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={load}
+        loadEditing={vi.fn(async () => editing())}
+        edit={vi.fn()}
+        design={{ session: designSession(controls), onDraftText: vi.fn() }}
+      />,
+    ),
+  );
+  const region = screen.getByRole('region', { name: 'Design preview' });
+  region.getBoundingClientRect = () => ({ width: 900 }) as DOMRect;
+  await act(async () =>
+    fireEvent.click(screen.getByRole('radio', { name: 'Edit' })),
+  );
+  // Brand first; a canvas click brings its controls to Selection.
+  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Brand' }));
+  expect(screen.getByRole('tab', { name: 'Brand' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const identity = load.mock.calls.at(-1)![3]!;
+  const frame = screen.getByTitle<HTMLIFrameElement>('Slide preview: Opening');
+  await act(async () =>
+    window.dispatchEvent(
+      bridgeEvent(frame, identity, {
+        type: 'element-click',
+        detail: {
+          tag: 'img',
+          text: '',
+          elementId: photo,
+          xpath: '/html/body/img[1]',
+          rect: { x: 10, y: 10, w: 200, h: 100 },
+          style: {
+            'object-fit': 'contain',
+            'border-top-left-radius': '12px',
+          },
+        },
+      }),
+    ),
+  );
+  expect(screen.getByRole('tab', { name: 'Selection' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(await screen.findByText('A rye loaf')).toBeInTheDocument();
+  expect(controls).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ element_id: photo }),
+    expect.any(AbortSignal),
+  );
+  const fit = screen.getByRole('radiogroup', { name: 'Fit' });
+  expect(within(fit).getByRole('radio', { name: 'Fit' })).toBeChecked();
+  expect(screen.getByRole('textbox', { name: 'Corners' })).toHaveValue('12');
+  // Clearing the selection shows the page's own settings again.
+  const user = userEvent.setup();
+  await user.click(
+    screen.getByRole('button', { name: 'More for this element' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Clear selection' }),
+  );
+  expect(await screen.findByText('This slide')).toBeInTheDocument();
+  expect(await screen.findByLabelText('Page name')).toHaveValue('Opening');
+});
+
+it('keeps one short toolbar row on a phone-width panel and the inspector as a sheet from half to full height', async () => {
+  const user = userEvent.setup();
+  const observers = resizeFixture();
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        loadEditing={vi.fn(async () => editing())}
+        edit={vi.fn()}
+        createExport={vi.fn()}
+        downloadExport={vi.fn()}
+        sharing={{
+          prepare: vi.fn(),
+          execute: vi.fn(),
+          loadChannels: vi
+            .fn()
+            .mockResolvedValue({ items: [], next_cursor: null }),
+        }}
+      />,
+    ),
+  );
+  const region = screen.getByRole('region', { name: 'Design preview' });
+  region.getBoundingClientRect = () => ({ width: 390 }) as DOMRect;
+  await act(async () => observers[0].notify());
+  const actions = screen.getByRole('toolbar', { name: 'Design actions' });
+  expect(
+    within(actions)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label')),
+  ).toEqual(['Undo', 'Redo', 'Share or export', 'More design actions']);
+  expect(
+    within(actions).getByRole('radiogroup', { name: 'Design mode' }),
+  ).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Share or export' }));
+  expect(
+    screen.getAllByRole('menuitem').map((item) => item.textContent),
+  ).toEqual(['Share…', 'Export…']);
+  await user.click(screen.getByRole('menuitem', { name: 'Export…' }));
+  expect(
+    screen.getByRole('complementary', { name: 'Export design' }),
+  ).toBeInTheDocument();
+  // Versions and the inspector wait in ⋯.
+  await user.click(screen.getByRole('button', { name: 'More design actions' }));
+  expect(
+    screen.getByRole('menuitem', { name: 'Versions' }),
+  ).toBeInTheDocument();
+  await user.click(screen.getByRole('menuitem', { name: 'Inspector' }));
+  const sheet = screen.getByRole('complementary', {
+    name: 'Design inspector',
+  });
+  expect(sheet).toHaveAttribute('data-sheet', 'half');
+  await user.click(
+    within(sheet).getByRole('button', { name: 'Expand to full height' }),
+  );
+  expect(sheet).toHaveAttribute('data-sheet', 'full');
+  await user.click(
+    within(sheet).getByRole('button', { name: 'Shrink to half height' }),
+  );
+  expect(sheet).toHaveAttribute('data-sheet', 'half');
+  // Dragging the handle up past three quarters settles at full height.
+  sheet.parentElement!.getBoundingClientRect = () =>
+    ({ top: 100, bottom: 700, height: 600 }) as DOMRect;
+  const handle = within(sheet).getByRole('button', {
+    name: 'Expand to full height',
+  });
+  fireEvent.pointerDown(handle, { clientY: 400, pointerId: 1 });
+  fireEvent.pointerMove(handle, { clientY: 300, pointerId: 1 });
+  expect(sheet.style.getPropertyValue('--design-sheet')).toBe('400px');
+  fireEvent.pointerUp(handle, { clientY: 180, pointerId: 1 });
+  fireEvent.click(handle);
+  expect(sheet).toHaveAttribute('data-sheet', 'full');
+  expect(sheet.style.getPropertyValue('--design-sheet')).toBe('100%');
 });

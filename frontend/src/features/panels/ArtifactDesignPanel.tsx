@@ -1,22 +1,28 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { Button, ErrorState } from '../../ui/primitives';
 import ArtifactDesignControls, {
   type DesignControlsView,
 } from './ArtifactDesignControls';
 import type { ArtifactDesignSession } from './artifact-design-sessions';
+import type { DesignLook } from './artifact-design-values';
 
 export type ArtifactDesignPanelProps = {
   session: ArtifactDesignSession;
   resourceRevision: string;
   pageId: string;
   selectedElementId?: string;
+  /** How the selected element looks on the canvas now. */
+  look?: DesignLook;
+  /** The selected text's own text field. */
+  textEditor?: ReactNode;
   onSelectElement: (elementId: string) => void;
+  onClearSelection?: () => void;
   onSelectionLost: (elementId: string) => void;
   onReload: () => void;
   visible: boolean;
   onDraftText: (text: string) => void;
-  /** Which inspector section to show; all of them when omitted. */
-  view?: DesignControlsView;
+  /** Which inspector view to show. */
+  view: DesignControlsView;
 };
 
 export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
@@ -81,6 +87,8 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
         resourceRevision={props.resourceRevision}
         pageId={props.pageId}
         selectedElementId={props.selectedElementId}
+        look={props.look}
+        textEditor={props.textEditor}
         visible={visible}
         session={session.form}
         blocked={Boolean(attempt)}
@@ -93,6 +101,7 @@ export default function ArtifactDesignPanel(props: ArtifactDesignPanelProps) {
         draftFix={session.draftFix}
         suggestBrand={session.suggestBrand}
         onSelectElement={props.onSelectElement}
+        onClearSelection={props.onClearSelection}
         onSelectionLost={props.onSelectionLost}
         onReload={props.onReload}
         onDraftText={(text) => {

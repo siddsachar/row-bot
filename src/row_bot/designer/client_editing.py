@@ -19,6 +19,7 @@ from row_bot.designer.state import DESIGNER_MODES, DesignerPage, DesignerProject
 from row_bot.thread_cleanup import resolve_managed_path
 
 _TEXT_TAGS = frozenset("h1 h2 h3 h4 h5 h6 p span a li td th label figcaption blockquote button dt dd strong em b i small code pre caption summary div section".split())
+_EXCLUDED = frozenset({"html", "head", "script", "style", "meta", "link", "base", "title", "iframe", "object", "embed", "template"})
 _SNAPSHOT_ID = re.compile(r"[0-9]{1,20}(?:\.[0-9]{1,12})?")
 _MAX_TEXT = 20000
 # The sizes the panel's size menu offers (parity row 29); anything else by asking.
@@ -124,13 +125,30 @@ def _text_targets(page):
     return soup, targets
 
 
+def element_targets(route_id: str, soup: BeautifulSoup) -> list[tuple[str, Tag]]:
+    """Every element the panel can select on a parsed page, with its panel id."""
+    result = []
+    for ordinal, tag in enumerate(soup.find_all(True)):
+        if ordinal >= 10000:
+            raise ArtifactError("design_page_too_complex")
+        if tag.name in _EXCLUDED or tag.find_parent(["head", "script", "style", "template", "svg", "iframe", "object", "embed"]):
+            continue
+        result.append((element_key(route_id, ordinal, tag.name), tag))
+    return result
+
+
 def authoring_page_html(project: DesignerProject, page_id: str) -> str:
-    """Mark a parsed preview copy; reading never persists element identifiers."""
+    """Mark a parsed preview copy; reading never persists element identifiers.
+
+    Every element carries its panel id, so any of them can be selected; text
+    short enough for the panel is also marked as editable in place."""
     page = _selected(project, page_id)
     soup, targets = _text_targets(page)
-    for target_id, tag, text in targets:
-        if len(text) <= _MAX_TEXT:
-            tag["data-row-bot-element-id"] = target_id
+    editable = {id(tag) for _key, tag, text in targets if len(text) <= _MAX_TEXT}
+    for key, tag in element_targets(page.route_id, soup):
+        tag["data-row-bot-element-id"] = key
+        if id(tag) in editable:
+            tag["data-row-bot-text"] = ""
     return str(soup)
 
 
@@ -252,14 +270,16 @@ def read_editing(project_id: str, *, page_id: str | None = None, page_cursor: st
         raise ArtifactError("resource_state_invalid")
     all_pages = [ArtifactPage(item.route_id, item.title, index) for index, item in enumerate(project.pages)]
     pages, next_page = _paged(all_pages, page_cursor, limit, project.updated_at, f"{project.id}:pages:{page.route_id}")
-    _soup, targets = _text_targets(page)
+    soup, targets = _text_targets(page)
     all_elements = [ArtifactTextElement(key, tag.name, text if len(text) <= _MAX_TEXT else "", len(text) <= _MAX_TEXT)
                     for key, tag, text in targets]
     if element_id is not None and element_cursor is None:
         position = next((index for index, item in enumerate(all_elements) if item.id == element_id), -1)
-        if position < 0:
+        if position >= 0:
+            element_cursor = _encode_cursor(position, project.updated_at, f"{project.id}:elements:{page.route_id}")
+        elif element_id not in {key for key, _tag in element_targets(page.route_id, soup)}:
+            # A selected picture or box has no text to edit; only a gone element is an error.
             raise ArtifactError("element_unavailable")
-        element_cursor = _encode_cursor(position, project.updated_at, f"{project.id}:elements:{page.route_id}")
     elements, next_element = _paged(all_elements, element_cursor, limit, project.updated_at, f"{project.id}:elements:{page.route_id}")
     snapshots, history_count, next_history = _history_page(project, page.route_id, history_cursor, limit)
     result = ArtifactEditingState(project.id, project.updated_at, project.mode, project.name,

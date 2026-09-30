@@ -148,6 +148,15 @@ def test_bridge_requires_bounded_typed_edit_detail():
     assert not validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
 
 
+def test_element_click_may_carry_its_current_look_as_plain_strings():
+    event = {"previewId": "frame-a", "revision": "rev-a", "capability": "token-a", "msgType": "element-click",
+             "detail": {"tag": "h1", "xpath": "/html/body/h1[1]", "elementId": "a" * 64,
+                        "rect": {"x": 1, "y": 2, "w": 3, "h": 4}, "style": {"font-size": "40px"}}}
+    assert validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
+    event["detail"]["style"] = {"font-size": {"execute": True}}
+    assert not validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
+
+
 def test_each_render_input_invalidates_before_html_construction(tmp_path, monkeypatch):
     from row_bot.designer import storage
     from row_bot.designer.history import UndoStack

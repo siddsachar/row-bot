@@ -186,7 +186,7 @@ test('Phase 4 reviewed sharing submits once to an isolated fake channel and pres
     name: 'Design preview',
     exact: true,
   });
-  await preview.getByRole('button', { name: 'Share', exact: true }).click();
+  await designAction(page, preview, 'Share');
   const sharing = page.getByRole('region', {
     name: 'Design sharing',
     exact: true,
@@ -454,16 +454,14 @@ for (const [mode, label] of [
         }),
       ).toBeVisible();
     }
-    await region
-      .getByRole('button', { name: 'Design properties', exact: true })
-      .click();
+    await designAction(page, region, 'Inspector');
     const inspector = region.getByRole('complementary', {
       name: 'Design inspector',
       exact: true,
     });
     await expect(inspector).toBeVisible();
     await expect(
-      inspector.getByRole('tab', { name: 'Properties', exact: true }),
+      inspector.getByRole('tab', { name: 'Selection', exact: true }),
     ).toHaveAttribute('aria-selected', 'true');
     // The name is edited in place in the top bar; Enter saves it.
     const renamed = `Edited ${label} ${conversation}`;
@@ -482,7 +480,7 @@ for (const [mode, label] of [
     await region
       .getByRole('button', { name: 'Close inspector', exact: true })
       .click();
-    await region.getByRole('button', { name: 'Export', exact: true }).click();
+    await designAction(page, region, 'Export');
     const exporting = region.getByRole('region', {
       name: 'Design export',
       exact: true,
@@ -508,11 +506,7 @@ for (const [mode, label] of [
       opaquePreview: true,
     });
     await region
-      .getByRole('button', {
-        name: 'Export',
-        exact: true,
-        pressed: true,
-      })
+      .getByRole('button', { name: 'Close export', exact: true })
       .click();
     await assertWorkspaceIdentity(page);
     // Compact panels may cover the composer; the same node and draft remain owned by the chat.
@@ -526,12 +520,11 @@ for (const [mode, label] of [
     expect(
       (await conversationState(page, conversation)).workspace.controls,
     ).toEqual(before.workspace.controls);
-    // Brand colours live in the inspector's Properties and save on their own.
-    await region
-      .getByRole('button', { name: 'Design properties', exact: true })
-      .click();
+    // Brand colours live in the inspector's Brand tab and save on their own.
+    await designAction(page, region, 'Inspector');
+    await inspector.getByRole('tab', { name: 'Brand', exact: true }).click();
     const designControls = region.getByRole('region', {
-      name: 'Design controls',
+      name: 'Design brand',
       exact: true,
     });
     const primary = designControls.getByRole('textbox', {
@@ -547,7 +540,7 @@ for (const [mode, label] of [
       .getByRole('button', { name: 'Close inspector', exact: true })
       .click();
     // Present starts at once from the current page.
-    await region.getByRole('button', { name: 'Present', exact: true }).click();
+    await designAction(page, region, 'Present');
     const slide = region.locator('iframe[title^="Presentation:"]');
     await expect(slide).toHaveCount(1);
     await expect(slide).toHaveAttribute('sandbox', '');
@@ -605,6 +598,33 @@ for (const [mode, label] of [
   });
 }
 
+/**
+ * A Design toolbar action (B247): its own button on a wide panel; on a
+ * phone-width panel Present, Share and Export sit in "Share or export" and
+ * the inspector and versions in ⋯.
+ */
+async function designAction(
+  page: Page,
+  region: Locator,
+  name: 'Inspector' | 'Present' | 'Share' | 'Export',
+) {
+  const button = region.getByRole('button', { name, exact: true });
+  if (await button.isVisible()) return button.click();
+  const share = name !== 'Inspector';
+  await region
+    .getByRole('button', {
+      name: share ? 'Share or export' : 'More design actions',
+      exact: true,
+    })
+    .click();
+  await page
+    .getByRole('menuitem', {
+      name: name === 'Share' || name === 'Export' ? `${name}…` : name,
+      exact: true,
+    })
+    .click();
+}
+
 /** The canvas has shown the saved design and stopped reloading. */
 async function settledCanvas(region: Locator, frame: Locator) {
   let seen: string | null = null;
@@ -653,42 +673,48 @@ test('Design inline edits in a row keep the selection, and colour, font and logo
   // Several inline edits in a row on the same text, each saved before the next.
   for (const text of ['Bake sale one', 'Bake sale two', 'Bake sale three']) {
     await settledCanvas(region, frame);
-    const target = artwork.locator('[data-row-bot-element-id]').first();
+    // Every element can be selected; text the panel saves is marked editable.
+    const target = artwork.locator('[data-row-bot-text]').first();
     await target.dispatchEvent('dblclick');
     await target.fill(text);
     await target.press('Enter');
     await expect(frame).toHaveAttribute('srcdoc', new RegExp(text));
   }
   await settledCanvas(region, frame);
-  const properties = region.getByRole('button', {
-    name: 'Design properties',
-    exact: true,
-  });
-  if ((await properties.getAttribute('aria-pressed')) !== 'true')
-    await properties.click();
+  // Edit mode opens the inspector (a half-height sheet on a phone).
   const inspector = region.getByRole('complementary', {
     name: 'Design inspector',
     exact: true,
   });
+  if (!(await inspector.isVisible()))
+    await designAction(page, region, 'Inspector');
   // The edited text is still the selection, and nothing reports an error.
   await expect(
     inspector.getByRole('textbox', { name: 'Element text', exact: true }),
   ).toHaveValue('Bake sale three');
   await expect(inspector.getByRole('alert')).toHaveCount(0);
-  const controls = inspector.getByRole('region', {
+  const selection = inspector.getByRole('region', {
     name: 'Design controls',
     exact: true,
   });
-  const colour = controls.getByRole('textbox', {
-    name: 'Element color',
+  // Text gets text controls (B247): a size stepper, weights, colour swatches.
+  await expect(
+    selection.getByRole('radiogroup', { name: 'Weight', exact: true }),
+  ).toBeVisible();
+  await selection
+    .getByLabel('Colour: another colour', { exact: true })
+    .fill('#aa3300');
+  await expect(frame).toHaveAttribute('srcdoc', /#aa3300/i);
+  await expect(selection.getByRole('status')).toHaveText('Saved.');
+  await expect(inspector.getByRole('alert')).toHaveCount(0);
+  await screenshot(page, info, 'design-text-controls');
+  // Brand settings are one tab: the heading font comes from a searchable
+  // list, not a text box.
+  await inspector.getByRole('tab', { name: 'Brand', exact: true }).click();
+  const controls = inspector.getByRole('region', {
+    name: 'Design brand',
     exact: true,
   });
-  await colour.fill('#aa3300');
-  await colour.blur();
-  await expect(controls.getByRole('status')).toHaveText('Saved.');
-  await expect(frame).toHaveAttribute('srcdoc', /#aa3300/i);
-  await expect(inspector.getByRole('alert')).toHaveCount(0);
-  // The heading font comes from a searchable list, not a text box.
   await controls
     .getByRole('button', { name: 'Heading font', exact: true })
     .click();
@@ -704,7 +730,6 @@ test('Design inline edits in a row keep the selection, and colour, font and logo
   ).toHaveAccessibleDescription('Lora');
   await expect(frame).toHaveAttribute('srcdoc', /Lora/);
   // The logo is a picture: upload one, it becomes the logo, then place it.
-  await controls.getByText('Logo', { exact: true }).click();
   const logo = controls.getByRole('radiogroup', { name: 'Logo', exact: true });
   await expect(
     logo.getByRole('radio', { name: 'No logo', exact: true }),

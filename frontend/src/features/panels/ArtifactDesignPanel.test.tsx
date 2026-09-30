@@ -49,7 +49,16 @@ function fixture(mode = 'deck') {
       logo_max_height: 72,
       logo_padding: 24,
     },
-    element: { id: 'heading', tag: 'h1', styles: {}, action: '' },
+    element: {
+      id: 'heading',
+      tag: 'h1',
+      styles: {},
+      action: '',
+      kind: 'text',
+      text: 'Heading',
+      alt: '',
+      asset_id: '',
+    },
     items: [],
     item_count: 0,
     next_cursor: null,
@@ -114,6 +123,7 @@ function fixture(mode = 'deck') {
     session = sessions.get('chat', resource),
     onDraftText = vi.fn();
   const props = {
+    view: 'brand' as const,
     session,
     resourceRevision: 'r1',
     pageId: 'first',
@@ -141,16 +151,25 @@ it.each(['deck', 'document', 'landing', 'app_mockup', 'storyboard'])(
   async (mode) => {
     const f = fixture(mode);
     const first = render(<ArtifactDesignPanel {...f.props} />);
-    await screen.findByRole('region', { name: 'Brand' });
+    await screen.findByRole('region', { name: 'Colours' });
     fireEvent.change(screen.getByLabelText('Primary colour'), {
       target: { value: '#445566' },
     });
     first.unmount();
     render(<ArtifactDesignPanel {...f.props} />);
-    await screen.findByRole('region', { name: 'Brand' });
+    await screen.findByRole('region', { name: 'Colours' });
     expect(screen.getByLabelText('Primary colour')).toHaveValue('#445566');
     expect(f.owner.execute).not.toHaveBeenCalled();
     expect(f.owner.stageUpload).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['deck', 'document', 'landing', 'app_mockup', 'storyboard'])(
+  'offers an interaction for the selection only where %s designs have them',
+  async (mode) => {
+    const f = fixture(mode);
+    render(<ArtifactDesignPanel {...f.props} view="selection" />);
+    await screen.findByText('Heading');
     expect(
       screen.queryByRole('button', { name: 'Apply interaction' }) !== null,
     ).toBe(['landing', 'app_mockup', 'storyboard'].includes(mode));
@@ -166,7 +185,7 @@ it('retains pending original command through remount and accepts its late comple
     }),
   );
   const first = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
+  await screen.findByRole('region', { name: 'Colours' });
   fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
@@ -185,7 +204,7 @@ it('keeps uncertainty visible across remount and only explicitly checks the orig
   const f = fixture();
   vi.mocked(f.owner.execute).mockRejectedValue(new Error('Lost response'));
   const first = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
+  await screen.findByRole('region', { name: 'Colours' });
   fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
@@ -214,7 +233,7 @@ it('does not resurrect a private draft or pending command after auth loss and la
     }),
   );
   render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
+  await screen.findByRole('region', { name: 'Colours' });
   fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
@@ -233,16 +252,18 @@ it('does not resurrect a private draft or pending command after auth loss and la
 it('blocks a stale draft until the user explicitly discards it', async () => {
   const f = fixture();
   const view = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
+  await screen.findByRole('region', { name: 'Colours' });
   fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
   f.state.resource_revision = 'r2';
   view.rerender(<ArtifactDesignPanel {...f.props} resourceRevision="r2" />);
-  await screen.findByText(/unsaved design change belongs/);
+  await screen.findByText(/unsaved change belongs to another page/);
   expect(screen.getByLabelText('Primary colour')).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Discard design draft' }));
-  await screen.findByRole('region', { name: 'Brand' });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Discard unsaved change' }),
+  );
+  await screen.findByRole('region', { name: 'Colours' });
   expect(screen.getByLabelText('Primary colour')).toHaveValue('#112233');
   expect(f.owner.execute).not.toHaveBeenCalled();
 });
@@ -279,35 +300,32 @@ it('drafts into the existing composer only after the explicit button and never e
   expect(f.owner.execute).not.toHaveBeenCalled();
 });
 
-it('keeps each catalog page bounded and makes the first page explicitly reachable', async () => {
+it('shows every item of a library section across its pages', async () => {
   const f = fixture();
   vi.mocked(f.owner.load).mockImplementation(async (_scope, options) => ({
     ...f.state,
     section: options.section,
-    items: Array.from({ length: 50 }, (_, index) => ({
-      id: `${options.cursor ? 'tail' : 'head'}-${index}`,
-      label: `${options.cursor ? 'Later' : 'Earlier'} ${index}`,
-      kind: 'h1',
-      detail: '',
-      available: true,
-    })),
-    item_count: 100,
-    next_cursor: options.cursor ? null : 'next',
+    items:
+      options.section === 'assets'
+        ? Array.from({ length: options.cursor ? 3 : 50 }, (_, index) => ({
+            id: `${options.cursor ? 'tail' : 'head'}-${index}`,
+            label: `${options.cursor ? 'Later' : 'Earlier'} ${index}`,
+            kind: 'video',
+            detail: '',
+            available: true,
+          }))
+        : [],
+    item_count: options.section === 'assets' ? 53 : 0,
+    next_cursor:
+      options.section === 'assets' && !options.cursor ? 'next' : null,
   }));
-  render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByText('Earlier 0');
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Next controls page' })),
-  );
-  expect(screen.queryByText('Earlier 0')).not.toBeInTheDocument();
-  expect(screen.getAllByRole('listitem')).toHaveLength(50);
-  await act(async () =>
-    fireEvent.click(
-      screen.getByRole('button', { name: 'First controls page' }),
-    ),
-  );
-  await screen.findByText('Earlier 0');
-  expect(screen.queryByText('Later 0')).not.toBeInTheDocument();
+  render(<ArtifactDesignPanel {...f.props} view="library" />);
+  fireEvent.click(await screen.findByRole('button', { name: /^Your images/ }));
+  expect(await screen.findByText('Later 2')).toBeInTheDocument();
+  expect(screen.getByText('Earlier 0')).toBeInTheDocument();
+  expect(
+    screen.getByRole('list', { name: 'Library items' }).children,
+  ).toHaveLength(53);
 });
 
 it('replaces review pages without hiding later findings and exposes First findings page', async () => {
@@ -351,21 +369,19 @@ it('replaces review pages without hiding later findings and exposes First findin
 
 it('preserves the selected local asset and name through remount without uploading', async () => {
   const f = fixture();
-  const first = render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
-  fireEvent.click(screen.getByRole('radio', { name: 'Assets' }));
+  const first = render(<ArtifactDesignPanel {...f.props} view="library" />);
+  fireEvent.click(await screen.findByRole('button', { name: /^Your images/ }));
   const file = new File(['123'], 'local.png', { type: 'image/png' });
   await screen.findByLabelText('Choose asset');
   fireEvent.change(screen.getByLabelText('Choose asset'), {
     target: { files: [file] },
   });
   first.unmount();
-  render(<ArtifactDesignPanel {...f.props} />);
+  render(<ArtifactDesignPanel {...f.props} view="library" />);
+  fireEvent.click(await screen.findByRole('button', { name: /^Your images/ }));
   await screen.findByLabelText('Choose asset');
   expect(f.session.form.getSnapshot().file).toBe(file);
-  expect(
-    screen.getByText('Selected local asset: local.png'),
-  ).toBeInTheDocument();
+  expect(screen.getByText('Chosen: local.png')).toBeInTheDocument();
   expect(f.owner.stageUpload).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Add asset' })).toBeEnabled();
 });
@@ -384,12 +400,13 @@ it('does not discard an unrelated unsaved brand draft when an asset upload succe
       operation: 'asset_upload',
     },
   }));
-  render(<ArtifactDesignPanel {...f.props} />);
-  await screen.findByRole('region', { name: 'Brand' });
+  const view = render(<ArtifactDesignPanel {...f.props} />);
+  await screen.findByRole('region', { name: 'Colours' });
   fireEvent.change(screen.getByLabelText('Primary colour'), {
     target: { value: '#445566' },
   });
-  fireEvent.click(screen.getByRole('radio', { name: 'Assets' }));
+  view.rerender(<ArtifactDesignPanel {...f.props} view="library" />);
+  fireEvent.click(await screen.findByRole('button', { name: /^Your images/ }));
   await screen.findByLabelText('Choose asset');
   fireEvent.change(screen.getByLabelText('Choose asset'), {
     target: { files: [new File(['123'], 'asset.png')] },
@@ -397,7 +414,8 @@ it('does not discard an unrelated unsaved brand draft when an asset upload succe
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Add asset' })),
   );
-  expect(screen.getByLabelText('Primary colour')).toHaveValue('#445566');
+  view.rerender(<ArtifactDesignPanel {...f.props} view="brand" />);
+  expect(await screen.findByLabelText('Primary colour')).toHaveValue('#445566');
   expect(f.session.form.getSnapshot().dirtyFields).toEqual(['brand']);
   expect(f.session.form.getSnapshot().dirtySource).not.toBeNull();
 });

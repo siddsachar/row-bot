@@ -17,12 +17,15 @@ from row_bot.application.client_platform import ClientPlatformError
 from row_bot.runtime import admissions
 
 _TYPES = {'artifact.design.control', 'artifact.asset.upload', 'artifact.preset.mutate', 'artifact.document.import', 'artifact.notes.generate'}
-_OPERATIONS = {'brand', 'preset', 'style', 'hotspot', 'review_fix', 'asset_insert', 'asset_remove', 'asset_forget', 'block_insert'}
+_OPERATIONS = {'brand', 'preset', 'style', 'hotspot', 'image', 'review_fix', 'review_fix_all', 'asset_insert', 'asset_remove',
+    'asset_forget', 'block_insert'}
 _ASSET_STAGES = {'asset_prepared': 1, 'asset_written': 2, 'asset_attached': 3}
 _PURE_FAILURES = {'invalid_design_control', 'font_unavailable', 'design_preset_unavailable', 'design_component_unavailable',
     'invalid_document_import', 'document_import_unavailable', 'document_import_too_large', 'artifact_type_unavailable', 'page_unavailable',
     'design_preset_exists', 'design_preset_builtin', 'design_finding_unavailable',
-    'asset_still_referenced', 'asset_already_on_page', 'asset_type_unavailable', 'asset_content_unsafe', 'asset_too_large'}
+    'asset_still_referenced', 'asset_already_on_page', 'asset_type_unavailable', 'asset_content_unsafe', 'asset_too_large',
+    # Checked under the project lock before anything is written (style, hotspot, image).
+    'element_unavailable'}
 
 
 def public_receipt(value: dict) -> dict:

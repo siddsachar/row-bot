@@ -645,3 +645,79 @@ def test_fix_all_on_this_page_leaves_other_pages_alone(project):
     for payload in ({}, {'scope': 'everything'}, {'scope': 'page', 'extra': 1}):
         with pytest.raises(ArtifactError, match='invalid_design_control'):
             apply(fixed, 'review_fix_all', payload, page_id=page)
+
+
+def test_selected_element_says_what_it_is_so_the_panel_offers_matching_controls(project):
+    updated = upload(project)
+    asset = updated.assets[0]
+    updated.pages[0].html = (
+        '<h1>Solstice   Bake Sale</h1>'
+        f'<img src="asset://{asset.id}" alt="A rye loaf">'
+        '<img src="https://example.invalid/remote.png">'
+        '<div class="sun"></div>'
+        '<div style="background-color: #fbeaec"><p>Saturday</p></div>'
+        '<section><p>Market <b>Square</b></p></section>'
+    )
+    storage.save_project(updated)
+    items = client.read_controls(updated.id, limit=50).items
+    by_tag = {}
+    for item in items:
+        by_tag.setdefault(item.kind, []).append(item)
+
+    def element(tag, index=0):
+        return client.read_controls(updated.id, element_id=by_tag[tag][index].id).element
+
+    heading, photo, remote = element('h1'), element('img'), element('img', 1)
+    assert (heading.kind, heading.text, heading.alt, heading.asset_id) == ('text', 'Solstice Bake Sale', '', '')
+    assert (photo.kind, photo.alt, photo.asset_id) == ('image', 'A rye loaf', asset.id)
+    assert (remote.kind, remote.asset_id) == ('image', '')
+    assert [element('div', index).kind for index in (0, 1)] == ['shape', 'shape']
+    assert element('section').kind == 'layout'
+    assert element('p', 1).kind == 'text'
+    # The page's elements carry their kind too, for "On this page".
+    assert {item.kind: item.detail for item in items}['img'] == 'image'
+    assert {item.kind: item.detail for item in items}['section'] == 'layout'
+
+
+def test_style_controls_take_fit_crop_border_and_fit_width(project):
+    state = client.read_controls(project.id)
+    result = apply(project, 'style', {'object-fit': 'cover', 'object-position': 'top', 'border-style': 'dashed',
+                                      'border-width': '2px', 'width': 'fit-content'},
+                   page_id=state.page_id, element_id=state.items[0].id)
+    html = result.pages[0].html
+    for declaration in ('object-fit: cover', 'object-position: top', 'border-style: dashed',
+                        'border-width: 2px', 'width: fit-content'):
+        assert declaration in html
+    for updates in ({'object-fit': 'url(x)'}, {'border-style': 'double'}, {'object-position': '10px 10px'},
+                    {'width': 'min-content'}, {'border-width': 'thick'}, {'padding': 'fit-content'}):
+        with pytest.raises(ArtifactError, match='invalid_design_control'):
+            apply(result, 'style', updates, page_id=state.page_id, element_id=state.items[0].id)
+
+
+def test_image_control_swaps_the_picture_for_a_design_image_and_describes_it(project):
+    updated = upload(project)
+    updated = upload(updated, data=b'RIFF\x00\x00\x00\x00WAVEfmt ', filename='sound.wav')
+    photo, sound = updated.assets
+    updated.pages[0].html = '<h1>Title</h1><img src="data:image/png;base64,AAAA" srcset="a.png 2x" alt="Old">'
+    storage.save_project(updated)
+    items = client.read_controls(updated.id).items
+    image = next(item.id for item in items if item.kind == 'img')
+    heading = next(item.id for item in items if item.kind == 'h1')
+    replaced = apply(updated, 'image', {'asset_id': photo.id, 'alt': 'A rye   loaf'}, page_id='first', element_id=image)
+    html = replaced.pages[0].html
+    assert f'src="asset://{photo.id}"' in html and f'data-asset-id="{photo.id}"' in html
+    assert 'alt="A rye loaf"' in html and 'srcset' not in html
+    assert list((history.HISTORY_DIR / project.id).glob('*.json'))
+    described = apply(replaced, 'image', {'alt': ''}, page_id='first', element_id=image)
+    assert 'alt=""' in described.pages[0].html and f'asset://{photo.id}' in described.pages[0].html
+    for payload, element_id, code in (
+        ({'asset_id': photo.id}, heading, 'invalid_design_control'),
+        ({'asset_id': sound.id}, image, 'asset_unavailable'),
+        ({'asset_id': 'asset-missing'}, image, 'asset_unavailable'),
+        ({}, image, 'invalid_design_control'),
+        ({'src': 'https://example.invalid/x.png'}, image, 'invalid_design_control'),
+        ({'alt': 'bad\x00text'}, image, 'invalid_design_control'),
+    ):
+        with pytest.raises(ArtifactError, match=code):
+            apply(described, 'image', payload, page_id='first', element_id=element_id)
+    assert storage.load_project(project.id).updated_at == described.updated_at

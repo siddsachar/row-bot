@@ -1,19 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ArtifactEditingState,
   ArtifactEditPayload,
   CommandReceipt,
 } from '../../api/types';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
-import {
-  Button,
-  Disclosure,
-  ErrorState,
-  Field,
-  Input,
-  Select,
-  Skeleton,
-} from '../../ui/primitives';
+import { Button, ErrorState, Input, Skeleton } from '../../ui/primitives';
+import { DesignGroup, DesignRow } from './ArtifactDesignStyles';
 
 export type ArtifactEditingOptions = {
   pageId?: string;
@@ -27,11 +20,15 @@ export type ArtifactEditorProps = {
   resourceId: string;
   resourceRevision: string;
   visible: boolean;
-  /** Which inspector section this instance shows. */
-  view?: 'properties' | 'history';
+  /**
+   * Which part this instance shows: the page's name and notes, the selected
+   * text's own text, or the saved versions.
+   */
+  view?: 'page' | 'text' | 'history';
+  /** More page settings shown first under Page (its size). */
+  pageExtras?: ReactNode;
   pageId?: string;
   selectedElementId?: string;
-  onSelectElement?: (elementId: string) => void;
   /** The selected element is no longer in the saved design. */
   onSelectionLost?: (elementId: string) => void;
   onPageChange: (pageId: string) => void;
@@ -60,14 +57,6 @@ type Draft = {
 };
 type ListKind = 'page' | 'element' | 'history';
 
-const MODE_WORDS: Record<string, string> = {
-  deck: 'Slide deck',
-  document: 'Document',
-  landing: 'Web page',
-  app_mockup: 'App mockup',
-  storyboard: 'Storyboard',
-};
-
 const OPERATION_WORDS: Record<string, string> = {
   project_properties: 'renaming',
   page_properties: 'a page edit',
@@ -77,7 +66,9 @@ const OPERATION_WORDS: Record<string, string> = {
   style: 'a style change',
   preset: 'applying a preset',
   hotspot: 'an interaction change',
+  image: 'an image change',
   review_fix: 'a review fix',
+  review_fix_all: 'fixing safe issues',
   asset_insert: 'inserting an asset',
   asset_remove: 'removing an asset',
   block_insert: 'inserting a block',
@@ -173,7 +164,7 @@ function dirty(draft?: Draft) {
 export default function ArtifactEditor(props: ArtifactEditorProps) {
   const { resourceId, resourceRevision, pageId, selectedElementId, visible } =
     props;
-  const view = props.view ?? 'properties';
+  const view = props.view ?? 'page';
   const [state, setState] = useState<ArtifactEditingState | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selection, setSelection] = useState({
@@ -527,7 +518,7 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
     >
       {error && (
         <ErrorState
-          title="Design update unavailable"
+          title="That didn't work"
           action={
             <Button
               disabled={loading || saving}
@@ -540,12 +531,10 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
           {error}
         </ErrorState>
       )}
-      {loading && !current && (
+      {loading && !current && view !== 'text' && (
         <Skeleton
           label={
-            view === 'history'
-              ? 'Loading design history'
-              : 'Loading design properties'
+            view === 'history' ? 'Loading design history' : 'Loading this page'
           }
         />
       )}
@@ -568,54 +557,40 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
           </Button>
         </div>
       )}
-      {current && view === 'properties' && (
+      {current &&
+        view === 'text' &&
+        element &&
+        (element.editable ? (
+          <textarea
+            aria-label="Element text"
+            className="input design-text-field"
+            rows={2}
+            maxLength={20000}
+            value={draft?.texts[element.id] ?? element.text}
+            disabled={saving || stale}
+            onChange={(event) =>
+              change({
+                texts: {
+                  ...draft?.texts,
+                  [element.id]: event.target.value,
+                },
+              })
+            }
+            onBlur={() => commitText(element.id, element.text)}
+          />
+        ) : (
+          <p className="muted design-text-field">
+            This text is too long to change here. Double-click it on the page or
+            ask Row-Bot to change it.
+          </p>
+        ))}
+      {current && view === 'page' && (
         <>
-          {element ? (
-            <section className="inspector-section" aria-label="Selected text">
-              <h4>
-                Selected text{' '}
-                <span className="inspector-tag">{element.tag}</span>
-              </h4>
-              {element.editable ? (
-                <Field
-                  label="Element text"
-                  hint="Plain text. Saves when you leave the field."
-                >
-                  <textarea
-                    aria-label="Element text"
-                    className="input"
-                    rows={3}
-                    maxLength={20000}
-                    value={draft?.texts[element.id] ?? element.text}
-                    disabled={saving || stale}
-                    onChange={(event) =>
-                      change({
-                        texts: {
-                          ...draft?.texts,
-                          [element.id]: event.target.value,
-                        },
-                      })
-                    }
-                    onBlur={() => commitText(element.id, element.text)}
-                  />
-                </Field>
-              ) : (
-                <p className="muted">
-                  This text is too long to edit here. Double-click it on the
-                  canvas or ask Row-Bot to change it.
-                </p>
-              )}
-            </section>
-          ) : (
-            <p className="inspector-meta inspector-hint">
-              In Edit mode, click an element on the canvas to change it or ask
-              Row-Bot about it. Text is also listed below.
-            </p>
-          )}
-          <section className="inspector-section" aria-label={pageWord}>
-            <h4>{pageWord}</h4>
-            <Field label="Page title">
+          <DesignGroup title={pageWord}>
+            {props.pageExtras}
+            <DesignRow label="Name">
               <Input
+                aria-label="Page name"
                 maxLength={200}
                 value={draft?.title ?? current.page_title}
                 disabled={saving || stale}
@@ -626,82 +601,43 @@ export default function ArtifactEditor(props: ArtifactEditorProps) {
                   if (event.key === 'Escape') discard(['title']);
                 }}
               />
-            </Field>
-            <Field label="Page notes" hint="Speaker notes and comments.">
-              <textarea
-                aria-label="Page notes"
-                className="input"
-                rows={3}
-                maxLength={20000}
-                value={draft?.notes ?? current.page_notes}
-                disabled={saving || stale}
-                onChange={(event) => change({ notes: event.target.value })}
-                onBlur={() => commitPage('notes')}
-              />
-            </Field>
+            </DesignRow>
+          </DesignGroup>
+          <DesignGroup
+            title="Notes"
+            action={
+              props.generateNotes &&
+              ['deck', 'storyboard'].includes(current.mode) && (
+                <Button
+                  variant="ghost"
+                  className="design-group-link"
+                  disabled={blocked || dirty(draft)}
+                  onClick={() => void generateNotes()}
+                >
+                  Write with Row-Bot
+                </Button>
+              )
+            }
+          >
+            <textarea
+              aria-label="Page notes"
+              className="input"
+              rows={3}
+              maxLength={20000}
+              placeholder="Speaker notes and comments"
+              value={draft?.notes ?? current.page_notes}
+              disabled={saving || stale}
+              onChange={(event) => change({ notes: event.target.value })}
+              onBlur={() => commitPage('notes')}
+            />
             {props.generateNotes &&
               ['deck', 'storyboard'].includes(current.mode) && (
-                <div className="inspector-action">
-                  <Button
-                    disabled={blocked || dirty(draft)}
-                    onClick={() => void generateNotes()}
-                  >
-                    Generate speaker notes
-                  </Button>
-                  <small className="muted">
-                    Uses the current model and may incur provider charges.
-                  </small>
-                </div>
+                <small className="muted">
+                  Write with Row-Bot uses the current model and may incur
+                  provider charges.
+                </small>
               )}
-          </section>
-          <Disclosure
-            summary="Text on this page"
-            meta={String(current.element_count)}
-            className="inspector-disclosure"
-          >
-            <Field label="Text element">
-              <Select
-                value={elementId}
-                disabled={saving}
-                onChange={(event) => {
-                  setSelection({
-                    resourceId,
-                    pageId: current.page_id,
-                    elementId: event.target.value,
-                  });
-                  props.onSelectElement?.(event.target.value);
-                }}
-              >
-                <option value="">
-                  {current.elements.length
-                    ? 'Choose text to edit'
-                    : 'No editable text on this page'}
-                </option>
-                {current.elements.map((item, index) => (
-                  <option key={item.id} value={item.id}>
-                    {item.tag} ·{' '}
-                    {item.editable
-                      ? item.text.slice(0, 60)
-                      : `Text ${index + 1} is too long to edit here`}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {current.element_next_cursor && (
-              <Button
-                variant="ghost"
-                disabled={loading || saving}
-                onClick={() => void more('element')}
-              >
-                Load more text
-              </Button>
-            )}
-          </Disclosure>
-          <p className="inspector-meta">
-            {MODE_WORDS[current.mode] ?? humanizeToken(current.mode)} ·{' '}
-            {current.canvas_width} × {current.canvas_height} ·{' '}
-            {current.page_count} {current.page_count === 1 ? 'page' : 'pages'}
-          </p>
+          </DesignGroup>
         </>
       )}
       {current && view === 'history' && (

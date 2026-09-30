@@ -17,21 +17,30 @@ from pathlib import Path
 from uuid import UUID
 
 from row_bot.designer import brand, fonts, history, hotspot_recorder, review, storage
-from row_bot.designer.client_editing import _paged, _selected, _text_targets, element_key
+from row_bot.designer.client_editing import _paged, _selected, _text_targets, element_targets
 from row_bot.designer.client_service import ArtifactError, _identifier, read_artifact
 from row_bot.designer.state import BrandConfig, DesignerAsset, DesignerProject
 
 _COLORS = {'primary_color', 'secondary_color', 'accent_color', 'bg_color', 'text_color'}
 _LOGO_OPTIONS = {'logo_mode': {'auto', 'manual'}, 'logo_scope': {'all', 'first'},
                  'logo_position': {'top_left', 'top_right', 'bottom_left', 'bottom_right'}}
-_EXCLUDED = {'html', 'head', 'script', 'style', 'meta', 'link', 'base', 'title', 'iframe', 'object', 'embed', 'template'}
 _STYLE_CHOICES = {'text-align': {'left', 'center', 'right', 'justify', 'start', 'end'},
                   'display': {'block', 'inline', 'inline-block', 'flex', 'grid', 'none'},
-                  'flex-direction': {'row', 'column', 'row-reverse', 'column-reverse'}}
+                  'flex-direction': {'row', 'column', 'row-reverse', 'column-reverse'},
+                  'object-fit': {'cover', 'contain', 'fill'},
+                  'object-position': {'center', 'top', 'bottom', 'left', 'right'},
+                  'border-style': {'none', 'solid', 'dashed', 'dotted'}}
 _LENGTHS = {'font-size', 'width', 'height', 'max-width', 'max-height', 'min-width', 'min-height',
-            'padding', 'margin', 'border-radius', 'gap', 'letter-spacing'}
+            'padding', 'margin', 'border-radius', 'border-width', 'gap', 'letter-spacing'}
 _STYLE_KEYS = _LENGTHS | set(_STYLE_CHOICES) | {'color', 'background-color', 'border-color',
                                             'font-family', 'font-weight', 'line-height', 'opacity'}
+# What the panel offers controls for: text, a picture, a shape or a layout box.
+_TEXT_TAGS = frozenset('h1 h2 h3 h4 h5 h6 p span a li td th label figcaption blockquote button dt dd strong em b i '
+                       'small code pre caption summary'.split())
+_IMAGE_TAGS = frozenset({'img', 'picture', 'video'})
+_SHAPE_TAGS = frozenset({'svg', 'canvas', 'hr'})
+_BOX_STYLES = frozenset({'background', 'background-color', 'border', 'border-color', 'border-style', 'border-width'})
+_ASSET_SOURCE = re.compile(r'asset:(?://)?([A-Za-z0-9._-]{1,128})')
 
 
 @dataclass(frozen=True)
@@ -57,6 +66,10 @@ class DesignElement:
     tag: str
     styles: dict[str, str]
     action: str
+    kind: str
+    text: str
+    alt: str
+    asset_id: str
 
 
 @dataclass(frozen=True)
@@ -221,14 +234,7 @@ def _brand_view(value: BrandConfig | None) -> DesignBrand:
 
 def _targets(page):
     soup, _text = _text_targets(page)
-    result = []
-    for ordinal, tag in enumerate(soup.find_all(True)):
-        if ordinal >= 10000:
-            raise ArtifactError('design_page_too_complex')
-        if tag.name in _EXCLUDED or tag.find_parent(['head', 'script', 'style', 'template', 'svg', 'iframe', 'object', 'embed']):
-            continue
-        result.append((element_key(page.route_id, ordinal, tag.name), tag))
-    return soup, result
+    return soup, element_targets(page.route_id, soup)
 
 
 def authoring_page_html(project: DesignerProject, page_id: str) -> str:
@@ -247,13 +253,39 @@ def _element(page, element_id):
     return soup, found
 
 
-def _element_view(page, element_id):
+def _excerpt(value: str, maximum: int) -> str:
+    """Saved text as the panel shows it: one plain line, bounded, never an error."""
+    return ''.join(char for char in ' '.join(value.split()) if ord(char) >= 32)[:maximum]
+
+
+def _element_kind(tag, inline: dict) -> str:
+    if tag.name in _IMAGE_TAGS:
+        return 'image'
+    if tag.name in _SHAPE_TAGS:
+        return 'shape'
+    if tag.find(True) is None:
+        return 'text' if tag.get_text(strip=True) else 'shape'
+    if tag.name in _TEXT_TAGS:
+        return 'text'  # a paragraph with a bold word in it is still text
+    # A filled or outlined box around its content reads as a shape (a badge).
+    return 'shape' if _BOX_STYLES & set(inline) else 'layout'
+
+
+def _image_asset(project, tag) -> str:
+    """The design image an <img> shows, when it is one of the design's own."""
+    found = _ASSET_SOURCE.fullmatch(str(tag.get('src') or ''))
+    candidate = found[1] if found else str(tag.get('data-asset-id') or '')
+    return candidate if candidate and any(asset.id == candidate for asset in project.assets) else ''
+
+
+def _element_view(project, page, element_id):
     if element_id is None:
         return None
     from row_bot.designer.critique import _parse_style
     _soup, tag = _element(page, element_id)
+    inline = _parse_style(tag.get('style', ''))
     styles = {}
-    for key, value in _parse_style(tag.get('style', '')).items():
+    for key, value in inline.items():
         if key not in _STYLE_KEYS:
             continue
         try:
@@ -261,7 +293,11 @@ def _element_view(page, element_id):
         except ArtifactError:
             continue  # Never project raw URLs, paths or executable CSS to controls.
         styles[key] = value
-    return DesignElement(element_id, tag.name, styles, _plain(tag.get('data-row-bot-action', ''), 256))
+    image = tag.name == 'img'
+    return DesignElement(element_id, tag.name, styles, _plain(tag.get('data-row-bot-action', ''), 256),
+                         _element_kind(tag, inline), _excerpt(tag.get_text(' '), 120),
+                         _excerpt(str(tag.get('alt') or ''), 512) if image else '',
+                         _image_asset(project, tag) if image else '')
 
 
 def read_controls(project_id: str, *, page_id: str | None = None, element_id: str | None = None,
@@ -289,9 +325,12 @@ def read_controls(project_id: str, *, page_id: str | None = None, element_id: st
                                    item.description, project.mode in {'deck', 'landing'})
                  for item in list_components()]
     elif section == 'elements':
+        from row_bot.designer.critique import _parse_style
         _soup, targets = _targets(page)
-        items = [DesignControlItem(key, _plain(tag.get_text(' ', strip=True)[:120] or tag.name),
-                                   tag.name, '', True) for key, tag in targets]
+        # The detail says what each element is (text, image, shape, layout).
+        items = [DesignControlItem(key, _plain(tag.get_text(' ', strip=True)[:120] or tag.name), tag.name,
+                                   _element_kind(tag, _parse_style(tag.get('style', ''))), True)
+                 for key, tag in targets]
     else:
         raise ArtifactError('invalid_design_control')
     # Catalog revisions belong in the cursor too: a global preset/font change
@@ -299,7 +338,7 @@ def read_controls(project_id: str, *, page_id: str | None = None, element_id: st
     section_key = f'{project.id}:{page.route_id}:{section}:{_hash([asdict(item) for item in items])}'
     selected, next_cursor = _paged(items, cursor, limit, project.updated_at, section_key)
     return DesignControlsState(project.id, project.updated_at, project.mode, page.route_id,
-                               _brand_view(project.brand), _element_view(page, element_id),
+                               _brand_view(project.brand), _element_view(project, page, element_id),
                                section, selected, len(items), next_cursor)
 
 
@@ -408,6 +447,8 @@ def _style_updates(payload):
             valid = value in {'normal', 'bold', *map(str, range(100, 1000, 100))}
         elif key in {'opacity', 'line-height'}:
             valid = bool(re.fullmatch(r'[0-9]+(?:\.[0-9]{1,3})?', value)) and 0 <= float(value) <= (1 if key == 'opacity' else 5)
+        elif key in {'width', 'height'} and value in {'auto', 'fit-content'}:
+            valid = True
         else:
             parts = value.split()
             valid = 1 <= len(parts) <= (4 if key in {'padding', 'margin', 'border-radius'} else 1)
@@ -474,6 +515,27 @@ def apply_control(project_id: str, *, expected_revision: str, operation: str,
                     selector=f'[data-row-bot-element-id="{element_id}"]', **payload)
                 if not ok:
                     raise ArtifactError('invalid_design_control')
+            page.thumbnail_b64 = None
+        elif operation == 'image':
+            # A picture shows one of the design's own images and says what it shows.
+            if not isinstance(payload, dict) or not payload or set(payload) - {'asset_id', 'alt'}:
+                raise ArtifactError('invalid_design_control')
+            page = _selected(updated, page_id)
+            soup, tag = _element(page, element_id)
+            if tag.name != 'img':
+                raise ArtifactError('invalid_design_control')
+            if 'asset_id' in payload:
+                asset_id = _plain(payload['asset_id'], 128, empty=False)
+                asset = next((item for item in updated.assets if item.id == asset_id and item.kind == 'image'), None)
+                if asset is None:
+                    raise ArtifactError('asset_unavailable')
+                _asset_bytes(updated, asset)
+                tag['src'], tag['data-asset-id'] = f'asset://{asset_id}', asset_id
+                for stale in ('srcset', 'sizes'):
+                    del tag[stale]
+            if 'alt' in payload:
+                tag['alt'] = ' '.join(_plain(payload['alt'], 512).split())
+            page.html = str(soup)
             page.thumbnail_b64 = None
         elif operation == 'review_fix':
             if not isinstance(payload, dict) or set(payload) != {'finding_id'}:

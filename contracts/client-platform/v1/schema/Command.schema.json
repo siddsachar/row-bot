@@ -449,6 +449,7 @@
             "preset",
             "style",
             "hotspot",
+            "image",
             "review_fix",
             "review_fix_all",
             "asset_insert",

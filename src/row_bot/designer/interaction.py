@@ -61,7 +61,8 @@ BRIDGE_JS = r"""
 
     function isEditable(el) {
         if (!el || el.nodeType !== 1) return false;
-        if (plainTextEdits && (el.children.length !== 0 ||
+        // The panel marks the text it can save; every other element only selects.
+        if (plainTextEdits && (el.children.length !== 0 || !el.hasAttribute('data-row-bot-text') ||
             !/^[a-f0-9]{64}$/.test(el.getAttribute('data-row-bot-element-id') || ''))) return false;
         var tag = el.tagName.toLowerCase();
         // Never treat structural roots or media as text-editable.
@@ -84,6 +85,20 @@ BRIDGE_JS = r"""
         return false;
     }
 
+    // How the element looks now, for the panel's controls to start from.
+    var LOOK = ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color',
+                'text-align', 'background-color', 'border-top-left-radius', 'border-top-style',
+                'border-top-width', 'border-top-color', 'opacity', 'width', 'height', 'padding-top',
+                'margin-top', 'row-gap', 'object-fit', 'object-position'];
+
+    function getLook(el) {
+        var computed = window.getComputedStyle(el), look = {};
+        LOOK.forEach(function(key) {
+            look[key] = String(computed.getPropertyValue(key) || '').substring(0, 128);
+        });
+        return look;
+    }
+
     function getElementInfo(el) {
         var rect = el.getBoundingClientRect();
         var assetRoot = el.closest('[data-row-bot-id]');
@@ -97,7 +112,8 @@ BRIDGE_JS = r"""
             assetKind: assetRoot ? assetRoot.getAttribute('data-row-bot-kind') || '' : '',
             elementId: elementRoot ? elementRoot.getAttribute('data-row-bot-element-id') || '' : '',
             xpath: getXPath(el),
-            rect: {x: rect.x, y: rect.y, w: rect.width, h: rect.height}
+            rect: {x: rect.x, y: rect.y, w: rect.width, h: rect.height},
+            style: getLook(el)
         };
     }
 
@@ -321,11 +337,14 @@ def validate_bridge_event(data: object, *, preview_id: str, revision: str,
                 and detail["xpath"].startswith("/html")
                 and isinstance(detail.get("elementInfo", {}), dict))
     if kind in {"element-click", "edit-start"}:
-        return (set(detail) <= {"tag", "text", "className", "id", "assetId", "assetKind", "elementId", "xpath", "rect"}
+        look = detail.get("style", {})
+        return (set(detail) <= {"tag", "text", "className", "id", "assetId", "assetKind", "elementId", "xpath", "rect",
+                                "style"}
                 and all(isinstance(detail.get(k), str) for k in ("tag", "xpath"))
                 and detail["xpath"].startswith("/html")
-                and all(isinstance(v, str) for k, v in detail.items() if k != "rect")
-                and isinstance(detail.get("rect", {}), dict))
+                and all(isinstance(v, str) for k, v in detail.items() if k not in {"rect", "style"})
+                and isinstance(detail.get("rect", {}), dict)
+                and isinstance(look, dict) and all(isinstance(v, str) for v in look.values()))
     return False
 
 

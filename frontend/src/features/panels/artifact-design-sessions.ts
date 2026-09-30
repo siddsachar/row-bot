@@ -4,7 +4,6 @@ import type {
   DesignControlsProps,
   DesignControlsState,
   DesignReviewState,
-  DesignSection,
 } from './ArtifactDesignControls';
 
 export type DesignScope = {
@@ -19,7 +18,6 @@ export type DesignPresetIntent = {
   preset_id?: string;
 };
 export type DesignFormState = {
-  section: DesignSection;
   state: DesignControlsState | null;
   brand: DesignBrand | null;
   styles: Record<string, string>;
@@ -37,11 +35,9 @@ export type DesignFormState = {
   reload: number;
   dirtySource: string | null;
   dirtyFields: string[];
-  controlPage: boolean;
   reviewPage: boolean;
 };
 const blank = (): DesignFormState => ({
-  section: 'elements',
   state: null,
   brand: null,
   styles: {},
@@ -59,7 +55,6 @@ const blank = (): DesignFormState => ({
   reload: 0,
   dirtySource: null,
   dirtyFields: [],
-  controlPage: false,
   reviewPage: false,
 });
 
@@ -386,8 +381,19 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
         guard(false);
         const outcome = accept(receipt, attempt);
         if (outcome) return outcome;
-      } catch {
+      } catch (reason) {
         guard(false);
+        // The host refuses a change to an element that is gone before it
+        // writes anything: there is nothing to recover or check.
+        if (
+          typeof reason === 'object' &&
+          reason !== null &&
+          'code' in reason &&
+          reason.code === 'element_unavailable'
+        ) {
+          update({ attempt: null });
+          throw new Error('element_unavailable', { cause: reason });
+        }
         update({
           attempt: {
             ...attempt,
