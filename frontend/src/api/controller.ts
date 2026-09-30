@@ -5352,9 +5352,14 @@ export class ClientController {
       signal,
     );
   }
-  upload(conversation: string, file: File, signal?: AbortSignal) {
+  upload(
+    conversation: string,
+    file: File,
+    signal?: AbortSignal,
+    progress?: (sent: number) => void,
+  ) {
     return this.authenticatedResult(
-      (current) => this.transport.upload(conversation, file, current),
+      (current) => this.transport.upload(conversation, file, current, progress),
       signal,
     );
   }
@@ -5362,6 +5367,12 @@ export class ClientController {
     return this.authenticatedResult(
       (current) => this.transport.attachmentMetadata(reference, current),
       signal,
+    );
+  }
+  /** The composer's tile picture of an image attachment (B232). */
+  attachmentThumbnail(reference: string, signal?: AbortSignal) {
+    return this.query(() =>
+      this.transport.attachmentThumbnail?.(reference, signal),
     );
   }
   terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {

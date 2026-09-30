@@ -86,6 +86,7 @@ const mock = vi.hoisted(() => ({
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
   upload: vi.fn(),
+  attachmentThumbnail: vi.fn(() => new Promise<Blob>(() => undefined)),
   composer: vi.fn(),
   refreshWorkspace: vi.fn(),
   notify: vi.fn(),
@@ -119,6 +120,7 @@ vi.mock('../../runtime', () => {
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
       upload: mock.upload,
+      attachmentThumbnail: mock.attachmentThumbnail,
       composer: mock.composer,
       refreshWorkspace: mock.refreshWorkspace,
       goals: mock.goals,
@@ -2554,6 +2556,84 @@ it('attaches several dropped files and names the one over the limit (U18)', asyn
   expect(
     screen.getByText(/“film.mov” is 40 MB; files can be up to 25 MB./),
   ).toBeVisible();
+});
+
+it('shows each dropped file uploading on its own tile, a failure there, and Retry (B232)', async () => {
+  idleConversation();
+  let report!: (sent: number) => void;
+  let finish!: (value: ReturnType<typeof uploaded>) => void;
+  const notes = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+  const draft = new File(['draft'], 'draft.txt', { type: 'text/plain' });
+  mock.upload
+    .mockImplementationOnce(
+      (_id: string, _file: File, _signal: AbortSignal, progress) => {
+        report = progress;
+        return new Promise((resolve) => (finish = resolve));
+      },
+    )
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockImplementationOnce(async (_id: string, file: File) => uploaded(file));
+  const { container } = conversation();
+  await act(async () => {
+    fireEvent.drop(container.querySelector('.composer-field')!, {
+      dataTransfer: { types: ['Files'], files: [notes, draft] },
+    });
+  });
+  const list = screen.getByRole('list', { name: 'Attachments' });
+  act(() => report(3));
+  expect(
+    within(list).getByRole('progressbar', { name: 'Uploading notes.txt' }),
+  ).toHaveAttribute('aria-valuenow', '60');
+  await act(async () => finish(uploaded(notes)));
+  expect(await within(list).findByRole('alert')).toHaveTextContent(
+    /^Couldn’t upload draft\.txt\./,
+  );
+  expect(
+    within(list).getByRole('button', { name: 'Preview notes.txt' }),
+  ).toBeVisible();
+  expect(mock.drafts.get('conversation-a')?.attachments).toMatchObject([
+    { name: 'notes.txt' },
+  ]);
+  const retry = within(list).getByRole('button', { name: 'Retry draft.txt' });
+  await waitFor(() => expect(retry).toBeEnabled());
+  await act(async () => {
+    fireEvent.click(retry);
+  });
+  await waitFor(() =>
+    expect(mock.drafts.get('conversation-a')?.attachments).toMatchObject([
+      { name: 'notes.txt' },
+      { name: 'draft.txt' },
+    ]),
+  );
+  expect(within(list).queryByRole('alert')).toBeNull();
+});
+
+it('cancels an upload when its tile is removed (B232)', async () => {
+  idleConversation();
+  let signal!: AbortSignal;
+  mock.upload.mockImplementationOnce(
+    (_id: string, _file: File, current: AbortSignal) => {
+      signal = current;
+      return new Promise((_resolve, reject) =>
+        current.addEventListener('abort', () =>
+          reject(new DOMException('Cancelled', 'AbortError')),
+        ),
+      );
+    },
+  );
+  const { container } = conversation();
+  const notes = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+  await act(async () => {
+    fireEvent.drop(container.querySelector('.composer-field')!, {
+      dataTransfer: { types: ['Files'], files: [notes] },
+    });
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Remove notes.txt' }));
+  });
+  expect(signal.aborted).toBe(true);
+  expect(screen.queryByRole('list', { name: 'Attachments' })).toBeNull();
+  expect(mock.drafts.get('conversation-a')?.attachments ?? []).toEqual([]);
 });
 
 function slashCommands() {

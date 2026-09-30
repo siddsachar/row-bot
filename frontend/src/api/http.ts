@@ -2799,6 +2799,7 @@ export class HttpTransport implements ClientTransport {
     conversation: string,
     file: File,
     signal?: AbortSignal,
+    progress?: (sent: number) => void,
   ): Promise<wire.AttachmentView> {
     if (file.size < 1 || file.size > 26214400)
       throw { code: 'payload_too_large' };
@@ -2832,6 +2833,7 @@ export class HttpTransport implements ClientTransport {
           file.slice(offset, offset + 1048576),
           signal,
         );
+        progress?.(Math.min(file.size, offset + 1048576));
       }
       return await wire.completeUpload(
         this.base,
@@ -2851,6 +2853,14 @@ export class HttpTransport implements ClientTransport {
   }
   download(reference: string, signal?: AbortSignal) {
     return wire.readAttachment(this.base, this.session(), reference, signal);
+  }
+  attachmentThumbnail(reference: string, signal?: AbortSignal) {
+    return wire.readAttachmentThumbnail(
+      this.base,
+      this.session(),
+      reference,
+      signal,
+    );
   }
   attachmentMetadata(reference: string, signal?: AbortSignal) {
     return wire.getAttachmentMetadata(

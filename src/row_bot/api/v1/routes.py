@@ -10081,6 +10081,24 @@ def create_router(
             await call(inspect_attachment, reference),
         )
 
+    @router.get("/attachments/{reference}/thumbnail")
+    async def attachment_thumbnail(reference: str, request: Request) -> Response:
+        """A small picture of an image attachment, for the composer's tiles (B232)."""
+        current = await session(request, lane="view")
+        from row_bot.application.attachments import read_attachment_thumbnail
+
+        data = await call(read_attachment_thumbnail, reference)
+        security.session(await _context(request), current.id, current.csrf)
+        return Response(
+            data,
+            media_type="image/png",
+            headers={
+                **HEADERS,
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:
         current = await session(request)

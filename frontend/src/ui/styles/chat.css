@@ -2229,55 +2229,172 @@
   gap: 6px;
   min-width: 0;
 }
+/* Attachments as tiles on their own row above the text (B232): a picture's
+   thumbnail, else a type icon with the name and size. × sits on the corner
+   (its target overhangs the tile, so the row keeps room for it) and shows on
+   hover and focus, always on touch. */
 .composer-attachments {
-  display: contents;
+  --tile-remove-overhang: 6px;
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  order: -1;
+  gap: calc(var(--tile-remove-overhang) + 4px);
+  min-width: 0;
   margin: 0;
-  padding: 0;
+  padding: var(--tile-remove-overhang) var(--tile-remove-overhang) 0 0;
   list-style: none;
 }
-.attachment-chip {
-  display: inline-flex;
+.attachment-tile {
+  position: relative;
+  display: flex;
+  flex: none;
+}
+.attachment-tile-face {
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  max-width: 240px;
-  height: 28px;
-  padding: 0 3px 0 9px;
-  border-radius: 8px;
+  gap: 10px;
+  max-width: 220px;
+  height: 56px;
+  padding: 0 14px 0 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
   background: var(--surface-raised);
   color: var(--text-secondary);
+  font: inherit;
   font-size: var(--text-12);
+  text-align: start;
 }
-.attachment-chip > svg {
+button.attachment-tile-face {
+  cursor: pointer;
+}
+button.attachment-tile-face:hover {
+  background: var(--surface-hover);
+}
+.attachment-tile[data-kind='picture'] .attachment-tile-face {
+  width: 56px;
+  padding: 0;
+}
+.attachment-tile-picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--surface-hover);
+}
+.attachment-tile[data-state='uploading'] .attachment-tile-picture {
+  opacity: 0.6;
+}
+.attachment-tile-icon {
+  display: grid;
+  place-items: center;
   flex: none;
-  width: 13px;
-  height: 13px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--text-muted);
 }
-.attachment-chip > span {
+.attachment-tile-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.attachment-tile-text {
+  display: grid;
+  gap: 2px;
   min-width: 0;
+}
+.attachment-tile-name,
+.attachment-tile-text small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.attachment-chip-remove {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.attachment-chip-remove:hover {
-  background: var(--surface-hover);
+.attachment-tile-name {
   color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: 500;
 }
-.attachment-chip-remove svg {
+.attachment-tile-text small {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.attachment-tile[data-state='failed'] .attachment-tile-face {
+  padding-inline-end: 44px;
+  background: var(--status-danger-background);
+}
+.attachment-tile[data-state='failed'] .attachment-tile-icon,
+.attachment-tile[data-state='failed'] .attachment-tile-text small {
+  color: var(--status-danger-text);
+}
+.attachment-tile-retry.button.icon-action {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+}
+.attachment-tile-progress {
+  position: absolute;
+  inset: auto 8px 6px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-muted) 30%, transparent);
+}
+.attachment-tile-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-solid);
+  transition: inline-size var(--motion-popover) var(--ease-out);
+}
+.attachment-tile-remove.button.icon-action {
+  position: absolute;
+  top: calc(-1 * var(--tile-remove-overhang));
+  right: calc(-1 * var(--tile-remove-overhang));
+  z-index: 1;
+  background: transparent;
+  opacity: 0;
+  transition: opacity var(--motion-popover) var(--ease-out);
+}
+.attachment-tile-remove.button.icon-action:hover:not(:disabled) {
+  background: transparent;
+}
+.attachment-tile-remove::before {
+  content: '';
+  position: absolute;
+  inset: calc((var(--icon-action-size) - 20px) / 2);
+  border-radius: 50%;
+  background: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.attachment-tile-remove svg {
+  position: relative;
   width: 12px;
   height: 12px;
+  color: var(--surface);
+}
+.attachment-tile:hover .attachment-tile-remove.button,
+.attachment-tile:focus-within .attachment-tile-remove.button,
+.attachment-tile[data-state='failed'] .attachment-tile-remove.button {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .composer-attachments {
+    --tile-remove-overhang: 14px;
+  }
+}
+@media (hover: none), (pointer: coarse) {
+  .attachment-tile-remove.button.icon-action {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .attachment-tile-progress > span,
+  .attachment-tile-remove.button.icon-action {
+    transition: none;
+  }
 }
 .write-targets {
   display: contents;

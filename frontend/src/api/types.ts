@@ -1548,11 +1548,15 @@ export interface ClientTransport {
     conversation: string,
     file: File,
     signal?: AbortSignal,
+    /** Called with the bytes sent so far after each chunk. */
+    progress?: (sent: number) => void,
   ): Promise<Wire.AttachmentView>;
   attachmentMetadata(
     reference: string,
     signal?: AbortSignal,
   ): Promise<Wire.AttachmentView>;
+  /** A PNG of at most 160 px of an image attachment (B232). */
+  attachmentThumbnail?(reference: string, signal?: AbortSignal): Promise<Blob>;
   terminalRead(
     terminal: string,
     cursor: number,

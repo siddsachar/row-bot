@@ -95,6 +95,11 @@ import {
 import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
 import {
+  ComposerAttachments,
+  useAttachmentUploads,
+  type AttachmentUpload,
+} from './ComposerAttachments';
+import {
   attachmentLimitProblem,
   pastedFileName,
   ATTACHMENT_LIMITS,
@@ -1770,6 +1775,10 @@ export default function Conversation({
       },
     });
   }
+  const uploads = useAttachmentUploads();
+  const pendingUploads = uploads.uploads.filter(
+    (item) => item.conversation === id,
+  );
   async function attach() {
     if (!id) return;
     const target = id,
@@ -1819,26 +1828,25 @@ export default function Conversation({
   async function attachFiles(files: File[]) {
     if (!id || !files.length) return;
     const target = id;
-    const current = controller.getDraft(target);
-    const { accepted, problem } = attachmentLimitProblem(
-      files,
-      current.attachments,
-    );
+    const { accepted, problem } = attachmentLimitProblem(files, [
+      ...controller.getDraft(target).attachments,
+      ...pendingUploads.map((item) => ({ size_bytes: item.file.size })),
+    ]);
     if (problem) setError(problem);
     if (!accepted.length) return;
     setBusy(true);
     try {
-      for (const file of accepted) {
-        const uploaded = await controller.upload(target, file);
-        const previous = controller.getDraft(target);
-        controller.setDraft(target, {
-          ...previous,
-          attachments: [...previous.attachments, uploaded],
-        });
-      }
+      // Each file's progress and any failure show on its tile (B232).
+      await uploads.add(target, accepted);
       if (!problem) setError('');
-    } catch (cause) {
-      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function retryUpload(item: AttachmentUpload) {
+    setBusy(true);
+    try {
+      await uploads.retry(item);
     } finally {
       setBusy(false);
     }
@@ -3269,6 +3277,7 @@ export default function Conversation({
               )}
               {(!!resources.length ||
                 !!draft.attachments.length ||
+                !!pendingUploads.length ||
                 (singleLine && needsModel) ||
                 Boolean(
                   composerSnapshot &&
@@ -3284,35 +3293,21 @@ export default function Conversation({
                       onChange={chooseTarget}
                     />
                   )}
-                  {!!draft.attachments.length && (
-                    <ul
-                      className="composer-attachments"
-                      aria-label="Attachments"
-                    >
-                      {draft.attachments.map((a) => (
-                        <li key={a.attachment_ref} className="attachment-chip">
-                          <Paperclip aria-hidden />
-                          <span>{a.name}</span>
-                          <button
-                            type="button"
-                            className="attachment-chip-remove"
-                            aria-label={`Remove ${a.name}`}
-                            onClick={() =>
-                              controller.setDraft(id, {
-                                ...draft,
-                                attachments: draft.attachments.filter(
-                                  (item) =>
-                                    item.attachment_ref !== a.attachment_ref,
-                                ),
-                              })
-                            }
-                          >
-                            <X aria-hidden />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <ComposerAttachments
+                    attachments={draft.attachments}
+                    uploads={pendingUploads}
+                    retryDisabled={attachBlocked}
+                    onRemove={(reference) =>
+                      controller.setDraft(id, {
+                        ...draft,
+                        attachments: draft.attachments.filter(
+                          (item) => item.attachment_ref !== reference,
+                        ),
+                      })
+                    }
+                    onRetry={(item) => void retryUpload(item)}
+                    onDismiss={uploads.dismiss}
+                  />
                   {state.workspace?.model_status?.sees_images === false &&
                     draft.attachments.some((a) =>
                       a.mime_type?.startsWith('image/'),

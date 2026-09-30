@@ -68,6 +68,12 @@ test('a pasted screenshot and two dropped files attach to the message', async ({
 }, testInfo) => {
   const conversation = await newConversation(page);
   const field = composer(page);
+  // The pasted picture's tile shows the server's small thumbnail (B232).
+  const thumbnail = page.waitForResponse((response) =>
+    /^\/api\/v1\/attachments\/[^/]+\/thumbnail$/.test(
+      new URL(response.url()).pathname,
+    ),
+  );
   await field.focus();
   await field.evaluate((element) => {
     const pixel = Uint8Array.from(
@@ -112,6 +118,18 @@ test('a pasted screenshot and two dropped files attach to the message', async ({
         (await conversationState(page, conversation)).draft.attachments.length,
     )
     .toBe(3);
+  const shown = await thumbnail;
+  expect(shown.status()).toBe(200);
+  expect(shown.headers()['content-type']).toBe('image/png');
+  const tiles = page.getByRole('list', { name: 'Attachments', exact: true });
+  await expect(
+    tiles
+      .getByRole('button', { name: /^Preview Pasted image .+\.png$/ })
+      .locator('img'),
+  ).toHaveAttribute('src', /^blob:/);
+  await expect(
+    tiles.getByRole('button', { name: 'Preview notes-a.txt', exact: true }),
+  ).toContainText('notes-a.txt');
   await screenshot(page, testInfo, 'paste-and-drop');
 });
 

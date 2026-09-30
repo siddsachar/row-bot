@@ -394,6 +394,7 @@ OPERATIONS = (
     ("post", "/uploads/{upload_id}/complete", "UploadCompletion", "AttachmentView"),
     ("delete", "/uploads/{upload_id}", None, "UploadCancelled"),
     ("get", "/attachments/{reference}/metadata", None, "AttachmentView"),
+    ("get", "/attachments/{reference}/thumbnail", None, "bytes"),
     ("get", "/attachments/{reference}", None, "bytes"),
     ("post", "/attachments/{reference}/save", None, "ExportSaved"),
     ("post", "/exports/reveal", "ExportRevealRequest", "ArtifactExportRevealResult"),
@@ -1295,6 +1296,15 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
   const data = await response.blob();
   if (data.size > 26214400) throw new Error('protocol_incompatible');
+  return data;
+}
+export async function readAttachmentThumbnail(base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/attachments/${id(reference)}/thumbnail`, {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 262144) throw new Error('protocol_incompatible');
   return data;
 }
 export const getAttachmentMetadata = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<AttachmentView> =>

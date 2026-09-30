@@ -964,7 +964,9 @@ describe('connection and lifecycle ownership', () => {
       let observed: AbortSignal | undefined;
       vi.spyOn(transport, operation).mockImplementation(
         (...args: unknown[]) => {
-          observed = args.at(-1) as AbortSignal;
+          observed = args.find(
+            (arg): arg is AbortSignal => arg instanceof AbortSignal,
+          );
           return new Promise<never>((resolve) => {
             release = resolve;
           });
