@@ -48,7 +48,7 @@ def test_saved_task_pages_retain_ids_order_and_never_expose_prompts_or_delivery(
 ):
     tasks, seed = saved
     seed(205)
-    for name in ("run_task_background", "get_task_channels", "get_next_fire_times"):
+    for name in ("run_task_background", "get_task_channels"):
         monkeypatch.setattr(
             tasks, name, lambda *a, **k: pytest.fail("read triggered runtime owner")
         )

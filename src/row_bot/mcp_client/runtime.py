@@ -935,15 +935,6 @@ def reconcile_server_release_owned(name: str, expected_runtime_id: str) -> dict[
             "session_quiesced": runtime.cleanup_complete and runtime._finished.is_set()}
 
 
-def refresh_server(name: str) -> None:
-    stop_server(name)
-    with _runtime_lock:
-        if name in _servers:
-            return
-        _statuses.pop(name, None)
-    discover_enabled_servers()
-
-
 def shutdown() -> None:
     """Stop MCP child sessions and runtime loop. Safe to call repeatedly."""
     global _loop, _thread

@@ -105,27 +105,6 @@ def delete_channel_secret(channel_name: str, env_key: str) -> None:
     os.environ.pop(name, None)
 
 
-def import_channel_secret_from_fallback(channel_name: str, env_key: str) -> bool:
-    """Persist the current env/legacy fallback value into channel keyring.
-
-    Returns True when a fallback value was found and saved. Existing channel
-    keyring values are left untouched.
-    """
-    name = _credential_name(env_key)
-    if not name:
-        return False
-    try:
-        if secret_store.get_secret(name, namespace=_namespace(channel_name)):
-            return True
-    except secret_store.SecretStoreError:
-        return False
-    value = os.environ.get(name) or api_keys.get_key(name)
-    if not value:
-        return False
-    set_channel_secret(channel_name, name, value)
-    return True
-
-
 def migrate_legacy_channel_secrets(channels: list[Any]) -> dict[str, int]:
     """Copy legacy keyring channel credentials into channel namespaces.
 

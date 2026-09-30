@@ -174,47 +174,6 @@ def fetch_index(force_refresh: bool = False) -> MarketplaceIndex:
         return MarketplaceIndex()
 
 
-def search_plugins(
-    query: str = "",
-    tag: str = "",
-    index: MarketplaceIndex | None = None,
-) -> list[MarketplaceEntry]:
-    """Search/filter the marketplace."""
-
-    if index is None:
-        index = fetch_index()
-
-    results = index.plugins
-
-    if tag:
-        tag_lower = tag.lower()
-        results = [p for p in results if tag_lower in [t.lower() for t in p.tags]]
-
-    if query:
-        q = query.lower()
-        results = [
-            p for p in results
-            if q in p.name.lower()
-            or q in p.description.lower()
-            or q in p.id.lower()
-            or any(q in t.lower() for t in p.tags)
-            or any(q in permission.lower() for permission in p.permissions)
-        ]
-
-    return results
-
-
-def get_all_tags(index: MarketplaceIndex | None = None) -> list[str]:
-    """Return sorted unique tags from all plugins."""
-
-    if index is None:
-        index = fetch_index()
-    tags = set()
-    for plugin in index.plugins:
-        tags.update(plugin.tags)
-    return sorted(tags)
-
-
 def get_entry(plugin_id: str, index: MarketplaceIndex | None = None) -> MarketplaceEntry | None:
     """Look up a single plugin by ID."""
 

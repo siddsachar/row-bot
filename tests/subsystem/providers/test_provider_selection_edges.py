@@ -160,9 +160,7 @@ def test_model_choice_options_include_diagnostics_and_inactive_include_values() 
     included = next(option for option in inactive if option["value"] == ref)
     assert included["active"] is False
     assert included["reason"].startswith("Capability metadata")
-    assert selection.model_choice_options_map("chat", include_values=[ref], include_inactive=True)[ref].startswith(
-        "Unavailable:"
-    )
+    assert str(included["label"]).startswith("Unavailable:")
 
 
 def test_catalog_model_selection_requires_pinned_brain_choices() -> None:

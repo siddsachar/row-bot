@@ -50,13 +50,13 @@ def test_state_and_journal_survive_reload_and_corrupt_files_fall_back(tmp_path, 
 
     reloaded = fresh_memory_stack(tmp_path, monkeypatch)["memory_extraction"]
     assert reloaded.get_extraction_status()["threads_scanned"] == 2
-    assert len(reloaded.get_extraction_journal(limit=0)) == 100
-    assert reloaded.get_extraction_journal(limit=1) == [{"id": 104}]
+    assert len(reloaded._load_extraction_journal()) == 100
+    assert reloaded._load_extraction_journal()[-1] == {"id": 104}
 
     reloaded._STATE_FILE.write_text("{bad-json", encoding="utf-8")
     reloaded._JOURNAL_FILE.write_text("{bad-json", encoding="utf-8")
     assert reloaded.get_extraction_status()["threads_scanned"] == 0
-    assert reloaded.get_extraction_journal() == []
+    assert reloaded._load_extraction_journal() == []
 
 
 def test_get_thread_messages_normalizes_langchain_content_blocks(tmp_path, monkeypatch) -> None:

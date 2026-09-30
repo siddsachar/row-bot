@@ -151,12 +151,6 @@ def _append_extraction_journal(entry: dict) -> None:
     _save_extraction_journal(journal)
 
 
-def get_extraction_journal(limit: int = 10) -> list[dict]:
-    """Return the most recent extraction journal entries."""
-    journal = _load_extraction_journal()
-    return journal[-limit:] if limit else journal
-
-
 # ── Core extraction logic ────────────────────────────────────────────────────
 
 def _get_thread_messages(thread_id: str) -> list[dict]:

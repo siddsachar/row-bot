@@ -1,9 +1,9 @@
-"""Captured-version review and guarded vault import with isolated data."""
+"""Guarded vault import and wiki path containment with isolated data."""
 
 from __future__ import annotations
 
 import hashlib
-import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,104 +29,62 @@ def _edited_article(stack, *, legacy=False):
     return entity, path
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-def test_review_captures_complete_versions_without_effects(
-    wiki_stack, monkeypatch, legacy
-):
-    wiki, kg = wiki_stack["wiki_vault"], wiki_stack["kg"]
-    entity, path = _edited_article(wiki_stack, legacy=legacy)
-    path.write_bytes(path.read_bytes() + ("Complete content " * 10_000).encode())
-    before = {p: p.read_bytes() for p in wiki_stack["vault"].rglob("*") if p.is_file()}
-
-    def unexpected(*args, **kwargs):
-        pytest.fail("Review must not write or import")
-
-    monkeypatch.setattr(wiki, "_stage", unexpected)
-    monkeypatch.setattr(wiki, "_write_manifest", unexpected)
-    monkeypatch.setattr(kg, "update_entity", unexpected)
-    monkeypatch.setattr(wiki_stack["memory_evolution"], "append_journal", unexpected)
-    review = wiki.read_import_review(entity["id"], path)
-    assert review["vault_text"] == before[path].decode("utf-8")
-    assert review["expected_vault_hash"] == hashlib.sha256(before[path]).hexdigest()
-    assert json.loads(review["database_text"]) == entity
-    assert review["expected_db_revision"] == wiki._source_revision(entity)
-    assert {
-        p: p.read_bytes() for p in wiki_stack["vault"].rglob("*") if p.is_file()
-    } == before
-    assert kg.get_entity(entity["id"]) == entity
-
-
-def test_review_parses_and_hashes_one_capture_despite_editor_aba(
-    wiki_stack, monkeypatch
-):
-    wiki = wiki_stack["wiki_vault"]
-    entity, path = _edited_article(wiki_stack)
-    captured = path.read_bytes()
-    original_parse = wiki._parse_entity_text
-
-    def parse_while_editor_changes(text):
-        path.write_bytes(captured.replace(b"Vault edit", b"Unreviewed edit"))
-        parsed = original_parse(text)
-        path.write_bytes(captured)
-        return parsed
-
-    monkeypatch.setattr(wiki, "_parse_entity_text", parse_while_editor_changes)
-    monkeypatch.setattr(
-        wiki, "parse_entity_md", lambda *_: pytest.fail("Do not reopen to parse")
-    )
-    review = wiki.read_import_review(entity["id"], path)
-    assert review["vault_text"] == captured.decode()
-    assert "Unreviewed edit" not in review["vault_text"]
-    assert review["expected_vault_hash"] == hashlib.sha256(captured).hexdigest()
+def _reviewed_guards(wiki, kg, entity, path):
+    """The two versions a person reviewed, as the wiki import command passes them."""
+    return {
+        "expected_db_revision": wiki._source_revision(kg.get_entity(entity["id"])),
+        "expected_vault_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
 
 
 @pytest.mark.parametrize(
-    "invalid", ["outside", "traversal", "id", "missing", "utf8", "ownership"]
+    "relative", ["../outside.md", "person/../../outside.md", "/abs.md", "a\\b.md", "c:x.md", "", "."]
 )
-def test_review_rejects_invalid_identity_or_path(wiki_stack, invalid):
+def test_wiki_file_paths_never_leave_the_managed_folder(wiki_stack, relative):
+    with pytest.raises(ValueError):
+        wiki_stack["wiki_vault"]._wiki_path(relative)
+
+
+def test_wiki_file_paths_resolve_inside_the_managed_folder(wiki_stack):
     wiki = wiki_stack["wiki_vault"]
-    entity, path = _edited_article(wiki_stack)
-    if invalid == "outside":
-        outside = wiki_stack["vault"].parent / "outside.md"
-        outside.write_bytes(path.read_bytes())
-        path = outside
-    elif invalid == "traversal":
-        path = path.parent / ".." / "person" / path.name
-    elif invalid == "id":
-        path.write_text(
-            wiki.render_entity_md(dict(entity, id="different")), encoding="utf-8"
-        )
-    elif invalid == "missing":
-        wiki_stack["kg"].delete_entity(entity["id"])
-    elif invalid == "utf8":
-        path.write_bytes(b"\xff\xfe")
-    else:
-        manifest = wiki._read_manifest()
-        relative = path.relative_to(wiki_stack["vault"] / "wiki").as_posix()
-        manifest["files"][relative]["entity_id"] = "different"
-        wiki._write_manifest(manifest)
-    with pytest.raises((OSError, ValueError)):
-        wiki.read_import_review(entity["id"], path)
+    root = wiki.get_vault_path() / "wiki"
+
+    assert wiki._wiki_path("person/Alice.md") == root / "person" / "Alice.md"
+    assert wiki._wiki_path("person/./Alice.md") == root / "person" / "Alice.md"
 
 
-def test_review_rejects_linked_article_before_read(wiki_stack, monkeypatch):
+def _link_directory(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            pytest.skip("symlinks are not available")
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+
+
+def test_wiki_file_paths_never_follow_a_linked_folder(wiki_stack):
     wiki = wiki_stack["wiki_vault"]
-    entity, path = _edited_article(wiki_stack)
-    original_is_symlink = Path.is_symlink
-    original_read = Path.read_bytes
-    monkeypatch.setattr(
-        Path,
-        "is_symlink",
-        lambda current: current == path or original_is_symlink(current),
-    )
+    root = wiki.get_vault_path() / "wiki"
+    root.mkdir(parents=True, exist_ok=True)
+    outside = wiki_stack["vault"].parent / "outside"
+    outside.mkdir()
+    _link_directory(root / "person", outside)
 
-    def read(current):
-        assert current != path, "Linked article must not be opened"
-        return original_read(current)
-
-    monkeypatch.setattr(Path, "read_bytes", read)
     with pytest.raises(ValueError, match="Linked"):
-        wiki.read_import_review(entity["id"], path)
+        wiki._wiki_path("person/Alice.md")
+
+
+def test_guarded_import_refuses_a_path_outside_the_managed_folder(wiki_stack):
+    wiki, kg = wiki_stack["wiki_vault"], wiki_stack["kg"]
+    entity, path = _edited_article(wiki_stack, legacy=True)
+    guards = _reviewed_guards(wiki, kg, entity, path)
+    escaped = path.parent / ".." / path.parent.name / path.name
+
+    assert wiki.import_from_vault(entity["id"], escaped, **guards) is False
+    assert kg.get_entity(entity["id"]) == entity
+    assert wiki.import_from_vault(entity["id"], path, **guards) is True
 
 
 @pytest.mark.parametrize(
@@ -135,7 +93,7 @@ def test_review_rejects_linked_article_before_read(wiki_stack, monkeypatch):
 def test_captured_guards_accept_only_the_reviewed_versions(wiki_stack, change):
     wiki, kg = wiki_stack["wiki_vault"], wiki_stack["kg"]
     entity, path = _edited_article(wiki_stack, legacy=True)
-    review = wiki.read_import_review(entity["id"], path)
+    review = _reviewed_guards(wiki, kg, entity, path)
     if change == "vault":
         path.write_bytes(path.read_bytes() + b"Later vault version")
     elif change == "database":

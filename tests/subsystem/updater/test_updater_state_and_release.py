@@ -90,18 +90,14 @@ def test_load_state_normalizes_invalid_fields_and_state_mutators_notify(tmp_path
 
     updater.skip_version("9.0.0")
     updater.dismiss_banner("9.0.0")
-    updater.set_channel("beta")
     unsubscribe()
-    updater.set_channel("stable")
 
     assert state.channel == "stable"
     assert state.auto_check is False
     assert state.check_interval_hours == 1
     assert state.skipped_versions[:1] == ["8.0.0"]
     assert state.dismissed_banner_versions[:1] == ["7.0.0"]
-    assert seen[-1] == ("beta", ["8.0.0", "9.0.0"], ["7.0.0", "9.0.0"], None)
-    with pytest.raises(ValueError, match="invalid channel"):
-        updater.set_channel("canary")
+    assert seen[-1] == ("stable", ["8.0.0", "9.0.0"], ["7.0.0", "9.0.0"], None)
 
 
 def test_parse_release_selects_platform_asset_and_summarizes_notes(tmp_path, monkeypatch) -> None:

@@ -23,8 +23,6 @@ def test_docs_capture_is_opt_in_and_seed_data_is_safe(tmp_path: Path, monkeypatc
         is_authorized_marketing_capture,
         is_docs_read_only_real_data_capture,
         is_docs_real_data_capture,
-        load_docs_capture_demo_state,
-        marketing_capture_knowledge_ids,
         scan_demo_data_safety,
         write_docs_capture_demo_state,
     )
@@ -44,13 +42,7 @@ def test_docs_capture_is_opt_in_and_seed_data_is_safe(tmp_path: Path, monkeypatc
     monkeypatch.setenv("ROW_BOT_MARKETING_CAPTURE", "1")
     assert is_authorized_marketing_capture()
     assert not is_docs_read_only_real_data_capture()
-    monkeypatch.setenv(
-        "ROW_BOT_MARKETING_KNOWLEDGE_IDS",
-        "safe-one,unsafe value,safe-two,safe-one",
-    )
-    assert marketing_capture_knowledge_ids() == ("safe-one", "safe-two")
-    write_docs_capture_demo_state(tmp_path, scenario="full")
-    data = load_docs_capture_demo_state(tmp_path)
+    data = json.loads(write_docs_capture_demo_state(tmp_path, scenario="full").read_text(encoding="utf-8"))
     payload = json.dumps(data, sort_keys=True)
 
     assert "example.com" in payload

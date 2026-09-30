@@ -15,18 +15,6 @@ ALL_OPERATIONS = _SAFE_OPS + _WRITE_OPS + _DESTRUCTIVE_OPS
 # Default: safe + write + move (move has interrupt gate)
 DEFAULT_OPERATIONS = _SAFE_OPS + _WRITE_OPS + ["move_file"]
 
-# Module-level buffer for images displayed via read_file.
-# The streaming layer reads and clears this after workspace_read_file calls.
-_last_displayed_image: dict | None = None  # {"b64": str, "name": str}
-
-def get_and_clear_displayed_image() -> dict | None:
-    """Return and clear the pending displayed image, if any."""
-    global _last_displayed_image
-    img = _last_displayed_image
-    _last_displayed_image = None
-    return img
-
-
 class FileSystemTool(BaseTool):
 
     @property
@@ -312,12 +300,8 @@ def _make_pdf_aware_read_tool(root_dir: str):
         # ── Image files — display inline instead of reading as text ────
         from row_bot.file_context import IMAGE_EXTENSIONS
         if resolved.suffix.lower() in IMAGE_EXTENSIONS:
-            import base64 as _b64
-            global _last_displayed_image
             try:
                 data = resolved.read_bytes()
-                b64 = _b64.b64encode(data).decode("ascii")
-                _last_displayed_image = {"b64": b64, "name": resolved.name}
                 size_kb = len(data) / 1024
                 if size_kb >= 1024:
                     size_str = f"{size_kb / 1024:.1f} MB"

@@ -184,35 +184,11 @@ def test_xai_api_key_media_options_stay_separate_from_oauth(monkeypatch):
     assert "xai_oauth/grok-imagine-image" not in options
 
 
-def test_curated_media_catalog_does_not_overwrite_live_media_row():
-    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from row_bot.providers.model_catalog import build_model_catalog_rows
-
-    info = model_info_from_metadata(
-        "openai",
-        "gpt-image-1",
-        display_name="GPT Image 1 Live",
-        context_window=256000,
-        source="provider_catalog",
-    )
-
-    rows = build_model_catalog_rows(
-        cloud_cache={"gpt-image-1": model_info_to_cache_entry(info)},
-        quick_choices=[],
-    )
-    row = next(row for row in rows if row.selection_ref == "model:openai:gpt-image-1")
-
-    assert row.context_window == 256000
-    assert row.source == "provider_catalog"
-    assert row.supports("image")
-
-
-def test_generation_parameters_reach_catalog_rows_and_media_quick_choices(tmp_path, monkeypatch):
+def test_generation_parameters_reach_media_quick_choices(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.config as provider_config
     from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from row_bot.providers.model_catalog import build_model_catalog_rows
     from row_bot.providers.selection import seed_configured_media_quick_choices
     from row_bot.tools import registry
 
@@ -239,15 +215,9 @@ def test_generation_parameters_reach_catalog_rows_and_media_quick_choices(tmp_pa
     monkeypatch.setitem(models._cloud_model_cache, "model:xai:future-renderer", cache_entry)
     registry.set_tool_config("image_gen", "model", "xai/future-renderer")
 
-    rows = build_model_catalog_rows(
-        cloud_cache={"model:xai:future-renderer": cache_entry},
-        quick_choices=[],
-    )
     quick = seed_configured_media_quick_choices()
 
-    row = next(row for row in rows if row.selection_ref == "model:xai:future-renderer")
     choice = next(choice for choice in quick if choice["id"] == "model:xai:future-renderer")
-    assert row.capabilities_snapshot["generation_parameters"] == generation_parameters
     assert choice["capabilities_snapshot"]["generation_parameters"] == generation_parameters
 
 

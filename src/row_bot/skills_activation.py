@@ -713,22 +713,6 @@ def parse_skill_command(text: str) -> SkillCommand | None:
     return SkillCommand("pin", name)
 
 
-def apply_skill_command(
-    thread_id: str,
-    text: str,
-    *,
-    current_text: str = "",
-    enabled_tool_names: Iterable[str] | None = None,
-) -> str | None:
-    result = apply_channel_skill_command(
-        thread_id,
-        text,
-        current_text=current_text,
-        enabled_tool_names=enabled_tool_names,
-    )
-    return result.text if result is not None else None
-
-
 def pin_skill(thread_id: str, skill_name: str) -> None:
     with _state_lock:
         store = _load_store()

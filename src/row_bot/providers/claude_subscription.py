@@ -850,27 +850,6 @@ def refresh_claude_subscription_token(
     raise RuntimeError("Claude Subscription token refresh failed.")
 
 
-def import_claude_subscription_setup_token(
-    token: str,
-    *,
-    expires_at: str = "",
-    plan_type: str = "",
-) -> dict[str, Any]:
-    """Explicitly import a user-provided Claude setup-token into Row-Bot storage."""
-    access_token = str(token or "").strip()
-    if not access_token:
-        raise ValueError("Claude setup token is empty.")
-    metadata = claude_subscription_token_metadata(access_token)
-    return save_claude_subscription_oauth_tokens(ClaudeSubscriptionTokenSet(
-        access_token=access_token,
-        expires_at=expires_at or str(metadata.get("expires_at") or ""),
-        user_id=str(metadata.get("user_id") or ""),
-        account_id=str(metadata.get("account_id") or ""),
-        plan_type=plan_type or str(metadata.get("plan_type") or ""),
-        scopes=tuple(metadata.get("scopes") or ()),
-    ))
-
-
 def save_claude_subscription_oauth_tokens(token_set: ClaudeSubscriptionTokenSet, *, expected_revision: str | None = None,
                             validate: Any = lambda: None, command_proof: dict | None = None) -> dict[str, Any]:
     from row_bot.providers.auth_store import replace_provider_oauth_bundle
@@ -1562,31 +1541,3 @@ def list_claude_subscription_model_infos_for_status() -> list[ModelInfo]:
     if cached_infos:
         return cached_infos
     return fallback_claude_subscription_model_infos()
-
-
-def seed_recommended_claude_subscription_quick_choices(*, max_choices: int = 1) -> list[dict[str, Any]]:
-    from row_bot.providers.config import load_provider_config
-    from row_bot.providers.runtime import provider_status
-    from row_bot.providers.selection import add_quick_choice_for_model
-
-    status = provider_status(CLAUDE_SUBSCRIPTION_PROVIDER_ID)
-    if not status.get("configured") or not status.get("runtime_enabled"):
-        return load_provider_config().get("quick_choices", [])
-    recommended_ids = {
-        str(model["id"])
-        for model in FALLBACK_CLAUDE_SUBSCRIPTION_MODELS
-        if model.get("recommended")
-    }
-    infos = list_claude_subscription_model_infos()
-    if not infos:
-        infos = list_claude_subscription_model_infos(force_refresh=True)
-    candidates = [info for info in infos if info.model_id in recommended_ids] or infos
-    for model_info in candidates[:max(0, max_choices)]:
-        add_quick_choice_for_model(
-            model_info.model_id,
-            provider_id=CLAUDE_SUBSCRIPTION_PROVIDER_ID,
-            display_name=model_info.display_name,
-            source="claude_subscription_recommended",
-            capabilities_snapshot=model_info.capability_snapshot(),
-        )
-    return load_provider_config().get("quick_choices", [])

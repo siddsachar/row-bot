@@ -27,7 +27,7 @@ def domain(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "workspace_has_custom_read_hooks", lambda _: False)
     def forbidden(*args, **kwargs):
         pytest.fail("Setup invoked an implicit execution or conversation mutation")
-    for name in ("clone_repository", "create_workspace_thread", "ensure_workspace_thread", "create_thread_worktree"):
+    for name in ("clone_repository", "ensure_workspace_thread"):
         monkeypatch.setattr(storage, name, forbidden)
     monkeypatch.setattr(threads, "create_thread", forbidden)
     return service, storage, threads

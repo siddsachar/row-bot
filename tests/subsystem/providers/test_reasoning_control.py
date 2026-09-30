@@ -152,31 +152,6 @@ def test_legacy_thread_database_migrates_to_empty_reasoning_map(tmp_path, monkey
     assert threads.get_thread_reasoning_selections("legacy") == {}
 
 
-def test_combined_chat_controls_save_model_approval_profile_and_reasoning_atomically(tmp_path, monkeypatch) -> None:
-    import row_bot.threads as threads
-
-    db_path = tmp_path / "controls.db"
-    monkeypatch.setattr(threads, "DB_PATH", str(db_path))
-    threads._init_thread_db(raise_on_error=True)
-    threads._save_thread_meta("mobile", "Mobile")
-
-    threads.set_thread_chat_controls(
-        "mobile",
-        model_override="model:openai:gpt-5",
-        approval_mode="approve",
-        profile_id_or_slug="",
-        reasoning_model_ref="model:openai:gpt-5",
-        reasoning_selection={"kind": "effort", "effort": "high"},
-    )
-
-    assert threads._get_thread_model_override("mobile") == "model:openai:gpt-5"
-    assert threads._get_thread_approval_mode("mobile") == "approve"
-    assert threads.get_thread_reasoning_selection("mobile", "model:openai:gpt-5") == {
-        "kind": "effort",
-        "effort": "high",
-    }
-
-
 def test_reasoning_command_is_strict_and_persists_for_active_exact_model(tmp_path, monkeypatch) -> None:
     import row_bot.threads as threads
     from row_bot.providers.reasoning import apply_reasoning_command

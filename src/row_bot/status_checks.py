@@ -10,7 +10,6 @@ import json
 import logging
 import sqlite3
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable
@@ -22,8 +21,6 @@ _DATA_DIR = get_row_bot_data_dir()
 _PROBE_CACHE_TTL_SECONDS = 30.0
 _OLLAMA_ROUTINE_PROBE_TIMEOUT_SECONDS = 0.2
 _OLLAMA_LIVE_PROBE_TIMEOUT_SECONDS = 1.0
-_HEAVY_CHECK_TIMEOUT_SECONDS = 3.0
-_HEAVY_CHECK_WORKERS = 4
 _probe_cache: dict[str, tuple[float, CheckResult]] = {}
 
 
@@ -188,13 +185,6 @@ def check_ollama(*, live_probe: bool = True) -> CheckResult:
             settings_tab="Models",
             metadata=metadata,
         )
-
-
-def _routine_check_ollama() -> CheckResult:
-    return check_ollama(live_probe=False)
-
-
-_routine_check_ollama.__name__ = "check_ollama"
 
 
 def check_active_model() -> CheckResult:
@@ -829,41 +819,6 @@ ALL_CHECKS = [
     check_tools,
 ]
 
-# Lightweight checks (just reading Python booleans — near zero cost)
-LIGHT_CHECKS = [
-    check_active_model,
-    check_channels,
-    check_tunnel,
-    check_task_scheduler,
-    check_tts,
-    check_tools,
-    check_search_tools,
-    check_buddy,
-    check_mcp,
-    check_plugins,
-]
-
-# Heavier checks (I/O, network, OAuth token probing)
-HEAVY_CHECKS = [
-    check_ollama,
-    check_cloud_api,
-    check_gmail_oauth,
-    check_calendar_oauth,
-    check_x_oauth,
-    check_github_oauth,
-    check_memory_extraction,
-    check_dream_cycle,
-    check_wiki_vault,
-    check_logging,
-    check_disk_space,
-    check_threads_db,
-    check_faiss_index,
-    check_document_store,
-    check_skills,
-    check_tracker,
-    check_network,
-]
-
 
 _RESULT_ORDER = {
     "Ollama": 0,
@@ -911,62 +866,6 @@ def _run_checks(checks: list[Callable[[], CheckResult | list[CheckResult]]], *, 
     return results
 
 
-def _run_checks_concurrently(
-    checks: list[Callable[[], CheckResult | list[CheckResult]]],
-    *,
-    kind: str,
-    max_workers: int = _HEAVY_CHECK_WORKERS,
-    timeout_seconds: float = _HEAVY_CHECK_TIMEOUT_SECONDS,
-) -> list[CheckResult]:
-    results_by_index: dict[int, list[CheckResult]] = {}
-    executor = ThreadPoolExecutor(max_workers=max(1, int(max_workers)))
-    futures = {
-        index: executor.submit(_run_timed_check, fn, kind=kind)
-        for index, fn in enumerate(checks)
-    }
-    try:
-        for index, future in futures.items():
-            fn = checks[index]
-            try:
-                results_by_index[index] = future.result(timeout=timeout_seconds)
-            except TimeoutError:
-                log_ui_perf(
-                    f"home.status_check.{fn.__name__}.timeout",
-                    timeout_seconds * 1000.0,
-                    threshold_ms=350.0,
-                    check=fn.__name__,
-                    kind=kind,
-                    timeout=True,
-                    results=1,
-                )
-                results_by_index[index] = [
-                    CheckResult(fn.__name__, "warn", f"Timed out after {timeout_seconds:.0f}s")
-                ]
-            except Exception as exc:
-                results_by_index[index] = [CheckResult(fn.__name__, "error", str(exc))]
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-
-    results: list[CheckResult] = []
-    for index in range(len(checks)):
-        results.extend(results_by_index.get(index, []))
-    return results
-
-
 def run_all_checks() -> list[CheckResult]:
     """Run every registered check and return results."""
     return _run_checks(ALL_CHECKS, kind="full")
-
-
-def run_light_checks() -> list[CheckResult]:
-    """Run only lightweight (instant) checks."""
-    return _run_checks(LIGHT_CHECKS, kind="light")
-
-
-def run_heavy_checks(*, live_ollama_probe: bool = True) -> list[CheckResult]:
-    """Run heavier status checks with bounded concurrency."""
-    checks = [
-        _routine_check_ollama if fn is check_ollama and not live_ollama_probe else fn
-        for fn in HEAVY_CHECKS
-    ]
-    return _run_checks_concurrently(checks, kind="heavy")

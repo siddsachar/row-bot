@@ -168,11 +168,6 @@ def xai_oauth_user_agent() -> str:
     return f"Row-Bot/{__version__}"
 
 
-def xai_oauth_configured_client_id(value: str | None = None) -> str:
-    """Return the configured xAI OAuth client id, or an empty string when absent."""
-    return _resolve_xai_oauth_client_id(value, require=False)[0]
-
-
 def xai_oauth_default_client_id() -> str:
     """Return Row-Bot's built-in shared xAI OAuth client id, when available."""
     default_value = str(DEFAULT_XAI_OAUTH_CLIENT_ID or "").strip()
@@ -1470,28 +1465,6 @@ def run_xai_oauth_runtime_probe(
         result["errors"] = [] if result["ok"] else ["probe_failed"]
         return save_xai_oauth_runtime_probe(result, expected_revision=expected_revision, validate=validate, command_proof=command_proof)
     return save_xai_oauth_runtime_probe(result)
-
-def seed_recommended_xai_oauth_quick_choices(*, max_choices: int = 1) -> list[dict[str, Any]]:
-    from row_bot.providers.config import load_provider_config
-    from row_bot.providers.runtime import provider_status
-    from row_bot.providers.selection import add_quick_choice_for_model
-
-    status = provider_status(XAI_OAUTH_PROVIDER_ID)
-    if not status.get("configured") or not status.get("runtime_enabled"):
-        return load_provider_config().get("quick_choices", [])
-    infos = list_xai_oauth_model_infos()
-    if not infos:
-        infos = list_xai_oauth_model_infos(force_refresh=True)
-    for model_info in infos[:max(0, max_choices)]:
-        add_quick_choice_for_model(
-            model_info.model_id,
-            provider_id=XAI_OAUTH_PROVIDER_ID,
-            display_name=model_info.display_name,
-            source="xai_oauth_recommended",
-            capabilities_snapshot=model_info.capability_snapshot(),
-        )
-    return load_provider_config().get("quick_choices", [])
-
 
 def _new_http_client(timeout: float = 30.0) -> Any:
     import httpx

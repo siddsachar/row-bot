@@ -70,6 +70,3 @@ def test_developer_review_lists_changes_and_diff(tmp_path, monkeypatch):
     stats = review.get_workspace_diff_stats(str(repo))
     assert stats.files == 2
     assert stats.additions >= 2
-
-    preview = review.read_file_preview(str(repo), "new.txt")
-    assert preview == "new\n"

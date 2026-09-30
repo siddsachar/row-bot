@@ -12,44 +12,6 @@ def data_dir(tmp_path, monkeypatch):
     yield path
 
 
-def test_workflow_drafts_round_trip_and_delete(data_dir, monkeypatch):
-    import row_bot.tasks as tasks
-
-    monkeypatch.setattr(tasks, "_DB_PATH", str(data_dir / "tasks.db"))
-    monkeypatch.setattr(tasks, "_scheduler", None)
-    tasks._init_db()
-
-    tasks.save_workflow_draft(
-        None,
-        {"name": "New draft", "prompts": ["draft prompt"], "channels": []},
-    )
-    new_draft = tasks.get_workflow_draft(None)
-
-    assert new_draft is not None
-    assert new_draft["mode"] == "new"
-    assert new_draft["payload"]["name"] == "New draft"
-    assert new_draft["payload"]["channels"] == []
-
-    task_id = tasks.create_task(name="Existing", prompts=["original"])
-    tasks.save_workflow_draft(
-        task_id,
-        {"name": "Edited draft", "prompts": ["changed"], "channels": ["telegram"]},
-    )
-    edit_draft = tasks.get_workflow_draft(task_id)
-
-    assert edit_draft is not None
-    assert edit_draft["mode"] == "edit"
-    assert edit_draft["task_id"] == task_id
-    assert edit_draft["payload"]["prompts"] == ["changed"]
-    assert tasks.get_task(task_id)["name"] == "Existing"
-
-    tasks.delete_workflow_draft(None)
-    tasks.delete_workflow_draft(task_id)
-
-    assert tasks.get_workflow_draft(None) is None
-    assert tasks.get_workflow_draft(task_id) is None
-
-
 def test_provider_qualified_cloud_defaults_validate_after_refresh(monkeypatch):
     import row_bot.models as models
     import row_bot.providers.codex as codex

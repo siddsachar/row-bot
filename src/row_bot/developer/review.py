@@ -543,26 +543,6 @@ def get_workspace_diff_stats(workspace_path: str) -> DiffStats:
     )
 
 
-def read_file_preview(workspace_path: str, file_path: str, *, max_chars: int = 20_000) -> str:
-    folder = pathlib.Path(workspace_path).expanduser().resolve()
-    clean = str(file_path or "").strip().replace("\\", "/")
-    if not clean:
-        return ""
-    target = (folder / clean).resolve()
-    try:
-        target.relative_to(folder)
-    except ValueError as exc:
-        raise ValueError(f"Path escapes workspace: {file_path}") from exc
-    if not target.is_file():
-        return "File not found."
-    if not _looks_text(target):
-        return "Binary or unsupported file preview."
-    text = target.read_text(encoding="utf-8", errors="replace")
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[file truncated]"
-    return text
-
-
 def _workspace_numstat(folder: pathlib.Path) -> dict[str, tuple[int, int]]:
     stats: dict[str, tuple[int, int]] = {}
     for args in (["diff", "--numstat", "-z"], ["diff", "--cached", "--numstat", "-z"]):

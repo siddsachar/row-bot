@@ -49,9 +49,8 @@ def test_goal_slash_lifecycle_and_channel_scope(tmp_path, monkeypatch):
 
     specs = {spec.id: spec for spec in slash_commands.get_command_specs(include_skills=False)}
     assert specs["goal"].handler_key == "goal"
-    assert slash_commands.resolve_command_text("/goal ship it")[0].id == "goal"
 
-    response = slash_commands.dispatch_text_command(thread_id, "/goal ship a small feature")
+    response = commands.dispatch("sms", "/goal ship a small feature", thread_id=thread_id)
     assert response and "Goal started" in response
     goal = goals.get_current_goal(thread_id)
     assert goal is not None
@@ -69,11 +68,11 @@ def test_goal_slash_lifecycle_and_channel_scope(tmp_path, monkeypatch):
     channel_status = commands.dispatch("sms", "/goal status", thread_id=thread_id)
     assert channel_status and "ship a small feature" in channel_status
 
-    paused = slash_commands.dispatch_text_command(thread_id, "/goal pause")
+    paused = commands.dispatch("sms", "/goal pause", thread_id=thread_id)
     assert paused and "Goal paused" in paused
     assert goals.get_current_goal(thread_id)["status"] == "paused"
 
-    resumed = slash_commands.dispatch_text_command(thread_id, "/goal resume")
+    resumed = commands.dispatch("sms", "/goal resume", thread_id=thread_id)
     assert resumed and "Goal resumed" in resumed
     assert goals.get_current_goal(thread_id)["status"] == "active"
 
@@ -83,16 +82,16 @@ def test_goal_slash_lifecycle_and_channel_scope(tmp_path, monkeypatch):
         reason="Waiting on approval",
         verdict="paused",
     )
-    resumed_from_approval = slash_commands.dispatch_text_command(thread_id, "/goal resume")
+    resumed_from_approval = commands.dispatch("sms", "/goal resume", thread_id=thread_id)
     assert resumed_from_approval and "Goal resumed" in resumed_from_approval
     assert goals.get_current_goal(thread_id)["status"] == "active"
 
-    completed = slash_commands.dispatch_text_command(thread_id, "/goal done tested")
+    completed = commands.dispatch("sms", "/goal done tested", thread_id=thread_id)
     assert completed and "marked complete" in completed.lower()
     assert goals.get_current_goal(thread_id, include_terminal=True)["status"] == "completed"
-    assert slash_commands.dispatch_text_command(thread_id, "/goal resume") == "No paused goal to resume."
+    assert commands.dispatch("sms", "/goal resume", thread_id=thread_id) == "No paused goal to resume."
 
-    cleared = slash_commands.dispatch_text_command(thread_id, "/goal clear")
+    cleared = commands.dispatch("sms", "/goal clear", thread_id=thread_id)
     assert cleared and "Goal cleared" in cleared
     assert goals.get_current_goal(thread_id, include_terminal=True) is None
 

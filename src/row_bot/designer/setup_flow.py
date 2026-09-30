@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 
 from row_bot.designer.brand import get_all_presets
-from row_bot.designer.briefing import build_initial_design_request, project_has_build_brief
 from row_bot.designer.state import (
     ASPECT_RATIOS,
     BrandConfig,
@@ -255,31 +254,3 @@ def create_project_from_setup(
         template_id=tmpl.id,
         mode=resolved_mode,
     )
-
-
-def prepare_project_creation(
-    template_id: str,
-    *,
-    aspect_ratio: str = "",
-    project_name: str = "",
-    brief: ProjectBrief | None = None,
-    preset_name: str = "",
-    extracted_brand: BrandConfig | None = None,
-    auto_build: bool = False,
-    mode: str = MODE_CHOICE_AUTO,
-) -> tuple[DesignerProject, str | None]:
-    """Return the newly created project plus an optional initial build prompt."""
-
-    project = create_project_from_setup(
-        template_id,
-        aspect_ratio=aspect_ratio,
-        project_name=project_name,
-        brief=brief,
-        preset_name=preset_name,
-        extracted_brand=extracted_brand,
-        mode=mode,
-    )
-    initial_prompt = None
-    if auto_build and project_has_build_brief(project):
-        initial_prompt = build_initial_design_request(project)
-    return project, initial_prompt

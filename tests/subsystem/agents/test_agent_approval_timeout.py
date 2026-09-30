@@ -29,6 +29,19 @@ def _expire(tasks, approval_id: str) -> None:
         conn.close()
 
 
+def _statuses(tasks, ids: list[str]) -> dict[str, str]:
+    """The saved status of each approval request, read from its row."""
+    conn = tasks._get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, status FROM approval_requests WHERE id IN (%s)" % ",".join("?" * len(ids)),
+            list(ids),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {row["id"]: row["status"] for row in rows}
+
+
 def test_a_timed_out_agent_approval_settles_without_locking_the_database(service):  # noqa: F811
     from row_bot import agent_runs, tasks, threads
 
@@ -47,7 +60,7 @@ def test_a_timed_out_agent_approval_settles_without_locking_the_database(service
 
     tasks._check_approval_timeouts()
 
-    assert tasks.get_approval_request_statuses([approval_id, still_open]) == {
+    assert _statuses(tasks, [approval_id, still_open]) == {
         approval_id: "timed_out", still_open: "pending"}
     assert agent_runs.get_agent_run(run["id"])["status"] == "stopped"
     assert agent_runs.get_agent_run(waiting["id"])["status"] == "waiting_approval"

@@ -108,25 +108,6 @@ def get_embedding_config() -> dict[str, Any]:
     return cfg
 
 
-def save_embedding_config(updates: dict[str, Any]) -> dict[str, Any]:
-    """Persist embedding config updates and return the normalized config."""
-    cfg = get_embedding_config()
-    cfg.update(updates)
-    cfg["provider"] = cfg.get("provider") if cfg.get("provider") in {"local", "cloud"} else "local"
-    if cfg.get("local_model") not in LOCAL_MODELS:
-        cfg["local_model"] = DEFAULT_CONFIG["local_model"]
-    if cfg.get("cloud_model") not in CLOUD_MODELS:
-        cfg["cloud_model"] = DEFAULT_CONFIG["cloud_model"]
-    try:
-        cfg["batch_size"] = max(1, min(256, int(cfg.get("batch_size") or DEFAULT_CONFIG["batch_size"])))
-    except (TypeError, ValueError):
-        cfg["batch_size"] = DEFAULT_CONFIG["batch_size"]
-    if cfg.get("dimension") in ("", 0, "0"):
-        cfg["dimension"] = None
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    return cfg
-
-
 def active_embedding_metadata(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return stable metadata that identifies compatible FAISS indexes."""
     cfg = config or get_embedding_config()

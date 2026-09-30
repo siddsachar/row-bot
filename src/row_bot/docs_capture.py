@@ -19,13 +19,11 @@ from row_bot.data_paths import get_row_bot_data_dir
 
 DOCS_CAPTURE_ENV = "ROW_BOT_DOCS_CAPTURE"
 DOCS_FIXED_NOW_ENV = "ROW_BOT_DOCS_FIXED_NOW"
-DOCS_DISABLE_NETWORK_ENV = "ROW_BOT_DOCS_DISABLE_NETWORK"
 DOCS_DISABLE_AUTOSTART_ENV = "ROW_BOT_DOCS_DISABLE_AUTOSTART"
 DOCS_REDUCE_MOTION_ENV = "ROW_BOT_DOCS_REDUCE_MOTION"
 DOCS_FAKE_PROVIDERS_ENV = "ROW_BOT_DOCS_FAKE_PROVIDERS"
 DOCS_REAL_DATA_ENV = "ROW_BOT_DOCS_REAL_DATA"
 MARKETING_CAPTURE_ENV = "ROW_BOT_MARKETING_CAPTURE"
-MARKETING_KNOWLEDGE_IDS_ENV = "ROW_BOT_MARKETING_KNOWLEDGE_IDS"
 DOCS_DEMO_STATE_FILE = "docs_real_ui_demo_state.json"
 DEMO_THREAD_ID = "docs-demo-chat"
 
@@ -84,33 +82,12 @@ def is_docs_read_only_real_data_capture() -> bool:
     return is_docs_real_data_capture() and not is_authorized_marketing_capture()
 
 
-def marketing_capture_knowledge_ids() -> tuple[str, ...]:
-    """Return the bounded public-safe knowledge allowlist for a capture process."""
-
-    if not is_authorized_marketing_capture():
-        return ()
-    result: list[str] = []
-    for raw in str(os.environ.get(MARKETING_KNOWLEDGE_IDS_ENV) or "").split(","):
-        value = raw.strip()
-        if not value or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value):
-            continue
-        if value not in result:
-            result.append(value)
-        if len(result) >= 24:
-            break
-    return tuple(result)
-
-
 def docs_capture_fixed_now() -> datetime:
     raw = os.environ.get(DOCS_FIXED_NOW_ENV) or "2026-06-18T09:00:00Z"
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
         return datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc)
-
-
-def docs_capture_disable_network() -> bool:
-    return is_docs_capture() and _truthy(os.environ.get(DOCS_DISABLE_NETWORK_ENV, "1"))
 
 
 def docs_capture_disable_autostart() -> bool:
@@ -225,17 +202,6 @@ def docs_capture_provider_cards() -> list[dict[str, Any]]:
 def docs_capture_demo_state_path(data_dir: Path | None = None) -> Path:
     root = data_dir or get_row_bot_data_dir()
     return root / DOCS_DEMO_STATE_FILE
-
-
-def load_docs_capture_demo_state(data_dir: Path | None = None) -> dict[str, Any]:
-    path = docs_capture_demo_state_path(data_dir)
-    if not path.exists():
-        return default_docs_capture_demo_state()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default_docs_capture_demo_state()
-    return data if isinstance(data, dict) else default_docs_capture_demo_state()
 
 
 def write_docs_capture_demo_state(data_dir: Path, scenario: str = "full") -> Path:

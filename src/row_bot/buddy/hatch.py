@@ -641,28 +641,6 @@ def _install_hatch_motion_pack(
     return safe_pack_id
 
 
-def use_hatch_still_only(
-    pack_id: str,
-    preview_path: str | pathlib.Path,
-    *,
-    prompt: str = "",
-) -> str:
-    """Keep a generated Hatch pack selectable, but render it as a still image only."""
-
-    safe_pack_id = _safe_pack_id(pack_id, "")
-    if not safe_pack_id.startswith("hatch-"):
-        raise ValueError("Only generated Hatch packs can be switched to still-only mode")
-    source_preview = pathlib.Path(preview_path).expanduser().resolve()
-    if not source_preview.exists() or source_preview.stat().st_size == 0:
-        raise ValueError("Buddy art preview is missing or empty")
-    return _install_hatch_still_pack(
-        source_preview,
-        pack_id=safe_pack_id,
-        prompt=prompt,
-        created_at=time.time(),
-    )
-
-
 def activate_hatch_art(preview_path: str | pathlib.Path) -> pathlib.Path:
     """Copy a generated Hatch preview into the served live Buddy art slot."""
 

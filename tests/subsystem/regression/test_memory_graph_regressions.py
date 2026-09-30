@@ -261,10 +261,6 @@ def test_memory_repair_maintenance_contracts(tmp_path, monkeypatch) -> None:
     target = kg.save_entity("fact", "Repair Target", "Target fact.", source="test")
     assert kg.add_relation(source["id"], target["id"], "related_to", source="test") is None
 
-    components = kg.get_connected_components()
-    assert isinstance(components, list)
-    assert any(source["id"] in component for component in components)
-
 
 def test_json_block_parser_handles_nested_blocks_and_greedy_traps(tmp_path, monkeypatch) -> None:
     stack = fresh_memory_stack(tmp_path, monkeypatch)

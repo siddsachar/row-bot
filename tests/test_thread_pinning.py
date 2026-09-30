@@ -45,7 +45,6 @@ def test_thread_pin_metadata_migrates_and_preserves_updated_at(tmp_path, monkeyp
     pinned_at = threads.pin_thread(thread_id)
 
     assert pinned_at
-    assert threads.is_thread_pinned(thread_id) is True
     row = next(item for item in threads._list_threads(include_details=True) if item[0] == thread_id)
     assert row[12] == ""
     assert row[13] == pinned_at
@@ -58,7 +57,6 @@ def test_thread_pin_metadata_migrates_and_preserves_updated_at(tmp_path, monkeyp
 
     threads.unpin_thread(thread_id)
 
-    assert threads.is_thread_pinned(thread_id) is False
     row = next(item for item in threads._list_threads(include_details=True) if item[0] == thread_id)
     assert row[13] == ""
     with sqlite3.connect(threads.DB_PATH) as conn:
@@ -103,7 +101,12 @@ def test_developer_latest_thread_remains_recency_based_when_older_thread_is_pinn
     repo.mkdir()
     workspace = storage.add_or_update_local_workspace(str(repo))
     older = storage.ensure_workspace_thread(workspace.id)
-    newer = storage.create_workspace_thread(workspace.id, name="Thread Jun 03, 20:45")
+    newer = threads.create_thread(
+        "Thread Jun 03, 20:45",
+        thread_type="code",
+        developer_workspace_id=workspace.id,
+        project_workspace_id=workspace.id,
+    )
 
     with sqlite3.connect(threads.DB_PATH) as conn:
         conn.execute(

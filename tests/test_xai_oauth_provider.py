@@ -33,12 +33,10 @@ from row_bot.providers.xai_oauth import (
     run_xai_oauth_vision_probe,
     save_xai_oauth_client_id,
     save_xai_oauth_tokens,
-    seed_recommended_xai_oauth_quick_choices,
     start_xai_oauth_flow,
     wait_for_xai_oauth_loopback_authorization,
     xai_oauth_base_url,
     xai_oauth_client_id_status,
-    xai_oauth_configured_client_id,
     xai_oauth_default_client_id,
     xai_oauth_saved_client_id_override,
     xai_oauth_vision_probe_needed,
@@ -416,7 +414,6 @@ def test_xai_oauth_client_id_can_be_saved_and_used_for_flow(tmp_path, monkeypatc
     assert status["source"] == "override"
     assert status["fingerprint"]
     assert xai_oauth_saved_client_id_override() == "client-123"
-    assert xai_oauth_configured_client_id() == "client-123"
     assert flow.client_id == "client-123"
     assert query["client_id"] == ["client-123"]
 
@@ -425,7 +422,6 @@ def test_xai_oauth_client_id_can_be_saved_and_used_for_flow(tmp_path, monkeypatc
 
     assert "oauth_client_id" not in cleared
     assert xai_oauth_saved_client_id_override() == ""
-    assert xai_oauth_configured_client_id() == "shared-default-client"
     assert status_after_clear["source"] == "default"
 
 
@@ -493,7 +489,6 @@ def test_xai_oauth_token_save_records_default_client_id_without_saving_override(
         assert status["configured"] is True
         assert status["source"] == "default"
         assert xai_oauth_saved_client_id_override() == ""
-        assert xai_oauth_configured_client_id() == "shared-default-client"
     finally:
         _set_backend_for_tests(None)
 
@@ -521,7 +516,6 @@ def test_xai_oauth_stale_environment_metadata_does_not_block_default(tmp_path, m
     assert status["configured"] is True
     assert status["source"] == "default"
     assert xai_oauth_saved_client_id_override() == ""
-    assert xai_oauth_configured_client_id() == "shared-default-client"
 
 
 def test_xai_oauth_status_requires_stored_credentials(tmp_path, monkeypatch):
@@ -575,7 +569,6 @@ def test_xai_oauth_expired_refresh_reconnect_clears_oauth_only(tmp_path, monkeyp
         assert cfg["auth_method"] == AuthMethod.OAUTH_PKCE.value
         assert cfg["oauth_client_id"] == "client-123"
         assert cfg["oauth_client_id_source"] == "override"
-        assert xai_oauth_configured_client_id() == "client-123"
         assert get_provider_secret("xai_oauth", "access_token") == ""
         assert get_provider_secret("xai_oauth", "refresh_token") == ""
         assert get_provider_secret("xai", "api_key") == ""
@@ -772,13 +765,7 @@ def test_xai_oauth_image_metadata_merges_for_unknown_model_and_survives_cache(tm
 
 
 def test_xai_oauth_model_discovery_accepts_new_model_ids_without_static_allowlist(tmp_path, monkeypatch):
-    from row_bot.providers.model_catalog import build_model_catalog_rows
-
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(
-        "row_bot.providers.model_catalog._provider_status_by_id",
-        lambda: {"xai_oauth": {"configured": True, "runtime_enabled": True}},
-    )
     _set_backend_for_tests(_MemoryKeyring())
     try:
         save_xai_oauth_tokens(XAIOAuthTokenSet(access_token=_valid_token(), refresh_token="refresh-secret"))
@@ -790,16 +777,11 @@ def test_xai_oauth_model_discovery_accepts_new_model_ids_without_static_allowlis
                 "capabilities": ["tool_calling"],
             }],
         })]))
-        rows = build_model_catalog_rows(cloud_cache={}, ollama_rows=[], defaults={}, quick_choices=[])
     finally:
         _set_backend_for_tests(None)
 
     assert "model:xai_oauth:grok-new-future-2027" in [info.selection_ref for info in infos]
     assert f"model:xai_oauth:{XAI_COMPOSER_MODEL_ID}" in [info.selection_ref for info in infos]
-    row = next(row for row in rows if row.selection_ref == "model:xai_oauth:grok-new-future-2027")
-    assert row.provider_id == "xai_oauth"
-    assert "chat" in row.categories
-    assert row.capabilities_snapshot["transport"] == "openai_responses"
 
 
 def test_xai_oauth_capability_refresh_updates_and_removes_vision(tmp_path, monkeypatch):
@@ -1113,45 +1095,6 @@ def test_xai_oauth_discovery_failure_uses_last_successful_cache_without_fallback
     assert "temporary outage" in cfg["last_error"]
 
 
-def test_xai_oauth_disappeared_selected_model_preserves_provider_ref(tmp_path, monkeypatch):
-    from row_bot.providers.model_catalog import build_model_catalog_rows
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(
-        "row_bot.providers.model_catalog._provider_status_by_id",
-        lambda: {"xai_oauth": {"configured": True, "runtime_enabled": True}},
-    )
-    _set_backend_for_tests(_MemoryKeyring())
-    try:
-        save_xai_oauth_tokens(XAIOAuthTokenSet(access_token=_valid_token(), refresh_token="refresh-secret"))
-        list_xai_oauth_model_infos(force_refresh=True, http_client=_HttpClient([_Response(200, {
-            "data": [{"id": "grok-current", "display_name": "Grok Current"}],
-        })]))
-        rows = build_model_catalog_rows(
-            cloud_cache={},
-            ollama_rows=[],
-            defaults={"chat": "model:xai_oauth:grok-vanished"},
-            quick_choices=[],
-        )
-    finally:
-        _set_backend_for_tests(None)
-
-    vanished = next(row for row in rows if row.selection_ref == "model:xai_oauth:grok-vanished")
-    assert vanished.provider_id == "xai_oauth"
-    assert vanished.model_id == "grok-vanished"
-    assert vanished.default_surfaces == ("chat",)
-    assert vanished.selection_ref == "model:xai_oauth:grok-vanished"
-    assert any(row.selection_ref == "model:xai_oauth:grok-current" for row in rows)
-    assert not any(
-        row.provider_id == "xai" and row.model_id == "grok-vanished"
-        for row in rows
-    )
-    assert not any(
-        row.provider_id == "xai" and "chat" in row.default_surfaces
-        for row in rows
-    )
-
-
 def test_xai_oauth_runtime_factory_and_probe(tmp_path, monkeypatch):
     import row_bot.providers.runtime as runtime
     from langchain_core.messages import AIMessage, ToolMessage
@@ -1232,46 +1175,6 @@ def test_xai_oauth_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monk
     )
 
     assert list_quick_model_ids("chat") == []
-
-
-def test_xai_oauth_quick_choice_seed_requires_runtime_enabled(tmp_path, monkeypatch):
-    from row_bot.providers.models import ModelInfo
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(
-        "row_bot.providers.runtime.provider_status",
-        lambda provider_id: {"configured": False, "runtime_enabled": False},
-    )
-    assert seed_recommended_xai_oauth_quick_choices() == []
-
-    monkeypatch.setattr(
-        "row_bot.providers.runtime.provider_status",
-        lambda provider_id: {"configured": True, "runtime_enabled": True},
-    )
-    monkeypatch.setattr(
-        "row_bot.providers.xai_oauth.list_xai_oauth_model_infos",
-        lambda: [
-            ModelInfo(
-                provider_id="xai_oauth",
-                model_id="grok-4",
-                display_name="Grok 4",
-                context_window=2_000_000,
-                transport=TransportMode.OPENAI_RESPONSES,
-                tasks=frozenset({"responses"}),
-                capabilities=frozenset({"text", "chat", "tool_calling", "streaming"}),
-                input_modalities=frozenset({"text"}),
-                output_modalities=frozenset({"text"}),
-                tool_calling=True,
-                streaming=True,
-                endpoint_compatibility=frozenset({TransportMode.OPENAI_RESPONSES}),
-            )
-        ],
-    )
-
-    quick = seed_recommended_xai_oauth_quick_choices()
-
-    assert [choice["id"] for choice in quick] == ["model:xai_oauth:grok-4"]
-    assert quick[0]["provider_id"] == "xai_oauth"
 
 
 def test_xai_oauth_status_cards_expose_client_id_and_probe_state(tmp_path, monkeypatch):

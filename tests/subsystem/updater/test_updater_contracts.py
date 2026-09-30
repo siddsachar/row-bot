@@ -39,17 +39,15 @@ def test_updater_manifest_and_version_contracts(tmp_path, monkeypatch) -> None:
     assert updater.parse_manifest("<!-- row-bot-update-manifest -->\n```manifest\nfiles:\n  bad-line\n```\n") == {}
 
 
-def test_update_state_persists_channel_and_skipped_versions(tmp_path, monkeypatch) -> None:
+def test_update_state_persists_skipped_versions(tmp_path, monkeypatch) -> None:
     updater = _reload_updater(monkeypatch, tmp_path)
 
     state = updater.get_update_state()
     assert state.channel == "stable"
     updater.skip_version("9.9.9")
-    updater.set_channel("beta")
 
     updater._state = None
     reloaded = updater.get_update_state()
-    assert reloaded.channel == "beta"
     assert "9.9.9" in reloaded.skipped_versions
 
 

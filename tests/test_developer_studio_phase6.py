@@ -69,28 +69,6 @@ def test_developer_pr_uses_gh_cli_after_confirmed_approval(tmp_path, monkeypatch
     assert result.url == "https://github.com/example/repo/pull/12"
 
 
-def test_developer_pr_preview_uses_branch_and_changed_files(tmp_path, monkeypatch):
-    github = _fresh_modules(tmp_path, monkeypatch)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-
-    def fake_run(args, *, cwd=None, timeout=20):
-        if args[:2] == ["git", "branch"]:
-            return subprocess.CompletedProcess(args, 0, stdout="feat/cool-change\n", stderr="")
-        if args[:2] == ["git", "status"]:
-            return subprocess.CompletedProcess(args, 0, stdout=" M README.md\n?? app.py\n", stderr="")
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(github, "_run", fake_run)
-
-    preview = github.suggest_pull_request_text(str(repo))
-
-    assert preview.title == "Cool change"
-    assert "`README.md`" in preview.body
-    assert "`app.py`" in preview.body
-    assert preview.changed_files == 2
-
-
 def test_developer_pr_is_blocked_in_block_even_when_clicked(tmp_path, monkeypatch):
     github = _fresh_modules(tmp_path, monkeypatch)
     repo = tmp_path / "repo"

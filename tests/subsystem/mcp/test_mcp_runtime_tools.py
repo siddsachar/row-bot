@@ -108,7 +108,7 @@ def test_server_runtime_discovers_tools_and_exposes_resource_prompt_methods() ->
     assert "[user] {'topic': 'tests'}" in asyncio.run(server.get_prompt("summarize", {"topic": "tests"}))
 
 
-def test_discover_stop_refresh_and_shutdown_use_fake_runtime(monkeypatch) -> None:
+def test_discover_and_shutdown_use_fake_runtime(monkeypatch) -> None:
     from row_bot.mcp_client import runtime
 
     started = []
@@ -142,10 +142,6 @@ def test_discover_stop_refresh_and_shutdown_use_fake_runtime(monkeypatch) -> Non
     runtime.discover_enabled_servers()
     assert started == ["fake"]
     assert "fake" in runtime._servers
-
-    runtime.refresh_server("fake")
-    assert stopped == ["fake"]
-    assert started == ["fake", "fake"]
 
     runtime.shutdown()
     assert stopped[-1] == "fake"

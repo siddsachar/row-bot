@@ -390,7 +390,7 @@ def test_preexecution_failure_does_not_hide_an_unreleased_writer_from_recovery_h
         original(run_id=commands._run_id(body["command_id"]))
 
 
-def test_capacity_and_bulk_stop_retain_failed_finalization_until_explicit_recovery(owner, monkeypatch):
+def test_capacity_retains_failed_finalization_until_explicit_recovery(owner, monkeypatch):
     import sys
     d, body = owner.d, owner.body(_command("import threading;threading.Event().wait()"))
     owner.execute(body)
@@ -405,7 +405,6 @@ def test_capacity_and_bulk_stop_retain_failed_finalization_until_explicit_recove
         monkeypatch.setattr(d.runtime, "_PROCESS_LIMIT", 1)
         with pytest.raises(ValueError, match="process_limit"):
             d.runtime.launch_tracked_process(d.root, [sys.executable, "-c", "print('must not run')"], "synthetic capacity")
-        d.runtime.stop_workspace_processes(str(d.root))
         assert d.state(body["command_id"]) is state
         monkeypatch.setattr(d.runs, "release_agent_write_lock", original)
         recovered = owner.execute(owner.cleanup(body, body["command_id"], "recover"))

@@ -38,7 +38,6 @@ def test_langchain_messages_to_ui_messages_preserves_visible_shapes():
 
 def test_checkpoint_tool_invoke_results_recover_distinct_underlying_names():
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from row_bot.application.conversation_traces import group_tool_results
     from row_bot.message_projection import langchain_messages_to_ui_messages
 
     targets = [
@@ -70,7 +69,6 @@ def test_checkpoint_tool_invoke_results_recover_distinct_underlying_names():
     results = ui_messages[-1]["tool_results"]
 
     assert [result["name"] for result in results] == targets
-    assert [group.name for group in group_tool_results(results)] == targets
     assert "secret-" not in str(ui_messages)
     assert "private" not in str(ui_messages)
 

@@ -253,7 +253,7 @@ def test_refresh_cloud_models_preserves_requesty_rows_when_fetch_fails(monkeypat
         }
         models._current_model = "model:requesty:openai/gpt-4o-mini"
 
-        models.refresh_cloud_models()
+        models.refresh_cloud_models_detailed()
 
         assert "requesty" in calls
         assert models._cloud_model_cache["model:requesty:openai/gpt-4o-mini"]["provider"] == "requesty"
@@ -368,41 +368,6 @@ def test_requesty_missing_tool_metadata_is_chat_only(monkeypatch):
     assert result.chat.ready is True
     assert result.agent.ready is False
     assert any("Requesty tool metadata" in error for error in result.agent.errors)
-
-
-def test_requesty_model_catalog_rows_are_chat_only_without_tool_metadata(monkeypatch):
-    from row_bot.providers.model_catalog import build_model_catalog_rows
-
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "requesty": {"configured": True},
-    })
-
-    rows = build_model_catalog_rows(
-        cloud_cache={
-            "model:requesty:openai/gpt-4o-mini": {
-                "provider": "requesty",
-                "label": "GPT-4o mini",
-                "ctx": 128_000,
-                "transport": "openai_chat",
-                "capabilities_snapshot": {
-                    "tasks": ["chat"],
-                    "input_modalities": ["text"],
-                    "output_modalities": ["text"],
-                    "tool_calling": None,
-                    "streaming": True,
-                    "transport": "openai_chat",
-                    "endpoint_compatibility": ["openai_chat"],
-                },
-            },
-        },
-        ollama_rows=[],
-        quick_choices=[],
-    )
-
-    row = next(row for row in rows if row.selection_ref == "model:requesty:openai/gpt-4o-mini")
-    assert row.provider_id == "requesty"
-    assert row.runtime_mode == "chat_only"
-    assert row.status_reason == "Chat Only: tools and actions are off."
 
 
 @pytest.mark.parametrize(

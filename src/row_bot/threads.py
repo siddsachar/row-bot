@@ -56,13 +56,6 @@ THREAD_NAME_SOURCE_AUTO = "auto"
 THREAD_NAME_SOURCE_MANUAL = "manual"
 _THREAD_NAME_SOURCES = {THREAD_NAME_SOURCE_AUTO, THREAD_NAME_SOURCE_MANUAL}
 _THREAD_NAME_MAX_LENGTH = 120
-_DESKTOP_THREAD_BADGE = "\U0001f4bb"
-_MOBILE_THREAD_BADGE = "\U0001f4f1"
-_DEFAULT_AUTO_NAME_PREFIXES = (
-    "Thread ",
-    f"{_DESKTOP_THREAD_BADGE} Thread ",
-    f"{_MOBILE_THREAD_BADGE} Thread ",
-)
 
 _CHECKPOINT_LOCKS: dict[str, threading.RLock] = {}
 _CHECKPOINT_LOCKS_GUARD = threading.Lock()
@@ -364,28 +357,6 @@ def _set_thread_type(thread_id: str, thread_type: str) -> None:
     conn.close()
 
 
-def _get_thread_type(thread_id: str) -> str:
-    """Return the stored thread type, or an empty string."""
-    _ensure_thread_db()
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute(
-        "SELECT COALESCE(thread_type, '') FROM thread_meta WHERE thread_id = ?",
-        (thread_id,),
-    ).fetchone()
-    conn.close()
-    return row[0] if row else ""
-
-
-def _set_thread_developer_workspace(thread_id: str, workspace_id: str) -> None:
-    """Link a thread to a Developer workspace."""
-    _set_legacy_resource(thread_id, "developer_workspace_id", workspace_id, "workspace")
-
-
-def _set_thread_project_workspace(thread_id: str, workspace_id: str) -> None:
-    """Link a Developer thread to its root project workspace."""
-    _set_legacy_resource(thread_id, "project_workspace_id", workspace_id, "workspace")
-
-
 def _get_thread_approval_mode_raw(thread_id: str) -> str:
     """Return the stored thread approval mode without applying defaults."""
     _ensure_thread_db()
@@ -509,24 +480,6 @@ def _normalize_thread_name(name: str, *, fallback: str | None = None) -> str:
     return normalized[:_THREAD_NAME_MAX_LENGTH].rstrip() or (fallback or "Untitled")
 
 
-def _auto_thread_badge_for_name(name: str | None) -> str:
-    value = str(name or "").strip()
-    mobile_placeholder = f"{_MOBILE_THREAD_BADGE} Thread"
-    if value == mobile_placeholder or value.startswith(f"{mobile_placeholder} "):
-        return _MOBILE_THREAD_BADGE
-    return _DESKTOP_THREAD_BADGE
-
-
-def build_auto_thread_title(seed_text: str, *, current_name: str | None = None) -> str:
-    """Build a generated thread title while preserving the placeholder surface badge."""
-    badge = _auto_thread_badge_for_name(current_name)
-    seed = _normalize_thread_name(seed_text, fallback="Thread")
-    return _normalize_thread_name(
-        f"{badge} {seed[:50]}",
-        fallback=f"{badge} Thread",
-    )
-
-
 def _normalize_thread_name_source(source: str | None) -> str:
     value = str(source or "").strip().lower()
     return value if value in _THREAD_NAME_SOURCES else THREAD_NAME_SOURCE_AUTO
@@ -610,42 +563,6 @@ def create_thread(
     return tid
 
 
-def rename_thread(
-    thread_id: str,
-    name: str,
-    *,
-    source: str = THREAD_NAME_SOURCE_MANUAL,
-) -> str:
-    """Rename a thread and mark whether the title is manual or generated."""
-    _ensure_thread_db()
-    tid = str(thread_id or "").strip()
-    if not tid:
-        raise ValueError("Thread id cannot be empty.")
-    safe_name = _normalize_thread_name(name)
-    safe_source = _normalize_thread_name_source(source)
-    now = datetime.now().isoformat()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            "INSERT INTO thread_meta (thread_id, name, created_at, updated_at, name_source) "
-            "VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(thread_id) DO UPDATE SET name = ?, updated_at = ?, name_source = ?",
-            (tid, safe_name, now, now, safe_source, safe_name, now, safe_source),
-        )
-        conn.commit()
-    return safe_name
-
-
-def get_thread_name(thread_id: str) -> str:
-    """Return the stored display name for a thread."""
-    _ensure_thread_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT COALESCE(name, '') FROM thread_meta WHERE thread_id = ?",
-            (thread_id,),
-        ).fetchone()
-    return str(row[0] or "") if row else ""
-
-
 def touch_thread(thread_id: str) -> None:
     """Bump a thread's recency without changing its title."""
     if not thread_id:
@@ -689,53 +606,6 @@ def unpin_thread(thread_id: str) -> None:
     """Clear a thread's pin state."""
 
     set_thread_pinned(thread_id, False)
-
-
-def is_thread_pinned(thread_id: str) -> bool:
-    """Return True when a thread has a non-empty pin timestamp."""
-
-    _ensure_thread_db()
-    tid = str(thread_id or "").strip()
-    if not tid:
-        return False
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT COALESCE(pinned_at, '') FROM thread_meta WHERE thread_id = ?",
-            (tid,),
-        ).fetchone()
-    return bool(str(row[0] or "").strip()) if row else False
-
-
-def get_thread_name_source(thread_id: str) -> str:
-    """Return ``auto``, ``manual``, or an empty legacy source marker."""
-    _ensure_thread_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT COALESCE(name_source, '') FROM thread_meta WHERE thread_id = ?",
-            (thread_id,),
-        ).fetchone()
-    return str(row[0] or "") if row else ""
-
-
-def _looks_like_auto_thread_name(name: str | None) -> bool:
-    value = str(name or "").strip()
-    if not value:
-        return True
-    if value in {
-        "Thread",
-        f"{_DESKTOP_THREAD_BADGE} Thread",
-        f"{_MOBILE_THREAD_BADGE} Thread",
-    }:
-        return True
-    return any(value.startswith(prefix) for prefix in _DEFAULT_AUTO_NAME_PREFIXES)
-
-
-def should_auto_rename_thread(thread_id: str, current_name: str | None = None) -> bool:
-    """Return True when generated-title logic may still replace this title."""
-    name = current_name if current_name is not None else get_thread_name(thread_id)
-    if get_thread_name_source(thread_id) == THREAD_NAME_SOURCE_MANUAL:
-        return False
-    return _looks_like_auto_thread_name(name)
 
 
 def list_developer_workspace_threads(workspace_id: str) -> list[tuple]:
@@ -873,30 +743,6 @@ def _thread_media_dir(thread_id: str) -> pathlib.Path:
     return d
 
 
-def save_thread_media(thread_id: str, payload: dict) -> None:
-    """Persist media sidecar (v2 — file paths, not base64)."""
-    if _thread_write_blocked(thread_id):
-        return
-    try:
-        path = _thread_ui_media_path(thread_id)
-        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        logger.warning("Failed to save thread media sidecar for %s", thread_id, exc_info=True)
-
-
-def load_thread_media(thread_id: str) -> dict | None:
-    """Load media sidecar for a thread (if any)."""
-    try:
-        path = _thread_ui_media_path(thread_id)
-        if not path.exists():
-            return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
-    except Exception:
-        logger.warning("Failed to load thread media sidecar for %s", thread_id, exc_info=True)
-        return None
-
-
 def save_media_file(thread_id: str, filename: str, data: bytes) -> pathlib.Path:
     """Write raw media bytes to the per-thread media directory.
 
@@ -908,17 +754,6 @@ def save_media_file(thread_id: str, filename: str, data: bytes) -> pathlib.Path:
     dest = d / filename
     dest.write_bytes(data)
     return dest
-
-
-def load_media_file(thread_id: str, filename: str) -> bytes | None:
-    """Read a media file from the per-thread media directory."""
-    path = _MEDIA_DIR / thread_id / filename
-    if path.exists():
-        try:
-            return path.read_bytes()
-        except Exception:
-            logger.warning("Failed to read media file %s", path, exc_info=True)
-    return None
 
 
 def _next_media_filename(thread_id: str, prefix: str, ext: str) -> str:
@@ -1219,64 +1054,6 @@ def set_thread_reasoning_selection(
         conn.execute(
             "UPDATE thread_meta SET reasoning_selections_json = ?, updated_at = ? WHERE thread_id = ?",
             (json.dumps(payload, sort_keys=True, separators=(",", ":")), datetime.now().isoformat(), thread_id),
-        )
-        conn.commit()
-
-
-def set_thread_chat_controls(
-    thread_id: str,
-    *,
-    model_override: str,
-    approval_mode: str,
-    profile_id_or_slug: str,
-    reasoning_model_ref: str,
-    reasoning_selection: dict | None,
-) -> None:
-    """Atomically save the combined mobile model/chat-controls dialog."""
-    from row_bot.providers.reasoning import ReasoningSelection
-    from row_bot.providers.selection import parse_model_ref
-
-    profile_id = ""
-    profile_slug = ""
-    if profile_id_or_slug:
-        from row_bot.agent_profiles import require_agent_profile
-
-        profile = require_agent_profile(profile_id_or_slug, enabled_only=True)
-        profile_id = str(profile["id"])
-        profile_slug = str(profile["slug"])
-    model_key = str(reasoning_model_ref or "").strip()
-    if parse_model_ref(model_key) is None:
-        raise ValueError("Reasoning controls require a canonical provider-qualified model reference.")
-    selection = ReasoningSelection.from_json(reasoning_selection)
-    _ensure_thread_db()
-    with sqlite3.connect(DB_PATH, timeout=30) as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT COALESCE(reasoning_selections_json, '') FROM thread_meta WHERE thread_id = ?",
-            (thread_id,),
-        ).fetchone()
-        try:
-            loaded = json.loads(row[0]) if row and row[0] else {}
-        except (TypeError, json.JSONDecodeError):
-            loaded = {}
-        reasoning_map = dict(loaded) if isinstance(loaded, dict) else {}
-        if selection.is_default:
-            reasoning_map.pop(model_key, None)
-        else:
-            reasoning_map[model_key] = selection.to_json()
-        conn.execute(
-            "UPDATE thread_meta SET model_override = ?, approval_mode = ?, "
-            "agent_profile_id = ?, agent_profile_slug = ?, reasoning_selections_json = ?, updated_at = ? "
-            "WHERE thread_id = ?",
-            (
-                str(model_override or ""),
-                normalize_approval_mode(approval_mode, DEFAULT_APPROVAL_MODE),
-                profile_id,
-                profile_slug,
-                json.dumps(reasoning_map, sort_keys=True, separators=(",", ":")),
-                datetime.now().isoformat(),
-                thread_id,
-            ),
         )
         conn.commit()
 
@@ -1613,14 +1390,6 @@ def clear_context_usage(thread_id: str) -> None:
         conn.commit()
 
 
-def clear_all_context_usage() -> None:
-    """Clear every display-only context snapshot after a global policy change."""
-    _ensure_thread_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("UPDATE thread_meta SET context_usage_json = ''")
-        conn.commit()
-
-
 def append_thread_event(
     thread_id: str,
     event_type: str,
@@ -1695,57 +1464,6 @@ def _thread_event_row(row) -> dict:
         "source_revision": str(row[7] or ""),
         "created_at": str(row[8] or ""),
     }
-
-
-def list_thread_events(thread_id: str) -> list[dict]:
-    if not thread_id:
-        return []
-    _ensure_thread_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        rows = conn.execute(
-            "SELECT id, thread_id, event_type, event_key, payload_json, after_message_id, "
-            "after_message_count, source_revision, created_at FROM thread_events "
-            "WHERE thread_id = ? ORDER BY id",
-            (thread_id,),
-        ).fetchall()
-    return [_thread_event_row(row) for row in rows]
-
-
-def merge_thread_events(ui_messages: list[dict], events: list[dict]) -> list[dict]:
-    """Merge presentation events into a UI transcript without model messages."""
-    merged = list(ui_messages)
-    existing_ids = {
-        int(message.get("event_id") or 0)
-        for message in merged
-        if isinstance(message, dict) and int(message.get("event_id") or 0)
-    }
-    for event in events:
-        event_id = int(event.get("id") or 0)
-        if event_id in existing_ids:
-            continue
-        payload = dict(event.get("payload") or {})
-        row = {
-            "role": "context_event",
-            "event_id": event_id,
-            "event_type": str(event.get("event_type") or ""),
-            "content": str(payload.get("display_copy") or ""),
-            "severity": str(payload.get("severity") or "info"),
-            "icon": str(payload.get("icon") or "compress"),
-            "timestamp": str(event.get("created_at") or "")[11:16],
-        }
-        anchor = str(event.get("after_message_id") or "")
-        fallback_count = max(0, int(event.get("after_message_count") or 0))
-        insert_at = min(fallback_count, len(merged)) if fallback_count else len(merged)
-        if anchor:
-            for index, message in enumerate(merged):
-                if str(message.get("checkpoint_message_id") or "") == anchor:
-                    insert_at = index + 1
-                    while insert_at < len(merged) and merged[insert_at].get("role") == "context_event":
-                        insert_at += 1
-                    break
-        merged.insert(insert_at, row)
-        existing_ids.add(event_id)
-    return merged
 
 
 def claim_thread_event_delivery(event_id: int, channel: str) -> dict | None:

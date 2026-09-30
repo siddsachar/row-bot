@@ -188,7 +188,7 @@ def test_initial_legacy_sync_cannot_infer_unchanged_properties_from_timestamp(wi
     kg.touch_recalled([entity["id"]])
     current = kg.get_entity(entity["id"])
     assert current["updated_at"] == entity["updated_at"]
-    assert wiki.sync_all_from_vault()["failed"] == 1
+    assert wiki.import_from_vault(entity["id"], legacy) is False
     assert kg.get_entity(entity["id"])["properties"] == current["properties"]
 
 

@@ -8,14 +8,12 @@ from row_bot.providers.selection import (
     list_model_choice_options,
     list_quick_model_ids,
     list_quick_choices,
-    model_choice_options_map,
     model_choice_value,
     migrate_legacy_starred_models,
     provider_display_label,
     prune_stale_custom_quick_choices,
     refresh_quick_choice_capability_snapshots,
     remove_quick_choices_for_missing_models,
-    remove_quick_choices_for_provider,
     remove_quick_choice_for_model,
     resolve_selection,
     validate_quick_choices_for_surface,
@@ -289,25 +287,6 @@ def test_quick_choices_keep_same_model_id_for_different_providers(tmp_path, monk
     assert {choice["display_name"] for choice in choices} == {"Routed Shared", "Lab Shared"}
 
 
-def test_remove_quick_choices_for_provider_is_provider_qualified(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    provider_config.save_provider_config({
-        "custom_endpoints": [
-            {"id": "old", "name": "Old", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False},
-            {"id": "new", "name": "New", "base_url": "http://127.0.0.1:9000/v1", "auth_required": False},
-        ],
-    })
-
-    add_quick_choice_for_model("shared-model", provider_id="custom_openai_old", display_name="Old Shared")
-    add_quick_choice_for_model("shared-model", provider_id="custom_openai_new", display_name="New Shared")
-
-    assert remove_quick_choices_for_provider("custom_openai_old") == 1
-
-    choices = list_quick_choices("")
-    assert [choice["id"] for choice in choices] == ["model:custom_openai_new:shared-model"]
-
-
 def test_remove_quick_choices_for_missing_models_keeps_valid_provider_models(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -378,7 +357,7 @@ def test_model_choice_options_disambiguate_same_model_id_by_provider(tmp_path, m
     add_quick_choice_for_model("gpt-5.5", provider_id="codex", display_name="GPT-5.5", capabilities_snapshot=snapshot)
 
     options = list_model_choice_options("chat")
-    option_map = model_choice_options_map("chat")
+    option_map = {str(option["value"]): str(option["label"]) for option in options}
 
     assert [option["value"] for option in options] == [
         "model:openai:gpt-5.5",

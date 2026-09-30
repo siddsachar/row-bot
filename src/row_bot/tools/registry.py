@@ -308,20 +308,6 @@ def get_global_config(key: str, default=None):
         _load_global_config()
     return _global_config.get(key, default)
 
-def set_global_config(key: str, value) -> None:
-    """Write a global config value and persist."""
-    global _global_config
-    with _CONFIG_LOCK:
-        _ensure_config_scope()
-        saved = tool_configuration.read_saved(_config_path())
-        document = tool_configuration.editable_document(saved)
-        values = document.setdefault("global", {})
-        values[key] = copy.deepcopy(value)
-        _write_config_atomic(_config_path(), document, expected_digest=saved.digest)
-        _global_config = copy.deepcopy(values)
-    _invalidate_agent_cache()
-
-
 def get_external_tool_loading_mode() -> str:
     """Return the normalized external-tool binding mode."""
 

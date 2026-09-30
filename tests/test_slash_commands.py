@@ -95,7 +95,6 @@ def test_registry_aliases_generated_skills_and_hidden_entries(tmp_path, monkeypa
     assert slash_commands.resolve_command_token("/settings") is None
 
     assert slash_commands.resolve_command_token("/skill").id == "skills"
-    assert slash_commands.resolve_command_text("/skill reset")[0].id == "skill-reset"
     assert slash_commands.resolve_command_token("/meeting-notes").skill_name == "meeting_notes"
     assert slash_commands.resolve_command_token("/meeting_notes").skill_name == "meeting_notes"
     assert slash_commands.resolve_command_token("/off-skill") is None
@@ -153,43 +152,6 @@ def test_reasoning_is_a_builtin_chat_command_without_aliases(tmp_path, monkeypat
     assert "`/reasoning`" in slash_commands.help_text(include_skills=False)
 
 
-def test_direct_skill_activation_and_reset_dispatch(tmp_path, monkeypatch):
-    _write_skill(
-        tmp_path,
-        "deep_research",
-        display_name="Deep Research",
-        description="Research and summarize sources",
-    )
-    skills, activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
-    skills.load_skills()
-
-    response = slash_commands.dispatch_text_command("thread-a", "/deep-research")
-    assert response and "deep_research" in response
-    assert activation.resolve_active_skill_names("thread-a") == ["deep_research"]
-
-    reset = slash_commands.dispatch_text_command("thread-a", "/skill-reset")
-    assert reset == "Skills reset for this chat."
-    assert activation.resolve_active_skill_names("thread-a") == skills.get_default_active_skill_names("chat")
-
-
-def test_slash_token_replacement_preserves_draft_text(tmp_path, monkeypatch):
-    _skills, _activation, slash_commands = _reload_skill_command_modules(tmp_path, monkeypatch)
-
-    text = "Please /meeting-notes summarize this"
-    cursor = text.index(" summarize")
-    new_text, new_cursor = slash_commands.remove_current_slash_token(text, cursor)
-    assert new_text == "Please summarize this"
-    assert new_cursor <= len(new_text)
-
-    replaced, cursor_after = slash_commands.replace_current_slash_token(
-        "Use /nos",
-        len("Use /nos"),
-        "/noskill ",
-    )
-    assert replaced == "Use /noskill "
-    assert cursor_after == len(replaced)
-
-
 def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_path, monkeypatch):
     _write_skill(
         tmp_path,
@@ -224,7 +186,7 @@ def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_pat
     assert "## Skills" not in lean_prompt
     assert "Instructions for alpha_skill." not in lean_prompt
 
-    slash_commands.dispatch_text_command(thread_id, "/alpha-skill")
+    activation.pin_skill(thread_id, "alpha_skill")
     active = agent._pre_model_trim(
         _trim_state([HumanMessage(content="alpha planning")], "slash-prompt-active")
     )

@@ -26,8 +26,8 @@ def workspace_api(service, tmp_path, monkeypatch):
     service.readiness_factory = lambda _: False
     def forbidden(*args, **kwargs):
         pytest.fail("Empty creation invoked implicit Developer execution or changed policy")
-    for name in ("clone_repository", "create_workspace_thread", "ensure_workspace_thread",
-                 "create_thread_worktree", "detect_git_summary", "set_workspace_approval_mode",
+    for name in ("clone_repository", "ensure_workspace_thread",
+                 "detect_git_summary", "set_workspace_approval_mode",
                  "set_workspace_execution_settings", "remember_clone_parent_folder"):
         monkeypatch.setattr(storage, name, forbidden)
     monkeypatch.setattr(service, "_start", forbidden)

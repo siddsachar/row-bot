@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -35,7 +36,10 @@ def test_voice_runtime_follows_changed_test_data_dir(tmp_path, monkeypatch):
     second = tmp_path / "second"
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(first))
-    voice.runtime.update_voice_runtime_settings(talk_provider="local", talk_model="local-whisper-base")
+    saved = voice.runtime._settings_path()
+    saved.parent.mkdir(parents=True, exist_ok=True)
+    saved.write_text(json.dumps({"talk_model": "local-whisper-base"}), encoding="utf-8")
+    assert voice.runtime.load_voice_runtime_settings().talk_model == "local-whisper-base"
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(second))
     loaded = voice.runtime.load_voice_runtime_settings()

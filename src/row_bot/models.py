@@ -1791,37 +1791,6 @@ def validate_requesty_key(api_key: str) -> bool:
         return False
 
 
-def validate_ollama_cloud_key(api_key: str) -> bool:
-    """Validate an Ollama Cloud API key with a tiny authenticated chat probe."""
-    import httpx
-    from row_bot.providers.transports.ollama_cloud import normalize_ollama_cloud_api_key
-
-    clean_key = normalize_ollama_cloud_api_key(api_key)
-    if not clean_key:
-        return False
-
-    try:
-        probe_model = "gpt-oss:20b"
-        resp = httpx.post(
-            f"{OLLAMA_CLOUD_BASE_URL}/api/chat",
-            headers={"Authorization": f"Bearer {clean_key}"},
-            json={
-                "model": probe_model,
-                "messages": [{"role": "user", "content": "ok"}],
-                "stream": False,
-                "options": {"num_predict": 1},
-            },
-            timeout=20,
-        )
-        if resp.status_code == 200:
-            return True
-        logger.warning("Ollama Cloud key validation: %d - %s", resp.status_code, resp.text[:200])
-        return False
-    except Exception as exc:
-        logger.warning("Ollama Cloud key validation error: %s", exc)
-        return False
-
-
 def validate_anthropic_key(api_key: str) -> bool:
     """Validate an Anthropic API key by listing models.
 
@@ -2436,18 +2405,6 @@ def _minimax_model_info(
         last_verified_at=last_verified_at,
         source=source,
     )
-
-
-def _minimax_fallback_model_infos():
-    return [
-        _minimax_model_info(
-            model_id,
-            {"max_input_tokens": context_window},
-            source="minimax_static_fallback",
-            source_confidence="documented_minimax_fallback",
-        )
-        for model_id, context_window in _MINIMAX_FALLBACK_MODELS
-    ]
 
 
 def _is_minimax_cache_entry(model_id: str, info: dict) -> bool:
@@ -3100,11 +3057,6 @@ def refresh_cloud_models_detailed() -> dict[str, ProviderCatalogRefreshResult]:
         _llm_instance = None  # lazy-recreate on next get_llm()
 
     return results
-
-
-def refresh_cloud_models() -> int:
-    """Refresh all remote provider catalogs and return the update count."""
-    return sum(result.update_count for result in refresh_cloud_models_detailed().values())
 
 
 def _cloud_model_available_after_refresh(model_name: str) -> bool:

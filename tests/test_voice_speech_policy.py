@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from row_bot.voice.speech_policy import make_speakable_response, user_requested_read_aloud
+from row_bot.voice.speech_policy import make_speakable_response
 
 
 def test_speakable_response_truncates_long_answers():
@@ -36,9 +36,3 @@ def test_speakable_response_allows_explicit_read_aloud():
 
     assert response.truncated is False
     assert response.text == "One. Two. Three. Four."
-
-
-def test_user_requested_read_aloud_markers():
-    assert user_requested_read_aloud("Can you read this aloud for me?")
-    assert user_requested_read_aloud("Please say this exactly.")
-    assert not user_requested_read_aloud("Summarize this.")

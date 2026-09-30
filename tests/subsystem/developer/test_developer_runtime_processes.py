@@ -150,7 +150,12 @@ def test_managed_background_process_starts_and_stops_cleanly(tmp_path) -> None:
     try:
         assert result.returncode == 0
         assert "Started PID" in result.stdout
-        assert runtime.stop_workspace_processes(workspace.path) == 1
-        assert runtime.stop_workspace_processes(workspace.path) == 0
+        states = runtime.tracked_processes(workspace.path)
+        assert len(states) == 1
+        runtime.stop_tracked_process(states[0])
+        assert states[0].done.wait(10)
+        assert states[0].quiesced
     finally:
-        runtime.stop_workspace_processes(workspace.path)
+        for state in runtime.tracked_processes(workspace.path):
+            runtime.stop_tracked_process(state)
+            assert state.done.wait(10)

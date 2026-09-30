@@ -785,33 +785,6 @@ def test_ollama_cloud_runtime_flattens_tool_history_for_non_tool_models():
     assert "tool_name" not in captured["messages"][2]
 
 
-def test_ollama_cloud_key_validation_uses_authenticated_chat_probe(monkeypatch):
-    import row_bot.models as models
-
-    calls = []
-
-    class _Response:
-        def __init__(self, status_code=200, payload=None, text=""):
-            self.status_code = status_code
-            self._payload = payload or {}
-            self.text = text
-
-        def json(self):
-            return self._payload
-
-    def fake_post(url, **kwargs):
-        calls.append(("POST", url, kwargs))
-        return _Response(200, {})
-
-    monkeypatch.setattr("httpx.post", fake_post)
-
-    assert models.validate_ollama_cloud_key("Bearer test-key") is True
-    post_call = next(call for call in calls if call[0] == "POST")
-    assert post_call[2]["headers"]["Authorization"] == "Bearer test-key"
-    assert post_call[2]["json"]["model"] == "gpt-oss:20b"
-    assert post_call[2]["json"]["options"]["num_predict"] == 1
-
-
 def test_ollama_cloud_runtime_serializes_vision_images():
     from langchain_core.messages import HumanMessage
     from row_bot.providers.transports.ollama_cloud import ChatOllamaCloud

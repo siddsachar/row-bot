@@ -147,27 +147,6 @@ def test_channel_secret_status_reports_env_when_keyring_fails(data_dir, monkeypa
     assert status["fingerprint"] == "****5678"
 
 
-def test_import_channel_secret_from_environment_fallback(data_dir, monkeypatch):
-    secret_store, _api_keys, channel_auth, backend = _reload_auth_modules(
-        monkeypatch, data_dir,
-    )
-    monkeypatch.setenv("SLACK_APP_TOKEN", "env-slack-4567")
-
-    assert channel_auth.import_channel_secret_from_fallback(
-        "slack",
-        "SLACK_APP_TOKEN",
-    ) is True
-
-    service = secret_store.SERVICE_NAME
-    assert backend.values[
-        (service, "channels:slack:SLACK_APP_TOKEN")
-    ] == "env-slack-4567"
-    assert channel_auth.channel_secret_status(
-        "slack",
-        "SLACK_APP_TOKEN",
-    )["source"] == "channel keyring"
-
-
 def test_migrate_legacy_channel_secrets_copies_without_deleting_legacy(
     data_dir,
     monkeypatch,

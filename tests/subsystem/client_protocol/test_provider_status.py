@@ -211,7 +211,7 @@ def test_public_redaction_no_implicit_runtime_io_or_saved_mutation(api_saved, mo
         (config, ["save_provider_config"]), (auth_store, ["get_provider_secret", "provider_secret_status"]),
         (runtime, ["provider_status"]), (selection, ["prune_stale_custom_quick_choices", "list_quick_choices"]),
         (custom, ["custom_probe_for_model", "refresh_custom_endpoint_models"]),
-        (model_catalog, ["_provider_status_by_id", "_codex_model_infos", "_claude_subscription_model_infos", "_xai_oauth_model_infos", "_probe_ollama_show_metadata"]),
+        (model_catalog, ["_provider_status_by_id", "_probe_ollama_show_metadata"]),
     ]:
         for name in names:
             monkeypatch.setattr(module, name, lambda *args, owner=f"{module.__name__}.{name}", **kwargs: forbidden(owner))

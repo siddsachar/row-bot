@@ -218,7 +218,7 @@ def test_passive_reads_call_no_runtime_secret_discovery_or_mutation_owner(saved,
         raise AssertionError("passive status must not invoke side effect owners")
 
     for module, names in [
-        (model_catalog, ["_provider_status_by_id", "_safe_cloud_cache", "_safe_quick_choices", "_custom_model_infos", "_codex_model_infos", "_claude_subscription_model_infos", "_xai_oauth_model_infos", "_curated_media_entries", "_probe_ollama_show_metadata", "_catalog_runtime_summary"]),
+        (model_catalog, ["_provider_status_by_id", "_probe_ollama_show_metadata", "_catalog_runtime_summary"]),
         (cache, ["_bootstrap_snapshot_from_runtime", "write_model_catalog_cache", "refresh_model_catalog_cache", "start_model_catalog_refresh_background"]),
         (config, ["save_provider_config"]), (auth, ["get_provider_secret", "provider_secret_status"]),
         (runtime, ["provider_status"]), (selection, ["list_quick_choices", "prune_stale_custom_quick_choices"]),

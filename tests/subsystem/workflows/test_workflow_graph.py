@@ -89,21 +89,6 @@ def test_new_and_seeded_workflows_default_to_default_profile_without_old_overrid
     assert all(item["skills_override"] is None for item in seeded)
 
 
-def test_workflow_drafts_are_isolated_from_saved_tasks(tmp_path, monkeypatch) -> None:
-    tasks = fresh_tasks_module(tmp_path, monkeypatch)
-    payload = {"name": "Draft", "steps": sample_workflow_steps()}
-
-    tasks.save_workflow_draft(None, payload)
-    draft = tasks.get_workflow_draft(None)
-
-    assert draft is not None
-    assert draft["mode"] == "new"
-    assert draft["payload"]["name"] == "Draft"
-
-    tasks.delete_workflow_draft(None)
-    assert tasks.get_workflow_draft(None) is None
-
-
 def test_subtask_cycle_detection_uses_current_unsaved_steps(tmp_path, monkeypatch) -> None:
     tasks = fresh_tasks_module(tmp_path, monkeypatch)
     parent_id = tasks.create_task("Parent", steps=[], apply_default_skills=False)

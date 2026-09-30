@@ -11,7 +11,6 @@ from row_bot.providers.custom import (
     custom_model_cache_entries,
     custom_probe_for_model,
     custom_provider_id,
-    delete_custom_endpoint,
     get_custom_endpoint,
     list_custom_provider_definitions,
     model_infos_from_openai_compatible_catalog,
@@ -383,60 +382,6 @@ def test_existing_litellm_provider_default_system_mode_is_upgraded(tmp_path, mon
     endpoint = get_custom_endpoint("litellm-local")
 
     assert endpoint["system_message_mode"] == "system_first"
-
-
-def test_custom_endpoint_delete_removes_config_entry(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    save_custom_endpoint({"id": "localai", "base_url": "http://127.0.0.1:8080/v1", "auth_required": False})
-
-    delete_custom_endpoint("localai")
-
-    assert get_custom_endpoint("localai") is None
-
-
-def test_custom_endpoint_delete_removes_only_matching_provider_quick_choices(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    save_custom_endpoint({
-        "id": "old",
-        "base_url": "http://127.0.0.1:8000/v1",
-        "auth_required": False,
-        "models": [{"id": "shared-model", "model_id": "shared-model"}],
-    })
-    save_custom_endpoint({
-        "id": "new",
-        "base_url": "http://127.0.0.1:9000/v1",
-        "auth_required": False,
-        "models": [{"id": "shared-model", "model_id": "shared-model"}],
-    })
-    add_quick_choice_for_model("shared-model", provider_id=custom_provider_id("old"), display_name="Old Shared")
-    add_quick_choice_for_model("shared-model", provider_id=custom_provider_id("new"), display_name="New Shared")
-
-    removed = delete_custom_endpoint("old")
-
-    assert removed == 1
-    assert get_custom_endpoint("old") is None
-    assert [choice["id"] for choice in list_quick_choices("")] == [
-        f"model:{custom_provider_id('new')}:shared-model"
-    ]
-
-
-def test_custom_endpoint_delete_keeps_the_saved_default_without_fallback(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
-    monkeypatch.setattr(models, "_current_model", f"model:{custom_provider_id('old')}:old-model")
-    save_custom_endpoint({
-        "id": "old",
-        "base_url": "http://127.0.0.1:8000/v1",
-        "auth_required": False,
-        "models": [{"id": "old-model", "model_id": "old-model"}],
-    })
-
-    delete_custom_endpoint("old")
-
-    # No fallback (decision 9): the default reads as unavailable instead.
-    assert models.get_current_model() == f"model:{custom_provider_id('old')}:old-model"
 
 
 def test_get_current_model_keeps_a_previously_deleted_custom_default(tmp_path, monkeypatch):

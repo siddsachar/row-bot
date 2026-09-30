@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Iterable
+from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
 
@@ -107,23 +107,6 @@ def write_model_catalog_cache(snapshot: CatalogCacheSnapshot, path: pathlib.Path
     tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
     tmp_path.write_text(json.dumps(_snapshot_to_payload(snapshot), indent=2), encoding="utf-8")
     tmp_path.replace(cache_path)
-
-
-def build_cached_model_catalog_rows(
-    *,
-    defaults: dict[str, str] | None = None,
-    quick_choices: Iterable[dict[str, Any]] | None = None,
-    snapshot: CatalogCacheSnapshot | None = None,
-):
-    from row_bot.providers.model_catalog import build_model_catalog_rows
-
-    snap = snapshot or read_model_catalog_cache()
-    return build_model_catalog_rows(
-        cloud_cache=snap.cloud_cache,
-        ollama_rows=snap.ollama_rows,
-        defaults=defaults,
-        quick_choices=quick_choices,
-    )
 
 
 def refresh_model_catalog_cache(

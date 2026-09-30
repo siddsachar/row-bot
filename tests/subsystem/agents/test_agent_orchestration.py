@@ -179,15 +179,6 @@ def test_orchestration_display_counts_separate_approval_and_active_work(
         "required": 5,
         "total_attempts": 5,
     }
-    assert orchestrator.orchestration_status_label("waiting_children") == (
-        "Waiting for Agents"
-    )
-    assert orchestrator.orchestration_status_label("synthesizing") == (
-        "Preparing final answer"
-    )
-    assert orchestrator.orchestration_status_label("completed_partial") == (
-        "Completed with issues"
-    )
 
 
 def test_orchestration_counts_reconcile_terminal_run_before_member_callback(

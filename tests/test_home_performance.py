@@ -41,78 +41,36 @@ def test_status_checks_cache_expensive_probes(monkeypatch) -> None:
     assert calls["count"] == 1
 
 
-def test_routine_heavy_refresh_reports_running_ollama_for_cloud_model(monkeypatch) -> None:
-    import row_bot.models as models
-    import row_bot.status_checks as status_checks
-
-    calls: list[dict] = []
-    probe_kwargs: list[dict] = []
-
-    def _fake_log(name, elapsed_ms, **metadata):
-        calls.append({"name": name, "elapsed_ms": elapsed_ms, **metadata})
-
-    def _reachable(*_args, **kwargs):
-        probe_kwargs.append(dict(kwargs))
-        return True
-
-    monkeypatch.setattr(status_checks, "_probe_cache", {}, raising=False)
-    monkeypatch.setattr(status_checks, "HEAVY_CHECKS", [status_checks.check_ollama])
-    monkeypatch.setattr(status_checks, "log_ui_perf", _fake_log)
-    monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-5.5")
-    monkeypatch.setattr(models, "is_cloud_model", lambda _model: True)
-    monkeypatch.setattr(models, "_ollama_reachable", _reachable)
-
-    results = status_checks.run_heavy_checks(live_ollama_probe=False)
-
-    assert len(results) == 1
-    assert results[0].name == "Ollama"
-    assert results[0].status == "ok"
-    assert results[0].detail == "Server reachable"
-    assert results[0].metadata["live_probe"] is False
-    assert results[0].metadata["probe_timeout_seconds"] == 0.2
-    assert "skip_reason" not in results[0].metadata
-    assert probe_kwargs == [{"timeout": 0.2}]
-    assert calls[0]["name"] == "home.status_check.check_ollama"
-    assert calls[0]["live_probe"] is False
-    assert calls[0]["probe_timeout_seconds"] == 0.2
-
-
-def test_routine_heavy_refresh_reports_offline_ollama_for_cloud_model(monkeypatch) -> None:
+def test_ollama_check_reports_offline_ollama_for_cloud_model(monkeypatch) -> None:
     import row_bot.models as models
     import row_bot.status_checks as status_checks
 
     monkeypatch.setattr(status_checks, "_probe_cache", {}, raising=False)
-    monkeypatch.setattr(status_checks, "HEAVY_CHECKS", [status_checks.check_ollama])
     monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-5.5")
     monkeypatch.setattr(models, "is_cloud_model", lambda _model: True)
     monkeypatch.setattr(models, "_ollama_reachable", lambda **_kwargs: False)
 
-    results = status_checks.run_heavy_checks(live_ollama_probe=False)
+    result = status_checks.check_ollama()
 
-    assert results[0].name == "Ollama"
-    assert results[0].status == "inactive"
-    assert results[0].detail == "Server offline"
-    assert results[0].metadata["live_probe"] is False
-    assert results[0].metadata["probe_timeout_seconds"] == 0.2
+    assert result.name == "Ollama"
+    assert result.status == "inactive"
+    assert result.detail == "Server offline"
 
 
-def test_routine_heavy_refresh_warns_when_selected_local_ollama_is_offline(monkeypatch) -> None:
+def test_ollama_check_warns_when_selected_local_ollama_is_offline(monkeypatch) -> None:
     import row_bot.models as models
     import row_bot.status_checks as status_checks
 
     monkeypatch.setattr(status_checks, "_probe_cache", {}, raising=False)
-    monkeypatch.setattr(status_checks, "HEAVY_CHECKS", [status_checks.check_ollama])
     monkeypatch.setattr(models, "get_current_model", lambda: "model:ollama:qwen3:14b")
     monkeypatch.setattr(models, "is_cloud_model", lambda _model: False)
     monkeypatch.setattr(models, "_ollama_reachable", lambda **_kwargs: False)
 
-    results = status_checks.run_heavy_checks(live_ollama_probe=False)
+    result = status_checks.check_ollama()
 
-    assert results[0].name == "Ollama"
-    assert results[0].status == "warn"
-    assert results[0].detail == "Local model server unreachable"
-    assert results[0].metadata["live_probe"] is False
-    assert results[0].metadata["probe_timeout_seconds"] == 0.2
+    assert result.name == "Ollama"
+    assert result.status == "warn"
+    assert result.detail == "Local model server unreachable"
 
 
 def test_live_heavy_refresh_still_probes_ollama(monkeypatch) -> None:
@@ -128,12 +86,11 @@ def test_live_heavy_refresh_still_probes_ollama(monkeypatch) -> None:
         return True
 
     monkeypatch.setattr(status_checks, "_probe_cache", {}, raising=False)
-    monkeypatch.setattr(status_checks, "HEAVY_CHECKS", [status_checks.check_ollama])
     monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-5.5")
     monkeypatch.setattr(models, "is_cloud_model", lambda _model: True)
     monkeypatch.setattr(models, "_ollama_reachable", _reachable)
 
-    results = status_checks.run_heavy_checks(live_ollama_probe=True)
+    results = [status_checks.check_ollama()]
 
     assert probed["count"] == 1
     assert probe_kwargs == [{"timeout": 1.0}]
@@ -162,12 +119,11 @@ def test_live_ollama_refresh_ignores_stale_probe_cache(monkeypatch) -> None:
         {"ollama:live": (time.time(), CheckResult("Ollama", "inactive", "stale"))},
         raising=False,
     )
-    monkeypatch.setattr(status_checks, "HEAVY_CHECKS", [status_checks.check_ollama])
     monkeypatch.setattr(models, "get_current_model", lambda: "model:codex:gpt-5.5")
     monkeypatch.setattr(models, "is_cloud_model", lambda _model: True)
     monkeypatch.setattr(models, "_ollama_reachable", _reachable)
 
-    results = status_checks.run_heavy_checks(live_ollama_probe=True)
+    results = [status_checks.check_ollama()]
 
     assert probed["count"] == 1
     assert results[0].status == "ok"

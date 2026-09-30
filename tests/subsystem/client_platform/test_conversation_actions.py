@@ -85,7 +85,7 @@ def test_passive_view_is_bounded_and_reports_missing_archive_owner(isolated_serv
     from row_bot import threads
 
     conversation = threads.create_thread("Private local title", seed_default_skills=False)
-    before_name = threads.get_thread_name(conversation)
+    before_name = next(row for row in threads._list_threads() if row[0] == conversation)[1]
     before_messages = threads.get_latest_checkpoint_messages(conversation)
     snapshot = read_conversation_actions(isolated_service, conversation, validate=lambda: None)
 
@@ -103,7 +103,7 @@ def test_passive_view_is_bounded_and_reports_missing_archive_owner(isolated_serv
             "export": {"available": True, "code": None},
         },
     }
-    assert threads.get_thread_name(conversation) == before_name
+    assert next(row for row in threads._list_threads() if row[0] == conversation)[1] == before_name
     assert threads.get_latest_checkpoint_messages(conversation) == before_messages
     assert not (threads._MEDIA_DIR / conversation).exists()
     assert str(tmp_path) not in json.dumps(snapshot)
@@ -221,7 +221,7 @@ def test_changed_review_and_archive_fail_before_mutation(isolated_service):
     command = _command("conversation.rename", review, {"title": "Changed"})
     with pytest.raises(ConversationActionError, match="conversation_review_changed"):
         _execute(isolated_service, conversation, command)
-    assert threads.get_thread_name(conversation) == "Before"
+    assert next(row for row in threads._list_threads() if row[0] == conversation)[1] == "Before"
 
     with pytest.raises(ConversationActionError, match="conversation_archive_unavailable"):
         _review(isolated_service, conversation, "conversation.archive", "0", {})

@@ -7,11 +7,9 @@ Pure logic; it touches no UI.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import inspect
 from dataclasses import dataclass, asdict
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 from row_bot.designer.critique import critique_page_html, apply_page_repairs
 from row_bot.designer.brand_lint import (
@@ -214,25 +212,3 @@ def build_ai_fix_request(finding: dict) -> str:
         parts.append(f"Guidance: {suggested}")
     parts.append("Use designer_update_page or designer_restyle_element as appropriate.")
     return " ".join(parts)
-
-
-def request_ai_fix(finding: dict, send_agent_message: Callable) -> str:
-    """Dispatch a focused AI fix request. ``send_agent_message`` may be
-    sync or async; in the async case we schedule it on the running loop.
-    Returns the message that was sent (or queued)."""
-    request = build_ai_fix_request(finding)
-    try:
-        result = send_agent_message(request)
-        if inspect.iscoroutine(result):
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(result)
-                else:
-                    loop.run_until_complete(result)
-            except RuntimeError:
-                # No loop — fire and forget in a new one
-                asyncio.run(result)
-    except Exception:
-        pass
-    return request

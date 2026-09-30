@@ -164,7 +164,6 @@ def test_provider_scoped_api_key_save_refreshes_live_catalog(
 ):
     import httpx
     import row_bot.models as models
-    from row_bot.providers.model_catalog import build_model_catalog_rows
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "KEYS_PATH", tmp_path / "api_keys.json")
@@ -173,10 +172,6 @@ def test_provider_scoped_api_key_save_refreshes_live_catalog(
     monkeypatch.delenv(env_var, raising=False)
     monkeypatch.delenv("ROW_BOT_SECRETS_DIR", raising=False)
     monkeypatch.delenv("ROW_BOT_DEPLOYMENT_MODE", raising=False)
-    monkeypatch.setattr(
-        "row_bot.providers.model_catalog._provider_status_by_id",
-        lambda: {provider_id: {"configured": True}},
-    )
     original_backend = secret_store._backend_override
     old_cache = dict(models._cloud_model_cache)
     calls = []
@@ -217,14 +212,6 @@ def test_provider_scoped_api_key_save_refreshes_live_catalog(
         else:
             assert calls[0]["headers"]["Authorization"] == f"Bearer {test_key}"
         assert models._cloud_model_cache[model_id]["provider"] == provider_id
-
-        rows = build_model_catalog_rows(
-            cloud_cache=dict(models._cloud_model_cache),
-            ollama_rows=[],
-            quick_choices=[],
-        )
-        row = next(row for row in rows if row.provider_id == provider_id and row.model_id == model_id)
-        assert row.selection_ref == f"model:{provider_id}:{model_id}"
     finally:
         auth_store.delete_provider_secret(provider_id)
         auth_store._clear_session_secrets_for_tests()

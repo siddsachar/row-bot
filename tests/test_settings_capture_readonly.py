@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -65,14 +64,6 @@ def test_passive_github_status_never_invokes_cli_or_network(monkeypatch) -> None
     assert status.connected is False
 
 
-def test_provider_probe_is_not_queued_when_capture_network_is_disabled(monkeypatch) -> None:
-    from row_bot.docs_capture import docs_capture_disable_network
-
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setenv("ROW_BOT_DOCS_DISABLE_NETWORK", "1")
-    assert docs_capture_disable_network() is True
-
-
 @pytest.mark.slow
 def test_task_database_is_query_only_for_real_capture() -> None:
     with TemporaryDirectory(prefix="row-bot-settings-capture-") as temp:
@@ -126,39 +117,3 @@ def test_task_database_is_query_only_for_real_capture() -> None:
         )
         assert result.returncode == 0, result.stderr
         assert (database.read_bytes(), database.stat().st_mtime_ns) == before
-
-
-def test_plugin_capture_reads_manifests_without_importing_plugin_code(monkeypatch) -> None:
-    from row_bot.plugins import loader, registry
-
-    with TemporaryDirectory(prefix="row-bot-settings-capture-") as temp:
-        plugins = Path(temp) / "installed_plugins"
-        plugin = plugins / "passive-test"
-        plugin.mkdir(parents=True)
-        (plugin / "plugin.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": 2,
-                    "id": "passive-test",
-                    "name": "Passive Test",
-                    "version": "1.0.0",
-                    "min_row_bot_version": "0.1.0",
-                    "description": "Manifest-only fixture",
-                    "provides": {},
-                }
-            ),
-            encoding="utf-8",
-        )
-        (plugin / "plugin_main.py").write_text(
-            "raise AssertionError('plugin code executed')\n", encoding="utf-8"
-        )
-        monkeypatch.setattr(loader, "PLUGINS_DIR", plugins)
-        registry._reset()
-        try:
-            results = loader.load_plugin_manifests_readonly()
-            assert [result.plugin_id for result in results] == ["passive-test"]
-            assert [manifest.name for manifest in registry.get_loaded_manifests()] == [
-                "Passive Test"
-            ]
-        finally:
-            registry._reset()

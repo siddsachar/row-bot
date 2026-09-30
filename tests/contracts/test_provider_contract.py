@@ -57,7 +57,6 @@ def test_custom_fake_provider_runtime_uses_fake_transport(tmp_path, monkeypatch)
     from row_bot.providers.custom import custom_provider_id
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr(custom, "delete_provider_secret", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(runtime, "provider_secret_status", lambda *_args, **_kwargs: {"configured": False, "source": "", "fingerprint": ""})
 
     provider_id = custom_provider_id("contract-fake")

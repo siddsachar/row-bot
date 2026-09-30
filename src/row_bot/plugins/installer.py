@@ -538,19 +538,6 @@ def is_installed(plugin_id: str) -> bool:
     return (PLUGINS_DIR / plugin_id).is_dir()
 
 
-def get_installed_version(plugin_id: str) -> str | None:
-    """Get the installed version of a plugin, or None."""
-    manifest_path = PLUGINS_DIR / plugin_id / "plugin.json"
-    if not manifest_path.exists():
-        return None
-    try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("version")
-    except Exception:
-        return None
-
-
 # ── Download ─────────────────────────────────────────────────────────────────
 def _verify_checksum(plugin_dir: pathlib.Path, expected_checksum: str | None) -> str | None:
     expected = (expected_checksum or "").strip()

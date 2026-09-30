@@ -277,4 +277,3 @@ def test_status_bar_registers_github_account_pill():
     from row_bot import status_checks
 
     assert status_checks.check_github_oauth in status_checks.ALL_CHECKS
-    assert status_checks.check_github_oauth in status_checks.HEAVY_CHECKS

@@ -54,7 +54,9 @@ def test_developer_workspace_remove_is_metadata_only(tmp_path, monkeypatch):
     assert repo.exists()
     assert storage.list_workspaces() == []
     assert storage.list_workspaces(include_hidden=True)[0].hidden is True
-    assert threads._get_thread_type(thread_id) == "code"
+    assert next(
+        row for row in threads._list_threads(include_details=True) if row[0] == thread_id
+    )[6] == "code"
     assert threads._get_thread_developer_workspace(thread_id) == workspace.id
 
     restored = storage.add_or_update_local_workspace(str(repo))
@@ -110,6 +112,5 @@ def test_code_thread_metadata_and_classification(tmp_path, monkeypatch):
     assert rows[0][5] == ""  # keep existing project_id index stable for Designer tests
     assert rows[0][6] == "code"
     assert rows[0][7] == workspace.id
-    assert threads._get_thread_type(thread_id) == "code"
     assert threads._get_thread_developer_workspace(thread_id) == workspace.id
     assert threads.classify_thread("", thread_id, set(), "code", workspace.id) == "code"

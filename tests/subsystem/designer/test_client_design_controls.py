@@ -539,7 +539,6 @@ def test_presentation_passive_read_has_bound_cursor_and_plain_notes(project, mon
 def test_review_draft_is_bound_to_current_finding_and_never_dispatches_or_saves(project, monkeypatch):
     project.pages[0].html = '<h2 style="font-size:12px">Small heading</h2><img src="row-bot-asset:missing">'
     storage.save_project(project)
-    monkeypatch.setattr(client.review, 'request_ai_fix', lambda *_a, **_k: pytest.fail('implicit dispatch'))
     monkeypatch.setattr(storage, 'save_project', lambda *_: pytest.fail('draft mutation'))
     finding = client.read_review(project.id).findings[0]
     text = client.draft_review_fix(project.id, expected_revision=project.updated_at, page_id=finding.page_id, finding_id=finding.id)

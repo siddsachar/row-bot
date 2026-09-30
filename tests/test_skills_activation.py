@@ -106,22 +106,22 @@ def test_thread_scoped_state_off_and_reset(tmp_path, monkeypatch):
     skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
-    assert "research_brief" in activation.apply_skill_command("thread-a", "/skill research_brief")
+    assert "research_brief" in activation.apply_channel_skill_command("thread-a", "/skill research_brief").text
     assert activation.resolve_active_skill_names("thread-a") == ["research_brief"]
     assert activation.resolve_active_skill_names("thread-b") == []
 
-    activation.apply_skill_command("thread-a", "/noskill research_brief")
+    activation.apply_channel_skill_command("thread-a", "/noskill research_brief")
     assert activation.resolve_active_skill_names("thread-a") == []
 
-    response = activation.apply_skill_command("thread-a", "/skill once research_brief")
+    response = activation.apply_channel_skill_command("thread-a", "/skill once research_brief").text
     assert response and "not supported" in response
     assert activation.resolve_active_skill_names("thread-a") == []
 
-    activation.apply_skill_command("thread-a", "/skill off")
+    activation.apply_channel_skill_command("thread-a", "/skill off")
     assert activation.get_activation_snapshot("thread-a", current_text="research sources").smart_off is True
     assert activation.suggest_skills("thread-a", "research sources") == []
 
-    activation.apply_skill_command("thread-a", "/skill reset")
+    activation.apply_channel_skill_command("thread-a", "/skill reset")
     assert activation.get_activation_snapshot("thread-a").smart_off is False
 
 
@@ -455,13 +455,13 @@ def test_library_off_skills_are_not_selectable_or_suggested(tmp_path, monkeypatc
     skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
-    response = activation.apply_skill_command("thread-a", "/skill meeting_notes")
+    response = activation.apply_channel_skill_command("thread-a", "/skill meeting_notes").text
     assert response and "off in the Skills library" in response
     assert activation.resolve_active_skill_names("thread-a") == []
     assert activation.suggest_skills("thread-a", "meeting notes and decisions") == []
 
     skills.set_enabled("meeting_notes", True)
-    response = activation.apply_skill_command("thread-a", "/skill meeting_notes")
+    response = activation.apply_channel_skill_command("thread-a", "/skill meeting_notes").text
     assert response and "meeting_notes" in response
     assert activation.resolve_active_skill_names("thread-a") == ["meeting_notes"]
 
@@ -639,10 +639,10 @@ def test_computer_guide_is_not_manual_selectable_pinnable_or_suggested(tmp_path,
     skills, activation = _reload_skill_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
-    response = activation.apply_skill_command(
+    response = activation.apply_channel_skill_command(
         "computer-guide-thread",
         "/skill computer_use_guide",
-    )
+    ).text
     suggestions = activation.suggest_skills(
         "computer-guide-thread",
         "Control a native desktop app with computer use",

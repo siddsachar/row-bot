@@ -306,7 +306,6 @@ def test_task_reads_preserve_stored_history_and_do_not_execute_or_modify(
     for name in (
         "run_task_background",
         "get_task_channels",
-        "get_next_fire_times",
         "list_tasks",
     ):
         monkeypatch.setattr(

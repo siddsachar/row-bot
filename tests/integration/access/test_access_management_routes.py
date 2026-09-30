@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
@@ -238,6 +239,94 @@ def test_trusted_origin_requires_live_policy_and_exact_revision(
     assert AccessRouteConfigStore().load_or_default().configured_origins == ()
 
 
+def test_deployment_managed_hosts_refuse_trusted_origin_changes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from row_bot.access.access_routes import AccessRouteConfigStore
+    from row_bot.access.runtime_policy import RuntimeAccessPolicy
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    client, _service, registration = _application(tmp_path, mode="desktop")
+    policy = RuntimeAccessPolicy(registration.config)
+    client.app.state.row_bot_access_runtime_policy = policy
+    before = policy.snapshot()
+    monkeypatch.setenv("ROW_BOT_ALLOWED_HOSTS", "localhost")
+    headers = {"origin": "http://localhost:8080"}
+
+    for action, expected in (("add", []), ("remove", ["https://example.test"])):
+        refused = client.post(
+            "/api/access/routes/origins",
+            json={
+                "action": action,
+                "origin": "https://example.test",
+                "expected_origins": expected,
+            },
+            headers=headers,
+        )
+        assert refused.status_code == 409
+        assert refused.json()["error"] == "externally_managed"
+
+    assert AccessRouteConfigStore().load_or_default().configured_origins == ()
+    assert policy.snapshot() == before
+    assert client.get("/api/access/routes").json()["managed_externally"] is True
+
+
+def test_failed_origin_save_leaves_the_live_host_policy_alone(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import os
+
+    from row_bot.access import access_routes
+    from row_bot.access.access_routes import AccessRouteConfigStore
+    from row_bot.access.runtime_policy import RuntimeAccessPolicy
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.delenv("ROW_BOT_ALLOWED_HOSTS", raising=False)
+    _client, _service, registration = _application(tmp_path, mode="desktop")
+    client = TestClient(
+        _client.app,
+        base_url="http://localhost:8080",
+        client=("127.0.0.1", 51000),
+        follow_redirects=False,
+        raise_server_exceptions=False,
+    )
+    policy = RuntimeAccessPolicy(registration.config)
+    client.app.state.row_bot_access_runtime_policy = policy
+    headers = {"origin": "http://localhost:8080"}
+    saved = client.post(
+        "/api/access/routes/origins",
+        json={"action": "add", "origin": "https://one.example.test", "expected_origins": []},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    store_path = AccessRouteConfigStore().path
+    replace = os.replace
+
+    def fail_config_replace(source, destination, *args, **kwargs):
+        if os.fspath(destination) == os.fspath(store_path):
+            raise OSError("synthetic disk full")
+        return replace(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(access_routes.os, "replace", fail_config_replace)
+    failed = client.post(
+        "/api/access/routes/origins",
+        json={
+            "action": "add",
+            "origin": "https://two.example.test",
+            "expected_origins": ["https://one.example.test"],
+        },
+        headers=headers,
+    )
+
+    assert failed.status_code >= 500
+    assert policy.snapshot().configured_origins == ("https://one.example.test",)
+    assert AccessRouteConfigStore().load_or_default().configured_origins == (
+        "https://one.example.test",
+    )
+
+
 def test_remote_owner_cannot_change_route_settings(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
     client, service, registration = _application(tmp_path)
@@ -352,6 +441,69 @@ def test_tailscale_is_passive_until_explicit_check_and_deduplicates_apply(
         headers=headers,
     )
     assert denied.status_code == 409
+
+
+@pytest.mark.parametrize("outcome", ["applied", "apply_failed", "plan_refused"])
+def test_tailscale_change_restarts_the_app_only_after_it_succeeds(
+    tmp_path,
+    monkeypatch,
+    outcome,
+) -> None:
+    from row_bot.access import launcher_control
+    from row_bot.access.tailscale import (
+        TailscaleOperationResult,
+        TailscalePlanAction,
+        TailscaleServePlan,
+        TailscaleState,
+        TailscaleStatus,
+    )
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    restarts = []
+    monkeypatch.setattr(
+        launcher_control,
+        "request_launcher_restart",
+        lambda: restarts.append(1) or type("Result", (), {"accepted": True})(),
+    )
+    ready = TailscaleStatus(state=TailscaleState.READY, detail="Ready")
+    active = TailscaleStatus(state=TailscaleState.ACTIVE_OWNED, detail="Active")
+
+    class FakeTailscale:
+        applied = 0
+
+        def plan(self, *, port):
+            refused = outcome == "plan_refused"
+            return TailscaleServePlan(
+                action=TailscalePlanAction.SIGN_IN_REQUIRED if refused else TailscalePlanAction.ENABLE,
+                status=ready,
+                port=port,
+                target="http://127.0.0.1:8080",
+                command=() if refused else ("fake",),
+                description="Sign in to Tailscale" if refused else "Enable private route",
+            )
+
+        def apply(self, plan):
+            self.applied += 1
+            if outcome == "apply_failed":
+                return TailscaleOperationResult(success=False, status=ready, error="Serve refused")
+            return TailscaleOperationResult(success=True, status=active)
+
+    fake = FakeTailscale()
+    client, _service, _registration = _application(
+        tmp_path, mode="desktop", tailscale_controller=fake
+    )
+    response = client.post(
+        "/api/access/tailscale/actions",
+        json={"action": "enable", "command_id": f"command-{outcome}"},
+        headers={"origin": "http://localhost:8080"},
+    )
+
+    assert response.status_code == 200
+    receipt = response.json()
+    assert receipt["success"] is (outcome == "applied")
+    assert receipt["restart_required"] is False
+    assert restarts == ([1] if outcome == "applied" else [])
+    assert fake.applied == (0 if outcome == "plan_refused" else 1)
 
 
 def test_remote_owner_cannot_probe_or_change_tailscale(tmp_path, monkeypatch) -> None:

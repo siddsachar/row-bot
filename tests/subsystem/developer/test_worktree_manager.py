@@ -77,7 +77,7 @@ def _create_repo(tmp_path):
 
 
 @pytest.mark.slow
-def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadata(tmp_path, monkeypatch, reload_for_data_dir):
+def test_thread_worktree_creates_hidden_workspace_and_preserves_metadata(tmp_path, monkeypatch, reload_for_data_dir):
     _tasks, threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = _create_repo(tmp_path)
 
@@ -88,7 +88,8 @@ def test_allocate_thread_worktree_creates_hidden_workspace_and_preserves_metadat
         developer_workspace_id=parent.id,
         project_workspace_id=parent.id,
     )
-    allocated = worktrees.allocate_thread_worktree(
+    allocated = worktrees.allocate_worktree(
+        "thread",
         thread_id,
         parent.id,
         objective="Review local change",
@@ -137,7 +138,8 @@ def test_thread_deletion_removes_clean_worktree_but_retains_branch_and_repositor
         developer_workspace_id=parent.id,
         project_workspace_id=parent.id,
     )
-    allocated = worktrees.allocate_thread_worktree(
+    allocated = worktrees.allocate_worktree(
+        "thread",
         thread_id,
         parent.id,
         objective="Clean branch",
@@ -206,7 +208,8 @@ def test_thread_deletion_preserves_dirty_worktree_and_exposes_recovery_workspace
         developer_workspace_id=parent.id,
         project_workspace_id=parent.id,
     )
-    allocated = worktrees.allocate_thread_worktree(
+    allocated = worktrees.allocate_worktree(
+        "thread",
         thread_id,
         parent.id,
         objective="Dirty branch",
@@ -239,7 +242,8 @@ def test_thread_deletion_preserves_clean_worktree_with_unimported_sandbox_change
         developer_workspace_id=parent.id,
         project_workspace_id=parent.id,
     )
-    allocated = worktrees.allocate_thread_worktree(
+    allocated = worktrees.allocate_worktree(
+        "thread",
         thread_id,
         parent.id,
         objective="Sandbox branch",
@@ -279,7 +283,8 @@ def test_dirty_current_changes_seed_into_worktree_without_mutating_parent(tmp_pa
     (repo / "ignored.txt").write_text("ignored\n", encoding="utf-8")
 
     parent = storage.add_or_update_local_workspace(str(repo))
-    allocated = worktrees.allocate_thread_worktree(
+    allocated = worktrees.allocate_worktree(
+        "thread",
         "dirty-thread",
         parent.id,
         objective="Inspect dirty parent",
@@ -315,7 +320,7 @@ def test_child_worktree_derives_from_dirty_parent_worktree(tmp_path, monkeypatch
     _tasks, _threads, storage, worktrees = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = _create_repo(tmp_path)
     parent = storage.add_or_update_local_workspace(str(repo))
-    thread_wt = worktrees.allocate_thread_worktree("parent-thread", parent.id, objective="Parent")
+    thread_wt = worktrees.allocate_worktree("thread", "parent-thread", parent.id, objective="Parent")
     parent_worktree = storage.get_workspace(thread_wt["worktree_workspace_id"])
     assert parent_worktree is not None
 

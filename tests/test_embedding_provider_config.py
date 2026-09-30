@@ -60,18 +60,6 @@ def test_embedding_config_defaults_and_index_metadata(monkeypatch, case_dir):
     embedding_config.write_index_metadata(vector_dir, active)
     assert embedding_config.index_metadata_matches(vector_dir, active)
 
-    saved = embedding_config.save_embedding_config(
-        {
-            "provider": "cloud",
-            "cloud_model": "openai:text-embedding-3-small",
-            "dimension": 512,
-            "batch_size": 999,
-        }
-    )
-    assert saved["batch_size"] == 256
-    assert embedding_config.active_embedding_metadata(saved)["dimension"] == 512
-    assert not embedding_config.index_metadata_matches(vector_dir)
-
 
 def test_embedding_config_recovers_from_invalid_values(monkeypatch, case_dir):
     data_dir = case_dir

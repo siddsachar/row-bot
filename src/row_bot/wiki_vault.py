@@ -1165,43 +1165,6 @@ def check_vault_sync() -> list[dict]:
     return result
 
 
-def read_import_review(entity_id: str, filepath: str | pathlib.Path) -> dict[str, str]:
-    """Capture both complete versions and their guards for a local import review.
-
-    This is read-only. The returned path and database content are private local
-    UI data, not a wire projection. Parse, display and hash the same captured
-    bytes so an editor's intervening replacement cannot change what is reviewed.
-    """
-    if not isinstance(entity_id, str) or not entity_id.strip():
-        raise ValueError("A wiki entity ID is required")
-    path = pathlib.Path(filepath)
-    relative = path.relative_to(get_vault_path() / "wiki").as_posix()
-    path = _wiki_path(relative)
-    baseline = _read_manifest()["files"].get(relative)
-    if baseline is not None and baseline.get("entity_id") != entity_id:
-        raise ValueError("Wiki ownership does not match the entity")
-    captured_bytes = path.read_bytes()
-    vault_text = captured_bytes.decode("utf-8")
-    parsed = _parse_entity_text(vault_text)
-    if parsed is None or parsed.get("id") != entity_id:
-        raise ValueError("Wiki article does not match the entity")
-
-    import row_bot.knowledge_graph as kg
-
-    entity = kg.get_entity(entity_id)
-    if entity is None or entity.get("id") != entity_id:
-        raise ValueError("The database entity is unavailable")
-    return {
-        "entity_id": entity_id,
-        "subject": str(entity.get("subject", "")),
-        "vault_path": str(path),
-        "database_text": json.dumps(entity, ensure_ascii=False, sort_keys=True, indent=2),
-        "vault_text": vault_text,
-        "expected_db_revision": _source_revision(entity),
-        "expected_vault_hash": _digest(captured_bytes),
-    }
-
-
 def import_from_vault(
     entity_id: str, filepath: str | pathlib.Path, *,
     expected_db_revision: str | None = None, expected_vault_hash: str | None = None,
@@ -1329,27 +1292,3 @@ def import_from_vault(
             raise authority_error
         logger.error("import_from_vault failed for %s: %s", entity_id, exc)
         return False
-
-
-def sync_all_from_vault() -> dict:
-    """Import all out-of-sync vault files into the DB.
-
-    Returns ``{"synced": N, "failed": N, "details": [...]}``.
-    """
-    out_of_sync = check_vault_sync()
-    if not out_of_sync:
-        return {"synced": 0, "failed": 0, "details": []}
-
-    synced = 0
-    failed = 0
-    details = []
-    for item in out_of_sync:
-        ok = import_from_vault(item["entity_id"], item["vault_path"])
-        if ok:
-            synced += 1
-            details.append(f"✓ {item['subject']}")
-        else:
-            failed += 1
-            details.append(f"✗ {item['subject']}")
-
-    return {"synced": synced, "failed": failed, "details": details}

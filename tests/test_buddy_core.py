@@ -444,7 +444,7 @@ def test_buddy_config_round_trips_to_temp_data_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
 
-    saved = config_mod.set_buddy_config("placement", "desktop")
+    saved = config_mod.save_buddy_config({**config_mod.get_buddy_config(), "placement": "desktop"})
     loaded = config_mod.get_buddy_config()
 
     assert saved["placement"] == "desktop"
@@ -1009,53 +1009,6 @@ def test_buddy_hatch_background_job_starts_without_blocking(monkeypatch):
 
     with hatch_mod._JOB_LOCK:
         hatch_mod._CURRENT_JOB.clear()
-
-
-def test_buddy_hatch_can_switch_user_pack_back_to_still_only(monkeypatch, tmp_path):
-    import row_bot.buddy.assets as assets_mod
-    import row_bot.buddy.hatch as hatch_mod
-
-    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
-    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
-
-    preview = tmp_path / "preview.png"
-    preview.write_bytes(b"PNG")
-    pack_id = hatch_mod.use_hatch_still_only("hatch-123", preview, prompt="A tiny dog named Honey")
-
-    assert pack_id == "hatch-123"
-    pack = assets_mod.load_buddy_pack(pack_id)
-    assert pack.runtime == "generated_still"
-    assert pack.status == "available"
-    assert pack.name == "Honey"
-    assert not pack.motion_clips
-
-
-def test_buddy_can_delete_generated_hatch_pack(monkeypatch, tmp_path):
-    import row_bot.buddy.assets as assets_mod
-    import row_bot.buddy.hatch as hatch_mod
-
-    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
-    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
-
-    preview = tmp_path / "preview.png"
-    preview.write_bytes(b"PNG")
-    pack_id = hatch_mod.use_hatch_still_only("hatch-123", preview, prompt="A tiny dog named Honey")
-    pack_dir = assets_mod._USER_PACKS_DIR / pack_id
-
-    assert pack_dir.exists()
-    assert assets_mod.delete_generated_buddy_pack(pack_id) == pack_id
-    assert not pack_dir.exists()
-
-
-def test_buddy_delete_generated_pack_rejects_bundled_pack_ids():
-    import row_bot.buddy.assets as assets_mod
-
-    try:
-        assets_mod.delete_generated_buddy_pack("glyph")
-    except ValueError as exc:
-        assert "Only generated Hatch packs" in str(exc)
-    else:
-        raise AssertionError("delete_generated_buddy_pack accepted a bundled pack id")
 
 
 def test_buddy_brain_decays_stale_event_to_idle(monkeypatch):

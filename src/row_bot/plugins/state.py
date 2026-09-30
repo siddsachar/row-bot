@@ -251,13 +251,6 @@ def mark_plugin_installed(
 
 
 @_locked_state
-def get_plugin_install_info(plugin_id: str) -> dict[str, Any]:
-    _ensure_loaded()
-    installed = _state.get(str(plugin_id), {}).get("installed", {})
-    return dict(installed) if isinstance(installed, dict) else {}
-
-
-@_locked_state
 def set_plugin_health_result(
     plugin_id: str,
     *,
@@ -273,13 +266,6 @@ def set_plugin_health_result(
         "checks": list(checks),
     }
     _save_state()
-
-
-@_locked_state
-def get_plugin_health_result(plugin_id: str) -> dict[str, Any]:
-    _ensure_loaded()
-    health = _state.get(str(plugin_id), {}).get("health", {})
-    return dict(health) if isinstance(health, dict) else {}
 
 
 @_locked_state

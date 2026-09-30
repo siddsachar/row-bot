@@ -175,21 +175,6 @@ def test_task_advanced_mode_is_persisted(tmp_path, monkeypatch):
     assert tasks.get_task(stepped_id)["advanced_mode"] is True
 
 
-def test_developer_threads_snapshot_pinned_skills(tmp_path, monkeypatch):
-    skills, _activation, threads, _tasks = _reload_skill_pinning_modules(tmp_path, monkeypatch)
-    skills.load_skills()
-
-    from row_bot.developer import storage
-
-    workspace_dir = tmp_path / "workspace"
-    workspace_dir.mkdir()
-    workspace = storage.add_or_update_local_workspace(str(workspace_dir))
-
-    thread_id = storage.create_workspace_thread(workspace.id, name="Dev thread")
-
-    assert threads.get_thread_skills_override(thread_id) == ["proactive_agent"]
-
-
 def test_custom_tool_builder_uses_tool_guide_not_manual_skill(tmp_path, monkeypatch):
     skills, _activation, _threads, _tasks = _reload_skill_pinning_modules(tmp_path, monkeypatch)
     skills.load_skills()

@@ -485,9 +485,6 @@ def test_reviewed_create_edit_duplicate_delete_and_exact_recovery(library, monke
     )
     recovered = execute(delete, delete_review)
     assert recovered["status"] == "completed" and not created_path.exists()
-    monkeypatch.setattr(
-        library, "delete_skill", lambda *_args: pytest.fail("no replay")
-    )
     assert execute(delete, delete_review) == recovered
 
 

@@ -139,59 +139,6 @@ def test_atlascloud_fetch_filters_media_generation_rows(monkeypatch):
         models._cloud_model_cache.update(old_cache)
 
 
-def test_atlascloud_model_catalog_rows_are_canonical_and_surface_scoped(monkeypatch):
-    from row_bot.providers.model_catalog import build_model_catalog_rows, rows_for_surface
-
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "atlascloud": {"configured": True},
-    })
-    cloud_cache = {
-        "model:atlascloud:deepseek-v3": {
-            "provider": "atlascloud",
-            "label": "DeepSeek V3",
-            "ctx": 128_000,
-            "transport": "openai_chat",
-            "capabilities_snapshot": {
-                "tasks": ["chat"],
-                "input_modalities": ["text"],
-                "output_modalities": ["text"],
-                "tool_calling": None,
-                "streaming": True,
-                "transport": "openai_chat",
-                "endpoint_compatibility": ["openai_chat"],
-            },
-        },
-        "model:atlascloud:Qwen/Qwen3-VL-235B-A22B-Instruct": {
-            "provider": "atlascloud",
-            "label": "Qwen3 VL",
-            "ctx": 131_072,
-            "transport": "openai_chat",
-            "capabilities_snapshot": {
-                "tasks": ["chat"],
-                "input_modalities": ["image", "text"],
-                "output_modalities": ["text"],
-                "tool_calling": None,
-                "streaming": True,
-                "transport": "openai_chat",
-                "endpoint_compatibility": ["openai_chat"],
-            },
-        },
-    }
-
-    rows = build_model_catalog_rows(cloud_cache=cloud_cache, ollama_rows=[], quick_choices=[])
-    refs = {row.selection_ref for row in rows}
-    vision_refs = {row.selection_ref for row in rows_for_surface(rows, "vision")}
-    image_refs = {row.selection_ref for row in rows_for_surface(rows, "image")}
-    video_refs = {row.selection_ref for row in rows_for_surface(rows, "video")}
-
-    assert "model:atlascloud:deepseek-v3" in refs
-    assert "model:atlascloud:Qwen/Qwen3-VL-235B-A22B-Instruct" in refs
-    assert "model:atlascloud:deepseek-v3" not in vision_refs
-    assert "model:atlascloud:Qwen/Qwen3-VL-235B-A22B-Instruct" in vision_refs
-    assert not any(ref.startswith("model:atlascloud:") for ref in image_refs)
-    assert not any(ref.startswith("model:atlascloud:") for ref in video_refs)
-
-
 def test_refresh_cloud_models_preserves_atlas_rows_when_fetch_fails(monkeypatch):
     import row_bot.models as models
 
@@ -215,7 +162,7 @@ def test_refresh_cloud_models_preserves_atlas_rows_when_fetch_fails(monkeypatch)
         }
         models._current_model = "model:atlascloud:deepseek-v3"
 
-        models.refresh_cloud_models()
+        models.refresh_cloud_models_detailed()
 
         assert "atlascloud" in calls
         assert models._cloud_model_cache["model:atlascloud:deepseek-v3"]["provider"] == "atlascloud"

@@ -15,7 +15,6 @@ from row_bot.providers import opencode as opencode_provider
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
 from row_bot.providers.catalog import PROVIDER_DEFINITIONS, classify_model_capabilities, infer_provider_id, legacy_cache_to_model_infos
-from row_bot.providers.model_catalog import build_model_catalog_rows
 from row_bot.providers.models import AuthMethod, TransportMode
 from row_bot.providers.opencode import (
     OpenCodeUnsupportedRouteError,
@@ -251,51 +250,6 @@ def test_phase1_configured_provider_listing_includes_only_keyed_opencode(monkeyp
     monkeypatch.setattr("row_bot.providers.custom.list_custom_endpoints", lambda: [])
 
     assert runtime.list_configured_provider_ids() == ["opencode_go"]
-
-
-def test_phase2_provider_qualified_cache_rows_are_distinct_from_bare_provider_rows(monkeypatch):
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "openrouter": {"configured": True},
-        "opencode_go": {"configured": True},
-    })
-
-    rows = build_model_catalog_rows(
-        cloud_cache={
-            "glm-5.1": {"provider": "openrouter", "label": "GLM via OpenRouter", "ctx": 131072},
-            "model:opencode_go:glm-5.1": {"provider": "opencode_go", "label": "GLM via OpenCode Go", "ctx": 131072},
-        },
-        ollama_rows=[],
-        quick_choices=[],
-    )
-
-    by_ref = {row.selection_ref: row for row in rows}
-    assert by_ref["model:openrouter:glm-5.1"].provider_id == "openrouter"
-    assert by_ref["model:opencode_go:glm-5.1"].provider_id == "opencode_go"
-    assert by_ref["model:opencode_go:glm-5.1"].model_id == "glm-5.1"
-
-
-def test_phase2_opencode_minimax_id_does_not_impersonate_direct_minimax(monkeypatch):
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "minimax": {"configured": True},
-        "opencode_zen": {"configured": True},
-    })
-
-    rows = build_model_catalog_rows(
-        cloud_cache={
-            "MiniMax-M2.7": {"provider": "minimax", "label": "MiniMax Direct", "ctx": 204800},
-            "model:opencode_zen:minimax-m2.7": {
-                "provider": "opencode_zen",
-                "label": "MiniMax via OpenCode Zen",
-                "ctx": 204800,
-            },
-        },
-        ollama_rows=[],
-        quick_choices=[],
-    )
-
-    by_ref = {row.selection_ref: row for row in rows}
-    assert by_ref["model:minimax:MiniMax-M2.7"].provider_id == "minimax"
-    assert by_ref["model:opencode_zen:minimax-m2.7"].provider_id == "opencode_zen"
 
 
 def test_phase2_legacy_cache_conversion_reads_provider_qualified_keys():
@@ -594,58 +548,6 @@ def test_followup_opencode_live_input_modalities_override_static_vision_metadata
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(original)
-
-
-def test_phase3_opencode_models_appear_in_catalog_with_canonical_refs(monkeypatch):
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "opencode_zen": {"configured": True},
-        "opencode_go": {"configured": True},
-    })
-
-    rows = build_model_catalog_rows(cloud_cache={}, ollama_rows=[], quick_choices=[])
-    refs = {row.selection_ref for row in rows}
-
-    assert "model:opencode_zen:nemotron-3-super-free" in refs
-    assert "model:opencode_go:glm-5.1" in refs
-    assert "model:opencode_go:mimo-v2.5-pro" in refs
-    assert "model:opencode_zen:gemini-2.5-pro" not in refs
-
-
-def test_dynamic_opencode_catalog_rows_are_not_overwritten_or_expanded_by_static_rows(monkeypatch):
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "opencode_zen": {"configured": True},
-    })
-    dynamic_ref = "model:opencode_zen:x-preview-f-free"
-    rows = build_model_catalog_rows(
-        cloud_cache={
-            dynamic_ref: {
-                "provider": "opencode_zen",
-                "label": "Ox Alpha Free (Live)",
-                "ctx": 200_000,
-                "transport": "openai_chat",
-                "source": "opencode_live_catalog",
-                "capabilities_snapshot": {
-                    "transport": "openai_chat",
-                    "tasks": ["chat"],
-                    "capabilities": ["chat", "reasoning", "streaming", "text", "tool_calling", "vision"],
-                    "input_modalities": ["image", "text"],
-                    "output_modalities": ["text"],
-                    "tool_calling": True,
-                    "streaming": True,
-                    "endpoint_compatibility": ["openai_chat"],
-                },
-            }
-        },
-        ollama_rows=[],
-        quick_choices=[],
-    )
-    by_ref = {row.selection_ref: row for row in rows}
-
-    assert by_ref[dynamic_ref].display_name == "Ox Alpha Free (Live)"
-    assert by_ref[dynamic_ref].context_window == 200_000
-    assert "vision" in by_ref[dynamic_ref].capabilities_snapshot["capabilities"]
-    assert "model:opencode_zen:gpt-5.5" not in by_ref
-    assert "model:opencode_zen:nemotron-3-super-free" not in by_ref
 
 
 def test_phase3_fetch_opencode_models_uses_provider_qualified_cache(monkeypatch):
@@ -1026,9 +928,6 @@ def test_native_opencode_refresh_to_catalog_resolution_and_runtime_end_to_end(mo
     monkeypatch.setattr("httpx.get", lambda *args, **kwargs: _Resp())
     monkeypatch.setattr("row_bot.providers.auth_store.get_provider_secret", lambda provider_id: "zen-key")
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, credential_name="api_key": "zen-key")
-    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
-        "opencode_zen": {"configured": True},
-    })
     monkeypatch.setattr("row_bot.providers.readiness.provider_status", lambda provider_id: {"configured": True})
     try:
         assert models._fetch_opencode_models(
@@ -1036,20 +935,9 @@ def test_native_opencode_refresh_to_catalog_resolution_and_runtime_end_to_end(mo
             registry_payload=_native_opencode_registry(),
         ) == 2
 
-        rows = build_model_catalog_rows(
-            cloud_cache=dict(models._cloud_model_cache),
-            ollama_rows=[],
-            quick_choices=[],
-        )
-        by_ref = {row.selection_ref: row for row in rows}
         ox_ref = "model:opencode_zen:x-preview-f-free"
         gemini_ref = "model:opencode_zen:gemini-3-flash"
 
-        assert {
-            ref
-            for ref, row in by_ref.items()
-            if row.provider_id == "opencode_zen"
-        } == {ox_ref, gemini_ref}
         assert resolve_provider_config(ox_ref).transport == TransportMode.OPENAI_CHAT
         assert resolve_provider_config(gemini_ref).transport == TransportMode.GOOGLE_GENAI
 

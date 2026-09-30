@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 
@@ -162,29 +161,6 @@ class TraceGroup:
         }
 
 
-@dataclass
-class ToolResultGroup:
-    """Tool results of one tool, grouped for display."""
-
-    name: str
-    results: list[dict[str, Any]] = field(default_factory=list)
-
-    @property
-    def count(self) -> int:
-        return len(self.results)
-
-    @property
-    def label(self) -> str:
-        if is_browser_tool_name(self.name):
-            suffix = "step" if self.count == 1 else "steps"
-            return f"Browser activity · {self.count} {suffix}"
-        if is_computer_tool_name(self.name):
-            suffix = "step" if self.count == 1 else "steps"
-            return f"Computer activity · {self.count} {suffix}"
-        suffix = "call" if self.count == 1 else "calls"
-        return f"{self.name} · {self.count} {suffix}"
-
-
 def _clean_text(value: Any, maximum: int, *, fallback: str = "") -> str:
     text = str(value or "").strip()[:maximum]
     text = "".join(
@@ -279,27 +255,6 @@ def canonical_group(name: Any) -> tuple[str, TraceGroupKind]:
     if is_computer_tool_name(canonical):
         return "Computer activity", "computer"
     return canonical, "generic"
-
-
-def group_tool_results(
-    tool_results: list[dict[str, Any]] | None,
-) -> list[ToolResultGroup]:
-    """Keep the retained renderer's first-seen grouping behavior."""
-
-    grouped: OrderedDict[str, ToolResultGroup] = OrderedDict()
-    for result in tool_results or []:
-        name = canonical_tool_name(
-            result.get("name", "tool") if isinstance(result, dict) else "tool"
-        )
-        key, _ = canonical_group(name)
-        if key not in grouped:
-            grouped[key] = ToolResultGroup(name=key)
-        grouped[key].results.append(
-            result
-            if isinstance(result, dict)
-            else {"name": name, "content": str(result)}
-        )
-    return list(grouped.values())
 
 
 def _bounded_json_object(value: Any) -> dict[str, Any] | None:
@@ -425,17 +380,6 @@ def classify_tool_result(
     ):
         return "failed"
     return "succeeded"
-
-
-def tool_result_failed(result_or_content: Any) -> bool:
-    """Whether a settled result needs attention in the retained UI."""
-
-    return classify_tool_result(result_or_content) in {
-        "failed",
-        "blocked",
-        "cancelled",
-        "uncertain",
-    }
 
 
 def _summary_text(result_or_content: Any) -> str:

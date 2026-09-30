@@ -37,7 +37,7 @@ def _fresh_command_modules(tmp_path, monkeypatch):
 
 
 def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
-    threads, _agent_runs, _agent_commands, slash_commands, _commands = _fresh_command_modules(
+    threads, _agent_runs, _agent_commands, slash_commands, commands = _fresh_command_modules(
         tmp_path,
         monkeypatch,
     )
@@ -56,9 +56,8 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
 
     specs = {spec.id: spec for spec in slash_commands.get_command_specs(include_skills=False)}
     assert {"profiles", "profile", "agents", "agent"} <= set(specs)
-    assert slash_commands.resolve_command_text("/profile quality_reviewer")[0].id == "profile"
 
-    canonical_response = slash_commands.dispatch_text_command(thread_id, "/profile research")
+    canonical_response = commands.dispatch("sms", "/profile research", thread_id=thread_id)
     assert canonical_response and "Research" in canonical_response
     assert threads._get_thread_agent_profile(thread_id) == {
         "id": "builtin:research",
@@ -66,7 +65,7 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
     }
     assert threads.get_thread_skills_override(thread_id) == ["deep_research", "web_navigator"]
 
-    response = slash_commands.dispatch_text_command(thread_id, "/profile quality_reviewer")
+    response = commands.dispatch("sms", "/profile quality_reviewer", thread_id=thread_id)
     assert response and "Review" in response
     assert threads._get_thread_agent_profile(thread_id) == {
         "id": "builtin:review",
@@ -91,35 +90,35 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
         "calculator",
     ]
 
-    current = slash_commands.dispatch_text_command(thread_id, "/profile")
+    current = commands.dispatch("sms", "/profile", thread_id=thread_id)
     assert current and "review" in current
 
-    listing = slash_commands.dispatch_text_command(thread_id, "/profiles review")
+    listing = commands.dispatch("sms", "/profiles review", thread_id=thread_id)
     assert listing and "`review`" in listing
 
-    alias_listing = slash_commands.dispatch_text_command(thread_id, "/profiles quality")
+    alias_listing = commands.dispatch("sms", "/profiles quality", thread_id=thread_id)
     assert alias_listing and "`review`" in alias_listing
     assert "`quality_reviewer`" not in alias_listing
 
-    default_response = slash_commands.dispatch_text_command(thread_id, "/profile default")
+    default_response = commands.dispatch("sms", "/profile default", thread_id=thread_id)
     assert default_response and "Default" in default_response
     assert threads._get_thread_agent_profile(thread_id) == {
         "id": "builtin:row_bot_default",
         "slug": "row_bot_default",
     }
 
-    custom_response = slash_commands.dispatch_text_command(thread_id, f"/profile {custom['slug']}")
+    custom_response = commands.dispatch("sms", f"/profile {custom['slug']}", thread_id=thread_id)
     assert custom_response and "Skillful Reviewer" in custom_response
     assert threads.get_thread_skills_override(thread_id) == ["release_notes"]
 
-    cleared = slash_commands.dispatch_text_command(thread_id, "/profile clear")
+    cleared = commands.dispatch("sms", "/profile clear", thread_id=thread_id)
     assert cleared and "cleared" in cleared.lower()
     assert threads._get_thread_agent_profile(thread_id) == {"id": "", "slug": ""}
     assert threads.get_thread_skills_override(thread_id) is None
 
 
 def test_direct_agent_parser_is_command_only_and_explicit_about_profiles(tmp_path, monkeypatch):
-    _threads, _agent_runs, agent_commands, slash_commands, commands = _fresh_command_modules(
+    _threads, _agent_runs, agent_commands, _slash_commands, commands = _fresh_command_modules(
         tmp_path,
         monkeypatch,
     )
@@ -155,7 +154,6 @@ def test_direct_agent_parser_is_command_only_and_explicit_about_profiles(tmp_pat
     assert slash_generic.objective == "a PDF"
 
     assert agent_commands.parse_agent_spawn_text("Use a quantum specialist agent to explain qubits") is None
-    assert slash_commands.resolve_command_text("/agent quality_reviewer review this")[0].id == "agent"
     assert commands.is_thread_scoped_command("/agent quality_reviewer review this")
 
     code_review = agent_commands.parse_agent_spawn_text("/agent code_reviewer check this")
@@ -210,7 +208,7 @@ def test_direct_agent_parser_is_command_only_and_explicit_about_profiles(tmp_pat
 
 
 def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, monkeypatch):
-    threads, _agent_runs, _agent_commands, slash_commands, commands = _fresh_command_modules(
+    threads, _agent_runs, _agent_commands, _slash_commands, commands = _fresh_command_modules(
         tmp_path,
         monkeypatch,
     )
@@ -232,9 +230,10 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
 
     monkeypatch.setattr(agent_runner, "spawn_agent_run", fake_spawn_agent_run)
 
-    app_response = slash_commands.dispatch_text_command(
-        thread_id,
+    app_response = commands.dispatch(
+        "sms",
         "/agent quality_reviewer review this patch",
+        thread_id=thread_id,
         enabled_tool_names=["filesystem", "row_bot_status"],
     )
     assert app_response and "Started Agent" in app_response
@@ -252,9 +251,10 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
     assert captured[-1]["profile"] == "write"
     assert captured[-1]["objective"] == "a smoke report"
 
-    worktree_response = slash_commands.dispatch_text_command(
-        thread_id,
+    worktree_response = commands.dispatch(
+        "sms",
         "/agent --worktree --workspace=dev_repo quality_reviewer review in isolation",
+        thread_id=thread_id,
         enabled_tool_names=["filesystem"],
     )
     assert worktree_response and "Started Agent" in worktree_response
@@ -263,16 +263,17 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
     assert captured[-1]["use_worktree"] is True
     assert captured[-1]["developer_workspace_id"] == "dev_repo"
 
-    removed_response = slash_commands.dispatch_text_command(
-        thread_id,
+    removed_response = commands.dispatch(
+        "sms",
         "/agent --separate-checkout quality_reviewer review in isolation",
+        thread_id=thread_id,
         enabled_tool_names=["filesystem"],
     )
     assert removed_response and "/agent [--worktree]" in removed_response
 
 
 def test_direct_agent_command_model_option_is_strict_and_validated(tmp_path, monkeypatch):
-    threads, _agent_runs, _agent_commands, slash_commands, commands = _fresh_command_modules(
+    threads, _agent_runs, _agent_commands, _slash_commands, commands = _fresh_command_modules(
         tmp_path,
         monkeypatch,
     )
@@ -301,9 +302,10 @@ def test_direct_agent_command_model_option_is_strict_and_validated(tmp_path, mon
         lambda *args, **kwargs: SimpleNamespace(ref="model:openai:gpt-5.5"),
     )
 
-    app_response = slash_commands.dispatch_text_command(
-        thread_id,
+    app_response = commands.dispatch(
+        "sms",
         "/agent --model=model:openai:gpt-5.5 quality_reviewer review with model",
+        thread_id=thread_id,
         enabled_tool_names=["filesystem", "row_bot_status"],
     )
 
@@ -317,14 +319,6 @@ def test_direct_agent_command_model_option_is_strict_and_validated(tmp_path, mon
         raise ValueError("Model 'model:openai:nope' is not pinned for Brain.")
 
     monkeypatch.setattr(selection, "resolve_catalog_model_selection", reject_model)
-
-    invalid_app_response = slash_commands.dispatch_text_command(
-        thread_id,
-        "/agent --model=model:openai:nope worker say nope",
-        enabled_tool_names=["filesystem"],
-    )
-    assert invalid_app_response == "Could not start Agent: Model 'model:openai:nope' is not pinned for Brain."
-    assert len(captured) == 1
 
     invalid_channel_response = commands.dispatch(
         "sms",
@@ -364,7 +358,7 @@ def test_channel_profile_commands_are_thread_scoped(tmp_path, monkeypatch):
 
 
 def test_agents_command_lists_current_thread_runs(tmp_path, monkeypatch):
-    threads, agent_runs, _agent_commands, slash_commands, commands = _fresh_command_modules(
+    threads, agent_runs, _agent_commands, _slash_commands, commands = _fresh_command_modules(
         tmp_path,
         monkeypatch,
     )
@@ -391,13 +385,9 @@ def test_agents_command_lists_current_thread_runs(tmp_path, monkeypatch):
         profile_id="worker",
     )
 
-    app_response = slash_commands.dispatch_text_command(first, "/agents")
-    assert app_response and "run-one" in app_response
-    assert "run-two" not in app_response
-
     channel_response = commands.dispatch("slack", "/agents", thread_id=first)
     assert channel_response and "Review Run" in channel_response
     assert "Other Run" not in channel_response
 
-    global_response = slash_commands.dispatch_text_command(first, "/agents all")
+    global_response = commands.dispatch("slack", "/agents all", thread_id=first)
     assert global_response and "run-one" in global_response and "run-two" in global_response

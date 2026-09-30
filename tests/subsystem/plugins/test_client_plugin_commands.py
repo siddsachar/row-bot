@@ -117,6 +117,38 @@ def test_reads_installed_and_cached_marketplace_without_paths_or_secrets(
     assert "source_ref" not in public and "installed_plugins" not in public
 
 
+def _guide(plugin_modules) -> str:
+    return commands.read_plugin_detail("sample-plugin", validate=_valid)["guide"]
+
+
+def test_plugin_guide_is_the_plain_bounded_readme(plugin_modules):
+    readme = _installed(plugin_modules) / "README.md"
+
+    readme.write_bytes(b"# Setup\n\tStep one\x07 done\x1b[0m\n")
+    assert _guide(plugin_modules) == "# Setup\n\tStep one done[0m\n"
+
+    readme.write_bytes(b"x" * 40_000)
+    assert _guide(plugin_modules) == "x" * 32_768
+
+    readme.write_bytes(b"y" * (256 * 1024))
+    assert _guide(plugin_modules) == "y" * 32_768
+
+    readme.write_bytes(b"z" * (256 * 1024 + 1))
+    assert _guide(plugin_modules) == ""
+
+
+def test_plugin_guide_never_follows_a_linked_readme(plugin_modules, tmp_path):
+    readme = _installed(plugin_modules) / "README.md"
+    private = tmp_path / "private-notes.md"
+    private.write_bytes(b"PRIVATE LOCAL NOTES")
+    try:
+        readme.symlink_to(private)
+    except OSError:
+        pytest.skip("symlinks are not available")
+
+    assert _guide(plugin_modules) == ""
+
+
 def test_catalog_is_bounded_and_cursor_is_revision_bound(plugin_modules):
     for index in range(3):
         plugin_id = f"sample-{index}"

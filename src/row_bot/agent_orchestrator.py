@@ -41,18 +41,6 @@ ACTIVE_ORCHESTRATION_STATUSES = {
     "waiting_approval",
     "synthesizing",
 }
-ORCHESTRATION_STATUS_LABELS = {
-    "planning": "Planning",
-    "running": "Running",
-    "waiting_children": "Waiting for Agents",
-    "waiting_approval": "Needs approval",
-    "synthesizing": "Preparing final answer",
-    "completed": "Completed",
-    "completed_partial": "Completed with issues",
-    "interrupted": "Interrupted",
-    "failed": "Failed",
-    "stopped": "Stopped",
-}
 TERMINAL_MEMBER_STATUSES = {
     "completed",
     "completed_delivery_failed",
@@ -293,16 +281,6 @@ def _publish_parent_steering(
         except Exception:
             # Reconnection reads the durable owner even if an observer is gone.
             logger.debug("Could not publish steering receipt", exc_info=True)
-
-
-def orchestration_status_label(status: str) -> str:
-    """Return compact user-facing copy for a durable group status."""
-
-    clean = str(status or "").strip()
-    return ORCHESTRATION_STATUS_LABELS.get(
-        clean,
-        clean.replace("_", " ").strip().title() or "Unknown",
-    )
 
 
 def _emit_orchestration_buddy_event(

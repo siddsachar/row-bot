@@ -71,22 +71,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertFalse(loaded["enabled"])
         self.assertEqual(loaded["servers"], {})
 
-    def test_config_round_trip_masks_secrets_and_normalizes_tools(self) -> None:
-        cfg = self._reload_config()
-        cfg.upsert_server("demo", {
-            "enabled": True,
-            "transport": "http",
-            "url": "https://example.test/mcp",
-            "headers": {"Authorization": "Bearer abcdefghijklmnop"},
-            "tools": {"resources_enabled": True},
-        })
-        loaded = cfg.get_servers()["demo"]
-        self.assertEqual(loaded["transport"], "streamable_http")
-        self.assertTrue(loaded["tools"]["resources_enabled"])
-        self.assertFalse(loaded["tools"]["prompts_enabled"])
-        masked = cfg.masked_config()
-        self.assertNotIn("abcdefghijklmnop", str(masked))
-
     def test_config_save_clears_packaged_agent_cache(self) -> None:
         cfg = self._reload_config()
         clear_cache = Mock()
@@ -681,20 +665,6 @@ class McpClientFoundationTests(unittest.TestCase):
         output = tools["mcp_local_echo"].invoke({"message": "hello"})
         self.assertIn("echo:hello", output)
         self.assertIn("STRUCTURED_CONTENT", output)
-        self.assertEqual(runtime.get_destructive_tool_names(), set())
-
-        cfg.set_tool_enabled("local", "echo", False)
-        self.assertNotIn("mcp_local_echo", {tool.name for tool in runtime.get_langchain_tools()})
-        self.assertEqual(runtime.get_status_summary()["enabled_tool_count"], 0)
-
-        cfg.set_tool_enabled("local", "echo", True)
-        self.assertIn("mcp_local_echo", {tool.name for tool in runtime.get_langchain_tools()})
-        self.assertEqual(runtime.get_status_summary()["enabled_tool_count"], 1)
-
-        cfg.set_tool_requires_approval("local", "echo", True)
-        self.assertIn("mcp_local_echo", runtime.get_destructive_tool_names())
-
-        cfg.set_tool_requires_approval("local", "echo", False)
         self.assertEqual(runtime.get_destructive_tool_names(), set())
 
     def test_background_allow_all_runs_mcp_destructive_tool_without_interrupt_gate(self) -> None:

@@ -3006,32 +3006,6 @@ def get_upcoming_tasks(limit: int = 5) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-def get_next_fire_times(limit: int = 10) -> list[dict]:
-    """Return upcoming scheduled task fire times from APScheduler."""
-    if _scheduler is None:
-        return []
-    results = []
-    for job in _scheduler.get_jobs():
-        if not job.id.startswith("task_"):
-            continue
-        task_id = job.id[5:]  # strip "task_" prefix
-        task = get_task(task_id)
-        if not task:
-            continue
-        next_time = job.next_run_time
-        if next_time is None:
-            continue
-        results.append({
-            "task_id": task_id,
-            "task_name": task["name"],
-            "task_icon": task["icon"],
-            "next_run": next_time.isoformat(),
-            "schedule": task.get("schedule") or task.get("at") or "",
-        })
-    results.sort(key=lambda x: x["next_run"])
-    return results[:limit]
-
-
 # ── Background Execution Engine ──────────────────────────────────────────────
 
 _active_runs: dict[str, dict] = {}  # thread_id -> {task_id, run_id, step, total, name}
@@ -3180,15 +3154,6 @@ def cleanup_thread_state(thread_id: str) -> dict[str, int]:
     return stats
 
 
-def get_running_task_thread(task_id: str) -> str | None:
-    """Return the thread_id of a currently-running task, or None."""
-    with _active_lock:
-        for tid, info in _active_runs.items():
-            if info.get("task_id") == task_id:
-                return tid
-    return None
-
-
 # Backward-compat alias used by app sidebar
 get_running_workflows = get_running_tasks
 
@@ -3257,70 +3222,6 @@ def set_workflow_default_channels(channels: list[str] | None) -> None:
         seen.add(name)
     data["workflow_default_channels"] = clean
     _save_task_config(data)
-
-
-def _workflow_draft_id(task_id: str | None) -> str:
-    return task_id or "__new__"
-
-
-@_schema_retry
-def save_workflow_draft(task_id: str | None, payload: dict) -> None:
-    """Persist an autosaved workflow editor draft.
-
-    ``task_id is None`` represents the single "new workflow" draft.  Drafts
-    are intentionally separate from the canonical tasks table and are cleared
-    when the user saves or discards them.
-    """
-    conn = _get_conn()
-    now = datetime.now().isoformat()
-    draft_id = _workflow_draft_id(task_id)
-    conn.execute(
-        "INSERT OR REPLACE INTO workflow_drafts "
-        "(id, task_id, mode, payload, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (
-            draft_id,
-            task_id,
-            "edit" if task_id else "new",
-            json.dumps(payload, ensure_ascii=False),
-            now,
-        ),
-    )
-    conn.commit()
-    conn.close()
-
-
-@_schema_retry
-def get_workflow_draft(task_id: str | None) -> dict | None:
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT * FROM workflow_drafts WHERE id = ?",
-        (_workflow_draft_id(task_id),),
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    try:
-        payload = json.loads(row["payload"] or "{}")
-    except Exception:
-        payload = {}
-    return {
-        "id": row["id"],
-        "task_id": row["task_id"],
-        "mode": row["mode"],
-        "payload": payload if isinstance(payload, dict) else {},
-        "updated_at": row["updated_at"],
-    }
-
-
-@_schema_retry
-def delete_workflow_draft(task_id: str | None) -> None:
-    conn = _get_conn()
-    conn.execute(
-        "DELETE FROM workflow_drafts WHERE id = ?",
-        (_workflow_draft_id(task_id),),
-    )
-    conn.commit()
-    conn.close()
 
 
 def get_effective_task_channel_names(task: dict) -> list[str]:
@@ -6494,31 +6395,6 @@ def cancel_agent_run_approvals(agent_run_id: str) -> int:
         except Exception:
             logger.warning("Could not mark approval %s withdrawn on channels", approval_id, exc_info=True)
     return len(ids)
-
-
-@_schema_retry
-def get_approval_request_statuses(approval_ids: Sequence[str]) -> dict[str, str]:
-    """Return authoritative statuses for a bounded set of approval cards."""
-
-    clean_ids = list(
-        dict.fromkeys(
-            str(approval_id or "").strip()
-            for approval_id in approval_ids
-            if str(approval_id or "").strip()
-        )
-    )[:200]
-    if not clean_ids:
-        return {}
-    conn = _get_conn()
-    try:
-        placeholders = ", ".join("?" for _ in clean_ids)
-        rows = conn.execute(
-            f"SELECT id, status FROM approval_requests WHERE id IN ({placeholders})",
-            clean_ids,
-        ).fetchall()
-    finally:
-        conn.close()
-    return {str(row["id"]): str(row["status"] or "") for row in rows}
 
 
 @_schema_retry

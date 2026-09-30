@@ -22,13 +22,11 @@ from row_bot.providers.claude_subscription import (
     external_reference_metadata,
     fallback_claude_subscription_model_infos,
     fetch_claude_subscription_model_infos,
-    import_claude_subscription_setup_token,
     list_claude_subscription_model_infos,
     refresh_claude_subscription_token,
     run_claude_subscription_runtime_probe,
     save_external_reference,
     save_claude_subscription_oauth_tokens,
-    seed_recommended_claude_subscription_quick_choices,
     start_claude_subscription_oauth_flow,
     summarize_claude_credentials_json,
 )
@@ -401,21 +399,6 @@ def test_claude_subscription_expired_token_refreshes(tmp_path, monkeypatch):
         _set_backend_for_tests(None)
 
 
-def test_claude_subscription_import_setup_token_is_explicit_row_bot_owned(tmp_path, monkeypatch):
-    import row_bot.providers.runtime as runtime
-
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    _set_backend_for_tests(_MemoryKeyring())
-    try:
-        saved = import_claude_subscription_setup_token(_valid_token())
-        status = runtime.provider_status("claude_subscription")
-
-        assert saved["auth_method"] == AuthMethod.OAUTH_PKCE.value
-        assert status["runtime_enabled"] is True
-    finally:
-        _set_backend_for_tests(None)
-
-
 def test_claude_subscription_disconnect_removes_row_bot_secrets_only(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     backend = _MemoryKeyring()
@@ -519,25 +502,6 @@ def test_claude_subscription_model_infos_cache_live_catalog(tmp_path, monkeypatc
 
     assert [info.model_id for info in live] == ["claude-live"]
     assert [info.model_id for info in cached] == ["claude-live"]
-
-
-def test_claude_subscription_quick_choice_seed_requires_runtime_enabled(tmp_path, monkeypatch):
-    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    _set_backend_for_tests(_MemoryKeyring())
-    try:
-        assert seed_recommended_claude_subscription_quick_choices() == []
-
-        save_claude_subscription_oauth_tokens(ClaudeSubscriptionTokenSet(access_token=_valid_token()))
-        quick = seed_recommended_claude_subscription_quick_choices(max_choices=5)
-    finally:
-        _set_backend_for_tests(None)
-
-    claude_refs = [
-        choice.get("id")
-        for choice in quick
-        if isinstance(choice, dict) and choice.get("provider_id") == "claude_subscription"
-    ]
-    assert claude_refs == ["model:claude_subscription:claude-sonnet-4-6"]
 
 
 def test_claude_subscription_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):

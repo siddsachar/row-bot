@@ -123,7 +123,9 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
 
     child_profile = threads._get_thread_agent_profile(run["thread_id"])
     assert child_profile == {"id": "builtin:review", "slug": "review"}
-    assert threads._get_thread_type(run["thread_id"]) == "agent_child"
+    assert next(
+        row for row in threads._list_threads(include_details=True) if row[0] == run["thread_id"]
+    )[6] == "agent_child"
     event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
     assert {"run.created", "run.started", "turn.started", "turn.completed", "run.completed"} <= event_types
 

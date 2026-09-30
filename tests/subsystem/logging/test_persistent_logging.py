@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 import logging
 import sys
@@ -53,20 +52,6 @@ def test_json_formatter_preserves_core_extra_and_exception_fields(monkeypatch, t
     failed = logging.LogRecord("test", logging.ERROR, "t.py", 1, "failed", None, exc_info)
     parsed_failed = json.loads(formatter.format(failed))
     assert "ValueError" in parsed_failed["exc"]
-
-
-def test_file_log_level_persists_and_invalid_values_are_ignored(monkeypatch, tmp_path) -> None:
-    logging_config = _reload_logging_config(monkeypatch, tmp_path)
-
-    assert logging_config.get_file_log_level() == "DEBUG"
-    logging_config.set_file_log_level("WARNING")
-    assert logging_config.get_file_log_level() == "WARNING"
-
-    sys.modules.pop("row_bot.logging_config", None)
-    reloaded = importlib.import_module("row_bot.logging_config")
-    assert reloaded.get_file_log_level() == "WARNING"
-    reloaded.set_file_log_level("INVALID_LEVEL")
-    assert reloaded.get_file_log_level() == "WARNING"
 
 
 def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tmp_path) -> None:

@@ -107,6 +107,28 @@ def test_passive_account_views_have_no_secrets_runtime_or_effects(account, store
     assert "private" not in json.dumps(asdict(snapshot))
 
 
+SAVED_STATES = {
+    "no-entry": (None, "disconnected"),
+    "signed-out": ({"configured": False}, "disconnected"),
+    "cleared-bundle": ({"configured": True, "oauth_bundle_ref": {"cleared": True}}, "disconnected"),
+    "external-cli": ({"configured": True, "source": "external_cli"}, "metadata_only"),
+    "row-bot-oauth": ({"configured": True, "source": "oauth_pkce"}, "saved"),
+    "malformed": ({"configured": "yes"}, "unavailable"),
+}
+
+
+@pytest.mark.parametrize(("entry", "state"), list(SAVED_STATES.values()), ids=list(SAVED_STATES))
+def test_saved_credentials_decide_the_account_state_the_client_offers_actions_for(store, entry, state):
+    # Connect/Reconnect and Disconnect follow saved_state: a detected CLI login is
+    # referenced metadata, a Row-Bot sign-in is a saved credential.
+    providers = {} if entry is None else {provider: dict(entry) for provider in controls.PROVIDERS}
+    config.save_provider_config({"providers": providers})
+
+    snapshot = controls.read_accounts()
+
+    assert {item.provider_id: item.saved_state for item in snapshot.accounts} == dict.fromkeys(controls.PROVIDERS, state)
+
+
 def test_explicit_signin_publishes_once_and_durable_receipt_is_redacted(account):
     provider, owner, _, calls, _, listener_done = account
     cmd = command(provider)

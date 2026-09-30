@@ -35,7 +35,7 @@ def test_saved_editor_no_network_or_secret_reads_and_preserves_unowned_metadata(
     import httpx
     monkeypatch.setattr(httpx, "get", lambda *_a, **_k: pytest.fail("No implicit network"))
     monkeypatch.setattr(auth_store, "replace_provider_api_key", lambda *_a, **_k: pytest.fail("No credential writes"))
-    monkeypatch.setattr(custom, "delete_provider_secret", lambda *_a, **_k: pytest.fail("No credential deletion"))
+    monkeypatch.setattr(auth_store, "delete_provider_secret", lambda *_a, **_k: pytest.fail("No credential deletion"))
     first = command()
     execute(first)
     cfg = config.load_provider_config(strict=True)
@@ -58,7 +58,34 @@ def test_saved_editor_no_network_or_secret_reads_and_preserves_unowned_metadata(
     assert store.writes == []
 
 
-@pytest.mark.parametrize("patch", [{"base_url": "https://name:private@example.invalid/v1"}, {"base_url": "https://example.invalid/v1?token=private"}, {"extra_body_json": '{"nested":{"api_key":"private"}}'}, {"context_window": True}, {"thinking_budget": -1}, {"enabled": "false"}, {"endpoint_id": "../escape"}, {"profile": "unknown"}], ids=["userinfo", "query", "nested-secret", "bool-context", "negative-budget", "bool-type", "bad-id", "profile"])
+INVALID_FIELDS = {
+    "userinfo": {"base_url": "https://name:private@example.invalid/v1"},
+    "query": {"base_url": "https://example.invalid/v1?token=private"},
+    "fragment": {"base_url": "http://127.0.0.1:8123/v1#x"},
+    "backslash": {"base_url": "http://127.0.0.1:8123\\v1"},
+    "scheme": {"base_url": "ftp://127.0.0.1/v1"},
+    "port-zero": {"base_url": "http://127.0.0.1:0/v1"},
+    "no-host": {"base_url": "http:///v1"},
+    "control-name": {"display_name": "a\x00b"},
+    "long-name": {"display_name": "x" * 161},
+    "vision-mode": {"vision_mode": "maybe"},
+    "tool-mode": {"tool_mode": "maybe"},
+    "reasoning-mode": {"reasoning_mode": "maybe"},
+    "reasoning-flag": {"supports_reasoning_content": "yes"},
+    "nested-secret": {"extra_body_json": '{"nested":{"api_key":"private"}}'},
+    "large-extra": {"extra_body_json": '{"a": "' + "x" * 16_384 + '"}'},
+    "nan-extra": {"extra_body_json": '{"a": NaN}'},
+    "list-extra": {"extra_body_json": "[]"},
+    "bool-context": {"context_window": True},
+    "negative-budget": {"thinking_budget": -1},
+    "large-budget": {"thinking_budget": 10_000_001},
+    "bool-type": {"enabled": "false"},
+    "bad-id": {"endpoint_id": "../escape"},
+    "profile": {"profile": "unknown"},
+}
+
+
+@pytest.mark.parametrize("patch", list(INVALID_FIELDS.values()), ids=list(INVALID_FIELDS))
 def test_invalid_configuration_never_saves(store, patch):
     before = config.CONFIG_PATH.read_bytes()
     with pytest.raises(config.ProviderConfigError):
@@ -97,7 +124,7 @@ def test_delete_removes_exact_provider_pins_and_retains_credentials_and_other_re
     cfg = config.load_provider_config(strict=True)
     cfg["quick_choices"] = [{"id": "model:custom_openai_synthetic:same", "provider_id": "custom_openai_synthetic", "model_id": "same"}, {"id": "model:openai:same", "provider_id": "openai", "model_id": "same"}]
     config.save_provider_config(cfg)
-    monkeypatch.setattr(custom, "delete_provider_secret", lambda *_: pytest.fail("Retain secret bytes"))
+    monkeypatch.setattr(auth_store, "delete_provider_secret", lambda *_: pytest.fail("Retain secret bytes"))
     execute(command("provider.endpoint.delete", {"endpoint_id": "synthetic"}))
     assert config.load_provider_config(strict=True)["quick_choices"] == [cfg["quick_choices"][1]]
     assert custom.get_custom_endpoint("synthetic") is None

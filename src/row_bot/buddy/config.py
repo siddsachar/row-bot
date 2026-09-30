@@ -101,12 +101,6 @@ def save_buddy_config(config: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
-def set_buddy_config(key: str, value: Any) -> dict[str, Any]:
-    cfg = get_buddy_config()
-    cfg[key] = value
-    return save_buddy_config(cfg)
-
-
 def set_buddy_placement_state(state: BuddyPlacementState) -> dict[str, Any]:
     """Persist one canonical placement transition."""
 

@@ -524,22 +524,6 @@ def allocate_worktree(
     )
 
 
-def allocate_thread_worktree(
-    thread_id: str,
-    project_workspace_id: str,
-    *,
-    objective: str = "",
-    seed_mode: str = "current_changes",
-) -> dict[str, Any]:
-    return allocate_worktree(
-        "thread",
-        thread_id,
-        project_workspace_id,
-        objective=objective,
-        seed_mode=seed_mode,
-    )
-
-
 def allocate_agent_worktree(
     run_id: str,
     parent_workspace_id: str,
@@ -571,16 +555,6 @@ def allocate_agent_worktree(
             "parent_owner_id": parent_thread_id,
         },
     )
-
-
-def switch_thread_to_worktree(thread_id: str, worktree_workspace_id: str) -> None:
-    row = get_worktree_for_workspace(worktree_workspace_id)
-    if row is None:
-        raise ValueError("Worktree not found for workspace.")
-    from row_bot.threads import _set_thread_developer_workspace, _set_thread_project_workspace
-
-    _set_thread_developer_workspace(thread_id, worktree_workspace_id)
-    _set_thread_project_workspace(thread_id, str(row.get("project_workspace_id") or ""))
 
 
 def mark_worktree_preserved(

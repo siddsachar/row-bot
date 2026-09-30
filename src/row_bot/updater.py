@@ -241,20 +241,6 @@ def reload_saved_update_state(config_path: pathlib.Path) -> None:
     _notify()
 
 
-def set_channel(channel: str) -> None:
-    """Change the update channel (stable|beta) and persist."""
-    if channel not in ("stable", "beta"):
-        raise ValueError(f"invalid channel: {channel!r}")
-    with _state_lock:
-        st = get_update_state()
-        st.channel = channel
-        st.current_channel = channel
-        # clear any cached update — it's for the old channel
-        st.available = None
-        _save_state(st)
-    _notify()
-
-
 def skip_version(version: str) -> None:
     """Add *version* to the skipped list and clear any pending update for it."""
     with _state_lock:

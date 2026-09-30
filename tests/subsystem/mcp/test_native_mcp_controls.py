@@ -84,28 +84,26 @@ def test_legacy_setters_preserve_format_unknown_fields_and_share_one_publisher(o
     monkeypatch.setattr(configuration, "publish_saved", counted)
     registry.set_enabled("mcp", True)
     registry.set_tool_config("other", "new", "Row-Bot ⚡")
-    registry.set_global_config("new", 4)
     current = configuration.read_saved().document
     assert ("tools" in current) is not flat
     assert configuration.tools_map(current)["mcp"] is True
-    assert current["future"] == original["future"] and current["global"] == {"future": 3, "new": 4}
+    assert current["future"] == original["future"] and current["global"] == {"future": 3}
     assert current["tool_configs"]["other"] == {"private": "synthetic-secret", "new": "Row-Bot ⚡"}
-    assert len(set(publications)) == 3
+    assert len(set(publications)) == 2
     assert "Row-Bot ⚡".encode() in configuration.configuration_path().read_bytes()
 
 
 def test_concurrent_legacy_setters_preserve_independent_fields(owner):
     registry, _ = owner
-    with ThreadPoolExecutor(3) as pool:
+    with ThreadPoolExecutor(2) as pool:
         futures = [pool.submit(registry.set_enabled, "mcp", True),
-            pool.submit(registry.set_tool_config, "other", "new", 2),
-            pool.submit(registry.set_global_config, "new", 3)]
+            pool.submit(registry.set_tool_config, "other", "new", 2)]
         for future in futures:
             future.result()
     current = configuration.read_saved().document
     assert current["tools"]["mcp"] is True and current["tools"]["other"] is True
     assert current["tool_configs"]["other"] == {"private": "synthetic-secret", "new": 2}
-    assert current["global"] == {"future": 3, "new": 3}
+    assert current["global"] == {"future": 3}
 
 
 @pytest.mark.parametrize("raw", ['{"tools":{"mcp":true},"tools":{}}', '{"tools":null}', '{"tools":{"mcp":NaN}}', 'corrupt'])
@@ -122,7 +120,7 @@ def test_corruption_refuses_writes_and_never_advances_cached_authority(owner, ra
 def test_stale_saved_snapshot_and_registration_replacement_refuse_before_effect(owner):
     registry, _ = owner
     first = command()
-    registry.set_global_config("changed", True)
+    registry.set_tool_config("other", "changed", True)
     with pytest.raises(controls.NativeMcpError, match="revision_conflict"):
         execute(first)
     second = command()
@@ -154,7 +152,7 @@ def test_original_retry_confirms_owned_publication_without_resaving(owner, monke
     assert execute(value)["status"] == "partial"
     assert controls.read_native_mcp_state().availability == "recovery_required"
     with pytest.raises(configuration.ToolConfigurationError, match="recovery_required"):
-        owner[0].set_global_config("new", 1)
+        owner[0].set_tool_config("other", "new", 1)
     saved = configuration.read_saved()
     monkeypatch.setattr(admissions, "complete_command", complete)
     monkeypatch.setattr(configuration, "publish_saved", lambda *_a, **_k: pytest.fail("Original replay resaved file"))

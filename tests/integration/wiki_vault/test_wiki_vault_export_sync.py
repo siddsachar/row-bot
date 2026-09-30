@@ -190,7 +190,7 @@ def test_wiki_cleanup_preserves_raw_and_conversations(
     assert (vault / "conversations" / "chat.md").exists()
 
 
-def test_wiki_vault_parse_check_sync_import_and_batch_sync(wiki_stack: dict[str, Any]) -> None:
+def test_wiki_vault_parse_check_sync_and_import(wiki_stack: dict[str, Any]) -> None:
     kg = wiki_stack["kg"]
     memory = wiki_stack["memory"]
     wiki_vault = wiki_stack["wiki_vault"]
@@ -233,20 +233,6 @@ def test_wiki_vault_parse_check_sync_import_and_batch_sync(wiki_stack: dict[str,
     if isinstance(props, str):
         props = json.loads(props)
     assert props["status"] == "active"
-
-    second = memory.save_memory(
-        "place",
-        "VaultPlace",
-        "VaultPlace is a deterministic batch sync integration test place.",
-    )
-    second_md = wiki_vault.export_entity(kg.get_entity(second["id"]))
-    assert second_md is not None
-    second_md.write_text(second_md.read_text(encoding="utf-8") + "\nBatch edit.\n", encoding="utf-8")
-    os.utime(second_md, (time.time() + 20, time.time() + 20))
-
-    sync_result = wiki_vault.sync_all_from_vault()
-    assert sync_result["synced"] >= 1
-    assert sync_result["failed"] == 0
 
 
 def test_wiki_tool_contract_and_removed_search_tool(wiki_stack: dict[str, Any]) -> None:

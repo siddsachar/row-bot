@@ -9,7 +9,6 @@ from __future__ import annotations
 import copy
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from functools import wraps
 import hashlib
 import json
 import os
@@ -20,7 +19,7 @@ import sys
 from typing import Any, Callable, Iterator
 
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.mcp_client.logging import log_event, mask_mapping
+from row_bot.mcp_client.logging import log_event
 
 DATA_DIR = get_row_bot_data_dir(create=False)
 CONFIG_PATH = DATA_DIR / "mcp_servers.json"
@@ -172,18 +171,6 @@ def publish_saved_configuration(document: dict[str, Any], *, expected_digest: st
             raise
     clear_agent_cache_if_loaded()
     return result
-
-
-def _configuration_mutation(function):
-    @wraps(function)
-    def guarded(*args, **kwargs):
-        global _config_cache
-        with _CONFIG_LOCK:
-            # Legacy UI/tool setters participate in the same fresh RMW owner.
-            current = read_saved_configuration()
-            _config_cache = normalize_config(current.document)
-            return function(*args, **kwargs)
-    return guarded
 
 
 def _retain_unknown_fields(normalized: dict, current: dict) -> dict:
@@ -394,51 +381,3 @@ def get_servers(*, enabled_only: bool = False) -> dict[str, dict[str, Any]]:
     if enabled_only:
         return {name: cfg for name, cfg in servers.items() if cfg.get("enabled")}
     return servers
-
-
-@_configuration_mutation
-def upsert_server(name: str, server_config: dict[str, Any]) -> dict[str, Any]:
-    cfg = load_config()
-    normalized = normalize_server_config(name, server_config)
-    cfg.setdefault("servers", {})[name] = normalized
-    save_config(cfg)
-    return normalized
-
-
-@_configuration_mutation
-def set_server_enabled(name: str, enabled: bool) -> None:
-    cfg = load_config()
-    if name in cfg.get("servers", {}):
-        cfg["servers"][name]["enabled"] = bool(enabled)
-        save_config(cfg)
-
-
-@_configuration_mutation
-def set_tool_enabled(server_name: str, tool_name: str, enabled: bool) -> None:
-    cfg = load_config()
-    server = cfg.get("servers", {}).get(server_name)
-    if not server:
-        return
-    tools_cfg = server.setdefault("tools", {})
-    tools_cfg.setdefault("enabled", {})[tool_name] = bool(enabled)
-    save_config(cfg)
-
-
-@_configuration_mutation
-def set_tool_requires_approval(server_name: str, tool_name: str, requires: bool) -> None:
-    cfg = load_config()
-    server = cfg.get("servers", {}).get(server_name)
-    if not server:
-        return
-    tools_cfg = server.setdefault("tools", {})
-    approvals = set(tools_cfg.get("require_approval") or [])
-    if requires:
-        approvals.add(tool_name)
-    else:
-        approvals.discard(tool_name)
-    tools_cfg["require_approval"] = sorted(approvals)
-    save_config(cfg)
-
-
-def masked_config() -> dict[str, Any]:
-    return mask_mapping(load_config())

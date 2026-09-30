@@ -93,7 +93,7 @@ def test_process_attached_files_includes_original_names_workspace_paths_and_cach
 
 def test_workspace_read_file_reads_received_file_paths_and_bare_alias(tmp_path, monkeypatch):
     workspace = _set_workspace(tmp_path, monkeypatch)
-    from row_bot.tools.filesystem_tool import _make_pdf_aware_read_tool, get_and_clear_displayed_image
+    from row_bot.tools.filesystem_tool import _make_pdf_aware_read_tool
     received = workspace / "Received Files"
     received.mkdir(parents=True)
     (received / "note.txt").write_text("hello", encoding="utf-8")
@@ -120,7 +120,6 @@ def test_workspace_read_file_reads_received_file_paths_and_bare_alias(tmp_path, 
     assert "doc.json" in read_tool.invoke({"file_path": "Received Files/doc.json"})
     assert "pdf body" in read_tool.invoke({"file_path": "Received Files/paper.pdf"})
     assert "Displayed image" in read_tool.invoke({"file_path": "Received Files/photo.png"})
-    assert get_and_clear_displayed_image()["name"] == "photo.png"
 
 
 def test_workspace_read_file_reads_xlsx_when_dependency_available(tmp_path, monkeypatch):

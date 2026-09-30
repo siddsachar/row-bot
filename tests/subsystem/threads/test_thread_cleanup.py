@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import importlib
+import json
 import os
 import sqlite3
 import threading
@@ -137,9 +138,9 @@ def test_normal_thread_deletion_removes_owned_state_and_persistent_media(tmp_pat
     threads.save_thread_draft(thread_id, "unfinished secret")
     persistent = threads.save_media_file(thread_id, "keep.png", b"persistent bytes")
     transient = threads.save_media_file(thread_id, "drop.png", b"transient bytes")
-    threads.save_thread_media(
-        thread_id,
-        {"entries": [{"media": [{"path": persistent.name, "persist": True}]}]},
+    threads._thread_ui_media_path(thread_id).write_text(
+        json.dumps({"entries": [{"media": [{"path": persistent.name, "persist": True}]}]}),
+        encoding="utf-8",
     )
     (threads._THREAD_UI_DIR / f"{thread_id}.images.json").write_text("{}", encoding="utf-8")
     _insert_thread_task_state(tasks, thread_id)
@@ -376,7 +377,7 @@ def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(t
         _insert_thread_checkpoint(threads, thread_id, f"checkpoint-{index}")
         threads.save_thread_draft(thread_id, f"draft-{index}")
         threads.save_media_file(thread_id, f"media-{index}.bin", b"owned")
-        threads.save_thread_media(thread_id, {"entries": []})
+        threads._thread_ui_media_path(thread_id).write_text(json.dumps({"entries": []}), encoding="utf-8")
         (threads._THREAD_UI_DIR / f"{thread_id}.images.json").write_text(
             "{}",
             encoding="utf-8",
@@ -480,7 +481,7 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(tmp_pat
         assert cleanup.is_thread_deleting(child_id) is True
         threads._save_thread_meta(child_id, "Late child resurrection")
         assert threads._thread_exists(child_id) is True
-        assert threads.get_thread_name(child_id) == "Active child"
+        assert next(row for row in threads._list_threads() if row[0] == child_id)[1] == "Active child"
         with pytest.raises((ValueError, RuntimeError), match="delet"):
             threads._save_thread_meta(child_id, "Premature explicit recreation", allow_recreate=True)
     finally:

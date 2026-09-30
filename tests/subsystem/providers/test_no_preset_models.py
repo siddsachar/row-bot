@@ -11,7 +11,11 @@ import pytest
 
 from row_bot import models, vision
 from row_bot.providers import config as provider_config
-from row_bot.providers.custom import custom_provider_id, delete_custom_endpoint, save_custom_endpoint
+from row_bot.providers.custom import (
+    custom_provider_id,
+    delete_custom_endpoint_configuration,
+    save_custom_endpoint,
+)
 from row_bot import api_keys
 
 
@@ -54,7 +58,12 @@ def test_provider_removal_keeps_the_saved_default(tmp_path, monkeypatch):
         "models": [{"id": "old-model", "model_id": "old-model"}],
     })
 
-    delete_custom_endpoint("old")
+    delete_custom_endpoint_configuration(
+        "old",
+        expected_revision=provider_config.provider_config_revision(provider_config.load_provider_config()),
+        validate=lambda: None,
+        record_commit=lambda _cfg: None,
+    )
 
     assert models.get_current_model() == removed_ref
     assert not settings_path.exists() or "ollama" not in settings_path.read_text(encoding="utf-8")

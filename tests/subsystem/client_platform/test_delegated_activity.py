@@ -139,6 +139,19 @@ def test_agent_start_spawns_a_delegated_agent_from_the_composer(service, monkeyp
         _agent_command(service, parent, "agent.start", {"text": "--model="})
 
 
+def _statuses(tasks, ids: list[str]) -> dict[str, str]:
+    """The saved status of each approval request, read from its row."""
+    conn = tasks._get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, status FROM approval_requests WHERE id IN (%s)" % ",".join("?" * len(ids)),
+            list(ids),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {row["id"]: row["status"] for row in rows}
+
+
 def test_stopping_an_agent_that_waits_for_approval_withdraws_the_approval(service):
     """B165: Stop left the agent's approval pending, so "Needs approval" stayed
     on the Buddy and in Home until it timed out."""
@@ -156,7 +169,7 @@ def test_stopping_an_agent_that_waits_for_approval_withdraws_the_approval(servic
         agent_run_id=other["id"], resume_kind="agent_run", parent_thread_id=parent)
     _agent_command(service, parent, "agent.stop", {"run_id": run["id"]})
     assert agent_runs.get_agent_run(run["id"])["status"] == "stopped"
-    statuses = tasks.get_approval_request_statuses([approval_id, other_approval])
+    statuses = _statuses(tasks, [approval_id, other_approval])
     assert statuses == {approval_id: "cancelled", other_approval: "pending"}
     assert [item["id"] for item in tasks.get_pending_approvals()] == [other_approval]
 

@@ -138,8 +138,7 @@ def _map_google_params(size: str, quality: str) -> tuple[str, str | None]:
     return aspect_ratio, base_res
 
 # ── Side-channel for generated images ────────────────────────────────────
-# The streaming layer reads and clears this after generate/edit calls,
-# same pattern as filesystem_tool._last_displayed_image.
+# The streaming layer reads and clears this after generate/edit calls.
 _last_generated_image: str | None = None  # base64-encoded image data
 _strict_output: ContextVar[tuple[str, Callable[[], None], Callable[[bytes], str]] | None] = ContextVar(
     "strict_image_generation_output", default=None)

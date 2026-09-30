@@ -800,31 +800,6 @@ def update_skill(
     return updated
 
 
-@_serialized
-def delete_skill(name: str) -> bool:
-    """Delete a user skill from disk and cache.  Returns True on success."""
-    global _pinned
-    skill = _skills_cache.get(name)
-    if not skill or skill.source != "user" or not skill.path:
-        logger.warning("Cannot delete skill '%s': not a user skill", name)
-        return False
-
-    import shutil
-
-    try:
-        shutil.rmtree(skill.path)
-    except OSError:
-        logger.warning("Failed to delete skill folder %s", skill.path, exc_info=True)
-        return False
-
-    _skills_cache.pop(name, None)
-    _enabled.pop(name, None)
-    _pinned = [pinned_name for pinned_name in _pinned if pinned_name != name]
-    _save_config()
-    logger.info("Deleted skill '%s'", name)
-    return True
-
-
 def _client_file(path: pathlib.Path, *, maximum: int = 65536):
     from row_bot.file_ownership import guard_directory, directory_identity
     from row_bot.file_publication import read_bytes

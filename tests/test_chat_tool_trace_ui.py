@@ -7,9 +7,8 @@ import pytest
 
 from row_bot.application.conversation_traces import (
     canonical_tool_name,
-    group_tool_results,
+    classify_tool_result,
     is_browser_tool_name,
-    tool_result_failed,
 )
 from row_bot.computer_use.service import ComputerUseError
 from row_bot.tools.computer_use_tool import _computer_error_payload
@@ -74,54 +73,10 @@ def test_injection_scanner_exposes_only_bounded_advisory_categories() -> None:
     assert all(len(category) <= 32 for category in categories)
 
 
-def test_tool_results_group_by_name_without_losing_entries():
-    results = [
-        {"name": "web_search", "content": "first"},
-        {"name": "browser_click", "content": "clicked"},
-        {"name": "web_search", "content": "second"},
-        {"name": "browser_click", "content": "clicked again"},
-        {"name": "workspace_read_file", "content": "file"},
-    ]
-
-    groups = group_tool_results(results)
-
-    assert [g.name for g in groups] == [
-        "web_search",
-        "Browser activity",
-        "workspace_read_file",
-    ]
-    assert [g.count for g in groups] == [2, 2, 1]
-    assert [r["content"] for r in groups[0].results] == ["first", "second"]
-    assert [r["content"] for r in groups[1].results] == ["clicked", "clicked again"]
-
-
 def test_browser_group_labels_are_activity_summaries():
-    group = group_tool_results(
-        [
-            {"name": "browser_navigate", "content": "url"},
-            {"name": "browser_click", "content": "clicked"},
-            {"name": "browser_scroll", "content": "scrolled"},
-        ]
-    )[0]
-
     assert canonical_tool_name("browser_click") == "Browser Click"
     assert is_browser_tool_name("browser_click")
     assert is_browser_tool_name("Browser Click")
-    assert group.name == "Browser activity"
-    assert group.label == "Browser activity · 3 steps"
-
-
-def test_structured_computer_errors_are_failed() -> None:
-    content = json.dumps(
-        {
-            "ok": False,
-            "error": True,
-            "error_code": "invalid_input",
-            "display_summary": "Computer action needs valid input.",
-        }
-    )
-
-    assert tool_result_failed(content) is True
 
 
 def test_protected_computer_surface_is_terminal_and_never_a_driver_failure() -> None:
@@ -139,30 +94,7 @@ def test_protected_computer_surface_is_terminal_and_never_a_driver_failure() -> 
     assert payload["terminal"] is True
     assert "protected" in payload["display_summary"].casefold()
     assert "driver" not in payload["display_summary"].casefold()
-    assert tool_result_failed(content) is True
-
-
-def test_computer_group_with_recovered_error_is_not_a_clean_success() -> None:
-    group = group_tool_results(
-        [
-            {"name": "computer_use", "content": "Captured the selected target."},
-            {
-                "name": "computer_use",
-                "content": json.dumps(
-                    {
-                        "ok": False,
-                        "error": True,
-                        "error_code": "driver_failed",
-                        "display_summary": "Computer action failed safely.",
-                    }
-                ),
-            },
-            {"name": "computer_use", "content": "Captured fresh verification."},
-        ]
-    )[0]
-
-    assert any(tool_result_failed(item) for item in group.results)
-    assert "error" not in group.label.lower()
+    assert classify_tool_result(content) in {"failed", "blocked", "cancelled", "uncertain"}
 
 
 def test_tool_invoke_trace_uses_underlying_name_without_nested_arguments(monkeypatch):

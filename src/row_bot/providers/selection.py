@@ -937,18 +937,6 @@ def list_model_choice_options(
     return options
 
 
-def model_choice_options_map(
-    surface: str = "chat",
-    *,
-    include_values: Iterable[str] | None = None,
-    include_inactive: bool = False,
-) -> dict[str, str]:
-    return {
-        str(option["value"]): str(option["label"])
-        for option in list_model_choice_options(surface, include_values=include_values, include_inactive=include_inactive)
-    }
-
-
 def route_ref(route_id: str) -> str:
     return f"route:{route_id}"
 
@@ -1515,21 +1503,6 @@ def remove_quick_choice_for_model(model_id: str, *, provider_id: str | None = No
         if not isinstance(c, dict) or c.get("id") != ref
     ]
     save_provider_config(cfg)
-
-
-@provider_config_transaction()
-def remove_quick_choices_for_provider(provider_id: str) -> int:
-    provider_id = str(provider_id or "").strip()
-    if not provider_id:
-        return 0
-    cfg = load_provider_config()
-    quick = [c for c in cfg.get("quick_choices", []) if isinstance(c, dict)]
-    kept = [c for c in quick if str(c.get("provider_id") or "") != provider_id]
-    removed = len(quick) - len(kept)
-    if removed:
-        cfg["quick_choices"] = kept
-        save_provider_config(cfg)
-    return removed
 
 
 @provider_config_transaction()

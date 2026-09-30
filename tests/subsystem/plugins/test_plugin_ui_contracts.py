@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -8,6 +9,11 @@ from row_bot.plugins.manifest import PluginAuthor, PluginManifest, PluginProvide
 
 
 pytestmark = pytest.mark.subsystem
+
+
+def _saved(state: Any, plugin_id: str) -> dict[str, Any]:
+    """The persisted plugin_state.json record the client reads."""
+    return json.loads(state._STATE_PATH.read_text(encoding="utf-8")).get(plugin_id, {})
 
 
 def test_plugin_settings_missing_required_keys_respects_secret_state(
@@ -77,7 +83,7 @@ def test_plugin_v2_settings_and_secrets_gate_the_recorded_self_test(
     checks = record_manifest_health(manifest)
 
     assert checks == [{"label": "Required local setup", "status": "ok"}]
-    assert state.get_plugin_health_result("v2-ui-plugin")["ok"] is True
+    assert _saved(state, "v2-ui-plugin").get("health", {})["ok"] is True
 
     live_check_manifest = PluginManifest(
         id="live-check-ui-plugin",
@@ -95,7 +101,7 @@ def test_plugin_v2_settings_and_secrets_gate_the_recorded_self_test(
     assert record_manifest_health(live_check_manifest) == [
         {"label": "Api Probe", "status": "manual_required"}
     ]
-    assert state.get_plugin_health_result("live-check-ui-plugin")["ok"] is True
+    assert _saved(state, "live-check-ui-plugin").get("health", {})["ok"] is True
 
 
 def test_declared_plugin_health_checks_are_evaluated_locally(
