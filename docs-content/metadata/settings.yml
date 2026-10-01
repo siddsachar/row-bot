@@ -88,10 +88,6 @@ pages:
       required.
     security: Starting an adapter can receive or deliver real messages; review targets
       first.
-  profiles:
-    description: Browse and edit the agent profile library used for delegation.
-    docs_route: /docs/app-shell/agent-profiles
-    screenshot_id: agent-profile-library
   system:
     description: Configure the workspace folder, shell access, browser and Computer
       Use, file operations, and logging.
