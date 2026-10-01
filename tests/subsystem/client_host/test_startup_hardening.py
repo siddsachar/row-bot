@@ -326,6 +326,35 @@ def test_splash_helper_immediate_failure_returns_quickly(tmp_path, monkeypatch, 
     assert "DLL load failed" in caplog.text
 
 
+
+def test_native_window_process_finds_row_bot_without_an_installed_package(monkeypatch):
+    """The window script imports Row-Bot's Buddy modules; the macOS app's bundled
+    interpreter has no path file for them, so the launcher hands the package's
+    folder to the window process itself."""
+    started = {}
+
+    class FakeWindow:
+        stdin = SimpleNamespace(write=lambda _text: None, close=lambda: None)
+        pid = 4321
+
+        def poll(self):
+            return None
+
+    def fake_popen(args, **kwargs):
+        started["args"] = args
+        started["env"] = kwargs.get("env")
+        return FakeWindow()
+
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(launcher.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("PYTHONPATH", "elsewhere")
+
+    assert launcher._open_window(8123) is not None
+    paths = started["env"]["PYTHONPATH"].split(os.pathsep)
+    assert (Path(paths[0]) / "row_bot" / "launcher.py").is_file()
+    assert paths[1:] == ["elsewhere"]
+
 def test_window_mode_picker_windows_defaults_without_console(tmp_path, monkeypatch):
     monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
     monkeypatch.setattr(launcher.sys, "platform", "win32")

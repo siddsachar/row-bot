@@ -2688,10 +2688,20 @@ def _open_window(
             args.append(str(int(control_port)))
         else:
             args.append("0")
+        # The window imports Row-Bot's Buddy modules. The macOS app's bundled
+        # interpreter has no path file for them (Windows' has), so the window
+        # gets the package's folder itself.
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            path
+            for path in (str(Path(__file__).resolve().parents[1]), env.get("PYTHONPATH", ""))
+            if path
+        )
         proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
             text=True,
+            env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if proc.stdin is None:
