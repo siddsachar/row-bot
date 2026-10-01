@@ -476,11 +476,12 @@ export default function CommandPalette({
         }
       const search = state.search;
       // The same words in several messages of one conversation (a prompt
-      // sent again) show once: their rows would look identical.
+      // sent again) show once: their rows would look identical, since a row
+      // shows only the start of its snippet.
       const shown = new Set<string>();
       search?.items.forEach((hit, index) => {
         const detail = plainSnippet(hit.excerpt);
-        const key = `${hit.conversation_id}\n${detail}`;
+        const key = `${hit.conversation_id}\n${detail.slice(0, 60)}`;
         if (shown.has(key)) return;
         shown.add(key);
         results.push({

@@ -45,21 +45,23 @@ const lantern: SearchHit = {
   checkpoint_revision: 'r1',
 };
 
-/** One conversation where a prompt was sent three times, and one other line. */
+/**
+ * One conversation where a prompt was sent three times (once with more words
+ * at its end, past what a row shows), and one other line.
+ */
+const poster =
+  'A **beacon** over the harbour at dusk, painted gold against a low grey sky';
 const beacons: SearchHit[] = [
-  'message-1',
-  'message-2',
-  'message-3',
-  'message-4',
-].map((message_id, index) => ({
+  poster,
+  poster,
+  `${poster} and gulls`,
+  'A second beacon on the hill.',
+].map((excerpt, index) => ({
   conversation_id: 'chat-release',
   title: 'Release poster',
-  message_id,
+  message_id: `message-${index + 1}`,
   row_id: null,
-  excerpt:
-    index === 3
-      ? 'A second beacon on the hill.'
-      : 'A **beacon** over the harbour at dusk.',
+  excerpt,
   checkpoint_revision: 'r2',
 }));
 
@@ -348,7 +350,7 @@ it('shows the same words from one conversation once, and the two-letter hint onl
     name: /^Release poster/,
   });
   expect(hits.map((hit) => hit.textContent)).toEqual([
-    expect.stringContaining('A beacon over the harbour at dusk.'),
+    expect.stringContaining('A beacon over the harbour at dusk, painted gold'),
     expect.stringContaining('A second beacon on the hill.'),
   ]);
   expect(screen.queryByText('Type two letters to search messages')).toBeNull();
