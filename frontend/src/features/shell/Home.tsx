@@ -542,6 +542,12 @@ export default function Home({
                 monitor={monitor}
                 loadTasks={identity ? loadTasks : undefined}
                 loadHealth={identity ? loadHealth : undefined}
+                // Running every check is the local owner's.
+                onRunDiagnosis={
+                  state.handshake?.authentication_kind === 'local_owner'
+                    ? () => controller.systemDiagnosis()
+                    : undefined
+                }
                 loadApprovals={
                   identity ? controller.pendingApprovals : undefined
                 }
@@ -665,6 +671,7 @@ export default function Home({
                 }
                 startupWarnings={startupWarnings}
                 attention={attention}
+                onFixed={() => setMonitorReload((value) => value + 1)}
                 loadLogs={loadLogs}
                 loadTasks={identity ? loadTasks : undefined}
               />

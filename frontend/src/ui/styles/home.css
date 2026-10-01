@@ -578,7 +578,8 @@
   gap: 4px;
   margin-inline-start: auto;
 }
-.overview-need-actions > :is(.agent-controls-status, .approval-decision-done) {
+.overview-need-actions
+  > :is(.agent-controls-status, .approval-decision-done, .fix-action-note) {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--text-12);
@@ -3087,6 +3088,17 @@ button.overview-stat:hover {
   padding: 0;
   list-style: none;
 }
+/* A tile and, under it, its one fix (Phase 18). */
+.health-tile-cell {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 6px;
+}
+.health-tile-fix {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
 .health-tile {
   display: grid;
   align-content: start;
@@ -3862,6 +3874,41 @@ button.overview-stat:hover {
   flex: none;
   margin-top: 3px;
   color: var(--status-warning-text);
+}
+/* Each problem's one fix sits at the end of its line (Phase 18). */
+.monitor-attention-list li {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.monitor-attention-list li > span:not(.monitor-attention-fix) {
+  flex: 1 1 240px;
+}
+.monitor-attention-fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.monitor-attention-fix svg,
+.health-tile-fix svg {
+  margin-top: 0;
+  color: inherit;
+}
+
+/* A problem's fix (FixAction): a small labelled button, and what happened. */
+.fix-action {
+  gap: 6px;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.fix-action-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+}
+.fix-action-note[role='alert'] {
+  color: var(--status-danger-text);
 }
 
 /* A workflow's webhook: the address, the header that carries its secret

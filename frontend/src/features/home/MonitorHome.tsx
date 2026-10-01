@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { AttentionProblem } from '../../api/types';
+import type { AttentionProblem, ProblemFix } from '../../api/types';
 import {
   Brain,
   CalendarClock,
@@ -43,6 +43,7 @@ import { absoluteTime, parseTimestamp, relativeTime } from '../../ui/format';
 import { FAILED_RUN_STATUSES, When, plural, runStatus } from './home-format';
 import { Sparkline, Swimlane, type Lane } from './monitor-charts';
 import { settingsLeaves } from '../settings/model';
+import FixAction from './FixAction';
 
 export type MonitorAvailability =
   'available' | 'missing' | 'unavailable' | 'corrupt';
@@ -116,19 +117,12 @@ export type MonitorSnapshot = {
   };
 };
 
-/** Where each kind of problem is fixed. */
-const ATTENTION_PLACES: Record<
-  AttentionProblem['place'],
-  { to: string; label: string } | null
-> = {
-  channels: { to: '/settings/channels', label: 'Open Channels' },
-  plugins: { to: '/settings/plugins', label: 'Open Plugins' },
-  mcp: { to: '/settings/mcp', label: 'Open MCP' },
-  access: { to: '/settings/access', label: 'Open Devices & remote access' },
-  models: { to: '/settings/models', label: 'Open Models' },
-  workflows: { to: '/?tab=workflows', label: 'Open Workflows' },
-  // A red check (B252): its tile is on this page, so no link.
-  health: null,
+/** Failed workflow runs are fixed on the Workflows tab. */
+const WORKFLOWS_FIX: ProblemFix = {
+  kind: 'open',
+  href: '/?tab=workflows',
+  target: null,
+  name: 'Workflows',
 };
 
 /** Kept results are re-read while Monitor is open; soon on the first run. */
@@ -150,6 +144,8 @@ export type MonitorHomeProps = {
   startupWarnings?: readonly string[];
   /** Problems the sidebar indicator counts (parity rows 12, 13). */
   attention?: readonly AttentionProblem[];
+  /** A fix changed something (a channel restarted): re-read the problems. */
+  onFixed?: () => void;
   /** Up to 200 redacted entries for the console (local owner only). */
   loadLogs?: (signal?: AbortSignal) => Promise<MonitorLogs>;
   loadTasks?: () => Promise<TaskSummaryPage>;
@@ -280,6 +276,8 @@ type TileView = {
   /** "checked 4 minutes ago", or "checked yesterday · Check again". */
   checked: string;
   checks: SystemDiagnosisCheck[];
+  /** The worst problem's one fix (Phase 18). */
+  fix: ProblemFix | null;
 };
 
 const checkedAt = (check: SystemDiagnosisCheck) =>
@@ -322,6 +320,7 @@ function tileFromChecks(
       detail: 'Running the first checks',
       checked: '',
       checks,
+      fix: null,
     };
   const worst = [...checks].sort(
     (left, right) =>
@@ -341,6 +340,7 @@ function tileFromChecks(
           : `${ok} of ${checks.length} OK`,
     checked: checkedWords(checks, now),
     checks,
+    fix: worst.fix ?? null,
   };
 }
 
@@ -908,6 +908,7 @@ export default function MonitorHome({
   onSetHourlyChecks,
   startupWarnings,
   attention,
+  onFixed,
   loadLogs,
   loadTasks,
   writeClipboard,
@@ -990,6 +991,12 @@ export default function MonitorHome({
     }
   }
 
+  /** After a fix: the kept results and the problems are read again. */
+  function fixed() {
+    setHealthReload((value) => value + 1);
+    onFixed?.();
+  }
+
   async function setHourlyChecks(enabled: boolean) {
     if (!health || !onSetHourlyChecks) return;
     const before = health;
@@ -1037,6 +1044,7 @@ export default function MonitorHome({
           tone: 'warning',
           status: 'Needs attention',
           detail: `${plural(failing, 'workflow')} failed last time · ${view.detail}`,
+          fix: view.fix ?? WORKFLOWS_FIX,
         };
       return view;
     });
@@ -1244,23 +1252,24 @@ export default function MonitorHome({
           <header className="monitor-section-head">
             <h3 id="attention-heading">Needs attention</h3>
           </header>
-          <ul className="monitor-startup-list">
-            {attention.map((problem) => {
-              const place = ATTENTION_PLACES[problem.place];
-              return (
-                <li key={problem.id}>
-                  <TriangleAlert size={14} aria-hidden />
-                  <span>
-                    <strong>{problem.title}</strong> {problem.detail}{' '}
-                    {place && (
-                      <Link className="settings-inline-action" to={place.to}>
-                        {place.label}
-                      </Link>
-                    )}
+          <ul className="monitor-startup-list monitor-attention-list">
+            {attention.map((problem) => (
+              <li key={problem.id}>
+                <TriangleAlert size={14} aria-hidden />
+                <span>
+                  <strong>{problem.title}</strong> {problem.detail}
+                </span>
+                {problem.fix && (
+                  <span className="monitor-attention-fix">
+                    <FixAction
+                      fix={problem.fix}
+                      onCheckAgain={() => void runDiagnosis()}
+                      onFixed={fixed}
+                    />
                   </span>
-                </li>
-              );
-            })}
+                )}
+              </li>
+            ))}
           </ul>
         </section>
       )}
@@ -1268,7 +1277,7 @@ export default function MonitorHome({
         {tiles.map((tile) => {
           const Icon = tile.icon;
           return (
-            <li key={tile.key}>
+            <li key={tile.key} className="health-tile-cell">
               <button
                 type="button"
                 className="health-tile"
@@ -1291,6 +1300,16 @@ export default function MonitorHome({
                   <span className="health-tile-time">{tile.checked}</span>
                 )}
               </button>
+              {tile.fix && (
+                // One fix per tile, beside its button (Phase 18).
+                <div className="health-tile-fix">
+                  <FixAction
+                    fix={tile.fix}
+                    onCheckAgain={() => void runDiagnosis()}
+                    onFixed={fixed}
+                  />
+                </div>
+              )}
             </li>
           );
         })}
@@ -1484,13 +1503,21 @@ export default function MonitorHome({
                           </>
                         )}
                       </p>
-                      {route && (
-                        <Link
-                          className="overview-section-link"
-                          to={`/settings/${route}`}
-                        >
-                          Open {settingsLabel(route)} settings
-                        </Link>
+                      {check.fix ? (
+                        <FixAction
+                          fix={check.fix}
+                          onCheckAgain={() => void runDiagnosis()}
+                          onFixed={fixed}
+                        />
+                      ) : (
+                        route && (
+                          <Link
+                            className="overview-section-link"
+                            to={`/settings/${route}`}
+                          >
+                            Open {settingsLabel(route)} settings
+                          </Link>
+                        )
                       )}
                     </li>
                   );

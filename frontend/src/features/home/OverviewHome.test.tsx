@@ -9,6 +9,7 @@ import type {
   OnboardingSnapshot,
   PendingApproval,
   PendingApprovalPage,
+  ProblemFix,
   SystemDiagnosisCheck,
   TaskSummary,
   TaskSummaryPage,
@@ -16,7 +17,15 @@ import type {
 import OverviewHome, { type OverviewHomeProps } from './OverviewHome';
 import { clockTime, scheduleWords } from './home-format';
 
-const runtime = vi.hoisted(() => ({ approval: vi.fn(), intent: vi.fn() }));
+const runtime = vi.hoisted(() => ({
+  approval: vi.fn(),
+  intent: vi.fn(),
+  // A failed workflow's Run again: the reviewed run Workflows uses.
+  getSnapshot: () => ({ handshake: { client_session_id: 'session-1' } }),
+  taskRunReview: vi.fn(),
+  command: vi.fn(),
+  taskRun: vi.fn(),
+}));
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: runtime }),
 }));
@@ -291,6 +300,25 @@ beforeEach(() => {
     nonce: 'nonce-mail',
   });
   runtime.intent.mockReset().mockResolvedValue({ status: 'completed' });
+  runtime.taskRunReview.mockReset().mockResolvedValue({
+    task_id: 'wf-brief',
+    task_revision: 't'.repeat(64),
+    policy_revision: 'p'.repeat(64),
+    agent_profile_id: 'builtin:row_bot_default',
+    approval_mode: 'block',
+    notify_only: false,
+    steps_total: 2,
+    conversation_id: null,
+  });
+  runtime.command
+    .mockReset()
+    .mockImplementation(async (_id: null, command: { command_id: string }) => ({
+      command_id: command.command_id,
+      status: 'completed',
+      task_run_id: 'run-again',
+      task_run_reserved: true,
+    }));
+  runtime.taskRun.mockReset().mockResolvedValue({ id: 'run-again' });
 });
 
 afterEach(() => {
@@ -603,8 +631,11 @@ it('shows two waiting items at first and the rest behind "more waiting"', async 
     'Review approval in Agent approval',
     'Review workflow approval: Nightly backup',
     'Review workflow approval: Invoice sync',
+    // A failed run's one fix sits beside it (Phase 18).
     'Open failed workflow: Morning digest',
+    'Run Morning digest again',
     'Open failed workflow: Weekly report',
+    'Run Weekly report again',
   ]);
   const meta = (name: string) =>
     within(needs).getByRole('button', { name }).textContent;
@@ -732,6 +763,100 @@ it('lists a Monitor check whose kept result is red under Needs you (B252)', asyn
   );
   expect(handlers.onOpenTab).toHaveBeenCalledWith('monitor');
   expect(loadHealth).toHaveBeenCalledOnce();
+});
+
+const fix = (patch: Partial<ProblemFix> & Pick<ProblemFix, 'kind'>) =>
+  ({ href: null, target: null, name: '', ...patch }) as ProblemFix;
+
+it('offers each red check its one fix beside it and checks again in place (Phase 18)', async () => {
+  const loadHealth = health(
+    check({
+      id: 'disk',
+      status: 'error',
+      detail: '1.2 GB free (97% used)',
+      fix: fix({ kind: 'check_again', name: 'Disk' }),
+    }),
+    check({
+      id: 'tunnel',
+      name: 'Tunnel',
+      status: 'error',
+      detail: 'Not running: agent failed',
+      settings_tab: 'Access',
+      fix: fix({
+        kind: 'open',
+        href: '/settings/access#tunnel',
+        name: 'Public link',
+      }),
+    }),
+  );
+  const onRunDiagnosis = vi.fn().mockResolvedValue({
+    schema_version: 1,
+    hourly_network_checks: true,
+    checks: [
+      check({ id: 'disk', status: 'ok', detail: '40 GB free' }),
+      check({
+        id: 'tunnel',
+        name: 'Tunnel',
+        status: 'error',
+        detail: 'Not running: agent failed',
+        settings_tab: 'Access',
+        fix: fix({
+          kind: 'open',
+          href: '/settings/access#tunnel',
+          name: 'Public link',
+        }),
+      }),
+    ],
+  });
+  show({ loadHealth, onRunDiagnosis });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText('Disk needs attention');
+  // The exact setting, never a page name, as an icon with its name.
+  expect(
+    within(needs).getByRole('link', { name: 'Open Public link settings' }),
+  ).toHaveAttribute('href', '/settings/access#tunnel');
+
+  fireEvent.click(
+    within(needs).getByRole('button', { name: 'Check Disk again' }),
+  );
+  expect(onRunDiagnosis).toHaveBeenCalledOnce();
+  await vi.waitFor(() =>
+    expect(within(needs).queryByText('Disk needs attention')).toBeNull(),
+  );
+  expect(within(needs).getByText('Tunnel needs attention')).toBeVisible();
+});
+
+it('runs a failed workflow again in place with the reviewed run (Phase 18)', async () => {
+  const loadTasks = vi
+    .fn()
+    .mockResolvedValue(
+      page([task('wf-brief', 'Morning brief', { last_status: 'failed' })]),
+    );
+  show({ loadTasks });
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  fireEvent.click(
+    await within(needs).findByRole('button', {
+      name: 'Run Morning brief again',
+    }),
+  );
+  expect(
+    await within(needs).findByText('Morning brief is running again.'),
+  ).toBeVisible();
+  expect(runtime.taskRunReview).toHaveBeenCalledWith('wf-brief');
+  expect(runtime.command).toHaveBeenCalledWith(
+    null,
+    expect.objectContaining({
+      type: 'task.run',
+      payload: {
+        task_id: 'wf-brief',
+        task_revision: 't'.repeat(64),
+        policy_revision: 'p'.repeat(64),
+      },
+    }),
+    expect.any(String),
+  );
+  // Workflows are read again to show the new run.
+  expect(loadTasks).toHaveBeenCalledTimes(2);
 });
 
 it('asks to choose how Row-Bot thinks while no model exists, without a hide control', () => {

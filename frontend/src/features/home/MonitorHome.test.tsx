@@ -9,9 +9,12 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { ClientController } from '../../api/controller';
 import { clientError } from '../../api/errors';
 import type {
+  ChannelStatus,
   MonitorLogs,
+  ProblemFix,
   SystemDiagnosis,
   SystemDiagnosisCheck,
   TaskSummary,
@@ -24,6 +27,8 @@ import MonitorHome, {
   type MonitorLogEntry,
   type MonitorSnapshot,
 } from './MonitorHome';
+import { RuntimeContext } from '../../runtime';
+import { createFakePlatform } from '../../platform/fake';
 
 const NOW = new Date('2026-09-20T12:00:00Z');
 const NOW_SECONDS = NOW.getTime() / 1000;
@@ -168,9 +173,89 @@ function logsResponse(entries: MonitorLogEntry[]): MonitorLogs {
   };
 }
 
-function withRouter(element: ReactElement) {
-  return <MemoryRouter>{element}</MemoryRouter>;
+/** Channels and sign-ins answer like the server, never contacting one. */
+function fakeController() {
+  const telegram = {
+    channel_id: 'telegram',
+    display_name: 'Telegram',
+    revision: 'c'.repeat(64),
+    running: false,
+  } as ChannelStatus;
+  const controller = {
+    channels: vi.fn(async () => ({
+      schema_version: 1 as const,
+      total: 1,
+      items: [telegram],
+      truncated: false,
+    })),
+    reviewChannel: vi.fn(
+      async (payload: { channel_id: string; revision: string }) => ({
+        ...payload,
+        operation: 'start',
+        field_key: null,
+        identity_id: null,
+        action_digest: 'd'.repeat(64),
+        review_id: 'review-telegram',
+      }),
+    ),
+    executeChannel: vi.fn(
+      async (command: {
+        command_id: string;
+      }): Promise<{
+        command_id: string;
+        status: string;
+        operation: string;
+        code: string | null;
+      }> => ({
+        command_id: command.command_id,
+        status: 'completed',
+        operation: 'start',
+        code: null,
+      }),
+    ),
+    accountAuth: vi.fn(async (account: string) => ({
+      schema_version: 1,
+      account,
+      revision: 'a'.repeat(64),
+    })),
+    accountAuthCommand: vi.fn(
+      async (_account: string, command: { command_id: string }) => ({
+        schema_version: 1,
+        command_id: command.command_id,
+        account: 'google',
+        action: 'start',
+        phase: 'running',
+        message: 'Opening Google sign-in.',
+        snapshot: {
+          schema_version: 1,
+          account: 'google',
+          revision: 'b'.repeat(64),
+        },
+      }),
+    ),
+    accountAuthReceipt: vi.fn(() => new Promise(() => {})),
+    cancelAccountAuth: vi.fn(),
+  };
+  return { controller, telegram };
 }
+
+let runtime = fakeController();
+
+function withRouter(element: ReactElement) {
+  return (
+    <RuntimeContext.Provider
+      value={{
+        controller: runtime.controller as unknown as ClientController,
+        platform: createFakePlatform(),
+      }}
+    >
+      <MemoryRouter>{element}</MemoryRouter>
+    </RuntimeContext.Provider>
+  );
+}
+
+const fix = (patch: Partial<ProblemFix> & Pick<ProblemFix, 'kind'>) =>
+  ({ href: null, target: null, name: '', ...patch }) as ProblemFix;
 
 function renderMonitor(overrides: Partial<MonitorHomeProps> = {}) {
   const props: MonitorHomeProps = {
@@ -223,6 +308,8 @@ const levelChip = (level: string) =>
 beforeEach(() => {
   // Relative times ("3 hours ago") read the system clock.
   vi.setSystemTime(NOW);
+  sessionStorage.clear();
+  runtime = fakeController();
 });
 
 afterEach(() => {
@@ -1302,7 +1389,183 @@ it('shows recent lines without reading the full log when it is not offered', asy
   expect(loadLogs).not.toHaveBeenCalled();
 });
 
-it('lists a red check it found in the background without a link away', () => {
+const telegramStopped = {
+  id: 'channel:telegram',
+  title: 'Telegram stopped',
+  detail: 'It is set to start with Row-Bot but is not running.',
+  place: 'channels' as const,
+  fix: fix({
+    kind: 'restart_channel',
+    href: '/settings/channels#telegram',
+    target: 'telegram',
+    name: 'Telegram',
+  }),
+};
+
+it('offers each problem its one fix in Needs attention and restarts a channel in place', async () => {
+  const onFixed = vi.fn();
+  const onRunDiagnosis = vi.fn(async () => diagnosis());
+  renderMonitor({
+    onFixed,
+    onRunDiagnosis,
+    attention: [
+      telegramStopped,
+      {
+        id: 'tunnel',
+        title: 'Your public tunnel is not running',
+        detail: 'agent failed',
+        place: 'access',
+        fix: fix({
+          kind: 'open',
+          href: '/settings/access#tunnel',
+          name: 'Public link',
+        }),
+      },
+      {
+        id: 'health:disk',
+        title: 'Disk needs attention',
+        detail: '1.2 GB free (97% used)',
+        place: 'health',
+        fix: fix({ kind: 'check_again', name: 'Disk' }),
+      },
+    ],
+  });
+  const list = screen
+    .getByRole('heading', { name: 'Needs attention' })
+    .closest('section')!;
+  const [telegram, tunnel, disk] = within(list).getAllByRole('listitem');
+  // No page names: the exact setting, opened at its row.
+  expect(
+    within(tunnel).getByRole('link', { name: 'Open Public link settings' }),
+  ).toHaveAttribute('href', '/settings/access#tunnel');
+
+  fireEvent.click(
+    within(disk).getByRole('button', { name: 'Check Disk again' }),
+  );
+  expect(onRunDiagnosis).toHaveBeenCalledOnce();
+
+  fireEvent.click(
+    within(telegram).getByRole('button', { name: 'Restart Telegram' }),
+  );
+  expect(
+    await within(telegram).findByText('Telegram is running again.'),
+  ).toBeVisible();
+  // The reviewed start the channel's Settings row sends, at its revision.
+  expect(runtime.controller.reviewChannel).toHaveBeenCalledWith({
+    channel_id: 'telegram',
+    revision: 'c'.repeat(64),
+    operation: 'start',
+    field_key: null,
+    value: null,
+    identity_id: null,
+  });
+  expect(runtime.controller.executeChannel).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'channel.control',
+      payload: expect.objectContaining({
+        channel_id: 'telegram',
+        operation: 'start',
+        review_id: 'review-telegram',
+      }),
+    }),
+  );
+  expect(onFixed).toHaveBeenCalledOnce();
+});
+
+it('says why a channel restart did not happen and never repeats it', async () => {
+  runtime.controller.executeChannel.mockResolvedValueOnce({
+    command_id: 'any',
+    status: 'completed',
+    operation: 'start',
+    code: 'channel_start_failed',
+  });
+  const onFixed = vi.fn();
+  const view = renderMonitor({ onFixed, attention: [telegramStopped] });
+  fireEvent.click(screen.getByRole('button', { name: 'Restart Telegram' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    "Telegram didn't start. Check its settings.",
+  );
+  expect(runtime.controller.executeChannel).toHaveBeenCalledOnce();
+  expect(onFixed).not.toHaveBeenCalled();
+
+  // Started meanwhile elsewhere: nothing is sent.
+  view.unmount();
+  runtime.telegram.running = true;
+  renderMonitor({ onFixed, attention: [telegramStopped] });
+  fireEvent.click(screen.getByRole('button', { name: 'Restart Telegram' }));
+  expect(await screen.findByText('Telegram is running.')).toBeVisible();
+  expect(runtime.controller.reviewChannel).toHaveBeenCalledOnce();
+});
+
+it('puts the worst check fix under its tile and in its detail', async () => {
+  renderMonitor({
+    loadHealth: vi.fn(async () =>
+      diagnosis(
+        {
+          ...check('Model', 'warn', 'No model selected', 'Models'),
+          fix: fix({
+            kind: 'choose_model',
+            href: '/settings/models#default-model',
+            name: 'Default model',
+          }),
+        },
+        check('Cloud API', 'ok', 'Keys configured', 'Providers'),
+      ),
+    ),
+  });
+  await waitFor(() =>
+    expect(healthTile('Model runtime')).toHaveTextContent(
+      'Model: No model selected',
+    ),
+  );
+  const model = healthTile('Model runtime').closest('li')!;
+  expect(
+    within(model).getByRole('link', { name: 'Choose a model' }),
+  ).toHaveAttribute('href', '/settings/models#default-model');
+
+  fireEvent.click(healthTile('Model runtime'));
+  const detail = screen.getByRole('dialog', { name: 'Model runtime' });
+  const [modelCheck, cloud] = within(detail).getAllByRole('listitem');
+  expect(
+    within(modelCheck).getByRole('link', { name: 'Choose a model' }),
+  ).toHaveAttribute('href', '/settings/models#default-model');
+  // A healthy check keeps the way to its settings page.
+  expect(
+    within(cloud).getByRole('link', { name: 'Open Providers settings' }),
+  ).toHaveAttribute('href', '/settings/providers');
+});
+
+it('renews an expired sign-in from its tile with the Accounts row action', async () => {
+  renderMonitor({
+    loadHealth: vi.fn(async () =>
+      diagnosis({
+        ...check('Gmail OAuth', 'warn', 'Token expired', 'Accounts'),
+        network: true,
+        fix: fix({
+          kind: 'reconnect_account',
+          href: '/settings/accounts#google',
+          target: 'google',
+          name: 'Google',
+        }),
+      }),
+    ),
+  });
+  const reconnect = await screen.findByRole('button', {
+    name: 'Reconnect Google',
+  });
+  await waitFor(() => expect(reconnect).toBeEnabled());
+  expect(runtime.controller.accountAuth).toHaveBeenCalledWith('google');
+  fireEvent.click(reconnect);
+  expect(
+    await screen.findByText('Finish signing in to Google in your browser.'),
+  ).toBeVisible();
+  expect(runtime.controller.accountAuthCommand).toHaveBeenCalledWith(
+    'google',
+    expect.objectContaining({ action: 'start', account: 'google' }),
+  );
+});
+
+it('lists what the indicator counts, each with only the fix it carries', () => {
   renderMonitor({
     attention: [
       {
@@ -1324,8 +1587,9 @@ it('lists a red check it found in the background without a link away', () => {
     .closest('section')!;
   const [disk, telegram] = within(list).getAllByRole('listitem');
   expect(disk).toHaveTextContent('Disk needs attention 1.2 GB free (97% used)');
-  expect(within(disk).queryByRole('link')).toBeNull();
-  expect(
-    within(telegram).getByRole('link', { name: 'Open Channels' }),
-  ).toHaveAttribute('href', '/settings/channels');
+  // No stale page-name links: a problem without a fix offers nothing.
+  for (const item of [disk, telegram]) {
+    expect(within(item).queryByRole('link')).toBeNull();
+    expect(within(item).queryByRole('button')).toBeNull();
+  }
 });

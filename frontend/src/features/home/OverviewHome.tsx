@@ -67,6 +67,7 @@ import {
 } from '../shell/DelegatedActivity';
 import { ApprovalDecision, WaitingSince } from '../shell/InPlaceApproval';
 import { usePendingApprovals } from '../shell/pending-approvals';
+import FixAction, { RunAgain } from './FixAction';
 import { typeToken } from './knowledge-palette';
 import {
   FAILED_RUN_STATUSES,
@@ -88,6 +89,8 @@ export type OverviewHomeProps = {
   loadTasks?: (signal: AbortSignal) => Promise<TaskSummaryPage>;
   /** Monitor's kept check results (B252); a red one needs you. */
   loadHealth?: (signal: AbortSignal) => Promise<SystemDiagnosis>;
+  /** Run every check now (the local owner's): a red check's "Check again". */
+  onRunDiagnosis?: () => Promise<SystemDiagnosis>;
   /** Every approval waiting for the person, the shell's shared read (B255). */
   loadApprovals?: (signal?: AbortSignal) => Promise<PendingApprovalPage>;
   /** The memory count and the few most connected memories (Memory card). */
@@ -726,6 +729,7 @@ export default function OverviewHome({
   monitor,
   loadTasks,
   loadHealth,
+  onRunDiagnosis,
   loadApprovals,
   loadMemory,
   loadInsights,
@@ -753,6 +757,9 @@ export default function OverviewHome({
   const [memoryFailed, setMemoryFailed] = useState(false);
   const [insights, setInsights] = useState<InsightsSnapshot | null>(null);
   const [needsOpen, setNeedsOpen] = useState(false);
+  // A fix in Needs you changed something: read workflows and checks again.
+  const [fixed, setFixed] = useState(0);
+  const refixed = () => setFixed((value) => value + 1);
   const [clock, setClock] = useState(() => new Date());
   const now = suppliedNow ?? clock;
   const reduced = useReducedMotion();
@@ -771,7 +778,7 @@ export default function OverviewHome({
       },
     );
     return () => abort.abort();
-  }, [loadHealth, refreshKey]);
+  }, [fixed, loadHealth, refreshKey]);
 
   useEffect(() => {
     if (!loadTasks) return;
@@ -786,7 +793,7 @@ export default function OverviewHome({
       },
     );
     return () => abort.abort();
-  }, [loadTasks, refreshKey]);
+  }, [fixed, loadTasks, refreshKey]);
 
   useEffect(() => {
     if (!loadMemory) return;
@@ -982,6 +989,9 @@ export default function OverviewHome({
         ),
         label: `Open failed workflow: ${task.name}`,
         onOpen: () => onOpenWorkflows(task.id),
+        actions: (
+          <RunAgain taskId={task.id} name={task.name} onStarted={refixed} />
+        ),
       },
     })),
     // A Monitor check that turned red, checked in the background (B252).
@@ -1002,6 +1012,21 @@ export default function OverviewHome({
           ),
           label: `Open Monitor: ${check.name} needs attention`,
           onOpen: () => onOpenTab('monitor'),
+          // Its one fix beside it (Phase 18).
+          actions: check.fix && (
+            <FixAction
+              look="icon"
+              fix={check.fix}
+              onCheckAgain={
+                onRunDiagnosis &&
+                (() =>
+                  void onRunDiagnosis().then(setHealth, () =>
+                    setFixed((value) => value + 1),
+                  ))
+              }
+              onFixed={refixed}
+            />
+          ),
         },
       })),
   ];
