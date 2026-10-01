@@ -1,78 +1,87 @@
 {
   "schema": 1,
-  "story_id": "sovereignty-workbench-v1",
-  "run_id": "20260921T230035Z-f3ed05",
-  "review_status": "approved",
-  "reviewed_at": "2026-09-23T10:37:41Z",
+  "story_id": "react-workbench-v1",
+  "run_id": "20261001T235533Z-a8496a",
+  "review_status": "pending_review",
+  "reviewed_at": null,
   "recording_receipt": "recording-receipt.json",
+  "production": {
+    "app": "Row-Bot 5.0.0, the real app process and its React client at /app-v2/",
+    "method": "Scripted Playwright capture (scripts/docs/capture_landing_media.py) in Microsoft Edge at 1440x810 CSS px, dark appearance, on an isolated temporary profile seeded with fictional demo data (a neighbourhood solar co-op); no real user data, accounts, names or paths",
+    "models": "No model ran. The local runtime is the docs capture's display-only stand-in on loopback (it lists qwen3:8b and runs nothing); GPT-5.6 Sol via ChatGPT / Codex is display-only: the harness tells the client it is connected, and nothing is connected or called",
+    "outward_actions": "None: the harness answers the Ship clip's Approve request itself, so no email is sent",
+    "pointer": "Drawn by the harness to show where the scripted clicks land",
+    "stills": "Rendered at 2x and downscaled with Lanczos to 1440x810 WebP",
+    "clips": "Browser screencast frames resampled to 30 fps; VP9 WebM and H.264 MP4 (faststart), no audio"
+  },
   "assets": [
     {
       "scene_id": "hero-app",
       "still": "screenshots/research.webp",
-      "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
-      "alt": "Row-Bot using a local model for research and resolving the findings into connected knowledge."
+      "sha256": "4585c45098592e199d285d529a047b98fc7d360139ba6f1701271bd06e241a64",
+      "alt": "Row-Bot's Knowledge graph after local-model research, with the co-op's memory and its connections highlighted."
     },
     {
       "scene_id": "research-local",
       "still": "screenshots/research.webp",
-      "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "sha256": "4585c45098592e199d285d529a047b98fc7d360139ba6f1701271bd06e241a64",
       "clip": "clips/research.webm",
-      "clip_sha256": "97e8e0238875d785da1d3ecab244c41705e10257d17b4f37cbd1d249e62483e1",
+      "clip_sha256": "5850043b84f08ac432866a75ae31ee47c19f7282d47e7902a1527f77db80a7a6",
       "clip_fallback": "clips/research.mp4",
-      "clip_fallback_sha256": "32aa733d8e7f63be8bd7069bb1ad99c771c2fb9e9a69896eb28b08342e567b1f",
-      "alt": "Local-model research with source activity followed by a populated node-and-edge knowledge graph."
+      "clip_fallback_sha256": "e94cff6f0a4f5fecaf26d7921fe038444cbee1498fda7fa6c4885ee1910b0f5c",
+      "alt": "A local-model conversation with its source trace, followed by the Knowledge graph settling into connected memories."
     },
     {
       "scene_id": "synthesis-sol",
       "still": "screenshots/create.webp",
-      "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "sha256": "c532a3d8e9d326162253497e90a347416ecc559eb54b789133377005a6c74dd8",
       "clip": "clips/create.webm",
-      "clip_sha256": "b4429bfbd43f6be42bd072af7273d563e989590187365fa4207292e7fad9b466",
+      "clip_sha256": "be45cd3a9e1686e0b3e9a28fc4f2ea71776ed0820542b905251654bbc8394031",
       "clip_fallback": "clips/create.mp4",
-      "clip_fallback_sha256": "f7cc3f8b29c4fdff22649a321e34584cdb2bc97ded7038a5cc5bf7410e9a826c",
-      "alt": "An explicit frontier-model handoff followed by a real editable Designer artifact."
+      "clip_fallback_sha256": "77be51f53867f229408d32964e2918e785a54aa41cc4c6d560eed3676ac3e455",
+      "alt": "A conversation handed to a frontier model, GPT-5.6 Sol, with an editable landing page in its Design panel."
     },
     {
       "scene_id": "knowledge-control",
       "still": "screenshots/research.webp",
-      "sha256": "68310dfdebba4089fbadb43f0eae000e966b975a6f1586cb33c4b1c170f0d90c",
+      "sha256": "4585c45098592e199d285d529a047b98fc7d360139ba6f1701271bd06e241a64",
       "clip": "clips/research.webm",
-      "clip_sha256": "97e8e0238875d785da1d3ecab244c41705e10257d17b4f37cbd1d249e62483e1",
-      "alt": "A genuine Row-Bot knowledge graph with many connected nodes and edges from the research workspace."
+      "clip_sha256": "5850043b84f08ac432866a75ae31ee47c19f7282d47e7902a1527f77db80a7a6",
+      "alt": "A Row-Bot knowledge graph of 103 connected memories, with one memory's connections labelled."
     },
     {
       "scene_id": "designer-output",
       "still": "screenshots/create.webp",
-      "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
+      "sha256": "c532a3d8e9d326162253497e90a347416ecc559eb54b789133377005a6c74dd8",
       "clip": "clips/create.webm",
-      "clip_sha256": "b4429bfbd43f6be42bd072af7273d563e989590187365fa4207292e7fad9b466",
-      "alt": "A real editable launch visual open in Row-Bot Designer Studio."
+      "clip_sha256": "be45cd3a9e1686e0b3e9a28fc4f2ea71776ed0820542b905251654bbc8394031",
+      "alt": "An editable landing page open in the conversation's Design panel, its heading then selected for editing."
     },
     {
       "scene_id": "workflow-repeat",
       "still": "screenshots/automate.webp",
-      "sha256": "c980145f3439741e79b567764ed0423f3ae57af1d4d7069d21ae65c9639f4e8e",
+      "sha256": "93ca6bab849d60f74660efd4f45c44476596a8d1d8ef3279b0a61a81f1aba3ad",
       "clip": "clips/automate.webm",
-      "clip_sha256": "5cdadc636b961ad471fecd3ab58413211948871741099eecb5f36235ad3fcccf",
+      "clip_sha256": "5abdcaeae51a18c6b176b5ee51fc32504e2868ab3b81f8a72490a8222032c878",
       "clip_fallback": "clips/automate.mp4",
-      "clip_fallback_sha256": "bce62f19eaac16156a18834884679a251d96b671a900ed4044e2cecde31374f3",
-      "alt": "A local-model workflow being configured and saved with external delivery disabled."
+      "clip_fallback_sha256": "cfab173c70bef5b7530552f300bcd3dcdfade9a7e999cb007c4642c42aae845d",
+      "alt": "Workflow delivery kept in the app with no outside channels, a workflow's local model saved, then its retained run history."
     },
     {
       "scene_id": "approval-boundary",
       "still": "screenshots/ship.webp",
-      "sha256": "37c1f310ed1201f05ee916d5d7709897aee1288bfa062fbecd904b9e667bdeb6",
+      "sha256": "f0fe8f5ce7298ee37f8a106c62d998bbeb9365fc351aa50b8497abbccb8ad197",
       "clip": "clips/ship.webm",
-      "clip_sha256": "12bb1ee4e1faf736bc66b4fd3428594afd78cf5a7c5d14f25ef3ab24a4495e60",
+      "clip_sha256": "6efae8507597e64c37e4a08162c6bfc82254e1f9303d90c38acc1c3bbc06434f",
       "clip_fallback": "clips/ship.mp4",
-      "clip_fallback_sha256": "7d72c19347d937f52fad94061e7104f5c7ab18d37e01f84f2cdfa8034a89a234",
-      "alt": "Row-Bot requesting approval before creating a reviewed local campaign artifact."
+      "clip_fallback_sha256": "b5d298cc6f1c173f6f0fbd298b04fc90305948651a381e6276ed7df2343d6ebb",
+      "alt": "Row-Bot waiting for approval before emailing a PDF to riverbend-board@example.com, then the approval being given."
     },
     {
       "scene_id": "model-choice",
       "still": "screenshots/create.webp",
-      "sha256": "d8fc8adf27a1b5b73731747fe679e2c8712a999f2366b2dcc5e1a95852cc1cee",
-      "alt": "The model picker making the local and frontier model boundary explicit."
+      "sha256": "c532a3d8e9d326162253497e90a347416ecc559eb54b789133377005a6c74dd8",
+      "alt": "The composer's model pill showing GPT-5.6 Sol as a cloud model, beside the conversation's Design panel."
     },
     {
       "scene_id": "mobile-shell",
@@ -117,7 +126,10 @@
           "source_commit": "b614d94f",
           "source_sha256": "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca",
           "source_duration_seconds": 12.042,
-          "kept_segment_seconds": [5.333, 9.916],
+          "kept_segment_seconds": [
+            5.333,
+            9.916
+          ],
           "method": "VP9/WebM packet remux without re-encoding; alpha preserved",
           "reason": "Remove the violet opening orbs and retain the cyan Automate motion",
           "result_sha256": "00344446d1e9bb4624e7ed4cbbfadfc0972d905372d3fb4fa3d7f2e2a1003369",
