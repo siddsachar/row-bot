@@ -2,7 +2,7 @@
 name: developer_custom_tools
 display_name: Developer Custom Tools
 icon: "extension"
-description: Workflow for creating, testing, enabling, promoting, and removing Custom Tools from Developer Studio.
+description: Workflow for creating, testing, enabling, promoting, and removing Custom Tools from a code folder.
 enabled_by_default: false
 version: "1.0"
 tools:

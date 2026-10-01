@@ -2,7 +2,7 @@
 name: developer_review
 display_name: Developer Review
 icon: "rule"
-description: Code-review workflow for Developer Studio repositories.
+description: Code-review workflow for repositories in a conversation's code folder.
 enabled_by_default: false
 version: "1.0"
 tools:
@@ -15,7 +15,7 @@ author: Row-Bot
 
 # Developer Review
 
-Use this skill when the user asks for a code review, PR review, or risk assessment in Developer Studio.
+Use this skill when the user asks for a code review, PR review, or risk assessment in a conversation's code folder.
 
 Prioritize findings over summaries:
 
