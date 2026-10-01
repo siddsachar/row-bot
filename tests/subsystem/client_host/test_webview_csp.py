@@ -58,3 +58,9 @@ def test_windows_keeps_pywebviews_own_bridge(monkeypatch) -> None:
     before = util.js_bridge_call
     assert install_csp_safe_bridge() is False
     assert util.js_bridge_call is before
+
+
+def test_a_pywebview_without_those_internals_keeps_the_window_running(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setitem(sys.modules, "webview.util", None)
+    assert install_csp_safe_bridge() is False

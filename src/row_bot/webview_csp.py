@@ -61,10 +61,16 @@ def install_csp_safe_bridge() -> bool:
     whose WebView2 already does). Returns whether it was installed."""
     if sys.platform == "win32":
         return False
-    import webview.util as util
+    try:
+        import webview.util as util
 
-    load_js_files = util.load_js_files
-    js_bridge_call = util.js_bridge_call
+        load_js_files = util.load_js_files
+        js_bridge_call = util.js_bridge_call
+    except (ImportError, AttributeError):
+        # Never take the window down over this: a pywebview without these
+        # internals keeps its own bridge.
+        logger.warning("pywebview's bridge internals are missing; leaving them as they are")
+        return False
 
     def csp_safe_load_js_files(window: Any, platform: str) -> tuple[str, str]:
         js_code, finish_script = load_js_files(window, platform)
