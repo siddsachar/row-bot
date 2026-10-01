@@ -206,3 +206,25 @@ def test_failed_publish_retry_and_delete_retire_all_same_id_generations(index):
     retired = list((root / "retired").iterdir())
     assert len(retired) == 1
     assert len(list(retired[0].glob("generation-*"))) == 3
+
+
+@pytest.mark.slow
+def test_a_generation_move_refused_for_a_moment_by_windows_still_publishes(index, monkeypatch):
+    """Windows refuses a replace while a scan holds the files just written (seen in a full run)."""
+    module, root, build, search = index
+    replace = os.replace
+    refused = []
+
+    def busy_once(source, target, *args, **kwargs):
+        if Path(target).name.startswith("generation-") and not refused:
+            refused.append(target)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5
+            raise error
+        return replace(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", busy_once)
+    work, manifest = build("new")
+    module.publish_document(work, manifest, index_root=root)
+    assert refused
+    assert search() == ["new-0", "new-1", "new-2"]

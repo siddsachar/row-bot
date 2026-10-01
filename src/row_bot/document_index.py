@@ -13,6 +13,7 @@ import pickletools
 import re
 import shutil
 import threading
+import time
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -311,11 +312,27 @@ def _read_json(path: pathlib.Path, default: Any) -> Any:
         return default
 
 
+def _replace_with_retry(
+    source: str | os.PathLike[str], target: str | os.PathLike[str]
+) -> None:
+    """Windows refuses a replace while another process (often an antivirus
+    scan of the files just written) holds one of them; a moment later it
+    succeeds."""
+    for attempt in range(5):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in {5, 32} or attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
 def _atomic_write_json(
     path: pathlib.Path,
     value: Any,
     *,
-    replace: Callable[[str | os.PathLike[str], str | os.PathLike[str]], None] = os.replace,
+    replace: Callable[[str | os.PathLike[str], str | os.PathLike[str]], None] = _replace_with_retry,
     validate: Callable[[], None] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -487,7 +504,7 @@ def publish_document(
     document_manifest: dict[str, Any],
     *,
     index_root: pathlib.Path = DOCUMENT_INDEX_DIR,
-    replace: Callable[[str | os.PathLike[str], str | os.PathLike[str]], None] = os.replace,
+    replace: Callable[[str | os.PathLike[str], str | os.PathLike[str]], None] = _replace_with_retry,
     validate: Callable[[], None] | None = None,
 ) -> None:
     """Expose a complete immutable generation with one corpus manifest commit.
@@ -508,7 +525,7 @@ def publish_document(
         generation_dir.parent.mkdir(parents=True, exist_ok=True)
         if validate is not None:
             validate()
-        os.replace(work_document_dir, generation_dir)
+        _replace_with_retry(work_document_dir, generation_dir)
 
         manifest_path = index_root / CORPUS_MANIFEST_NAME
         corpus = read_corpus_manifest(index_root)
