@@ -1,25 +1,28 @@
 ---
 title: "Wiki Vault"
-description: "Generate and maintain a local Markdown vault from reviewed Row-Bot knowledge."
+description: "Keep a local Markdown vault of Row-Bot's memories, with readable file names, and sync your edits back."
 ---
 
 # Wiki Vault
 
-Wiki Vault turns selected Knowledge entities and relationships into linked Markdown pages in a folder you control. It is an output of the local knowledge graph, not a replacement for the underlying memory and provenance records.
+Wiki Vault writes your memories and their connections as linked Markdown articles in a folder you choose, so you can read them in Obsidian or any editor. It is an output of the local knowledge graph, not a replacement for the underlying memory and provenance records.
 
 ## Configure The Vault
 
-1. Open **Settings -> Knowledge**.
-2. Choose a vault folder that is separate from application code and important personal notes while you test.
-3. Enable Wiki output only after reviewing the current Knowledge graph.
-4. Run the rebuild or sync action shown in the tab.
-5. Open the generated Markdown pages in your preferred editor and check links, titles, and source notes.
+1. Open **Settings › Memory** and find **Wiki vault**.
+2. Turn on **Enable Wiki Vault** and choose the vault folder with **Browse**. Choosing a folder needs the Row-Bot desktop app; pick a folder separate from application code and important personal notes while you test.
+3. Save the configuration, then use **Rebuild managed wiki files** to write every article.
+4. Open the articles in your editor and check links, titles and source notes.
 
-The vault contains generated summaries and links. Correct important facts in Knowledge first, then rebuild, so the graph remains the source of truth. Avoid hand-editing generated sections unless the page clearly identifies an area intended for manual notes.
+Articles have readable names: a memory called "Garden plan" becomes `Garden plan.md` in the folder for its type. When two memories share a name, or a note of your own already uses it, Row-Bot adds a short code to the new file name instead of overwriting anything. A renamed memory's article is renamed with it.
 
-## Updates And Deletions
+## What Row-Bot Writes And Leaves Alone
 
-New or changed entities can update their corresponding pages. Removed or merged records may cause generated pages or links to change on the next rebuild. Back up a vault before a large repair, migration, or rebuild if it also contains your own notes.
+Row-Bot keeps a record of the articles it wrote and only ever updates or moves those. Notes you create yourself in the vault are never changed or deleted. Articles from an earlier version are adopted in place with the same names, so existing links keep working. Files Row-Bot replaced are moved aside for your review, not deleted; **Show moved files** lists them.
+
+## Your Edits
+
+When you edit an article in the vault, **Sync vault edits** brings the change back to the memory. If the memory changed in Row-Bot too, **Resolve versions** lets you choose between the database version and the vault version. Correct important facts in Knowledge first when you can, so the graph remains the source of truth.
 
 ## Privacy
 
@@ -27,7 +30,7 @@ The vault is local, but it is deliberately easy to open in other software or syn
 
 ## Troubleshooting
 
-- If pages are empty, verify that Knowledge contains reviewed entities and relations.
+- If articles are missing, check that memory is on and the vault folder reads **Available**, then rebuild.
+- If **Browse** opens no folder picker, use the Row-Bot desktop app; a browser can't choose folders on this computer.
 - If links duplicate, run Knowledge repair before rebuilding the vault.
-- If a path is unavailable, choose a writable local folder and try again.
-- If private material appears, correct or remove its source record, rebuild, and review the destination before sharing.
+- If private material appears, correct or remove its source memory, rebuild, and review the destination before sharing.

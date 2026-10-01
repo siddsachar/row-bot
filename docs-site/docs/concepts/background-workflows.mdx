@@ -10,7 +10,7 @@ A workflow is a saved task definition. A run is one attempt to execute it. Keepi
 1. **A trigger starts a run.** This can be a manual click, a recurring schedule, a one-time time, or another supported trigger.
 2. **The run resolves its policy.** Row-Bot chooses the workflow's Agent Profile, model override, tools, Skills, steps, and approval mode.
 3. **The run gets its own state.** Status, progress, step output, logs, and any persistent thread link are recorded so the scheduler can recover cleanly.
-4. **Approval can pause the run.** A background action that needs a decision becomes a pending approval instead of silently continuing. Approving resumes that action; rejecting or expiring it leaves a visible run outcome.
+4. **Approval can pause the run.** A background action that needs a decision becomes a pending approval instead of silently continuing. It waits until you answer, unless a step sets its own time limit, and it shows everywhere: the sidebar's attention indicator, Overview's **Needs you**, Buddy, and the workflow's channels. Approving resumes that action; denying it leaves a visible run outcome. While a run waits, the same workflow's next scheduled run is skipped and says so, so runs don't pile up.
 5. **Completion and delivery are recorded separately.** A useful result can complete even if an external channel delivery fails, so the app can show the result and the delivery problem honestly.
 
 ## Delivery Defaults
@@ -33,5 +33,5 @@ Scheduled work can outlive the screen where it was created, but it cannot outliv
 
 - Create schedules, profiles, approvals, steps, and delivery in [Workflows](/docs/guides/workflows).
 - Configure external destinations in [Channels](/docs/integrations/channels) and [Channel Settings](/docs/settings/channels).
-- Review live status in [Monitor](/docs/monitor/) and mobile Activity in [Mobile And Native Surfaces](/docs/mobile-native/).
+- Review live status in [Monitor](/docs/monitor/) and waiting approvals in [Home: Overview](/docs/home/overview), on the desktop or a [phone](/docs/mobile-native/).
 - Back up workflow definitions and history with [Operations, Data, And Recovery](/docs/operations/).

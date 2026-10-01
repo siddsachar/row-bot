@@ -1,44 +1,57 @@
 ---
-title: "Developer Studio"
-description: "Use Row-Bot for folders, repositories, code chat, inspectors, commands, changes, and sandbox modes."
+title: "Code Folders"
+description: "Work on a folder or repository from a conversation: bind or clone it, review changes, run checks and use Git in the Developer panel."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# Developer Studio
+# Code Folders
 
-Developer Studio is Row-Bot's code workspace. Use it when you want Row-Bot to understand a local folder or Git repository, discuss code, inspect files, run approved commands, propose edits, and help review changes.
+A code folder is a folder or Git repository on this computer that a conversation works on. Bind one to a conversation and Row-Bot can read its files, propose and make edits, run checks and commands you approve, and help with Git. The folder opens in the conversation's **Developer panel**, beside the chat.
 
-<Screenshot id="home-developer" alt="Row-Bot Developer entry point." caption="The Developer Home tab opens folders, connects repositories, clones projects, and starts Developer Studio workspaces." />
+<Screenshot id="developer-workspace" alt="A conversation with its Developer panel open on an isolated demonstration repository." caption="The Developer panel keeps the folder's changes, files, checks and commands, and Git beside the conversation that works on it." />
 
-<Screenshot id="developer-workspace" alt="Row-Bot Developer Studio with an isolated demonstration repository." caption="The Developer workspace keeps repository identity, changed files, inspector state, conversation, commands, and review controls together." />
+## Bring A Folder Into A Conversation
 
-## Where To Find It
+**Ask in the chat.** Row-Bot binds folders by itself when you ask:
 
-Open Home -> Developer. Choose an existing folder, connect a repository already on your machine, or clone a repository into a local workspace.
+- "Use my Hello-World folder" binds a code folder you already use, by its name. If several names match, a **Which code folder?** card lets you choose; if none does, a **Use an existing folder** card asks you to choose the folder on this computer.
+- "Clone https://github.com/octocat/Hello-World" shows a **Clone a repository** card with the address. Choose **Choose where** to pick the parent folder, and Row-Bot clones it there. An interrupted clone is kept for inspection and offers **Check clone status**; it is never cloned again automatically.
 
-The Agents tool can also assign a child directly to an existing local folder. Row-Bot validates the path and registers it as that child's Developer workspace; a folder assignment and a pre-existing workspace ID are alternative ways to select the workspace, not settings to combine.
+Either way, the conversation shows a **Using code folder …** card with **Open** and **Undo**. The turn pauses while a card waits for you and continues in the folder once it is bound. Row-Bot never chooses a path on its own: you choose every folder in the picker.
+
+**Or set it up yourself.** Open the composer's **+** menu, choose **Add resource…**, then **Code folder**:
+
+| Folder setup | What it does |
+| --- | --- |
+| **New draft in the configured workspace** | Creates an empty folder under Drafts in your workspace folder. |
+| **Register an existing folder** | Saves an existing folder's name and location; its files and Git state are unchanged. |
+| **Create a new empty folder** | Creates one empty folder under a parent you choose. |
+| **Clone a repository** | Downloads a repository into a new folder under a parent you choose. |
+
+**Open saved** brings a code folder you used before into this conversation. Home › Overview's **New code folder** does the same in a new chat. Choosing a folder on this computer needs the Row-Bot desktop app.
+
+The conversation's details card lists the folder under **Working on**. Its **⋯** menu, or **Undo** on the card, unbinds it from the conversation; the files stay on disk.
+
+The Agents tool can also assign a child directly to an existing local folder. Row-Bot validates the path and registers it as that child's code folder; a folder assignment and a pre-existing workspace ID are alternative ways to select the workspace, not settings to combine.
+
+## The Developer Panel
+
+- **Changes** lists changed files with their diffs (unified or split), and the agent's own change sets, each marked reviewed or not reviewed, with **Undo** or **Ask Row-Bot to undo** in its **⋯** menu.
+- **Files** browses the folder and previews files.
+- **Run** lists the checks Row-Bot detected (such as tests and linters) with their last result, runs a command you type (such as `npm test`) as a reviewed command, shows running processes with their output, and stops them. Sandbox changes waiting to be imported appear here too.
+- **Git** switches or creates branches, commits with a suggested message, pushes (which asks first), opens a pull request through the GitHub command-line tool, and creates a separate worktree for this conversation.
+- **Safety boundaries** shows what is allowed, what asks first and what is blocked here, where commands run, and whether the sandbox has network access.
+- **Custom tools** turns the folder's commands into a reusable tool with the Custom Tool Builder. Your custom tools are also listed in **Settings › Tools › Custom tools**.
 
 ## End-To-End Workflow
 
-1. Open or clone a project.
-2. Confirm the workspace name, path, branch, and dirty state.
-3. Ask Developer chat a code question or assign a change.
-4. Review the inspector for files, detected commands, todos, context, and approvals.
-5. Approve only the commands or edits you understand.
-6. Run tests or checks.
-7. Review the changed files before committing or exporting a patch.
-
-## UI Walkthrough
-
-- **Open folder** connects a local project without cloning.
-- **Connect repository** uses a local Git checkout.
-- **Clone repository** creates a new checkout from a remote URL.
-- **Developer chat** is the conversation bound to that workspace.
-- **Inspector** shows workspace identity, files, command suggestions, todos, changes, and run state.
-- **File/context panel** helps Row-Bot and you see what code is relevant.
-- **Command controls** run detected or requested commands through approval policy.
-- **Change review** summarizes edits and lets you inspect before accepting next steps.
+1. Bind or clone the folder in a conversation.
+2. Check the folder name, branch and changes in the panel.
+3. Ask a question about the code, or describe the change you want.
+4. Approve only the commands and edits you understand.
+5. Run the checks from **Run**.
+6. Review **Changes** before committing, then commit and push from **Git**.
 
 ## Parallel Child Workspaces
 
@@ -56,8 +69,8 @@ For a host installation, start with Local mode on a disposable branch. Use Docke
 
 ## Troubleshooting
 
-- If Developer tools are unavailable, open a Developer workspace first.
+- If Row-Bot can't see your code, check that the folder is listed under **Working on** in the conversation's details card.
+- If choosing a folder does nothing, use the Row-Bot desktop app; a browser can't open folders on this computer.
 - If an Agent folder assignment is rejected, confirm that the directory already exists and pass either that folder or an existing workspace ID, not both.
-- If commands are missing, inspect detected commands or ask Row-Bot to identify the project tooling.
-- If a command asks for approval, read the exact command and workspace before approving.
+- If a command asks for approval, read the exact command and folder before approving.
 - If Docker sandbox import is offered, review the patch before importing it into the real project.

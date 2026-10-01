@@ -1,51 +1,58 @@
 ---
-title: "Designer Studio"
-description: "Create and iterate on design projects, pages, assets, previews, brands, and exports."
+title: "Designs"
+description: "Create decks, documents, landing pages, app mockups and storyboards with Row-Bot, and edit, present, share and export them in a conversation's Design panel."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# Designer Studio
+# Designs
 
-Designer Studio helps you create visual work with Row-Bot: pages, slides, mockups, landing-page drafts, branded assets, charts, image or video inserts, and exportable design projects.
+Row-Bot can make visual work with you: decks, documents, landing pages, app mockups and storyboards, with your brand's colours, fonts and logo, charts, and generated images or video. Each design belongs to a conversation and opens in that conversation's **Design panel**, beside the chat, so you can ask for changes and see them land.
 
-<Screenshot id="home-designer" alt="Row-Bot Designer entry point." caption="The Designer Home tab starts projects and opens the full Designer Studio workflow." />
+<Screenshot id="designer-editor" alt="A conversation with its Design panel open on a fictional two-page presentation." caption="The Design panel sits beside the conversation: the page preview with its page strip, the toolbar, and the inspector with Selection, Brand and Library." />
 
-<Screenshot id="designer-editor" alt="Row-Bot Designer Studio editor with a fictional workshop presentation." caption="The full Designer editor combines project chat, page navigation, the live preview, brand and asset controls, and export entry points." />
+## Start A Design
 
-## Where To Find It
+- **Ask in a chat:** "Make a five-slide deck about our spring workshop." Row-Bot creates the design, and the finished design opens in the panel by itself when you are not typing.
+- **Home › Overview › New design** sets one up and opens it in a new chat.
+- **In a conversation**, open the composer's **+** menu, choose **Add resource…**, then **Design**. Choose **Create new** (the type, an optional name and brief, a template and canvas, and **Draft it now**) or **Open saved** to bring an existing design into this conversation.
 
-Open Home -> Designer to start or reopen a project. The Home tab is the launcher. Designer Studio is the full workspace for editing, previewing, reviewing, and exporting.
+The conversation's details card lists it under **Working on**; choose it there, or from the header's **Open panel** menu, to reopen the panel.
 
-## End-To-End Workflow
+## The Design Panel
 
-1. Start from a prompt, template, goal, or existing project.
-2. Describe the audience, tone, length, and outcome.
-3. Add reference files or brand details if they matter.
-4. Create the project and review the first draft.
-5. Use the editor and preview to inspect each page.
-6. Ask Row-Bot to revise text, layout, media, charts, or brand details.
-7. Review quality, export, or share a preview when ready.
+- **Preview** and **Edit** switch between looking and changing. In Edit, click anything on the page to change it, or ask Row-Bot about it; double-click text to edit it in place. Changes save as you go.
+- **Undo** and **Redo** step through your changes; **Versions** lists saved versions and restores one.
+- The **page strip** moves between pages, adds a page after the current one, or deletes one.
+- **Size** chooses the canvas (16:9 widescreen, 4:3, square, A4 document, 9:16 phone, or a custom size). **Device width** previews pages at desktop, tablet or phone width, and the zoom control fits or scales the page.
+- **Present** shows the design full screen.
+- **Share** publishes a link (with a QR code), sends to a channel, or prepares an X post.
+- **Export** saves the current saved version as **PDF**, **PNG**, **PowerPoint** (pictures for high fidelity, or editable text and shapes) or **HTML**, for all pages, the current page or a page range.
+- The **⋯** menu opens the design command palette to search tools, pages and assets, imports a document, or duplicates the design.
 
-## UI Walkthrough
+## The Inspector
 
-- **Project gallery** lists recent saved projects.
-- **New design flow** collects the goal, template, audience, tone, references, and brand.
-- **Editor/canvas** shows the current page or screen.
-- **Page navigator** moves through pages and lets you add, delete, reorder, or rename where available.
-- **Control panels** expose brand, layout, import, export, share, review, and history actions.
-- **Preview/output** lets you inspect the user-facing result before exporting.
-- **Save/export** writes project state locally and creates files in the selected format.
+**Inspector** opens three tabs:
 
-## Brand And Assets
+- **Selection** edits the chosen element: its text, font, size, weight, colour and alignment; an image's file, fit, crop, corners and description; width and borders; and what happens when it is clicked (go to a screen, toggle a state, play media). **Edit as CSS…** is there for exact control.
+- **Brand** sets the design's **Colours** (primary, secondary, accent, background and text), **Fonts** for headings and body from a font picker (recently used, bundled, and fonts on this computer), and the **Logo**: upload one, then choose its placement, size, spacing, which pages show it, and automatic or manual placement. Save the brand as a preset to reuse it in other designs.
+- **Library** inserts **Blocks**, **Your images**, saved **Styles** and **Interactions**.
 
-Designer can use saved brand presets, extract brand hints from a URL, accept reference uploads, and reuse project assets. Generated images or videos may call configured media providers; local-only design edits stay in local project data.
+**Review** checks the design and lists what to fix.
+
+## Brand And Media Providers
+
+Generated images or videos call the image and video models chosen in **Settings › Models**. Local design edits stay in local project data.
 
 For xAI API image models, Row-Bot uses the provider's live image-generation catalog instead of guessing from the chat catalog. It exposes only the formats, aspect ratios, resolutions, and quality choices reported for that model. If xAI rejects an optional quality field, Row-Bot retries once without it; timeouts and other failures do not trigger an automatic second generation that could duplicate cost.
 
+## What Is Saved
+
+Designs, their versions and brand presets are local Row-Bot data. Deleting the conversation keeps the design; open it from another conversation with **Add resource… › Open saved**.
+
 ## Troubleshooting
 
-- If a project starts empty, provide a more specific goal and audience.
-- If exports look wrong, preview each page before exporting.
-- If media generation is unavailable, check Providers and model capabilities.
-- If a brand extraction fails, enter colors, fonts, or notes manually.
+- If a first draft is thin, give a clearer goal, audience and length, and attach references.
+- If an export looks wrong, preview each page first; exports use the last saved version.
+- If image generation is unavailable, choose an image model in Settings › Models and check its provider.
+- If a change says the design changed meanwhile, let the panel reload the current version and try again.

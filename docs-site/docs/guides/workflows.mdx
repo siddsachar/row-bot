@@ -7,42 +7,46 @@ import Screenshot from '@site/src/components/Screenshot';
 
 # Workflows
 
-Workflows are repeatable Row-Bot tasks. Use them for things you want to run again: a morning brief, inbox follow-up, document digest, research check, report draft, or channel delivery.
+Workflows are repeatable Row-Bot tasks. Use them for things you want to run again: a morning brief, inbox follow-up, document digest, research check, report draft, or channel delivery. A **reminder** is a simpler kind that just tells you something at a chosen time.
 
 For the execution model behind schedules, persistent runs, approvals, and delivery, read [How Background Workflows Run](/docs/concepts/background-workflows).
 
-<Screenshot id="home-workflows" alt="Row-Bot Workflows tab." caption="The Workflows tab shows workflow cards, delivery defaults, run controls, and the New Workflow entry point." />
+<Screenshot id="home-workflows" alt="Row-Bot Workflows tab." caption="The Workflows tab lists saved workflows with their schedule, recent runs, live state and one-click Run." />
 
-<Screenshot id="workflow-editor" alt="Row-Bot New Workflow editor." caption="The editor brings prompts, schedules, delivery, Agent Profiles, multi-step behaviour, and approval policy into one reviewable workflow definition." />
+<Screenshot id="workflow-editor" alt="Row-Bot New workflow editor." caption="The workflow editor opens on the page and brings steps, schedule, delivery, Agent profile and approvals into one workflow." />
 
 ## Where To Find Workflows
 
-Open Home -> Workflows. The Home tab is the dashboard; this page is the full guide.
+Choose **Home**, then the **Workflows** tab. Overview's **New workflow** quick start and the ⌘K command palette (**Run …**) also reach them.
 
-## UI Walkthrough
+## The Workflow List
 
-- **Workflow list** shows saved workflows, status, next run, and quick actions.
-- **New Workflow** opens the creation flow.
-- **Delivery defaults** choose where results go unless a workflow overrides them.
-- **Run** starts the selected workflow manually.
-- **Pause/resume** controls whether scheduled runs continue.
-- **Edit** opens the saved workflow for changes.
-- **Delete** removes a workflow after confirmation.
-- **Status labels** show whether a workflow is ready, paused, running, waiting for approval, or needs attention.
+- Each row shows the workflow's name, when it runs next, its last runs, and small tags for its steps, profile and approvals. **Auto approvals** stands out.
+- **Run** starts the workflow at once, in one click. The row then shows its live state and **Stop**.
+- **Enable** or **Disable** turns the workflow's schedule on or off.
+- **Edit** opens the workflow editor.
+- The row's **⋯** menu opens **Run history**, **Edit workflow steps**, **Workflow settings** or the workflow's conversation, and can duplicate or delete the workflow.
+- **Search workflows**, the filter and **Select workflows** help with long lists.
+- **Delivery defaults** choose the external channels every workflow also sends results to, unless a workflow chooses its own. The app always shows the result.
 
-## Basic Workflow Creation
+## Create A Workflow
 
-1. Click **New Workflow**.
-2. Give the workflow a clear name.
-3. Describe the task Row-Bot should perform.
-4. Choose when it should run: manual, scheduled, or triggered when that option is available.
-5. Choose delivery: app only, a channel, or another configured destination.
-6. Save the workflow.
-7. Run it manually once and review the result.
+1. Choose **New workflow**. The editor opens on the page, as editing does.
+2. Give it a name, an icon and a short description, and choose **Workflow** or **Reminder**.
+3. Write the **Steps**: what Row-Bot should do first, then what next. Each step can use the previous step's output; drag steps, or use the arrow keys, to reorder them.
+4. Choose **When it runs**: manually, at a date and time, or repeating (every day, weekdays, chosen days, every few hours or minutes, or a custom cron expression).
+5. Choose **Send results to**: follow your defaults, choose channels only for this workflow, or keep results in the app.
+6. Under **Model and approvals**, pick an **Agent profile** and **Approvals**: **Ask before actions**, **Block actions**, or **Auto, within the profile**.
+7. Save, then **Run** it once and review the result.
 
-## Advanced Workflow Creation
+## Advanced Workflows
 
-Advanced workflows can include richer instructions, required inputs, model/profile choices, delivery overrides, approval rules, and multi-step behavior. Keep each step observable: what information Row-Bot should gather, what it should produce, where it should save or send output, and what requires your approval.
+- **Edit workflow steps** opens the step editor, with a builder and a step graph. Besides prompts, steps can be conditions, approvals, running another workflow, delegating to an agent, waiting for agents, and notifications.
+- **Workflow settings** chooses the model, whether runs reuse one conversation, a concurrency group, and the trigger: manual and scheduled runs only, **When another workflow completes**, or **Webhook (HTTP POST)**. A webhook trigger creates a private secret when you save; download its configuration and keep it private.
+
+## Approvals In Workflows
+
+An approval step, or an action that needs approval, pauses the run until you answer. It waits as long as needed unless that step sets its own time limit. Answer it from the sidebar's attention indicator, Overview's **Needs you**, the workflow's conversation, Buddy, or a channel that supports approvals; an answer in one place resolves it everywhere. While a run waits, that workflow's next scheduled run is skipped and says so.
 
 ## What Is Saved
 
@@ -50,11 +54,11 @@ Workflow definitions, schedules, run history, delivery defaults, and status are 
 
 ## Safety
 
-Avoid workflows that send messages, write files, start servers, or call external systems without a review point. Use approvals for actions that can affect files, accounts, channels, MCP servers, plugins, or external services.
+Avoid workflows that send messages, write files, start servers, or call external systems without a review point. Use approvals for actions that can affect files, accounts, channels, MCP servers, plugins, or external services. Remember that **Run** starts at once, including any delivery outside the app.
 
 ## Troubleshooting
 
-- If a workflow does not run, check whether it is paused.
-- If delivery fails, check the selected channel and its Settings tab.
-- If a run waits for approval, decide from the thread prompt or open the Activity Center.
+- If a workflow does not run on schedule, check that it is enabled and that an earlier run isn't still waiting for approval.
+- If delivery fails, check the selected channel and its Settings page.
+- If a run waits for approval, answer it from the attention indicator or Overview.
 - If results are too broad, split the workflow into smaller steps.

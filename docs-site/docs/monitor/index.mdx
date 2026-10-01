@@ -1,49 +1,73 @@
 ---
 title: "Monitor"
-description: "Inspect Row-Bot logs, journals, workflow state, channels, and background activity."
+description: "See Row-Bot's latest health checks, fix problems in one click, and read activity, maintenance, history and logs."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Monitor
 
-Monitor shows what Row-Bot is doing and what recently happened. Use it when a workflow, channel, background job, knowledge extraction, dream cycle, or provider setup needs investigation.
+Monitor shows whether Row-Bot is healthy, what needs attention and what recently happened. Use it when a workflow, channel, account, model, background job, knowledge extraction or Dream Cycle needs investigation.
 
-<Screenshot id="home-monitor" alt="Row-Bot Monitor tab." caption="The Monitor tab shows recent logs, journals, channel state, and background activity controls." />
+<Screenshot id="home-monitor" alt="Row-Bot Monitor tab with a problem, its fix and the health tiles." caption="Monitor lists what needs attention with a one-click fix, then health tiles for each area, activity, maintenance, history and logs." />
 
 ## Where To Find It
 
-Open Home -> Monitor.
+Choose **Home**, then the **Monitor** tab. When something needs attention, the sidebar's attention indicator says so ("1 thing needs attention") and opens Monitor.
 
-## UI Walkthrough
+## Checks Are Kept
 
-- **System Monitor** is the top-level status area.
-- **Refresh** updates visible logs and state.
-- **Knowledge Extraction** shows extraction activity and links to the extraction journal.
-- **Dream Cycle** shows background organization activity and links to the dream journal.
-- **Channels** shows whether configured external message channels are running.
-- **Recent Logs** shows current app events with timestamps and severity.
-- **View Full Log** opens a longer log view for troubleshooting.
-- **Status labels** identify running, idle, disabled, warning, or failed states.
+Row-Bot keeps the last result of every check, with its time, so the tiles stay current when you switch tabs or restart the app.
 
-## Logs And Journals
+- **Checks on this computer** (disk space, databases, the scheduler, memory extraction, Dream Cycle, the search index, documents, the wiki vault, channels and the chosen model) run by themselves at start-up and every 15 minutes. They make no network requests.
+- **Connection checks** contact your model providers, accounts and the internet. They run once an hour while **Check connections every hour** is on, and whenever you choose **Run diagnosis**. Turn the switch off to run them only when you ask.
+- A check that turns red raises the sidebar's attention indicator and appears in Overview's **Needs you**.
 
-Recent logs help with immediate diagnosis. The knowledge extraction journal explains what Row-Bot extracted from conversations or documents. The dream journal explains background organization attempts. Use journals when you need a narrative of why a knowledge record or background status exists.
+## Needs Attention And Fixes
+
+**Needs attention** lists each problem with the one fix that addresses it:
+
+| Problem | Fix |
+| --- | --- |
+| A channel stopped | **Restart** the channel, the same reviewed start as its Settings row. |
+| An account sign-in expired | **Reconnect** Google or X. |
+| No default model | **Choose a model**. |
+| A setting needs a change | **Open … settings** at the exact row, such as the public link in Devices & remote access. |
+| Disk, network or Ollama | **Check … again**. |
+
+Failed workflows offer **Run … again** on Overview.
+
+## Health Tiles
+
+Six tiles summarise the areas Row-Bot depends on: **Model runtime**, **Channels**, **MCP and tools**, **Scheduler**, **Knowledge** and **System**. Each shows its worst check and that check's fix. Open a tile for every check in it, when each was last checked, and each problem's fix.
+
+**Run diagnosis** runs every check now. **Copy diagnosis report** copies a plain summary you can paste into a support request. **Start-up warnings** lists anything Row-Bot reported when it started.
+
+## Activity, Maintenance And History
+
+- **Activity** charts extraction, Dream Cycle, workflow runs and channel events over **24 hours** or **7 days**.
+- **Maintenance** shows when knowledge extraction and Dream Cycle last ran and what they did: memories saved, conversations read, contradictions blocked, duplicates merged, memories enriched and links inferred.
+- **History** lists each Dream Cycle and extraction run with its changes and errors.
+
+## Logs
+
+**Logs** shows Row-Bot's local log. Filter by level, **Search logs**, **Follow** new lines, **Collapse repeats**, and **Copy** the visible lines.
 
 ## Common Workflow
 
 1. Reproduce or observe the issue.
-2. Open Monitor and refresh.
-3. Check status labels and recent logs.
-4. Open the relevant journal.
+2. Open Monitor and read **Needs attention**.
+3. Use the suggested fix, or open the tile for detail.
+4. Choose **Run diagnosis** to confirm, then check **Logs** if the problem remains.
 5. Copy only non-sensitive details into a support request.
 
 ## What Is Saved
 
-Logs and journals are local Row-Bot data. They may include file names, thread names, provider names, channel names, or task summaries, so review them before sharing.
+Check results, logs and maintenance history are local Row-Bot data. Logs may include file names, conversation names, provider names, channel names or workflow names, so review them before sharing.
 
 ## Troubleshooting
 
-- If logs are empty, reproduce the issue and refresh.
-- If background work is disabled, check Settings -> Preferences and Settings -> Knowledge.
-- If a channel is stopped, open Settings -> Channels before restarting it.
+- If a tile shows **Checking…**, the first checks are still running.
+- If a connection check is old, choose **Run diagnosis** or turn on **Check connections every hour**.
+- If Dream Cycle never runs, turn it on in **Settings › Preferences › Overnight tidy-up**.
+- If a channel keeps stopping, open **Settings › Channels** and check its credentials before restarting it.
