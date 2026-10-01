@@ -232,18 +232,21 @@ export default function CommandPalette({
       .catch(() => undefined);
     return () => abort.abort();
   }, [loadWorkflows]);
-  const [switches, setSwitches] = useState<PaletteSwitchAction[]>([]);
+  const [switches, setSwitches] = useState<PaletteSwitchAction[] | null>(null);
   const typing = trimmed.length > 0;
   useEffect(() => {
     if (!loadSwitches || !typing) return;
     const abort = new AbortController();
     loadSwitches(abort.signal)
-      .then((value) => {
-        if (!abort.signal.aborted) setSwitches(value);
-      })
+      .then(
+        (value) => !abort.signal.aborted && setSwitches(value),
+        () => !abort.signal.aborted && setSwitches([]),
+      )
       .catch(() => undefined);
     return () => abort.abort();
   }, [loadSwitches, typing]);
+  // Settings are still being read: say so rather than "No results".
+  const readingSettings = Boolean(loadSwitches) && typing && switches === null;
 
   // Full-text history search runs after a short pause in typing.
   useEffect(() => {
@@ -314,7 +317,7 @@ export default function CommandPalette({
       }
       // Settings switches with their state: "turn on developer tools".
       const asked = switchRequest(trimmed);
-      for (const option of switches) {
+      for (const option of switches ?? []) {
         const score = intentScore(asked.rest, [
           option.label,
           ...option.phrases,
@@ -679,13 +682,17 @@ export default function CommandPalette({
           <p className="command-palette-empty" role="status">
             {state.searching
               ? 'Searching history…'
-              : `No results for “${trimmed}”.`}
+              : readingSettings
+                ? 'Reading your settings…'
+                : `No results for “${trimmed}”.`}
           </p>
         )}
       </div>
       {items.length > 0 && current < 0 && (
         <p className="command-palette-note" role="status">
-          Nothing matches exactly. Choose a result with the arrow keys.
+          {readingSettings
+            ? 'Reading your settings…'
+            : 'Nothing matches exactly. Choose a result with the arrow keys.'}
         </p>
       )}
       <footer className="command-palette-footer" aria-hidden>

@@ -3098,6 +3098,14 @@ button.overview-stat:hover {
   display: grid;
   justify-items: start;
   gap: 4px;
+  min-width: 0;
+}
+/* A long fix ("Open Wiki vault settings") wraps inside its tile. */
+.health-tile-fix .fix-action {
+  height: auto;
+  padding-block: 4px;
+  white-space: normal;
+  text-align: start;
 }
 .health-tile {
   display: grid;

@@ -72,7 +72,10 @@ const settings = {
   tracker: { availability: 'available', tool_available: true, enabled: false },
 } as unknown as SettingsSnapshot;
 
-async function setup() {
+async function setup(
+  loadSwitches: () => Promise<ReturnType<typeof settingsSwitches>> = async () =>
+    settingsSwitches(settings, set),
+) {
   const transport = new FixtureTransport({ conversationCount: 6 });
   const search = vi.fn(async (query: string): Promise<SearchPage> => ({
     items: query.toLowerCase() === 'lantern' ? [lantern] : [],
@@ -85,7 +88,6 @@ async function setup() {
   const controller = new ClientController(transport, () => 1);
   clients.push(controller);
   await controller.start();
-  const set = vi.fn();
   const handlers = {
     onOpenConversation: vi.fn(),
     onOpenSearchHit: vi.fn(),
@@ -115,7 +117,7 @@ async function setup() {
               { id: 'scatter', label: 'Learn and test every review note' },
             ]}
             loadWorkflows={async () => []}
-            loadSwitches={async () => settingsSwitches(settings, set)}
+            loadSwitches={loadSwitches}
             {...handlers}
           />
         </RuntimeContext.Provider>
@@ -125,6 +127,11 @@ async function setup() {
   await act(async () => undefined);
   return { set, search, ...handlers };
 }
+
+let set = vi.fn();
+beforeEach(() => {
+  set = vi.fn();
+});
 
 const field = () =>
   screen.getByRole('searchbox', { name: 'Find a workspace command' });
@@ -291,6 +298,15 @@ it('lists a settings switch with its state and says when it is already as asked'
   fireEvent.keyDown(field(), { key: 'Enter' });
   expect(set).not.toHaveBeenCalled();
   expect(onOpenSetting).toHaveBeenCalledWith('/settings/system#shell.enabled');
+});
+
+it('says it is reading settings while a switch could still match, and runs nothing', async () => {
+  const { onOpenSetting } = await setup(() => new Promise(() => {}));
+  await ask('turn on developer tools');
+  expect(screen.getByText('Reading your settings…')).toBeVisible();
+  fireEvent.keyDown(field(), { key: 'Enter' });
+  expect(set).not.toHaveBeenCalled();
+  expect(onOpenSetting).not.toHaveBeenCalled();
 });
 
 it('shows a command’s shortcut beside it', async () => {
