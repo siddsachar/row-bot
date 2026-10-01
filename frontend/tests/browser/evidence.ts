@@ -361,8 +361,9 @@ export async function accessibility(
   ]);
   const opaquePreviewScope = [];
   if (options.opaquePreview) {
-    const selector =
-      '[aria-label="Design preview"] iframe[sandbox=""], [aria-label="Design preview"] iframe[sandbox="allow-scripts"]';
+    // Design artwork shows in the Design preview and in its share and
+    // presentation views; axe cannot run inside these script-free frames.
+    const selector = 'iframe[sandbox=""], iframe[sandbox="allow-scripts"]';
     const frames = page.locator(selector);
     for (let index = 0; index < (await frames.count()); index++) {
       const frame = frames.nth(index);
