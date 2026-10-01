@@ -454,6 +454,18 @@ for (const [mode, label] of [
       name: 'Primary colour',
       exact: true,
     });
+    info.annotations.push({
+      type: 'expected-console-error',
+      description: JSON.stringify({
+        signature:
+          'Failed to load resource: the server responded with a status of 409 (Conflict)',
+        count: 2,
+        upTo: true,
+        owner: 'Design panel lifecycle read',
+        fixture:
+          'Saving the brand moves the revision on: a lifecycle read for the revision before answers 409 and the panel reads the new one',
+      }),
+    });
     await primary.fill('#654321');
     await primary.blur();
     await expect(designControls.getByRole('status')).toHaveText('Saved.');
