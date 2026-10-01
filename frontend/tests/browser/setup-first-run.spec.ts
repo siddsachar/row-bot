@@ -60,9 +60,18 @@ test('no runtime yet: Setup opens, Ollama appears by itself, the pick becomes th
   await expect(
     page.getByRole('heading', { name: 'Install Ollama' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: 'Download Ollama' }),
-  ).toHaveAttribute('href', 'https://ollama.com/download');
+  // The steps follow the server's system (the fixture server runs where the
+  // browser does): a command to copy on Linux, a download elsewhere.
+  if (process.platform === 'linux')
+    await expect(
+      page.getByRole('button', {
+        name: 'Copy curl -fsSL https://ollama.com/install.sh | sh',
+      }),
+    ).toBeVisible();
+  else
+    await expect(
+      page.getByRole('link', { name: 'Download Ollama' }),
+    ).toHaveAttribute('href', 'https://ollama.com/download');
   await screenshot(page, testInfo, 'not-installed');
   await assertNoOverflow(page);
 
