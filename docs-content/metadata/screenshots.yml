@@ -1,8 +1,9 @@
-# Committed public screenshots. `capture_real_ui_screenshots.py --validate-only`
-# checks every image here. The capture targets (route, capture_selector,
-# wait_for, actions, expected_text) were written for the retired client and
-# have been removed; automated capture refuses until each screenshot gets a
-# React target: a route under /app-v2/, a capture_selector and expected_text.
+# Committed public screenshots of the React client. Each capture target opens
+# a route under /app-v2/ in an isolated, seeded demo profile, runs its actions,
+# waits for capture_selector and expected_text, then captures the window.
+# `capture_real_ui_screenshots.py --validate-only` checks every image here.
+# Desktop frames are a 1920x1080 window at twice the pixel density
+# (3840x2160); phone frames are 390x844. All captures use the light theme.
 desktop_defaults: &desktop
   status: required
   scenario: configured
@@ -10,6 +11,10 @@ desktop_defaults: &desktop
   source: isolated-demo-data
   review_status: approved
   public_asset: true
+  # Both seeded approvals count as already announced on this device, so the
+  # floating "needs your approval" notice does not cover every screen.
+  local_storage: &announced
+    row-bot.approvals-announced.v1: '["d0c5a0000001","d0c5a0000002"]'
 mobile_defaults: &mobile
   status: required
   scenario: mobile
@@ -17,108 +22,216 @@ mobile_defaults: &mobile
   source: isolated-demo-data
   review_status: approved
   public_asset: true
+  local_storage: *announced
 screenshots:
   first-launch-setup-wizard:
     <<: *desktop
-    title: First-launch setup wizard
+    title: How should Row-Bot think?
     scenario: first-run
     source: isolated-first-launch
     output: first-launch-setup-wizard.png
-    alt: First-launch Row-Bot setup showing local, subscription, API, and custom model connection routes.
+    alt: The first run asks how Row-Bot should think, with cards for a model on this computer, a subscription and an API key, plus a custom endpoint.
     docs_pages: [/docs/getting-started/first-launch]
+    route: /app-v2/
+    capture_selector: section.first-run
+    expected_text: ["How should Row-Bot think?", "Ollama is running"]
   setup-center:
     <<: *desktop
     title: Setup Center
     output: setup-center.png
-    alt: Resumable Row-Bot Setup Center with core and optional configuration cards.
+    alt: Setup Center with the areas to use, progress 4 of 11, and a card for each area with its state and next step.
     docs_pages: [/docs/getting-started/first-launch]
+    route: /app-v2/setup
+    capture_selector: '#workspace-columns'
+    expected_text: ["Setup Center", "Continue setup"]
   app-shell-overview:
     <<: *desktop
-    title: Expanded desktop application shell
+    title: Row-Bot window on Home
     output: app-shell-overview.png
-    alt: Fully expanded Row-Bot desktop application with conversation sidebar, Home workspace, and Activity drawer.
+    alt: The whole Row-Bot window on Home, Overview, with the sidebar of agents and conversations on the left and the Overview with Needs you, status cards and recent activity.
     docs_pages: [/docs/app-shell/navigation]
+    route: /app-v2/
+    capture_selector: '[data-home-tab="overview"]'
+    expected_text: ["Needs you", "Continue where you left off"]
+  home-overview:
+    <<: *desktop
+    title: Home Overview
+    output: home-overview.png
+    alt: Home Overview with the sidebar collapsed, showing the greeting and composer, Needs you with two approvals, the Agents, Workflows, Memory and Health cards, and what happened since yesterday evening.
+    docs_pages: [/docs/home/overview]
+    route: /app-v2/
+    actions:
+      - click_selector: button[aria-label="Toggle navigation"]
+    capture_selector: '[data-home-tab="overview"]'
+    expected_text: ["Needs you", "Since yesterday evening"]
   chat-main:
     <<: *desktop
     title: Chat conversation
     output: chat-main.png
-    alt: Row-Bot chat with a fictional launch-checklist conversation, composer controls, goal, and agent activity.
+    alt: A conversation about a fictional launch checklist, with the tools used folded into one line, a formatted answer, and the composer with the model and approval controls.
     docs_pages: [/docs/chat/]
+    route: /app-v2/conversations/docs-demo-chat
+    actions:
+      - click_selector: button[aria-label="Conversation details"]
+    capture_selector: form.composer
+    expected_text: ["Here is the checklist", "Used 4 tools"]
   chat-model-picker:
     <<: *desktop
     title: Chat model picker
     output: chat-model-picker.png
-    alt: Open chat model picker showing provider-qualified local Quick Choices and the thread default.
+    alt: The composer's model picker open over a conversation, with a search box and the local Ollama models, the current one ticked.
     docs_pages: [/docs/chat/model-picker]
+    route: /app-v2/conversations/docs-demo-chat
+    actions:
+      - click_selector: button[aria-label="Conversation details"]
+      - click_selector: button[aria-label="Model"]
+    capture_selector: form.composer
+    expected_text: ["qwen3:8b", "Manage models"]
   chat-tool-trace:
     <<: *desktop
     title: Chat tool trace
     output: chat-tool-trace.png
-    alt: Expanded Row-Bot tool trace containing inert results from the isolated demonstration workspace.
+    alt: An expanded tool trace in a conversation, listing the files searched, a file read, a memory search and delegated work, each with its result.
     docs_pages: [/docs/chat/tools-approvals-and-terminal]
+    route: /app-v2/conversations/docs-demo-chat
+    actions:
+      - click_selector: button[aria-label="Conversation details"]
+      - click_text: Used 4 tools
+    capture_selector: form.composer
+    expected_text: ["Searched files", "Searched memory"]
   chat-approval:
     <<: *desktop
-    title: Consequential action approval
+    title: Approve or deny in place
     output: chat-approval.png
-    alt: Row-Bot confirmation dialog describing a reversible write to the isolated demo workspace with Approve and Deny controls.
+    alt: A conversation waiting for approval to commit a change in a demo code folder, with Details, Deny and Approve on the card in the conversation.
     docs_pages: [/docs/privacy-safety/, /docs/chat/tools-approvals-and-terminal]
+    route: /app-v2/conversations/docs-demo-code
+    actions:
+      - click_selector: button[aria-label="Conversation details"]
+    capture_selector: form.composer
+    expected_text: ["Commit changes?", "Deny", "Approve"]
   chat-export:
     <<: *desktop
-    title: Conversation export
+    title: Conversation actions
     output: chat-export.png
-    alt: Row-Bot conversation export dialog with Markdown, plain-text, and PDF choices.
+    alt: The Conversation actions dialog with the conversation's name, Pin, export to Markdown or PDF, and Delete conversation.
     docs_pages: [/docs/chat/]
-  agent-profile-library:
-    <<: *desktop
-    title: Agent profile library
-    output: agent-profile-library.png
-    alt: Open Agent profile library showing two fictional profiles and their capability summaries.
-    docs_pages: [/docs/app-shell/agent-profiles]
+    route: /app-v2/conversations/docs-demo-chat
+    actions:
+      - click_selector: button[aria-label="Share or export"]
+    capture_selector: '[role="dialog"]'
+    expected_text: ["Export", "Markdown", "Delete conversation"]
   goal-and-agents:
     <<: *desktop
-    title: Goal and delegated agents
+    title: Goal and agents in the Context card
     output: goal-and-agents.png
-    alt: Row-Bot chat and Activity drawer showing an active goal with parent and child agent progress.
-    docs_pages: [/docs/app-shell/agent-profiles]
+    alt: A conversation's Context card showing two agents at work and one done, and the conversation's goal with its progress, turn count, Pause and Stop.
+    docs_pages: [/docs/profiles-goals-agents/]
+    route: /app-v2/conversations/docs-demo-chat
+    capture_selector: form.composer
+    expected_text: ["Launch coordinator", "Prepare and verify the fictional launch checklist", "Pause"]
+  agents-dialog:
+    <<: *desktop
+    title: Agents dialog
+    output: agents-dialog.png
+    alt: The Agents dialog opened from the sidebar, with the profile library grouped into Everyday, Work, Creative, Developer, Advanced and My Profiles.
+    docs_pages: [/docs/profiles-goals-agents/]
+    route: /app-v2/
+    actions:
+      - click_selector: button.nav-all-agents
+      - click_text: My Profiles
+    capture_selector: '[role="dialog"]'
+    expected_text: ["Agent profiles", "Research Guide", "Project Coordinator"]
+  command-palette:
+    <<: *desktop
+    title: Command palette
+    output: command-palette.png
+    alt: The command palette open over Home with the question "connect telegram" and the matching action, Connect Telegram in Channels settings.
+    docs_pages: [/docs/app-shell/navigation]
+    route: /app-v2/
+    actions:
+      - wait_for_text: Needs you
+      - press: {selector: body, key: Control+k}
+      - fill: {selector: '[role="dialog"] input', value: connect telegram}
+    capture_selector: '[role="dialog"]'
+    expected_text: ["Connect Telegram"]
+  conversation-library:
+    <<: *desktop
+    title: Conversation library
+    output: conversation-library.png
+    alt: The Conversation library listing every conversation with its kind and last activity, with search and filters.
+    docs_pages: [/docs/chat/]
+    route: /app-v2/library
+    capture_selector: '#workspace-columns'
+    expected_text: ["Demo launch checklist", "Weekend cycling route"]
   home-workflows:
     <<: *desktop
     title: Workflows Home tab
     output: home-workflows.png
-    alt: Workflows Home tab with scheduled, manual, completed, failed, and approval-pending demonstration states.
+    alt: The Workflows tab with five demonstration workflows, their schedules, recent runs, one waiting for approval and one failed run.
     docs_pages: [/docs/home/workflows, /docs/guides/workflows]
+    route: /app-v2/?tab=workflows
+    capture_selector: '[data-home-tab="workflows"]'
+    expected_text: ["Morning Brief", "Launch Summary", "Research Digest"]
   workflow-editor:
     <<: *desktop
     title: Workflow editor
     output: workflow-editor.png
-    alt: New Workflow dialog showing prompts, schedule, delivery, agent profile, and approval controls.
+    alt: The New workflow editor with a name, description and first step filled in, and the schedule, delivery and model and approvals panels.
     docs_pages: [/docs/guides/workflows]
-  home-designer:
-    <<: *desktop
-    title: Designer Home tab
-    output: home-designer.png
-    alt: Designer Home tab with a fictional two-page community workshop presentation.
-    docs_pages: [/docs/home/designer]
+    route: /app-v2/?tab=workflows
+    actions:
+      - click_selector: 'button:has-text("New workflow")'
+      - fill: {selector: 'input[placeholder="Morning briefing"]', value: Weekly reading list}
+      - fill: {selector: 'textarea[placeholder="What it does, in a sentence"]', value: Collects the links I saved this week into a short list.}
+      - fill: {selector: 'textarea[placeholder="What should Row-Bot do first?"]', value: Gather the links I saved this week and group them by topic.}
+      - click_text: Repeats
+    capture_selector: '[data-home-tab="workflows"]'
+    expected_text: ["New workflow", "Schedule", "Delivery"]
   designer-editor:
     <<: *desktop
-    title: Designer Studio editor
+    title: Design panel
     output: designer-editor.png
-    alt: Designer Studio editor with chat, page navigation, and a rendered fictional workshop slide.
+    alt: A conversation with its Design panel open beside it, showing a fictional two-slide workshop deck with Preview and Edit, slide navigation and zoom.
     docs_pages: [/docs/designer/]
-  home-developer:
-    <<: *desktop
-    title: Developer Home tab
-    output: home-developer.png
-    alt: Developer Home tab showing an isolated demonstration repository and Custom Tools entry point.
-    docs_pages: [/docs/home/developer]
+    route: /app-v2/conversations/docs-demo-design
+    actions:
+      - click_selector: button[title="Open Community Workshop Deck"]
+      - click_selector: button[aria-label="Conversation details"]
+    capture_selector: form.composer
+    expected_text: ["Community Workshop Deck", "Preview", "Edit"]
+    settle_ms: 2500
   developer-workspace:
     <<: *desktop
-    title: Developer Studio workspace
+    title: Developer panel
     output: developer-workspace.png
-    alt: Developer Studio workspace showing an isolated Git repository, changed README, inspector, and chat.
+    alt: A conversation waiting to commit, with its Developer panel open beside it showing a demo code folder on its branch and the diff of its one changed file.
     docs_pages: [/docs/developer/]
-  home-knowledge:
+    route: /app-v2/conversations/docs-demo-code
+    actions:
+      - click_selector: button[title="Open demo-release-notes"]
+      - click_selector: button[aria-label="Conversation details"]
+      - click_selector: button[aria-label="Show changes in README.md"]
+    capture_selector: form.composer
+    expected_text: ["demo-release-notes", "docs/demo-checklist", "Changes"]
+    settle_ms: 2000
+  knowledge-graph:
     <<: *desktop
     title: Knowledge Home tab
+    output: knowledge-graph.png
+    alt: The Knowledge tab's graph of fictional demonstration memories, coloured by kind, with search, the Graph, List, Review and Activity views and a legend.
+    docs_pages: [/docs/knowledge/, /docs/home/knowledge]
+    route: /app-v2/?tab=knowledge
+    actions:
+      - wait_ms: 3000
+    capture_selector: '[data-home-tab="knowledge"]'
+    expected_text: ["36 memories"]
+    settle_ms: 2500
+  home-knowledge:
+    <<: *desktop
+    # The marketing landing page's hand-curated image (see
+    # screenshot_policies.yml); the docs use knowledge-graph instead.
+    title: Knowledge Home tab (landing image)
     output: home-knowledge.png
     alt: Knowledge graph Home tab with deterministic fictional entities, relations, and provenance.
     docs_pages: [/docs/knowledge/, /docs/home/knowledge]
@@ -126,173 +239,284 @@ screenshots:
     <<: *desktop
     title: Monitor Home tab
     output: home-monitor.png
-    alt: Monitor Home tab showing deterministic Knowledge, Dream Cycle, channel, and log status.
+    alt: The Monitor tab with an area for each part of Row-Bot, a stopped WhatsApp channel with its Restart fix, a failed workflow with Open Workflows, and the activity and maintenance history.
     docs_pages: [/docs/monitor/, /docs/home/monitor]
+    route: /app-v2/?tab=monitor
+    capture_selector: '[data-home-tab="monitor"]'
+    expected_text: ["System Monitor", "Restart WhatsApp"]
+  home-insights:
+    <<: *desktop
+    title: Insights Home tab
+    output: home-insights.png
+    alt: The Insights tab with four demonstration insights about a failed workflow, usage, memory links and a tool setting, each with Why and a next step.
+    docs_pages: [/docs/home/insights]
+    route: /app-v2/?tab=insights
+    capture_selector: '[data-home-tab="insights"]'
+    expected_text: ["Research Digest failed on a missing source"]
   settings-providers:
     <<: *desktop
     title: Providers settings
     output: settings-providers.png
-    alt: Providers settings presenting local, subscription, and API routes with equal visual weight and no credentials.
+    alt: Providers settings with the local Ollama connected, subscriptions and API providers not connected, and a demo custom endpoint; no credentials are shown.
     docs_pages: [/docs/settings/providers]
+    route: /app-v2/settings/providers
+    capture_selector: '#workspace-columns'
+    expected_text: ["Where Row-Bot", "Ollama Local"]
   settings-models:
     <<: *desktop
     title: Models settings
     output: settings-models.png
-    alt: Models settings for default models, provider-qualified Quick Choices, and capability metadata.
+    alt: Models settings choosing which model does each job, with the local llama3.1:8b as the Brain and Vision models.
     docs_pages: [/docs/settings/models]
+    route: /app-v2/settings/models
+    capture_selector: '#workspace-columns'
+    expected_text: ["Which model does each job", "Brain"]
   settings-knowledge:
     <<: *desktop
-    title: Knowledge settings
+    title: Memory settings
     output: settings-knowledge.png
-    alt: Knowledge settings for memory, graph health, embeddings, document knowledge, and Wiki vault output.
+    alt: Memory settings with memory on, graph health for the demonstration memories, and the wiki vault.
     docs_pages: [/docs/settings/knowledge]
+    route: /app-v2/settings/knowledge
+    capture_selector: '#workspace-columns'
+    # The vault path is the capture profile's local folder.
+    masks: ['input[aria-label="Vault path"]']
+    mask_color: "#ECEFF2"
+    expected_text: ["Memory", "graph health and the wiki vault", "Graph health"]
   settings-buddy:
     <<: *desktop
     title: Buddy settings
     output: settings-buddy.png
-    alt: Buddy settings for companion visibility, behaviour, appearance, and motion.
+    alt: Buddy settings with the companion shown, its looks, personality, status bubbles and motion.
     docs_pages: [/docs/settings/buddy]
+    route: /app-v2/settings/buddy
+    capture_selector: '#workspace-columns'
+    expected_text: ["Your companion", "Personality"]
   settings-voice:
     <<: *desktop
     title: Voice settings
     output: settings-voice.png
-    alt: Voice settings for dictation, realtime conversation, read-aloud, providers, and diagnostics.
+    alt: Voice settings for Talk, dictation and read aloud, with speech recognition on this computer.
     docs_pages: [/docs/settings/voice]
+    route: /app-v2/settings/voice
+    capture_selector: '#workspace-columns'
+    expected_text: ["Talk", "dictation and read-aloud", "Dictation"]
   settings-system:
     <<: *desktop
     title: System settings
     output: settings-system.png
-    alt: System settings showing isolated filesystem, shell, browser, Remote Access, tunnel, logging, and update controls.
+    alt: System settings with the workspace folder, what Row-Bot may do with commands and files, and browser and computer use.
     docs_pages: [/docs/settings/system]
+    route: /app-v2/settings/system
+    capture_selector: '#workspace-columns'
+    expected_text: ["Where Row-Bot works on this computer", "Workspace folder"]
   settings-remote-access:
     <<: *desktop
-    title: Remote Access settings
+    title: Devices & remote access settings
     output: settings-remote-access.png
-    alt: Remote Access settings showing protected device access, invitation creation, Tailscale Serve, and explicit local-network controls.
+    alt: Devices and remote access settings with Connect a phone or computer, one paired demo phone with Sign out, and the advanced network options folded away.
     docs_pages: [/docs/settings/system, /docs/operations/remote-access]
+    route: /app-v2/settings/access
+    capture_selector: '#workspace-columns'
+    expected_text: ["Use Row-Bot on a phone or another computer", "Demo Android Phone"]
   remote-access-invitation:
     <<: *desktop
-    title: Remote Access device invitation
+    title: Connect a phone
     output: remote-access-invitation.png
-    alt: Device invitation dialog showing desktop and compact layout choices, full owner access disclosure, trusted and temporary lifetimes, and a live connection-route selector.
+    alt: Connecting a phone or computer step by step, choosing Tailscale, Same Wi-Fi or Internet, then scanning the code and seeing it connect; here Tailscale is not installed yet.
     docs_pages: [/docs/operations/remote-access, /docs/operations/docker, /docs/mobile-native/]
+    route: /app-v2/settings/access
+    actions:
+      - click_selector: 'button.primary:has-text("Connect a phone or computer")'
+    capture_selector: '#workspace-columns'
+    expected_text: ["How will it reach this computer?", "Scan the code"]
+    settle_ms: 2000
   settings-tracker:
     <<: *desktop
     title: Tracker settings
     output: settings-tracker.png
-    alt: Tracker settings for local recurring activity, habit, symptom, and health-event records.
+    alt: Tracker settings with the habit tracker on and three demonstration trackers stored on this device.
     docs_pages: [/docs/settings/tracker]
+    route: /app-v2/settings/tracker
+    capture_selector: '#workspace-columns'
+    expected_text: ["Habits", "symptoms and health events", "Morning walk"]
   settings-documents:
     <<: *desktop
     title: Documents settings
     output: settings-documents.png
-    alt: Documents settings with fictional local document extraction, indexing, and search controls.
+    alt: Documents settings with the drop area for adding files, the model that reads them, and the list of your documents.
     docs_pages: [/docs/getting-started/first-launch, /docs/operations/docker, /docs/settings/documents]
+    route: /app-v2/settings/documents
+    capture_selector: '#workspace-columns'
+    expected_text: ["Files Row-Bot can search and learn from", "Add documents"]
   settings-tools:
     <<: *desktop
     title: Tools settings
-    output: settings-search.png
-    alt: Tools settings with automatic external capability loading, retrieval compression, and search tools with network activity disabled.
+    output: settings-tools.png
+    alt: Tools settings with capability loading, retrieval compression, and the search and knowledge tools the assistant can use.
     docs_pages: [/docs/settings/tools]
+    route: /app-v2/settings/tools
+    capture_selector: '#workspace-columns'
+    expected_text: ["Search", "research and built-in tools", "Capability loading"]
   settings-skills:
     <<: *desktop
     title: Skills settings
     output: settings-skills.png
-    alt: Skills settings for reviewing, enabling, disabling, pinning, and browsing Smart Skills.
+    alt: Skills settings with the installed skills, each with its pin and actions, and the Discover tab.
     docs_pages: [/docs/settings/skills]
+    route: /app-v2/settings/skills
+    capture_selector: '#workspace-columns'
+    expected_text: ["Installed", "Discover", "Create skill"]
   settings-accounts:
     <<: *desktop
     title: Accounts settings
     output: settings-accounts.png
-    alt: Accounts settings showing disconnected GitHub, Google, and X integrations with no account identifiers.
+    alt: Accounts settings with GitHub, Google and X not connected and the steps to connect GitHub; no account details are shown.
     docs_pages: [/docs/settings/accounts]
+    route: /app-v2/settings/accounts
+    capture_selector: '#workspace-columns'
+    expected_text: ["Services Row-Bot can use for you", "GitHub"]
   settings-channels:
     <<: *desktop
     title: Channels settings
     output: settings-channels.png
-    alt: Channels settings with fictional Telegram, WhatsApp, Slack, and Discord adapters configured but stopped.
+    alt: Channels settings listing Telegram, Slack, SMS, Discord and WhatsApp with their state; none is running.
     docs_pages: [/docs/settings/channels, /docs/integrations/channels]
-  settings-utilities:
-    <<: *desktop
-    title: Utilities settings
-    output: settings-utilities.png
-    alt: Utilities settings for local productivity tools and system integrations.
-    docs_pages: [/docs/settings/utilities]
+    route: /app-v2/settings/channels
+    capture_selector: '#workspace-columns'
+    expected_text: ["Messaging platforms Row-Bot can talk through", "Telegram"]
   settings-mcp:
     <<: *desktop
     title: MCP settings
     output: settings-mcp.png
-    alt: MCP settings with two fictional external servers configured and disabled.
+    alt: MCP settings with MCP off, the local runtimes, and two demonstration servers that are off.
     docs_pages: [/docs/settings/mcp, /docs/integrations/mcp]
+    route: /app-v2/settings/mcp
+    capture_selector: '#workspace-columns'
+    expected_text: ["Tools from MCP servers", "Demo GitHub MCP"]
   settings-plugins:
     <<: *desktop
     title: Plugins settings
     output: settings-plugins.png
-    alt: Plugins settings with an inert local demonstration plugin and marketplace entry point.
+    alt: Plugins settings with one inert demonstration plugin installed and the Discover tab for the marketplace.
     docs_pages: [/docs/settings/plugins, /docs/integrations/plugins]
+    route: /app-v2/settings/plugins
+    capture_selector: '#workspace-columns'
+    expected_text: ["Installed plugins and the plugin marketplace", "Demo CRM Lookup"]
   settings-preferences:
     <<: *desktop
     title: Preferences settings
     output: settings-preferences.png
-    alt: Preferences settings for assistant identity, launch behaviour, background intelligence, updates, and migration.
+    alt: Preferences settings for the assistant's name and personality, learning new skills, how Row-Bot opens, and the overnight Dream Cycle.
     docs_pages: [/docs/settings/preferences]
+    route: /app-v2/settings/preferences
+    capture_selector: '#workspace-columns'
+    expected_text: ["How Row-Bot introduces itself", "Identity"]
   skills-hub:
     <<: *desktop
-    title: Browse Skills marketplace
+    title: Discover skills
     output: skills-hub.png
-    alt: Offline Public Skills Hub fixture showing two reviewable demonstration skills and source status.
+    alt: The Discover tab of Skills settings with reviewable public skills from an offline demonstration catalog.
     docs_pages: [/docs/skills/]
+    route: /app-v2/settings/skills
+    actions:
+      - click_selector: 'button[role="tab"]:has-text("Discover")'
+      - click_selector: 'button.primary:has-text("Search")'
+    capture_selector: '#workspace-columns'
+    expected_text: ["Browse public skills", "Research Brief", "Workflow Review"]
+    settle_ms: 2000
   plugin-marketplace:
     <<: *desktop
-    title: Plugin Marketplace
+    title: Plugin marketplace
     output: plugin-marketplace.png
-    alt: Offline Plugin Marketplace fixture showing verified and review-required example plugins without installing them.
+    alt: The Discover tab of Plugins settings after refreshing an offline demonstration marketplace of two plugins, with the one already installed.
     docs_pages: [/docs/integrations/plugins]
+    route: /app-v2/settings/plugins
+    actions:
+      - click_selector: 'button[role="tab"]:has-text("Discover")'
+      - click_selector: 'button:has-text("Refresh marketplace")'
+    capture_selector: '#workspace-columns'
+    expected_text: ["Marketplace has 2 plugin", "Demo CRM Lookup"]
+    settle_ms: 2000
   mcp-add-server:
     <<: *desktop
-    title: Add MCP server
+    title: Add an MCP server
     output: mcp-add-server.png
-    alt: Blank Add MCP Server dialog showing transport and disabled configuration controls without starting a server.
+    alt: The Add a server dialog on its Manual tab, with the fields to describe a server; nothing is started.
     docs_pages: [/docs/integrations/mcp]
+    route: /app-v2/settings/mcp
+    actions:
+      - click_selector: 'button:has-text("Add server")'
+      - click_selector: '[role="dialog"] button:has-text("Manual")'
+    capture_selector: '[role="dialog"]'
+    expected_text: ["Add a server", "Server name", "Environment variables"]
   mcp-marketplace:
     <<: *desktop
-    title: Browse MCP server marketplace
+    title: Browse MCP servers
     output: mcp-marketplace.png
-    alt: Offline MCP server marketplace showing bundled starter servers with publisher, transport, overlap, and risk labels.
+    alt: The Add a server dialog on its Browse tab, listing the bundled starter servers with their publisher, transport and risk.
     docs_pages: [/docs/integrations/mcp, /docs/extending/]
+    route: /app-v2/settings/mcp
+    actions:
+      - click_selector: 'button:has-text("Add server")'
+      - click_selector: '[role="dialog"] button:has-text("Search")'
+    capture_selector: '[role="dialog"]'
+    expected_text: ["Add a server", "GitHub MCP Server", "Playwright MCP"]
+    settle_ms: 2000
   mobile-chat-list:
     <<: *mobile
-    title: Android chat list
+    title: Phone conversation list
     output: mobile-chat-list.png
-    alt: Android-sized Row-Bot owner view showing the fictional conversation list and bottom navigation.
+    alt: Row-Bot on a phone with the sidebar open, showing agents and the demonstration conversations grouped by day.
     docs_pages: [/docs/mobile-native/]
+    route: /app-v2/
+    actions:
+      - click_selector: button[aria-label="Toggle navigation"]
+    capture_selector: body
+    expected_text: ["Conversations", "Demo launch checklist"]
   mobile-chat-detail:
     <<: *mobile
-    title: Android chat detail
+    title: Phone conversation
     output: mobile-chat-detail.png
-    alt: Android-sized Row-Bot chat detail with the fictional launch checklist and compact composer.
+    alt: A conversation on a phone with the fictional launch checklist answer and the compact composer.
     docs_pages: [/docs/mobile-native/]
+    route: /app-v2/conversations/docs-demo-chat
+    capture_selector: form.composer
+    expected_text: ["Here is the checklist"]
   mobile-activity:
     <<: *mobile
-    title: Android Activity
+    title: Phone Home Overview
     output: mobile-activity.png
-    alt: Android-sized Activity view showing active goals, delegated agents, approvals, and workflow status.
+    alt: Home Overview on a phone with the greeting, the composer and Needs you with two approvals to answer in place.
     docs_pages: [/docs/mobile-native/]
+    route: /app-v2/
+    capture_selector: '[data-home-tab="overview"]'
+    expected_text: ["Needs you"]
   mobile-workflows:
     <<: *mobile
-    title: Android Workflows
+    title: Phone Workflows
     output: mobile-workflows.png
-    alt: Android-sized Workflows view with deterministic scheduled and approval-pending workflows.
+    alt: The Workflows tab on a phone with demonstration workflows, their schedules and run controls.
     docs_pages: [/docs/mobile-native/]
+    route: /app-v2/?tab=workflows
+    capture_selector: '[data-home-tab="workflows"]'
+    expected_text: ["Morning Brief"]
   mobile-knowledge:
     <<: *mobile
-    title: Android Knowledge
+    title: Phone Knowledge
     output: mobile-knowledge.png
-    alt: Android-sized Knowledge view with local memory and graph entry points.
+    alt: The Knowledge tab on a phone with the graph of demonstration memories and its legend.
     docs_pages: [/docs/mobile-native/]
+    route: /app-v2/?tab=knowledge
+    capture_selector: '[data-home-tab="knowledge"]'
+    expected_text: ["36 memories"]
+    settle_ms: 2500
   mobile-settings:
     <<: *mobile
-    title: Android Settings
+    title: Phone Settings
     output: mobile-settings.png
-    alt: Android-sized Providers settings showing local, subscription, and API connection routes without credentials.
+    alt: Providers settings on a phone with the local Ollama connected and subscriptions not connected; no credentials are shown.
     docs_pages: [/docs/mobile-native/]
+    route: /app-v2/settings/providers
+    capture_selector: body
+    expected_text: ["Providers", "Ollama Local"]
