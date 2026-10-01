@@ -113,9 +113,10 @@ def test_system_diagnosis_requires_local_explicit_request(tmp_path, monkeypatch)
         kept = remote.get("/api/v1/monitor/diagnosis", headers=remote_headers)
     assert result.json() == {"schema_version": 1, "hourly_network_checks": True, "checks": [
         {"id": "ollama", "name": "Ollama", "status": "warn", "detail": "Server offline",
-         "checked_at": 1.0, "settings_tab": "Models", "network": True, "stale": True},
+         "checked_at": 1.0, "settings_tab": "Models", "network": True, "stale": True,
+         "fix": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"}},
         {"id": "disk", "name": "Disk", "status": "ok", "detail": "40.0 GB free",
-         "checked_at": 1.0, "settings_tab": "System", "network": False, "stale": True},
+         "checked_at": 1.0, "settings_tab": "System", "network": False, "stale": True, "fix": None},
     ]}
     assert sorted(calls) == ["disk", "ollama"]
     assert kept.status_code == 200 and kept.json() == result.json()
@@ -156,7 +157,41 @@ def test_a_red_check_raises_the_attention_indicator_once(tmp_path, monkeypatch):
     assert client_monitor.read_attention(include_update=False)["problems"] == [{
         "id": "health:disk", "title": "Disk needs attention",
         "detail": "1.2 GB free (97% used)", "place": "health",
+        "fix": {"kind": "check_again", "href": None, "target": None, "name": "Disk"},
     }]
+
+
+def test_each_attention_problem_offers_its_one_fix(tmp_path, monkeypatch):
+    """Phase 18: a channel set to start that stopped offers a restart; one
+    waiting for a scan opens its connect sheet; the tunnel, plugins and MCP
+    open their exact settings. Nothing is probed or started by the read."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    telegram = SimpleNamespace(name="telegram", display_name="Telegram",
+                               is_configured=lambda: True, is_running=lambda: False)
+    whatsapp = SimpleNamespace(name="whatsapp", display_name="WhatsApp", is_configured=lambda: True,
+                               is_running=lambda: False, link_status=lambda: {"state": "scan"})
+    tunnel = SimpleNamespace(tunnel_manager=SimpleNamespace(status=lambda: ("error", "agent failed")))
+    mcp = SimpleNamespace(get_status_summary=lambda: {
+        "enabled": True, "enabled_server_count": 2, "connected_server_count": 1})
+    monkeypatch.setattr(client_monitor, "_MODULE", {
+        "row_bot.channels.registry": SimpleNamespace(all_channels=lambda: [telegram, whatsapp]),
+        "row_bot.channels.config": SimpleNamespace(get=lambda _name, _key, _default=None: True),
+        "row_bot.tunnel": tunnel,
+        "row_bot.mcp_client.runtime": mcp,
+    })
+
+    problems = client_monitor.read_attention(include_update=False)["problems"]
+
+    assert [(problem["id"], problem["fix"]) for problem in problems] == [
+        ("channel:telegram", {"kind": "restart_channel", "href": "/settings/channels#telegram",
+                              "target": "telegram", "name": "Telegram"}),
+        ("channel:whatsapp", {"kind": "open", "href": "/settings/channels#whatsapp",
+                              "target": None, "name": "WhatsApp"}),
+        ("tunnel", {"kind": "open", "href": "/settings/access#tunnel", "target": None, "name": "Public link"}),
+        ("mcp", {"kind": "open", "href": "/settings/mcp#mcp-servers", "target": None, "name": "MCP servers"}),
+    ]
 
 
 def test_dream_run_requires_current_review_and_is_idempotent(tmp_path, monkeypatch):

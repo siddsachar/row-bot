@@ -73,7 +73,7 @@ def test_kept_results_survive_a_restart_and_go_stale_on_their_own_schedule(profi
     fresh = _by_id(client_diagnosis.read_system_health(now=T0_S + 4 * 60))
     assert fresh["disk"] == {
         "id": "disk", "name": "Disk", "status": "ok", "detail": "40.0 GB free",
-        "checked_at": T0_S, "settings_tab": "System", "network": False, "stale": False,
+        "checked_at": T0_S, "settings_tab": "System", "network": False, "stale": False, "fix": None,
     }
     assert fresh["github"]["network"] is True and fresh["github"]["stale"] is False
     # What a check says stays readable; credentials and private paths never do.
@@ -195,3 +195,48 @@ def test_account_sign_in_checks_follow_the_switch(profile, monkeypatch):
     client_diagnosis.set_hourly_network_checks(True)
     app_module._periodic_oauth_check()
     assert calls == ["accounts", "github"]
+
+
+def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
+    """Phase 18: Monitor, Overview and the attention list offer one fix per
+    problem: restart a stopped channel, renew an account sign-in, choose a
+    model, open the exact setting, or check again once it is fixed outside."""
+    def channels():
+        return [
+            CheckResult("Telegram", "warn", "Stopped", checked_at=T0_S, settings_tab="Channels"),
+            CheckResult("Slack", "error", "invalid_auth", checked_at=T0_S, settings_tab="Channels"),
+            CheckResult("Discord", "ok", "Running", checked_at=T0_S, settings_tab="Channels"),
+        ]
+
+    monkeypatch.setattr(status_checks, "check_channels", channels)
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (
+        channels,
+        _fixed("Model", "warn", "No model selected", T0_S, "Models"),
+        _fixed("Tunnel", "error", "Not running: agent failed", T0_S, "Access"),
+        _fixed("Wiki Vault", "warn", "3 articles need review", T0_S, "Knowledge"),
+        _fixed("Disk", "error", "1.2 GB free (97% used)", T0_S),
+        _fixed("Tools", "ok", "12 / 14 enabled", T0_S, "Tools"),
+    ))
+    monkeypatch.setattr(status_checks, "NETWORK_CHECKS", (
+        _fixed("Gmail OAuth", "warn", "Token expired", T0_S, "Accounts"),
+        _fixed("Ollama", "error", "Local model server unreachable", T0_S, "Models"),
+    ))
+
+    fixes = {check["id"]: check["fix"] for check in client_diagnosis.run_system_diagnosis()["checks"]}
+
+    assert fixes == {
+        "channel:telegram": {"kind": "restart_channel", "href": "/settings/channels#telegram",
+                             "target": "telegram", "name": "Telegram"},
+        "channel:slack": {"kind": "open", "href": "/settings/channels#slack", "target": None, "name": "Slack"},
+        "channel:discord": None,
+        "model": {"kind": "choose_model", "href": "/settings/models#default-model", "target": None,
+                  "name": "Default model"},
+        "tunnel": {"kind": "open", "href": "/settings/access#tunnel", "target": None, "name": "Public link"},
+        "wiki-vault": {"kind": "open", "href": "/settings/knowledge#wiki-vault", "target": None,
+                       "name": "Wiki vault"},
+        "disk": {"kind": "check_again", "href": None, "target": None, "name": "Disk"},
+        "tools": None,
+        "gmail-oauth": {"kind": "reconnect_account", "href": "/settings/accounts#google", "target": "google",
+                        "name": "Google"},
+        "ollama": {"kind": "check_again", "href": "/settings/providers", "target": None, "name": "Ollama"},
+    }

@@ -2071,6 +2071,19 @@ class MonitorLogs(WireModel):
     full_available: bool
 
 
+class ProblemFix(WireModel):
+    """The one fix offered with a problem (Phase 18). The client words it and
+    runs it through the owner that does it in Settings: a channel restart or
+    an account sign-in reviewed as there, or opening the exact setting."""
+    kind: Literal["restart_channel", "reconnect_account", "choose_model", "open", "check_again"]
+    # Where it is fixed by hand, an in-app path ("/settings/access#tunnel").
+    href: str | None = Field(max_length=160, pattern=r"^/[A-Za-z0-9/?=&#._:-]{0,159}$")
+    # restart_channel: the channel's id; reconnect_account: "google" or "x".
+    target: str | None = Field(max_length=128)
+    # What it acts on, in words ("Telegram", "Google", "Public link").
+    name: str = Field(max_length=128)
+
+
 class SystemDiagnosisCheck(WireModel):
     """One check's last result, kept by the server with its time (B252)."""
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9:-]{0,63}$")
@@ -2083,6 +2096,8 @@ class SystemDiagnosisCheck(WireModel):
     network: bool
     # Older than its schedule allows ("checked yesterday · Check again").
     stale: bool
+    # A warning or an error carries its one fix (Phase 18).
+    fix: ProblemFix | None = None
 
 
 class SystemDiagnosis(WireModel):
@@ -4086,6 +4101,7 @@ class AttentionProblem(WireModel):
     detail: str = Field(max_length=512)
     # "health": a Monitor check whose last result is an error (B252).
     place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health"]
+    fix: ProblemFix | None = None
 
 
 class AttentionUpdate(WireModel):

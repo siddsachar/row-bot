@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -53,6 +54,33 @@ _PRIVATE_PATH = re.compile(
     r"""(?i)(['"])(?:[A-Z]:\\|/(?:Users|home|root|var|private|tmp|Volumes)/).*?\1"""
     r"""|\b[A-Z]:\\\S*|(?<![\w:/])/(?:Users|home|root|var|private|tmp|Volumes)/\S*"""
 )
+
+# Each problem's one fix (Phase 18): where a kept check that warns or fails
+# is put right by hand, and what it is called there.
+_PLACES: dict[str, tuple[str, str]] = {
+    "cloud-api": ("/settings/providers", "Providers"),
+    "tunnel": ("/settings/access#tunnel", "Public link"),
+    "github": ("/settings/accounts#github", "GitHub"),
+    "workflows": ("/?tab=workflows", "Workflows"),
+    "knowledge": ("/settings/knowledge#memory-graph", "Memory"),
+    "faiss-index": ("/settings/knowledge#memory-graph", "Memory"),
+    "dream-cycle": ("/settings/preferences#dream-cycle", "Dream Cycle"),
+    "tts": ("/settings/voice#read-aloud", "Read aloud"),
+    "wiki-vault": ("/settings/knowledge#wiki-vault", "Wiki vault"),
+    "logging": ("/settings/system#logging.level", "Logging"),
+    "documents": ("/settings/documents#embedding", "Documents"),
+    "search": ("/settings/tools#search-tools", "Search tools"),
+    "skills": ("/settings/skills#skill-library", "Skills"),
+    "tracker": ("/settings/tracker#tracker.enabled", "Habit tracker"),
+    "buddy": ("/settings/buddy", "Buddy"),
+    "mcp": ("/settings/mcp#mcp-servers", "MCP"),
+    "plugins": ("/settings/plugins#installed-plugins", "Plugins"),
+    "tools": ("/settings/tools#built-in-tools", "Tools"),
+}
+# A sign-in Row-Bot can renew from its own row on Settings › Accounts.
+_ACCOUNTS = {"gmail-oauth": ("google", "Google"), "calendar-oauth": ("google", "Google"), "x-oauth": ("x", "X")}
+# Nothing in Row-Bot fixes these; once they are fixed outside it, check again.
+_CHECK_AGAIN = {"ollama": "/settings/providers", "network": None, "disk": None, "threads-db": None}
 
 _lock = threading.Lock()
 # The app's scheduler, once start-up has scheduled the checks.
@@ -155,6 +183,52 @@ def _record(results: dict[str, dict[str, Any]], *, replace: bool = False) -> Non
         _save(state)
 
 
+def _fix(kind: str, href: str | None, name: str, target: str | None = None) -> dict[str, Any]:
+    return {"kind": kind, "href": href, "target": target, "name": name[:128]}
+
+
+def channel_id(slug: str) -> str:
+    """The channel a kept check names by its display name's slug, as the
+    channel registry has it; the slug itself when the registry isn't loaded."""
+    registry = sys.modules.get("row_bot.channels.registry")
+    try:
+        for channel in registry.all_channels() if registry is not None else ():
+            label = str(getattr(channel, "display_name", "") or channel.name)
+            if re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:48] == slug:
+                return str(channel.name)
+    except Exception:
+        logger.debug("Channel registry unreadable for a Monitor fix", exc_info=True)
+    return slug
+
+
+def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None:
+    """The one fix for a kept check that warns or fails (Phase 18), or None."""
+    if entry["status"] not in {"warn", "error"}:
+        return None
+    name = entry["name"]
+    if check_id.startswith("channel:"):
+        channel = channel_id(check_id.removeprefix("channel:"))
+        href = f"/settings/channels#{channel}"
+        if entry["status"] == "warn" and entry["detail"] == "Stopped":
+            return _fix("restart_channel", href, name, channel)
+        return _fix("open", href, name)
+    if check_id == "model":
+        return _fix("choose_model", "/settings/models#default-model", "Default model")
+    if check_id in _ACCOUNTS:
+        account, label = _ACCOUNTS[check_id]
+        return _fix("reconnect_account", f"/settings/accounts#{account}", label, account)
+    if check_id in _PLACES:
+        href, label = _PLACES[check_id]
+        return _fix("open", href, label)
+    if check_id in _CHECK_AGAIN:
+        return _fix("check_again", _CHECK_AGAIN[check_id], name)
+    # A check this table doesn't know yet: its settings page, else check again.
+    tab = entry["settings_tab"].lower()
+    if re.fullmatch(r"[a-z]{2,32}", tab):
+        return _fix("open", f"/settings/{tab}", entry["settings_tab"])
+    return _fix("check_again", None, name)
+
+
 def read_system_health(*, now: float | None = None) -> dict[str, Any]:
     """The last result of every check, as Monitor and Overview show it."""
     now = time.time() if now is None else now
@@ -174,6 +248,7 @@ def read_system_health(*, now: float | None = None) -> dict[str, Any]:
                 **entry,
                 "stale": now - entry["checked_at"]
                 > (_NETWORK_STALE_S if entry["network"] else _LOCAL_STALE_S),
+                "fix": fix_for_check(check_id, entry),
             }
             for check_id, entry in ordered
         ],
@@ -283,6 +358,7 @@ def attention_problems() -> list[dict[str, str]]:
             "title": f"{check['name']} needs attention",
             "detail": check["detail"],
             "place": "health",
+            "fix": check["fix"],
         }
         for check in read_system_health()["checks"]
         if check["status"] == "error" and not check["id"].startswith(_ATTENTION_ELSEWHERE)

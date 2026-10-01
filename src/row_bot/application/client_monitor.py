@@ -308,13 +308,20 @@ _MAX_PROBLEMS = 20
 _MODULE = __import__("sys").modules
 
 
-def _problem(problem_id: str, title: str, detail: str, place: str) -> dict[str, str]:
+def _problem(problem_id: str, title: str, detail: str, place: str,
+             fix: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "id": _bounded(problem_id, 64),
         "title": _bounded(title, 160),
         "detail": _bounded(detail, 512),
         "place": place,
+        # Its one fix (Phase 18): restart the channel, or open the exact place.
+        "fix": fix,
     }
+
+
+def _open(href: str, name: str) -> dict[str, Any]:
+    return {"kind": "open", "href": href, "target": None, "name": _bounded(name, 128)}
 
 
 def _channel_problems() -> list[dict[str, str]]:
@@ -337,21 +344,23 @@ def _channel_problems() -> list[dict[str, str]]:
                 continue
             reader = getattr(channel, "link_status", None)
             link = reader() if callable(reader) else None
+            sheet = _open(f"/settings/channels#{name}", label)
             if isinstance(link, dict) and link.get("state") in {"starting", "scan"}:
                 problems.append(_problem(f"channel:{name}", f"{label} is waiting for a scan",
-                    "Scan its code in Settings › Channels to link your phone.", "channels"))
+                    "Scan its code in Settings › Channels to link your phone.", "channels", sheet))
                 continue
             if channel.is_running():
                 check = getattr(channel, "reachability_problem", None)
                 problem = check() if callable(check) else None
                 if problem:
                     problems.append(_problem(f"channel:{name}", f"{label} can't be reached",
-                                             str(problem), "channels"))
+                                             str(problem), "channels", sheet))
                 continue
             wanted = config.get(name, "auto_start", False) is True if config is not None else False
             if wanted:
                 problems.append(_problem(f"channel:{name}", f"{label} stopped",
-                    "It is set to start with Row-Bot but isn't running.", "channels"))
+                    "It is set to start with Row-Bot but isn't running.", "channels",
+                    {**sheet, "kind": "restart_channel", "target": name}))
         except Exception:
             continue
     return problems
@@ -367,7 +376,8 @@ def _tunnel_problems() -> list[dict[str, str]]:
         return []
     if status not in {"warn", "error"}:
         return []
-    return [_problem("tunnel", "Your public tunnel isn't running", str(detail), "access")]
+    return [_problem("tunnel", "Your public tunnel isn't running", str(detail), "access",
+                     _open("/settings/access#tunnel", "Public link"))]
 
 
 def _plugin_problems() -> list[dict[str, str]]:
@@ -389,7 +399,8 @@ def _plugin_problems() -> list[dict[str, str]]:
         except Exception:
             pass
         problems.append(_problem(f"plugin:{result.plugin_id}", f"The plugin {result.plugin_id} didn't load",
-            "Open it in Settings › Plugins; a plugin with its own code may need Prepare.", "plugins"))
+            "Open it in Settings › Plugins; a plugin with its own code may need Prepare.", "plugins",
+            _open("/settings/plugins#installed-plugins", "Plugins")))
     return problems
 
 
@@ -406,7 +417,8 @@ def _mcp_problems() -> list[dict[str, str]]:
     if not status.get("enabled") or not enabled or connected >= enabled:
         return []
     return [_problem("mcp", "An MCP server isn't connected",
-                     f"{connected} of {enabled} turned-on servers are connected.", "mcp")]
+                     f"{connected} of {enabled} turned-on servers are connected.", "mcp",
+                     _open("/settings/mcp#mcp-servers", "MCP servers"))]
 
 
 def _available_update() -> Any:
