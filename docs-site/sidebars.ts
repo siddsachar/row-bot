@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'app-shell/navigation',
+        'home/overview',
         'chat/index',
         'chat/model-picker',
         'chat/reasoning-controls',
@@ -34,6 +35,7 @@ const sidebars: SidebarsConfig = {
         'knowledge/provenance-repair',
         'computer-use/index',
         'monitor/index',
+        'home/insights',
         'mobile-native/index',
       ],
     },
@@ -68,7 +70,6 @@ const sidebars: SidebarsConfig = {
         'settings/skills',
         'settings/accounts',
         'settings/channels',
-        'settings/utilities',
         'settings/mcp',
         'settings/plugins',
         'settings/preferences',
