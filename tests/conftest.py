@@ -305,9 +305,9 @@ def _reset_agent_runtime_context():
     # thread in tests. A test that streamed as a workflow left Computer Use
     # refusing every later test on its worker.
     yield
-    agent = sys.modules.get("row_bot.agent")
-    if agent is not None:
-        agent._set_active_runtime_context()
+    reset = getattr(sys.modules.get("row_bot.agent"), "_set_active_runtime_context", None)
+    if callable(reset):  # some tests stand a stub in for the module
+        reset()
 
 
 @pytest.fixture(autouse=True)
