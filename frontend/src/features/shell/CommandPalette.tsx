@@ -475,18 +475,24 @@ export default function CommandPalette({
             });
         }
       const search = state.search;
-      if (search)
-        search.items.forEach((hit, index) =>
-          results.push({
-            id: `hit:${hit.conversation_id}:${hit.message_id ?? 'title'}`,
-            group: 'Messages',
-            label: hit.title || 'Untitled conversation',
-            detail: plainSnippet(hit.excerpt),
-            icon: <FileText size={16} />,
-            score: -index,
-            run: () => onOpenSearchHit(hit),
-          }),
-        );
+      // The same words in several messages of one conversation (a prompt
+      // sent again) show once: their rows would look identical.
+      const shown = new Set<string>();
+      search?.items.forEach((hit, index) => {
+        const detail = plainSnippet(hit.excerpt);
+        const key = `${hit.conversation_id}\n${detail}`;
+        if (shown.has(key)) return;
+        shown.add(key);
+        results.push({
+          id: `hit:${hit.conversation_id}:${hit.message_id ?? 'title'}`,
+          group: 'Messages',
+          label: hit.title || 'Untitled conversation',
+          detail,
+          icon: <FileText size={16} />,
+          score: -index,
+          run: () => onOpenSearchHit(hit),
+        });
+      });
     }
     // One result per place: the best way there ("Connect a phone or
     // computer" rather than the same row twice).
@@ -706,9 +712,11 @@ export default function CommandPalette({
         <span>
           <Kbd keys="Escape" /> Close
         </span>
-        <span className="command-palette-hint">
-          <MessageSquare size={12} /> Type two letters to search messages
-        </span>
+        {trimmed.length < 2 && (
+          <span className="command-palette-hint">
+            <MessageSquare size={12} /> Type two letters to search messages
+          </span>
+        )}
       </footer>
     </div>
   );

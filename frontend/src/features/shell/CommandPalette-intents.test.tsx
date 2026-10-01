@@ -45,6 +45,24 @@ const lantern: SearchHit = {
   checkpoint_revision: 'r1',
 };
 
+/** One conversation where a prompt was sent three times, and one other line. */
+const beacons: SearchHit[] = [
+  'message-1',
+  'message-2',
+  'message-3',
+  'message-4',
+].map((message_id, index) => ({
+  conversation_id: 'chat-release',
+  title: 'Release poster',
+  message_id,
+  row_id: null,
+  excerpt:
+    index === 3
+      ? 'A second beacon on the hill.'
+      : 'A **beacon** over the harbour at dusk.',
+  checkpoint_revision: 'r2',
+}));
+
 /** Only what the switches read from Settings: Developer off, shell on. */
 const settings = {
   utilities: {
@@ -78,7 +96,12 @@ async function setup(
 ) {
   const transport = new FixtureTransport({ conversationCount: 6 });
   const search = vi.fn(async (query: string): Promise<SearchPage> => ({
-    items: query.toLowerCase() === 'lantern' ? [lantern] : [],
+    items:
+      query.toLowerCase() === 'lantern'
+        ? [lantern]
+        : query.toLowerCase() === 'beacon'
+          ? beacons
+          : [],
     has_more: false,
     next_cursor: null,
     scanned_messages: 40,
@@ -315,4 +338,18 @@ it('shows a command’s shortcut beside it', async () => {
   const option = options()[0];
   expect(option).toHaveAccessibleName(/^New chat/);
   expect(option.querySelector('.command-palette-kbd')).not.toBeNull();
+});
+
+it('shows the same words from one conversation once, and the two-letter hint only before typing', async () => {
+  await setup();
+  expect(screen.getByText('Type two letters to search messages')).toBeVisible();
+  await ask('beacon');
+  const hits = await screen.findAllByRole('option', {
+    name: /^Release poster/,
+  });
+  expect(hits.map((hit) => hit.textContent)).toEqual([
+    expect.stringContaining('A beacon over the harbour at dusk.'),
+    expect.stringContaining('A second beacon on the hill.'),
+  ]);
+  expect(screen.queryByText('Type two letters to search messages')).toBeNull();
 });
