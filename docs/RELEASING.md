@@ -1,35 +1,49 @@
 # Release Process
 
-This is the end-to-end release checklist for Row-Bot.
+This is the end-to-end release checklist for Row-Bot. `scripts/run_test_matrix.py`
+is the source of truth for the test tiers named here; the workflows under
+`.github/workflows/` run the same tiers.
 
 ## Versioning
 
 Row-Bot uses semantic versioning:
 
-- Patch: `3.17.1` for bug fixes
-- Minor: `3.21.0` for new backwards-compatible features
-- Major: `4.0.0` for breaking changes
-- Beta/RC: `3.21.0-beta.1`, `3.21.0-rc.1`
+- Patch: `5.0.1` for bug fixes
+- Minor: `5.1.0` for new backwards-compatible features
+- Major: `5.0.0` for breaking changes (5.0.0 removed the NiceGUI interface)
+- Beta/RC: `5.1.0-beta.1`, `5.1.0-rc.1`
+
+## What CI already proves
+
+- **Every pull request and every push to `main`** (`ci.yml`): the `quality`
+  tier, the client checks (`client-foundation`), one sharded deterministic
+  pytest pass with the runtime dependency and packaged client asset checks, the
+  strict app smoke, the `platform` tier on Windows (Python 3.13, as shipped)
+  and macOS, and the Chromium browser smoke (not yet part of `ci-ok`).
+  `CI / ci-ok` is the one required check; every commit on `main` keeps its own
+  completed run.
+- **Nightly** (`nightly.yml`): the whole deterministic suite with the slow tests
+  on Linux, Windows and macOS, the browser nightly set at desktop and phone
+  width, a Linux package build and install smoke, and the docs reference check.
+  Weekly (or `weekly: true` on a manual run): Installer Verify on Windows and
+  macOS and the browser smoke on Firefox and WebKit.
+- **Release** (`release.yml`): the `release-gate` job checks the lock files,
+  checks that the requested version matches `src/row_bot/version.py` and
+  `installer/row_bot_setup.iss`, and refuses a commit without a green
+  `CI / ci-ok`. It runs the nightly suite once only if that commit has no green
+  nightly run. Nothing else is re-tested; each build install-smokes its own
+  package.
+- **Installer Verify** (`installer-verify.yml`): the unsigned dry run of all
+  three packages for any branch, with the same install smokes as a release.
+
+Every packaging job builds the React client first (`.github/actions/build-client`,
+Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
+`src/row_bot/static/client-v2` inside the package and verify it strictly.
 
 ## Before release
 
-1. Make sure all feature/fix PRs are merged to `main`.
-2. Run the full suite locally:
-
-   ```bash
-   python -m pip install "uv>=0.7,<1.0"
-   uv lock --check
-   python scripts/export_locked_requirements.py --check
-   uv sync --locked --all-extras --group test
-   uv run python scripts/verify_runtime_dependencies.py all
-   uv run python scripts/run_test_matrix.py pr
-   ```
-
-   The release workflow itself doesn't re-run these: its `release-gate`
-   refuses a commit without a green `CI / ci-ok` and runs the nightly suite
-   once only if that commit has no green nightly run.
-
-3. Cut a release-prep branch:
+1. Merge every feature and fix PR for the release into `main`.
+2. Cut a release-prep branch:
 
    ```bash
    git checkout main
@@ -37,69 +51,95 @@ Row-Bot uses semantic versioning:
    git checkout -b chore/release-vX.Y.Z
    ```
 
-4. Bump versions with:
+3. Bump the version:
 
    ```bash
-   python scripts/cut_release.py X.Y.Z
+   uv run python scripts/cut_release.py X.Y.Z
    ```
 
-   This updates `src/row_bot/version.py`, `installer/row_bot_setup.iss`,
-   `installer/install_deps.bat`, the `Start Row-Bot.command` fallback,
-   `.github/workflows/release.yml`, the macOS app `Info.plist`, the bug report
-   version placeholder, and the brand/user-agent contract expectations. The
-   Linux package script derives its version from `src/row_bot/version.py` or
-   the workflow `ROW_BOT_VERSION` argument.
+   This rewrites `src/row_bot/version.py`, `installer/row_bot_setup.iss`, the
+   `Start Row-Bot.command` fallback, the `release.yml` default, the macOS
+   template `Info.plist`, the bug report version placeholder and the docs
+   screenshot revision (`docs-site/src/components/Screenshot.tsx`). The Linux
+   and macOS build scripts, the generated docs reference pages and the release
+   gate read `src/row_bot/version.py`, so they need no edit.
 
-5. Update `RELEASE_NOTES.md` with human-readable notes.
-6. Confirm new shipped runtime files are covered by platform packaging:
-   Windows `installer/row_bot_setup.iss`, macOS `installer/build_mac_app.sh`,
-   Linux `installer/build_linux_app.sh`, the Linux bootstrapper
-   `installer/install-linux.sh`, and the installer payload notes in
-   `installer/README.md`. The current source-layout and payload contract is
-   summarized in [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md).
-   For server/deployment changes, also review `deploy/docker/Dockerfile`,
+   Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md`, the
+   version sentence on `docs-site/docs/index.mdx` (and the matching line in
+   `scripts/docs/write_public_user_guide_pages.py`), and regenerate the docs
+   reference pages. Leave historical release notes alone. The landing page's
+   download links move only after the release is published (step 10 of Build
+   and publish).
+4. Run the checks locally:
+
+   ```bash
+   uv lock --check
+   python scripts/export_locked_requirements.py --check
+   uv sync --locked --all-extras --group test
+   uv run python scripts/verify_runtime_dependencies.py all
+   uv run python scripts/run_test_matrix.py pr
+   uv run python scripts/run_test_matrix.py installer-contracts
+   uv run python scripts/run_test_matrix.py platform
+   uv run python scripts/run_test_matrix.py browser-smoke
+   ```
+
+   Run `platform` on your own OS (CI covers Windows and macOS). For docs
+   changes, also run `uv run python scripts/run_test_matrix.py docs`,
+   `npm audit --omit=dev` in `docs-site/`, and review the build-only advisory
+   note in [`docs-site/README.md`](../docs-site/README.md). Do not force a
+   dependency rewrite to hide an advisory with no compatible published fix.
+   `uv run python scripts/run_test_matrix.py nightly` runs the nightly Python
+   set locally when a change needs it before merging.
+5. Confirm new shipped runtime files are covered by platform packaging:
+   `scripts/app_payload_manifest.py` (the single list the Linux and macOS
+   scripts copy), Windows `installer/row_bot_setup.iss`, macOS
+   `installer/build_mac_app.sh`, Linux `installer/build_linux_app.sh`, the Linux
+   bootstrapper `installer/install-linux.sh`, and the payload notes in
+   `installer/README.md`. The source-layout and payload contract is summarized
+   in [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md). For server or deployment
+   changes, also review `deploy/docker/Dockerfile`,
    `deploy/docker/compose.yaml`, the reverse-proxy and systemd examples under
-   `deploy/`, `.dockerignore`, and `.github/workflows/container.yml`.
-   For Computer Use releases, also confirm the pinned Cua manifest is packaged
-   while the third-party executable remains an explicit post-install download.
-7. Smoke-test first-run behavior against a clean data directory before building
-   artifacts, especially setup wizard imports, provider config defaults, and
-   Custom/Self-hosted endpoint setup. Exercise automatic Agent delegation and a
-   durable document upload through completion, cancellation, and restart
-   recovery. Start `row-bot serve` with an isolated data directory and confirm
-   loopback is still gated until an explicit owner invitation is redeemed; do
-   not copy one-time invitation URLs into logs or artifacts. Confirm Computer
-   Use remains off by default and does not download or invoke Cua before its
+   `deploy/`, `.dockerignore`, and `.github/workflows/container.yml`. For
+   Computer Use releases, confirm the pinned Cua manifest is packaged while the
+   third-party executable remains an explicit post-install download.
+6. Smoke-test first-run behaviour against a clean data directory before
+   building artifacts: the "How should Row-Bot think?" first run and Setup
+   Center, migration imports, provider config defaults, and Custom/Self-hosted
+   endpoint setup. Exercise automatic Agent delegation and a durable document
+   upload through completion, cancellation, and restart recovery. Start
+   `row-bot serve` with an isolated data directory and confirm loopback is
+   still gated until an explicit owner invitation is redeemed; do not copy
+   one-time invitation URLs into logs or artifacts. Confirm Computer Use
+   remains off by default and does not download or invoke Cua before its
    disclosure and an explicit Install or Repair action. Confirm Browser
    readiness is read-only at startup, a missing or mismatched managed Chromium
    stays unavailable until an explicit Browser Install or Repair action, and a
    supported installed Chrome or Edge channel remains selectable. Exercise
    filter-aware conversation selection and deletion with active work, a linked
-   Designer project, and a Developer worktree or sandbox containing unimported
-   changes; retained recovery paths must be reported. On native Windows or
-   macOS, tear Buddy off into its desktop overlay, send and stop a turn, review
-   a simple approval, reopen the full thread, and recover the overlay from the
-   tray.
-8. Run focused startup and packaging hardening tests:
+   design, and a Developer worktree or sandbox containing unimported changes;
+   retained recovery paths must be reported. On native Windows or macOS, tear
+   Buddy off into its desktop overlay, send and stop a turn, review a simple
+   approval, reopen the full thread, and recover the overlay from the tray.
+7. Dry-run the installers on the release-prep branch (always for dependency,
+   payload, installer or workflow changes):
 
    ```bash
-   uv run python scripts/verify_runtime_dependencies.py all
-   uv run python -m pytest tests/subsystem/installer tests/subsystem/client_host
+   gh workflow run installer-verify.yml --ref chore/release-vX.Y.Z
    ```
 
-   For documentation changes, also run `npm audit --omit=dev` in `docs-site/`
-   and review the current build-only advisory note in
-   [`docs-site/README.md`](../docs-site/README.md). Do not force a dependency
-   rewrite to hide an advisory with no compatible published fix.
+   Windows, Linux, and macOS should all pass unless a skipped platform is
+   documented. Each job builds the client, builds the package, installs it into
+   a temporary folder, verifies the installed runtime and client assets, and
+   starts the installed launcher (and `serve` on Linux) against `/healthz`,
+   `/readyz` and `/`, which must redirect to the React client at `/app-v2/`.
+8. Open the release-prep PR, merge it once `CI / ci-ok` passes, and wait for CI
+   on the merge commit. To avoid running the nightly suite inside the release,
+   dispatch `gh workflow run nightly.yml --ref main` on that commit first (or
+   wait for the scheduled run).
 
-9. For dependency, payload, or installer changes, run GitHub Actions ->
-   `Installer Verify` manually on the release-prep branch. Windows, Linux, and
-   macOS should all pass unless a skipped platform is documented.
-10. Open and merge the release-prep PR.
+## Build and publish
 
-## Build artifacts
-
-1. Tag the release commit:
+1. Tag the merge commit:
 
    ```bash
    git checkout main
@@ -108,12 +148,22 @@ Row-Bot uses semantic versioning:
    git push origin vX.Y.Z
    ```
 
-2. Run GitHub Actions -> `Release - Build & Sign Installers` manually. This
-   produces Windows, macOS, and Linux workflow artifacts; final release assets
-   are uploaded manually after signing and smoke testing.
-3. Download the Windows setup exe from the workflow artifact.
-4. Sign it locally with the Certum certificate. Windows signing is intentionally
-   not done in CI:
+2. Run GitHub Actions -> `Release - Build & Sign Installers` from the tag:
+
+   ```bash
+   gh workflow run release.yml --ref vX.Y.Z -f version=X.Y.Z
+   ```
+
+   It produces the workflow artifacts `Row-Bot-Windows` (unsigned
+   `Row-Bot-X.Y.Z-Windows-x64.exe`), `Row-Bot-Linux`
+   (`Row-Bot-X.Y.Z-Linux-x86_64.tar.gz`), `Row-Bot-macOS` (signed
+   `Row-Bot-X.Y.Z-macOS-arm64.dmg`), `Row-Bot-macOS-pkg`, and
+   `Row-Bot-release-sha256` (the checksums of everything built). Final release
+   assets are uploaded manually after signing and smoke testing. Keep the run
+   ID for notarization.
+3. Download the Windows setup exe from the workflow artifact and sign it
+   locally with the Certum certificate. Windows signing is intentionally not
+   done in CI:
 
    ```powershell
    $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
@@ -122,20 +172,28 @@ Row-Bot uses semantic versioning:
    & $signtool verify /pa /v $exe
    ```
 
-5. Upload the signed exe to the draft GitHub Release.
-6. Run notarization workflows for macOS when needed and upload the stapled DMG.
-7. Download the Linux `Row-Bot-X.Y.Z-Linux-x86_64.tar.gz` artifact, extract it on
+4. Notarize the macOS DMG manually, after testing the signed DMG:
+   - `gh workflow run notarize-submit.yml -f build_run_id=<release run ID>`;
+     copy the Apple submission ID from its log.
+   - `gh workflow run notarize-check.yml -f submission_id=<ID> -f build_run_id=<release run ID>`;
+     re-run it until Apple reports `Accepted`, then download the
+     `Row-Bot-macOS-stapled` artifact. Only the stapled DMG is a release asset.
+5. Download the Linux `Row-Bot-X.Y.Z-Linux-x86_64.tar.gz` artifact, extract it on
    a clean Linux VM, run `./install.sh`, and confirm `~/.local/bin/row-bot` opens
-   the browser UI and `~/.local/bin/row-bot serve --port 8092`
-   answers `/api/launcher-ping`.
-8. Smoke-test the final Windows, macOS, and Linux artifacts. For Windows, include
-   repair/upgrade over an existing install and confirm the bundled `python\`
-   directory is replaced while Row-Bot user data is preserved. If a broken
-   optional package such as TorchCodec was present in the old embedded runtime,
-   confirm it is removed or the startup log contains a clear recovery hint.
-   Also run the packaged launcher recovery commands against a disposable data
-   directory: `--reset-tasks-db`, `--reset-db`, and `--restore-data`. Confirm
-   they print the resolved data paths and that task DB reset backs up
+   the React client in the browser and `~/.local/bin/row-bot serve --port 8092`
+   answers `/healthz` and `/readyz`.
+6. Upload the signed exe, the stapled DMG, and the Linux tarball to the draft
+   GitHub Release (Release Drafter keeps one up to date). Use the notes from
+   `RELEASE_NOTES.md`; remove any unsigned, unstapled, or wrong-version asset.
+7. Smoke-test the final Windows, macOS, and Linux assets on clean or
+   representative machines. For Windows, include repair/upgrade over an
+   existing install and confirm the bundled `python\`, `app\src\` and
+   `app\static\` folders are replaced while Row-Bot user data is preserved. If a
+   broken optional package such as TorchCodec was present in the old embedded
+   runtime, confirm it is removed or the startup log contains a clear recovery
+   hint. Also run the packaged launcher recovery commands against a disposable
+   data directory: `--reset-tasks-db`, `--reset-db`, and `--restore-data`.
+   Confirm they print the resolved data paths and that task DB reset backs up
    `tasks.db`, `tasks.db-wal`, and `tasks.db-shm`.
    On Windows and macOS, also exercise Computer Use setup, telemetry consent,
    pinned-runtime verification, one target-window action, Stop, Take over, and
@@ -145,16 +203,42 @@ Row-Bot uses semantic versioning:
    catalog and run one supported image generation; confirm an endpoint-rejected
    optional quality value is retried once without that field while timeouts and
    other failures do not submit a duplicate generation.
-9. Publish the GitHub Release.
-10. Confirm `.github/workflows/container.yml` builds and smokes native
-    `linux/amd64` and `linux/arm64` images, publishes the versioned multi-arch
-    manifest to `ghcr.io/siddsachar/row-bot:X.Y.Z`, and updates `latest` for a
-    stable release. Inspect the workflow summary for the release, architecture,
-    and manifest digests; pull and smoke both platforms from a logged-out GHCR
-    client to confirm the package is public.
-11. Confirm `.github/workflows/update-manifest.yml` patches SHA256 hashes into
-    the release body.
-12. Test the packaged updater from the previous stable version on each platform.
+8. Publish the GitHub Release.
+9. Confirm the automation that publishing starts:
+   - `.github/workflows/update-manifest.yml` appends the
+     `<!-- row-bot-update-manifest -->` SHA256 block for the Windows exe, macOS
+     DMG and Linux tarball to the release body. If an asset is missing, attach
+     it and re-run `gh workflow run update-manifest.yml -f tag=vX.Y.Z`.
+   - `.github/workflows/container.yml` builds and smokes native `linux/amd64`
+     and `linux/arm64` images, publishes the versioned multi-arch manifest to
+     `ghcr.io/siddsachar/row-bot:X.Y.Z`, and updates `latest` for a stable
+     release. Inspect the workflow summary for the release, architecture, and
+     manifest digests; pull and smoke both platforms from a logged-out GHCR
+     client to confirm the package is public.
+10. Move the landing page to the new release, now that its assets exist: the
+    download links in `docs/site.js`, the version and `softwareVersion` in
+    `docs/index.html`, and `tests/docs/test_landing_page.py`, then publish the
+    docs site.
+11. Test the packaged updater from the previous stable version on each
+    platform.
+
+## 5.0.0 Upgrade Note
+
+Row-Bot 5.0.0 removes the NiceGUI interface. The React client is the only UI:
+the server is plain FastAPI/uvicorn, `/` redirects to `/app-v2/`, and the
+`--legacy-ui` and `--client-v2` launcher flags are accepted but do nothing (they
+log that they are deprecated and open the React client). NiceGUI and its
+dependencies are no longer installed.
+
+- In-app updates from 4.x keep working: the asset names and the SHA256
+  manifest marker are unchanged.
+- The Windows installer deletes `{app}\python`, `{app}\app\src` and
+  `{app}\app\static` before copying, so the removed NiceGUI modules and assets do
+  not survive an in-place upgrade. The macOS app bundle and the Linux release
+  folder are replaced whole.
+- User data in `~/.row-bot` (or `ROW_BOT_DATA_DIR`) is untouched.
+- For this release the version bump and notes are part of the feature PR
+  (#372) rather than a separate release-prep PR.
 
 ## v4 Rebrand Upgrade Note
 
@@ -189,9 +273,13 @@ and then runs the tarball's bundled `install.sh`.
 
 For unreleased Linux hotfix validation from a checkout, use the build script,
 not the one-line bootstrapper. The bootstrapper always resolves published
-GitHub Release assets. From the repository root:
+GitHub Release assets. Build the client first (Node 24.15.0), then, from the
+repository root:
 
 ```bash
+npm --prefix frontend ci --ignore-scripts
+npm --prefix frontend run build
+(cd frontend && node scripts/asset-manifest.mjs dist --package)
 bash installer/build_linux_app.sh X.Y.Z
 tar -xzf dist/Row-Bot-X.Y.Z-Linux-*.tar.gz
 cd Row-Bot-X.Y.Z-Linux-*
@@ -237,25 +325,26 @@ Minimum smoke checks:
 - Fresh tarball install and desktop launcher
 - Default installed command: `~/.local/bin/row-bot`
 - One-line installer after the GitHub Release is published
-- `~/.local/bin/row-bot serve --port 8092` plus `/healthz`, `/readyz`, and
-  `/api/launcher-ping`
+- `~/.local/bin/row-bot serve --port 8092` plus `/healthz` and `/readyz`, and
+  `/` redirecting an unpaired browser to Connect
 - Owner invitation redemption, authenticated refresh, revocation, and a second
   browser being rejected while the first owner session is active
 - Docker Compose startup with persistent `/data`, loopback-only publishing,
   container health, restart persistence, and a logged-out pull of the published
   versioned GHCR image on both supported architectures
-- First-run setup with Providers and Custom/Self-hosted paths
+- First run ("How should Row-Bot think?") with Providers and Custom/Self-hosted
+  paths
 - Ollama local model when `ollama` is installed and in `PATH`
 - Browser tool with a supported installed browser channel or after the explicit
   managed Playwright browser/dependency install; startup alone must not download
   it
 - Computer Use remains unavailable without attempting a Cua download
-- Designer export and vault/open-folder actions
+- A conversation's Design panel export and the vault/open-folder actions
 - Update from the previous Linux tarball to the new tarball
 
 Camera/screenshot capture is optional on Linux. Missing OpenCV/MSS native
 dependencies should disable those capture paths without preventing the app from
-serving `/api/launcher-ping`.
+serving `/healthz`.
 
 ## Post-release
 
