@@ -350,6 +350,39 @@ def test_trusted_attach_installs_document_scoped_hook_and_revokes_on_events() ->
     assert not bridge._token
 
 
+
+def test_the_endpoint_reaches_a_page_whose_policy_refuses_eval() -> None:
+    """On macOS, pywebview's evaluate_js wraps a script in eval(), which the
+    shell's Content Security Policy refuses: the page never got its endpoint
+    and said "Desktop features are reconnecting" for good. The host runs the
+    script as is instead."""
+    class Event:
+        def __init__(self):
+            self.handlers = []
+        def __iadd__(self, handler):
+            self.handlers.append(handler)
+            return self
+        def fire(self):
+            for handler in self.handlers:
+                handler()
+
+    def refuse_eval(_script):
+        raise RuntimeError("EvalError: Refused to evaluate a string as JavaScript because 'unsafe-eval' is not allowed")
+
+    scripts = []
+    exposed = []
+    window = SimpleNamespace(uid="window", get_current_url=lambda: "http://localhost:8080/app-v2/",
+                             events=SimpleNamespace(before_load=Event(), closed=Event(), loaded=Event()),
+                             expose=lambda *callbacks: exposed.extend(callbacks),
+                             evaluate_js=refuse_eval, run_js=scripts.append)
+    bridge = attach_native_client(window, instance_id="i", origin="http://localhost:8080", driver=Driver())
+    window.events.loaded.fire()
+    assert "__ROW_BOT_NATIVE_CLIENT__" in scripts[0]
+    assert bridge._token
+    rebind = next(callback for callback in exposed if callback.__name__ == "native_client_rebind")
+    assert rebind() == {"status": "ok"}
+    assert len(scripts) == 2
+
 @pytest.mark.parametrize("value", ["file:///secret", "//example.invalid", "https://example.invalid:bad", "https://example.invalid/\n", "https://a\\b", "data:text/html,test"])
 def test_external_url_schemes_and_malformed_values(value: str) -> None:
     assert safe_external_url(value) is None

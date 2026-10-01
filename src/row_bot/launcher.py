@@ -1848,6 +1848,9 @@ if sys.platform == "darwin":
 import webview
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from row_bot.webview_csp import install_csp_safe_bridge
+# macOS's WebKit holds pywebview's bridge to the shell's policy (no eval).
+install_csp_safe_bridge()
 from urllib.parse import parse_qs, quote, urlparse
 from row_bot.buddy.config import get_buddy_config, save_buddy_config
 from row_bot.buddy.native_host import (
@@ -1965,7 +1968,9 @@ def _buddy_window_log(message):
 
 def _on_loaded(window):
     try:
-        window.evaluate_js("""
+        # run_js, not evaluate_js: macOS's WebKit refuses evaluate_js's eval()
+        # under the shell's Content Security Policy.
+        (getattr(window, "run_js", None) or window.evaluate_js)("""
             (function() {
                 var retries = 0;
                 function check() {

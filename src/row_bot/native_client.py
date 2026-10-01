@@ -698,7 +698,9 @@ def attach_native_client(
             script += "Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', { configurable: true, "
             script += "value: { dispatch: (operation, payload) => window.pywebview.api.native_client_dispatch(proof, operation, payload) } }); "
             script += "window.dispatchEvent(new Event('row-bot-native-ready')); })();"
-            window.evaluate_js(script)
+            # Run it as is: evaluate_js wraps a script in eval(), which the
+            # shell's Content Security Policy refuses in macOS's WebKit.
+            (getattr(window, "run_js", None) or window.evaluate_js)(script)
         return proof is not None
 
     def loaded(*_args: Any) -> None:
