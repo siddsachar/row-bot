@@ -1393,6 +1393,15 @@ export default function ArtifactPreview({
                         label: 'Present',
                         disabled: !canPresent || (!presenting && !presentReady),
                         onSelect: present,
+                        // The presentation takes the keyboard: the closing
+                        // menu gives focus to it, not back to its trigger
+                        // (Escape and arrows went nowhere, B247).
+                        afterClose: () =>
+                          stage.current
+                            ?.querySelector<HTMLElement>(
+                              '.artifact-presentation',
+                            )
+                            ?.focus({ preventScroll: true }),
                       },
                     ]
                   : []),
