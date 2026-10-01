@@ -399,6 +399,11 @@ test('managed browser uses one reviewed live-control panel with sanitized recove
     .getByRole('button', { name: 'Open address', exact: true })
     .click();
   await expect(browser.getByText('Open address completed.')).toBeVisible();
+  // The fixture's preview answers 503: wait for that answer, so the count
+  // below never races the request.
+  const unavailable = () =>
+    browser.getByText('Picture unavailable. Refresh browser status to retry.');
+  await expect(unavailable()).toBeVisible();
   await visualCheck(page, info, 'managed-browser-opened');
   await expect(browser.getByText(/Site:/)).toBeVisible();
   await expect(browser).toContainText('https://example.test/start');
@@ -414,6 +419,7 @@ test('managed browser uses one reviewed live-control panel with sanitized recove
   await expect(browser).toBeVisible();
   await expect(browser).toContainText('example.test');
   await expect(browser).not.toContainText('browser-fixture-secret');
+  await expect(unavailable()).toBeVisible();
   if (page.viewportSize()!.width < 1024) {
     await page
       .getByRole('button', { name: 'Back to conversation', exact: true })
