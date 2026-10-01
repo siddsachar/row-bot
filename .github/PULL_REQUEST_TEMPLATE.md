@@ -25,8 +25,8 @@ Describe what changed and why.
 
 - [ ] I ran `uv run python scripts/run_test_matrix.py fast`
 - [ ] I ran `uv run python scripts/run_test_matrix.py pr` for shared, release-sensitive, or cross-subsystem changes
+- [ ] I ran `uv run python scripts/run_test_matrix.py platform` for OS-sensitive code (process trees, paths, secrets, launcher, installers)
 - [ ] I added or updated tests
-- [ ] I updated the relevant inventory in `tests/helpers/` when changing coverage ownership
 - [ ] I manually tested the affected user flow
 - [ ] Not applicable, docs-only change
 

@@ -26,7 +26,9 @@ template: |
 
   ## Installation
 
-  Download the Windows installer or macOS DMG from the assets below.
+  Download the Windows installer, the macOS DMG, or the Linux tarball from the
+  assets below. On Linux, `installer/install-linux.sh` (the one-line installer)
+  installs the latest release.
 
   ## Verification
 

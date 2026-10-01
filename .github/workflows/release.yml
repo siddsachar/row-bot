@@ -2,16 +2,16 @@
 # release.yml - Build Row-Bot installers
 #
 # Triggers:
-#   - Manual workflow_dispatch builds Windows installer, build macOS installer,
-#                                  and sign the macOS outputs
+#   - Manual workflow_dispatch: builds the Windows installer, the Linux tarball,
+#     and the signed macOS app/pkg/dmg (from the release tag; see docs/RELEASING.md)
 #
 # Jobs:
 #   release-gate  - version and lock checks; refuses a commit without a green
 #                   CI run (CI / ci-ok) and reports whether a nightly run passed
 #   nightly       - the nightly suite, only when that commit has no green nightly
 #   build-windows - self-contained unsigned .exe (Inno Setup), install-smoked
-#   build-macos    - signed .app/.pkg/.dmg (manual notarization later), app smoked
-#   build-linux - self-contained XDG user-install tarball, install-smoked
+#   build-macos   - signed .app/.pkg/.dmg (manual notarization later), app smoked
+#   build-linux   - self-contained XDG user-install tarball, install-smoked
 #   checksums-and-manifest - publish artifact hashes for release review
 #
 # A release never re-runs the pull-request tests: the commit already passed them.
