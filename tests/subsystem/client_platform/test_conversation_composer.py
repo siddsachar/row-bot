@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from row_bot import skills, skills_activation, slash_commands, threads
+from row_bot import skills, skills_activation, slash_commands, tasks, threads
 from row_bot.api.v1.schemas import ConversationComposer
 from row_bot.application import conversation_composer
 from row_bot.application.client_platform import ClientPlatformError
@@ -42,6 +42,10 @@ def composer_state(tmp_path, monkeypatch):
         monkeypatch.setattr(current_threads, "DB_PATH", str(tmp_path / "threads.db"))
     monkeypatch.setattr(skills_activation, "DATA_DIR", tmp_path)
     monkeypatch.setattr(skills_activation, "STATE_PATH", tmp_path / "skills_activation.json")
+    # Conversation lifecycle (deletion, recreation) lives in the tasks store:
+    # its own, so another test's deleted "conversation-a" never leaks in.
+    monkeypatch.setattr(tasks, "_DB_PATH", tmp_path / "tasks.db")
+    monkeypatch.setattr(tasks, "_SCHEMA_READY_PATH", None)
     current_threads.create_thread(
         "Composer", thread_id="conversation-a", seed_default_skills=False
     )
