@@ -92,15 +92,27 @@
   padding: 0;
 }
 .navigation .nav-header .brand-glyph {
+  flex: none;
   width: 24px;
   height: 24px;
 }
+/* The name gives way to the header's icons: it truncates, and a narrow (or
+   zoomed) sidebar shows the glyph alone. */
 .navigation .nav-header .brand-name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-primary);
   font-size: var(--text-15);
   line-height: 22px;
   font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container navigation-pane (max-width: 239px) {
+  .navigation .nav-header .brand-name {
+    display: none;
+  }
 }
 .nav-header-actions {
   display: flex;

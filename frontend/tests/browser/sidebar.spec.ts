@@ -1,6 +1,22 @@
+import type { Locator } from '@playwright/test';
 import { assertNoOverflow, expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
 import { blockFixtureServiceWorkers } from './unified-helpers';
+
+/** Whether any part of the logo or name runs under the Home icon. */
+function brandUnderHome(nav: Locator): Promise<boolean> {
+  return nav
+    .getByRole('link', { name: 'Home', exact: true })
+    .evaluate((home) => {
+      const edge = home.getBoundingClientRect().left;
+      return [...home.closest('header')!.querySelectorAll('.brand > *')].some(
+        (part) => {
+          const box = part.getBoundingClientRect();
+          return box.width > 0 && box.right > edge + 0.5;
+        },
+      );
+    });
+}
 
 test('the sidebar leads with New chat, keeps Home in its header and Agents under the conversations, and fits a large nameless Buddy above Settings (B225, B268)', async ({
   context,
@@ -43,6 +59,7 @@ test('the sidebar leads with New chat, keeps Home in its header and Agents under
   expect(homeBox.y + homeBox.height).toBeLessThanOrEqual(
     (await newChat.boundingBox())!.y + 1,
   );
+  expect(await brandUnderHome(nav)).toBe(false);
   if (desktop)
     for (const name of ['Workspace commands', 'Toggle navigation']) {
       const box = (await nav
@@ -155,6 +172,8 @@ test('at 200% zoom the sidebar header keeps Home beside Search and collapse, and
     expect(control.inside).toBe(true);
     expect(Math.abs(control.top - header[0].top)).toBeLessThanOrEqual(1);
   }
+  // The name gives way rather than running under the icons.
+  expect(await brandUnderHome(nav)).toBe(false);
   await screenshot(page, info, 'sidebar-200-header');
   const allAgents = nav.getByRole('button', { name: /^All agents/ });
   await allAgents.scrollIntoViewIfNeeded();
