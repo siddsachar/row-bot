@@ -273,13 +273,12 @@ and then runs the tarball's bundled `install.sh`.
 
 For unreleased Linux hotfix validation from a checkout, use the build script,
 not the one-line bootstrapper. The bootstrapper always resolves published
-GitHub Release assets. Build the client first (Node 24.15.0), then, from the
-repository root:
+GitHub Release assets. The build script stages the client from
+`frontend/dist`, so build it first (Node 24.15.0). From the repository root:
 
 ```bash
 npm --prefix frontend ci --ignore-scripts
 npm --prefix frontend run build
-(cd frontend && node scripts/asset-manifest.mjs dist --package)
 bash installer/build_linux_app.sh X.Y.Z
 tar -xzf dist/Row-Bot-X.Y.Z-Linux-*.tar.gz
 cd Row-Bot-X.Y.Z-Linux-*
