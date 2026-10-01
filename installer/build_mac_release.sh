@@ -55,6 +55,14 @@ if [ ! -f "$PROJECT_DIR/uv.lock" ]; then
     exit 1
 fi
 
+# The React client is the only UI and is not committed; the zip ships the staged build.
+if [ ! -f "$PROJECT_DIR/src/row_bot/static/client-v2/index.html" ]; then
+    echo -e "${RED}[FAIL]${NC}  React client not built. From the project root run:"
+    echo "        npm --prefix frontend ci --ignore-scripts && npm --prefix frontend run build"
+    echo "        (cd frontend && node scripts/asset-manifest.mjs dist --package)"
+    exit 1
+fi
+
 # â”€â”€ Ensure shell scripts are executable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 chmod +x "$PROJECT_DIR/Start Row-Bot.command"
 chmod +x "$PROJECT_DIR/installer/Row-Bot.app/Contents/MacOS/row-bot" 2>/dev/null || true
@@ -81,6 +89,7 @@ rsync -a --exclude='.venv' \
          --exclude='.testtmp' \
          --exclude='scripts' \
          --exclude='channels/whatsapp_bridge/node_modules' \
+         --exclude='frontend/node_modules' \
          --exclude='docs/*implementation-plan.md' \
          --exclude='docs/*overhaul-plan.md' \
          --exclude='installer/build' \
