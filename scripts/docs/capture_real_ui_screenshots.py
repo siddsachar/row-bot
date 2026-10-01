@@ -2,9 +2,12 @@
 
 ``--validate-only`` checks the committed images against the manifest. Capture
 needs a React capture target for every selected automated screenshot: a
-``route`` under ``/app-v2/``, a ``capture_selector`` and ``expected_text``.
-The manifest's targets were written for the retired client and have been
-removed, so capture refuses until the React targets are written.
+``route`` under ``/app-v2/``, a ``capture_selector`` and ``expected_text``;
+capture refuses while any selected screenshot lacks one.
+
+The app runs against an isolated, seeded profile. Its local model runtime is a
+display-only stand-in on loopback, so a capture never lists or loads the models
+installed on the capturing computer.
 """
 
 from __future__ import annotations
@@ -19,9 +22,11 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from contextlib import ExitStack
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +56,10 @@ VIEWPORTS = {
     "wide": {"width": 3840, "height": 2160},
     "mobile": {"width": 390, "height": 844},
 }
+# Desktop frames render a 1920x1080 window at twice the pixel density, so the
+# 3840x2160 image shows the app at its normal size, sharp, instead of a tiny
+# app in a vast window. Phones render at their native 390x844.
+DEVICE_SCALE = {"desktop": 2, "wide": 2, "mobile": 1}
 
 MINIMUM_VIEWPORTS = {
     "desktop": {"width": 1280, "height": 720},
@@ -73,6 +82,8 @@ SCREENSHOT_POLICY_FIELDS = frozenset(
 )
 REACT_BASE = "/app-v2/"
 CAPTURE_TARGET_FIELDS = ("route", "capture_selector", "expected_text")
+# Display-only models the stand-in local runtime reports in demo captures.
+DEMO_LOCAL_MODELS = ("llama3.1:8b", "qwen3:8b", "gemma3:4b")
 
 
 def _is_hand_curated(shot: dict[str, Any]) -> bool:
@@ -216,19 +227,95 @@ def _browser_type(pw):
         raise
 
 
-def _seed(data_dir: Path, scenario: str) -> None:
-    subprocess.run(
-        [
-            sys.executable,
-            "scripts/docs/seed_real_app_demo_data.py",
-            "--data-dir",
-            str(data_dir),
-            "--scenario",
-            scenario,
-        ],
-        cwd=str(ROOT),
-        check=True,
-    )
+def _seed(data_dir: Path, scenario: str, *, ollama_host: str = "") -> None:
+    command = [
+        sys.executable,
+        "scripts/docs/seed_real_app_demo_data.py",
+        "--data-dir",
+        str(data_dir),
+        "--scenario",
+        scenario,
+    ]
+    if ollama_host:
+        # The demo model catalog is read from the display-only runtime.
+        command.extend(["--ollama-host", ollama_host])
+    subprocess.run(command, cwd=str(ROOT), check=True)
+
+
+class _DemoOllamaHandler(BaseHTTPRequestHandler):
+    """A display-only local model runtime: it lists demo models and runs none."""
+
+    def _reply(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    @staticmethod
+    def _model(name: str) -> dict[str, Any]:
+        family = name.split(":", 1)[0].rstrip("0123456789.")
+        return {
+            "name": name,
+            "model": name,
+            "modified_at": "2026-06-18T08:00:00Z",
+            "size": 4_900_000_000,
+            "digest": hashlib.sha256(name.encode()).hexdigest(),
+            "details": {
+                "format": "gguf",
+                "family": family,
+                "parameter_size": name.rsplit(":", 1)[-1].upper(),
+            },
+        }
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server naming
+        if self.path.startswith("/api/tags"):
+            self._reply(200, {"models": [self._model(name) for name in DEMO_LOCAL_MODELS]})
+        elif self.path.startswith("/api/ps"):
+            self._reply(200, {"models": []})
+        elif self.path.startswith("/api/version"):
+            self._reply(200, {"version": "0.0.0-docs-demo"})
+        else:
+            self._reply(404, {"error": "not available in documentation capture"})
+
+    def do_POST(self) -> None:  # noqa: N802 - http.server naming
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            request = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            request = {}
+        name = str(request.get("model") or request.get("name") or "")
+        if self.path.startswith("/api/show") and name in DEMO_LOCAL_MODELS:
+            details = self._model(name)["details"]
+            family = details["family"]
+            self._reply(
+                200,
+                {
+                    "details": details,
+                    "model_info": {
+                        "general.architecture": family,
+                        f"{family}.context_length": 32768,
+                    },
+                    "capabilities": ["completion", "tools"],
+                },
+            )
+        else:
+            self._reply(503, {"error": "documentation capture never runs a model"})
+
+    def log_message(self, *_args: Any) -> None:
+        return
+
+
+def _start_demo_ollama(stack: ExitStack) -> str:
+    """Serve the display-only local runtime on loopback for the app's lifetime."""
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _DemoOllamaHandler)
+    thread = threading.Thread(target=server.serve_forever, name="docs-demo-ollama", daemon=True)
+    thread.start()
+    stack.callback(server.server_close)
+    stack.callback(server.shutdown)
+    return f"http://127.0.0.1:{server.server_address[1]}"
 
 
 def _launch_app(
@@ -237,6 +324,7 @@ def _launch_app(
     stack: ExitStack,
     *,
     real_data: bool = False,
+    ollama_host: str = "",
 ) -> tuple[subprocess.Popen, str]:
     LOG_ROOT.mkdir(parents=True, exist_ok=True)
     stdout_path = LOG_ROOT / "docs_capture_stdout.log"
@@ -263,6 +351,15 @@ def _launch_app(
         "ROW_BOT_DOCS_REAL_DATA": "1" if real_data else "0",
         LAUNCH_SECRET_ENV: launcher_secret,
     }
+    if not real_data:
+        env["OLLAMA_HOST"] = ollama_host or _start_demo_ollama(stack)
+        # Remote access shows its not-installed state instead of reading the
+        # capturing computer's Tailscale configuration.
+        env["PATH"] = os.pathsep.join(
+            entry
+            for entry in env.get("PATH", "").split(os.pathsep)
+            if "tailscale" not in entry.lower()
+        )
     proc = subprocess.Popen(
         [sys.executable, "app.py"],
         cwd=str(ROOT),
@@ -389,7 +486,9 @@ def _wait_for_text(page, text: str, timeout: int = 15_000) -> None:
 
 def _run_action(page, action: dict[str, Any], base_url: str) -> None:
     if "goto" in action:
-        page.goto(base_url + str(action["goto"]), wait_until="networkidle", timeout=30_000)
+        # The client keeps a live event stream open, so the network never goes
+        # idle: wait for the load event, then for the shot's own selector/text.
+        page.goto(base_url + str(action["goto"]), wait_until="load", timeout=30_000)
     elif "wait_for_selector" in action:
         page.wait_for_selector(str(action["wait_for_selector"]), timeout=15_000)
     elif "wait_for_text" in action:
@@ -408,6 +507,10 @@ def _run_action(page, action: dict[str, Any], base_url: str) -> None:
         page.get_by_text(str(action["expand"]), exact=False).first.click(timeout=15_000)
     elif "scroll_into_view" in action:
         page.locator(str(action["scroll_into_view"])).first.scroll_into_view_if_needed(timeout=15_000)
+    elif "hover" in action:
+        page.locator(str(action["hover"])).first.hover(timeout=15_000)
+    elif "wait_ms" in action:
+        page.wait_for_timeout(min(int(action["wait_ms"]), 10_000))
     elif "screenshot" in action or "dom_snapshot" in action:
         return
     else:
@@ -424,8 +527,24 @@ def _capture_one(
 ) -> dict[str, Any]:
     if _is_hand_curated(shot):
         return _preserved_record(shot_id, shot)
-    viewport = VIEWPORTS.get(str(shot.get("viewport") or "desktop"), VIEWPORTS["desktop"])
-    page = browser.new_page(viewport=viewport)
+    viewport_name = str(shot.get("viewport") or "desktop")
+    frame = VIEWPORTS.get(viewport_name, VIEWPORTS["desktop"])
+    scale = DEVICE_SCALE.get(viewport_name, 1)
+    page = browser.new_page(
+        viewport={"width": frame["width"] // scale, "height": frame["height"] // scale},
+        device_scale_factor=scale,
+        color_scheme=str(shot.get("color_scheme") or "light"),
+        reduced_motion="reduce",
+    )
+    # Per-device client state the capture starts from (for example, notices
+    # this device has already shown), set before the page's own scripts run.
+    local_storage = shot.get("local_storage") or {}
+    if isinstance(local_storage, dict) and local_storage:
+        entries = json.dumps({str(key): str(value) for key, value in local_storage.items()})
+        page.add_init_script(
+            f"(() => {{ try {{ for (const [key, value] of Object.entries({entries})) "
+            "localStorage.setItem(key, value); } catch (error) {} })();"
+        )
     base_url = f"http://127.0.0.1:{port}"
     route = str(shot.get("route") or "/")
     output = OUTPUT_ROOT / str(shot.get("output") or f"{shot_id}.png")
@@ -434,7 +553,7 @@ def _capture_one(
     try:
         if "/docs-mode/" in route:
             raise RuntimeError("fake docs-mode screenshot routes are forbidden")
-        page.goto(base_url + route, wait_until="networkidle", timeout=30_000)
+        page.goto(base_url + route, wait_until="load", timeout=30_000)
         for action in shot.get("actions") or []:
             if isinstance(action, dict):
                 _run_action(page, action, base_url)
@@ -449,7 +568,11 @@ def _capture_one(
             "window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; }"
         )
         page.evaluate(reset_outer_scroll)
-        page.wait_for_timeout(250)
+        # Park the pointer on the window's right edge, so the last clicked
+        # control, or whatever moved under it, shows no hover state.
+        page.mouse.move(frame["width"] // scale - 1, frame["height"] // scale // 2)
+        # Let entrance transitions and late data (counts, previews) settle.
+        page.wait_for_timeout(int(shot.get("settle_ms") or 1200))
         page.evaluate(reset_outer_scroll)
         _write_dom_snapshot(page, shot_id, shot, selector)
         masks = []
@@ -768,6 +891,47 @@ def capture(
             + ", ".join(untargeted)
             + ". Use --validate-only to check the committed images."
         )
+    # A first-run screenshot needs a profile that has not been set up, so
+    # each kind of profile gets its own seeded app.
+    groups: dict[str, dict[str, Any]] = {}
+    for shot_id, shot in manifest.items():
+        profile = _seed_profile(shot, scenario) if seed_demo_data else scenario
+        groups.setdefault(profile, {})[shot_id] = shot
+    for profile, shots in groups.items():
+        records.extend(
+            _capture_profile(
+                shots,
+                profile,
+                timeout=timeout,
+                data_dir=data_dir,
+                seed_demo_data=seed_demo_data,
+                use_temp_data=use_temp_data,
+                authorize_real_data=authorize_real_data,
+            )
+        )
+    return _write_report(records, mode="capture")
+
+
+def _seed_profile(shot: dict[str, Any], scenario: str) -> str:
+    """The demo profile a screenshot is captured against."""
+
+    if str(shot.get("scenario") or "") == "first-run":
+        return "first-run"
+    normalized = str(scenario or "full").strip().lower()
+    return "full" if normalized in {"all", "full", "first-run"} else normalized
+
+
+def _capture_profile(
+    manifest: dict[str, Any],
+    scenario: str,
+    *,
+    timeout: float,
+    data_dir: Path | None,
+    seed_demo_data: bool,
+    use_temp_data: bool,
+    authorize_real_data: bool,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     data_dir, temp_dir = _safe_capture_data_dir(
         None if use_temp_data else data_dir,
         authorize_real_data=authorize_real_data,
@@ -779,29 +943,33 @@ def capture(
 
     proc: subprocess.Popen | None = None
     try:
-        if seed_demo_data:
-            _seed(data_dir, scenario)
         with ExitStack() as stack:
+            ollama_host = "" if authorize_real_data else _start_demo_ollama(stack)
+            if seed_demo_data:
+                _seed(data_dir, scenario, ollama_host=ollama_host)
             proc, launcher_secret = _launch_app(
                 port,
                 data_dir,
                 stack,
                 real_data=authorize_real_data,
+                ollama_host=ollama_host,
             )
             _wait_ping(port, proc, timeout, launcher_secret=launcher_secret)
             try:
                 from playwright.sync_api import sync_playwright
             except Exception as exc:
-                for shot_id, shot in manifest.items():
-                    records.append(_blocked_record(shot_id, shot, f"Playwright import failed: {exc}"))
-                return _write_report(records, mode="capture")
+                return [
+                    _blocked_record(shot_id, shot, f"Playwright import failed: {exc}")
+                    for shot_id, shot in manifest.items()
+                ]
             with sync_playwright() as pw:
                 try:
                     browser = _browser_type(pw)
                 except Exception as exc:
-                    for shot_id, shot in manifest.items():
-                        records.append(_blocked_record(shot_id, shot, f"Chromium launch failed: {exc}"))
-                    return _write_report(records, mode="capture")
+                    return [
+                        _blocked_record(shot_id, shot, f"Chromium launch failed: {exc}")
+                        for shot_id, shot in manifest.items()
+                    ]
                 try:
                     for shot_id, shot in manifest.items():
                         if not isinstance(shot, dict):
@@ -830,7 +998,7 @@ def capture(
                 proc.kill()
         if temp_dir is not None:
             temp_dir.cleanup()
-    return _write_report(records, mode="capture")
+    return records
 
 
 def main() -> int:

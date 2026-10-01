@@ -745,6 +745,72 @@ def test_authorized_real_capture_does_not_offer_fake_provider_choices(
 
 
 
+def test_demo_capture_runs_against_a_display_only_local_runtime(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import urllib.error
+    import urllib.request
+
+    import scripts.docs.capture_real_ui_screenshots as capture
+
+    launched: dict[str, object] = {}
+
+    def fake_popen(*_args, **kwargs):
+        launched.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(capture, "LOG_ROOT", tmp_path / "logs")
+    monkeypatch.setattr(capture.subprocess, "Popen", fake_popen)
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with ExitStack() as stack:
+        capture._launch_app(43123, tmp_path / "profile", stack)
+        host = launched["env"]["OLLAMA_HOST"]
+        assert host.startswith("http://127.0.0.1:")
+        with direct.open(f"{host}/api/tags", timeout=5) as response:
+            listed = [model["name"] for model in json.loads(response.read())["models"]]
+        assert listed == list(capture.DEMO_LOCAL_MODELS)
+        chat = urllib.request.Request(
+            f"{host}/api/chat",
+            data=json.dumps({"model": listed[0], "messages": []}).encode(),
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            direct.open(chat, timeout=5)
+        assert refused.value.code == 503
+
+
+def test_capture_seeds_first_run_screenshots_in_their_own_profile(monkeypatch) -> None:
+    import scripts.docs.capture_real_ui_screenshots as capture
+
+    profiles: dict[str, list[str]] = {}
+
+    def fake_profile(shots, scenario, **_kwargs):
+        profiles[scenario] = sorted(shots)
+        return []
+
+    monkeypatch.setattr(capture, "_capture_profile", fake_profile)
+    monkeypatch.setattr(capture, "_write_report", lambda records, mode: {"records": records})
+    target = {
+        "title": "Demo",
+        "output": "demo.png",
+        "route": "/app-v2/",
+        "capture_selector": "body",
+        "expected_text": ["Row-Bot"],
+    }
+
+    capture.capture(
+        {
+            "first": {**target, "scenario": "first-run"},
+            "home": {**target, "scenario": "configured"},
+            "phone": {**target, "scenario": "mobile"},
+        },
+        scenario="full",
+    )
+
+    assert profiles == {"first-run": ["first"], "full": ["home", "phone"]}
+
+
 def test_authorized_real_capture_uses_stable_anchors_not_demo_text() -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
 
