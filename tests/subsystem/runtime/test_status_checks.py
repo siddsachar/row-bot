@@ -19,6 +19,8 @@ def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
     vector_dir.mkdir()
     processed_path.write_text(json.dumps(["alpha.pdf", "beta.md", "gamma.txt"]), encoding="utf-8")
 
+    # Its durable records are read from the module's data folder, bound at import.
+    monkeypatch.setattr(documents, "DATA_DIR", tmp_path / "data")
     monkeypatch.setattr(documents, "PROCESSED_FILES_PATH", processed_path)
     monkeypatch.setattr(documents, "VECTOR_STORE_DIR", vector_dir)
     monkeypatch.setattr(documents, "document_vector_status", lambda: {"exists": True, "stale": False})
