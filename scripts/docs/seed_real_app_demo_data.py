@@ -830,7 +830,6 @@ _STEPS_SLIDE = (
 
 
 def _seed_designer_project(state: dict) -> None:
-    from row_bot.conversation_resources import bind, list_bindings
     from row_bot.designer.state import BrandConfig, DesignerAsset, DesignerPage, DesignerProject, ProjectBrief
     from row_bot.designer.storage import save_project
 
@@ -857,8 +856,15 @@ def _seed_designer_project(state: dict) -> None:
         thread_id=DESIGN_THREAD,
     )
     save_project(project)
+
+
+def _bind_designer_project(state: dict) -> None:
+    """The design conversation opens with its deck (the docs profile only: the
+    browser fixture reuses the project without that conversation)."""
+    from row_bot.conversation_resources import bind, list_bindings
+
     snapshot = list_bindings(DESIGN_THREAD)
-    bind(DESIGN_THREAD, "artifact", project.id, expected_revision=snapshot.revision, role="primary")
+    bind(DESIGN_THREAD, "artifact", state["designer"]["project_id"], expected_revision=snapshot.revision, role="primary")
 
 
 def _seed_integrations_and_mobile(data_dir: Path, state: dict) -> None:
@@ -995,6 +1001,7 @@ def main() -> int:
         _seed_knowledge_and_wiki(data_dir, state)
         _seed_developer_workspace(data_dir, state)
         _seed_designer_project(state)
+        _bind_designer_project(state)
         _seed_integrations_and_mobile(data_dir, state)
         if args.ollama_host:
             _seed_model_catalog()
