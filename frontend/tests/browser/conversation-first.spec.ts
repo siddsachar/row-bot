@@ -223,15 +223,25 @@ test('a delegated agent can be messaged and stopped from Agents', async ({
     await card
       .getByRole('button', { name: 'Send to agent', exact: true })
       .click();
-    // Said in the card; the floating notice repeats it.
+    // A floating notice says so; on a phone the details are a dialog, and
+    // notices wait until it closes.
+    const details = page.getByRole('dialog', { name: 'Conversation details' });
+    const phoneDetails = await details.isVisible();
+    if (phoneDetails)
+      await details
+        .getByRole('button', { name: 'Close dialog', exact: true })
+        .click();
     await expect(
-      page.getByText('Message sent. The agent reads it at its next step.', {
-        exact: true,
-      }),
+      page
+        .getByText('Message sent. The agent reads it at its next step.')
+        .first(),
     ).toBeVisible();
     await screenshot(page, testInfo, 'agent-message-sent');
-    await child.hover();
-    await card
+    const stopIn = phoneDetails ? await revealContext(page) : card;
+    await stopIn
+      .getByRole('button', { name: 'Synthetic child, Working', exact: true })
+      .hover();
+    await stopIn
       .getByRole('button', { name: 'Stop Synthetic child', exact: true })
       .click();
     await expect

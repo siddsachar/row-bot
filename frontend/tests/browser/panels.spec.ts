@@ -271,7 +271,7 @@ test('closing a compact notes sheet returns focus to the connected Open panel tr
   await openPanel(page);
   await page
     .getByRole('dialog', { name: 'Workspace notes', exact: true })
-    .getByRole('button', { name: 'Close', exact: true })
+    .getByRole('button', { name: 'Close dialog', exact: true })
     .click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(
