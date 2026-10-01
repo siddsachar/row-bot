@@ -36,6 +36,11 @@ class McpClientFoundationTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(
             dir=Path(tempfile.gettempdir()).resolve()
         )
+        # The conversation store is shared by every later test on this worker:
+        # bind it to the session's data folder before pointing ROW_BOT_DATA_DIR
+        # at this test's, and leave its connection open.
+        import row_bot.threads  # noqa: F401
+
         self._old_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
         os.environ["ROW_BOT_DATA_DIR"] = self._tmp.name
         from row_bot import tasks
@@ -47,11 +52,6 @@ class McpClientFoundationTests(unittest.TestCase):
         try:
             import row_bot.mcp_client.runtime as runtime
             runtime.shutdown()
-        except Exception:
-            pass
-        try:
-            import row_bot.threads as threads
-            threads.conn.close()
         except Exception:
             pass
         if self._old_data_dir is None:
