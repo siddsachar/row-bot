@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "description": "A conversation export written into the workspace's Exports folder (local owner).",
+  "properties": {
+    "file_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "File Name",
+      "type": "string"
+    },
+    "folder": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Folder",
+      "type": "string"
+    }
+  },
+  "required": [
+    "file_name",
+    "folder"
+  ],
+  "title": "ExportSaved",
+  "type": "object"
+}

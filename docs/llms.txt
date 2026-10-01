@@ -9,41 +9,45 @@ Public documentation index for Row-Bot.
 - [Installation](/docs/getting-started/installation)
   Route: /docs/getting-started/installation. Install Row-Bot from a release package or run it from source with clear next steps.
 - [First Launch](/docs/getting-started/first-launch)
-  Route: /docs/getting-started/first-launch. Complete the first-run wizard, choose a model path, and revisit setup later.
+  Route: /docs/getting-started/first-launch. Answer "How should Row-Bot think?" to choose your first model, then finish the rest at your own pace in Setup Center.
 - [Models And Providers](/docs/configuration/models-and-providers)
   Route: /docs/configuration/models-and-providers. Configure providers, discover models, choose defaults, and pin quick model choices.
 - [Row-Bot Interface](/docs/app-shell/navigation)
-  Route: /docs/app-shell/navigation. Navigate Row-Bot's sidebar, threads, Home tabs, Activity Center, Buddy, Settings, and terminal.
+  Route: /docs/app-shell/navigation. Find your way around Row-Bot: the sidebar, Home, a conversation and its details card, panels, the terminal, the command palette and Settings.
+- [Home: Overview](/docs/home/overview)
+  Route: /docs/home/overview. Start from Home Overview: ask Row-Bot anything, answer what needs you, see live status, and pick up recent work.
 - [Chat](/docs/chat/)
-  Route: /docs/chat/. Use Row-Bot chat, composer controls, model choices, attachments, tools, approvals, and history.
+  Route: /docs/chat/. Use Row-Bot conversations: the composer, models, attachments, tools, approvals in place, the details card, names, and the conversation library.
 - [Model Picker](/docs/chat/model-picker)
-  Route: /docs/chat/model-picker. Choose, pin, and troubleshoot Row-Bot models across local, hosted, subscription, and custom providers.
+  Route: /docs/chat/model-picker. Choose a conversation's model from one list across local, subscription, pay-per-use and custom providers, and troubleshoot missing models.
 - [Reasoning Controls](/docs/chat/reasoning-controls)
   Route: /docs/chat/reasoning-controls. Choose provider-aware reasoning effort, thinking toggles, and token budgets for the active Row-Bot model.
 - [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal)
-  Route: /docs/chat/tools-approvals-and-terminal. Understand Row-Bot tools, approval prompts, tool results, and terminal output.
+  Route: /docs/chat/tools-approvals-and-terminal. Understand Row-Bot tools and tool steps, approvals that wait until you answer, and the interactive terminal docked under a conversation.
 - [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills)
   Route: /docs/guides/progressive-tools-and-skills. Understand how Row-Bot discovers external tools and task-specific skills without loading every capability into every prompt.
 - [Profiles, Goals, And Agents](/docs/profiles-goals-agents/)
-  Route: /docs/profiles-goals-agents/. Choose reusable Agent Profiles, run bounded goals, and review delegated parent and child agents.
+  Route: /docs/profiles-goals-agents/. Manage agent profiles in the sidebar's Agents dialog, give a conversation a goal that keeps going until done, and follow the agents it delegates to.
 - [Workflows](/docs/guides/workflows)
   Route: /docs/guides/workflows. Create, run, schedule, edit, deliver, and troubleshoot Row-Bot workflows.
-- [Designer Studio](/docs/designer/)
-  Route: /docs/designer/. Create and iterate on design projects, pages, assets, previews, brands, and exports.
-- [Developer Studio](/docs/developer/)
-  Route: /docs/developer/. Use Row-Bot for folders, repositories, code chat, inspectors, commands, changes, and sandbox modes.
+- [Designs](/docs/designer/)
+  Route: /docs/designer/. Create decks, documents, landing pages, app mockups and storyboards with Row-Bot, and edit, present, share and export them in a conversation's Design panel.
+- [Code Folders](/docs/developer/)
+  Route: /docs/developer/. Work on a folder or repository from a conversation: bind or clone it, review changes, run checks and use Git in the Developer panel.
 - [Knowledge](/docs/knowledge/)
-  Route: /docs/knowledge/. Review and manage Row-Bot memory, documents, knowledge graph records, filters, details, and dream cycle activity.
+  Route: /docs/knowledge/. Explore, search, review and correct what Row-Bot remembers in Home Knowledge, and configure memory in Settings Memory.
 - [Wiki Vault](/docs/knowledge/wiki-vault)
-  Route: /docs/knowledge/wiki-vault. Generate and maintain a local Markdown vault from reviewed Row-Bot knowledge.
+  Route: /docs/knowledge/wiki-vault. Keep a local Markdown vault of Row-Bot's memories, with readable file names, and sync your edits back.
 - [Knowledge Provenance And Repair](/docs/knowledge/provenance-repair)
   Route: /docs/knowledge/provenance-repair. Trace where knowledge came from, correct records, repair relations, and rebuild derived outputs safely.
 - [Computer Use](/docs/computer-use/)
   Route: /docs/computer-use/. Set up and safely use Row-Bot's opt-in native Windows and macOS application control.
 - [Monitor](/docs/monitor/)
-  Route: /docs/monitor/. Inspect Row-Bot logs, journals, workflow state, channels, and background activity.
-- [Android And Native Desktop](/docs/mobile-native/)
-  Route: /docs/mobile-native/. Use the full Row-Bot owner product from Android in a compact layout and understand native-only desktop behaviour.
+  Route: /docs/monitor/. See Row-Bot's latest health checks, fix problems in one click, and read activity, maintenance, history and logs.
+- [Home: Insights](/docs/home/insights)
+  Route: /docs/home/insights. Review what Row-Bot noticed about its skills, settings and memory, and apply or reject its proposals in Home Insights.
+- [Phone And Native Desktop](/docs/mobile-native/)
+  Route: /docs/mobile-native/. Use the full Row-Bot owner product from a phone, connect it from Settings Devices & remote access, and understand native-only desktop behaviour.
 - [How Row-Bot Works](/docs/concepts/)
   Route: /docs/concepts/. Understand Row-Bot's request, knowledge, agent, workflow, and extension models before configuring them.
 - [How A Request Runs](/docs/concepts/request-lifecycle)
@@ -57,39 +61,37 @@ Public documentation index for Row-Bot.
 - [Extensions And Trust Boundaries](/docs/concepts/extensions-and-trust)
   Route: /docs/concepts/extensions-and-trust. Compare Row-Bot tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts by what they add and where they run.
 - [Settings](/docs/settings/)
-  Route: /docs/settings/. Understand every Row-Bot Settings tab and what each configuration area changes.
+  Route: /docs/settings/. Find every Row-Bot settings page: six groups from General to System, with search for any setting.
 - [Settings: Providers](/docs/settings/providers)
   Route: /docs/settings/providers. Connect local, hosted, subscription, and custom model providers.
 - [Settings: Models](/docs/settings/models)
-  Route: /docs/settings/models. Choose defaults, pin Quick Choices, review model catalogs, and set Agent runtime limits.
-- [Settings: Knowledge](/docs/settings/knowledge)
-  Route: /docs/settings/knowledge. Configure memory, graph review, embeddings, document knowledge, and wiki export.
+  Route: /docs/settings/models. Choose which model does each job (Brain, Vision, Image, Video), set the reading limit and limits for long work, and pin models from the catalog.
+- [Settings: Memory](/docs/settings/knowledge)
+  Route: /docs/settings/knowledge. Turn remembering on or off, check graph health, configure the wiki vault, and delete all knowledge in Settings Memory.
 - [Settings: Buddy](/docs/settings/buddy)
   Route: /docs/settings/buddy. Use Buddy in the sidebar or as a compact desktop overlay, message the selected thread, handle approvals, and configure its appearance.
 - [Settings: Voice](/docs/settings/voice)
   Route: /docs/settings/voice. Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics.
 - [Settings: System](/docs/settings/system)
-  Route: /docs/settings/system. Configure Remote Access, workspace paths, browser and Computer Use behavior, tunnels, logs, and updates.
+  Route: /docs/settings/system. Choose Row-Bot's workspace folder and what it may do on this computer (commands, files, browser and computer use), and manage logs.
 - [Settings: Tracker](/docs/settings/tracker)
   Route: /docs/settings/tracker. Configure recurring activity, habit, symptom, and health tracking surfaces.
 - [Settings: Documents](/docs/settings/documents)
   Route: /docs/settings/documents. Manage document ingestion, extraction, and vector indexing.
 - [Settings: Tools](/docs/settings/tools)
-  Route: /docs/settings/tools. Configure progressive external-tool loading, retrieval compression, and search and knowledge tools.
+  Route: /docs/settings/tools. Configure progressive external-tool loading, retrieval compression, search and knowledge tools, built-in tools, and custom tools.
 - [Settings: Skills](/docs/settings/skills)
   Route: /docs/settings/skills. Enable, disable, pin, browse, and review Smart Skills.
 - [Settings: Accounts](/docs/settings/accounts)
   Route: /docs/settings/accounts. Connect account-level integrations used by tools, setup flows, and channels.
 - [Settings: Channels](/docs/settings/channels)
   Route: /docs/settings/channels. Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks.
-- [Settings: Utilities](/docs/settings/utilities)
-  Route: /docs/settings/utilities. Configure built-in helper tools and productivity utilities.
 - [Settings: MCP](/docs/settings/mcp)
-  Route: /docs/settings/mcp. Add, test, import, browse, enable, and troubleshoot external MCP servers.
+  Route: /docs/settings/mcp. Add, browse, import, connect, test and troubleshoot MCP servers and their runtimes in Settings MCP.
 - [Settings: Plugins](/docs/settings/plugins)
   Route: /docs/settings/plugins. Manage installed plugins, marketplace installs, configuration, and promoted Custom Tools.
 - [Settings: Preferences](/docs/settings/preferences)
-  Route: /docs/settings/preferences. Customize assistant identity, launch behavior, background intelligence, updates, and migration.
+  Route: /docs/settings/preferences. Set the assistant's name and personality, learning new skills, how Row-Bot opens, the overnight Dream Cycle, and this device's appearance.
 - [Extend Row-Bot](/docs/extending/)
   Route: /docs/extending/. Choose between built-in tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts.
 - [Accounts And Authorisation](/docs/integrations/accounts)
@@ -113,7 +115,7 @@ Public documentation index for Row-Bot.
 - [Privacy And Safety](/docs/privacy-safety/)
   Route: /docs/privacy-safety/. Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing.
 - [Troubleshooting](/docs/troubleshooting/)
-  Route: /docs/troubleshooting/. Resolve setup, model, chat, workflow, Designer, Developer, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues.
+  Route: /docs/troubleshooting/. Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues.
 - [Reference](/docs/reference/)
   Route: /docs/reference/. Look up Row-Bot tools, providers, settings, channels, skills, MCP, plugins, data storage, and approvals.
 - [Tools](/docs/reference/generated/tools)
@@ -121,9 +123,9 @@ Public documentation index for Row-Bot.
 - [Providers](/docs/reference/generated/providers)
   Route: /docs/reference/generated/providers. Generated reference for model providers and provider risk labels.
 - [Settings](/docs/reference/generated/settings)
-  Route: /docs/reference/generated/settings. Generated reference for settings tabs.
+  Route: /docs/reference/generated/settings. Generated reference for the React settings pages.
 - [Settings Controls](/docs/reference/generated/settings-controls)
-  Route: /docs/reference/generated/settings-controls. Generated control-level settings reference with defaults, effects, dependencies, restart notes, and security notes.
+  Route: /docs/reference/generated/settings-controls. Generated reference for every searchable setting, with deep links, search keywords, dependency notes, and security notes.
 - [Home Tabs](/docs/reference/generated/home-tabs)
   Route: /docs/reference/generated/home-tabs. Generated reference for Home tab coverage.
 - [Channels](/docs/reference/generated/channels)
@@ -145,28 +147,30 @@ Public documentation index for Row-Bot.
 - [Screenshots](/docs/reference/generated/screenshots)
   Route: /docs/reference/generated/screenshots. Generated reference for automated screenshot coverage.
 - [Agent Profiles](/docs/app-shell/agent-profiles)
-  Route: /docs/app-shell/agent-profiles. Choose and manage Agent Profiles for thread behavior, tool access, skills, and specialist work.
+  Route: /docs/app-shell/agent-profiles. Agent profiles now live in the sidebar's Agents dialog; this page points to the current guide.
 - [Channels And Voice Guide](/docs/guides/channels-and-voice)
   Route: /docs/guides/channels-and-voice. Compatibility page pointing to the current Channels guide.
 - [Designer Studio Guide](/docs/guides/designer-studio)
-  Route: /docs/guides/designer-studio. Compatibility page pointing to the current Designer Studio guide.
+  Route: /docs/guides/designer-studio. Designer Studio is now a conversation's Design panel; this page points to the current guide.
 - [Developer Studio Guide](/docs/guides/developer-studio)
-  Route: /docs/guides/developer-studio. Compatibility page pointing to the current Developer Studio guide.
+  Route: /docs/guides/developer-studio. Developer Studio is now a conversation's Developer panel; this page points to the current guide.
 - [Skills, Plugins, And MCP Guide](/docs/guides/skills-plugins-mcp)
   Route: /docs/guides/skills-plugins-mcp. Compatibility page pointing to the current Skills Hub guide.
 - [Home: Designer](/docs/home/designer)
-  Route: /docs/home/designer. Use the Home Designer tab as the entry point for Designer Studio projects.
+  Route: /docs/home/designer. Home no longer has a Designer tab; designs open in a conversation's Design panel.
 - [Home: Developer](/docs/home/developer)
-  Route: /docs/home/developer. Use the Home Developer tab as the entry point for code workspaces and Custom Tools.
+  Route: /docs/home/developer. Home no longer has a Developer tab; code folders open in a conversation's Developer panel.
 - [Home](/docs/home/)
-  Route: /docs/home/. Use Home tabs as entry points for workflows, Designer, Developer, Knowledge, and Monitor.
+  Route: /docs/home/. Home's five tabs: Overview, Workflows, Knowledge, Monitor and Insights.
 - [Home: Knowledge](/docs/home/knowledge)
-  Route: /docs/home/knowledge. Use the Home Knowledge tab to review memories, documents, and knowledge graph activity.
+  Route: /docs/home/knowledge. Use Home Knowledge to explore the memory graph, search and review memories, and run Dream Cycle.
 - [Home: Monitor](/docs/home/monitor)
-  Route: /docs/home/monitor. Use the Home Monitor tab to inspect logs, journals, channel state, and background activity.
+  Route: /docs/home/monitor. Use Home Monitor to see Row-Bot's latest health checks, fix problems in one click, and read activity, history and logs.
 - [Home: Workflows](/docs/home/workflows)
-  Route: /docs/home/workflows. Use the Home Workflows tab as the entry point for saved automations and background agents.
+  Route: /docs/home/workflows. Use Home Workflows to run saved workflows in one click, create or edit them on the page, and set delivery defaults.
 - [Reference Tables](/docs/reference/generated/)
   Route: /docs/reference/generated/. Compact lookup tables for Row-Bot features and settings.
+- [Settings: Utilities](/docs/settings/utilities)
+  Route: /docs/settings/utilities. Settings no longer has a Utilities page; the built-in tools are part of Settings Tools.
 - [UI Tour](/docs/ui-tour/)
-  Route: /docs/ui-tour/. A short guided tour of the Row-Bot Interface, Chat, Home, Settings, and Activity Center.
+  Route: /docs/ui-tour/. A short guided tour of Row-Bot: the sidebar, Home, a conversation, panels, the command palette and Settings.

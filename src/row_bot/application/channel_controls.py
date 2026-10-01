@@ -22,7 +22,14 @@ from row_bot.runtime import admissions
 
 
 _CHANNEL_ID = re.compile(r"[a-z0-9][a-z0-9_.-]{0,127}")
-_OPERATIONS = frozenset({"configure", "start", "stop", "pair", "revoke"})
+_OPERATIONS = frozenset({"configure", "start", "stop", "pair", "revoke", "test", "reset"})
+_LINK_STATES = frozenset({"starting", "scan", "linked"})
+_MAX_LINK_CODE = 4096
+# The one message "Send a test message to me" sends, to the person's own
+# account on that channel, only when they press it.
+_TEST_MESSAGE = (
+    "Row-Bot test message: {name} is connected. Reply here to talk to Row-Bot."
+)
 _PAIRING_CHANNELS = frozenset({"discord", "slack", "sms", "whatsapp"})
 _MAX_CHANNELS = 128
 _MAX_FIELDS = 64
@@ -117,6 +124,13 @@ def _channel(registry_owner: Any, channel_id: str) -> Any:
     if value is None:
         raise ChannelControlError("not_found")
     return value
+
+
+def _recheck_channels() -> None:
+    """Monitor's kept channel checks follow a start or stop (Phase 18)."""
+    from row_bot.application.client_diagnosis import recheck_channels
+
+    recheck_channels()
 
 
 def _safe_call(callback: Callable[[], Any], default: Any) -> Any:
@@ -251,6 +265,37 @@ def _field_status(
     )
 
 
+def _link(channel: Any) -> dict[str, Any] | None:
+    """A channel linked by scanning a code (WhatsApp): its state and code."""
+    reader = getattr(channel, "link_status", None)
+    value = _safe_call(reader, None) if callable(reader) else None
+    if type(value) is not dict or value.get("state") not in _LINK_STATES:
+        return None
+    code = value.get("code")
+    if (
+        type(code) is not str
+        or not code
+        or len(code) > _MAX_LINK_CODE
+        or any(ord(char) < 32 for char in code)
+    ):
+        code = None
+    return {"state": value["state"], "code": code if value["state"] == "scan" else None}
+
+
+def _public_address(channel: Any) -> str | None:
+    """Where a service reaches a channel that needs a public address (SMS)."""
+    reader = getattr(channel, "public_address", None)
+    value = _safe_call(reader, None) if callable(reader) else None
+    text = _bounded_text(value, 2048)
+    return text if text.startswith("https://") else None
+
+
+def _reachability(channel: Any) -> str | None:
+    reader = getattr(channel, "reachability_problem", None)
+    value = _safe_call(reader, None) if callable(reader) else None
+    return _bounded_text(value, 512) or None
+
+
 def _activity(channel_id: str, *, clock: Callable[[], float]) -> str:
     base = _loaded_owner("row_bot.channels.base")
     if base is None:
@@ -352,6 +397,12 @@ def _snapshot(
         else "unavailable"
     )
     activity = "unknown" if passive_only else _activity(channel_id, clock=clock)
+    link = None if passive_only else _link(channel)
+    target = (
+        _safe_call(channel.get_default_target, None)
+        if running is True and not passive_only
+        else None
+    )
     private = {
         "channel_id": channel_id,
         "source": source,
@@ -359,6 +410,7 @@ def _snapshot(
         "running": running,
         "fields": field_proof,
         "identities": identity_proof,
+        "link_state": link["state"] if link else None,
     }
     revision = hashlib.sha256(
         json.dumps(private, sort_keys=True, separators=(",", ":"), default=str).encode(
@@ -402,6 +454,14 @@ def _snapshot(
                 for name in capability_names
                 if getattr(capabilities, name, False) is True
             ],
+            # The connect sheet (Phase 15): a code-linked channel's state
+            # (its code only through the owner's own read), where a service
+            # reaches it, why it can't be reached, and whether a test
+            # message to the person's own account is possible.
+            "link_state": link["state"] if link else None,
+            "public_address": None if passive_only else _public_address(channel),
+            "reachability_problem": None if passive_only else _reachability(channel),
+            "can_test": target not in (None, ""),
             "availability": {
                 "configuration": "available"
                 if all(field["writable"] for field in public_fields)
@@ -600,14 +660,29 @@ def _review(
             raise ChannelControlError("action_denied")
     elif field_key is not None or value is not None:
         raise ChannelControlError("invalid_command")
+    waiting_for_link = snapshot["link_state"] in {"starting", "scan"}
     if operation == "start":
         if snapshot["configured"] is not True:
             raise ChannelControlError("configuration_required")
-        if snapshot["running"] is True:
+        if snapshot["running"] is True or waiting_for_link:
             raise ChannelControlError("already_running")
     elif operation == "stop":
-        if snapshot["running"] is not True:
+        if snapshot["running"] is not True and not waiting_for_link:
             raise ChannelControlError("already_stopped")
+    elif operation == "test":
+        if identity_id is not None:
+            raise ChannelControlError("invalid_command")
+        if snapshot["running"] is not True:
+            raise ChannelControlError("channel_not_running")
+        if not snapshot["can_test"]:
+            raise ChannelControlError("channel_test_target_missing")
+    elif operation == "reset":
+        if (
+            identity_id is not None
+            or snapshot["link_state"] is None
+            or not callable(getattr(channel, "reset_link", None))
+        ):
+            raise ChannelControlError("action_unavailable")
     elif operation == "pair":
         if (
             identity_id is not None
@@ -809,10 +884,27 @@ async def execute_channel_command(
             elif owners[1] is not None:
                 owners[1].set(channel_id, "auto_start", True)
             _safe_call(owners[0].clear_agent_cache_if_loaded, None)
+            _safe_call(_recheck_channels, None)
         elif operation == "stop":
             await channel.stop()
             if owners[1] is not None:
                 owners[1].set(channel_id, "auto_start", False)
+            _safe_call(owners[0].clear_agent_cache_if_loaded, None)
+            _safe_call(_recheck_channels, None)
+        elif operation == "test":
+            # One message to the person's own account, on this explicit
+            # action only; an uncertain original is never sent again.
+            target = channel.get_default_target()
+            sent = channel.send_message(
+                target,
+                _TEST_MESSAGE.format(
+                    name=_bounded_text(getattr(channel, "display_name", ""), 160, fallback=channel_id)
+                ),
+            )
+            if hasattr(sent, "__await__"):
+                await sent
+        elif operation == "reset":
+            await channel.reset_link()
             _safe_call(owners[0].clear_agent_cache_if_loaded, None)
         elif operation == "pair":
             if owners[2] is None:
@@ -869,6 +961,31 @@ async def execute_channel_command(
         # the admitted original uncertain and never invoke it on a retry.
         retained = admissions.read_command_receipt(owner_id, command["command_id"])
         return _public_receipt(retained or initial)
+
+
+def read_channel_link(
+    channel_id: str,
+    *,
+    validate: Callable[[], None] = lambda: None,
+    registry_owner: Any | None = None,
+    config_owner: Any | None = None,
+    auth_owner: Any | None = None,
+    secret_owner: Any | None = None,
+) -> dict[str, Any]:
+    """The link state and code of a channel linked by scanning (B139).
+
+    Only the local owner reads this: the code links a phone to Row-Bot.
+    """
+    validate()
+    registry_owner, *_rest = _owners(
+        registry_owner=registry_owner,
+        config_owner=config_owner,
+        auth_owner=auth_owner,
+        secret_owner=secret_owner,
+    )
+    link = _link(_channel(registry_owner, channel_id))
+    validate()
+    return link or {"state": None, "code": None}
 
 
 def read_channel_receipt(

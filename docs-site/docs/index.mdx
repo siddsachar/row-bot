@@ -9,18 +9,19 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Row-Bot is a local-first AI workbench for people who want provider-aware models, parent-led agents, durable documents, memory, tools, workflows, design, code help, integrations, and voice in one controllable system. Run it as a desktop application or a private authenticated server; this guide explains installation, Docker deployment, owner access, the main interface, settings, and every explicit external route.
 
-These pages describe Row-Bot 4.9.1, the release represented by this source tree.
+These pages describe Row-Bot 5.0.0, the release represented by this source tree.
 
-<Screenshot id="home-knowledge" alt="Row-Bot desktop workspace showing the Knowledge graph, conversations, tools, workflows, channels, Activity Center, and terminal." caption="The Knowledge workspace brings Row-Bot's local graph together with conversations, tools, workflows, channels, activity, approvals, and terminal output." />
+<Screenshot id="knowledge-graph" alt="Row-Bot window on Home › Knowledge with the memory graph and the sidebar." caption="Home › Knowledge draws what Row-Bot remembers as a local graph, beside your conversations, agents and Home tabs." />
 
 ## Start Here
 
 - [Getting Started](/docs/getting-started/) explains the install path, first launch, and setup choices.
-- [Row-Bot Interface](/docs/app-shell/navigation) tours the sidebar, thread list, Home tabs, Activity Center, Buddy, Settings, and terminal.
-- [Chat](/docs/chat/) explains conversations, composer controls, attachments, model selection, approvals, and tool results.
+- [Row-Bot Interface](/docs/app-shell/navigation) tours the sidebar, Home, a conversation and its details card, panels, the terminal, the ⌘K command palette, Buddy and Settings.
+- [Home: Overview](/docs/home/overview) explains the first page: the Ask box, what needs you, live status and recent work.
+- [Chat](/docs/chat/) explains conversations, composer controls, attachments, model selection, approvals in place, tool results, and the conversation library.
 - [Reasoning Controls](/docs/chat/reasoning-controls) explains model-specific effort, thinking toggles, token budgets, and provider-default fallback behavior.
-- [Settings](/docs/settings/) explains every configuration tab and what each choice changes.
-- [Profiles, Goals, And Agents](/docs/profiles-goals-agents/) explains reusable roles, bounded goals, parent-led work waves, dependencies, and recovery.
+- [Settings](/docs/settings/) explains every settings page and what each choice changes.
+- [Profiles, Goals, And Agents](/docs/profiles-goals-agents/) explains the Agents dialog, goals that keep going until done, delegated agents, and recovery.
 - [Remote Access And Server Mode](/docs/operations/remote-access) explains invitations, sessions, Tailscale, LAN, HTTPS proxies, and browser-local voice.
 - [Docker And VPS Operations](/docs/operations/docker/) explains the official container, persistent data and secrets, backup, upgrade, and rollback.
 - [Computer Use](/docs/computer-use/) explains the opt-in native desktop tool, setup, live controls, and safety boundaries.
@@ -29,14 +30,15 @@ These pages describe Row-Bot 4.9.1, the release represented by this source tree.
 
 - [Workflows](/docs/guides/workflows) for repeatable background work and scheduled agents.
 - [Reasoning Controls](/docs/chat/reasoning-controls) for choosing the supported reasoning depth of the active model without changing models.
-- [Designer Studio](/docs/designer/) for creating pages, slides, mockups, branded assets, and exportable designs.
-- [Developer Studio](/docs/developer/) for folders, repositories, code chat, inspectors, commands, and sandbox modes.
+- [Designs](/docs/designer/) for decks, documents, landing pages, mockups and storyboards in a conversation's Design panel.
+- [Code Folders](/docs/developer/) for binding or cloning a folder from a conversation and working on it in the Developer panel.
 - [Knowledge](/docs/knowledge/) for local memory, durable document ingestion, graph review, and background organization.
 - [Computer Use](/docs/computer-use/) for target-window automation in native Windows and macOS applications.
-- [Compact And Native Desktop Layouts](/docs/mobile-native/) for the same owner product across phone-safe and desktop presentations.
+- [Phone And Native Desktop](/docs/mobile-native/) for the same owner product on a phone and in the native desktop app.
 - [Remote Access And Server Mode](/docs/operations/remote-access) for owner invitations, Tailscale, LAN, SSH, Docker, HTTPS proxies, and remote browser voice.
 - [Docker And VPS Operations](/docs/operations/docker/) for the official image, hardened Compose, credentials, backup, upgrade, rollback, and recovery.
-- [Monitor](/docs/monitor/) for logs, journals, channel state, and background activity.
+- [Monitor](/docs/monitor/) for kept health checks, one-click fixes, activity, history, and logs.
+- [Insights](/docs/home/insights) for what Row-Bot noticed and the proposals it prepared for your review.
 - [Skills Hub](/docs/skills/) for browsing, enabling, creating, and reviewing skills.
 - [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills) for automatic external-tool discovery, per-task skill selection, compatibility mode, and safety boundaries.
 - [Channels](/docs/integrations/channels), [MCP](/docs/integrations/mcp), and [Plugins](/docs/integrations/plugins) for integrations.
@@ -50,4 +52,4 @@ Each major page explains what the feature is, where to find it, the important co
 
 ## References
 
-Use [Reference](/docs/reference/) when you need tables of tools, providers, settings tabs, channels, skills, MCP servers, plugins, storage, or approval behavior. The guided pages should be your first stop; the reference pages are for lookup.
+Use [Reference](/docs/reference/) when you need tables of tools, providers, settings pages, channels, skills, MCP servers, plugins, storage, or approval behavior. The guided pages should be your first stop; the reference pages are for lookup.

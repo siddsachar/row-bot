@@ -1,7 +1,19 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { X } from 'lucide-react';
 import type { ClientController } from '../../api';
-import type { WikiSettingsSnapshot } from '../../api/types';
-import { Button, Field, Input, Toggle } from '../../ui/primitives';
+import { clientError } from '../../api/errors';
+import type { ClientPlatform } from '../../platform';
+import { pickSettingsFolder } from '../settings/settings-folder';
+import type { WikiSettingsSnapshot, WikiTidySummary } from '../../api/types';
+import {
+  Button,
+  Disclosure,
+  Field,
+  IconButton,
+  Input,
+  Toggle,
+} from '../../ui/primitives';
+import { AppLink } from '../../ui/app-link';
 
 export type WikiAction =
   | 'wiki.configure'
@@ -66,7 +78,10 @@ export interface WikiReview {
 }
 
 /** Keep the authorized folder grant inside the authenticated owner, never presentation state. */
-export function createWikiSettingsSession(controller: ClientController) {
+export function createWikiSettingsSession(
+  controller: ClientController,
+  platform: () => ClientPlatform,
+) {
   let folderGrant: string | undefined;
   const requireGrant = () => {
     if (!folderGrant) throw { code: 'folder_selection_required' };
@@ -98,8 +113,9 @@ export function createWikiSettingsSession(controller: ClientController) {
         throw error;
       }
     },
+    // Picked in the desktop window: the server can't show a picker (B280).
     chooseVault: async () => {
-      const result = await controller.pickFolder();
+      const result = await pickSettingsFolder(platform(), controller);
       if (result.status === 'selected' && result.grant_id) {
         folderGrant = result.grant_id;
         return result.name ?? 'Authorized folder';
@@ -299,11 +315,20 @@ export class WikiSettingsSession {
   };
   chooseVault = async () => {
     if (!this.io.chooseVault || this.state.pending || this.state.busy) return;
-    await this.read(async () => {
-      const authorizedFolder = await this.io.chooseVault!();
-      if (authorizedFolder) this.set({ authorizedFolder });
+    this.set({ busy: true, error: null });
+    let authorizedFolder: string | undefined;
+    try {
+      authorizedFolder = await this.io.chooseVault();
+    } catch (cause) {
+      // Say why no folder opened (the desktop app, reconnecting) (B280).
+      this.set({ busy: false, error: clientError(cause).message });
+      return;
+    }
+    this.set({
+      busy: false,
+      ...(authorizedFolder ? { authorizedFolder } : {}),
     });
-    await this.load();
+    if (authorizedFolder) await this.load();
   };
   canChooseVault = () => Boolean(this.io.chooseVault);
   canOpenFolder = () => Boolean(this.io.openFolder);
@@ -385,12 +410,19 @@ export class WikiSettingsSession {
     } catch {
       this.set({
         error:
-          'The outcome is unconfirmed. Check the original receipt before another change.',
+          "Row-Bot couldn't confirm that change. Check again before another change.",
       });
     } finally {
       this.set({ busy: false });
     }
+    await this.reloadAfterCompletion();
   };
+  // A completed command changes the saved revision; read it again so the next
+  // action is reviewed against current state instead of failing as stale.
+  private async reloadAfterCompletion() {
+    if (this.state.result?.status === 'completed' && !this.state.pending)
+      await this.load();
+  }
   private accept(result: WikiResult) {
     const pending = this.state.pending;
     if (
@@ -428,6 +460,7 @@ export class WikiSettingsSession {
             'The original outcome is still unconfirmed. No action was repeated.',
         });
     });
+    await this.reloadAfterCompletion();
   };
 }
 
@@ -490,6 +523,7 @@ export default function WikiSettings({
     <section
       className={`stack capability-page ${compact ? 'settings-knowledge-wiki-panel' : ''}`}
       aria-label="Wiki vault"
+      data-setting-anchor={compact ? 'wiki-vault' : undefined}
     >
       <header
         className={compact ? 'settings-snapshot-heading' : 'capability-header'}
@@ -503,12 +537,19 @@ export default function WikiSettings({
           </p>
         </div>
       </header>
+      {snapshot?.tidy && <WikiTidyNotice tidy={snapshot.tidy} />}
       {snapshot && !compact && <WikiSnapshotSummary snapshot={snapshot} />}
       {snapshot && compact && (
         <>
           {state.status && (
-            <label className="settings-knowledge-switch">
-              <span>Enable Wiki Vault</span>
+            <label className="settings-knowledge-switch settings-inline-row">
+              <span>
+                <strong>Enable Wiki Vault</strong>
+                <small>
+                  {snapshot.articles.toLocaleString()} articles ·{' '}
+                  {snapshot.conversations.toLocaleString()} conversations
+                </small>
+              </span>
               <Toggle
                 label="Enable Wiki Vault"
                 checked={state.enabled}
@@ -517,7 +558,7 @@ export default function WikiSettings({
               />
             </label>
           )}
-          <Field label="Vault path">
+          <Field label="Vault path" layout="row">
             <Input
               aria-label="Vault path"
               value={pathDraft}
@@ -549,14 +590,6 @@ export default function WikiSettings({
               Use selected vault
             </Button>
           </div>
-          <div className="settings-summary-strip">
-            <span className="status-chip">
-              {snapshot.articles.toLocaleString()} articles
-            </span>
-            <span className="status-chip">
-              {snapshot.conversations.toLocaleString()} conversations
-            </span>
-          </div>
         </>
       )}
       <div className="actions settings-wiki-actions">
@@ -585,9 +618,9 @@ export default function WikiSettings({
           Open vault folder
         </Button>
         {!compact && (
-          <a className="button secondary" href="/settings/knowledge">
+          <AppLink className="button secondary" to="/?tab=knowledge">
             Browse or create knowledge
-          </a>
+          </AppLink>
         )}
       </div>
       {state.openStatus && <p role="status">{state.openStatus}</p>}
@@ -614,11 +647,8 @@ export default function WikiSettings({
           disabled={state.busy}
           onClick={() => void session.checkReceipt()}
         >
-          Check original receipt
+          Check again
         </Button>
-      )}
-      {state.result?.status === 'completed' && (
-        <p>Reload wiki status to review the current saved state.</p>
       )}
       {state.status && (
         <>
@@ -774,6 +804,61 @@ export default function WikiSettings({
         </div>
       )}
     </section>
+  );
+}
+
+const TIDY_SEEN_KEY = 'row-bot.wiki-tidy-seen';
+
+/** The vault's one-time tidy back to readable names, shown until dismissed. */
+function WikiTidyNotice({ tidy }: { tidy: WikiTidySummary }) {
+  const [seen, setSeen] = useState(() => {
+    try {
+      return localStorage.getItem(TIDY_SEEN_KEY) === tidy.date;
+    } catch {
+      return false;
+    }
+  });
+  if (seen) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem(TIDY_SEEN_KEY, tidy.date);
+    } catch {
+      // Private windows may refuse storage; it then stays hidden for this page.
+    }
+    setSeen(true);
+  };
+  const review = tidy.review ?? [];
+  return (
+    <div className="settings-wiki-tidy">
+      <Disclosure
+        summary={
+          <>
+            Tidied {tidy.tidied.toLocaleString()} articles ·{' '}
+            <span className="settings-wiki-tidy-toggle">Show moved files</span>
+          </>
+        }
+      >
+        <p>
+          {tidy.moved.toLocaleString()} old copies moved to{' '}
+          <code>{tidy.folder}</code> in the vault. Nothing was deleted.
+        </p>
+        {review.length > 0 && (
+          <>
+            <p>Kept as they were, for your review:</p>
+            <ul>
+              {review.map((path) => (
+                <li key={path}>
+                  <code>{path}</code>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Disclosure>
+      <IconButton label="Dismiss" size="sm" onClick={dismiss}>
+        <X size={14} aria-hidden />
+      </IconButton>
+    </div>
   );
 }
 

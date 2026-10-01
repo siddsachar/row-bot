@@ -13,7 +13,7 @@ import pytest
 
 from tests.subsystem.plugins.conftest import write_plugin
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture
@@ -607,6 +607,7 @@ def _channel_load(fixture, code=_CHANNEL_SOURCE):
     return api, api._registered_channels[0]
 
 
+@pytest.mark.slow
 def test_real_channel_lifecycle_and_webhook_multipart_parity(worker_fixture):
     import asyncio
     from row_bot.plugins import webhooks
@@ -908,6 +909,7 @@ def test_stopping_listener_cancels_its_turn_without_revoking_worker(worker_fixtu
         api._revoke()
 
 
+@pytest.mark.slow
 def test_existing_fifty_mib_attachment_crosses_owned_boundary(worker_fixture, monkeypatch):
     from row_bot.plugins import channel_runtime
     from row_bot.plugins.api import ChannelAttachmentResult

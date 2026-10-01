@@ -1,5 +1,45 @@
 {
   "$defs": {
+    "CustomToolApproval": {
+      "additionalProperties": false,
+      "description": "What the standard approval card shows before a test command runs once.",
+      "properties": {
+        "command": {
+          "maxLength": 4096,
+          "title": "Command",
+          "type": "string"
+        },
+        "command_name": {
+          "maxLength": 128,
+          "title": "Command Name",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        },
+        "nonce": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Nonce",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_name",
+        "command",
+        "label",
+        "reason",
+        "nonce"
+      ],
+      "title": "CustomToolApproval",
+      "type": "object"
+    },
     "CustomToolCommandView": {
       "additionalProperties": false,
       "properties": {
@@ -269,6 +309,17 @@
   },
   "additionalProperties": false,
   "properties": {
+    "approval": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CustomToolApproval"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "command_id": {
       "format": "uuid",
       "title": "Command Id",
@@ -281,7 +332,8 @@
       "enum": [
         "completed",
         "failed",
-        "uncertain"
+        "uncertain",
+        "approval_required"
       ],
       "title": "Status",
       "type": "string"

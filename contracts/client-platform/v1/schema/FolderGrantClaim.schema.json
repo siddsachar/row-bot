@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "description": "A desktop window's one-use folder reference for a setting (B280).",
+  "properties": {
+    "reference": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Reference",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference"
+  ],
+  "title": "FolderGrantClaim",
+  "type": "object"
+}

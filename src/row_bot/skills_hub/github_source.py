@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import logging
 import pathlib
 import re
 import time
@@ -23,6 +25,8 @@ from .sources import (
     slugify,
     title_from_slug,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,18 +87,27 @@ class GitHubSource(SkillSource):
     supports_browse = True
     supports_search = True
     supports_import = True
+    # A keyword search only filters the browse list, so the registry answers it
+    # from the cached list instead of reading every repository again.
+    search_from_browse = True
 
     def browse(self, limit: int = 50, cursor: str | None = None) -> SourceResult:
         global _GITHUB_BACKOFF_UNTIL, _GITHUB_BACKOFF_MESSAGE
         if _GITHUB_BACKOFF_UNTIL and time.time() < _GITHUB_BACKOFF_UNTIL:
             return SourceResult([], self.id, "error", _GITHUB_BACKOFF_MESSAGE)
         root_results: list[list[SkillHubEntry]] = []
-        errors: list[str] = []
+        failed = 0
         rate_message = ""
         auth_message = self._auth_status_message()
-        for root in [item for item in PUBLIC_GITHUB_ROOTS if item.enabled_by_default]:
+        roots = [item for item in PUBLIC_GITHUB_ROOTS if item.enabled_by_default]
+        # Every repository is read at once, so the slowest one sets the time.
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(roots), thread_name_prefix="skills-hub-github"
+        ) as pool:
+            reads = [pool.submit(self._list_public_root, root, limit=limit) for root in roots]
+        for root, read in zip(roots, reads):
             try:
-                root_results.append(self._list_public_root(root, limit=limit))
+                root_results.append(read.result())
             except Exception as exc:
                 rate = github_account.rate_limit_from_exception(exc)
                 if rate is not None:
@@ -104,10 +117,15 @@ class GitHubSource(SkillSource):
                         _GITHUB_BACKOFF_UNTIL = max(time.time(), float(rate.reset_epoch))
                     elif rate.retry_after_seconds:
                         _GITHUB_BACKOFF_UNTIL = time.time() + rate.retry_after_seconds
-                    break
-                errors.append(f"{root.repo_full_name}: {exc}")
+                    continue
+                failed += 1
+                logger.warning(
+                    "Skills hub GitHub repository %s was not read: %s",
+                    root.repo_full_name, type(exc).__name__,
+                )
         entries = fair_merge_root_entries(root_results, limit=limit)
-        message_parts = [part for part in (auth_message, rate_message or "; ".join(errors)) if part]
+        errors = f"{failed} of {len(roots)} GitHub repositories couldn't be read." if failed else ""
+        message_parts = [part for part in (auth_message, rate_message or errors) if part]
         message = "; ".join(message_parts)
         if entries and message:
             status = "partial"

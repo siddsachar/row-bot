@@ -42,6 +42,10 @@ class ExecutionHandle:
     output_message_id: str = ""
     output_checkpoint_revision: str = ""
     input_checkpoint_revision: str = ""
+    # Platform turns advance goals and may start a follow-up turn when done.
+    followups: bool = False
+    # The admitted input's message id (a stopped reply is keyed on it).
+    submission_id: str = ""
 
 
     def view(self) -> dict:
@@ -133,11 +137,17 @@ class GenerationRuntimeRegistry:
             return self._handles.get(execution_id)
 
     def conversation_generation(self, conversation_id: str, generation_id: str) -> ExecutionHandle | None:
-        """Resolve an exact normal-chat run, including its completed output owner."""
+        """Resolve an exact normal-chat run, including its completed output owner.
+
+        A turn resumed after an approval keeps its generation, so several runs
+        can share it: the one still running wins, else the latest.
+        """
         with self._lock:
-            return next((handle for handle in self._handles.values()
-                         if handle.domain == "conversation" and handle.conversation_id == conversation_id
-                         and handle.generation_id == generation_id), None)
+            matches = [handle for handle in self._handles.values()
+                       if handle.domain == "conversation" and handle.conversation_id == conversation_id
+                       and handle.generation_id == generation_id]
+            return next((handle for handle in reversed(matches) if not handle.producer_done.is_set()),
+                        matches[-1] if matches else None)
 
     def stop(self, conversation_id: str, *, reason: str = "user") -> bool:
         handles = self.active(conversation_id)

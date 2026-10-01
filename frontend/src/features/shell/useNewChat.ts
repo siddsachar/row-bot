@@ -59,7 +59,15 @@ export default function useNewChat() {
     }
   }, [key]);
 
-  async function newChat(firstMessage = '') {
+  /**
+   * Starts a chat. `firstMessage` is sent once the chat is ready unless
+   * `send` is false, when it only waits in the composer as a draft.
+   */
+  async function newChat(
+    firstMessage = '',
+    profile?: { id: string; display_name: string },
+    { send = true }: { send?: boolean } = {},
+  ) {
     if (
       operation.current ||
       !key ||
@@ -92,7 +100,12 @@ export default function useNewChat() {
         : await controller.intent(
             null,
             'conversation.create',
-            {},
+            profile
+              ? {
+                  title: `${profile.display_name} chat`,
+                  agent_profile_id: profile.id,
+                }
+              : {},
             '0',
             identity,
           );
@@ -106,7 +119,12 @@ export default function useNewChat() {
         setPending(null);
         setMissing(null);
         setFocusConversationId(result.conversation_id);
-        if (firstMessage.trim()) {
+        if (firstMessage.trim() && !send) {
+          controller.setDraft(result.conversation_id, {
+            text: firstMessage,
+            attachments: [],
+          });
+        } else if (firstMessage.trim()) {
           controller.setDraft(result.conversation_id, {
             text: firstMessage.trim(),
             attachments: [],
@@ -127,7 +145,7 @@ export default function useNewChat() {
         if (result.status === 'rejected')
           setMissing({ key, commandId: identity });
         setError(
-          'The new conversation receipt is retained. Check it before starting another.',
+          "Row-Bot couldn't confirm the new chat was created. Check it before starting another.",
         );
       }
     } catch (cause) {
@@ -153,10 +171,10 @@ export default function useNewChat() {
     const session = state.handshake?.client_session_id;
     overlay.open({
       kind: 'alert',
-      title: 'Clear the pending receipt?',
+      title: 'Stop checking this new chat?',
       description:
-        'The receipt was rejected or could not be found. An unavailable action may still finish. Clear this record only after reviewing the conversation; sending again could create a duplicate. This does not resend an action.',
-      confirmLabel: 'Clear pending receipt',
+        "Row-Bot can't find what happened to it, so it may still appear. Look at your conversations first: starting another could make two. Nothing is created now.",
+      confirmLabel: 'Stop checking',
       onConfirm: () => {
         if (
           !alive.current ||

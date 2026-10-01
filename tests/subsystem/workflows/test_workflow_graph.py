@@ -89,21 +89,6 @@ def test_new_and_seeded_workflows_default_to_default_profile_without_old_overrid
     assert all(item["skills_override"] is None for item in seeded)
 
 
-def test_workflow_drafts_are_isolated_from_saved_tasks(tmp_path, monkeypatch) -> None:
-    tasks = fresh_tasks_module(tmp_path, monkeypatch)
-    payload = {"name": "Draft", "steps": sample_workflow_steps()}
-
-    tasks.save_workflow_draft(None, payload)
-    draft = tasks.get_workflow_draft(None)
-
-    assert draft is not None
-    assert draft["mode"] == "new"
-    assert draft["payload"]["name"] == "Draft"
-
-    tasks.delete_workflow_draft(None)
-    assert tasks.get_workflow_draft(None) is None
-
-
 def test_subtask_cycle_detection_uses_current_unsaved_steps(tmp_path, monkeypatch) -> None:
     tasks = fresh_tasks_module(tmp_path, monkeypatch)
     parent_id = tasks.create_task("Parent", steps=[], apply_default_skills=False)
@@ -146,3 +131,14 @@ def test_workflow_run_keeps_memory_fallback_warning_at_finish(tmp_path, monkeypa
     assert run["status_message"].startswith("Delivered")
     assert "Memory recall fallback (local_model_timeout)" in run["status_message"]
     assert "Retry local load" in run["status_message"]
+
+
+def test_variables_expand_with_or_without_inner_spaces(tmp_path, monkeypatch) -> None:
+    """The step editor accepts `{{ step.x.output }}`, so running expands it too (parity row 19)."""
+    tasks = fresh_tasks_module(tmp_path, monkeypatch)
+    text = tasks.expand_template_vars(
+        "A {{ prev_output }} B {{step.fetch.output}} C {{ step.fetch.output }} D {{ year }}",
+        prev_output="previous", step_outputs={"fetch": "fetched"},
+    )
+    assert text.startswith("A previous B fetched C fetched D ")
+    assert "{{" not in text

@@ -2,15 +2,19 @@
 # release.yml - Build Row-Bot installers
 #
 # Triggers:
-#   - Manual workflow_dispatch builds Windows installer, build macOS installer,
-#                                  and sign the macOS outputs
+#   - Manual workflow_dispatch: builds the Windows installer, the Linux tarball,
+#     and the signed macOS app/pkg/dmg (from the release tag; see docs/RELEASING.md)
 #
 # Jobs:
-#   release-preflight - run the release-grade deterministic test matrix
-#   build-windows - self-contained unsigned .exe (Inno Setup)
-#   build-macos    - signed .app/.pkg/.dmg (manual notarization later)
-#   build-linux - self-contained XDG user-install tarball
+#   release-gate  - version and lock checks; refuses a commit without a green
+#                   CI run (CI / ci-ok) and reports whether a nightly run passed
+#   nightly       - the nightly suite, only when that commit has no green nightly
+#   build-windows - self-contained unsigned .exe (Inno Setup), install-smoked
+#   build-macos   - signed .app/.pkg/.dmg (manual notarization later), app smoked
+#   build-linux   - self-contained XDG user-install tarball, install-smoked
 #   checksums-and-manifest - publish artifact hashes for release review
+#
+# A release never re-runs the pull-request tests: the commit already passed them.
 #
 # Notarization is handled by two separate manual workflows:
 #   notarize-submit.yml  - submit DMG to Apple (after testing)
@@ -39,7 +43,7 @@ on:
       version:
         description: Version to build. Must match src/row_bot/version.py and installer/row_bot_setup.iss.
         type: string
-        default: "4.9.1"
+        default: "5.0.0"
       build_windows:
         description: Build the Windows installer
         type: boolean
@@ -57,6 +61,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
@@ -64,81 +71,65 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
-  ROW_BOT_VERSION: ${{ inputs.version || '4.9.1' }}
+  ROW_BOT_VERSION: ${{ inputs.version || '5.0.0' }}
   WINDOWS_PYTHON_VERSION: "3.13.2"
 
 jobs:
   # ---------------------------------------------------------------------------
-  #  Run release-grade deterministic verification before building installers
+  #  Release only a commit CI has already passed (no re-testing here)
   # ---------------------------------------------------------------------------
-  release-preflight:
-    runs-on: macos-latest
-    timeout-minutes: 30
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    outputs:
+      nightly_green: ${{ steps.gate.outputs.nightly_green }}
 
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build local client assets
-        uses: ./.github/actions/build-client
-
       - uses: actions/setup-python@v6
+        id: python
         with:
           python-version: "3.12"
 
-      - name: Install uv
-        run: python -m pip install "uv>=0.7,<1.0"
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: ">=0.7,<1.0"
+          python-version: ${{ steps.python.outputs.python-path }}
 
       - name: Verify locked dependency files
         run: |
           uv lock --check
           python scripts/export_locked_requirements.py --check
 
-      - name: Install macOS runtime libraries
-        run: brew install portaudio
+      - name: Version matches and CI passed on this commit
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version || '5.0.0' }}
+        run: python scripts/release_gate.py --version "$RELEASE_VERSION" --sha "$GITHUB_SHA"
 
-      - name: Install Python packages
-        run: uv sync --locked --all-extras --group test
-
-      - name: Verify required runtime dependencies
-        run: uv run python scripts/verify_runtime_dependencies.py all
-
-      - name: Verify packaged client assets
-        run: uv run python scripts/verify_client_assets.py --root src/row_bot/static/client-v2 --compare frontend/dist --strict
-
-      - name: Verify release version consistency
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          expected = "${{ inputs.version || '4.9.1' }}"
-          version_py = Path("src/row_bot/version.py").read_text(encoding="utf-8")
-          setup_iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
-          py_match = re.search(r'__version__\s*=\s*"([^"]+)"', version_py)
-          iss_match = re.search(r'#define\s+MyAppVersion\s+"([^"]+)"', setup_iss)
-          actual_py = py_match.group(1) if py_match else None
-          actual_iss = iss_match.group(1) if iss_match else None
-          if actual_py != expected or actual_iss != expected:
-              raise SystemExit(f"version mismatch: input={expected!r}, version.py={actual_py!r}, iss={actual_iss!r}")
-          print(f"version ok: {expected}")
-          PY
-
-      - name: Run release test matrix
-        run: uv run python scripts/run_test_matrix.py release
-
-      - name: Upload release preflight coverage
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-preflight-coverage
-          path: .tmp/coverage/migrated-subsystems.xml
-          if-no-files-found: warn
+  # ---------------------------------------------------------------------------
+  #  The nightly suite (full deterministic suite on Linux, Windows and macOS,
+  #  browser nightly set, Linux package, docs reference), only when this
+  #  commit has no successful nightly run yet
+  # ---------------------------------------------------------------------------
+  nightly:
+    needs: release-gate
+    if: ${{ needs.release-gate.outputs.nightly_green != 'true' }}
+    uses: ./.github/workflows/nightly.yml
 
   # ---------------------------------------------------------------------------
   #  Build Windows installer (.exe) - self-contained
   # ---------------------------------------------------------------------------
   build-windows:
-    if: ${{ inputs.build_windows }}
-    needs: release-preflight
+    if: ${{ always() && needs.release-gate.result == 'success' && (needs.nightly.result == 'success' || needs.nightly.result == 'skipped') && inputs.build_windows }}
+    needs: [release-gate, nightly]
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -161,6 +152,9 @@ jobs:
           Write-Host "Building Windows installer..."
           .\installer\build_installer.ps1 -PythonVersion "${{ env.WINDOWS_PYTHON_VERSION }}"
 
+      - name: Smoke the installed Windows package
+        uses: ./.github/actions/smoke-windows-installer
+
       # Windows code signing intentionally disabled.
       # The official Windows installer is signed locally by the maintainer with
       # Certum/SimplySign, verified with signtool, then uploaded to the release.
@@ -176,8 +170,8 @@ jobs:
   #  Build Linux tarball - self-contained, browser/no-tray baseline
   # ---------------------------------------------------------------------------
   build-linux:
-    if: ${{ inputs.build_linux }}
-    needs: release-preflight
+    if: ${{ always() && needs.release-gate.result == 'success' && (needs.nightly.result == 'success' || needs.nightly.result == 'skipped') && inputs.build_linux }}
+    needs: [release-gate, nightly]
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -205,36 +199,9 @@ jobs:
           ./installer/build_linux_app.sh "$ROW_BOT_VERSION"
 
       - name: Smoke Linux package
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/row-bot-linux-smoke"
-          tar -xzf dist/Row-Bot-*-Linux-*.tar.gz -C "$RUNNER_TEMP/row-bot-linux-smoke"
-          PACKAGE_ROOT="$(find "$RUNNER_TEMP/row-bot-linux-smoke" -maxdepth 1 -type d -name 'Row-Bot-*-Linux-*' | head -n 1)"
-          if [ -z "$PACKAGE_ROOT" ]; then
-            echo "::error::Linux package root not found after extraction"
-            exit 1
-          fi
-          chmod +x "$PACKAGE_ROOT/bin/row-bot"
-          export HOME="$RUNNER_TEMP/row-bot-linux-home"
-          export XDG_DATA_HOME="$RUNNER_TEMP/row-bot-linux-xdg"
-          mkdir -p "$HOME" "$XDG_DATA_HOME"
-          bash "$PACKAGE_ROOT/install.sh"
-          PYTHONNOUSERSITE=1 "$XDG_DATA_HOME/row-bot/current/python/bin/python3" \
-            "$GITHUB_WORKSPACE/scripts/verify_client_assets.py" \
-            --root "$XDG_DATA_HOME/row-bot/current/app/src/row_bot/static/client-v2" \
-            --compare "$GITHUB_WORKSPACE/frontend/dist" --strict
-          python scripts/smoke_app.py \
-            --port 8080 \
-            --timeout 180 \
-            --public-probes \
-            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
-            -- "$HOME/.local/bin/row-bot"
-          python scripts/smoke_app.py \
-            --port 8091 \
-            --timeout 120 \
-            --public-probes \
-            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
-            -- "$HOME/.local/bin/row-bot" --no-ollama serve --port 8091
+        uses: ./.github/actions/smoke-linux-package
+        with:
+          port: "8090"
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v7
@@ -247,8 +214,8 @@ jobs:
   #  Build macOS installers (.pkg + .dmg) - signed, manual notarization later
   # ---------------------------------------------------------------------------
   build-macos:
-    if: ${{ inputs.build_macos }}
-    needs: release-preflight
+    if: ${{ always() && needs.release-gate.result == 'success' && (needs.nightly.result == 'success' || needs.nightly.result == 'skipped') && inputs.build_macos }}
+    needs: [release-gate, nightly]
     runs-on: macos-latest
     timeout-minutes: 180
 
@@ -458,6 +425,12 @@ jobs:
           stat -f%z "$DMG_PATH"
           echo "DMG size (human):"
           du -h "$DMG_PATH"
+
+      # After the DMG and pkg exist, so running the app can't touch what ships.
+      - name: Smoke the signed macOS app
+        uses: ./.github/actions/smoke-macos-app
+        with:
+          app-path: installer/build/mac/Row-Bot.app
 
       - name: Upload signed macOS DMG
         uses: actions/upload-artifact@v7

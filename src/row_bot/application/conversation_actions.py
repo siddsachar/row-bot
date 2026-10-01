@@ -24,6 +24,34 @@ from row_bot.runtime import admissions
 _ACTIONS = {"conversation.rename", "conversation.pin", "conversation.archive", "conversation.export"}
 _EXECUTABLE = {"conversation.rename", "conversation.pin", "conversation.export"}
 _MAX_EXPORT_BYTES = 8 * 1024 * 1024
+_EXPORT_FORMATS = {"markdown", "pdf"}
+_EXPORT_SUMMARY = {
+    "markdown": "Create a local Markdown copy of the saved user and assistant transcript.",
+    "pdf": "Create a local PDF copy of the saved user and assistant transcript.",
+}
+
+
+def _export_summary(fields: dict[str, Any]) -> str:
+    return _EXPORT_SUMMARY["pdf" if fields.get("format") == "pdf" else "markdown"]
+
+
+def _export_file(conversation_id: str, fields: dict[str, Any], checkpoint_revision: str, *,
+                 validate: Callable[[], None]) -> tuple[bytes, str]:
+    """The reviewed export's bytes and file name."""
+    title = str(fields["title"])
+    data = _export_markdown(conversation_id, title, checkpoint_revision, validate=validate)
+    if fields.get("format") != "pdf":
+        return data, "conversation-export.md"
+    from row_bot.application.conversation_pdf import PdfUnavailable, render_pdf
+
+    try:
+        pdf = render_pdf(title or "Conversation", data.decode("utf-8"))
+    except PdfUnavailable:
+        raise _error("conversation_export_pdf_unavailable") from None
+    if len(pdf) > _MAX_EXPORT_BYTES:
+        raise _error("conversation_export_too_large")
+    validate()
+    return pdf, "conversation-export.pdf"
 _MAX_EXPORT_MESSAGES = 20_000
 
 
@@ -112,8 +140,14 @@ def _review_payload(action: str, payload: object) -> dict[str, Any]:
     if action == "conversation.archive":
         raise _error("conversation_archive_unavailable")
     expected = {"title"} if action == "conversation.rename" else {"pinned"} if action == "conversation.pin" else set()
-    if set(payload) != expected:
+    optional = {"format"} if action == "conversation.export" else set()
+    if not expected <= set(payload) <= expected | optional:
         raise _error("invalid_conversation_action")
+    if action == "conversation.export":
+        if (payload.get("format") or "markdown") not in _EXPORT_FORMATS:
+            raise _error("invalid_conversation_action")
+        # Markdown stays the unmarked default, so earlier reviews keep their shape.
+        return {"format": "pdf"} if payload.get("format") == "pdf" else {}
     if action == "conversation.rename":
         title = payload.get("title")
         if type(title) is not str or not title.strip() or len(title) > 120 or "\x00" in title:
@@ -136,7 +170,7 @@ def review_conversation_action(service: Any, conversation_id: str, action: str,
     if type(expected_revision) is not str or expected_revision != snapshot["revision"]:
         raise _error("revision_conflict", snapshot["revision"])
     if action == "conversation.export":
-        fields = {"title": snapshot["title"]}
+        fields = {"title": snapshot["title"], **fields}
     intent = {
         "conversation_id": conversation_id,
         "action": action,
@@ -148,7 +182,7 @@ def review_conversation_action(service: Any, conversation_id: str, action: str,
     summaries = {
         "conversation.rename": "Rename this conversation while retaining its history and resources.",
         "conversation.pin": "Pin this conversation." if fields.get("pinned") else "Unpin this conversation.",
-        "conversation.export": "Create a local Markdown copy of the saved user and assistant transcript.",
+        "conversation.export": _export_summary(fields),
     }
     validate()
     return {
@@ -204,14 +238,14 @@ def _export_markdown(conversation_id: str, title: str, checkpoint_revision: str,
 
 def _publish_export(conversation_id: str, command_id: str, data: bytes,
                     checkpoint_revision: str, *,
-                    validate: Callable[[], None]) -> dict[str, Any]:
+                    validate: Callable[[], None],
+                    name: str = "conversation-export.md") -> dict[str, Any]:
     """Create or recover the deterministic attachment for one export command."""
     from row_bot import threads
     from row_bot.application import attachments
 
     attachment_id = str(uuid5(UUID(command_id), "conversation-export"))
     reference = f"{conversation_id}:{attachment_id}"
-    name = "conversation-export.md"
     folder = Path(threads._MEDIA_DIR) / conversation_id
     content_path = folder / f"attachment_{attachment_id}.bin"
     metadata_path = folder / f"attachment_{attachment_id}.json"
@@ -301,9 +335,12 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
     payload = command.get("payload")
     plain_keys = {"title"} if action == "conversation.rename" else {"pinned"} if action == "conversation.pin" else set()
     expected_keys = plain_keys | {"checkpoint_revision", "action_digest"}
+    optional_keys = set()
     if action == "conversation.export":
         expected_keys.add("export_title")
-    if (type(payload) is not dict or set(payload) != expected_keys
+        optional_keys.add("export_format")
+    if (type(payload) is not dict or not expected_keys <= set(payload) <= expected_keys | optional_keys
+            or (payload.get("export_format") or "markdown") not in _EXPORT_FORMATS
             or type(command.get("expected_revision")) is not str
             or type(payload.get("checkpoint_revision")) is not str
             or type(payload.get("action_digest")) is not str):
@@ -311,7 +348,8 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
     fields = {name: deepcopy(payload[name]) for name in plain_keys}
 
     def frozen_review() -> dict[str, Any]:
-        reviewed_fields = ({"title": payload["export_title"]}
+        reviewed_fields = ({"title": payload["export_title"],
+                            **({"format": "pdf"} if payload.get("export_format") == "pdf" else {})}
                            if action == "conversation.export" else deepcopy(fields))
         if action == "conversation.export" and (type(payload["export_title"]) is not str
                 or len(payload["export_title"]) > 256 or "\x00" in payload["export_title"]):
@@ -324,14 +362,16 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
         return {"schema_version": 1, **intent, "action_digest": payload["action_digest"],
                 "summary": ({"conversation.rename": "Rename this conversation while retaining its history and resources.",
                              "conversation.pin": "Pin this conversation." if fields.get("pinned") else "Unpin this conversation.",
-                             "conversation.export": "Create a local Markdown copy of the saved user and assistant transcript."}[action]),
+                             "conversation.export": _export_summary(reviewed_fields)}[action]),
                 "disclosures": (["The export excludes system instructions and tool-internal messages. A local copy is retained with this conversation."]
                                 if action == "conversation.export" else [])}
 
     previous = admissions.read_command_metadata(owner_id, command_id)
     if previous is None:
+        review_fields = ({"format": "pdf"} if payload.get("export_format") == "pdf" else {}
+                         ) if action == "conversation.export" else fields
         review = review_conversation_action(service, conversation_id, action,
-                                            command["expected_revision"], fields, validate=validate)
+                                            command["expected_revision"], review_fields, validate=validate)
         if (review["checkpoint_revision"] != payload["checkpoint_revision"]
                 or review["action_digest"] != payload["action_digest"]
                 or action == "conversation.export" and review["fields"]["title"] != payload["export_title"]):
@@ -369,11 +409,11 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
             if str(exc) != "operation_uncertain":
                 raise _error(str(exc), exc.current_revision) from exc
         admitted_validate()
-        data = _export_markdown(conversation_id, str(review["fields"]["title"]),
-                                review["checkpoint_revision"], validate=admitted_validate)
+        data, name = _export_file(conversation_id, review["fields"], review["checkpoint_revision"],
+                                  validate=admitted_validate)
         try:
             exported = _publish_export(conversation_id, command_id, data, review["checkpoint_revision"],
-                                       validate=admitted_validate)
+                                       validate=admitted_validate, name=name)
         except Exception:
             return {"command_id": command_id, "status": "partial", "action": action,
                     "code": "conversation_export_unconfirmed"}
@@ -381,8 +421,8 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
         admissions.complete_command(owner_id, key, result)
         return _public_receipt(result)
     validate_review(review)
-    data = _export_markdown(conversation_id, str(review["fields"]["title"]),
-                            review["checkpoint_revision"], validate=validate)
+    data, name = _export_file(conversation_id, review["fields"], review["checkpoint_revision"],
+                              validate=validate)
     try:
         admissions.claim_command(owner_id, key, command, conversation_id, exclusive_target=True,
                                  initial_result={"command_id": command_id, "status": "accepted", "action": action})
@@ -391,7 +431,7 @@ def execute_conversation_action(service: Any, conversation_id: str, command: dic
     try:
         admitted_validate()
         exported = _publish_export(conversation_id, command_id, data, review["checkpoint_revision"],
-                                   validate=admitted_validate)
+                                   validate=admitted_validate, name=name)
         result = {"command_id": command_id, "status": "completed", "action": action, "export": exported}
     except Exception:
         result = {"command_id": command_id, "status": "partial", "action": action,

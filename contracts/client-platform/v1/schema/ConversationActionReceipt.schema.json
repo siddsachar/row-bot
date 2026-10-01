@@ -50,7 +50,10 @@
           "type": "string"
         },
         "file_name": {
-          "const": "conversation-export.md",
+          "enum": [
+            "conversation-export.md",
+            "conversation-export.pdf"
+          ],
           "title": "File Name",
           "type": "string"
         },

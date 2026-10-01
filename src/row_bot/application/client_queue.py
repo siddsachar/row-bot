@@ -205,7 +205,14 @@ def change(service: Any, conversation_id: str, submission_id: str, expected_revi
             "revision": str(next_revision), "status": "completed"}
 
 
-def read_queue(service: Any, conversation_id: str, *, generation_id: str = "", cursor: str | None = None, limit: int = 100) -> ClientQueueView:
+def read_queue(service: Any, conversation_id: str, *, generation_id: str = "", cursor: str | None = None, limit: int = 100,
+               waiting: bool = False) -> ClientQueueView:
+    """Read queued inputs in admission order.
+
+    ``waiting`` lists only inputs that have not been sent or discarded yet, so
+    one page (at most ``_MAX_PENDING``) always holds all of them; without it the
+    full history pages through consumed and cancelled inputs as well.
+    """
     service._metadata(conversation_id)
     if type(limit) is not int or not 1 <= limit <= 256:
         raise admissions.AdmissionError("invalid_queue_page")
@@ -220,7 +227,8 @@ def read_queue(service: Any, conversation_id: str, *, generation_id: str = "", c
         except (ValueError, TypeError) as exc:
             raise admissions.AdmissionError("invalid_queue_cursor") from exc
     with admissions.transaction() as conn:
-        rows = [dict(row) for row in conn.execute("SELECT * FROM generation_passes WHERE conversation_id=? AND queue_state!='' AND admission_sequence>? ORDER BY admission_sequence LIMIT ?", (conversation_id, after, limit + 1))]
+        states = "queue_state IN ('preparing','queued','paused','dispatching')" if waiting else "queue_state!=''"
+        rows = [dict(row) for row in conn.execute(f"SELECT * FROM generation_passes WHERE conversation_id=? AND {states} AND admission_sequence>? ORDER BY admission_sequence LIMIT ?", (conversation_id, after, limit + 1))]
     _, values = _staged(conversation_id)
     messages = {str(message.id): str(message.content) for message in values.get("messages", [])}
     missing = {row["submission_id"] for row in rows[:limit] if row["submission_id"] not in messages and row["queue_state"] != "cancelled"}

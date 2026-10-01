@@ -21,12 +21,14 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ConversationView", "ConversationPage", "ConversationActionSnapshot", "ConversationActionReviewRequest",
     "ConversationActionReview", "ConversationActionCommand", "ConversationActionReceipt",
     "BrowserControlSnapshot", "BrowserPreview", "BrowserReviewRequest", "BrowserReview", "BrowserReceipt",
+    "ComputerUseSnapshot", "ComputerUsePreview", "ComputerUseCommand", "ComputerUseReceipt",
     "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
     "NativeBootstrapView", "NativeAttestationRequest", "NativeAttestationView",
     "NativeGrantRequest", "NativeRevocationView", "NativeSelectionCompleteRequest", "NativeSelectionView",
-    "NativeTerminalOpenRequest", "NativeTerminalView", "NativeTerminalInput", "NativeTerminalResize",
+    "NativeTerminalOpenRequest", "NativeTerminalExternalRequest", "NativeTerminalView", "NativeTerminalInput",
+    "NativeTerminalResize",
     "NativeTerminalFrame", "NativeTerminalOutput", "NativeTerminalChanged", "NativeTerminalClosed",
     "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ConversationComposer", "ConversationComposerQuery", "SlashCommandRead", "SlashCommandResult", "ResourceChoicePage",
     "DelegatedRun", "DelegatedActivityView",
@@ -43,22 +45,26 @@ MODELS = {name: getattr(schemas, name) for name in (
     "McpRuntimeState", "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpTestedCatalogPage", "McpCatalogRequest", "McpCatalogReview",
+    "McpChatState", "McpChatReviewRequest", "McpChatReview", "McpChatOutcome",
+    "AttentionProblem", "AttentionUpdate", "AttentionSnapshot", "PendingApproval", "PendingApprovalPage",
     "RuntimeInstallationSnapshot", "RuntimeInstallationReviewRequest", "RuntimeInstallationReview", "RuntimeInstallationReceipt",
     "DocumentQueuePage", "DocumentControlReviewRequest", "DocumentControlReview", "DocumentControlReceipt",
     "DocumentUploadReviewRequest", "DocumentUploadReview", "DocumentUploadReceipt",
     "DocumentProcessingReviewRequest", "DocumentProcessingReview", "DocumentProcessingReceipt",
     "WikiStatus", "WikiArticlePage", "WikiArticle", "WikiReviewRequest", "WikiReview", "WikiReceipt", "WikiOpenFolderResult",
-    "ChannelPage", "ChannelActionRequest", "ChannelActionReview", "ChannelReceipt",
+    "ChannelPage", "ChannelActionRequest", "ChannelActionReview", "ChannelReceipt", "ChannelLink",
     "PluginCatalogPage", "PluginDetail", "PluginReviewRequest", "PluginReview", "PluginReceipt",
     "SkillPage", "SkillDetail", "SkillProposalPage", "SkillReviewRequest", "SkillReview", "SkillReceipt",
     "GoalPage", "GoalDetail", "GoalCommandPayload", "GoalReview", "GoalReceipt",
     "ProfilePage", "ProfileDetail", "ProfileCommandPayload", "ProfileReview", "ProfileReceipt",
     "DeveloperRepositorySnapshot", "DeveloperRepositoryReviewRequest", "DeveloperRepositoryReview", "DeveloperRepositoryReceipt",
     "CustomToolSnapshot", "CustomToolCommand", "CustomToolReceipt",
+    "CustomToolLibrary", "CustomToolLibraryCommand", "CustomToolLibraryReceipt",
+    "DataBackupState", "DataBackupCommand", "DataBackupReceipt", "DataRestoreReview",
     "InsightsSnapshot", "InsightCommand", "InsightReceipt",
     "PluginLifecycleReviewRequest", "PluginLifecycleReview", "PluginLifecycleCommand", "PluginLifecycleReceipt",
     "KnowledgeEditorState", "KnowledgeReviewRequest", "KnowledgeReview", "KnowledgeReceipt",
-    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
+    "KnowledgeGraphSnapshot", "MonitorSnapshot", "MonitorLogs", "SystemDiagnosis", "SystemDiagnosisSettings", "UpdateRelease", "UpdateSnapshot", "UpdateCommand", "UpdateReceipt", "UpdateInstallCommand", "UpdateInstallStatus", "MigrationScanRequest", "MigrationSource", "MigrationSources", "MigrationPreviewSummary", "MigrationPreviewItem", "MigrationPreview", "MigrationApplyReviewRequest", "MigrationApplyReview", "MigrationApplyCommand", "MigrationFailedItem", "MigrationApplyReceipt", "OnboardingSnapshot", "OnboardingCommand", "OnboardingReceipt", "LocalRuntimeSnapshot", "ModelTestResult", "ProviderKeyCheckRequest", "ProviderKeyCheck", "DreamRunRequest", "DreamRunReview", "DreamRunCommand", "DreamRunReceipt",
     "KnowledgeMaintenanceRequest", "KnowledgeMaintenanceReview", "KnowledgeMaintenanceCommand", "KnowledgeMaintenanceReceipt",
     "KnowledgeRelationPage", "KnowledgeRelationReviewRequest", "KnowledgeRelationReview", "KnowledgeRelationReceipt",
     "SubscriptionAccountsSnapshot", "SubscriptionFlowSnapshot", "SubscriptionActionReview",
@@ -75,16 +81,20 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ArtifactDocumentImportPayload", "ArtifactDocumentImportPreviewRequest", "ArtifactDocumentImportPage", "ArtifactDocumentImportPreview", "ArtifactNotesGeneratePayload",
     "ArtifactDesignOutcome", "ArtifactPresetReviewRequest", "ArtifactPresetReview", "ArtifactReviewDraftRequest", "ArtifactReviewDraft",
     "ArtifactShareOptions", "ArtifactShareReview", "ArtifactShareOutcome",
-    "ArtifactShareChannels",
+    "ArtifactShareChannels", "ArtifactPublication",
     "TaskRunReview", "TaskRunSummary", "TaskRunPage", "TaskRunResult", "TaskApprovalReview",
-    "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport", "WorkspaceEditableFile", "WorkspaceEditResult",
+    "TaskApprovalPage", "TaskApprovalResult", "TaskStopResult", "ArtifactExport",
+    "ArtifactSavedExport", "ArtifactExportReveal", "ArtifactExportRevealResult",
+    "ExportSaved", "ExportRevealRequest",
+    "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion", "WorkspaceEditableFile", "WorkspaceEditResult",
     "WorkspaceImportPage", "WorkspaceImportPatch", "WorkspaceImportReviewRequest", "WorkspaceImportReview", "WorkspaceImportResult",
     "WorkspaceUndoReviewRequest", "WorkspaceUndoReview", "WorkspaceUndoResult",
     "TaskGraphFields", "TaskGraphStepEdit", "TaskGraphSnapshot",
     "DictationCapability", "DictationStart", "DictationIdentity", "DictationHandle", "DictationSnapshot", "DictationResult",
     "TalkStart", "TalkSnapshot", "TalkResult", "TalkOutputRequest", "RealtimeSnapshot", "RealtimeStart", "RealtimeEvent", "RealtimeEventRequest", "RealtimeEventResult", "DefaultModelSnapshot", "VoiceRunView",
-    "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
-    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView")}
+    "FolderGrantClaim", "FolderGrantView", "DeckSetupOptions", "ArtifactSetupOptions", "ArtifactPreview", "ArtifactEditingState", "ArtifactLifecycleState", "WorkspaceInspector", "WorkspaceChanges",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView",
+    "Notice", "NoticePage", "NoticeFrame")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
 # drives OpenAPI and is checked against the actual router in the contract tests.
@@ -101,6 +111,9 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/browser/review", "BrowserReviewRequest", "BrowserReview"),
     ("get", "/conversations/{conversation_id}/browser/commands/{command_id}", None, "BrowserReceipt"),
     ("post", "/conversations/{conversation_id}/browser/commands", "Command", "BrowserReceipt"),
+    ("get", "/conversations/{conversation_id}/computer", None, "ComputerUseSnapshot"),
+    ("get", "/conversations/{conversation_id}/computer/preview", None, "ComputerUsePreview"),
+    ("post", "/conversations/{conversation_id}/computer/commands", "ComputerUseCommand", "ComputerUseReceipt"),
     ("get", "/conversations/{conversation_id}/transcript", None, "TranscriptPage"),
     ("get", "/conversations/{conversation_id}/content/{message_id}", None, "LazyContent"),
     ("get", "/conversations/{conversation_id}/text/{message_id}", None, "LazyContent"),
@@ -111,6 +124,7 @@ OPERATIONS = (
     ("post", "/approvals/{approval_id}/commands", "Command", "CommandReceipt"),
     ("post", "/conversations/{conversation_id}/subscriptions", None, "SubscriptionView"),
     ("get", "/events/poll", None, "EventPage"),
+    ("get", "/notices", None, "NoticePage"),
     ("get", "/events", None, "Event"),
     ("put", "/subscriptions/{subscription_id}/ack", "Acknowledgement", "Acknowledged"),
     ("delete", "/subscriptions/{subscription_id}", None, "Unsubscribed"),
@@ -149,13 +163,18 @@ OPERATIONS = (
     ("get", "/knowledge/entities/editor", None, "KnowledgeEditorState"),
     ("get", "/knowledge/graph", None, "KnowledgeGraphSnapshot"),
     ("get", "/monitor", None, "MonitorSnapshot"),
+    ("get", "/monitor/attention", None, "AttentionSnapshot"),
+    ("get", "/monitor/approvals", None, "PendingApprovalPage"),
     ("get", "/monitor/logs", None, "MonitorLogs"),
     ("post", "/monitor/diagnosis", None, "SystemDiagnosis"),
+    ("get", "/monitor/diagnosis", None, "SystemDiagnosis"),
+    ("post", "/monitor/diagnosis/settings", "SystemDiagnosisSettings", "SystemDiagnosis"),
     ("get", "/system/updates", None, "UpdateSnapshot"),
     ("post", "/system/updates/commands", "UpdateCommand", "UpdateReceipt"),
     ("post", "/system/updates/installs", "UpdateInstallCommand", "UpdateInstallStatus"),
     ("get", "/system/updates/installs/{command_id}", None, "UpdateInstallStatus"),
     ("post", "/system/updates/installs/{command_id}/cancel", None, "UpdateInstallStatus"),
+    ("get", "/system/migration/sources", None, "MigrationSources"),
     ("post", "/system/migration/scan", "MigrationScanRequest", "MigrationPreview"),
     ("post", "/settings/skills/hub/search", "SkillHubSearchRequest", "SkillHubSearchResult"),
     ("post", "/settings/skills/hub/preview", "SkillHubPreviewRequest", "SkillHubPreview"),
@@ -176,6 +195,9 @@ OPERATIONS = (
     ("get", "/system/migration/apply/{command_id}", None, "MigrationApplyReceipt"),
     ("get", "/setup/onboarding", None, "OnboardingSnapshot"),
     ("post", "/setup/onboarding/commands", "OnboardingCommand", "OnboardingReceipt"),
+    ("get", "/setup/local-runtime", None, "LocalRuntimeSnapshot"),
+    ("post", "/setup/model-test", None, "ModelTestResult"),
+    ("post", "/setup/provider-key/check", "ProviderKeyCheckRequest", "ProviderKeyCheck"),
     ("post", "/monitor/dream/review", "DreamRunRequest", "DreamRunReview"),
     ("get", "/monitor/dream/commands/{command_id}", None, "DreamRunReceipt"),
     ("post", "/monitor/dream/commands", "DreamRunCommand", "DreamRunReceipt"),
@@ -214,6 +236,7 @@ OPERATIONS = (
     ("get", "/settings/channels", None, "ChannelPage"),
     ("post", "/settings/channels/review", "ChannelActionRequest", "ChannelActionReview"),
     ("get", "/settings/channels/{channel_id}/commands/{command_id}", None, "ChannelReceipt"),
+    ("get", "/settings/channels/{channel_id}/link", None, "ChannelLink"),
     ("post", "/settings/channels/commands", "Command", "ChannelReceipt"),
     ("get", "/settings/plugins", None, "PluginCatalogPage"),
     ("get", "/settings/plugins/{plugin_id}", None, "PluginDetail"),
@@ -243,6 +266,11 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools", None, "CustomToolSnapshot"),
     ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands/{command_id}", None, "CustomToolReceipt"),
     ("post", "/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools/commands", "CustomToolCommand", "CustomToolReceipt"),
+    ("get", "/custom-tools", None, "CustomToolLibrary"),
+    ("get", "/custom-tools/commands/{command_id}", None, "CustomToolLibraryReceipt"),
+    ("post", "/custom-tools/commands", "CustomToolLibraryCommand", "CustomToolLibraryReceipt"),
+    ("get", "/data/backup", None, "DataBackupState"),
+    ("post", "/data/backup/commands", "DataBackupCommand", "DataBackupReceipt"),
     ("get", "/insights", None, "InsightsSnapshot"),
     ("get", "/insights/commands/{command_id}", None, "InsightReceipt"),
     ("post", "/insights/commands", "InsightCommand", "InsightReceipt"),
@@ -250,6 +278,8 @@ OPERATIONS = (
     ("get", "/settings/plugins/lifecycle/commands/{command_id}", None, "PluginLifecycleReceipt"),
     ("post", "/settings/plugins/lifecycle/commands", "PluginLifecycleCommand", "PluginLifecycleReceipt"),
     ("post", "/settings/mcp/policy/review", "McpPolicyRequest", "McpPolicyReview"),
+    ("get", "/settings/mcp/chat", None, "McpChatState"),
+    ("post", "/settings/mcp/chat/review", "McpChatReviewRequest", "McpChatReview"),
     ("post", "/settings/mcp/runtime/review", "McpRuntimeReviewRequest", "McpRuntimeReview"),
     ("post", "/settings/mcp/configuration/review", "McpConfigurationReviewRequest", "McpConfigurationReview"),
     ("get", "/settings/providers/{provider_id}/credential", None, "ProviderSettingsSnapshot"),
@@ -295,6 +325,7 @@ OPERATIONS = (
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/document-import-preview", "ArtifactDocumentImportPreviewRequest", "ArtifactDocumentImportPreview"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/lifecycle", None, "ArtifactLifecycleState"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/design-controls", None, "DesignControlsState"),
+    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/assets/{asset_id}/thumbnail", None, "bytes"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/design-review", None, "DesignReviewState"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/presentation", None, "DesignPresentationState"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/preset-review", "ArtifactPresetReviewRequest", "ArtifactPresetReview"),
@@ -323,11 +354,15 @@ OPERATIONS = (
     ("post", "/tasks/{task_id}/settings-review", "TaskSettingsFields", "TaskSettingsSnapshot"),
     ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/sharing-review", "ArtifactShareOptions", "ArtifactShareReview"),
     ("get", "/sharing/channels", None, "ArtifactShareChannels"),
+    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/publication", None, "ArtifactPublication"),
     ("get", "/tasks/{task_id}/run-review", None, "TaskRunReview"),
     ("get", "/tasks/{task_id}/runs", None, "TaskRunPage"),
     ("get", "/tasks/{task_id}/runs/{run_id}", None, "TaskRunSummary"),
     ("get", "/tasks/{task_id}/runs/{run_id}/approvals", None, "TaskApprovalPage"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}", None, "ArtifactExport"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save", None, "ArtifactSavedExport"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion", "ArtifactBrandSuggestionRequest", "ArtifactBrandSuggestion"),
+    ("post", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal", "ArtifactExportReveal", "ArtifactExportRevealResult"),
     ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/download", None, "bytes"),
     ("post", "/tasks/commands", "Command", "CommandReceipt"),
     ("get", "/knowledge/entities", None, "EntitySummaryPage"),
@@ -359,13 +394,17 @@ OPERATIONS = (
     ("post", "/uploads/{upload_id}/complete", "UploadCompletion", "AttachmentView"),
     ("delete", "/uploads/{upload_id}", None, "UploadCancelled"),
     ("get", "/attachments/{reference}/metadata", None, "AttachmentView"),
+    ("get", "/attachments/{reference}/thumbnail", None, "bytes"),
     ("get", "/attachments/{reference}", None, "bytes"),
+    ("post", "/attachments/{reference}/save", None, "ExportSaved"),
+    ("post", "/exports/reveal", "ExportRevealRequest", "ArtifactExportRevealResult"),
     ("get", "/native/bootstrap", None, "NativeBootstrapView"),
     ("post", "/native/attest", "NativeAttestationRequest", "NativeAttestationView"),
     ("post", "/native/authorize", "NativeGrantRequest", "NativeTerminalChanged"),
     ("post", "/native/revoke", "NativeGrantRequest", "NativeRevocationView"),
     ("post", "/native/selections/complete", "NativeSelectionCompleteRequest", "NativeSelectionView"),
     ("post", "/native/terminal/open", "NativeTerminalOpenRequest", "NativeTerminalView"),
+    ("post", "/native/terminal/external", "NativeTerminalExternalRequest", "NativeTerminalChanged"),
     ("post", "/native/attachments/{reference}", "NativeGrantRequest", "bytes"),
     ("get", "/native/terminals/{terminal_id}", None, "NativeTerminalOutput"),
     ("post", "/native/terminals/{terminal_id}/input", "NativeTerminalInput", "NativeTerminalChanged"),
@@ -385,6 +424,7 @@ OPERATIONS = (
     ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
     ("post", "/resources/commands", "Command", "CommandReceipt"),
     ("post", "/resources/folder-selection", None, "FolderGrantView"),
+    ("post", "/resources/folder-selection/claim", "FolderGrantClaim", "FolderGrantView"),
     ("get", "/resources/setup/deck", None, "DeckSetupOptions"),
     ("get", "/resources/setup/artifact/{mode}", None, "ArtifactSetupOptions"),
     ("get", "/resources/library/{kind}", None, "ResourceChoicePage"),
@@ -505,22 +545,27 @@ const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number;
 async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
   if (!proof) return;
   const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path);
-  const observation = path.startsWith('/events') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path);
+  // Following a computer-use session (about once a second) is observation.
+  const observation = path.startsWith('/events') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path)
+    || method === 'GET' && /^\/conversations\/[^/]+\/computer(?:\/preview)?(?:\?|$)/.test(path);
   const voiceEvent = /\/voice\/realtime\/[^/]+\/event$/.test(path);
   const eventType = body && typeof body === 'object' && 'event' in body && body.event && typeof body.event === 'object' && 'type' in body.event ? body.event.type : undefined;
   const type = body && typeof body === 'object' && 'type' in body ? body.type : undefined;
   const intent = body && typeof body === 'object' && 'payload' in body ? body.payload : body;
   const operation = intent && typeof intent === 'object' && 'operation' in intent ? intent.operation : undefined;
   const mcpCleanup = operation === 'disconnect' && (type === 'mcp.runtime.control' || path === '/settings/mcp/runtime/review');
-  const control = method === 'POST' && path.endsWith('/commands') && ['conversation.stop', 'approval.resolve', 'mcp.runtime.install.cancel', 'document.batch.pause', 'document.batch.cancel', 'document.job.cancel'].includes(String(type))
+  const control = method === 'POST' && path.endsWith('/commands') && ['conversation.stop', 'agent.stop', 'approval.resolve', 'mcp.runtime.install.cancel', 'document.batch.pause', 'document.batch.cancel', 'document.job.cancel'].includes(String(type))
+    || method === 'POST' && /^\/conversations\/[^/]+\/computer\/commands$/.test(path)
     || method === 'DELETE' && /^\/uploads\/[^/]+$/.test(path);
   // Draft autosaves, uploads and ordinary commands consume one server bucket.
   // Stop/approval/cancel and ACK retain their independent admission paths.
   if (control || mcpCleanup || type === 'provider.subscription.cancel' || type === 'buddy.cancel' || /\/settings\/providers\/subscriptions\/(?:starts|probes)\/[^/]+\/cancel$/.test(path) || method === 'DELETE' && path === '/settings/providers/subscriptions/flows' || /^\/subscriptions\/[^/]+\/ack$/.test(path) || /\/voice\/(?:talk|realtime)\/[^/]+\/(?:stop|heartbeat)$/.test(path)) return;
-  const lane = observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
+  // The desktop terminal sends each typed key and reads its echo (B248).
+  const terminal = method !== 'DELETE' && /^\/native\/terminals\/[^/?]+(?:\/(?:input|resize))?(?:\?|$)/.test(path);
+  const lane = terminal ? 'terminal' : observation || voiceEvent && eventType !== 'function_call_ready' && eventType !== 'consult_fallback_needed' ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
   let lanes = budgets.get(proof);
   if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
-  const [capacity, rate] = lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
+  const [capacity, rate] = lane === 'terminal' ? [200, 100] : lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
   let bucket = lanes.get(lane);
   if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0}; lanes.set(lane,bucket); }
   if (bucket.waiting >= 128) throw {code:'rate_limited'};
@@ -593,6 +638,9 @@ export const getDelegatedRun = (base: string, proof: SessionProof, conversation:
   jsonRequest(base, `/conversations/${id(conversation)}/delegated/${id(run)}`, 'DelegatedRun', proof, 'GET', undefined, undefined, signal);
 export const getQueue = (base: string, proof: SessionProof, conversation: string, generation_id?: string, cursor?: string, signal?: AbortSignal): Promise<ClientQueueView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/queue` + query({generation_id,cursor}), 'ClientQueueView', proof, 'GET', undefined, undefined, signal);
+/** Messages that have not been sent or discarded yet, oldest first, in one page. */
+export const getWaitingMessages = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ClientQueueView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/queue` + query({waiting:'true',limit:256}), 'ClientQueueView', proof, 'GET', undefined, undefined, signal);
 export const getSteering = (base: string, proof: SessionProof, conversation: string, generation_id?: string, cursor?: string, signal?: AbortSignal): Promise<ParentSteeringView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/steering` + query({generation_id,cursor}), 'ParentSteeringView', proof, 'GET', undefined, undefined, signal);
 export const saveDraft = (base: string, proof: SessionProof, conversation: string, body: DraftSave, signal?: AbortSignal): Promise<DraftView> =>
@@ -619,10 +667,18 @@ export const getKnowledgeGraph = (base: string, proof: SessionProof, limit = 250
   jsonRequest(base, '/knowledge/graph' + query({limit}), 'KnowledgeGraphSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getMonitorSnapshot = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MonitorSnapshot> =>
   jsonRequest(base, '/monitor', 'MonitorSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getAttention = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AttentionSnapshot> =>
+  jsonRequest(base, '/monitor/attention', 'AttentionSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getPendingApprovals = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<PendingApprovalPage> =>
+  jsonRequest(base, '/monitor/approvals', 'PendingApprovalPage', proof, 'GET', undefined, undefined, signal);
 export const getMonitorLogs = (base: string, proof: SessionProof, limit = 200, signal?: AbortSignal): Promise<MonitorLogs> =>
   jsonRequest(base, '/monitor/logs' + query({limit}), 'MonitorLogs', proof, 'GET', undefined, undefined, signal);
 export const runSystemDiagnosis = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SystemDiagnosis> =>
   jsonRequest(base, '/monitor/diagnosis', 'SystemDiagnosis', proof, 'POST', undefined, undefined, signal);
+export const getSystemDiagnosis = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<SystemDiagnosis> =>
+  jsonRequest(base, '/monitor/diagnosis', 'SystemDiagnosis', proof, 'GET', undefined, undefined, signal);
+export const saveSystemDiagnosisSettings = (base: string, proof: SessionProof, body: SystemDiagnosisSettings, signal?: AbortSignal): Promise<SystemDiagnosis> =>
+  jsonRequest(base, '/monitor/diagnosis/settings', 'SystemDiagnosis', proof, 'POST', validateWire('SystemDiagnosisSettings', body), undefined, signal);
 export const getUpdates = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<UpdateSnapshot> =>
   jsonRequest(base, '/system/updates', 'UpdateSnapshot', proof, 'GET', undefined, undefined, signal);
 export const sendUpdateCommand = (base: string, proof: SessionProof, command: UpdateCommand, signal?: AbortSignal): Promise<UpdateReceipt> =>
@@ -635,6 +691,8 @@ export const cancelUpdateInstall = (base: string, proof: SessionProof, command: 
   jsonRequest(base, `/system/updates/installs/${id(command)}/cancel`, 'UpdateInstallStatus', proof, 'POST', undefined, undefined, signal);
 export const scanMigration = (base: string, proof: SessionProof, body: MigrationScanRequest, signal?: AbortSignal): Promise<MigrationPreview> =>
   jsonRequest(base, '/system/migration/scan', 'MigrationPreview', proof, 'POST', validateWire('MigrationScanRequest', body), undefined, signal);
+export const getMigrationSources = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<MigrationSources> =>
+  jsonRequest(base, '/system/migration/sources', 'MigrationSources', proof, 'GET', undefined, undefined, signal);
 export const searchSkillHub = (base: string, proof: SessionProof, body: SkillHubSearchRequest, signal?: AbortSignal): Promise<SkillHubSearchResult> =>
   jsonRequest(base, '/settings/skills/hub/search', 'SkillHubSearchResult', proof, 'POST', validateWire('SkillHubSearchRequest', body), undefined, signal);
 export const previewSkillHub = (base: string, proof: SessionProof, body: SkillHubPreviewRequest, signal?: AbortSignal): Promise<SkillHubPreview> =>
@@ -673,6 +731,12 @@ export const getOnboarding = (base: string, proof: SessionProof, signal?: AbortS
   jsonRequest(base, '/setup/onboarding', 'OnboardingSnapshot', proof, 'GET', undefined, undefined, signal);
 export const sendOnboardingCommand = (base: string, proof: SessionProof, command: OnboardingCommand, signal?: AbortSignal): Promise<OnboardingReceipt> =>
   jsonRequest(base, '/setup/onboarding/commands', 'OnboardingReceipt', proof, 'POST', validateWire('OnboardingCommand', command), command.command_id, signal);
+export const getLocalRuntime = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<LocalRuntimeSnapshot> =>
+  jsonRequest(base, '/setup/local-runtime', 'LocalRuntimeSnapshot', proof, 'GET', undefined, undefined, signal);
+export const testChosenModel = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<ModelTestResult> =>
+  jsonRequest(base, '/setup/model-test', 'ModelTestResult', proof, 'POST', undefined, undefined, signal);
+export const checkProviderKey = (base: string, proof: SessionProof, body: ProviderKeyCheckRequest, signal?: AbortSignal): Promise<ProviderKeyCheck> =>
+  jsonRequest(base, '/setup/provider-key/check', 'ProviderKeyCheck', proof, 'POST', validateWire('ProviderKeyCheckRequest', body), undefined, signal);
 export const reviewDreamRun = (base: string, proof: SessionProof, body: DreamRunRequest, signal?: AbortSignal): Promise<DreamRunReview> =>
   jsonRequest(base, '/monitor/dream/review', 'DreamRunReview', proof, 'POST', validateWire('DreamRunRequest', body), undefined, signal);
 export const getDreamRunReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<DreamRunReceipt> =>
@@ -740,6 +804,8 @@ export async function downloadTaskWebhook(base: string, proof: SessionProof, tas
 }
 export const prepareArtifactShare = (base: string, proof: SessionProof, conversation: string, binding: string, options: ArtifactShareOptions, signal?: AbortSignal): Promise<ArtifactShareReview> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/sharing-review`, 'ArtifactShareReview', proof, 'POST', options, undefined, signal);
+export const getArtifactPublication = (base: string, proof: SessionProof, conversation: string, binding: string, signal?: AbortSignal): Promise<ArtifactPublication> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/publication`, 'ArtifactPublication', proof, 'GET', undefined, undefined, signal);
 export const getArtifactShareChannels = (base: string, proof: SessionProof, cursor?: string, signal?: AbortSignal): Promise<ArtifactShareChannels> =>
   jsonRequest(base, `/sharing/channels${cursor ? '?cursor=' + encodeURIComponent(cursor) : ''}`, 'ArtifactShareChannels', proof, 'GET', undefined, undefined, signal);
 export const getTaskRunReview = (base: string, proof: SessionProof, task: string, signal?: AbortSignal): Promise<TaskRunReview> =>
@@ -804,6 +870,8 @@ export const refreshModelCameras = (base: string, proof: SessionProof, signal?: 
   jsonRequest(base, '/settings/models/cameras/refresh', 'ModelCameraList', proof, 'POST', undefined, undefined, signal);
 export const pickFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<FolderGrantView> =>
   jsonRequest(base, '/resources/folder-selection', 'FolderGrantView', proof, 'POST', undefined, undefined, signal);
+export const claimFolder = (base: string, proof: SessionProof, body: FolderGrantClaim, signal?: AbortSignal): Promise<FolderGrantView> =>
+  jsonRequest(base, '/resources/folder-selection/claim', 'FolderGrantView', proof, 'POST', validateWire('FolderGrantClaim', body), undefined, signal);
 export const getWikiStatus = (base: string, proof: SessionProof, folder_grant?: string, signal?: AbortSignal): Promise<WikiStatus> =>
   jsonRequest(base, '/settings/wiki' + query({folder_grant}), 'WikiStatus', proof, 'GET', undefined, undefined, signal);
 export const openWikiFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<WikiOpenFolderResult> =>
@@ -826,6 +894,8 @@ export const getChannelReceipt = (base: string, proof: SessionProof, channel: st
   jsonRequest(base, `/settings/channels/${id(channel)}/commands/${id(command)}`, 'ChannelReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendChannel = (base: string, proof: SessionProof, command: Command, signal?: AbortSignal): Promise<ChannelReceipt> =>
   jsonRequest(base, '/settings/channels/commands', 'ChannelReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
+export const getChannelLink = (base: string, proof: SessionProof, channel: string, signal?: AbortSignal): Promise<ChannelLink> =>
+  jsonRequest(base, `/settings/channels/${id(channel)}/link`, 'ChannelLink', proof, 'GET', undefined, undefined, signal);
 export const getPlugins = (base: string, proof: SessionProof, search = '', source = 'all', cursor?: string, signal?: AbortSignal): Promise<PluginCatalogPage> =>
   jsonRequest(base, '/settings/plugins' + query({query:search,source,cursor}), 'PluginCatalogPage', proof, 'GET', undefined, undefined, signal);
 export const getPlugin = (base: string, proof: SessionProof, plugin: string, signal?: AbortSignal): Promise<PluginDetail> =>
@@ -882,6 +952,16 @@ export const getCustomToolReceipt = (base: string, proof: SessionProof, conversa
   jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools/commands/${id(command)}`, 'CustomToolReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendCustomToolCommand = (base: string, proof: SessionProof, conversation: string, binding: string, command: CustomToolCommand, signal?: AbortSignal): Promise<CustomToolReceipt> =>
   jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/custom-tools/commands`, 'CustomToolReceipt', proof, 'POST', validateWire('CustomToolCommand', command), command.command_id, signal);
+export const getCustomToolLibrary = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CustomToolLibrary> =>
+  jsonRequest(base, '/custom-tools', 'CustomToolLibrary', proof, 'GET', undefined, undefined, signal);
+export const getCustomToolLibraryReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<CustomToolLibraryReceipt> =>
+  jsonRequest(base, `/custom-tools/commands/${id(command)}`, 'CustomToolLibraryReceipt', proof, 'GET', undefined, undefined, signal);
+export const sendCustomToolLibraryCommand = (base: string, proof: SessionProof, command: CustomToolLibraryCommand, signal?: AbortSignal): Promise<CustomToolLibraryReceipt> =>
+  jsonRequest(base, '/custom-tools/commands', 'CustomToolLibraryReceipt', proof, 'POST', validateWire('CustomToolLibraryCommand', command), command.command_id, signal);
+export const getDataBackup = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DataBackupState> =>
+  jsonRequest(base, '/data/backup', 'DataBackupState', proof, 'GET', undefined, undefined, signal);
+export const sendDataBackupCommand = (base: string, proof: SessionProof, command: DataBackupCommand, signal?: AbortSignal): Promise<DataBackupReceipt> =>
+  jsonRequest(base, '/data/backup/commands', 'DataBackupReceipt', proof, 'POST', validateWire('DataBackupCommand', command), command.command_id, signal);
 export const getInsights = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<InsightsSnapshot> =>
   jsonRequest(base, '/insights', 'InsightsSnapshot', proof, 'GET', undefined, undefined, signal);
 export const getInsightReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<InsightReceipt> =>
@@ -912,6 +992,12 @@ export const getBrowserControlReceipt = (base: string, proof: SessionProof, conv
   jsonRequest(base, `/conversations/${id(conversation)}/browser/commands/${id(command)}`, 'BrowserReceipt', proof, 'GET', undefined, undefined, signal);
 export const sendBrowserControl = (base: string, proof: SessionProof, conversation: string, command: Command, signal?: AbortSignal): Promise<BrowserReceipt> =>
   jsonRequest(base, `/conversations/${id(conversation)}/browser/commands`, 'BrowserReceipt', proof, 'POST', validateWire('Command', command), command.command_id, signal);
+export const getComputerUse = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ComputerUseSnapshot> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/computer`, 'ComputerUseSnapshot', proof, 'GET', undefined, undefined, signal);
+export const getComputerUsePreview = (base: string, proof: SessionProof, conversation: string, revision: string, signal?: AbortSignal): Promise<ComputerUsePreview> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/computer/preview` + query({revision}), 'ComputerUsePreview', proof, 'GET', undefined, undefined, signal);
+export const sendComputerUseCommand = (base: string, proof: SessionProof, conversation: string, command: ComputerUseCommand, signal?: AbortSignal): Promise<ComputerUseReceipt> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/computer/commands`, 'ComputerUseReceipt', proof, 'POST', validateWire('ComputerUseCommand', command), command.command_id, signal);
 export type ArtifactAuthoring = { previewId: string; capability: string };
 export const getArtifactPreview = (base: string, proof: SessionProof, conversation: string, binding: string, page_id?: string, known_revision?: string, signal?: AbortSignal, authoring?: ArtifactAuthoring): Promise<ArtifactPreview> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/preview` + query({page_id,known_revision,...(authoring ? {authoring:'true',preview_id:authoring.previewId,capability:authoring.capability} : {})}), 'ArtifactPreview', proof, 'GET', undefined, undefined, signal);
@@ -928,6 +1014,15 @@ export const getArtifactStaticPreview = (base: string, proof: SessionProof, conv
 export type DesignControlOptions = {page_id?: string; element_id?: string; section?: DesignControlsState['section']; cursor?: string; limit?: number};
 export const getDesignControls = (base: string, proof: SessionProof, conversation: string, binding: string, options: DesignControlOptions, signal?: AbortSignal): Promise<DesignControlsState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/design-controls` + query(options), 'DesignControlsState', proof, 'GET', undefined, undefined, signal);
+export async function getDesignAssetThumbnail(base: string, proof: SessionProof, conversation: string, binding: string, asset: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/assets/${id(asset)}/thumbnail`, {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 2097152) throw new Error('protocol_incompatible');
+  return data;
+}
 export type DesignReviewOptions = {page_id?: string; scope?: DesignReviewState['scope']; cursor?: string; limit?: number};
 export const getDesignReview = (base: string, proof: SessionProof, conversation: string, binding: string, options: DesignReviewOptions, signal?: AbortSignal): Promise<DesignReviewState> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/design-review` + query(options), 'DesignReviewState', proof, 'GET', undefined, undefined, signal);
@@ -1033,6 +1128,10 @@ export const getMcpPolicy = (base: string, proof: SessionProof, server: string |
   jsonRequest(base, '/settings/mcp/policy' + query({server_id:server ?? undefined,query:search,cursor}), 'McpPolicyPage', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpPolicy = (base: string, proof: SessionProof, body: McpPolicyRequest, signal?: AbortSignal): Promise<McpPolicyReview> =>
   jsonRequest(base, '/settings/mcp/policy/review', 'McpPolicyReview', proof, 'POST', validateWire('McpPolicyRequest', body), undefined, signal);
+export const getMcpChat = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<McpChatState> =>
+  jsonRequest(base, '/settings/mcp/chat', 'McpChatState', proof, 'GET', undefined, undefined, signal);
+export const reviewMcpChat = (base: string, proof: SessionProof, body: McpChatReviewRequest, signal?: AbortSignal): Promise<McpChatReview> =>
+  jsonRequest(base, '/settings/mcp/chat/review', 'McpChatReview', proof, 'POST', validateWire('McpChatReviewRequest', body), undefined, signal);
 export const getMcpRuntime = (base: string, proof: SessionProof, server: string, signal?: AbortSignal): Promise<McpRuntimeState> =>
   jsonRequest(base, `/settings/mcp/runtime/${id(server)}`, 'McpRuntimeState', proof, 'GET', undefined, undefined, signal);
 export const reviewMcpRuntime = (base: string, proof: SessionProof, body: McpRuntimeReviewRequest, signal?: AbortSignal): Promise<McpRuntimeReview> =>
@@ -1165,8 +1264,11 @@ export const getResource = (base: string, proof: SessionProof, reference: string
   jsonRequest(base, `/resources/${id(reference)}`, 'ResourceView', proof, 'GET', undefined, undefined, signal);
 export const subscribe = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<SubscriptionView> =>
   jsonRequest(base, `/conversations/${id(conversation)}/subscriptions`, 'SubscriptionView', proof, 'POST', undefined, undefined, signal);
-export const poll = (base: string, proof: SessionProof, subscription_id: string, cursor: string, signal?: AbortSignal): Promise<EventPage> =>
-  jsonRequest(base, '/events/poll' + query({subscription_id,cursor}), 'EventPage', proof, 'GET', undefined, undefined, signal);
+export type NoticePosition = {after: number; epoch: string};
+export const poll = (base: string, proof: SessionProof, subscription_id: string, cursor: string, signal?: AbortSignal, notices?: NoticePosition): Promise<EventPage> =>
+  jsonRequest(base, '/events/poll' + query({subscription_id,cursor,notices_after:notices?.after,notices_epoch:notices?.epoch}), 'EventPage', proof, 'GET', undefined, undefined, signal);
+export const getNotices = (base: string, proof: SessionProof, notices?: NoticePosition, signal?: AbortSignal): Promise<NoticePage> =>
+  jsonRequest(base, '/notices' + query({after:notices?.after,epoch:notices?.epoch}), 'NoticePage', proof, 'GET', undefined, undefined, signal);
 export const acknowledge = (base: string, proof: SessionProof, subscription: string, cursor: string, signal?: AbortSignal): Promise<Acknowledged> =>
   jsonRequest(base, `/subscriptions/${id(subscription)}/ack`, 'Acknowledged', proof, 'PUT', {cursor}, undefined, signal);
 export const unsubscribe = (base: string, proof: SessionProof, subscription: string, signal?: AbortSignal, keepalive = false): Promise<Unsubscribed> =>
@@ -1201,8 +1303,21 @@ export async function readAttachment(base: string, proof: SessionProof, referenc
   if (data.size > 26214400) throw new Error('protocol_incompatible');
   return data;
 }
+export async function readAttachmentThumbnail(base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/attachments/${id(reference)}/thumbnail`, {
+    credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 262144) throw new Error('protocol_incompatible');
+  return data;
+}
 export const getAttachmentMetadata = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<AttachmentView> =>
   jsonRequest(base, `/attachments/${id(reference)}/metadata`, 'AttachmentView', proof, 'GET', undefined, undefined, signal);
+export const saveAttachmentExport = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<ExportSaved> =>
+  jsonRequest(base, `/attachments/${id(reference)}/save`, 'ExportSaved', proof, 'POST', {}, undefined, signal);
+export const revealExport = (base: string, proof: SessionProof, body: ExportRevealRequest, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
+  jsonRequest(base, `/exports/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
 export const readNativeTerminal = (base: string, proof: SessionProof, terminal: string, cursor = 0, maxBytes = 65536, signal?: AbortSignal): Promise<NativeTerminalOutput> =>
   jsonRequest(base, `/native/terminals/${id(terminal)}` + query({cursor,max_bytes:maxBytes}), 'NativeTerminalOutput', proof, 'GET', undefined, undefined, signal);
 export const writeNativeTerminal = (base: string, proof: SessionProof, terminal: string, body: NativeTerminalInput, signal?: AbortSignal): Promise<NativeTerminalChanged> =>
@@ -1213,6 +1328,12 @@ export const disconnectNativeTerminal = (base: string, proof: SessionProof, term
   jsonRequest(base, `/native/terminals/${id(terminal)}`, 'NativeTerminalClosed', proof, 'DELETE', undefined, undefined, signal);
 export const getArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactExport> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}`, 'ArtifactExport', proof, 'GET', undefined, undefined, signal);
+export const suggestArtifactBrand = (base: string, proof: SessionProof, conversation: string, binding: string, body: ArtifactBrandSuggestionRequest, signal?: AbortSignal): Promise<ArtifactBrandSuggestion> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/brand-suggestion`, 'ArtifactBrandSuggestion', proof, 'POST', body, undefined, signal);
+export const saveArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, signal?: AbortSignal): Promise<ArtifactSavedExport> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
+export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
 export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, signal?: AbortSignal): Promise<Blob> {
   validateWire<ArtifactExport>('ArtifactExport', descriptor);
   const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(descriptor.export_id)}/download`, {
@@ -1251,9 +1372,9 @@ export async function downloadArtifactExport(base: string, proof: SessionProof, 
   return blob;
 }
 export async function* observeEvents(base: string, proof: SessionProof, subscription_id: string,
-  cursor: string, signal?: AbortSignal): AsyncGenerator<EventRecord | StreamReset> {
+  cursor: string, signal?: AbortSignal, notices?: NoticePosition): AsyncGenerator<EventRecord | StreamReset | {notice: NoticeFrame}> {
   signal?.throwIfAborted();
-  const response = await fetch(`${base}/api/v1/events` + query({subscription_id,cursor}), {
+  const response = await fetch(`${base}/api/v1/events` + query({subscription_id,cursor,notices_after:notices?.after,notices_epoch:notices?.epoch}), {
     credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
   });
   if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
@@ -1276,6 +1397,9 @@ export async function* observeEvents(base: string, proof: SessionProof, subscrip
         if (fields.event === 'snapshot_required') {
           yield validateWire<StreamReset>('StreamReset', JSON.parse(fields.data)); return;
         }
+        if (fields.event === 'notice') {
+          yield {notice: validateWire<NoticeFrame>('NoticeFrame', JSON.parse(fields.data))}; continue;
+        }
         if (fields.event !== 'domain') throw new Error('protocol_incompatible');
         const event = JSON.parse(fields.data);
         if (!isEvent(event) || !fields.id) throw new Error('protocol_incompatible');
@@ -1297,8 +1421,8 @@ export async function sendConversationCommand(baseUrl: string, conversationId: s
   const suffix = command.type === 'approval.resolve' ? `/approvals/${id(conversationId || '')}/commands`
     : command.type.startsWith('provider.') ? '/settings/providers/commands'
     : command.type.startsWith('mcp.') ? '/settings/mcp/commands'
-    : ['task.create', 'task.update', 'task.graph.update', 'task.settings.update', 'task.webhook.rotate', 'task.run', 'task.stop', 'task.approval'].includes(command.type) ? '/tasks/commands'
-    : conversationId === null && (command.type === 'resource.setup' || command.type === 'resource.continue') ? '/resources/commands'
+    : command.type.startsWith('task.') ? '/tasks/commands'
+    : conversationId === null && (command.type === 'resource.setup' || command.type === 'resource.continue' || command.type === 'resource.forget') ? '/resources/commands'
     : conversationId === null ? '/conversations/commands'
     : `/conversations/${encodeURIComponent(conversationId)}/commands`;
   return jsonRequest(baseUrl, suffix, 'CommandReceipt', proof, 'POST', command, idempotencyKey, signal);
@@ -1489,7 +1613,7 @@ def outputs() -> dict[Path, str]:
                     ("tier", False, {"type": "string", "enum": ["core", "semantic", "episodic", "resource"]}),
                 ]
         elif suffix == "/knowledge/graph":
-            query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 250})]
+            query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 5000})]
         elif suffix == "/monitor/logs":
             query_parameters = [("limit", False, {"type": "integer", "minimum": 1, "maximum": 200})]
         elif "/content/" in suffix:
@@ -1498,6 +1622,11 @@ def outputs() -> dict[Path, str]:
         elif suffix in {"/events", "/events/poll"}:
             query_parameters = [(name, True, {"type": "string", "maxLength": 2048})
                                 for name in ("subscription_id", "cursor")]
+            query_parameters += [("notices_after", False, {"type": "integer", "minimum": 0}),
+                                 ("notices_epoch", False, {"type": "string", "maxLength": 128})]
+        elif suffix == "/notices":
+            query_parameters = [("after", False, {"type": "integer", "minimum": 0}),
+                                ("epoch", False, {"type": "string", "maxLength": 128})]
         elif suffix.endswith("/chunks"):
             query_parameters = [("offset", True, {"type": "integer", "minimum": 0, "maximum": 26214400})]
         elif suffix == "/uploads":
@@ -1515,7 +1644,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/transcribe"):
                 parameters.append({"name": "X-Dictation-Utterance", "in": "header", "required": True,
                                    "schema": {"type": "string", "format": "uuid"}})
-        if request in {"Command", "DreamRunCommand", "UploadCompletion"} or suffix == "/uploads":
+        if request in {"Command", "DreamRunCommand", "UploadCompletion", "ComputerUseCommand"} or suffix == "/uploads":
             parameters.append({"name": "Idempotency-Key", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":
@@ -1539,7 +1668,7 @@ def outputs() -> dict[Path, str]:
             operation["requestBody"] = {"required": True, "content": {
                 "application/sdp" if suffix.endswith("/voice/realtime/{lease_id}/exchange") else "application/octet-stream" if request == "bytes" else "application/json": {"schema": request_schema}}}
         if suffix == "/events":
-            operation["description"] = "SSE domain data validates Event; snapshot_required data validates StreamReset. IDs are signed cursors."
+            operation["description"] = "SSE domain data validates Event; snapshot_required data validates StreamReset; notice data validates NoticeFrame. IDs are signed cursors; notice frames carry none."
         if suffix == "/documents/uploads/commands":
             operation["requestBody"] = {"required": True, "content": {
                 "application/vnd.row-bot.document-upload-v1": {"schema": {"type": "string", "format": "binary",
@@ -1554,6 +1683,13 @@ def outputs() -> dict[Path, str]:
     openapi = {"openapi": "3.1.0", "info": {"title": "Row-Bot client protocol", "version": "1.0"},
                "paths": paths}
     result[destination / "schema/openapi.json"] = json.dumps(openapi, indent=2, sort_keys=True) + "\n"
+    from row_bot.api.v1.routes import public_problem_codes
+
+    # Every code a Problem can carry, with its default HTTP status. The client
+    # error catalog test enumerates this list, so a new server code without a
+    # sentence and a fix fails the client check.
+    result[destination / "error-codes.json"] = json.dumps(
+        {"codes": public_problem_codes()}, indent=2, sort_keys=True) + "\n"
     return result
 
 

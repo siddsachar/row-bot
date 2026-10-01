@@ -53,6 +53,7 @@ def index(tmp_path, monkeypatch):
     return module, root, build, search
 
 
+@pytest.mark.slow
 def test_same_id_failed_manifest_publication_preserves_old_generation(index):
     module, root, build, search = index
     before = (root / "manifest.json").read_bytes()
@@ -69,6 +70,7 @@ def test_same_id_failed_manifest_publication_preserves_old_generation(index):
     assert module.index_health(index_root=root, legacy_root=root / "absent")["readable_documents"] == 1
 
 
+@pytest.mark.slow
 def test_reader_pinned_before_commit_finishes_old_generation(index, monkeypatch):
     module, root, build, search = index
     work, manifest = build("new")
@@ -112,6 +114,7 @@ def test_same_id_directory_rename_failure_preserves_old_generation(index, monkey
     assert work.exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("commit", [False, True])
 def test_restart_observes_only_committed_complete_generation(index, commit):
     module, root, build, search = index
@@ -149,6 +152,7 @@ print(json.dumps(sorted(doc.page_content for doc in facade.similarity_search('qu
     assert json.loads(result.stdout) == [f"{'new' if commit else 'old'}-{i}" for i in range(3)]
 
 
+@pytest.mark.slow
 def test_replacing_pre_generation_layout_keeps_snapshot_readable(index):
     module, root, build, search = index
     # Construct the supported older on-disk layout, independently of the writer.
@@ -183,6 +187,7 @@ def test_invalid_generation_cannot_escape_managed_document_directory(index, gene
     assert health["readable_documents"] == 0
 
 
+@pytest.mark.slow
 def test_failed_publish_retry_and_delete_retire_all_same_id_generations(index):
     module, root, build, search = index
     work, manifest = build("failed")
@@ -201,3 +206,25 @@ def test_failed_publish_retry_and_delete_retire_all_same_id_generations(index):
     retired = list((root / "retired").iterdir())
     assert len(retired) == 1
     assert len(list(retired[0].glob("generation-*"))) == 3
+
+
+@pytest.mark.slow
+def test_a_generation_move_refused_for_a_moment_by_windows_still_publishes(index, monkeypatch):
+    """Windows refuses a replace while a scan holds the files just written (seen in a full run)."""
+    module, root, build, search = index
+    replace = os.replace
+    refused = []
+
+    def busy_once(source, target, *args, **kwargs):
+        if Path(target).name.startswith("generation-") and not refused:
+            refused.append(target)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5
+            raise error
+        return replace(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "replace", busy_once)
+    work, manifest = build("new")
+    module.publish_document(work, manifest, index_root=root)
+    assert refused
+    assert search() == ["new-0", "new-1", "new-2"]

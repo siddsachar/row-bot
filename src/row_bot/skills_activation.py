@@ -149,6 +149,7 @@ def _load_store() -> dict:
 
 
 def _save_store(store: dict) -> None:
+    tmp_name = ""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(
@@ -157,8 +158,17 @@ def _save_store(store: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(store, fh, indent=2, ensure_ascii=False, sort_keys=True)
         os.replace(tmp_name, STATE_PATH)
+        tmp_name = ""
     except Exception:
         logger.debug("Failed to save Smart Skills activation state", exc_info=True)
+    finally:
+        # A failed replace (a Windows sharing violation) left the temp file
+        # behind in the data folder (B126).
+        if tmp_name:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
 
 
 def _thread_state(store: dict, thread_id: str) -> dict:
@@ -703,22 +713,6 @@ def parse_skill_command(text: str) -> SkillCommand | None:
     return SkillCommand("pin", name)
 
 
-def apply_skill_command(
-    thread_id: str,
-    text: str,
-    *,
-    current_text: str = "",
-    enabled_tool_names: Iterable[str] | None = None,
-) -> str | None:
-    result = apply_channel_skill_command(
-        thread_id,
-        text,
-        current_text=current_text,
-        enabled_tool_names=enabled_tool_names,
-    )
-    return result.text if result is not None else None
-
-
 def pin_skill(thread_id: str, skill_name: str) -> None:
     with _state_lock:
         store = _load_store()
@@ -813,15 +807,6 @@ def remove_auto_loaded_skill(thread_id: str, skill_id: str) -> bool:
         if changed:
             _save_store(store)
         return changed
-
-
-def clear_auto_loaded_skills(thread_id: str) -> None:
-    with _state_lock:
-        store = _load_store()
-        state = _thread_state(store, thread_id)
-        if state.get("auto_loaded"):
-            state["auto_loaded"] = []
-            _save_store(store)
 
 
 def delete_thread_activation_state(thread_id: str) -> None:

@@ -10,14 +10,87 @@ pytestmark = pytest.mark.subsystem
 
 
 class FakeSMSRequest:
-    def __init__(self, *, sender: str, body: str, sid: str = "sid-1") -> None:
-        self.headers = {"content-length": "0"}
+    def __init__(self, *, sender: str, body: str, sid: str = "sid-1", headers: dict | None = None) -> None:
+        self.headers = {"content-length": "0", **(headers or {})}
         self.client = SimpleNamespace(host="127.0.0.1")
         self.url = "https://example.invalid/sms"
         self._form = {"From": sender, "Body": body, "MessageSid": sid}
 
     async def form(self) -> dict[str, str]:
         return dict(self._form)
+
+
+async def _signed(_request, _client_ip):
+    return None
+
+
+def _running_sms(monkeypatch: pytest.MonkeyPatch, *, token: str = "fixture-auth-token"):
+    """The SMS channel running, with every step after the signature check recorded."""
+    from row_bot.channels import sms
+
+    reached: list[str] = []
+    monkeypatch.setattr(sms, "_running", True)
+    monkeypatch.setattr(sms, "_get_auth_token", lambda: token)
+    monkeypatch.setattr(sms, "_webhook_public_url", "https://row-bot.example.invalid")
+    monkeypatch.setattr(sms, "_is_authorised", lambda phone: reached.append(phone) or False)
+    monkeypatch.setattr(sms.ch_auth, "verify_pairing_code", lambda *_args: False)
+    sms._rate_limits.clear()
+    sms._seen_sids.clear()
+    return sms, reached
+
+
+def test_inbound_sms_without_a_saved_auth_token_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """B212: the route is reachable through the tunnel, so no token means no trust."""
+    sms, reached = _running_sms(monkeypatch, token="")
+
+    response = asyncio.run(sms._handle_inbound_sms(FakeSMSRequest(sender="+15551234567", body="hi")))
+
+    assert response.status_code == 403
+    assert reached == []
+
+
+def test_inbound_sms_is_refused_when_the_signature_check_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    sms, reached = _running_sms(monkeypatch)
+    monkeypatch.setitem(sys.modules, "twilio.request_validator", None)
+
+    response = asyncio.run(sms._handle_inbound_sms(FakeSMSRequest(sender="+15551234567", body="hi")))
+
+    assert response.status_code == 503
+    assert reached == []
+
+
+def test_inbound_sms_with_a_wrong_signature_is_refused_and_a_valid_one_is_handled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from twilio.request_validator import RequestValidator
+
+    sms, reached = _running_sms(monkeypatch)
+    form = {"From": "+15551234567", "Body": "hi", "MessageSid": "sid-signed"}
+    good = RequestValidator("fixture-auth-token").compute_signature("https://row-bot.example.invalid/sms", form)
+
+    wrong = asyncio.run(sms._handle_inbound_sms(
+        FakeSMSRequest(sender="+15551234567", body="hi", sid="sid-signed", headers={"X-Twilio-Signature": "forged"})))
+    assert wrong.status_code == 403
+    assert reached == []
+
+    signed = asyncio.run(sms._handle_inbound_sms(
+        FakeSMSRequest(sender="+15551234567", body="hi", sid="sid-signed", headers={"X-Twilio-Signature": good})))
+    assert signed.status_code == 200
+    assert reached == ["+15551234567"]
+
+
+def test_inbound_sms_with_a_malformed_length_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    sms, reached = _running_sms(monkeypatch)
+
+    response = asyncio.run(sms._handle_inbound_sms(
+        FakeSMSRequest(sender="+15551234567", body="hi", headers={"content-length": "twelve"})))
+
+    assert response.status_code == 400
+    assert reached == []
 
 
 def test_sms_capabilities_stay_final_text_only() -> None:
@@ -49,7 +122,7 @@ def test_sms_pending_interrupt_rejects_unrecognized_text_without_agent_run(
 
     replies: list[str] = []
 
-    monkeypatch.setenv("SMS_INSECURE_NO_SIGNATURE", "true")
+    monkeypatch.setattr(sms, "_refuse_unsigned", _signed)
     monkeypatch.setattr(sms, "_running", True)
     monkeypatch.setattr(sms, "_is_authorised", lambda _phone: True)
     monkeypatch.setattr(sms, "_send_reply", lambda _phone, text: replies.append(text))

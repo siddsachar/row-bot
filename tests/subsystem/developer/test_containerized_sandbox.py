@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 
@@ -10,7 +9,7 @@ from row_bot.process_cancellation import ProcessRunResult
 from tests.fixtures.developer import fake_workspace
 
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_official_container_marker_is_strict() -> None:
@@ -280,12 +279,3 @@ def test_approved_custom_tool_uses_explicit_local_container_path_without_probe(
     assert decisions[0].allowed is True
     assert "inside the Row-Bot application container" in decisions[0].reason
 
-
-def test_container_ui_copy_and_nested_runtime_actions_are_guarded() -> None:
-    source = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
-
-    assert "OFFICIAL_CONTAINER_SANDBOX_UNAVAILABLE" in source
-    assert "deliberately runs this command" in source
-    assert "rebuild_button.disable()" in source
-    assert "cleanup_button.disable()" in source
-    assert 'workspace_header["execution_mode_select"]' in source

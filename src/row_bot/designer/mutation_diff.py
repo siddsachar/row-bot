@@ -1,8 +1,7 @@
 """Phase 2.2.L — Agent-mutation diff helpers.
 
 Utilities for surfacing the most recent agent-initiated change to the
-editor as a reviewable diff. All helpers are pure and do not touch
-NiceGUI; the editor wires them into a dialog.
+editor as a reviewable diff. All helpers are pure and touch no UI.
 
 - ``compute_html_diff(before, after, *, context_lines=3)`` returns a
   unified diff string (or an empty string when the two inputs are

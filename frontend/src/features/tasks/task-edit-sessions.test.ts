@@ -203,3 +203,24 @@ it('enforces bounded draft state without truncating the retained content and abo
   expect(listeners.size).toBe(0);
   expect(entry.session.get('draft', '')).toBe('');
 });
+
+it('forgets every draft of a deleted workflow, even one still waiting (B122)', () => {
+  const { owner } = fixture();
+  const editor = owner.open('task', 'gone')!;
+  editor.session.get('fields', fields);
+  editor.session.set('fields', { ...fields, name: 'Unsaved' }, true);
+  const graph = owner.open('graph', 'gone')!;
+  graph.session.get('steps', []);
+  graph.session.set('steps', [{ id: 'stable' }], true);
+  const other = owner.open('task', 'kept')!;
+  other.session.get('fields', fields);
+  other.session.set('fields', { ...fields, name: 'Other' }, true);
+  owner.close();
+  expect(owner.getSnapshot().drafts).toHaveLength(3);
+  owner.forget('gone');
+  expect(owner.getSnapshot().drafts.map((draft) => draft.taskId)).toEqual([
+    'kept',
+  ]);
+  expect(editor.session.getMeta().active).toBe(false);
+  owner.dispose();
+});

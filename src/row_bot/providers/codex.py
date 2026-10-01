@@ -344,6 +344,8 @@ def _codex_model_cache_row(model_info: ModelInfo) -> dict[str, Any]:
         "display_name": model_info.display_name,
         "context_window": model_info.context_window,
         "input_modalities": sorted(model_info.input_modalities),
+        "output_modalities": sorted(model_info.output_modalities),
+        "tasks": sorted(model_info.tasks),
         "capabilities": sorted(model_info.capabilities),
         "tool_calling": model_info.tool_calling,
         "streaming": model_info.streaming,
@@ -573,13 +575,6 @@ def codex_reconnect_message(detail: str = "") -> str:
         "Open Settings -> Providers -> ChatGPT / Codex, reconnect, then try again."
         f"{suffix}"
     )
-
-
-def codex_runtime_block_message(*, refresh_if_needed: bool = True) -> str | None:
-    health = check_codex_token_health(refresh_if_needed=refresh_if_needed)
-    if health.runnable:
-        return None
-    return codex_reconnect_message(health.detail)
 
 
 def fetch_codex_model_infos(

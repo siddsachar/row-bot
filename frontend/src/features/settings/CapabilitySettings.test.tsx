@@ -4,14 +4,44 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import CapabilitySettings, {
   createCapabilitySettingsSession,
+  type CapabilitySettingsProps,
   type McpConfigurationPage,
   type McpConfigurationReceipt,
 } from './CapabilitySettings';
+import { createMcpConnections } from './McpConnections';
+import {
+  runtimeActions,
+  type McpRuntimeCommand,
+  type McpRuntimeReceipt,
+  type McpRuntimeState,
+} from './McpRuntimeControls';
 
+/** A row keeps one action by state; Details, Edit, Rename and Remove sit in its ⋯. */
+async function rowMenu(server: string) {
+  return screen.findByRole('button', { name: `More actions for ${server}` });
+}
+async function chooseRow(server: string, item: string) {
+  const more = await rowMenu(server);
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: item })),
+  );
+}
+/** Refresh sits in the page's ⋯. */
+async function choosePage(item: string | RegExp) {
+  const more = await screen.findByRole('button', { name: 'More MCP actions' });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: item })),
+  );
+}
+
+const serverId = 'b'.repeat(64);
 const page: McpConfigurationPage = {
   schema_version: 1,
   revision: 'a'.repeat(64),
@@ -21,7 +51,7 @@ const page: McpConfigurationPage = {
   next_cursor: null,
   items: [
     {
-      server_id: 'b'.repeat(64),
+      server_id: serverId,
       name: 'Synthetic',
       enabled: true,
       transport: 'stdio',
@@ -57,136 +87,283 @@ function options() {
     })),
   };
 }
-async function enterDraft() {
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+async function openAdd() {
+  await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
+  return screen.findByRole('dialog', { name: 'Add a server' });
+}
+async function enterDraft() {
+  await openAdd();
   fireEvent.change(screen.getByLabelText('Server name'), {
     target: { value: 'New synthetic' },
   });
-  fireEvent.change(screen.getByLabelText('New command'), {
+  fireEvent.change(screen.getByLabelText('Command'), {
     target: { value: 'synthetic-executable' },
   });
-  fireEvent.change(screen.getByLabelText('New arguments (JSON array)'), {
-    target: { value: '["one two", "--exact"]' },
+  fireEvent.change(screen.getByLabelText('Arguments (one per line)'), {
+    target: { value: 'one two\n--exact' },
   });
 }
 
 it('does passive reads only and keeps saved launch values write-only', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   expect(props.execute).not.toHaveBeenCalled();
   expect(props.review).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Edit Synthetic' }));
-  expect(screen.getByLabelText('New command')).toHaveValue('');
-  expect(screen.getByLabelText('Additional settings (JSON)')).toHaveValue('');
-  expect(screen.getByText(/Runtime status unknown/)).toBeVisible();
+  await chooseRow('Synthetic', 'Edit settings…');
+  const dialog = screen.getByRole('dialog', { name: 'Edit Synthetic' });
+  expect(within(dialog).getByLabelText('New command')).toHaveValue('');
+  expect(
+    within(dialog).getByLabelText('Additional settings (JSON)'),
+  ).toHaveValue('');
 });
 
-it('shows a missing per-server runtime and opens existing installation controls', async () => {
-  const controls = document.createElement('details');
-  controls.id = 'managed-mcp-runtimes';
-  controls.scrollIntoView = vi.fn();
-  document.body.appendChild(controls);
-  try {
-    const props = options();
-    props.load.mockResolvedValue({
-      ...page,
-      items: [
-        {
-          ...page.items[0],
-          requirements: [
-            {
-              id: 'node',
-              label: 'Node.js LTS',
-              available: false,
-              managed: true,
-              installable: true,
-              source: 'missing',
-            },
-          ],
-        },
-      ],
-    });
-    render(<CapabilitySettings {...props} />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Open Node.js LTS installer' }),
-    );
-    expect(controls.open).toBe(true);
-    expect(props.review).not.toHaveBeenCalled();
-    expect(props.execute).not.toHaveBeenCalled();
-  } finally {
-    controls.remove();
-  }
-});
-
-it('searches the MCP directory only on click and imports the chosen template disabled', async () => {
+it('says in the row when a runtime it needs is missing, without sending anything', async () => {
   const props = options();
-  const searchDirectory = vi.fn(async () => ({
-    schema_version: 1 as const,
-    mode: 'curated' as const,
+  props.load.mockResolvedValue({
+    ...page,
     items: [
       {
-        id: 'fixture',
-        name: 'Fixture',
-        description: '<img onerror=sentinel()>',
-        source: 'curated',
-        publisher: 'Fixture publisher',
-        transport: 'stdio',
-        risk_level: 'low',
-        requires_auth: false,
-        recommended: true,
-        import_json:
-          '{"mcpServers":{"fixture":{"command":"synthetic","enabled":false}}}',
+        ...page.items[0],
+        requirements: [
+          {
+            id: 'node',
+            label: 'Node.js LTS',
+            available: false,
+            managed: true,
+            installable: true,
+            source: 'missing',
+          },
+        ],
       },
     ],
-  }));
-  const { container } = render(
-    <CapabilitySettings {...props} searchDirectory={searchDirectory} />,
-  );
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
-  expect(searchDirectory).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByText('Browse MCP servers'));
-  fireEvent.change(screen.getByLabelText('Search MCP directory'), {
-    target: { value: 'fixture' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Search directories' }));
-  expect(await screen.findByText('<img onerror=sentinel()>')).toBeVisible();
-  expect(container.querySelector('img')).toBeNull();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Import Fixture disabled' }),
+  render(<CapabilitySettings {...props} />);
+  expect(
+    await screen.findByText('Needs Node.js LTS; install it under Runtimes'),
+  ).toBeVisible();
+  expect(screen.getByText('On this computer')).toBeVisible();
+  expect(props.review).not.toHaveBeenCalled();
+  expect(props.execute).not.toHaveBeenCalled();
+});
+
+function directory(
+  entries: Partial<
+    Awaited<
+      ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
+    >['items'][number]
+  >[],
+) {
+  return vi.fn(async () => ({
+    schema_version: 1 as const,
+    mode: 'curated' as const,
+    items: entries.map((entry, index) => ({
+      id: `entry-${index}`,
+      name: `Entry ${index}`,
+      description: 'Synthetic entry',
+      source: 'curated',
+      publisher: 'Synthetic',
+      transport: 'streamable_http',
+      risk_level: 'low',
+      requires_auth: false,
+      sign_in_required: false,
+      recommended: true,
+      import_json: `{"mcpServers":{"entry-${index}":{"url":"https://example.invalid/${index}"}}}`,
+      ...entry,
+    })),
+  }));
+}
+async function browse() {
+  const dialog = await openAdd();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Search' }));
+  return dialog;
+}
+
+it('searches the MCP directory only on request, adds the entry turned off and opens its details', async () => {
+  const props = options();
+  const onConnection = vi.fn();
+  const newServer = 'e'.repeat(64);
+  props.execute.mockImplementation(async (command) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    mcp_configuration: {
+      status: 'saved',
+      revision: 'd'.repeat(64),
+      server_ids: [newServer],
+    },
+  }));
+  const searchDirectory = directory([
+    { name: 'Fixture', description: '<img onerror=sentinel()>' },
+  ]);
+  render(
+    <CapabilitySettings
+      {...props}
+      searchDirectory={searchDirectory}
+      onConnection={onConnection}
+    />,
   );
+  const dialog = await openAdd();
+  // Browse is the first way to add; nothing is searched until asked.
+  expect(within(dialog).getByRole('radio', { name: 'Browse' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  expect(searchDirectory).not.toHaveBeenCalled();
+  fireEvent.change(
+    within(dialog).getByRole('searchbox', { name: 'Search the MCP directory' }),
+    { target: { value: 'fixture' } },
+  );
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Search' }));
+  expect(await screen.findByText('<img onerror=sentinel()>')).toBeVisible();
+  expect(dialog.querySelector('img')).toBeNull();
+  props.load.mockResolvedValue({
+    ...page,
+    total: 2,
+    items: [
+      ...page.items,
+      { ...page.items[0], server_id: newServer, name: 'fixture' },
+    ],
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add Fixture' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0].intent).toEqual({
     operation: 'import',
     import_json:
-      '{"mcpServers":{"fixture":{"command":"synthetic","enabled":false}}}',
+      '{"mcpServers":{"entry-0":{"url":"https://example.invalid/0"}}}',
   });
+  // Adding ends by opening the new server's details.
+  await waitFor(() =>
+    expect(onConnection).toHaveBeenCalledWith(newServer, 'fixture'),
+  );
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(
+    screen.getByText('Added. It stays turned off until you connect it.'),
+  ).toBeVisible();
 });
 
-it('confirms configured-server deletion, then removes the row after the original command succeeds', async () => {
+it('reads a changed revision again and retries the add once', async () => {
+  const props = options();
+  const searchDirectory = directory([{ name: 'Docs' }]);
+  props.review.mockRejectedValueOnce({
+    code: 'revision_conflict',
+    status: 409,
+  });
+  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
+  await browse();
+  props.load.mockResolvedValue({ ...page, revision: 'e'.repeat(64) });
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Docs' }));
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
+  expect(
+    props.review.mock.calls.map((call) => call[0].configuration_revision),
+  ).toEqual(['a'.repeat(64), 'e'.repeat(64)]);
+});
+
+it('says a failed add next to the entry that was clicked', async () => {
+  const props = options();
+  const searchDirectory = directory([{ name: 'Docs' }, { name: 'Other' }]);
+  props.review.mockResolvedValueOnce({
+    configuration_revision: 'different',
+    action_digest: 'c'.repeat(64),
+  });
+  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
+  await browse();
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Docs' }));
+  const entry = screen.getByRole('article', { name: 'Docs' });
+  expect(
+    await within(entry).findByText(/could not be validated/),
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole('article', { name: 'Other' })).queryByRole(
+      'status',
+    ),
+  ).toBeNull();
+  expect(props.execute).not.toHaveBeenCalled();
+});
+
+it('marks servers that sign in through the browser and offers no Add for them', async () => {
+  const props = options();
+  const searchDirectory = directory([
+    { name: 'Notion MCP', requires_auth: true, sign_in_required: true },
+    { name: 'Xquik MCP', requires_auth: true },
+  ]);
+  render(<CapabilitySettings {...props} searchDirectory={searchDirectory} />);
+  await browse();
+  const notion = await screen.findByRole('article', { name: 'Notion MCP' });
+  expect(
+    within(notion).getByText('Needs sign-in (not supported yet)'),
+  ).toBeVisible();
+  expect(within(notion).queryByRole('button', { name: /Add/ })).toBeNull();
+  const xquik = screen.getByRole('article', { name: 'Xquik MCP' });
+  expect(within(xquik).getByText(/needs a key/)).toBeVisible();
+  expect(
+    within(xquik).getByRole('button', { name: 'Add Xquik MCP' }),
+  ).toBeEnabled();
+});
+
+it('opens Add server on the way chosen, with its first field focused', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Delete Synthetic' }),
+  const dialog = await openAdd();
+  // Without a directory, Manual is first.
+  await waitFor(() =>
+    expect(within(dialog).getByLabelText('Server name')).toHaveFocus(),
   );
+  fireEvent.click(within(dialog).getByRole('radio', { name: 'Paste JSON' }));
+  expect(
+    within(dialog).getByLabelText('Server configuration (JSON)'),
+  ).toBeVisible();
+  expect(within(dialog).queryByLabelText('Server name')).toBeNull();
+  expect(
+    screen.getByText('Adding opens the server’s details next.'),
+  ).toBeVisible();
+});
+
+it('confirms removing a server, then drops its row once the original command succeeds', async () => {
+  const props = options();
+  const onRemoved = vi.fn();
+  render(<CapabilitySettings {...props} onRemoved={onRemoved} />);
+  await chooseRow('Synthetic', 'Remove server…');
   expect(props.review).not.toHaveBeenCalled();
-  expect(screen.getByText('Delete MCP server')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Delete server' }));
+  expect(
+    screen.getByRole('dialog', { name: 'Remove Synthetic?' }),
+  ).toBeVisible();
+  // After the removal the list is read again, now without the server.
+  props.load.mockResolvedValue({ ...page, items: [], total: 0 });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove server' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0].intent).toEqual({
     operation: 'delete',
-    server_id: 'b'.repeat(64),
+    server_id: serverId,
   });
-  expect(screen.queryByText('Synthetic')).not.toBeInTheDocument();
+  await waitFor(() => expect(onRemoved).toHaveBeenCalledWith(serverId));
+  expect(
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText('No servers yet')).toBeVisible();
+  expect(
+    screen.getByText('Add a server to give Row-Bot new tools.'),
+  ).toBeVisible();
 });
 
-it('opens path-free MCP diagnostics from the passive saved snapshot', async () => {
+it('opens the same Remove confirmation when the server details ask for it', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'MCP diagnostics' }),
-  );
+  await rowMenu('Synthetic');
+  act(() => props.session.confirmRemove(serverId, 'Synthetic'));
+  expect(
+    screen.getByRole('dialog', { name: 'Remove Synthetic?' }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(props.review).not.toHaveBeenCalled();
+});
+
+it('keeps path-free MCP diagnostics under Advanced', async () => {
+  const props = options();
+  render(<CapabilitySettings {...props} />);
+  await rowMenu('Synthetic');
+  fireEvent.click(screen.getByText('Advanced'));
   expect(
     screen.getByRole('region', { name: 'MCP diagnostics' }),
   ).toHaveTextContent(
@@ -196,18 +373,42 @@ it('opens path-free MCP diagnostics from the passive saved snapshot', async () =
   expect(props.execute).not.toHaveBeenCalled();
 });
 
-it('uses a compact owner-style server summary and keeps editors closed at rest', async () => {
+it('shows one status line and keeps the Add dialog closed at rest', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
-  expect(screen.getByText('MCP enabled')).toBeVisible();
-  expect(screen.getByText('0 connected')).toBeVisible();
-  expect(screen.getByText('0 enabled tools')).toBeVisible();
+  await rowMenu('Synthetic');
+  expect(screen.getByText('0 of 1 server connected')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Add server' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Import config' })).toBeVisible();
-  expect(screen.getByLabelText('Server name')).not.toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Import config' }));
-  expect(screen.getByLabelText('Server import JSON')).toBeVisible();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByText('On · not connected')).toBeVisible();
+});
+
+it('offers a search icon for a short list and a search field for a long one', async () => {
+  const props = options();
+  const first = render(<CapabilitySettings {...props} />);
+  await rowMenu('Synthetic');
+  expect(
+    screen.queryByRole('searchbox', { name: 'Search servers' }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Search servers' }));
+  expect(
+    screen.getByRole('searchbox', { name: 'Search servers' }),
+  ).toHaveFocus();
+  first.unmount();
+  const many = options();
+  many.load.mockResolvedValue({
+    ...page,
+    total: 7,
+    items: Array.from({ length: 7 }, (_, index) => ({
+      ...page.items[0],
+      server_id: String(index).repeat(64),
+      name: `Server ${index}`,
+    })),
+  });
+  render(<CapabilitySettings {...many} />);
+  expect(
+    await screen.findByRole('searchbox', { name: 'Search servers' }),
+  ).toBeVisible();
 });
 
 it('preserves the exact unsent draft across full unmount', async () => {
@@ -216,11 +417,14 @@ it('preserves the exact unsent draft across full unmount', async () => {
   await enterDraft();
   first.unmount();
   render(<CapabilitySettings {...props} />);
-  expect(screen.getByLabelText('New arguments (JSON array)')).toHaveValue(
-    '["one two", "--exact"]',
+  // The draft waits in the list until it is continued or discarded.
+  expect(await screen.findByText(/You have an unsaved server/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(screen.getByLabelText('Arguments (one per line)')).toHaveValue(
+    'one two\n--exact',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
-  await screen.findByText(/Saved disabled. Refresh/);
+  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  await screen.findByText(/^Added\. It stays turned off/);
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review).toHaveBeenCalledOnce();
   expect(props.execute.mock.calls[0][0].payload.intent.fields.args).toEqual([
@@ -228,7 +432,10 @@ it('preserves the exact unsent draft across full unmount', async () => {
     '--exact',
   ]);
   expect(props.session.hasRetained()).toBe(false);
-  expect(screen.getByRole('button', { name: 'Save Disabled' })).toBeDisabled();
+  // The saved list is read again and the dialog closes on an empty draft.
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByText(/You have an unsaved server/)).toBeNull();
 });
 
 it('retains uncertain originals and only reconciles their exact request after refresh', async () => {
@@ -236,19 +443,22 @@ it('retains uncertain originals and only reconciles their exact request after re
   props.execute.mockRejectedValueOnce(Error('synthetic transport loss'));
   render(<CapabilitySettings {...props} />);
   await enterDraft();
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
   await screen.findByRole('button', { name: 'Check original save' });
-  expect(screen.getByLabelText('New command')).toBeDisabled();
+  expect(screen.getByLabelText('Command')).toBeDisabled();
   const original = props.execute.mock.calls[0];
+  // Closed, the dialog's message moves above the list.
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+  await screen.findByRole('button', { name: 'Check original save' });
   props.load.mockResolvedValue({
     ...page,
     revision: 'e'.repeat(64),
     availability: 'recovery_required',
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  await choosePage('Refresh');
   await screen.findByText(/interrupted save requires recovery/);
   fireEvent.click(screen.getByRole('button', { name: 'Check original save' }));
-  await screen.findByText(/Saved disabled. Refresh/);
+  await screen.findByText(/^Added\. It stays turned off/);
   expect(props.execute.mock.calls[1]).toEqual(original);
   expect(props.review).toHaveBeenCalledTimes(1);
 });
@@ -261,14 +471,12 @@ it('never replays a rejected original and preserves its draft for new review', a
   }));
   render(<CapabilitySettings {...props} />);
   await enterDraft();
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
   await screen.findByText(/save was rejected/);
   expect(
     screen.queryByRole('button', { name: 'Check original save' }),
   ).not.toBeInTheDocument();
-  expect(screen.getByLabelText('New command')).toHaveValue(
-    'synthetic-executable',
-  );
+  expect(screen.getByLabelText('Command')).toHaveValue('synthetic-executable');
   expect(props.session.getSnapshot().pending).toBeNull();
 });
 
@@ -278,10 +486,11 @@ it('tombstones private drafts and late execution settlement after authentication
   props.execute.mockReturnValue(pending.promise);
   render(<CapabilitySettings {...props} />);
   await enterDraft();
+  fireEvent.click(screen.getByText('More settings'));
   fireEvent.change(screen.getByLabelText('Additional settings (JSON)'), {
     target: { value: '{"env":{"KEY":"private-draft"}}' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   const command = props.execute.mock.calls[0][0];
   act(() => props.session.dispose());
@@ -306,7 +515,7 @@ it('preserves in-flight ownership across remount without a duplicate save', asyn
   props.execute.mockReturnValue(pending.promise);
   const first = render(<CapabilitySettings {...props} />);
   await enterDraft();
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   first.unmount();
   render(<CapabilitySettings {...props} />);
@@ -339,14 +548,14 @@ it('replaces bounded pages and preserves search on First and Next', async () => 
       ],
     });
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-  await screen.findByRole('button', { name: 'Edit Last synthetic' });
+  await rowMenu('Last synthetic');
   expect(
-    screen.queryByRole('button', { name: 'Edit Synthetic' }),
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
   ).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'First page' }));
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
+  await rowMenu('Synthetic');
   expect(props.load.mock.calls[1][0]).toEqual({
     query: '',
     cursor: 'cursor-1',
@@ -354,34 +563,35 @@ it('replaces bounded pages and preserves search on First and Next', async () => 
   expect(props.load.mock.calls[2][0]).toEqual({ query: '', cursor: undefined });
 });
 
-it('supports explicit rename and import without launch activity', async () => {
+it('supports explicit rename and a pasted configuration without launch activity', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Rename Synthetic' }),
-  );
+  await chooseRow('Synthetic', 'Rename…');
+  expect(
+    screen.getByRole('dialog', { name: 'Rename Synthetic' }),
+  ).toBeVisible();
   fireEvent.change(screen.getByLabelText('New server name'), {
     target: { value: 'Renamed synthetic' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
   await waitFor(() => expect(props.review).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0].intent).toEqual({
     operation: 'rename',
-    server_id: 'b'.repeat(64),
+    server_id: serverId,
     fields: { name: 'Renamed synthetic' },
   });
-  await screen.findByText(/Saved disabled. Refresh/);
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {
-    target: { value: 'import' },
-  });
-  fireEvent.change(screen.getByLabelText('Server import JSON'), {
+  await screen.findByText(/^Saved\. It stays turned off/);
+  const dialog = await openAdd();
+  fireEvent.click(within(dialog).getByRole('radio', { name: 'Paste JSON' }));
+  fireEvent.change(screen.getByLabelText('Server configuration (JSON)'), {
     target: { value: '{"mcpServers":{"new":{"command":"synthetic"}}}' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add from JSON' }));
   await waitFor(() => expect(props.review).toHaveBeenCalledTimes(2));
-  expect(props.review.mock.calls[1][0].intent.operation).toBe('import');
+  expect(props.review.mock.calls[1][0].intent).toEqual({
+    operation: 'import',
+    import_json: '{"mcpServers":{"new":{"command":"synthetic"}}}',
+  });
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(2));
 });
 
@@ -394,7 +604,7 @@ it('aborts cold reads on authentication disposal and ignores late saved rows', a
   expect(props.load.mock.calls[0][1].aborted).toBe(true);
   await act(async () => pending.resolve(page));
   expect(
-    screen.queryByRole('button', { name: 'Edit Synthetic' }),
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
   ).not.toBeInTheDocument();
   expect(props.session.getSnapshot().page).toBeNull();
 });
@@ -405,7 +615,7 @@ it('admits one save during synchronous repeated clicks', async () => {
   props.execute.mockReturnValue(pending.promise);
   render(<CapabilitySettings {...props} />);
   await enterDraft();
-  const save = screen.getByRole('button', { name: 'Save Disabled' });
+  const save = screen.getByRole('button', { name: 'Add turned off' });
   act(() => {
     save.click();
     save.click();
@@ -418,22 +628,27 @@ it('admits one save during synchronous repeated clicks', async () => {
 it('rejects malformed and oversized drafts before review or execution', async () => {
   const props = options();
   render(<CapabilitySettings {...props} />);
-  await screen.findByRole('button', { name: 'Edit Synthetic' });
-  fireEvent.click(screen.getByRole('button', { name: 'Add server' }));
-  fireEvent.change(screen.getByLabelText('New arguments (JSON array)'), {
-    target: { value: '"not-an-array"' },
+  const dialog = await openAdd();
+  // Adding waits for a name and a command; then the malformed arguments.
+  expect(screen.getByRole('button', { name: 'Add turned off' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Server name'), {
+    target: { value: 'Malformed' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.change(screen.getByLabelText('Command'), {
+    target: { value: 'synthetic-executable' },
+  });
+  fireEvent.change(screen.getByLabelText('Arguments (one per line)'), {
+    target: { value: '[not json' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
   await screen.findByText(/could not be validated/);
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), {
-    target: { value: 'import' },
-  });
-  fireEvent.change(screen.getByLabelText('Server import JSON'), {
+  fireEvent.click(within(dialog).getByRole('radio', { name: 'Paste JSON' }));
+  fireEvent.change(screen.getByLabelText('Server configuration (JSON)'), {
     target: { value: 'x'.repeat(131072) },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save Disabled' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add from JSON' }));
   await screen.findByText(/could not be validated/);
   expect(props.review).not.toHaveBeenCalled();
 });
@@ -451,6 +666,268 @@ it('refuses an oversized loaded page without retaining unlimited rows', async ()
   await screen.findByText(/Saved MCP settings are unavailable/);
   expect(props.session.getSnapshot().page).toBeNull();
   expect(
-    screen.queryByRole('button', { name: 'Edit Synthetic' }),
+    screen.queryByRole('button', { name: 'More actions for Synthetic' }),
   ).not.toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------------------
+// A row's one action by state (B262): the same reviewed connection commands
+// as the server's details.
+
+const runtimeRevision = 'f'.repeat(64);
+const runtimeId = '12345678-1234-4234-8234-123456789012';
+function runtimeState(patch: Partial<McpRuntimeState> = {}): McpRuntimeState {
+  return {
+    schema_version: 1,
+    server_id: serverId,
+    configuration_revision: runtimeRevision,
+    cleanup_revision: null,
+    availability: 'available',
+    runtime_id: null,
+    state: 'missing',
+    session_quiesced: null,
+    enabled: true,
+    ...patch,
+  };
+}
+function runtime(state = runtimeState()) {
+  const io = {
+    owner: createMcpConnections(),
+    load: vi.fn().mockResolvedValue(state),
+    review: vi.fn().mockImplementation(async (payload) => ({
+      resource_revision: payload.resource_revision,
+      server_id: payload.server_id,
+      operation: payload.operation,
+      runtime_id: payload.expected_runtime_id,
+      action_digest: 'd'.repeat(64),
+      nonce: 'synthetic',
+    })),
+    execute: vi
+      .fn()
+      .mockImplementation(
+        async (command: McpRuntimeCommand): Promise<McpRuntimeReceipt> => ({
+          command_id: command.command_id,
+          status: 'completed',
+          mcp_runtime: {
+            schema_version: 1,
+            server_id: serverId,
+            operation: command.payload.operation,
+            runtime_id: runtimeId,
+            state:
+              command.payload.operation === 'connect' ? 'connected' : 'stopped',
+            session_quiesced: command.payload.operation !== 'connect',
+            code: null,
+          },
+        }),
+      ),
+    turnOn: vi.fn(async () => undefined),
+  };
+  return io;
+}
+function withServer(patch: Partial<McpConfigurationPage['items'][number]>) {
+  return { ...page, items: [{ ...page.items[0], ...patch }] };
+}
+
+it.each([
+  [
+    'connected',
+    { connection_present: true, tool_count: 2 },
+    'Connected',
+    'Disconnect Synthetic',
+  ],
+  ['on and not connected', {}, 'On · not connected', 'Connect Synthetic'],
+  ['turned off', { enabled: false }, 'Off', 'Turn on & connect Synthetic'],
+  [
+    'failed',
+    { runtime_status: 'failed' },
+    'Couldn’t connect',
+    'Retry Synthetic',
+  ],
+] as const)(
+  'a %s server says so and offers one action',
+  async (_state, patch, status, action) => {
+    const props = options();
+    props.load.mockResolvedValue(withServer(patch));
+    render(<CapabilitySettings {...props} runtime={runtime()} />);
+    expect(await screen.findByRole('button', { name: action })).toBeEnabled();
+    expect(screen.getByText(status)).toBeVisible();
+    expect(
+      screen.getAllByRole('button', {
+        name: /^(Connect|Disconnect|Turn on & connect|Retry) Synthetic$/,
+      }),
+    ).toHaveLength(1);
+  },
+);
+
+it('connects from the row with the reviewed connect and reads the list again', async () => {
+  const props = options();
+  const io = runtime();
+  render(<CapabilitySettings {...props} runtime={io} />);
+  props.load.mockResolvedValue(withServer({ connection_present: true }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Connect Synthetic' }),
+  );
+  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
+  expect(io.review.mock.calls[0][0]).toEqual({
+    resource_revision: runtimeRevision,
+    server_id: serverId,
+    operation: 'connect',
+    expected_runtime_id: null,
+  });
+  expect(
+    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
+  ).toBeVisible();
+  expect(props.load).toHaveBeenCalledTimes(2);
+  // A finished connect needs no message: the row says Connected.
+  expect(screen.queryByText(/Tools that change things/)).toBeNull();
+});
+
+it('reads the list again when a command from the server’s details settles', async () => {
+  const props = options();
+  const io = runtime();
+  render(<CapabilitySettings {...props} runtime={io} />);
+  await screen.findByRole('button', { name: 'Connect Synthetic' });
+  props.load.mockResolvedValue(withServer({ connection_present: true }));
+  const session = io.owner.runtime(serverId, 'Synthetic')!;
+  await act(async () => runtimeActions(session, io).run('connect'));
+  expect(
+    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
+  ).toBeVisible();
+});
+
+it('disconnects a connected server from its row', async () => {
+  const props = options();
+  props.load.mockResolvedValue(withServer({ connection_present: true }));
+  const io = runtime(
+    runtimeState({
+      runtime_id: runtimeId,
+      cleanup_revision: 'c'.repeat(64),
+      state: 'connected',
+      session_quiesced: false,
+    }),
+  );
+  render(<CapabilitySettings {...props} runtime={io} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
+  );
+  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
+  expect(io.review.mock.calls[0][0]).toEqual({
+    resource_revision: 'c'.repeat(64),
+    server_id: serverId,
+    operation: 'disconnect',
+    expected_runtime_id: runtimeId,
+  });
+});
+
+it('disconnects right after connecting from the row (B262)', async () => {
+  const props = options();
+  const io = runtime();
+  const execute = io.execute.getMockImplementation()!;
+  io.execute.mockImplementation(async (command: McpRuntimeCommand) => {
+    const receipt = await execute(command);
+    // The runtime the connect made is what a disconnect must name.
+    if (command.payload.operation === 'connect')
+      io.load.mockResolvedValue(
+        runtimeState({
+          runtime_id: runtimeId,
+          cleanup_revision: 'c'.repeat(64),
+          state: 'connected',
+          session_quiesced: false,
+        }),
+      );
+    return receipt;
+  });
+  render(<CapabilitySettings {...props} runtime={io} />);
+  props.load.mockResolvedValue(withServer({ connection_present: true }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Connect Synthetic' }),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
+  );
+  await waitFor(() => expect(io.execute).toHaveBeenCalledTimes(2));
+  expect(io.review.mock.calls[1][0]).toEqual({
+    resource_revision: 'c'.repeat(64),
+    server_id: serverId,
+    operation: 'disconnect',
+    expected_runtime_id: runtimeId,
+  });
+});
+
+it('turns a turned-off server on, then connects it, in one click', async () => {
+  const props = options();
+  props.load.mockResolvedValue(withServer({ enabled: false }));
+  const io = runtime(runtimeState({ enabled: false }));
+  io.turnOn.mockImplementation(async () => {
+    io.load.mockResolvedValue(runtimeState());
+  });
+  render(<CapabilitySettings {...props} runtime={io} />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Turn on & connect Synthetic' }),
+  );
+  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
+  expect(io.turnOn).toHaveBeenCalledWith(serverId);
+  expect(io.review.mock.calls[0][0].operation).toBe('connect');
+});
+
+it('says a failed connect under its row in plain words, with a way to its details', async () => {
+  const props = options();
+  const onConnection = vi.fn();
+  const io = runtime();
+  io.execute.mockImplementation(async (command: McpRuntimeCommand) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    mcp_runtime: {
+      schema_version: 1,
+      server_id: serverId,
+      operation: 'connect',
+      runtime_id: runtimeId,
+      state: 'failed',
+      session_quiesced: true,
+      code: 'mcp_connection_failed',
+    },
+  }));
+  render(
+    <CapabilitySettings {...props} runtime={io} onConnection={onConnection} />,
+  );
+  props.load.mockResolvedValue(withServer({ runtime_status: 'failed' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Connect Synthetic' }),
+  );
+  expect(
+    await screen.findByText(/Couldn’t connect: the server didn’t start/),
+  ).toBeVisible();
+  expect(
+    await screen.findByRole('button', { name: 'Retry Synthetic' }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Open details' }));
+  expect(onConnection).toHaveBeenCalledWith(serverId, 'Synthetic');
+});
+
+it('tests a server from its ⋯ and points to the tools it found', async () => {
+  const props = options();
+  const io = runtime();
+  io.execute.mockImplementation(async (command: McpRuntimeCommand) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    mcp_runtime: {
+      schema_version: 1,
+      server_id: serverId,
+      operation: 'test',
+      runtime_id: runtimeId,
+      state: 'tested',
+      session_quiesced: true,
+      code: null,
+    },
+  }));
+  render(<CapabilitySettings {...props} runtime={io} onConnection={vi.fn()} />);
+  await chooseRow('Synthetic', 'Test connection');
+  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
+  expect(io.review.mock.calls[0][0].operation).toBe('test');
+  expect(
+    await screen.findByText(
+      'Test completed and the temporary connection closed.',
+    ),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Open details' })).toBeVisible();
 });

@@ -149,13 +149,9 @@ def _ensure_route_mounted() -> None:
     global _route_mounted
     if _route_mounted:
         return
-    from nicegui import app as nicegui_app
+    from row_bot.server import add_late_route
 
-    nicegui_app.add_route(
-        _ROUTE_TEMPLATE,
-        _dispatch_plugin_webhook,
-        methods=sorted(_ALLOWED_METHODS),
-    )
+    add_late_route(_ROUTE_TEMPLATE, _dispatch_plugin_webhook, methods=sorted(_ALLOWED_METHODS))
     _route_mounted = True
 
 

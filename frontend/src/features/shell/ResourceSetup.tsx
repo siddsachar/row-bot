@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -20,12 +21,16 @@ import { useClientState, useRuntime } from '../../runtime';
 import { useOverlay } from '../../ui/overlays';
 import {
   Button,
+  Disclosure,
   Field,
+  Hint,
   Input,
+  Segmented,
   Select,
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
+import { Code2, Palette, X } from 'lucide-react';
 import { setupSessions, type SetupDraft } from './setup-state';
 
 export type ResourceSetupEntry = {
@@ -33,6 +38,76 @@ export type ResourceSetupEntry = {
   mode: 'create' | 'existing';
   resource?: ResourceChoice;
 };
+
+const RESOURCE_TYPES = [
+  {
+    value: 'artifact',
+    label: 'Design',
+    hint: 'A deck, document, page, mockup or storyboard',
+    icon: <Palette size={20} aria-hidden />,
+  },
+  {
+    value: 'workspace',
+    label: 'Code folder',
+    hint: 'A folder or repository on this computer',
+    icon: <Code2 size={20} aria-hidden />,
+  },
+] as const;
+
+/** Type tiles: a radio group with roving focus, one tile per resource kind. */
+function ResourceTypeTiles({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: ResourceSetupEntry['kind'];
+  disabled: boolean;
+  onChange: (value: ResourceSetupEntry['kind']) => void;
+}) {
+  return (
+    <div
+      className="setup-type-tiles"
+      role="radiogroup"
+      aria-label="Resource type"
+    >
+      {RESOURCE_TYPES.map((type, index) => (
+        <button
+          key={type.value}
+          type="button"
+          role="radio"
+          className="setup-type-tile"
+          aria-checked={value === type.value}
+          aria-label={type.label}
+          aria-describedby={`setup-type-${type.value}`}
+          tabIndex={value === type.value ? 0 : -1}
+          disabled={disabled}
+          onClick={() => onChange(type.value)}
+          onKeyDown={(event) => {
+            if (
+              !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
+                event.key,
+              )
+            )
+              return;
+            event.preventDefault();
+            const next =
+              RESOURCE_TYPES[(index + 1) % RESOURCE_TYPES.length].value;
+            onChange(next);
+            (
+              event.currentTarget.parentElement?.querySelector(
+                `[aria-label="${RESOURCE_TYPES.find((item) => item.value === next)!.label}"]`,
+              ) as HTMLElement | null
+            )?.focus();
+          }}
+        >
+          <span className="setup-type-icon">{type.icon}</span>
+          <span className="setup-type-label">{type.label}</span>
+          <small id={`setup-type-${type.value}`}>{type.hint}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const artifactLabels = {
   deck: 'Deck',
@@ -49,7 +124,7 @@ export default function ResourceSetup({
   initialEntry,
 }: {
   conversationId: string | null;
-  onPanel: (panel: PanelDescriptor) => void;
+  onPanel: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   initialEntry?: ResourceSetupEntry;
 }) {
   const { controller, platform } = useRuntime();
@@ -108,6 +183,12 @@ export default function ResourceSetup({
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [review, setReview] = useState<ConversationWorkspace | null>(null);
+  // The saved code folder just removed from the list, for Undo.
+  const [removed, setRemoved] = useState<{
+    resource_id: string;
+    name: string;
+    revision: string;
+  } | null>(null);
   const unknown =
     record.commandId &&
     (!receipt || !confirmed || receipt.status === 'admitting')
@@ -144,7 +225,7 @@ export default function ResourceSetup({
     const current = setupSessions.read(scope);
     if (current.commandId || current.generationId) {
       setError(
-        'Review the earlier setup receipt before starting another resource. Your new selection has not replaced it.',
+        "Check the earlier setup before starting another. Your new choice hasn't replaced it.",
       );
       return;
     }
@@ -170,6 +251,42 @@ export default function ResourceSetup({
       alive.current = false;
     };
   }, []);
+  // Only the desktop app picks a folder on this computer; a browser says so
+  // before any pick (null while unknown keeps every choice open).
+  const [desktopFolders, setDesktopFolders] = useState<boolean | null>(null);
+  const desktopNoteId = useId();
+  useEffect(() => {
+    let current = true;
+    Promise.resolve()
+      .then(() => platform.discover())
+      .then((result) => {
+        if (current)
+          setDesktopFolders(
+            result.status === 'ok' && result.value.kind === 'pywebview',
+          );
+      })
+      .catch(() => {
+        if (current) setDesktopFolders(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [platform]);
+  const foldersNeedDesktop = desktopFolders === false;
+  useEffect(() => {
+    const current = setupSessions.read(scope);
+    if (
+      !foldersNeedDesktop ||
+      current.workspaceMode === 'draft_folder' ||
+      current.commandId
+    )
+      return;
+    try {
+      setupSessions.update(scope, { workspaceMode: 'draft_folder' });
+    } catch {
+      // The choice stays; its pick explains itself.
+    }
+  }, [foldersNeedDesktop, scope, workspaceMode]);
   useEffect(() => {
     setFolder(null);
     setReview(null);
@@ -190,7 +307,7 @@ export default function ResourceSetup({
         .catch(() => {
           if (!abort.signal.aborted)
             setError(
-              'The earlier setup needs reconciliation. Check its receipt before trying again.',
+              "The earlier setup didn't finish. Check it before trying again.",
             );
         });
     }
@@ -204,7 +321,7 @@ export default function ResourceSetup({
         .catch(() => {
           if (!abort.signal.aborted)
             setError(
-              'First draft generation has an uncertain outcome. Check its receipt.',
+              "Row-Bot couldn't confirm the first draft started. Check it.",
             );
         });
     }
@@ -315,6 +432,53 @@ export default function ResourceSetup({
       if (continuation.current === abort) continuation.current = null;
     }
   }
+  // Remove a saved code folder from this list (files stay on disk) or put
+  // it back. Only the list entry changes on the server.
+  async function listSaved(
+    item: { resource_id: string; name: string; revision: string },
+    restore: boolean,
+  ) {
+    if (operation.current || kind !== 'workspace') return;
+    operation.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await controller.intent(
+        null,
+        'resource.forget',
+        {
+          kind: 'workspace',
+          resource_id: item.resource_id,
+          expected_resource_revision: item.revision,
+          ...(restore ? { restore: true } : {}),
+        },
+        '0',
+        crypto.randomUUID(),
+      );
+      if (!alive.current) return;
+      if (restore) setRemoved(null);
+      else {
+        if (
+          setupSessions.read(scope).selected?.resource_id === item.resource_id
+        )
+          setSelected(null);
+        setRemoved({
+          resource_id: item.resource_id,
+          name: item.name,
+          revision: result.resource_revision ?? item.revision,
+        });
+      }
+      continuation.current?.abort();
+      const ticket = ++queryNumber.current;
+      const page = await controller.library('workspace');
+      if (alive.current && ticket === queryNumber.current) setLibrary(page);
+    } catch (cause) {
+      if (alive.current) setError(clientError(cause).message);
+    } finally {
+      operation.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
   function openConversation(target: string) {
     if (controller.getSnapshot().selectedConversationId !== target)
       void controller.selectConversation(target);
@@ -355,7 +519,14 @@ export default function ResourceSetup({
           name: 'Authorized folder',
         });
       else if (result.status === 'unavailable' || result.status === 'ok')
-        setError('Folder selection requires the local desktop window.');
+        // The desktop window says it is reconnecting, never "requires the
+        // desktop window" inside it (B231).
+        setError(
+          result.status === 'unavailable' &&
+            result.reason === 'native_reconnecting'
+            ? 'Desktop features are reconnecting. Try again in a moment.'
+            : 'Folder selection requires the local desktop window.',
+        );
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
     }
@@ -386,21 +557,27 @@ export default function ResourceSetup({
       return;
     }
     if (!conversationId) openConversation(result.conversation_id);
-    onPanel({
-      panel_kind:
-        result.resource_kind === 'artifact'
-          ? 'artifact.preview'
-          : 'workspace.inspector',
-      resource_kind: result.resource_kind!,
-      resource_ref: `${result.conversation_id}:${result.binding_id}`,
-      resource_revision: result.resource_revision ?? '',
-      title: (
-        name ||
-        selected?.name ||
-        folder?.name ||
-        (kind === 'artifact' ? artifactLabel : 'Coding workspace')
-      ).slice(0, 160),
-    });
+    // A design that was just made opens wide (U36).
+    const made =
+      result.setup_intent === 'create' && result.resource_kind === 'artifact';
+    onPanel(
+      {
+        panel_kind:
+          result.resource_kind === 'artifact'
+            ? 'artifact.preview'
+            : 'workspace.inspector',
+        resource_kind: result.resource_kind!,
+        resource_ref: `${result.conversation_id}:${result.binding_id}`,
+        resource_revision: result.resource_revision ?? '',
+        title: (
+          name ||
+          selected?.name ||
+          folder?.name ||
+          (kind === 'artifact' ? artifactLabel : 'Coding workspace')
+        ).slice(0, 160),
+      },
+      made ? { wide: true } : undefined,
+    );
   }
   async function reviewGeneration() {
     if (!receipt?.conversation_id || !confirmed || operation.current) return;
@@ -419,21 +596,25 @@ export default function ResourceSetup({
     }
     if (ready) await firstDraft(ready);
   }
+  /** Starts the first draft; true when the turn was accepted. */
   async function firstDraft(
     selectedReview: ConversationWorkspace | null = review,
-  ) {
+    // Right after creation the new receipt is not in this render yet.
+    created?: CommandReceipt,
+  ): Promise<boolean> {
     const current = setupSessions.read(scope);
+    const target = created ?? receipt;
     if (
       operation.current ||
       current.generationId ||
       !selectedReview ||
-      !receipt?.conversation_id ||
-      !confirmed ||
+      !target?.conversation_id ||
+      (!created && !confirmed) ||
       !brief.trim()
     )
-      return;
+      return false;
     const resource = selectedReview.resources.find(
-      (item) => item.binding.binding_id === receipt.binding_id,
+      (item) => item.binding.binding_id === target.binding_id,
     );
     if (
       !resource ||
@@ -443,7 +624,7 @@ export default function ResourceSetup({
         (action) => action.action === 'generate' && action.ready,
       )
     )
-      return;
+      return false;
     operation.current = true;
     setBusy(true);
     setError('');
@@ -451,7 +632,7 @@ export default function ResourceSetup({
     try {
       setupSessions.reserve(scope, identity, true);
       const result = await controller.intent(
-        receipt.conversation_id,
+        target.conversation_id,
         'conversation.submit',
         {
           submission_id: crypto.randomUUID(),
@@ -472,8 +653,10 @@ export default function ResourceSetup({
         identity,
       );
       setupSessions.confirm(scope, identity, result, true);
+      return result.status !== 'rejected';
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
+      return false;
     } finally {
       operation.current = false;
       if (alive.current) setBusy(false);
@@ -496,6 +679,7 @@ export default function ResourceSetup({
     setError('');
     const commandId = crypto.randomUUID();
     const initiating = capturePresentation();
+    let draftNow: CommandReceipt | null = null;
     try {
       const current = conversationId
         ? await controller.workspaceFor(conversationId)
@@ -519,7 +703,12 @@ export default function ResourceSetup({
                   }
                 : {
                     ...(workspaceMode === 'draft_folder'
-                      ? { draft_workspace: true }
+                      ? {
+                          draft_workspace: true,
+                          // Row-Bot names the folder from this, else
+                          // "Code folder".
+                          ...(name.trim() ? { draft_name: name.trim() } : {}),
+                        }
                       : { folder_grant: folder?.grant }),
                     ...(workspaceMode === 'empty_folder'
                       ? { empty_workspace: { folder_name: name.trim() } }
@@ -555,11 +744,32 @@ export default function ResourceSetup({
           );
       }
       present(result, initiating);
+      draftNow =
+        mode === 'create' &&
+        kind === 'artifact' &&
+        generate &&
+        !!brief.trim() &&
+        result.status === 'completed' &&
+        !!result.conversation_id
+          ? result
+          : null;
     } catch (cause) {
       if (alive.current) setError(clientError(cause).message);
     } finally {
       operation.current = false;
       if (alive.current) setBusy(false);
+    }
+    // Create and draft in one step (U35): the brief goes to the chosen model
+    // at once and the dialog closes, so the panel shows the draft being
+    // written. Without a ready model the dialog stays with the reason.
+    if (draftNow?.conversation_id && alive.current) {
+      try {
+        const ready = await controller.workspaceFor(draftNow.conversation_id);
+        if (alive.current) setReview(ready);
+        if (await firstDraft(ready, draftNow)) overlay.close();
+      } catch (cause) {
+        if (alive.current) setError(clientError(cause).message);
+      }
     }
   }
   async function continueSetup() {
@@ -643,7 +853,7 @@ export default function ResourceSetup({
       setError('');
     } catch {
       setError(
-        'Reconcile the pending setup and generation receipts before starting another resource.',
+        'Check the earlier setup and first draft before starting another.',
       );
     }
   }
@@ -780,10 +990,10 @@ export default function ResourceSetup({
                     <p>
                       {generationReceipt
                         ? `Generation request ${generationReceipt.status}.`
-                        : 'Generation outcome is awaiting confirmation.'}
+                        : "Row-Bot hasn't confirmed the generation yet."}
                     </p>
                     <Button disabled={busy} onClick={() => void recover(true)}>
-                      Check generation receipt
+                      Check generation
                     </Button>
                     {generationReceipt?.status === 'rejected' && (
                       <Button
@@ -821,61 +1031,84 @@ export default function ResourceSetup({
         </p>
       ) : (
         <>
-          <div className="setup-grid">
-            <Field label="Resource type">
-              <Select
-                disabled={busy}
-                value={kind}
-                onChange={(e) => {
-                  setKind(e.target.value as typeof kind);
-                  setSelected(null);
-                  setLibrary(null);
-                }}
-              >
-                <option value="artifact">Design</option>
-                <option value="workspace">Coding workspace</option>
-              </Select>
-            </Field>
-            <Field label="Choose resource">
-              <Select
-                disabled={busy}
-                value={mode}
-                onChange={(e) => {
-                  setMode(e.target.value as typeof mode);
-                  setSelected(null);
-                }}
-              >
-                <option value="create">
-                  {kind === 'artifact'
-                    ? `Create a ${artifactLabel}`
-                    : 'Set up a folder'}
-                </option>
-                <option value="existing">Open saved resource</option>
-              </Select>
-            </Field>
-          </div>
+          <ResourceTypeTiles
+            value={kind}
+            disabled={busy}
+            onChange={(next) => {
+              if (next === kind) return;
+              setKind(next);
+              setSelected(null);
+              setLibrary(null);
+            }}
+          />
+          <Segmented
+            size="sm"
+            className="setup-mode"
+            label="Choose resource"
+            value={mode}
+            onChange={(next) => {
+              if (next === mode) return;
+              setMode(next);
+              setSelected(null);
+            }}
+            options={[
+              { value: 'create', label: 'Create new', disabled: busy },
+              { value: 'existing', label: 'Open saved', disabled: busy },
+            ]}
+          />
           {mode === 'existing' ? (
             <div className="stack" role="group" aria-label="Saved resources">
+              {kind === 'workspace' && removed && (
+                <p role="status" className="setup-removed">
+                  Removed {removed.name} from the list
+                  <span aria-hidden> · </span>
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void listSaved(removed, true)}
+                  >
+                    Undo
+                  </Button>
+                </p>
+              )}
               {library ? (
                 <>
                   {library.items.map((item) => (
-                    <Button
-                      key={item.resource_id}
-                      disabled={!item.available || busy}
-                      aria-pressed={selected?.resource_id === item.resource_id}
-                      onClick={() => setSelected(item)}
-                    >
-                      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                        {item.name}
-                        <small style={{ display: 'block' }}>
-                          Resource ID: {item.resource_id}
-                        </small>
-                      </span>
-                      {item.origin_status === 'repair_required'
-                        ? ' · Original conversation missing'
-                        : ''}
-                      {!item.available ? ' · Unavailable in this client' : ''}
-                    </Button>
+                    <div key={item.resource_id} className="setup-saved-item">
+                      <Button
+                        className="setup-saved-choice"
+                        disabled={!item.available || busy}
+                        aria-pressed={
+                          selected?.resource_id === item.resource_id
+                        }
+                        onClick={() => setSelected(item)}
+                      >
+                        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                          {item.name}
+                          <small style={{ display: 'block' }}>
+                            Resource ID: {item.resource_id}
+                          </small>
+                        </span>
+                        {item.origin_status === 'repair_required'
+                          ? ' · Original conversation missing'
+                          : ''}
+                        {!item.available ? ' · Unavailable in this client' : ''}
+                      </Button>
+                      {kind === 'workspace' && (
+                        <Hint label="Remove from list — files stay on disk">
+                          <Button
+                            iconOnly
+                            variant="ghost"
+                            className="icon-action icon-action-sm"
+                            aria-label={`Remove ${item.name} from this list`}
+                            disabled={busy}
+                            onClick={() => void listSaved(item, false)}
+                          >
+                            <X size={14} aria-hidden />
+                          </Button>
+                        </Hint>
+                      )}
+                    </div>
                   ))}
                   {library.next_cursor && (
                     <Button onClick={() => void moreResources()}>
@@ -912,9 +1145,38 @@ export default function ResourceSetup({
                   ))}
                 </Select>
               </Field>
+              <Field label="Name (optional)">
+                <Input
+                  disabled={busy}
+                  value={name}
+                  maxLength={120}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={
+                    currentOptions?.default_name ?? `Untitled ${artifactLabel}`
+                  }
+                />
+              </Field>
+              <Field label="Brief (optional)">
+                <textarea
+                  className="input"
+                  disabled={busy}
+                  value={brief}
+                  maxLength={16000}
+                  onChange={(e) => setBrief(e.target.value)}
+                />
+              </Field>
+              <label className="checkbox-row">
+                <Toggle
+                  label="Draft it now"
+                  checked={generate && !!brief.trim()}
+                  disabled={busy || !brief.trim()}
+                  onChange={(e) => setGenerate(e.target.checked)}
+                />
+                Draft it now: Row-Bot writes the first draft from the brief with
+                your chosen model, and you watch it in the panel
+              </label>
               {currentOptions ? (
-                <details className="setup-options">
-                  <summary>Design options</summary>
+                <Disclosure className="setup-options" summary="Advanced">
                   <div className="setup-grid">
                     <Field label="Template">
                       <Select
@@ -944,40 +1206,10 @@ export default function ResourceSetup({
                     </Field>
                   </div>
                   <p className="muted">{currentOptions.default_brand}</p>
-                </details>
+                </Disclosure>
               ) : (
                 <Skeleton label={`Loading ${artifactLabel} defaults`} />
               )}
-              <Field label="Name (optional)">
-                <Input
-                  disabled={busy}
-                  value={name}
-                  maxLength={120}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={
-                    currentOptions?.default_name ?? `Untitled ${artifactLabel}`
-                  }
-                />
-              </Field>
-              <Field label="Brief (optional)">
-                <textarea
-                  className="input"
-                  disabled={busy}
-                  value={brief}
-                  maxLength={16000}
-                  onChange={(e) => setBrief(e.target.value)}
-                />
-              </Field>
-              <label className="checkbox-row">
-                <Toggle
-                  label="Generate first draft"
-                  checked={generate}
-                  disabled={busy || !brief.trim()}
-                  onChange={(e) => setGenerate(e.target.checked)}
-                />
-                Generate a first draft after creation, using this design as the
-                write target
-              </label>
             </>
           ) : (
             <div className="stack">
@@ -985,6 +1217,9 @@ export default function ResourceSetup({
                 <Select
                   value={workspaceMode}
                   disabled={busy}
+                  aria-describedby={
+                    foldersNeedDesktop ? desktopNoteId : undefined
+                  }
                   onChange={(event) => {
                     update({
                       workspaceMode: event.target
@@ -996,15 +1231,38 @@ export default function ResourceSetup({
                   <option value="draft_folder">
                     New draft in the configured workspace
                   </option>
-                  <option value="existing_folder">
+                  <option value="existing_folder" disabled={foldersNeedDesktop}>
                     Register an existing folder
                   </option>
-                  <option value="empty_folder">
+                  <option value="empty_folder" disabled={foldersNeedDesktop}>
                     Create a new empty folder
                   </option>
-                  <option value="clone_repository">Clone a repository</option>
+                  <option
+                    value="clone_repository"
+                    disabled={foldersNeedDesktop}
+                  >
+                    Clone a repository
+                  </option>
                 </Select>
               </Field>
+              {foldersNeedDesktop && (
+                <p className="muted" id={desktopNoteId}>
+                  Choosing a folder on this computer needs the Row-Bot desktop
+                  app. In the browser, start a new draft or ask Row-Bot in the
+                  chat.
+                </p>
+              )}
+              {workspaceMode === 'draft_folder' && (
+                <Field label="Name (optional)">
+                  <Input
+                    value={name}
+                    maxLength={120}
+                    disabled={busy}
+                    placeholder="Tiny date app"
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+              )}
               {workspaceMode === 'empty_folder' && (
                 <Field label="New folder name">
                   <Input
@@ -1028,7 +1286,7 @@ export default function ResourceSetup({
               )}
               <p>
                 {workspaceMode === 'draft_folder'
-                  ? 'Create an empty local folder under Drafts in the configured workspace. It stays on disk if this conversation is deleted.'
+                  ? 'Create an empty folder under Drafts in your workspace folder, named as above or “Code folder”. It stays on disk if this conversation is deleted.'
                   : workspaceMode === 'empty_folder'
                     ? 'Choose a parent folder on this computer. Create one empty folder with the name above and save it as a coding workspace.'
                     : workspaceMode === 'clone_repository'
@@ -1111,7 +1369,7 @@ export default function ResourceSetup({
       {error && <p role="alert">{error}</p>}
       {unknown && (
         <Button disabled={busy} onClick={() => void recover()}>
-          Check setup receipt
+          Check setup
         </Button>
       )}
       {busy && (

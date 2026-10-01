@@ -137,6 +137,10 @@ def _review(kind, payload):
         if (not isinstance(relation_type, str) or not relation_type.strip() or len(relation_type) > 64
                 or any(ord(char) < 32 or 0xD800 <= ord(char) <= 0xDFFF for char in relation_type)):
             raise entities._error('invalid_relation_type')
+        from row_bot import knowledge_graph as kg
+        # Refused by the graph writer anyway; say so before anything is claimed.
+        if kg.normalize_relation_type(relation_type) in kg.VAGUE_RELATION_TYPES:
+            raise entities._error('relation_type_too_vague')
     elif kind == 'knowledge.relation.remove':
         edge = _edge(payload.get('relation_id'))
         if edge is None or entities._digest(edge) != payload.get('relation_revision'):

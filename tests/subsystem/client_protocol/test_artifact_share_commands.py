@@ -151,3 +151,31 @@ def test_channel_pages_cover_registered_adapters_and_reject_changed_snapshot(sha
         stale = client.get('/api/v1/sharing/channels', params={'cursor': original_cursor}, headers=headers)
         assert stale.status_code == 410 and stale.json()['code'] == 'cursor_expired'
         assert state['calls'] == []
+
+
+@pytest.mark.slow
+def test_publication_reads_then_unpublishes_through_the_same_reviewed_path(sharing):
+    owner, state = sharing
+    with _client(owner) as client:
+        _, headers = bootstrap(client)
+        created, exported = prepare(client, headers, 'deck')
+        url = f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}/publication"
+        assert client.get(url, headers=headers).json()['published'] is False
+        reviewed = review(client, headers, created, {'action': 'publish'})
+        published = send(client, headers, created, {'target': exported['target'], 'options': {'action': 'publish'},
+                         'review_id': reviewed['review_id'], 'nonce': reviewed['nonce']}, str(uuid4()))
+        assert published.status_code == 200, published.text
+        link = client.get(url, headers=headers)
+        assert link.status_code == 200 and link.headers['cache-control'].startswith('no-store')
+        assert link.json()['published'] and link.json()['link_kind'] == 'local'
+        assert link.json()['url'] == published.json()['share_outcome']['url']
+        target = {**exported['target'], 'resource_revision': link.json()['resource_revision']}
+        reviewed = review(client, headers, created, {'action': 'unpublish'})
+        removed = send(client, headers, created, {'target': target, 'options': {'action': 'unpublish'},
+                       'review_id': reviewed['review_id'], 'nonce': reviewed['nonce']}, str(uuid4()))
+        assert removed.status_code == 200, removed.text
+        assert removed.json()['status'] == 'completed'
+        assert removed.json()['share_outcome']['status'] == 'unpublished'
+        assert client.get(url, headers=headers).json()['published'] is False
+        assert not publish.PUBLISHED_DIR.joinpath(created['resource_id'] + '.html').exists()
+        assert state['calls'] == []

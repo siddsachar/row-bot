@@ -34,6 +34,7 @@ describe.each(['light', 'dark'] as const)(
       'canvas',
       'surface',
       'surface-raised',
+      'surface-overlay',
       'surface-hover',
       'surface-pressed',
       'surface-disabled',
@@ -130,6 +131,54 @@ describe.each(['light', 'dark'] as const)(
   },
 );
 
+describe('elevation by luminance', () => {
+  it('steps dark surfaces up in luminance: canvas → surface → raised → overlay', () => {
+    const steps = [
+      'canvas',
+      'surface',
+      'surface-raised',
+      'surface-overlay',
+    ] as const;
+    const values = steps.map((step) => luminance(TOKENS.dark[step]));
+    for (let index = 1; index < values.length; index += 1)
+      expect(values[index]).toBeGreaterThan(values[index - 1]);
+    // Hover and pressed sit above the overlay so they read on every surface.
+    expect(luminance(TOKENS.dark['surface-hover'])).toBeGreaterThan(
+      values.at(-1)!,
+    );
+  });
+
+  it('keeps light chrome on a darker canvas with the overlay as the lightest layer', () => {
+    const light = TOKENS.light;
+    expect(luminance(light.canvas)).toBeLessThan(luminance(light.surface));
+    for (const step of ['canvas', 'surface', 'surface-raised'] as const)
+      expect(luminance(light['surface-overlay'])).toBeGreaterThanOrEqual(
+        luminance(light[step]),
+      );
+  });
+
+  it.each(['light', 'dark'] as const)(
+    '%s hairlines stay near 7%% alpha for quiet separation',
+    (mode) => {
+      const hairline = TOKENS[mode]['border-hairline'];
+      expect(hairline).toMatch(/^#[0-9A-F]{8}$/);
+      const alpha = Number.parseInt(hairline.slice(7), 16) / 255;
+      expect(alpha).toBeGreaterThanOrEqual(0.05);
+      expect(alpha).toBeLessThanOrEqual(0.09);
+    },
+  );
+
+  it('keeps a cool bias in the dark neutrals toward the blue accent', () => {
+    for (const step of ['canvas', 'surface', 'surface-raised'] as const) {
+      const [red, , blue] = TOKENS.dark[step]
+        .slice(1, 7)
+        .match(/../g)!
+        .map((channel) => Number.parseInt(channel, 16));
+      expect(blue).toBeGreaterThan(red);
+    }
+  });
+});
+
 describe('device preference input boundary', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -149,7 +198,11 @@ describe('device preference input boundary', () => {
   ])('invalid stored preference %s has safe defaults', (stored) => {
     localStorage.setItem(THEME_KEY, stored);
     expect(bootstrapTheme(TOKENS)).toEqual(DEFAULT_THEME);
-    expect(document.documentElement.dataset.theme).toBe('dark');
+    // The default follows the system appearance.
+    expect(document.documentElement.dataset.appearance).toBe('system');
+    expect(document.documentElement.dataset.theme).toBe(
+      matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    );
   });
 
   it('migrates only the supported preference fields, excluding arbitrary properties', () => {

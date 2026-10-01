@@ -144,15 +144,6 @@ def get_hatch_generation_status() -> dict[str, Any]:
         return _job_snapshot_unlocked()
 
 
-def mark_hatch_generation_status_seen(job_id: str) -> None:
-    """Mark a terminal Hatch job as handled by a UI surface."""
-
-    with _JOB_LOCK:
-        if _CURRENT_JOB.get("id") == job_id:
-            _CURRENT_JOB["settings_refresh_seen"] = True
-            _CURRENT_JOB["updated_at"] = time.time()
-
-
 def _update_hatch_job(job_id: str, **updates: Any) -> dict[str, Any]:
     with _JOB_LOCK:
         if _CURRENT_JOB.get("id") != job_id:
@@ -220,7 +211,8 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
             _finish_hatch_job(job_id, draft, status="completed", message="Buddy motion pack generated")
             try:
                 from row_bot.notifications import notify
-                notify("Buddy motion ready", "Generated motion clips for the selected Buddy.", sound="workflow", icon="🎬")
+                notify("Buddy motion ready", "Generated motion clips for the selected Buddy.", sound="workflow",
+                       source="buddy", requested=True)
             except Exception:
                 pass
             return
@@ -247,7 +239,8 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
             _finish_hatch_job(job_id, draft, status="completed", message="Buddy art and motion pack generated")
             try:
                 from row_bot.notifications import notify
-                notify("Buddy generated", "Generated Buddy art and motion clips.", sound="workflow", icon="✨")
+                notify("Buddy generated", "Generated Buddy art and motion clips.", sound="workflow",
+                       source="buddy", requested=True)
             except Exception:
                 pass
         except Exception as exc:
@@ -262,7 +255,9 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
             save_buddy_config(cfg)
             try:
                 from row_bot.notifications import notify
-                notify("Buddy still ready", f"Motion generation failed: {exc}", sound="default", icon="⚠️", toast_type="warning")
+                # The error stays in the job record; the notice says what to do.
+                notify("Buddy still ready", "The still image is ready, but its motion clips didn't finish.",
+                       sound="default", toast_type="warning", source="buddy", requested=True)
             except Exception:
                 pass
     except Exception as exc:
@@ -276,7 +271,8 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
         )
         try:
             from row_bot.notifications import notify
-            notify("Buddy generation failed", str(exc), sound="default", icon="⚠️", toast_type="negative")
+            notify("Buddy generation failed", "Buddy generation didn't finish. Try again from Buddy settings.",
+                   sound="default", toast_type="negative", source="buddy", requested=True)
         except Exception:
             pass
 
@@ -643,28 +639,6 @@ def _install_hatch_motion_pack(
         pack_manifest["clips"][str(clip_id)] = pack_entry
     (pack_dir / "manifest.json").write_text(json.dumps(pack_manifest, indent=2, sort_keys=True), encoding="utf-8")
     return safe_pack_id
-
-
-def use_hatch_still_only(
-    pack_id: str,
-    preview_path: str | pathlib.Path,
-    *,
-    prompt: str = "",
-) -> str:
-    """Keep a generated Hatch pack selectable, but render it as a still image only."""
-
-    safe_pack_id = _safe_pack_id(pack_id, "")
-    if not safe_pack_id.startswith("hatch-"):
-        raise ValueError("Only generated Hatch packs can be switched to still-only mode")
-    source_preview = pathlib.Path(preview_path).expanduser().resolve()
-    if not source_preview.exists() or source_preview.stat().st_size == 0:
-        raise ValueError("Buddy art preview is missing or empty")
-    return _install_hatch_still_pack(
-        source_preview,
-        pack_id=safe_pack_id,
-        prompt=prompt,
-        created_at=time.time(),
-    )
 
 
 def activate_hatch_art(preview_path: str | pathlib.Path) -> pathlib.Path:

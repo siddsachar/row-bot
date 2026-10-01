@@ -1,0 +1,492 @@
+/*
+ * Phone and tablet layer (loaded last). Width classes follow the panel
+ * model: desktop from 1024px, tablet 768–1023px, phone below 768px.
+ *
+ * - One 48px header: in a conversation it is the conversation header itself
+ *   (navigation button, title, actions; a ⋯ on phones); elsewhere the compact
+ *   bar (navigation button, search).
+ * - Panels below 1024px open as full-height sheets with their own header.
+ * - Context opens as a full-height sheet on phones and a side sheet on
+ *   tablets. The conversation drawer slides in from the left.
+ * - A narrow composer is one line: + · field · mic · send (container width,
+ *   so a squeezed desktop chat folds the same way).
+ */
+
+@keyframes sheet-up {
+  from {
+    opacity: 0.6;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------- one-line composer */
+
+.composer[data-single-line] .composer-field {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'chips chips chips'
+    'plus text actions';
+  align-items: end;
+  column-gap: 4px;
+  row-gap: 6px;
+  padding: 5px;
+  border-radius: 24px;
+}
+.composer[data-single-line] .composer-chips {
+  grid-area: chips;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2px 4px 0;
+  scrollbar-width: none;
+}
+.composer[data-single-line] .composer-chips > *,
+.composer[data-single-line] .composer-chips li,
+.composer[data-single-line] .composer-chips .button {
+  flex: none;
+  white-space: nowrap;
+}
+.composer[data-single-line] .composer-control-cluster {
+  grid-area: plus;
+  flex: none;
+}
+.composer[data-single-line] .message-composer {
+  grid-area: text;
+  align-self: center;
+  padding: 6px 4px;
+}
+.composer[data-single-line] .composer-toolbar {
+  display: contents;
+}
+.composer[data-single-line] .composer-actions {
+  grid-area: actions;
+  gap: 0;
+}
+.composer[data-single-line] .composer-plus.button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border: 0;
+  background: var(--surface-raised);
+}
+.composer[data-single-line] .composer-primary.button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+}
+.composer[data-single-line] .composer-setup-model.button {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--accent-subtle);
+}
+/* Too narrow for one line (a phone at 200% zoom leaves ~180px): the text
+   takes its own row under the chips and the controls sit below it, so the
+   draft never wraps per character and the composer never grows past the
+   screen (B156). */
+@container composer (max-width: 300px) {
+  .composer[data-single-line] .composer-field {
+    grid-template-areas:
+      'chips chips chips'
+      'text text text'
+      'plus . actions';
+  }
+}
+/* Model, approvals and context usage live in the + menu. */
+.composer-plus-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  color: var(--text-muted);
+  font-size: var(--type-size-metadata);
+}
+.composer-plus-context .context-ring-svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+/* ------------------------------------------------------ compact headers */
+
+.chat-content > .conversation-heading[data-layout] {
+  gap: 2px;
+  min-height: 48px;
+  padding: calc(2px + env(safe-area-inset-top)) 4px 2px 4px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface);
+}
+.conversation-heading[data-layout] .conversation-title-block {
+  padding-inline: 4px;
+}
+.conversation-heading[data-layout='phone'] .conversation-title-block h1 {
+  font-size: var(--text-15);
+}
+.conversation-heading[data-layout] .conversation-actions {
+  gap: 0;
+}
+.compact-controls {
+  align-items: center;
+  min-height: 48px;
+  padding: calc(2px + env(safe-area-inset-top)) 4px 2px;
+}
+.compact-controls .workspace-controls {
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+}
+.compact-controls-title {
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------------------------------------------------------- panel sheets */
+
+.compact-tab.panel-sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  animation: sheet-up var(--motion-panel) var(--ease-out);
+}
+.panel-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  padding: calc(2px + env(safe-area-inset-top)) 4px 2px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.panel-sheet-title {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+}
+.panel-sheet-title > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.panel-sheet-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.panel-sheet-body > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ------------------------------------------- Context sheet and the drawer */
+
+.dialog.drawer {
+  animation: drawer-in-left var(--motion-panel) var(--ease-out);
+}
+.dialog.drawer > .dialog-header {
+  align-items: center;
+  min-height: 48px;
+  padding: calc(4px + env(safe-area-inset-top)) 4px 0 16px;
+}
+.dialog.drawer .dialog-title {
+  font-size: var(--text-15);
+  line-height: 22px;
+}
+/* The header's Back closes the drawer; no second Close in a footer. */
+.dialog.drawer > .dialog-footer {
+  display: none;
+}
+.dialog.drawer .dialog-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .dialog.sheet {
+    animation: sheet-up var(--motion-panel) var(--ease-out);
+  }
+  .dialog.sheet > .dialog-header {
+    align-items: center;
+    min-height: 48px;
+    padding: 4px 4px 4px 16px;
+  }
+  .dialog.sheet .dialog-title {
+    font-size: var(--text-15);
+    line-height: 22px;
+  }
+  .dialog.sheet .dialog-description:empty {
+    display: none;
+  }
+  .dialog.sheet.context-sheet {
+    top: calc(8px + env(safe-area-inset-top));
+    height: auto;
+    max-height: none;
+  }
+  .dialog.sheet.context-sheet > .dialog-body {
+    flex: 1;
+  }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dialog.sheet.context-sheet {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    transform: none;
+    width: min(400px, 100vw);
+    height: 100dvh;
+    max-height: 100%;
+    border-radius: var(--radius-dialog) 0 0 var(--radius-dialog);
+    animation: drawer-in-right var(--motion-panel) var(--ease-out);
+  }
+}
+
+/* ------------------------------------------------------------ phone chat */
+
+/* Beside the bubble the user actions (44px each on touch) ran off the left
+   edge of a phone, leaving Copy unreachable: they sit under it instead. */
+@media (hover: none), (pointer: coarse), (max-width: 767px) {
+  .message-user .message-toolbar {
+    position: static;
+    align-self: flex-end;
+    margin: 2px -6px 0 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .composer {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+}
+
+/* --------------------------------------------------------- compact settings */
+
+/* Compact Settings keep their search: the side navigation shows only its
+   search field (and the results while searching) above the section picker. */
+@media (max-width: 900px) {
+  .settings-shell {
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      'head'
+      'nav'
+      'picker'
+      'content';
+  }
+  .settings-side-navigation {
+    display: flex;
+    max-height: 45vh;
+    padding: 0 16px 8px;
+    border-right: 0;
+  }
+  .settings-side-navigation .settings-category-list {
+    display: none;
+  }
+  .settings-navigation-search {
+    margin: 0;
+    padding: 0;
+  }
+}
+@container settings (max-width: 640px) {
+  .settings-shell {
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      'head'
+      'nav'
+      'picker'
+      'content';
+  }
+  .settings-side-navigation {
+    display: flex;
+    max-height: 45vh;
+    padding: 0 16px 8px;
+    border-right: 0;
+  }
+  .settings-side-navigation .settings-category-list {
+    display: none;
+  }
+  .settings-navigation-search {
+    margin: 0;
+    padding: 0;
+  }
+}
+@media (pointer: coarse) {
+  .settings-navigation-search .input {
+    min-height: 44px;
+  }
+}
+
+/* ---------------------------------------------------------- narrow Home */
+
+/* On a phone an insight's title wraps instead of shrinking to one word
+   beside its category. */
+@container home (max-width: 640px) {
+  .insight-title-line {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .insight-title {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ------------------------------------------------------------- dialogs */
+
+/* Tablets keep ordinary dialogs and the palette as centred cards; only large
+   tasks (an expanded chart) take the whole screen. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(.chart-dialog) {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(560px, calc(100vw - 48px));
+    height: auto;
+    max-height: min(calc(100dvh - 48px), calc(100% - 48px));
+    border-radius: var(--radius-dialog);
+  }
+  .dialog.palette {
+    top: min(12vh, 120px);
+    transform: translateX(-50%);
+    width: min(640px, calc(100vw - 32px));
+    max-height: min(560px, calc(100dvh - 24vh));
+    border-radius: 14px;
+  }
+}
+/* A full-screen task keeps its footer at the bottom edge. */
+@media (max-width: 1023px) {
+  .dialog:not(.sheet):not(.alert-dialog):not(.drawer):not(.palette)
+    > .dialog-body {
+    flex: 1 1 auto;
+  }
+}
+
+/* ------------------------------------------------ touch targets (44px) */
+
+@media (pointer: coarse) {
+  /* Switches keep their visual track; the invisible input grows to 44px. */
+  .toggle-control input {
+    inset: 50% auto auto 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+  .settings-shell summary,
+  .settings-shell button,
+  .settings-shell .button,
+  .settings-shell label:has(input[type='checkbox']),
+  .settings-shell label:has(input[type='radio']),
+  .settings-shell
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
+      [type='color']
+    ):not([type='file']),
+  .settings-shell select,
+  .settings-shell textarea {
+    /* A floor, not a size: it must beat compact component rules. */
+    min-height: 44px !important;
+  }
+  .settings-shell button,
+  .settings-shell .icon-button {
+    min-width: 44px !important;
+  }
+  /* Links keep their line; their hit area grows vertically. */
+  .settings-page-content a[href]:not(.button):not(.icon-button) {
+    padding-block: 14px;
+    margin-block: -14px;
+  }
+  /* The whole drop zone is the tap target for choosing documents. */
+  .document-dropzone-input {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    clip-path: none;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .composer-queue-button.button,
+  .composer-setup-model.button {
+    min-height: 44px;
+  }
+  .composer .composer-queue-button.button {
+    min-width: 44px;
+  }
+  /* Every composer action is a touch target at every touch width (tablets
+     keep the two-row composer). */
+  .composer[data-single-line] .composer-plus.button,
+  .composer[data-single-line] .composer-primary.button,
+  .composer .composer-plus.button,
+  .composer .composer-primary.button,
+  .composer .composer-shield.button,
+  .composer .composer-voice .button.icon-button,
+  .composer .composer-voice .conversation-voice-toggle.button.icon-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+  .composer .composer-voice .conversation-voice-toggle.button.icon-button {
+    margin-inline-start: 0;
+  }
+  .composer .composer-model-pill.button {
+    min-height: 44px;
+  }
+  .chat-empty-more {
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+  /* Chips grow to the touch floor rather than hide a larger hit box that
+     the scrolling chip row would clip. */
+  .composer .composer-skill-chip,
+  .composer .composer-skill-suggestion {
+    height: auto;
+    min-height: 44px !important;
+  }
+  .composer .composer-skill-chip .icon-button,
+  .composer .composer-skill-suggestion .icon-button {
+    width: 44px !important;
+    min-width: 44px !important;
+  }
+  .composer .composer-skill-chip .button,
+  .composer .composer-skill-suggestion .button,
+  .composer .composer-setup-model.button {
+    min-height: 44px !important;
+  }
+  .context-ring-button {
+    width: 44px;
+    height: 44px;
+  }
+  .overview-section-link {
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+  /* Approval decisions and turn notices keep the touch floor too. */
+  .approval-card-actions .button,
+  .turn-notice-actions .button,
+  .approval-card-allow.button {
+    min-height: 44px;
+  }
+}

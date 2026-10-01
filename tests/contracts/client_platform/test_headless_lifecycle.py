@@ -59,6 +59,34 @@ def command(kind: str, label: str, payload: dict | None = None, revision: str = 
             "type": kind, "expected_revision": revision, "payload": payload or {}}
 
 
+def test_profile_chat_create_binds_enabled_profile_and_rejects_disabled(platform):
+    from row_bot import agent_profiles, threads
+    from row_bot.application.client_platform import ClientPlatformError
+
+    profile = agent_profiles.save_agent_profile({
+        "slug": "fixture_writer", "display_name": "Fixture Writer",
+        "description": "Fixture only", "instructions": "Private fixture instructions",
+        "skill_policy_json": {"skills_override": ["fixture-skill"]},
+        "enabled": True,
+    })
+    created = platform._execute(command("conversation.create", "profile-chat", {
+        "title": "Fixture Writer chat", "agent_profile_id": profile["id"],
+    }), "new")
+    assert created["status"] == "completed"
+    assert threads._get_thread_agent_profile(created["conversation_id"]) == {
+        "id": profile["id"], "slug": profile["slug"],
+    }
+    assert threads.get_thread_skills_override(created["conversation_id"]) == ["fixture-skill"]
+    assert created["revision"] == str(
+        threads.get_thread_composer_context(created["conversation_id"])["client_revision"]
+    )
+    agent_profiles.save_agent_profile({**profile, "enabled": False})
+    with pytest.raises(ClientPlatformError, match="invalid_command"):
+        platform._execute(command("conversation.create", "disabled-profile-chat", {
+            "agent_profile_id": profile["id"],
+        }), "new")
+
+
 def test_library_categories_follow_shared_thread_classification(platform, monkeypatch):
     from row_bot import threads
 

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import type { CachedModelPage, ModelCatalogSummary } from '../../api/types';
@@ -97,10 +103,10 @@ it('shows provider counts first and loads 80-row pages only after a provider ope
   }));
   const props = show(fixture(page(eighty, 'next')));
   expect(
-    await screen.findByText('81 chat model(s) · 80 ready · 1 pinned'),
+    await screen.findByText('81 chat models · 80 ready · 1 pinned'),
   ).toBeVisible();
   expect(props.controller.modelCatalogPage).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Open ChatGPT / Codex' }));
   expect(await screen.findByText('Model 79')).toBeVisible();
   expect(screen.getAllByRole('button', { name: /Unpin Model/ })).toHaveLength(
     80,
@@ -110,10 +116,18 @@ it('shows provider counts first and loads 80-row pages only after a provider ope
   expect(props.controller.modelCatalogPage).toHaveBeenCalledTimes(2);
 });
 
-it('filters category and search before mounting rows', async () => {
+it('filters by job with chips and searches before mounting rows (B229)', async () => {
   const props = show();
-  await screen.findByText('Providers');
-  fireEvent.click(screen.getByRole('tab', { name: 'VISION' }));
+  const chips = await screen.findByRole('group', { name: 'Model category' });
+  expect(within(chips).getByRole('button', { name: 'Chat' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  fireEvent.click(within(chips).getByRole('button', { name: 'Vision' }));
+  expect(within(chips).getByRole('button', { name: 'Vision' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await waitFor(() =>
     expect(props.controller.modelCatalogSummary).toHaveBeenCalledWith(
       'vision',
@@ -121,10 +135,9 @@ it('filters category and search before mounting rows', async () => {
     ),
   );
   expect(props.controller.modelCatalogPage).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByRole('searchbox', { name: 'Search models' }), {
-    target: { value: 'astra' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Search models' }));
+  const search = screen.getByRole('searchbox', { name: 'Search models' });
+  fireEvent.change(search, { target: { value: 'astra' } });
+  fireEvent.submit(search);
   await screen.findByText('GPT-6-Astra');
   expect(props.controller.modelCatalogPage).toHaveBeenCalledWith(
     'vision',
@@ -154,19 +167,27 @@ it('pins and applies actual defaults through compact icons; unavailable rows are
       ),
     ),
   );
-  await screen.findByText('Providers');
-  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Open ChatGPT / Codex' }),
+  );
   await screen.findByText('GPT-6-Astra');
   fireEvent.click(
     screen.getByRole('button', { name: 'Unpin GPT-6-Astra for chat' }),
   );
   await waitFor(() => expect(props.onPin).toHaveBeenCalledWith('chat', row));
+  const unpinned = { ...row, pinned_surfaces: [] };
   fireEvent.click(
-    screen.getByRole('button', { name: 'Set GPT-6-Astra as chat default' }),
+    await screen.findByRole('button', {
+      name: 'Set GPT-6-Astra as chat default',
+    }),
   );
   await waitFor(() =>
-    expect(props.onDefault).toHaveBeenCalledWith('chat', row),
+    expect(props.onDefault).toHaveBeenCalledWith('chat', unpinned),
   );
+  // Choosing a default also pins the model to that picker.
+  expect(
+    await screen.findByRole('button', { name: 'Unpin GPT-6-Astra for chat' }),
+  ).toBeEnabled();
   expect(
     screen.getByRole('button', { name: 'Unpin Offline for chat' }),
   ).toBeDisabled();
@@ -174,6 +195,29 @@ it('pins and applies actual defaults through compact icons; unavailable rows are
     screen.getByRole('button', { name: 'Set Offline as chat default' }),
   ).toBeDisabled();
   expect(screen.queryByText(/Brain draft/)).not.toBeInTheDocument();
+});
+
+it('keeps loaded rows in place after pinning one reached through Show more', async () => {
+  const props = show();
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Open ChatGPT / Codex' }),
+  );
+  await screen.findByText('GPT-6-Astra');
+  fireEvent.click(screen.getByRole('button', { name: 'Show more models' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Unpin GPT-5.5 for chat' }),
+  );
+  expect(
+    await screen.findByRole('button', { name: 'Pin GPT-5.5 for chat' }),
+  ).toBeEnabled();
+  expect(props.onChanged).toHaveBeenCalledTimes(1);
+  expect(screen.getByText('GPT-6-Astra')).toBeVisible();
+  expect(screen.getByText('Showing 2 of 81 models')).toBeVisible();
+  expect(props.controller.modelCatalogPage).toHaveBeenCalledTimes(2);
+  // Provider counts refresh without dropping the reader's place.
+  await waitFor(() =>
+    expect(props.controller.modelCatalogSummary).toHaveBeenCalledTimes(2),
+  );
 });
 
 it('offers a reload only after the bounded catalog cursor expires', async () => {
@@ -185,8 +229,9 @@ it('offers a reload only after the bounded catalog cursor expires', async () => 
     },
   );
   show(props);
-  await screen.findByText('Providers');
-  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Open ChatGPT / Codex' }),
+  );
   await screen.findByText('GPT-6-Astra');
   expect(
     screen.queryByRole('button', { name: 'Reload catalog results' }),

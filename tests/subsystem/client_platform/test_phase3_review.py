@@ -44,6 +44,7 @@ def test_search_deletion_after_worker_prevents_hit_delivery(workspace_service, m
         client.close()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("query", ["workspace", "open", "history", "draft"])
 def test_deletion_after_workspace_composition_prevents_return(workspace_service, monkeypatch, query):
     from row_bot import threads

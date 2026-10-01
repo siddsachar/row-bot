@@ -1,0 +1,475 @@
+from row_bot.providers.capabilities import model_supports_surface
+from row_bot.providers.catalog import classify_model_capabilities, get_provider_definition, infer_provider_id, legacy_cache_to_model_infos, model_info_to_cache_entry
+from row_bot.providers.models import ModelInfo, TransportMode
+from row_bot.providers.ollama import (
+    is_ollama_cloud_offload_model,
+    ollama_catalog_rows,
+    ollama_model_info,
+)
+
+
+def test_provider_catalog_infers_existing_api_key_providers():
+    assert infer_provider_id("gpt-5") == "openai"
+    assert infer_provider_id("claude-sonnet-4-5") == "anthropic"
+    assert infer_provider_id("gemini-2.5-pro") == "google"
+    assert infer_provider_id("grok-4-1-fast-reasoning") == "xai"
+    assert infer_provider_id("anthropic/claude-sonnet-4") == "openrouter"
+
+
+def test_minimax_provider_definition_and_model_inference():
+    definition = get_provider_definition("minimax")
+    assert definition is not None
+    assert definition.display_name == "MiniMax API"
+    assert definition.default_transport == TransportMode.ANTHROPIC_MESSAGES
+    assert definition.base_url == "https://api.minimax.io/anthropic"
+    assert definition.auth_methods[0].value == "api_key"
+
+
+def test_atlascloud_provider_definition_and_capabilities():
+    from row_bot.providers.resolution import resolve_provider_config
+
+    definition = get_provider_definition("atlascloud")
+    assert definition is not None
+    assert definition.display_name == "Atlas Cloud"
+    assert definition.default_transport == TransportMode.OPENAI_CHAT
+    assert definition.base_url == "https://api.atlascloud.ai/v1"
+    assert definition.risk_label == "cloud_provider"
+    assert definition.auth_methods[0].value == "api_key"
+
+    classified = classify_model_capabilities("atlascloud", "deepseek-ai/DeepSeek-V3-0324")
+    assert "chat" in classified["tasks"]
+    assert classified["transport"] == TransportMode.OPENAI_CHAT
+    assert classified["tool_calling"] is None
+
+    resolved = resolve_provider_config(
+        "model:atlascloud:deepseek-ai/DeepSeek-V3-0324",
+        allow_legacy_local=False,
+    )
+    assert resolved.provider_id == "atlascloud"
+    assert resolved.model_id == "deepseek-ai/DeepSeek-V3-0324"
+    assert resolved.transport == TransportMode.OPENAI_CHAT
+    assert resolved.base_url == "https://api.atlascloud.ai/v1"
+    assert resolved.risk_label == "cloud_provider"
+    assert resolved.execution_location == "remote"
+
+
+def test_minimax_model_ids_infer_to_minimax_provider():
+    for model_id in (
+        "MiniMax-M3",
+        "MiniMax-M2.7",
+        "MiniMax-M2.7-highspeed",
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
+        "MiniMax-M2.1",
+        "MiniMax-M2.1-highspeed",
+        "MiniMax-M2",
+    ):
+        assert infer_provider_id(model_id) == "minimax"
+
+
+def test_minimax_model_capabilities_classified_as_chat():
+    classified = classify_model_capabilities("minimax", "MiniMax-M2.7")
+    assert "chat" in classified["tasks"]
+    assert classified["transport"] == TransportMode.ANTHROPIC_MESSAGES
+    assert "text" in classified["input_modalities"]
+    assert "text" in classified["output_modalities"]
+    assert classified["tool_calling"] is True
+    assert classified["streaming"] is True
+
+
+def test_minimax_m3_capabilities_classified_as_vision_chat_not_video_generation():
+    from row_bot.providers.capabilities import snapshot_supports_surface
+    from row_bot.providers.models import ModelInfo
+
+    classified = classify_model_capabilities("minimax", "MiniMax-M3")
+    info = ModelInfo(
+        provider_id="minimax",
+        model_id="MiniMax-M3",
+        display_name="MiniMax-M3",
+        context_window=1_000_000,
+        transport=classified["transport"],
+        capabilities=frozenset(classified["capabilities"]),
+        input_modalities=frozenset(classified["input_modalities"]),
+        output_modalities=frozenset(classified["output_modalities"]),
+        tasks=frozenset(classified["tasks"]),
+        tool_calling=classified["tool_calling"],
+        streaming=classified["streaming"],
+        endpoint_compatibility=frozenset(classified["endpoint_compatibility"]),
+    )
+    snapshot = info.capability_snapshot()
+
+    assert classified["transport"] == TransportMode.ANTHROPIC_MESSAGES
+    assert "chat" in classified["tasks"]
+    assert "image" in classified["input_modalities"]
+    assert "video" in classified["input_modalities"]
+    assert "text" in classified["output_modalities"]
+    assert classified["tool_calling"] is True
+    assert classified["streaming"] is True
+    assert snapshot_supports_surface(snapshot, "chat") is True
+    assert snapshot_supports_surface(snapshot, "vision") is True
+    assert snapshot_supports_surface(snapshot, "video") is False
+
+
+def test_legacy_cache_to_model_infos_preserves_context_and_capabilities():
+    infos = legacy_cache_to_model_infos({
+        "gpt-4o": {"label": "GPT-4o", "ctx": 128000, "provider": "openai", "vision": True},
+    })
+
+    assert len(infos) == 1
+    assert infos[0].provider_id == "openai"
+    assert infos[0].context_window == 128000
+    assert "vision" in infos[0].capabilities
+    assert infos[0].selection_ref == "model:openai:gpt-4o"
+
+
+def test_openai_responses_only_models_are_chat_surface_compatible():
+    classified = classify_model_capabilities("openai", "gpt-5.5-pro")
+
+    assert classified["transport"] == TransportMode.OPENAI_RESPONSES
+    assert TransportMode.OPENAI_RESPONSES in classified["endpoint_compatibility"]
+    assert "responses" in classified["tasks"]
+
+
+def test_non_chat_models_are_excluded_from_chat_surface():
+    classified = classify_model_capabilities("openai", "text-embedding-3-large")
+    info = ModelInfo(
+        provider_id="openai",
+        model_id="text-embedding-3-large",
+        display_name="Embedding",
+        context_window=8192,
+        transport=classified["transport"],
+        capabilities=frozenset(classified["capabilities"]),
+        input_modalities=frozenset(classified["input_modalities"]),
+        output_modalities=frozenset(classified["output_modalities"]),
+        tasks=frozenset(classified["tasks"]),
+        tool_calling=classified["tool_calling"],
+        streaming=classified["streaming"],
+        endpoint_compatibility=frozenset(classified["endpoint_compatibility"]),
+    )
+
+    assert model_supports_surface(info, "chat") is False
+    assert model_supports_surface(info, "embeddings") is True
+
+
+def test_voice_models_are_voice_surface_not_chat():
+    voice_model_ids = [
+        "whisper-1",
+        "gpt-4o-transcribe",
+        "tts-1",
+        "gpt-realtime",
+        "gpt-4o-audio-preview",
+    ]
+
+    for model_id in voice_model_ids:
+        classified = classify_model_capabilities("openai", model_id)
+        info = ModelInfo(
+            provider_id="openai",
+            model_id=model_id,
+            display_name=model_id,
+            context_window=0,
+            transport=classified["transport"],
+            capabilities=frozenset(classified["capabilities"]),
+            input_modalities=frozenset(classified["input_modalities"]),
+            output_modalities=frozenset(classified["output_modalities"]),
+            tasks=frozenset(classified["tasks"]),
+            tool_calling=classified["tool_calling"],
+            streaming=classified["streaming"],
+            endpoint_compatibility=frozenset(classified["endpoint_compatibility"]),
+        )
+
+        assert model_supports_surface(info, "voice") is True
+        assert model_supports_surface(info, "audio") is True
+        assert model_supports_surface(info, "chat") is False
+
+
+def test_cache_entry_includes_capability_snapshot():
+    info = legacy_cache_to_model_infos({
+        "gpt-4o": {"label": "GPT-4o", "ctx": 128000, "provider": "openai", "vision": True},
+    })[0]
+
+    entry = model_info_to_cache_entry(info)
+
+    assert entry["capabilities_snapshot"]["tasks"] == ["chat"]
+    assert "image" in entry["capabilities_snapshot"]["input_modalities"]
+    assert entry["transport"] == "openai_chat"
+
+
+def test_xai_pricing_matrix_becomes_canonical_generation_metadata():
+    from row_bot.providers.capabilities import normalize_snapshot
+    from row_bot.providers.catalog import model_info_from_metadata
+    from row_bot.providers.xai_catalog import xai_generation_parameters_from_item
+
+    generation_parameters = xai_generation_parameters_from_item({
+        "pricing": [
+            {"quality": "low", "resolution": "1k", "price_per_image": 4},
+            {"quality": "low", "resolution": "2k", "price_per_image": 6},
+            {"quality": "medium", "resolution": "1k", "price_per_image": 6},
+            {"quality": "medium", "resolution": "2k", "price_per_image": 8},
+        ],
+    })
+    info = model_info_from_metadata(
+        "xai",
+        "future-renderer",
+        {"generation_parameters": generation_parameters},
+        display_name="Future Renderer",
+    )
+    snapshot = info.capability_snapshot()
+    normalized = normalize_snapshot(snapshot)
+
+    assert generation_parameters == {
+        "options": {"quality": ["low", "medium"], "resolution": ["1k", "2k"]},
+        "defaults": {"quality": "medium", "resolution": "1k"},
+        "valid_combinations": [
+            {"quality": "low", "resolution": "1k"},
+            {"quality": "low", "resolution": "2k"},
+            {"quality": "medium", "resolution": "1k"},
+            {"quality": "medium", "resolution": "2k"},
+        ],
+    }
+    assert info.tasks == frozenset({"image_generation"})
+    assert snapshot["generation_parameters"] == generation_parameters
+    assert normalized["generation_parameters"] == generation_parameters
+
+
+def test_openrouter_supported_parameters_mark_tools_supported():
+    classified = classify_model_capabilities(
+        "openrouter",
+        "qwen/qwen3.7-max",
+        {"supported_parameters": ["tools", "tool_choice"]},
+    )
+
+    assert classified["tool_calling"] is True
+    assert "tool_calling" in classified["capabilities"]
+
+
+def test_ollama_provider_definition_and_model_capabilities():
+    definition = get_provider_definition("ollama")
+    info = ollama_model_info("qwen3:14b", installed=True, context_window=32768)
+    vision_info = ollama_model_info("llava-phi3:3.8b", installed=True)
+
+    assert definition is not None
+    assert definition.default_transport == TransportMode.OLLAMA_CHAT
+    assert definition.risk_label == "local_private"
+    assert info.provider_id == "ollama"
+    assert info.transport == TransportMode.OLLAMA_CHAT
+    assert "chat" in info.tasks
+    assert info.tool_calling is True
+    assert model_supports_surface(info, "chat") is True
+    assert model_supports_surface(info, "vision") is False
+    assert vision_info.tool_calling is False
+    assert model_supports_surface(vision_info, "vision") is True
+
+
+def test_ollama_native_capabilities_mark_unknown_family_as_tool_capable():
+    info = ollama_model_info(
+        "qwen3.8:27b",
+        installed=True,
+        metadata={"capabilities": ["completion", "vision", "tools", "thinking"]},
+    )
+
+    assert info.tool_calling is True
+    assert "tool_calling" in info.capabilities
+
+
+def test_ollama_native_capabilities_override_tool_capable_family_fallback():
+    info = ollama_model_info(
+        "qwen3:14b",
+        installed=True,
+        metadata={"capabilities": ["completion", "thinking"]},
+    )
+
+    assert info.tool_calling is False
+    assert "tool_calling" not in info.capabilities
+
+
+def test_ollama_explicit_tool_calling_boolean_precedes_native_capabilities():
+    explicitly_disabled = ollama_model_info(
+        "qwen3:14b",
+        metadata={"tool_calling": False, "capabilities": ["completion", "tools"]},
+    )
+    explicitly_enabled = ollama_model_info(
+        "future-family:latest",
+        metadata={"tool_calling": True, "capabilities": ["completion"]},
+    )
+
+    assert explicitly_disabled.tool_calling is False
+    assert explicitly_enabled.tool_calling is True
+
+
+def test_ollama_catalog_uses_daemon_reported_vision_capabilities_for_unknown_family():
+    model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
+
+    rows = ollama_catalog_rows(
+        [model_id],
+        [],
+        metadata_by_model={
+            model_id: {
+                "capabilities": ["completion", "vision"],
+                "input_modalities": ["image", "text"],
+            },
+        },
+    )
+
+    assert rows[0]["model_id"] == model_id
+    assert "vision" in rows[0]["capabilities_snapshot"]["capabilities"]
+    assert "image" in rows[0]["capabilities_snapshot"]["input_modalities"]
+
+
+def test_ollama_cloud_provider_definition_and_capabilities():
+    definition = get_provider_definition("ollama_cloud")
+    classified = classify_model_capabilities("ollama_cloud", "gpt-oss:120b-cloud")
+    vision = classify_model_capabilities("ollama_cloud", "gemma4:31b-cloud", {"capabilities": ["completion", "vision"]})
+
+    assert definition is not None
+    assert definition.display_name == "Ollama Cloud"
+    assert definition.default_transport == TransportMode.OLLAMA_CLOUD_CHAT
+    assert definition.base_url == "https://ollama.com"
+    assert definition.risk_label == "cloud_provider"
+    assert "chat" in classified["tasks"]
+    assert classified["transport"] == TransportMode.OLLAMA_CLOUD_CHAT
+    assert "vision" in vision["capabilities"]
+    assert "image" in vision["input_modalities"]
+
+
+def test_ollama_cloud_offload_models_keep_local_provider_but_cloud_risk():
+    info = ollama_model_info("gpt-oss:120b-cloud", installed=True)
+
+    assert is_ollama_cloud_offload_model("gpt-oss:120b-cloud") is True
+    assert is_ollama_cloud_offload_model("qwen3:14b") is False
+    assert info.provider_id == "ollama"
+    assert info.transport == TransportMode.OLLAMA_CHAT
+    assert info.risk_label == "cloud_provider"
+
+
+def test_direct_and_routed_multimodal_chat_models_support_vision_surface():
+    direct = classify_model_capabilities("openai", "gpt-5.4")
+    routed_google = classify_model_capabilities("openrouter", "google/gemini-2.0-flash-001")
+    routed_anthropic = classify_model_capabilities("openrouter", "anthropic/claude-opus-4.6")
+
+    assert "image" in direct["input_modalities"]
+    assert "image" in routed_google["input_modalities"]
+    assert "image" in routed_anthropic["input_modalities"]
+
+
+def test_google_nano_banana_models_are_image_generation_surface():
+    classified = classify_model_capabilities("google", "gemini-3.1-flash-image-preview")
+
+    assert classified["tasks"] == {"image_generation", "image_edit"}
+    assert "image" in classified["input_modalities"]
+    assert classified["output_modalities"] == {"image"}
+
+
+def test_xai_imagine_image_model_is_image_generation_surface():
+    classified = classify_model_capabilities("xai", "grok-imagine-image")
+
+    assert classified["tasks"] == {"image_generation"}
+    assert classified["output_modalities"] == {"image"}
+
+
+def test_xai_imagine_quality_model_is_image_generation_surface():
+    classified = classify_model_capabilities("xai", "grok-imagine-image-quality")
+
+    assert classified["tasks"] == {"image_generation"}
+    assert classified["output_modalities"] == {"image"}
+
+
+def test_xai_oauth_imagine_models_are_media_surfaces():
+    image = classify_model_capabilities("xai_oauth", "grok-imagine-image")
+    video = classify_model_capabilities("xai_oauth", "grok-imagine-video")
+
+    assert image["tasks"] == {"image_generation"}
+    assert image["output_modalities"] == {"image"}
+    assert image["tool_calling"] is False
+    assert image["streaming"] is False
+    assert video["tasks"] == {"video_generation"}
+    assert video["output_modalities"] == {"video"}
+    assert video["tool_calling"] is False
+    assert video["streaming"] is False
+
+
+def test_legacy_model_facade_uses_ollama_tool_capability_catalog():
+    from row_bot.models import is_tool_compatible
+
+    assert is_tool_compatible("qwen3.6:27b") is True
+    assert is_tool_compatible("qwen3.6:35b-a3b") is True
+
+
+def test_local_ollama_discovery_uses_http_fallback(monkeypatch):
+    import row_bot.models as models
+
+    monkeypatch.setattr(models, "_ollama_reachable", lambda: True)
+    monkeypatch.setattr(models, "_ollama_client", lambda: None)
+    monkeypatch.setattr(
+        models,
+        "_ollama_http_json",
+        lambda path, payload=None, **kwargs: {
+            "models": [{"name": "vendor/non-tool-chat:14b"}]
+        } if path == "/api/tags" else {},
+    )
+
+    assert models.list_local_models() == ["vendor/non-tool-chat:14b"]
+
+
+def test_local_ollama_runtime_expands_unique_family_alias(monkeypatch):
+    import row_bot.models as models
+
+    monkeypatch.setattr(models, "list_local_models", lambda: ["llama3:latest"])
+
+    assert models._ollama_runtime_model_name("model:ollama:llama3") == "llama3:latest"
+
+
+def test_local_ollama_runtime_keeps_ambiguous_family_alias(monkeypatch):
+    import row_bot.models as models
+
+    monkeypatch.setattr(
+        models,
+        "list_local_models",
+        lambda: ["llama3:8b", "llama3:70b"],
+    )
+
+    assert models._ollama_runtime_model_name("model:ollama:llama3") == "llama3"
+
+
+def test_local_ollama_context_uses_http_show_fallback(monkeypatch):
+    import row_bot.models as models
+
+    models._model_max_ctx_cache.clear()
+    monkeypatch.setattr(models, "is_cloud_model", lambda model_name: False)
+    monkeypatch.setattr(models, "_ollama_client", lambda: None)
+    monkeypatch.setattr(
+        models,
+        "_ollama_http_json",
+        lambda path, payload=None, **kwargs: {
+            "model_info": {
+                "general.architecture": "llama",
+                "llama.context_length": 131072,
+            }
+        } if path == "/api/show" else {},
+    )
+
+    assert models.get_model_max_context("model:ollama:vendor/non-tool-chat:14b") == 131072
+
+
+def test_ollama_embedding_model_is_not_chat_surface():
+    info = ollama_model_info("nomic-embed-text:latest", installed=True)
+
+    assert model_supports_surface(info, "chat") is False
+    assert model_supports_surface(info, "embeddings") is True
+
+
+def test_ollama_catalog_rows_are_daemon_only():
+    rows = ollama_catalog_rows(
+        ["qwen3:14b", "gemma3:4b", "llava-phi3:3.8b"],
+        ["qwen3:14b", "mistral:7b", "mistral:7b", "moondream:latest", "phi4:14b"],
+        context_windows={"qwen3:14b": 32768},
+    )
+
+    by_id = {row["model_id"]: row for row in rows}
+    assert list(by_id) == ["gemma3:4b", "llava-phi3:3.8b", "qwen3:14b"]
+    assert by_id["qwen3:14b"]["installed"] is True
+    assert by_id["qwen3:14b"]["context_window"] == 32768
+    assert by_id["gemma3:4b"]["installed"] is True
+    assert "image" in by_id["gemma3:4b"]["capabilities_snapshot"]["input_modalities"]
+    assert "image" in by_id["llava-phi3:3.8b"]["capabilities_snapshot"]["input_modalities"]
+    assert all(row["downloadable"] is False for row in rows)
+    assert all(row["recommended"] is False for row in rows)

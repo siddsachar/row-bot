@@ -1,15 +1,22 @@
 import {
-  memo,
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type DragEvent,
+  type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type {
-  ApprovalView,
+  AttachmentView,
+  ClientError,
   ConversationComposer,
+  DelegatedActivityView,
+  ErrorAction,
   PanelDescriptor,
   ResourceView,
   SlashCommandSpec,
@@ -17,31 +24,52 @@ import type {
   TranscriptTraceGroup,
   WriteTarget,
 } from '../../api/types';
-import { clientError } from '../../api/errors';
+import { clientError, rejectedBeforeRunning } from '../../api/errors';
+import { unbindWithUndo } from './resource-unbind';
 import { useClientState, useRuntime } from '../../runtime';
+import { useSettledIdentity } from '../../shell-settled';
 import { useOverlay } from '../../ui/overlays';
-import {
-  Button,
-  CompactAction,
-  EmptyState,
-  Skeleton,
-} from '../../ui/primitives';
+import { Button, Menu, Skeleton, type MenuAction } from '../../ui/primitives';
 import ResourceSetup from './ResourceSetup';
-import { MediaPreview as Media } from './MediaPreview';
+import { MediaPreview } from './MediaPreview';
 export { MediaPreview as Media } from './MediaPreview';
 import ComposerControls from './ComposerControls';
 import VoiceControls from './VoiceControls';
 import ConversationVoice from './ConversationVoice';
 import ResourceTargets from './ResourceTargets';
-import { ArrowUp, Check, Copy, Paperclip, Square } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Bot,
+  Code2,
+  ImageOff,
+  ListPlus,
+  MoreHorizontal,
+  Palette,
+  Paperclip,
+  CircleStop,
+  Square,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import SearchConversations from './SearchConversations';
-import SteeringQueue from './SteeringQueue';
-import ConversationActions from '../settings/ConversationActions';
+import ConversationActions, {
+  conversationActionsDialog,
+} from '../settings/ConversationActions';
 import DraftConflict from './DraftConflict';
-import QueueControls from './QueueControls';
+import WaitingMessages, {
+  sendable,
+  useWaitingMessages,
+  type WaitingAction,
+  type WaitingMessage,
+} from './WaitingMessages';
 import ContextUsage from './ContextUsage';
-import DelegatedActivity from './DelegatedActivity';
+import DelegatedActivity, {
+  interruptedWork,
+  recentReads,
+} from './DelegatedActivity';
 import ConversationContextRail from './ConversationContextRail';
+import { ContextSlot, useContextHost } from './context-host';
 import {
   commandReceipts,
   ReceiptStorageError,
@@ -49,285 +77,114 @@ import {
 } from './command-receipts';
 import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
-import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
+import MentionPalette, { type MentionItem } from './MentionPalette';
+import {
+  goalRequest,
+  profileChoice,
+  reasoningChoice,
+  slashArgument,
+  type SlashArgument,
+} from './slash-arguments';
+import { resetContextGoals } from './ContextGoal';
+import {
+  currentProfileChoice,
+  openAgentProfiles,
+  profileChoices,
+} from './agent-profiles';
+import type { ProfileSummary } from '../settings/GoalProfileSettings';
 import { ComposerSkillChips } from './ComposerSkills';
-import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
+import {
+  ComposerAttachments,
+  useAttachmentUploads,
+  type AttachmentUpload,
+} from './ComposerAttachments';
+import {
+  attachmentLimitProblem,
+  pastedFileName,
+  ATTACHMENT_LIMITS,
+} from './attachment-limits';
+import ApprovalCard from './ApprovalCard';
+import ChatEmpty from './ChatEmpty';
+import { DelegatedRunsContext, type DelegatedRuns } from './AgentStubs';
+import { SpeakersContext, TurnMarker, type Speakers } from './TurnMarker';
+import { useBuddyStill } from '../buddy/BuddyStill';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
+import { ComputerUseCard, useComputerUse } from './ComputerUseCard';
+import { registerPromptSender } from './composer-bridge';
+import ConversationHeader from './ConversationHeader';
+import ErrorFix from './ErrorFix';
+import { TranscriptMessage } from './TranscriptMessage';
+import { publicBlockText } from './TranscriptBlocks';
+import {
+  answerStreaming,
+  buildTranscript,
+  liveMedia,
+  turnStarts,
+} from './transcript-model';
+import {
+  CardActionsContext,
+  cardKey,
+  liveCards,
+  TranscriptCards,
+  type CardActions,
+} from './TranscriptCards';
+import type { RecoveryAction } from './turn-errors';
+import { modelRefName, splitModelLabel } from './model-choices';
 
 const EMPTY_ROWS: readonly TranscriptRow[] = [];
+const CONTEXT_HIDDEN_KEY = 'row-bot.context-hidden.v1';
 
-const Message = memo(function Message({
-  row,
-  conversationId,
-}: {
-  row: TranscriptRow;
-  conversationId: string | null;
-}) {
-  const { controller, platform } = useRuntime();
-  const [expanded, setExpanded] = useState('');
-  const [cursor, setCursor] = useState<string | undefined>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [previous, setPrevious] = useState<Array<string | undefined>>([]);
-  const pageStart = useRef<string | undefined>(undefined);
-  const author =
-    row.role === 'user'
-      ? 'You'
-      : row.role === 'assistant'
-        ? 'Row-Bot'
-        : 'Tool result';
-  const visibleText =
-    expanded || row.blocks.map(publicBlockText).filter(Boolean).join('\n');
-  async function copy() {
-    try {
-      const result = await platform.writeClipboard(visibleText);
-      if (result.status !== 'ok') {
-        setCopied(false);
-        setError('Copy is unavailable in this browser.');
-        return;
-      }
-      setCopied(true);
-      setError('');
-    } catch {
-      setCopied(false);
-      setError('The visible message could not be copied.');
-    }
-  }
-  async function copyCode(value: string) {
-    try {
-      return (await platform.writeClipboard(value)).status === 'ok';
-    } catch {
-      return false;
-    }
-  }
-  async function more() {
-    const identity = conversationId;
-    if (!identity || !row.content_ref) return;
-    setBusy(true);
-    try {
-      const page = await controller.messageText(
-        identity,
-        row.content_ref,
-        cursor,
-      );
-      if (controller.getSnapshot().selectedConversationId !== identity) return;
-      if (expanded)
-        setPrevious((pages) => [...pages, pageStart.current].slice(-100));
-      pageStart.current = cursor;
-      setExpanded(
-        new TextDecoder().decode(
-          Uint8Array.from(atob(page.data), (c) => c.charCodeAt(0)),
-        ),
-      );
-      setCursor(page.next_cursor ?? undefined);
-      setError('');
-    } catch (cause) {
-      setError(clientError(cause).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <article
-      className={`message message-${row.role}`}
-      aria-label={`${author} message`}
-      data-message-id={row.message_id ?? row.id}
-      data-row-id={row.id}
-      tabIndex={-1}
-    >
-      <div className="transcript-content">
-        <header className="message-meta">
-          <strong className="message-role">{author}</strong>
-          {!!row.tool_call_ids?.length && (
-            <small className="message-tool-count">
-              {row.tool_call_ids.length} tool{' '}
-              {row.tool_call_ids.length === 1 ? 'call' : 'calls'}
-            </small>
-          )}
-          {row.content_status && row.content_status !== 'inline' && (
-            <small className="message-delivery-state">
-              {row.content_status === 'lazy'
-                ? 'Paged content'
-                : 'Oversized content'}
-            </small>
-          )}
-          <CompactAction
-            className="message-copy-action"
-            label={copied ? 'Copied message' : 'Copy message'}
-            onClick={() => void copy()}
-          >
-            {copied ? (
-              <Check aria-hidden="true" />
-            ) : (
-              <Copy aria-hidden="true" />
-            )}
-          </CompactAction>
-        </header>
-        <div className="message-text">
-          {expanded ? (
-            <SafeMarkdown text={expanded} copyText={copyCode} />
-          ) : (
-            <TranscriptBlocks blocks={row.blocks} copyText={copyCode} />
-          )}
-        </div>
-        {!!row.traces?.length && conversationId && (
-          <TranscriptTrace conversation={conversationId} groups={row.traces} />
-        )}
-        {((row.content_status === 'lazy' && (!expanded || cursor)) ||
-          previous.length > 0) && (
-          <div className="message-actions">
-            {row.content_status === 'lazy' && (!expanded || cursor) && (
-              <Button onClick={() => void more()} disabled={busy}>
-                {cursor ? 'Load next content page' : 'Load message content'}
-              </Button>
-            )}
-            {!!previous.length && (
-              <Button
-                onClick={() => {
-                  const start = previous.at(-1);
-                  setPrevious((pages) => pages.slice(0, -1));
-                  setExpanded('');
-                  setCursor(start);
-                  setCopied(false);
-                }}
-              >
-                Previous message portion
-              </Button>
-            )}
-          </div>
-        )}
-        {copied && <small role="status">Visible message copied.</small>}
-        {error && <p role="alert">{error}</p>}
-      </div>
-    </article>
-  );
-});
-
-function ApprovalDetails({ view }: { view: ApprovalView }) {
-  return (
-    <div className="approval-detail stack">
-      <p>{view.reason || view.summary || 'Approval review required.'}</p>
-      <dl>
-        <dt>Action</dt>
-        <dd>{view.action_label}</dd>
-        <dt>Risk</dt>
-        <dd>{view.risk_class}</dd>
-        <dt>Scope</dt>
-        <dd>{view.scope || 'Only this requested action.'}</dd>
-        {view.safe_argument_summary && (
-          <>
-            <dt>Reviewed input</dt>
-            <dd>
-              <code>{view.safe_argument_summary}</code>
-            </dd>
-          </>
-        )}
-        <dt>Expiry</dt>
-        <dd>{view.expires_at || 'No server expiry supplied'}</dd>
-      </dl>
-      <small>
-        Request {view.id} · policy revision {view.policy_revision}
-      </small>
-    </div>
-  );
+/** Below 740px Context floats; a floating chat docks it again from 780px. */
+export function isNarrowChat(width: number, narrow: boolean): boolean {
+  return narrow ? width < 780 : width < 740;
 }
 
-function ApprovalBar({
-  id,
-  hint,
-}: {
-  id: string;
-  hint?: { action_label?: string; reason?: string; risk_class?: string };
-}) {
-  const { controller } = useRuntime();
-  const overlay = useOverlay();
-  const [view, setView] = useState<ApprovalView | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [resolution, setResolution] = useState('');
-  useEffect(() => {
-    const abort = new AbortController();
-    void controller
-      .approval(id, abort.signal)
-      .then(setView)
-      .catch((error) => {
-        if (!abort.signal.aborted) setError(clientError(error).message);
-      });
-    return () => abort.abort();
-  }, [controller, id]);
-  async function resolve(decision: 'approve' | 'reject') {
-    if (!view || busy) return;
-    setBusy(true);
-    try {
-      await controller.intent(
-        id,
-        'approval.resolve',
-        { decision, nonce: view.nonce },
-        view.revision,
-      );
-      setResolution(
-        decision === 'approve' ? 'Approval submitted.' : 'Rejection submitted.',
-      );
-    } catch (cause) {
-      setError(clientError(cause).message);
-      setBusy(false);
-    }
+function readContextHidden(): boolean {
+  try {
+    return localStorage.getItem(CONTEXT_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
   }
+}
+const QUEUE_EVENTS = new Set([
+  'queue.updated',
+  'queue.changed',
+  'steering.queued',
+  'steering.consumed',
+]);
+
+const FIELD_SIZING =
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('field-sizing', 'content');
+
+/** Below this composer width the composer is a single line. */
+const SINGLE_LINE_COMPOSER = 480;
+
+/**
+ * What the transcript's rows share: card actions, who speaks (B271) and the
+ * delegated feed its agent stubs follow (B241).
+ */
+function TranscriptContexts({
+  cardActions,
+  speakers,
+  delegatedRuns,
+  children,
+}: {
+  cardActions: CardActions;
+  speakers: Speakers;
+  delegatedRuns: DelegatedRuns;
+  children: ReactNode;
+}) {
   return (
-    <aside
-      className="approval-bar"
-      aria-label={`Approval required for ${view?.action_label || hint?.action_label || 'requested action'}`}
-      data-risk={view?.risk_class || hint?.risk_class || 'unknown'}
-    >
-      {view ? (
-        <>
-          <div className="approval-bar-context">
-            <strong>{view.action_label}</strong>
-            <span>{view.reason || view.summary}</span>
-            <small>
-              Risk: {view.risk_class} · {view.scope}
-            </small>
-          </div>
-          <div className="approval-bar-actions">
-            <Button
-              variant="danger"
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('reject')}
-            >
-              Reject
-            </Button>
-            <Button
-              disabled={busy || Boolean(resolution)}
-              onClick={() =>
-                overlay.open({
-                  title: `Approval details · ${view.action_label}`,
-                  description: 'Review bounded public context for this action.',
-                  content: <ApprovalDetails view={view} />,
-                })
-              }
-            >
-              Details
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy || Boolean(resolution)}
-              onClick={() => void resolve('approve')}
-            >
-              Approve
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="approval-bar-context">
-          <strong>{hint?.action_label || 'Requested action'}</strong>
-          <span>{hint?.reason || 'Loading approval context…'}</span>
-          <Skeleton label="Loading current approval" />
-        </div>
-      )}
-      {resolution && <p role="status">{resolution}</p>}
-      {error && <p role="alert">{error}</p>}
-    </aside>
+    <CardActionsContext.Provider value={cardActions}>
+      <SpeakersContext.Provider value={speakers}>
+        <DelegatedRunsContext.Provider value={delegatedRuns}>
+          {children}
+        </DelegatedRunsContext.Provider>
+      </SpeakersContext.Provider>
+    </CardActionsContext.Provider>
   );
 }
 
@@ -335,25 +192,50 @@ export default function Conversation({
   onPanel,
   completedDesignId,
   onResourceOpened,
+  onResourceRemoved,
   onNewChat = () => undefined,
   focusConversationId,
   onComposerFocused,
   firstPrompt,
   onFirstPromptConsumed,
   compactContext: compactFromViewport = false,
+  contextPlacement = compactFromViewport ? 'compact' : 'inline',
+  contextToggle = 0,
+  headerActions,
+  headerLeading,
+  headerMenu,
+  onStartProfileChat,
 }: {
-  onPanel: (panel: PanelDescriptor) => void;
+  onPanel: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
   completedDesignId?: string;
   onResourceOpened?: (bindingId: string) => void;
+  /** A resource is being removed (Undo on its card): close its panels. */
+  onResourceRemoved?: (resourceRef: string) => void;
   onNewChat?: () => void;
   focusConversationId?: string | null;
   onComposerFocused?: () => void;
   firstPrompt?: { conversationId: string; text: string } | null;
   onFirstPromptConsumed?: (conversationId: string) => void;
+  /** Legacy alias for contextPlacement="compact". */
   compactContext?: boolean;
+  /**
+   * Where Context lives: a floating card on desktop (inline) or a sheet on
+   * compact layouts.
+   */
+  contextPlacement?: 'inline' | 'compact';
+  /** Each change toggles Context (the workspace's Mod+. shortcut). */
+  contextToggle?: number;
+  /** Header icon actions owned by the workspace (Open panel). */
+  headerActions?: ReactNode;
+  /** Compact layouts: the navigation button before the title. */
+  headerLeading?: ReactNode;
+  /** Phone layout: the header folds its actions into ⋯ (these come first). */
+  headerMenu?: MenuAction[];
+  onStartProfileChat?: (profile: ProfileSummary) => void;
 }) {
   const state = useClientState();
-  const { controller, platform, conversationActionsOwner } = useRuntime();
+  const { controller, platform, conversationActionsOwner, goalProfileOwner } =
+    useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const id = state.selectedConversationId;
@@ -362,29 +244,28 @@ export default function Conversation({
   const draft = controller.getDraft(id ?? 'new');
   const voiceScope = controller.dictationScope();
   const [talkBusy, setTalkBusy] = useState(false);
-  const terminalAdvertised = Boolean(
-    state.handshake?.application_capabilities?.includes('native:terminal'),
-  );
-  const [terminalAvailable, setTerminalAvailable] = useState(false);
-  useEffect(() => {
-    let current = true;
-    setTerminalAvailable(false);
-    if (!terminalAdvertised) return () => void (current = false);
-    void platform
-      .discover()
-      .then((result) => {
-        if (!current) return;
-        setTerminalAvailable(
-          result.status === 'ok' &&
-            result.value.kind === 'pywebview' &&
-            result.value.capabilities.includes('terminal_open'),
-        );
-      })
-      .catch(() => {
-        if (current) setTerminalAvailable(false);
-      });
-    return () => void (current = false);
-  }, [platform, state.handshake?.instance_id, terminalAdvertised]);
+  // The Agents rail section stays hidden until delegated work exists (B7).
+  const [agentsContent, setAgentsContent] = useState<{
+    conversation: string | null;
+    present: boolean;
+  }>({ conversation: null, present: false });
+  const agentsEmpty =
+    agentsContent.conversation !== id || !agentsContent.present;
+  const [agentsLive, setAgentsLive] = useState<{
+    conversation: string | null;
+    live: number;
+    working: number;
+  }>({ conversation: null, live: 0, working: 0 });
+  const liveAgents = agentsLive.conversation === id ? agentsLive.live : 0;
+  const workingAgents = agentsLive.conversation === id ? agentsLive.working : 0;
+  const [recentDelegatedRead] = useState(() => recentReads());
+  // The latest first page of delegated activity: the transcript's agent
+  // stubs, the header's way back and an agent's own icon come from it.
+  const [delegated, setDelegated] = useState<{
+    conversation: string | null;
+    page: DelegatedActivityView | null;
+  }>({ conversation: null, page: null });
+  const delegatedPage = delegated.conversation === id ? delegated.page : null;
   const voiceHostKey = `${state.handshake?.client_session_id ?? ''}:${state.handshake?.server_epoch ?? ''}`;
   const [voiceExposure, setVoiceExposure] = useState({
     key: '',
@@ -394,8 +275,13 @@ export default function Conversation({
     dictateReason: 'Voice capability is unavailable.',
     talkReason: 'Voice capability is unavailable.',
   });
+  // Read once per settled server identity, after the conversation snapshot
+  // is confirmed, so it never competes with open or subscribe (B29).
+  const settledIdentity = useSettledIdentity();
   useEffect(() => {
-    if (!state.handshake) return;
+    const handshake = controller.getSnapshot().handshake;
+    if (!settledIdentity || !handshake) return;
+    const voiceHostKey = `${handshake.client_session_id}:${handshake.server_epoch}`;
     const abort = new AbortController();
     void controller
       .dictationCapability(abort.signal)
@@ -428,9 +314,25 @@ export default function Conversation({
           });
       });
     return () => abort.abort();
-  }, [controller, voiceHostKey, state.handshake]);
+  }, [controller, settledIdentity]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setErrorState] = useState<{
+    message: string;
+    action?: ErrorAction;
+    retry?: () => void;
+  } | null>(null);
+  /** A sentence, or a catalogued error with its one fix; Retry reruns `retry`. */
+  const setError = useCallback(
+    (value: string | ClientError | null, retry?: () => void) =>
+      setErrorState(
+        !value
+          ? null
+          : typeof value === 'string'
+            ? { message: value }
+            : { message: value.message, action: value.action, retry },
+      ),
+    [],
+  );
   const [pending, setPending] = useState<{
     conversation: string;
     id: string;
@@ -497,7 +399,7 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [submitKey]);
+  }, [setError, submitKey]);
   const pendingSubmit = unknown?.key === submitKey ? unknown.claim : null;
   const resumeKey =
     state.handshake && id
@@ -516,7 +418,7 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [resumeKey]);
+  }, [resumeKey, setError]);
   const pendingResume =
     resumeClaim?.key === resumeKey ? resumeClaim.claim : null;
   const skillKey =
@@ -536,7 +438,7 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [skillKey]);
+  }, [setError, skillKey]);
   const pendingSkill = skillClaim?.key === skillKey ? skillClaim.claim : null;
   useEffect(() => {
     setSteeringClaim(null);
@@ -552,42 +454,162 @@ export default function Conversation({
           : clientError(cause).message,
       );
     }
-  }, [steeringKey]);
+  }, [setError, steeringKey]);
   const pendingSteering =
     steeringClaim?.key === steeringKey ? steeringClaim.claim : null;
-  const [steeringOpen, setSteeringOpen] = useState(false);
   const chatContentRef = useRef<HTMLDivElement>(null);
   const chatWorkspaceRef = useRef<HTMLDivElement>(null);
   const [narrowChat, setNarrowChat] = useState(false);
-  const compactContext = compactFromViewport || narrowChat;
+  const contextHost = useContextHost();
+  const compactPlacement = contextPlacement === 'compact';
+  // Without a host (isolated renders) Context renders in place, as before.
+  const hosted = Boolean(contextHost) && !compactPlacement;
+  // Compact layouts show Context as a sheet that adopts the same mounted
+  // host, so it stays live (agents, goal, resources) while it is open.
+  const sheetHosted = Boolean(contextHost) && compactPlacement;
+  // Conversation details is a small floating card. A wide chat keeps it
+  // pinned open under the header's buttons (hidden only on request) and moves
+  // the reading column aside for it (B221); a narrow one floats it over the
+  // chat on demand. Panels such as Design keep the full-height right region.
+  const [contextHidden, setContextHiddenState] = useState(readContextHidden);
+  const [floatingOpen, setFloatingOpen] = useState(false);
+  const floatingContext = hosted && narrowChat;
+  const pinnedContext = hosted && !narrowChat;
+  const cardActive =
+    Boolean(id) && hosted && (floatingContext ? floatingOpen : !contextHidden);
+  // Without a host, a wide chat still gives the card a column of its own.
+  const compactContext = hosted
+    ? floatingContext
+    : compactPlacement || narrowChat;
+  useEffect(() => setFloatingOpen(false), [id]);
   useEffect(() => {
+    if (!floatingContext || !floatingOpen) return;
+    const close = () => setFloatingOpen(false);
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // A dialog or menu owns its own Escape.
+      if (document.querySelector('[role="dialog"], [role="menu"]')) return;
+      close();
+    };
+    const pointerdown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest(
+          '.context-card, [data-context-toggle], [role="dialog"], [role="menu"], [role="listbox"], .tooltip-layer',
+        )
+      )
+        return;
+      close();
+    };
+    document.addEventListener('keydown', keydown);
+    document.addEventListener('pointerdown', pointerdown, true);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      document.removeEventListener('pointerdown', pointerdown, true);
+    };
+  }, [floatingContext, floatingOpen]);
+  // Measured before paint, with hysteresis: a chat that sits near the
+  // threshold (a side panel at default sizes) must not flip modes.
+  useLayoutEffect(() => {
     const element = chatWorkspaceRef.current;
-    if (!element || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(([entry]) => {
-      setNarrowChat(entry.contentRect.width < 720);
-    });
+    if (!element) return;
+    // A hidden section (Home, a route) measures 0: keep the last mode.
+    const measure = (width: number) => {
+      if (width > 0) setNarrowChat((narrow) => isNarrowChat(width, narrow));
+    };
+    measure(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) =>
+      measure(entry.contentRect.width),
+    );
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptContentRef = useRef<HTMLDivElement>(null);
+  // The composer and the Latest pill follow the transcript's reading column,
+  // which the transcript's own scrollbar narrows (B221).
+  useLayoutEffect(() => {
+    const transcript = transcriptRef.current;
+    const workspace = chatWorkspaceRef.current;
+    if (!transcript || !workspace) return;
+    const measure = () =>
+      workspace.style.setProperty(
+        '--transcript-scrollbar',
+        `${transcript.offsetWidth - transcript.clientWidth}px`,
+      );
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(transcript);
+    return () => observer.disconnect();
+  }, []);
   const followingLatest = useRef(true);
+  // The transcript's size when it was last pinned to the latest row.
+  const pinnedGeometry = useRef<{
+    height: number;
+    client: number;
+    width: number;
+  } | null>(null);
   const scrollOwner = useRef<string | null>(null);
   const wasHistory = useRef(false);
   const [showLatest, setShowLatest] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const slashPaletteRef = useRef<SlashPaletteHandle>(null);
+  const mentionPaletteRef = useRef<SlashPaletteHandle>(null);
   const [composerCursor, setComposerCursor] = useState(0);
   const [composerSnapshot, setComposerSnapshot] =
     useState<ConversationComposer | null>(null);
   const [composerBusy, setComposerBusy] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const composerFieldRef = useRef<HTMLDivElement>(null);
+  const [compactToolbar, setCompactToolbar] = useState(false);
+  // A narrow composer (phones, a squeezed chat) is one line: + field mic
+  // send, with the model, approvals and context usage under +.
+  const [singleLine, setSingleLine] = useState(false);
   useLayoutEffect(() => {
-    const composer = composerRef.current;
+    const composer = toolbarRef.current?.closest('.composer');
     if (!composer) return;
+    const measure = (width: number) => {
+      // A hidden conversation (Home, a route) measures 0: keep the mode.
+      if (width <= 0) return;
+      setCompactToolbar(width < 600);
+      setSingleLine(width < SINGLE_LINE_COMPOSER);
+    };
+    measure(composer.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) =>
+      measure(entry.contentRect.width),
+    );
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [id]);
+  // The field grows from one line; an empty draft always rests at one line
+  // (a wrapped placeholder must not size it), and width changes re-measure.
+  const fitComposer = useCallback(() => {
+    const composer = composerRef.current;
+    // Engines with CSS field-sizing grow the field in their own layout pass;
+    // measuring here would force an extra layout on every resize frame.
+    if (!composer || FIELD_SIZING) return;
+    composer.style.height = '';
+    if (!composer.value) return;
     composer.style.height = 'auto';
-    composer.style.height = `${Math.min(144, Math.max(54, composer.scrollHeight))}px`;
-  }, [draft.text, id]);
+    composer.style.height = `${Math.min(240, Math.max(24, composer.scrollHeight))}px`;
+  }, []);
+  useLayoutEffect(fitComposer, [draft.text, id, fitComposer]);
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer || typeof ResizeObserver === 'undefined') return;
+    let width = composer.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (composer.clientWidth === width) return;
+      width = composer.clientWidth;
+      fitComposer();
+    });
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [id, fitComposer]);
   const generation = state.projection?.generation;
   const running = generation && !generation.quiesced;
   const controls = state.workspace?.controls;
@@ -606,23 +628,25 @@ export default function Conversation({
     state.workspace?.actions.find((action) => action.action === 'send')?.ready,
   );
   const composerStateReason = pendingSteering
-    ? 'Checking the queued message receipt before another message can be sent.'
+    ? 'Checking whether your waiting message went through before another message can be sent.'
     : pendingSubmit
-      ? 'Checking the message receipt before another message can be sent.'
+      ? 'Checking whether your last message went through before another message can be sent.'
       : pendingResume
-        ? 'Checking the resume receipt before another action can start.'
+        ? 'Checking whether Resume went through before another action can start.'
         : pendingSkill
-          ? 'Checking the Smart Skills receipt before another change can start.'
+          ? 'Checking whether the skill change went through before another change can start.'
           : talkBusy
             ? 'Voice controls are finishing before another message can be sent.'
             : busy
               ? 'Finishing the current conversation action.'
               : running
-                ? 'A response is in progress. Add text to queue guidance, or stop the run.'
+                ? 'Row-Bot is answering. Anything you send now waits until it finishes, or stop it.'
                 : state.status !== 'ready'
                   ? 'Reconnect to send. Your draft remains on this device.'
                   : !sendActionReady
-                    ? 'Choose a configured model to send. You can still create or open resources.'
+                    ? state.workspace?.model_status?.state === 'unavailable'
+                      ? `The model is unavailable: ${state.workspace.model_status.reason || "it isn't ready right now"}. Reconnect or choose another model; your message stays here.`
+                      : 'Choose a model to send. Your message stays here.'
                     : '';
   const rows = (state.history ?? state.projection)?.rows ?? EMPTY_ROWS;
   useEffect(() => {
@@ -632,11 +656,26 @@ export default function Conversation({
     )
       setPending(null);
   }, [id, pending, rows]);
-  const visibleRows = rows.filter(
-    (row) => row.role !== 'tool' || !row.trace_parent_id,
+  // Rows loaded by scrolling up sit above the live window; history pages
+  // (from a search jump) replace it.
+  const earlierRows = state.history ? EMPTY_ROWS : state.earlier;
+  const transcriptRows = useMemo(() => {
+    if (!earlierRows.length) return rows;
+    const live = new Set(rows.map((row) => row.id));
+    return [...earlierRows.filter((row) => !live.has(row.id)), ...rows];
+  }, [earlierRows, rows]);
+  // Tool results fold into their parent; charts and generated media hoist
+  // onto it and render once (B4, B22).
+  const items = useMemo(
+    () => buildTranscript(transcriptRows),
+    [transcriptRows],
+  );
+  const earlierIds = useMemo(
+    () => new Set(earlierRows.map((row) => row.id)),
+    [earlierRows],
   );
   const hasLiveTranscript =
-    visibleRows.length > 0 || Boolean(pending) || Boolean(running);
+    items.length > 0 || Boolean(pending) || Boolean(running);
   const settledTraceCalls = new Set(
     rows.flatMap((row) =>
       (row.traces ?? []).flatMap((group) =>
@@ -703,9 +742,31 @@ export default function Conversation({
         record.event.type === 'approval.required' &&
         record.event.payload.approval_id === generation?.approval_id,
     );
+  // Computer use shows as a card while this conversation's turn holds the
+  // computer; only this computer's owner sees it (other devices keep the
+  // trace). The turn using the computer, or asking to, is what to follow.
+  const computerLocal = Boolean(
+    state.handshake?.application_capabilities?.includes('computer:interactive'),
+  );
+  const computer = useComputerUse({
+    conversationId: id && computerLocal && !state.history ? id : '',
+    watch:
+      liveTraceGroups.some((group) => group.kind === 'computer') ||
+      (approvalEvent?.event.type === 'approval.required' &&
+        approvalEvent.event.payload.action_label === 'Computer activity'),
+    generationId: generation?.generation_id ?? '',
+    turnKey: `${generation?.generation_id ?? ''}:${generation?.status ?? ''}`,
+    load: controller.computerUse,
+  });
+  // A paused computer waits on an approval; the card's Resume answers it,
+  // so the approval card stays away (never both).
+  const computerPause =
+    Boolean(computer.snapshot?.approval_id) &&
+    computer.snapshot?.approval_id === generation?.approval_id;
   const thinkingActive =
     Boolean(running) &&
     state.activity.at(-1)?.event.type === 'generation.activity';
+  const answering = Boolean(running) && answerStreaming(rows, state.activity);
   useEffect(() => {
     const composer = state.workspace?.composer;
     if (composer?.conversation_id === id) setComposerSnapshot(composer);
@@ -740,7 +801,14 @@ export default function Conversation({
       clearTimeout(timer);
       abort.abort();
     };
-  }, [controller, draft.text, id, state.status, state.workspace?.composer]);
+  }, [
+    controller,
+    draft.text,
+    id,
+    setError,
+    state.status,
+    state.workspace?.composer,
+  ]);
 
   function replaceSlashToken(
     token: { start: number; end: number },
@@ -815,11 +883,140 @@ export default function Conversation({
       if (controller.getSnapshot().selectedConversationId === id)
         setComposerSnapshot(fresh);
       setError('');
+      // Settings' defaults stay as they are; Undo adds the skill back to
+      // this chat against its fresh composer revision (B236).
+      if (!checking && skillActionName === 'remove')
+        overlay.notify('Removed from this chat.', undefined, {
+          label: 'Undo',
+          onAction: () => void skillActionRef.current('activate', skillId),
+        });
     } catch (cause) {
       setError(clientError(cause).message);
       await controller.refreshWorkspace();
     } finally {
       setComposerBusy(false);
+    }
+  }
+  const skillActionRef = useRef(skillAction);
+  useLayoutEffect(() => {
+    skillActionRef.current = skillAction;
+  });
+
+  async function runSlashArgument({ command, argument }: SlashArgument) {
+    if (!id || !state.workspace || !controls || !state.conversation) return;
+    const target = id;
+    const clear = () => {
+      const current = controller.getDraft(target);
+      controller.setDraft(target, { ...current, text: '' });
+    };
+    setBusy(true);
+    try {
+      if (command.handler_kind === 'reasoning') {
+        const reasoning =
+          state.workspace.reasoning?.model_ref ===
+          controls.model_selection?.model_ref
+            ? state.workspace.reasoning
+            : null;
+        const choice = reasoningChoice(argument, reasoning);
+        if (!reasoning?.available || !choice) {
+          setError(
+            reasoning?.available
+              ? `“${argument}” isn't a thinking level for this model. Try ${reasoning.choices.map((item) => item.label).join(', ')}.`
+              : 'This model has no thinking levels to choose from.',
+          );
+          return;
+        }
+        await controller.intent(
+          target,
+          'conversation.controls',
+          {
+            model_selection: controls.model_selection,
+            runtime_mode: controls.runtime_mode,
+            profile_id: controls.profile_id,
+            approval_mode: controls.approval_mode,
+            reasoning: {
+              model_ref: reasoning.model_ref,
+              capability_revision: reasoning.capability_revision,
+              selection: choice.selection,
+            },
+          },
+          state.workspace.revision,
+        );
+        clear();
+        overlay.notify(`Thinking: ${choice.label}`);
+      } else if (command.handler_kind === 'profile') {
+        const choice = profileChoice(
+          argument,
+          profileChoices(state.workspace.profiles ?? []),
+        );
+        if (!choice) {
+          setError(`No agent profile is called “${argument}”.`);
+          return;
+        }
+        await updateControls({ profile_id: choice.id });
+        clear();
+        overlay.notify(`Agent profile: ${choice.label}`);
+      } else if (command.handler_kind === 'goal') {
+        const request = goalRequest(argument);
+        const page = await controller.goals(target, '');
+        if (!page) throw { code: 'capability_unavailable' };
+        if (request.operation !== 'start' && !page.current_goal_id) {
+          setError(
+            'This conversation has no goal yet. Type /goal and what it should achieve.',
+          );
+          return;
+        }
+        const start = request.operation === 'start';
+        const payload = {
+          conversation_id: target,
+          goal_id: page.current_goal_id,
+          revision: page.current_revision,
+          operation: request.operation,
+          objective: start ? request.objective : null,
+          // The Agent runtime default, else no limit (B243).
+          max_turns: start ? page.default_max_turns || null : null,
+          reason: start ? null : '',
+        };
+        const review = await controller.reviewGoal(target, payload);
+        if (!review) throw { code: 'capability_unavailable' };
+        const receipt = await controller.executeGoal(target, {
+          command_id: crypto.randomUUID(),
+          type: 'goal.control',
+          payload: { ...payload, review_id: review.review_id },
+        });
+        if (receipt.status !== 'completed') {
+          setError("The goal change wasn't confirmed. Try again.");
+          return;
+        }
+        resetContextGoals(target);
+        clear();
+        overlay.notify(
+          start
+            ? 'Goal set. Row-Bot is working on it.'
+            : {
+                pause: 'Goal paused.',
+                resume: 'Goal resumed.',
+                clear: 'Goal stopped.',
+                complete: 'Goal marked done.',
+              }[request.operation],
+        );
+      } else if (command.handler_kind === 'agent') {
+        await controller.intent(
+          target,
+          'agent.start',
+          { text: argument },
+          state.conversation.revision,
+        );
+        clear();
+        overlay.notify(
+          'Agent started. Follow it in Conversation details › Agents.',
+        );
+      }
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -869,6 +1066,19 @@ export default function Conversation({
       manageConversation();
       return;
     }
+    const profileSession = goalProfileOwner?.get();
+    if (command.handler_kind === 'profiles' && profileSession) {
+      // The reviewed profile library, not a text summary (B10).
+      replaceSlashToken(token);
+      openAgentProfiles({
+        overlay,
+        controller,
+        session: profileSession,
+        returnFocusTo: composerRef.current,
+        onStartProfileChat,
+      });
+      return;
+    }
     if (
       ['status', 'tools', 'profiles', 'agents', 'help'].includes(
         command.handler_kind,
@@ -909,6 +1119,11 @@ export default function Conversation({
       0,
       transcript.scrollHeight - transcript.clientHeight,
     );
+    pinnedGeometry.current = {
+      height: transcript.scrollHeight,
+      client: transcript.clientHeight,
+      width: transcript.clientWidth,
+    };
   }
   useLayoutEffect(() => {
     if (scrollOwner.current !== id || (wasHistory.current && !state.history)) {
@@ -1005,18 +1220,30 @@ export default function Conversation({
     setBusy(true);
     setError('');
     let claim: PendingCommand | null = null;
+    let checking = false;
+    let sendControls = controls;
+    let sendRevision = state.conversation?.revision ?? '';
     try {
       claim = commandReceipts.read(scope);
-      const checking = Boolean(claim);
+      checking = Boolean(claim);
       if (!claim) {
-        if (!text || !capturedDraft || !controls?.model_selection) return;
+        // A model or mode change that is still saving goes first, so this
+        // message carries it and the revision it made (B109).
+        await controller.controlsSettled?.(target);
+        if (!current()) return;
+        const latest = controller.getSnapshot();
+        if (latest.workspace?.conversation_id === target)
+          sendControls = latest.workspace.controls;
+        if (latest.conversation?.id === target)
+          sendRevision = latest.conversation.revision;
+        if (!text || !capturedDraft || !sendControls?.model_selection) return;
         if (resumeKey && commandReceipts.read(resumeKey)) {
           setResumeClaim({
             key: resumeKey,
             claim: commandReceipts.read(resumeKey)!,
           });
           setError(
-            'Check the pending Resume receipt before sending another message.',
+            'Row-Bot is still checking whether Resume went through. Check it before sending another message.',
           );
           return;
         }
@@ -1024,7 +1251,7 @@ export default function Conversation({
         if (steering) {
           setSteeringClaim({ key: steeringKey, claim: steering });
           setError(
-            'Check the pending queued message receipt before sending another message.',
+            'Row-Bot is still checking your waiting message. Check it before sending another message.',
           );
           return;
         }
@@ -1052,10 +1279,10 @@ export default function Conversation({
               attachment_refs: capturedDraft!.attachments.map(
                 (a) => a.attachment_ref,
               ),
-              model_selection: controls!.model_selection,
+              model_selection: sendControls!.model_selection,
               write_targets: targets,
             },
-            state.conversation!.revision,
+            sendRevision,
             claim.commandId,
           );
       if (
@@ -1081,31 +1308,44 @@ export default function Conversation({
           controller.showLatest();
         }
       } else if (current()) {
-        if (receipt.status === 'rejected')
-          setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          'The message outcome is unresolved. Check its receipt before sending again.',
-        );
+        const refused = clientError({ code: receipt.code });
+        if (receipt.status === 'rejected' && rejectedBeforeRunning(refused)) {
+          dropClaim(scope, claim.commandId);
+          setError(refused);
+        } else {
+          if (receipt.status === 'rejected')
+            setMissingReceipt({ key: scope, commandId: claim.commandId });
+          setError(
+            "Row-Bot couldn't confirm whether your message was sent. Check it before sending again.",
+          );
+        }
       }
     } catch (cause) {
       if (current()) {
-        if (claim && clientError(cause).code === 'not_found')
+        const safe = clientError(cause);
+        if (cause instanceof ReceiptStorageError) setError(cause.message);
+        else if (claim && checking && safe.code === 'not_found') {
           setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          cause instanceof ReceiptStorageError
-            ? cause.message
-            : clientError(cause).message,
-        );
+          setError(safe);
+        } else if (claim && rejectedBeforeRunning(safe)) {
+          // The server refused before anything ran (a message waiting, a
+          // run in progress, no model...): nothing can be duplicated, so
+          // the request is dropped instead of blocking the composer (B107).
+          dropClaim(scope, claim.commandId);
+          setError(safe);
+        } else setError(safe, claim ? () => void recover() : undefined);
       }
     } finally {
       receiptOperation.current = false;
       if (receiptAlive.current) setBusy(false);
     }
   }
-  function send(example?: string) {
-    const outgoing = example
-      ? { text: example, attachments: [] as typeof draft.attachments }
-      : draft;
+  function send(
+    example?: string,
+    keepTargets = false,
+    attachments: typeof draft.attachments = [],
+  ) {
+    const outgoing = example ? { text: example, attachments } : draft;
     if (
       !id ||
       !outgoing.text.trim() ||
@@ -1116,6 +1356,15 @@ export default function Conversation({
       !sendActionReady
     )
       return;
+    // "/goal Ship the docs", "/reasoning high", "/profile writer",
+    // "/agent <task>" run here instead of reaching the model as text (B112).
+    const withArgument = example
+      ? null
+      : slashArgument(outgoing.text, composerSnapshot?.commands ?? []);
+    if (withArgument) {
+      void runSlashArgument(withArgument);
+      return;
+    }
     const commandText = outgoing.text.trim().toLocaleLowerCase();
     const exactCommand = composerSnapshot?.commands.find((command) =>
       [command.token, ...command.aliases].some(
@@ -1137,7 +1386,7 @@ export default function Conversation({
           claim: commandReceipts.read(steeringKey)!,
         });
         setError(
-          'Check the pending queued message receipt before sending another message.',
+          'Row-Bot is still checking your waiting message. Check it before sending another message.',
         );
         return;
       }
@@ -1149,7 +1398,7 @@ export default function Conversation({
       );
       return;
     }
-    const targets: WriteTarget[] = (example ? [] : resources)
+    const targets: WriteTarget[] = (example && !keepTargets ? [] : resources)
       .filter((r) =>
         (targetSelection[id] ?? defaultTargetIds).includes(
           r.binding.binding_id,
@@ -1203,6 +1452,30 @@ export default function Conversation({
     draft,
     onFirstPromptConsumed,
   ]);
+  // Side panels (the Design panel's "Ask Row-Bot to change this…") hand a
+  // short request to this composer, which sends it with its model and write
+  // targets, queued behind a running turn like any other message.
+  const sendPanelPrompt = useEffectEvent((text: string) => {
+    if (
+      !id ||
+      !historyReady ||
+      state.status !== 'ready' ||
+      !sendActionReady ||
+      !controls?.model_selection ||
+      busy ||
+      talkBusy ||
+      pendingSubmit ||
+      pendingSteering ||
+      pendingResume
+    )
+      return false;
+    send(text, true);
+    return true;
+  });
+  useEffect(() => {
+    if (!id) return;
+    return registerPromptSender(id, (text) => sendPanelPrompt(text));
+  }, [id]);
   async function action(
     type: 'conversation.stop' | 'conversation.steer' | 'conversation.resume',
   ) {
@@ -1238,9 +1511,10 @@ export default function Conversation({
     receiptOperation.current = true;
     setBusy(true);
     let claim: PendingCommand | null = null;
+    let checking = false;
     try {
       claim = commandReceipts.read(scope);
-      const checking = Boolean(claim);
+      checking = Boolean(claim);
       if (!claim) {
         if (checkOnly) return;
         const submission = submitKey ? commandReceipts.read(submitKey) : null;
@@ -1248,7 +1522,9 @@ export default function Conversation({
         if (submission || steering) {
           if (submission) setUnknown({ key: submitKey, claim: submission });
           if (steering) setSteeringClaim({ key: steeringKey, claim: steering });
-          setError('Check the pending message receipt before resuming.');
+          setError(
+            'Row-Bot is still checking whether your last message went through. Check it before resuming.',
+          );
           return;
         }
         claim = { commandId: crypto.randomUUID(), steeringId: null };
@@ -1276,24 +1552,35 @@ export default function Conversation({
           setResumeClaim(null);
           setMissingReceipt(null);
           setError('');
-          overlay.notify('Resume receipt confirmed.');
+          if (checking) overlay.notify('Resume went through.');
         }
       } else if (current()) {
-        if (result.status === 'rejected')
-          setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          'The Resume outcome is unresolved. Check its receipt before resuming again.',
-        );
+        const refused = clientError({ code: result.code });
+        if (result.status === 'rejected' && rejectedBeforeRunning(refused)) {
+          dropClaim(scope, claim.commandId);
+          setError(refused);
+        } else {
+          if (result.status === 'rejected')
+            setMissingReceipt({ key: scope, commandId: claim.commandId });
+          setError(
+            "Row-Bot couldn't confirm whether Resume went through. Check it before resuming again.",
+          );
+        }
       }
     } catch (cause) {
       if (current()) {
-        if (claim && clientError(cause).code === 'not_found')
+        const safe = clientError(cause);
+        if (cause instanceof ReceiptStorageError) setError(cause.message);
+        else if (claim && checking && safe.code === 'not_found') {
           setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          cause instanceof ReceiptStorageError
-            ? cause.message
-            : 'The Resume outcome is unresolved. Check its receipt before resuming again.',
-        );
+          setError(safe);
+        } else if (claim && rejectedBeforeRunning(safe)) {
+          dropClaim(scope, claim.commandId);
+          setError(safe);
+        } else
+          setError(
+            "Row-Bot couldn't confirm whether Resume went through. Check it before resuming again.",
+          );
       }
     } finally {
       receiptOperation.current = false;
@@ -1313,9 +1600,10 @@ export default function Conversation({
       controller.getSelectionVersion() === selection &&
       controller.getSnapshot().handshake?.instance_id === instance;
     let claim: PendingCommand | null = null;
+    let checking = false;
     try {
       claim = commandReceipts.read(scope);
-      const checking = Boolean(claim);
+      checking = Boolean(claim);
       if (!claim) {
         if (resumeKey && commandReceipts.read(resumeKey)) {
           setResumeClaim({
@@ -1323,7 +1611,7 @@ export default function Conversation({
             claim: commandReceipts.read(resumeKey)!,
           });
           setError(
-            'Check the pending Resume receipt before queuing another message.',
+            'Row-Bot is still checking whether Resume went through. Check it before adding another message.',
           );
           return;
         }
@@ -1331,7 +1619,7 @@ export default function Conversation({
         if (submission) {
           setUnknown({ key: submitKey, claim: submission });
           setError(
-            'Check the pending message receipt before queuing another message.',
+            'Row-Bot is still checking whether your last message went through. Check it before adding another message.',
           );
           return;
         }
@@ -1339,7 +1627,7 @@ export default function Conversation({
         if (!captured.text.trim() || captured.text.length > 16000) {
           if (current())
             setError(
-              'Queued messages must contain between 1 and 16,000 characters.',
+              'A waiting message needs between 1 and 16,000 characters.',
             );
           return;
         }
@@ -1390,31 +1678,63 @@ export default function Conversation({
           setError('');
           overlay.notify(
             checking
-              ? 'Queued message receipt confirmed. Your current draft is preserved unless it is the original unchanged draft.'
-              : 'Message queued.',
+              ? 'Your waiting message went through. Your current draft is kept.'
+              : 'Message waiting: it sends when Row-Bot finishes.',
           );
+          waiting.reload();
         }
       } else if (current()) {
-        if (result.status === 'rejected')
-          setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          'The queued message outcome is unresolved. Check its receipt before sending it again.',
-        );
+        const refused = clientError({ code: result.code });
+        if (result.status === 'rejected' && rejectedBeforeRunning(refused)) {
+          dropClaim(scope, claim.commandId);
+          setError(refused);
+        } else {
+          if (result.status === 'rejected')
+            setMissingReceipt({ key: scope, commandId: claim.commandId });
+          setError(
+            "Row-Bot couldn't confirm your message is waiting. Check it before sending it again.",
+          );
+        }
       }
     } catch (cause) {
       if (current()) {
-        if (claim && clientError(cause).code === 'not_found')
+        const safe = clientError(cause);
+        if (cause instanceof ReceiptStorageError) setError(cause.message);
+        else if (claim && checking && safe.code === 'not_found') {
           setMissingReceipt({ key: scope, commandId: claim.commandId });
-        setError(
-          cause instanceof ReceiptStorageError
-            ? cause.message
-            : 'The queued message outcome is unresolved. Check its receipt before sending it again.',
-        );
+          setError(safe);
+        } else if (claim && rejectedBeforeRunning(safe)) {
+          dropClaim(scope, claim.commandId);
+          setError(safe);
+        } else
+          setError(
+            "Row-Bot couldn't confirm your message is waiting. Check it before sending it again.",
+          );
       }
     } finally {
       receiptOperation.current = false;
       if (receiptAlive.current) setBusy(false);
     }
+  }
+  /** The server refused before anything ran: forget the request (B107). */
+  function dropClaim(scope: string, commandId: string) {
+    try {
+      commandReceipts.clear(scope, commandId);
+    } catch (cause) {
+      setError(
+        cause instanceof ReceiptStorageError
+          ? cause.message
+          : clientError(cause).message,
+      );
+      return;
+    }
+    if (scope === submitKey) {
+      setUnknown(null);
+      setPending(null);
+    }
+    if (scope === steeringKey) setSteeringClaim(null);
+    if (scope === resumeKey) setResumeClaim(null);
+    setMissingReceipt(null);
   }
   function reviewMissingReceipt() {
     if (!missingReceipt) return;
@@ -1423,10 +1743,10 @@ export default function Conversation({
       instance = state.handshake?.instance_id;
     overlay.open({
       kind: 'alert',
-      title: 'Clear the pending receipt?',
+      title: 'Stop checking this message?',
       description:
-        'The receipt was rejected or could not be found. An unavailable action may still finish. Clear this record only after reviewing the conversation; sending again could create a duplicate. This does not resend an action.',
-      confirmLabel: 'Clear pending receipt',
+        "Row-Bot can't find what happened to it, so it may still arrive. Look at the conversation first: sending it again could make it appear twice. Nothing is sent now.",
+      confirmLabel: 'Stop checking',
       onConfirm: () => {
         if (
           !receiptAlive.current ||
@@ -1455,6 +1775,10 @@ export default function Conversation({
       },
     });
   }
+  const uploads = useAttachmentUploads();
+  const pendingUploads = uploads.uploads.filter(
+    (item) => item.conversation === id,
+  );
   async function attach() {
     if (!id) return;
     const target = id,
@@ -1464,29 +1788,65 @@ export default function Conversation({
         conversationId: target,
         destination: 'composer',
       });
+    // The desktop window falls back to the browser's own file input when its
+    // picker cannot open; anything else that fails is said, never dropped
+    // (B231).
+    if (picked.status === 'unavailable') {
+      setError(
+        picked.reason === 'user_gesture_required'
+          ? 'The file picker needs a click. Choose Attach file again, or drag files into the conversation.'
+          : 'Row-Bot couldn’t attach that file. Try again, or drag it into the conversation.',
+      );
+      return;
+    }
     if (picked.status !== 'ok') return;
+    if ('files' in picked.value) {
+      await attachFiles(picked.value.files);
+      return;
+    }
+    if (picked.value.kind !== 'file') return;
     setBusy(true);
     try {
-      const uploadedAttachments =
-        'files' in picked.value
-          ? await Promise.all(
-              picked.value.files.map((file) => controller.upload(target, file)),
-            )
-          : picked.value.kind === 'file'
-            ? [await controller.attachmentMetadata(picked.value.reference)]
-            : [];
-      for (const uploaded of uploadedAttachments) {
-        const previous = controller.getDraft(target);
-        controller.setDraft(target, {
-          ...previous,
-          attachments: [...previous.attachments, uploaded],
-        });
-      }
+      const uploaded = await controller.attachmentMetadata(
+        picked.value.reference,
+      );
+      const previous = controller.getDraft(target);
+      controller.setDraft(target, {
+        ...previous,
+        attachments: [...previous.attachments, uploaded],
+      });
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
       setBusy(false);
     }
+  }
+  /**
+   * Picked, dropped or pasted files (U18, parity row 1). Files over the
+   * limits are named and left out before anything uploads; the rest attach.
+   */
+  async function attachFiles(files: File[]) {
+    if (!id || !files.length) return;
+    const target = id;
+    const { accepted, problem } = attachmentLimitProblem(files, [
+      ...controller.getDraft(target).attachments,
+      ...pendingUploads.map((item) => ({ size_bytes: item.file.size })),
+    ]);
+    if (problem) setError(problem);
+    if (!accepted.length) return;
+    // Each file's progress and any failure show on its tile (B232); more
+    // files can join while others upload, so this doesn't hold the composer
+    // (B281). Sending waits for the uploads.
+    await uploads.add(target, accepted);
+    if (!problem) setError('');
+  }
+  async function retryUpload(item: AttachmentUpload) {
+    await uploads.retry(item);
+  }
+  const [dragging, setDragging] = useState(false);
+  const attachBlocked = busy || !id || state.status !== 'ready';
+  function hasFiles(event: DragEvent<HTMLElement>) {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
   }
   function resourcePanel(resource: ResourceView) {
     onResourceOpened?.(resource.binding.binding_id);
@@ -1512,8 +1872,10 @@ export default function Conversation({
     });
     composerRef.current?.focus();
   }
-  function setup() {
+  function setup(opener?: HTMLElement | null) {
     overlay.open({
+      // Opened from a menu item that disappears: return focus to its trigger.
+      returnFocusTo: opener,
       title: 'Add resource',
       description:
         'Create or add a design or coding workspace to this conversation.',
@@ -1529,30 +1891,32 @@ export default function Conversation({
       );
       return;
     }
-    overlay.open({
-      title: 'Conversation actions',
-      description:
-        'Review changes to this saved conversation and keep its resources in place.',
-      content: (
+    overlay.open(
+      conversationActionsDialog(
+        state.conversation ?? { title: '' },
+        session,
         <ConversationActions
           conversationId={id}
           session={session}
           load={controller.conversationActions}
           review={controller.reviewConversationAction}
           execute={controller.executeConversationAction}
-          download={async (reference, fileName) => {
-            const result = await platform.save(reference, fileName);
-            if (result.status !== 'ok') throw Error(result.status);
-          }}
+          save={platform.save}
           onChanged={() => {
             void Promise.all([
               controller.selectConversation(id),
               controller.loadMoreConversations(true),
             ]);
           }}
-        />
+          onDelete={(closeActions) =>
+            deleteConversation(
+              closeActions,
+              session.getSnapshot().snapshot?.revision,
+            )
+          }
+        />,
       ),
-    });
+    );
   }
   function manageBrowser() {
     if (!id) return;
@@ -1561,6 +1925,8 @@ export default function Conversation({
       title: 'Managed browser',
       required_capabilities: ['browser_navigate'],
     });
+    // Below 1024px Context is a sheet; the panel must not open behind it.
+    overlay.dismiss('conversation-context');
   }
   function findConversation() {
     if (!id) return;
@@ -1570,19 +1936,19 @@ export default function Conversation({
       content: <SearchConversations conversationId={id} />,
     });
   }
+  // Easy to regret, so the notice offers Undo (decision 19).
   function unbindResource(resource: ResourceView) {
     if (!id || !state.conversation) return;
-    void controller
-      .intent(
-        id,
-        'conversation.unbind',
-        { binding_id: resource.binding.binding_id },
-        state.conversation.revision,
-      )
-      .catch((e) => setError(clientError(e).message));
+    void unbindWithUndo(controller, overlay.notify, id, resource).catch((e) =>
+      setError(clientError(e).message),
+    );
   }
-  function deleteConversation() {
+  // From the actions dialog (B237) the confirmation opens over it, its
+  // confirm closes both, and the dialog passes the revision it last saw (a
+  // rename or pin there moves it on).
+  function deleteConversation(closeActions?: () => void, revision?: string) {
     if (!id || !state.conversation) return;
+    const expected = revision ?? state.conversation.revision;
     overlay.open({
       kind: 'alert',
       title: 'Delete conversation?',
@@ -1590,9 +1956,10 @@ export default function Conversation({
         'This removes its history. Bound resources are retained. Running work must stop before deletion completes.',
       confirmLabel: 'Delete conversation',
       onConfirm: () => {
+        closeActions?.();
         overlay.close();
         void controller
-          .intent(id, 'conversation.delete', {}, state.conversation!.revision)
+          .intent(id, 'conversation.delete', {}, expected)
           .then((receipt) => {
             if (receipt.status === 'DeleteCompleted') navigate('/');
             else
@@ -1607,10 +1974,27 @@ export default function Conversation({
   async function recover() {
     if (pendingSubmit) await dispatch();
   }
+  async function openDelegatedConversation(target: string) {
+    if (controller.getSnapshot().selectedConversationId !== id) return;
+    await controller.selectConversation(target);
+    if (
+      controller.getSnapshot().selectedConversationId === target &&
+      controller.getSnapshot().conversation?.id === target
+    ) {
+      navigate(`/conversations/${target}`);
+      // After navigating (B17): the compact sheet it was opened from closes.
+      overlay.dismiss('conversation-context');
+    }
+  }
   const delegatedActivity = id ? (
     <DelegatedActivity
-      compact
       conversationId={id}
+      onContentChange={(present) =>
+        setAgentsContent({ conversation: id, present })
+      }
+      onLiveChange={(counts) => setAgentsLive({ conversation: id, ...counts })}
+      onFirstPage={(page) => setDelegated({ conversation: id, page })}
+      recentRead={recentDelegatedRead}
       ready={Boolean(state.handshake) && state.status === 'ready'}
       refreshKey={
         state.activity
@@ -1621,15 +2005,42 @@ export default function Conversation({
         controller.delegatedActivity(id, cursor, signal)
       }
       loadRun={(run, signal) => controller.delegatedRun(id, run, signal)}
-      openConversation={async (target) => {
-        if (controller.getSnapshot().selectedConversationId !== id) return;
-        await controller.selectConversation(target);
-        if (
-          controller.getSnapshot().selectedConversationId === target &&
-          controller.getSnapshot().conversation?.id === target
-        )
-          navigate(`/conversations/${target}`);
+      // The dialog keeps these from when it opened: read the conversation's
+      // revision when the person acts, not the render's.
+      stopRun={async (run) => {
+        await controller.intent(
+          id,
+          'agent.stop',
+          { run_id: run },
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
       }}
+      messageRun={async (run, text) => {
+        await controller.intent(
+          id,
+          'agent.message',
+          { run_id: run, message_id: crypto.randomUUID(), text },
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
+      interrupted={interruptedWork(state.conversation)}
+      resumeWork={async () => {
+        await controller.intent(
+          id,
+          'agent.resume',
+          {},
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
+      dismissWork={async () => {
+        await controller.intent(
+          id,
+          'agent.dismiss',
+          {},
+          controller.getSnapshot().conversation?.revision ?? '0',
+        );
+      }}
+      openConversation={openDelegatedConversation}
     />
   ) : (
     <p className="muted">Agents appear after a conversation is created.</p>
@@ -1686,34 +2097,34 @@ export default function Conversation({
     <ConversationContextRail
       conversationId={id}
       conversationRevision={state.workspace?.revision ?? '0'}
+      turnActivity={`${generation?.generation_id ?? ''}:${generation?.status ?? ''}`}
+      turnRunning={Boolean(running)}
+      onStopTurn={() => void action('conversation.stop')}
       resources={resources}
       suggestions={(state.suggestions ?? []).filter(
         (suggestion) => suggestion.conversation_id === id,
       )}
       ready={contextReady}
       connectionStatus={state.status}
-      terminalAvailable={terminalAvailable}
-      compactHeading={compactContext}
       agents={delegatedActivity}
+      agentsEmpty={agentsEmpty}
+      agentsLive={liveAgents}
+      agentsWorking={workingAgents}
+      childConversation={Boolean(
+        state.conversation?.id === id &&
+        state.conversation.parent_conversation_id,
+      )}
       outputs={outputs}
       completedDesignId={completedDesignId}
       writerQueued={writerQueued}
       onCancelWait={() => void action('conversation.stop')}
       onUseOutputInCode={useOutputInCode}
-      onAddResource={setup}
+      onAddResource={() => setup()}
       onOpenResource={resourcePanel}
       onUnbindResource={unbindResource}
-      onFind={findConversation}
       onManageConversation={manageConversation}
       onManageBrowser={manageBrowser}
-      onDeleteConversation={deleteConversation}
-      onOpenTerminal={() =>
-        onPanel({
-          panel_kind: 'native.terminal',
-          title: 'Interactive terminal',
-          required_capabilities: ['native:terminal'],
-        })
-      }
+      onDeleteConversation={() => deleteConversation()}
       onOpenSuggestion={(suggestion) => {
         onPanel(suggestion.descriptor);
         controller.dismissSuggestion(suggestion);
@@ -1723,681 +2134,1604 @@ export default function Conversation({
       }
     />
   ) : null;
+  const isRunning = Boolean(running);
+  // The latest turn is still in flight while it waits for an approval, even
+  // though the worker is parked: no actions until it settles.
+  const turnInFlight = isRunning || generation?.status === 'waiting_approval';
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // Elapsed time for the live activity row, as this client observed it.
+  const [runStartedAt, setRunStartedAt] = useState<number | undefined>();
+  useEffect(() => {
+    if (isRunning) setRunStartedAt((value) => value ?? Date.now());
+    else setRunStartedAt(undefined);
+  }, [isRunning]);
+  const lastError =
+    [...state.activity]
+      .reverse()
+      .find((record) => record.event.type === 'generation.error')?.event
+      .event_id ?? '';
+  const [failure, setFailure] = useState<{
+    event: string;
+    generation: string;
+  } | null>(null);
+  const captureFailure = useEffectEvent((event: string) =>
+    setFailure({ event, generation: generation?.generation_id ?? '' }),
+  );
+  useEffect(() => {
+    if (lastError) captureFailure(lastError);
+  }, [lastError]);
+  const interrupted = !isRunning && generation?.status === 'interrupted';
+  const failed =
+    !isRunning &&
+    !interrupted &&
+    Boolean(failure) &&
+    failure!.generation === (generation?.generation_id ?? '');
+  const settledMedia = useMemo(
+    () =>
+      new Set(
+        items.flatMap((item) => item.media.map((media) => media.reference)),
+      ),
+    [items],
+  );
+  const pendingMedia = liveMedia(state.activity, settledMedia);
+  const settledCards = useMemo(
+    () => new Set(items.flatMap((item) => item.cards.map(cardKey))),
+    [items],
+  );
+  const pendingCards = liveCards(state.activity, settledCards);
+  const cardActions: CardActions = {
+    resource: (bindingId) =>
+      resources.find((item) => item.binding.binding_id === bindingId),
+    open: resourcePanel,
+    rename: async (bindingId, name) => {
+      if (!id || !state.conversation) return;
+      await controller.intent(
+        id,
+        'resource.rename',
+        { binding_id: bindingId, name },
+        state.conversation.revision,
+      );
+    },
+    undo: async (bindingId) => {
+      if (!id || !state.conversation) return;
+      const removed = resources.find(
+        (item) => item.binding.binding_id === bindingId,
+      );
+      // Close its panels first, so nothing reads it once it is gone.
+      if (removed) onResourceRemoved?.(removed.resource_ref);
+      await controller.intent(
+        id,
+        'resource.discard',
+        { binding_id: bindingId },
+        state.conversation.revision,
+      );
+    },
+    // A folder the person had or cloned leaves this conversation only; its
+    // files stay, and the notice offers Undo (B277).
+    remove: async (bindingId) => {
+      const bound = resources.find(
+        (item) => item.binding.binding_id === bindingId,
+      );
+      if (id && bound)
+        await unbindWithUndo(controller, overlay.notify, id, bound);
+    },
+    // The connection's own connect sheet opens (Phase 15); email is Gmail.
+    connect: (page, target) =>
+      navigate(
+        `/settings/${page}#${encodeURIComponent(target === 'email' ? 'google' : target)}`,
+      ),
+  };
+  // Retry and Send again resend the last message as it was: its words and
+  // its files, never the files' names as text (B136). A follow-up note is
+  // the server continuing, not something the person sent.
+  const lastUser = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index -= 1)
+      if (items[index].row.role === 'user' && !items[index].row.note) {
+        const blocks = items[index].row.blocks;
+        return {
+          text: blocks
+            .filter((block) => block.type !== 'attachment')
+            .map(publicBlockText)
+            .filter(Boolean)
+            .join('\n'),
+          attachments: blocks.flatMap((block) =>
+            block.type === 'attachment'
+              ? [
+                  {
+                    attachment_ref: block.attachment_ref,
+                    name: block.name,
+                    mime_type: block.mime_type as AttachmentView['mime_type'],
+                    size_bytes: block.size_bytes,
+                    revision: block.revision,
+                  },
+                ]
+              : [],
+          ),
+        };
+      }
+    return { text: '', attachments: [] as AttachmentView[] };
+  }, [items]);
+  const lastUserText = lastUser.text;
+  let lastAssistant = -1;
+  for (let index = items.length - 1; index >= 0; index -= 1)
+    if (items[index].row.role === 'assistant') {
+      lastAssistant = index;
+      break;
+    }
+  // Actions show once per assistant turn (its last row) and copy the turn.
+  const turns = useMemo(() => {
+    const starts = turnStarts(items);
+    const ends: boolean[] = [];
+    const texts: (string | undefined)[] = [];
+    let start = 0;
+    items.forEach((item, index) => {
+      const next = items[index + 1];
+      const end =
+        item.row.role !== 'assistant' || next?.row.role !== 'assistant';
+      ends.push(end);
+      if (item.row.role !== 'assistant') {
+        texts.push(undefined);
+        start = index + 1;
+        return;
+      }
+      texts.push(
+        end && index > start
+          ? items
+              .slice(start, index + 1)
+              .map((part) =>
+                part.row.blocks.map(publicBlockText).filter(Boolean).join('\n'),
+              )
+              .filter(Boolean)
+              .join('\n\n')
+          : undefined,
+      );
+      if (end) start = index + 1;
+    });
+    return { starts, ends, texts };
+  }, [items]);
+  const newChatRef = useRef(onNewChat);
+  useLayoutEffect(() => {
+    newChatRef.current = onNewChat;
+  });
+  const recoverTurn = useCallback(
+    (next: RecoveryAction) => {
+      if (next === 'model') setModelPickerOpen(true);
+      else if (next === 'providers') navigate('/settings/providers');
+      else if (next === 'new') newChatRef.current();
+    },
+    [navigate],
+  );
+  // Waiting messages come from the server's list, re-read when a queue event
+  // arrives, a run starts or ends, or the server changes (B107, B108).
+  const lastQueueEvent =
+    [...state.activity]
+      .reverse()
+      .find((record) => QUEUE_EVENTS.has(record.event.type))?.event.event_id ??
+    '';
+  const waiting = useWaitingMessages({
+    conversationId: id ?? '',
+    refreshKey: [
+      lastQueueEvent,
+      generation?.generation_id ?? '',
+      generation?.status ?? '',
+      String(Boolean(generation?.quiesced)),
+      state.projection?.server_epoch ?? '',
+      pendingSteering?.commandId ?? '',
+    ].join(':'),
+    steeringGeneration:
+      turnInFlight &&
+      state.activity.some((record) => record.event.type.startsWith('steering.'))
+        ? (generation?.generation_id ?? '')
+        : '',
+    readWaiting: (conversation, signal) =>
+      controller.waitingMessages(conversation, signal),
+    readSteering: (conversation, run, signal) =>
+      controller.steering(conversation, run, undefined, signal),
+  });
+  const waitingAction = useCallback(
+    async (action: WaitingAction, item: WaitingMessage, text?: string) => {
+      if (!id) return;
+      setError('');
+      const run = async (revision: string) => {
+        const current = await controller.workspaceFor(id);
+        await controller.intent(
+          id,
+          `conversation.queue.${action}`,
+          {
+            submission_id: item.id,
+            expected_queue_revision: revision,
+            ...(action === 'edit' ? { text } : {}),
+          },
+          current.revision,
+        );
+      };
+      try {
+        try {
+          await run(item.revision);
+        } catch (cause) {
+          // Stop pauses waiting messages, which moves their revision. When
+          // only that changed (the text is what the person saw), act on the
+          // current revision once instead of refusing.
+          if (clientError(cause).code !== 'queue_revision_conflict')
+            throw cause;
+          const fresh = (await controller.waitingMessages(id)).items.find(
+            (value) => value.submission_id === item.id,
+          );
+          if (!fresh?.editable || fresh.text !== item.text) throw cause;
+          await run(fresh.revision);
+        }
+      } catch (cause) {
+        setError(clientError(cause), () => waiting.reload());
+        throw cause;
+      } finally {
+        waiting.reload();
+      }
+    },
+    [controller, id, setError, waiting],
+  );
+  const nextWaiting = sendable(waiting.items, turnInFlight);
+  const sendWaitingNow = () => {
+    if (nextWaiting)
+      void waitingAction('dispatch', nextWaiting).catch(() => undefined);
+  };
+  // A stopped run whose transcript ends on the person's own message.
+  const unanswered =
+    !turnInFlight &&
+    !state.history &&
+    generation?.status === 'stopped' &&
+    items.at(-1)?.row.role === 'user' &&
+    !items.at(-1)?.row.note &&
+    Boolean(lastUserText) &&
+    pending?.conversation !== id;
+  // A delegated agent's own conversation: its icon, its replies, and the
+  // way back to its parent in the header (B242, B271).
+  const ownRun = delegatedPage?.own_run ?? null;
+  const ownSeed = ownRun ? agentSeed(ownRun.profile_id, ownRun.run_id) : '';
+  const buddyStill = useBuddyStill(id);
+  const speakers = useMemo(
+    () => ({
+      buddy: buddyStill,
+      agent: ownRun ? { seed: ownSeed, name: ownRun.name } : null,
+    }),
+    [buddyStill, ownRun, ownSeed],
+  );
+  const breadcrumb =
+    delegatedPage?.parent_conversation_id &&
+    typeof delegatedPage.parent_title === 'string'
+      ? {
+          to: `/conversations/${delegatedPage.parent_conversation_id}`,
+          title: delegatedPage.parent_title || 'Untitled conversation',
+          icon: ownSeed ? <AgentAvatar seed={ownSeed} size={20} /> : undefined,
+        }
+      : undefined;
+  // The agents a turn started update in place from the feed (B241).
+  const openAgentRun = useCallback(
+    async (runId: string) => {
+      if (!id) return;
+      try {
+        const target =
+          delegatedPage?.items.find((run) => run.run_id === runId)
+            ?.child_conversation_id ??
+          (await controller.delegatedRun(id, runId)).child_conversation_id;
+        if (target) await openDelegatedConversation(target);
+        else
+          overlay.notify(
+            "This agent's conversation isn't available yet.",
+            'warning',
+          );
+      } catch (cause) {
+        overlay.notify(clientError(cause).message, 'danger');
+      }
+    },
+    // openDelegatedConversation reads the latest snapshot itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [controller, delegatedPage, id, overlay],
+  );
+  const delegatedRuns = useMemo(
+    () => ({
+      runs: new Map(
+        (delegatedPage?.items ?? []).map((run) => [run.run_id, run]),
+      ),
+      settled: Boolean(delegatedPage),
+      open: (runId: string) => void openAgentRun(runId),
+    }),
+    [delegatedPage, openAgentRun],
+  );
+  // The message awaiting confirmation and the live reply continue or begin
+  // a speaker's turn after the last row (B271).
+  const pendingShown =
+    pending?.conversation === id &&
+    !rows.some((row) => row.message_id === pending.id);
+  const lastRow = items.at(-1)?.row;
+  const lastSpeaker = lastRow && !lastRow.note ? lastRow.role : null;
+  const listedTitle = state.conversations.find((item) => item.id === id)?.title;
+  const title =
+    listedTitle || state.conversation?.title || 'Start a conversation';
+  const currentModel = state.handshake?.models.find(
+    (model) => model.model_ref === controls?.model_selection?.model_ref,
+  );
+  const modelName = currentModel
+    ? splitModelLabel(currentModel.label).name
+    : modelRefName(controls?.model_selection?.model_ref);
+  const editMessage = useCallback(
+    (text: string) => {
+      if (!id) return;
+      const current = controller.getDraft(id);
+      const next = current.text.trim()
+        ? `${current.text.replace(/\s+$/, '')}\n\n${text}`
+        : text;
+      controller.setDraft(id, { ...current, text: next });
+      requestAnimationFrame(() => {
+        const input = composerRef.current;
+        input?.focus();
+        input?.setSelectionRange(next.length, next.length);
+      });
+    },
+    [controller, id],
+  );
+  const retryAction = useRef<() => void>(() => undefined);
+  useLayoutEffect(() => {
+    retryAction.current = () => {
+      if (lastUserText) send(lastUserText, true, lastUser.attachments);
+    };
+  });
+  const retryLast = useCallback(() => retryAction.current(), []);
+  async function rename(next: string) {
+    if (!id || !state.conversation) return;
+    try {
+      await controller.intent(
+        id,
+        'conversation.rename',
+        { title: next },
+        state.conversation.revision,
+      );
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  }
+  async function updateControls(patch: {
+    profile_id?: string;
+    approval_mode?: 'allow_all';
+  }) {
+    if (!id || !controls || !state.workspace) return;
+    await controller.intent(
+      id,
+      'conversation.controls',
+      {
+        model_selection: controls.model_selection,
+        runtime_mode: controls.runtime_mode,
+        profile_id: controls.profile_id,
+        approval_mode: controls.approval_mode,
+        ...patch,
+      },
+      state.workspace.revision,
+    );
+  }
+  const allowInChat = () => updateControls({ approval_mode: 'allow_all' });
+  // A delegated agent's own thread (it has a parent conversation).
+  const childThread = Boolean(
+    state.conversation?.id === id && state.conversation.parent_conversation_id,
+  );
+  function chooseTarget(
+    kind: 'artifact' | 'workspace',
+    bindingId: string | null,
+  ) {
+    if (!id) return;
+    setTargets((previous) => ({
+      ...previous,
+      [id]: [
+        ...(previous[id] ?? defaultTargetIds).filter(
+          (binding) =>
+            !resources.some(
+              (resource) =>
+                resource.binding.binding_id === binding &&
+                resource.binding.kind === kind,
+            ),
+        ),
+        ...(bindingId ? [bindingId] : []),
+      ],
+    }));
+  }
+  // "@" mentions: a keyboard path to agent profile, write target and files.
+  const selectedTargets = id ? (targetSelection[id] ?? defaultTargetIds) : [];
+  const mentionItems: MentionItem[] = [
+    ...profileChoices(state.workspace?.profiles ?? []).map((profile) => ({
+      id: `profile:${profile.id}`,
+      group: 'Agents',
+      label: profile.label,
+      // One line per profile: its name, no sentence repeated on every row (U20).
+      description: '',
+      icon: <Bot size={16} />,
+      current:
+        currentProfileChoice(
+          state.workspace?.profiles ?? [],
+          controls?.profile_id,
+        ) === profile.id,
+      onChoose: () =>
+        void updateControls({ profile_id: profile.id }).catch((cause) =>
+          setError(clientError(cause).message),
+        ),
+    })),
+    ...resources
+      .filter((resource) => resource.available)
+      .map((resource) => ({
+        id: `resource:${resource.binding.binding_id}`,
+        group: 'Resources',
+        label: resource.title,
+        description:
+          resource.binding.kind === 'artifact'
+            ? 'Send changes to this design'
+            : 'Send changes to this code folder',
+        icon:
+          resource.binding.kind === 'artifact' ? (
+            <Palette size={16} />
+          ) : (
+            <Code2 size={16} />
+          ),
+        current: selectedTargets.includes(resource.binding.binding_id),
+        onChoose: () =>
+          chooseTarget(
+            resource.binding.kind as 'artifact' | 'workspace',
+            resource.binding.binding_id,
+          ),
+      })),
+    {
+      id: 'file',
+      group: 'Files',
+      label: 'Attach a file…',
+      description: 'Choose a file from this device',
+      icon: <Paperclip size={16} />,
+      onChoose: () => void attach(),
+    },
+  ];
+  // "↓ N new" counts live rows that arrived while the reader was away.
+  const liveItemCount =
+    items.length -
+    (earlierIds.size
+      ? items.filter((item) => earlierIds.has(item.row.id)).length
+      : 0);
+  const [newCount, setNewCount] = useState(0);
+  const seenItems = useRef<{ conversation: string | null; count: number }>({
+    conversation: null,
+    count: 0,
+  });
+  useEffect(() => {
+    const previous = seenItems.current;
+    seenItems.current = { conversation: id, count: liveItemCount };
+    if (
+      previous.conversation !== id ||
+      state.history ||
+      followingLatest.current
+    ) {
+      setNewCount(0);
+      return;
+    }
+    if (liveItemCount > previous.count)
+      setNewCount((count) => count + liveItemCount - previous.count);
+  }, [id, liveItemCount, state.history]);
+  // Scrolling up loads earlier rows; the first visible row stays in place.
+  const earlierAnchor = useRef<{ row: string; top: number } | null>(null);
+  const loadEarlier = useCallback(() => {
+    const first =
+      transcriptRef.current?.querySelector<HTMLElement>('[data-row-id]');
+    earlierAnchor.current = first
+      ? { row: first.dataset.rowId!, top: first.getBoundingClientRect().top }
+      : null;
+    void controller.loadEarlier().catch((cause) => {
+      earlierAnchor.current = null;
+      setError(clientError(cause).message);
+    });
+  }, [controller, setError]);
+  useLayoutEffect(() => {
+    const anchor = earlierAnchor.current;
+    const transcript = transcriptRef.current;
+    if (!anchor || !transcript) return;
+    earlierAnchor.current = null;
+    const element = Array.from(
+      transcript.querySelectorAll<HTMLElement>('[data-row-id]'),
+    ).find((row) => row.dataset.rowId === anchor.row);
+    if (element)
+      transcript.scrollTop += element.getBoundingClientRect().top - anchor.top;
+  }, [state.earlier]);
+  const topSentinel = useRef<HTMLDivElement>(null);
+  const canLoadEarlier =
+    !state.history && state.earlierAvailable && historyReady;
+  useEffect(() => {
+    const target = topSentinel.current;
+    const root = transcriptRef.current;
+    if (
+      !canLoadEarlier ||
+      !target ||
+      !root ||
+      typeof IntersectionObserver === 'undefined'
+    )
+      return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !followingLatest.current) loadEarlier();
+      },
+      { root, rootMargin: '480px 0px 0px 0px' },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [canLoadEarlier, loadEarlier, id]);
+  function openContextSheet() {
+    overlay.open({
+      kind: 'sheet',
+      key: 'conversation-context',
+      // Full height on phones, a side sheet on tablets (responsive.css).
+      className: 'context-sheet',
+      title: 'Conversation details',
+      description: '',
+      content: sheetHosted ? (
+        <ContextSlot active className="context-sheet-slot" host={contextHost} />
+      ) : (
+        contextRail
+      ),
+    });
+  }
+  function toggleContext() {
+    if (!hosted) {
+      openContextSheet();
+      return;
+    }
+    // Act on the width now, not the last render: layout can still be
+    // settling right after a load or a panel change.
+    const width = chatWorkspaceRef.current?.getBoundingClientRect().width;
+    const narrowNow = width ? isNarrowChat(width, narrowChat) : narrowChat;
+    if (narrowNow !== narrowChat) setNarrowChat(narrowNow);
+    if (narrowNow) setFloatingOpen((open) => (floatingContext ? !open : true));
+    else {
+      const hidden = !contextHidden;
+      setContextHiddenState(hidden);
+      try {
+        if (hidden) localStorage.setItem(CONTEXT_HIDDEN_KEY, '1');
+        else localStorage.removeItem(CONTEXT_HIDDEN_KEY);
+      } catch {
+        /* The choice still applies for this session. */
+      }
+    }
+  }
+  const toggleFromShortcut = useEffectEvent(() => {
+    if (id && hosted) toggleContext();
+  });
+  const shortcutCount = useRef(contextToggle);
+  useEffect(() => {
+    if (shortcutCount.current === contextToggle) return;
+    shortcutCount.current = contextToggle;
+    toggleFromShortcut();
+  }, [contextToggle]);
+  const contextShown = hosted ? cardActive : undefined;
+  const needsModel =
+    !isRunning &&
+    Boolean(state.workspace) &&
+    state.status === 'ready' &&
+    !sendActionReady;
+  // One way forward when the model can't answer (decision 10): reconnect its
+  // provider, or choose a model (Setup when nothing can be chosen yet).
+  const modelStatus = state.workspace?.model_status;
+  const reconnect =
+    modelStatus?.state === 'unavailable' && modelStatus.fix === 'reconnect';
+  const anyModel = (state.handshake?.models ?? []).some(
+    (model) => model.available,
+  );
+  const setupModelButton = (
+    <Button
+      className="composer-setup-model"
+      onClick={() =>
+        reconnect
+          ? navigate('/settings/providers')
+          : anyModel
+            ? setModelPickerOpen(true)
+            : navigate('/setup')
+      }
+    >
+      {reconnect
+        ? 'Reconnect'
+        : modelStatus?.state === 'unavailable'
+          ? 'Choose another model'
+          : anyModel
+            ? 'Choose a model'
+            : 'Set up a model'}
+    </Button>
+  );
+  const composerControls = (
+    <ComposerControls
+      key={id}
+      composer={composerSnapshot ?? undefined}
+      onSkillAction={skillAction}
+      skillsOpen={skillsOpen}
+      onSkillsOpenChange={setSkillsOpen}
+      disabled={isRunning || busy || talkBusy || composerBusy}
+      onError={setError}
+      onAttach={() => void attach()}
+      attachDisabled={busy}
+      onAddResource={setup}
+      modelPickerOpen={modelPickerOpen}
+      onModelPickerOpenChange={setModelPickerOpen}
+      singleLine={singleLine}
+      contextUsage={state.workspace?.context_usage}
+      anchor={composerFieldRef}
+    />
+  );
+  const sendBlocked =
+    busy ||
+    pendingUploads.some((item) => !item.error) ||
+    Boolean(pendingSteering) ||
+    Boolean(pendingSubmit) ||
+    Boolean(pendingResume);
+  const runAnnouncement = generation
+    ? ({
+        running: 'Row-Bot is working.',
+        stopping: 'Stopping — waiting for the worker to finish.',
+        stopped: 'Stopped.',
+        waiting_approval: 'Waiting for your approval.',
+        completed: 'Response complete.',
+        interrupted: 'The response was interrupted.',
+      }[generation.status] ?? '')
+    : '';
   return (
-    <div
-      className={`chat-workspace${compactContext ? ' compact-context' : ''}`}
-      ref={chatWorkspaceRef}
+    <TranscriptContexts
+      cardActions={cardActions}
+      speakers={speakers}
+      delegatedRuns={delegatedRuns}
     >
       <div
-        className="chat-content"
-        ref={chatContentRef}
-        role="region"
-        tabIndex={0}
-        aria-label="Conversation details"
+        className={`chat-workspace${compactContext ? ' compact-context' : ''}${pinnedContext ? ' details-wide' : ''}${pinnedContext && cardActive ? ' details-open' : ''}`}
+        ref={chatWorkspaceRef}
       >
-        <header className="conversation-heading">
-          <div className="conversation-title-block">
-            <span className="eyebrow">Conversation</span>
-            <h1 title={state.conversation?.title || 'Start a conversation'}>
-              {state.conversation?.title || 'Start a conversation'}
-            </h1>
-          </div>
-          <div
-            className="button-row conversation-actions"
-            role="group"
-            aria-label="Conversation actions"
+        <div
+          className="chat-content"
+          ref={chatContentRef}
+          role="region"
+          tabIndex={0}
+          aria-label="Chat"
+        >
+          <ConversationHeader
+            title={title}
+            canRename={Boolean(
+              id && state.conversation && state.status === 'ready',
+            )}
+            onRename={rename}
+            model={id ? modelName : undefined}
+            onFind={id ? findConversation : undefined}
+            onShare={id ? manageConversation : undefined}
+            onContext={
+              id && (hosted || compactContext) ? toggleContext : undefined
+            }
+            contextPressed={contextShown}
+            contextDisabled={!contextReady}
+            actions={headerActions}
+            leading={headerLeading}
+            menuActions={headerMenu}
+            breadcrumb={breadcrumb}
           >
             {missingReceipt &&
               (missingReceipt.key === steeringKey ||
                 missingReceipt.key === submitKey ||
                 missingReceipt.key === resumeKey) && (
                 <Button disabled={busy} onClick={reviewMissingReceipt}>
-                  Check pending receipt
+                  Stop checking
                 </Button>
               )}
-            {id && compactContext && (
-              <Button
-                disabled={!contextReady}
-                onClick={() =>
-                  overlay.open({
-                    kind: 'sheet',
-                    key: 'conversation-context',
-                    title: 'Conversation context',
-                    description: '',
-                    content: contextRail,
-                  })
-                }
-              >
-                Context
-              </Button>
-            )}
-          </div>
-        </header>
-        <div
-          className="history-controls"
-          role="group"
-          aria-label="Conversation history"
-        >
-          <Button
-            disabled={!historyReady}
-            onClick={() =>
-              void controller
-                .showHistory()
-                .catch((e) => setError(clientError(e).message))
-            }
-          >
-            Browse history
-          </Button>
-          {state.history?.previous_cursor && (
-            <Button
-              disabled={!historyReady}
-              onClick={() =>
-                void controller
-                  .showHistory(undefined, state.history!.previous_cursor!)
-                  .catch((e) => setError(clientError(e).message))
-              }
-            >
-              Earlier messages
-            </Button>
-          )}
-          {state.history?.next_cursor && (
-            <Button
-              disabled={!historyReady}
-              onClick={() =>
-                void controller
-                  .showHistory(undefined, state.history!.next_cursor!)
-                  .catch((e) => setError(clientError(e).message))
-              }
-            >
-              Later messages
-            </Button>
-          )}
-          {(state.history || showLatest) && (
-            <Button
-              onClick={() => {
-                followingLatest.current = true;
-                setShowLatest(false);
-                if (state.history) controller.showLatest();
-                else scrollToLatest();
-              }}
-            >
-              Latest messages
-            </Button>
-          )}
-        </div>
-        <div
-          role="log"
-          aria-label="Conversation"
-          aria-live="polite"
-          aria-relevant="additions"
-          className="transcript"
-          ref={transcriptRef}
-          tabIndex={0}
-          onScroll={(event) => {
-            if (state.history || state.loadingConversation) return;
-            const transcript = event.currentTarget;
-            const following =
-              transcript.scrollHeight -
-                transcript.clientHeight -
-                transcript.scrollTop <=
-              24;
-            followingLatest.current = following;
-            setShowLatest(!following);
-          }}
-        >
+          </ConversationHeader>
           <div
-            className="transcript-content"
-            ref={transcriptContentRef}
-            style={{ display: 'flow-root' }}
+            role="log"
+            aria-label="Conversation"
+            aria-live="polite"
+            aria-relevant="additions"
+            className="transcript"
+            ref={transcriptRef}
+            tabIndex={0}
+            onScroll={(event) => {
+              if (state.loadingConversation) return;
+              const transcript = event.currentTarget;
+              const following =
+                transcript.scrollHeight -
+                  transcript.clientHeight -
+                  transcript.scrollTop <=
+                24;
+              if (state.history) {
+                setShowLatest(true);
+                return;
+              }
+              const pinned = pinnedGeometry.current;
+              if (
+                !following &&
+                followingLatest.current &&
+                pinned &&
+                (transcript.scrollHeight !== pinned.height ||
+                  transcript.clientHeight !== pinned.client ||
+                  transcript.clientWidth !== pinned.width)
+              ) {
+                // The layout moved under a reader who was following (a panel
+                // opened, the composer changed height): stay on the latest.
+                scrollToLatest();
+                return;
+              }
+              followingLatest.current = following;
+              setShowLatest(!following);
+              if (following) setNewCount(0);
+            }}
           >
-            {state.loadingConversation ? (
-              <Skeleton label="Opening conversation" />
-            ) : visibleRows.length ? (
-              visibleRows.map((row) => (
-                <Message
-                  key={`${id}:${row.id}`}
-                  row={row}
-                  conversationId={id}
-                />
-              ))
-            ) : (
-              <EmptyState
-                title={
-                  id
-                    ? 'What would you like to work on?'
-                    : 'A place for your ideas'
-                }
-                action={
-                  id && (
-                    <div className="stack" aria-label="Example prompts">
-                      {EXAMPLE_PROMPTS.slice(0, 3).map((prompt, index) => (
-                        <Button
-                          key={prompt}
-                          disabled={
-                            !sendActionReady ||
-                            busy ||
-                            !!pendingSubmit ||
-                            !!pendingResume ||
-                            !!pendingSteering
-                          }
-                          onClick={() => send(prompt)}
-                        >
-                          {EXAMPLE_LABELS[index]}
-                        </Button>
-                      ))}
-                      <details>
-                        <summary>More ideas</summary>
-                        <div className="stack">
-                          {EXAMPLE_PROMPTS.slice(3).map((prompt, index) => (
-                            <Button
-                              key={prompt}
-                              disabled={
-                                !sendActionReady ||
-                                busy ||
-                                !!pendingSubmit ||
-                                !!pendingResume ||
-                                !!pendingSteering
-                              }
-                              onClick={() => send(prompt)}
-                            >
-                              {EXAMPLE_LABELS[index + 3]}
-                            </Button>
-                          ))}
-                        </div>
-                      </details>
+            <div
+              className="transcript-content"
+              ref={transcriptContentRef}
+              style={{ display: 'flow-root' }}
+            >
+              {canLoadEarlier && (
+                <div className="transcript-sentinel" ref={topSentinel}>
+                  <Button
+                    variant="ghost"
+                    disabled={state.loadingEarlier}
+                    onClick={loadEarlier}
+                  >
+                    {state.loadingEarlier
+                      ? 'Loading earlier messages…'
+                      : 'Earlier messages'}
+                  </Button>
+                </div>
+              )}
+              {state.history?.previous_cursor && (
+                <div className="transcript-sentinel">
+                  <Button
+                    variant="ghost"
+                    disabled={!historyReady}
+                    onClick={() =>
+                      void controller
+                        .showHistory(undefined, state.history!.previous_cursor!)
+                        .catch((e) => setError(clientError(e).message))
+                    }
+                  >
+                    Earlier messages
+                  </Button>
+                </div>
+              )}
+              {state.loadingConversation ? (
+                <Skeleton label="Opening conversation" />
+              ) : items.length || pending?.conversation === id ? (
+                <>
+                  {earlierIds.size > 0 && (
+                    // Loaded history is not announced as new conversation.
+                    <div className="transcript-earlier" aria-live="off">
+                      {items.map((item, index) =>
+                        earlierIds.has(item.row.id) ? (
+                          <TranscriptMessage
+                            key={`${id}:${item.row.id}`}
+                            row={item.row}
+                            conversationId={id}
+                            traces={item.traces}
+                            embeds={item.embeds}
+                            media={item.media}
+                            cards={item.cards}
+                            agents={item.agents}
+                            turnStart={turns.starts[index]}
+                            toolbar={turns.ends[index]}
+                            copyText={turns.texts[index]}
+                            onRecover={recoverTurn}
+                            onEdit={
+                              item.row.role === 'user' ? editMessage : undefined
+                            }
+                          />
+                        ) : null,
+                      )}
                     </div>
-                  )
-                }
-              >
-                <span className="desktop-empty-hint">
-                  Chat, reason, browse, use tools, and work with your local
-                  knowledge, workflows, and designs. Settings can be finished
-                  anytime.
-                </span>
-                <span className="mobile-empty-hint">
-                  Start with a message. Add a code folder or design anytime.
-                </span>
-              </EmptyState>
-            )}
-            {thinkingActive && (
-              <details className="trace-group thinking-stub">
-                <summary>Thinking</summary>
-                <p>Row-Bot is working. Private reasoning is not shown.</p>
-              </details>
-            )}
-            {id && liveTraceGroups.length > 0 && (
-              <TranscriptTrace conversation={id} groups={liveTraceGroups} />
-            )}
-            {generation?.approval_id &&
-              generation.status === 'waiting_approval' && (
-                <ApprovalBar
-                  id={generation.approval_id}
-                  hint={
-                    approvalEvent?.event.type === 'approval.required'
-                      ? approvalEvent.event.payload
-                      : undefined
-                  }
+                  )}
+                  {items.map((item, index) =>
+                    earlierIds.has(item.row.id) ? null : (
+                      <TranscriptMessage
+                        key={`${id}:${item.row.id}`}
+                        row={item.row}
+                        conversationId={id}
+                        traces={item.traces}
+                        embeds={item.embeds}
+                        media={item.media}
+                        cards={item.cards}
+                        agents={item.agents}
+                        turnStart={turns.starts[index]}
+                        latest={index === lastAssistant && !turnInFlight}
+                        toolbar={turns.ends[index]}
+                        copyText={turns.texts[index]}
+                        onRecover={recoverTurn}
+                        streaming={
+                          turnInFlight &&
+                          index === items.length - 1 &&
+                          item.row.role === 'assistant'
+                        }
+                        onRetry={
+                          index === lastAssistant &&
+                          !turnInFlight &&
+                          !state.history &&
+                          lastUserText &&
+                          sendActionReady
+                            ? retryLast
+                            : undefined
+                        }
+                        onEdit={
+                          item.row.role === 'user' ? editMessage : undefined
+                        }
+                      />
+                    ),
+                  )}
+                </>
+              ) : (
+                <ChatEmpty
+                  conversationId={id}
+                  disabled={busy}
+                  // A prompt fills the composer to edit first (U17).
+                  onChoose={editMessage}
+                  recent={state.conversations}
+                  onOpen={(target) => navigate(`/conversations/${target}`)}
                 />
               )}
-            {pending?.conversation === id &&
-              !rows.some((row) => row.message_id === pending.id) && (
+              {pendingShown && (
                 <article
-                  className="message message-user"
+                  className="message message-user message-pending"
                   aria-label="You message awaiting confirmation"
                   data-message-id={pending.id}
                 >
-                  <header className="message-meta">
-                    <strong className="message-role">You</strong>
+                  {lastSpeaker !== 'user' && <TurnMarker role="user" />}
+                  <div className="transcript-content">
+                    <div className="message-text">{pending.text}</div>
                     <small className="message-delivery-state">
                       Awaiting confirmation
                     </small>
-                  </header>
-                  <div className="message-text">{pending.text}</div>
+                  </div>
                 </article>
               )}
-          </div>
-        </div>
-        {id && (
-          <details
-            className="activity steering-activity"
-            onToggle={(event) => setSteeringOpen(event.currentTarget.open)}
-          >
-            <summary>Steering queue</summary>
-            {steeringOpen && (
-              <QueueControls
-                conversationId={id}
-                generationId={generation?.generation_id ?? ''}
-                refreshKey={
-                  state.activity
-                    .filter((record) => record.event.type === 'queue.changed')
-                    .at(-1)?.event.event_id ?? ''
-                }
-                loadPage={(run, cursor, signal) =>
-                  controller.queue(id, run, cursor ?? undefined, signal)
-                }
-                onAction={async (type, submission, revision, text) => {
-                  const current = await controller.workspaceFor(id);
-                  await controller.intent(
-                    id,
-                    `conversation.queue.${type}`,
-                    {
-                      submission_id: submission,
-                      expected_queue_revision: revision,
-                      ...(type === 'edit' ? { text } : {}),
-                    },
-                    current.revision,
-                  );
-                }}
-              />
-            )}
-            {steeringOpen && (
-              <SteeringQueue
-                conversationId={id}
-                generationId={generation?.generation_id ?? ''}
-                refreshKey={
-                  state.activity
-                    .filter((record) =>
-                      record.event.type.startsWith('steering.'),
-                    )
-                    .at(-1)?.event.event_id ?? ''
-                }
-                loadPage={(run, cursor, signal) =>
-                  controller.steering(id, run, cursor ?? undefined, signal)
-                }
-              />
-            )}
-          </details>
-        )}
-        {!!state.activity.filter(
-          (record) => record.event.type !== 'tool.activity',
-        ).length && (
-          <details className="activity activity-feed">
-            <summary>
-              Activity (
-              {
-                state.activity.filter(
-                  (record) => record.event.type !== 'tool.activity',
-                ).length
-              }
-              )
-            </summary>
-            <ol className="activity-list">
-              {state.activity
-                .filter((record) => record.event.type !== 'tool.activity')
-                .map((record) => (
-                  <li className="activity-item" key={record.event.event_id}>
-                    {record.event.type === 'media.available' ? (
-                      <Media
-                        reference={record.event.payload.media_ref}
-                        mime={record.event.payload.mime_type}
-                      />
-                    ) : record.event.type === 'agent.activity' ? (
-                      <details>
-                        <summary>
-                          Delegated task: {record.event.payload.status}
-                        </summary>
-                        <p>Task reference: {record.event.payload.run_id}</p>
-                      </details>
-                    ) : record.event.type === 'generation.error' ? (
-                      'The response was interrupted.'
-                    ) : record.event.type === 'queue.updated' ? (
-                      `${record.event.payload.submission_ids.length} queued submissions`
-                    ) : (
-                      record.event.type.replaceAll('.', ' ')
+              {id &&
+                !state.history &&
+                (isRunning ||
+                  liveTraceGroups.length > 0 ||
+                  pendingMedia.length > 0 ||
+                  pendingCards.length > 0 ||
+                  computer.visible ||
+                  (generation?.approval_id &&
+                    generation.status === 'waiting_approval')) && (
+                  <div className="message message-assistant message-live">
+                    {(pendingShown || lastSpeaker !== 'assistant') && (
+                      <TurnMarker role="assistant" />
                     )}
-                  </li>
-                ))}
-            </ol>
-          </details>
-        )}
-        {generation && (
-          <p role="status" className="run-status">
-            {generation.status === 'stopping'
-              ? 'Stopping — waiting for the worker to finish.'
-              : generation.quiesced
-                ? `Work ${generation.status}.`
-                : generation.status.replaceAll('_', ' ')}
-            {generation.external_outcome === 'uncertain'
-              ? ' An external action may have completed; review before retrying.'
-              : ''}
-          </p>
-        )}
-        {error && (
-          <div role="alert" className="chat-error">
-            {error}
-          </div>
-        )}
-      </div>
-      {id && (
-        <form
-          className="composer"
-          aria-label="Message composer"
-          aria-busy={busy || talkBusy}
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          {!!resources.length && (
-            <ResourceTargets
-              resources={resources}
-              selected={targetSelection[id] ?? defaultTargetIds}
-              onChange={(kind, bindingId) =>
-                setTargets((previous) => ({
-                  ...previous,
-                  [id]: [
-                    ...(previous[id] ?? defaultTargetIds).filter(
-                      (binding) =>
-                        !resources.some(
-                          (resource) =>
-                            resource.binding.binding_id === binding &&
-                            resource.binding.kind === kind,
-                        ),
-                    ),
-                    ...(bindingId ? [bindingId] : []),
-                  ],
-                }))
-              }
-            />
-          )}
-          {!!draft.attachments.length && (
-            <ul className="composer-attachments" aria-label="Attachments">
-              {draft.attachments.map((a) => (
-                <li key={a.attachment_ref} className="attachment-chip">
-                  <span>{a.name}</span>
-                  <Button
-                    aria-label={`Remove ${a.name}`}
-                    onClick={() =>
-                      controller.setDraft(id, {
-                        ...draft,
-                        attachments: draft.attachments.filter(
-                          (item) => item.attachment_ref !== a.attachment_ref,
-                        ),
-                      })
-                    }
-                  >
-                    Remove
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {composerSnapshot && (
-            <ComposerSkillChips
-              composer={composerSnapshot}
-              disabled={Boolean(running) || busy || composerBusy}
-              action={skillAction}
-            />
-          )}
-          <label className="sr-only" htmlFor="message-composer">
-            Message
-          </label>
-          <textarea
-            ref={composerRef}
-            id="message-composer"
-            className="input message-composer"
-            value={draft.text}
-            maxLength={200000}
-            placeholder="Message Row-Bot…"
-            aria-describedby={
-              composerStateReason ? 'message-composer-state' : undefined
-            }
-            onChange={(e) => {
-              controller.setDraft(id, { ...draft, text: e.target.value });
-              setComposerCursor(
-                e.target.selectionStart ?? e.target.value.length,
-              );
-            }}
-            onSelect={(e) =>
-              setComposerCursor(e.currentTarget.selectionStart ?? 0)
-            }
-            onKeyDown={(e) => {
-              if (
-                !e.nativeEvent.isComposing &&
-                slashPaletteRef.current?.key(e)
-              ) {
-                e.preventDefault();
-                return;
-              }
-              if (
-                e.key === 'Enter' &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing &&
-                !running
-              ) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          {composerSnapshot && (
-            <SlashPalette
-              ref={slashPaletteRef}
-              text={draft.text}
-              cursor={composerCursor}
-              commands={composerSnapshot.commands}
-              disabled={Boolean(running) || busy || composerBusy}
-              onChoose={(command, token) => void chooseSlash(command, token)}
-            />
-          )}
-          <div className="composer-toolbar">
-            <ComposerControls
-              key={id}
-              composer={composerSnapshot ?? undefined}
-              onSkillAction={skillAction}
-              skillsOpen={skillsOpen}
-              onSkillsOpenChange={setSkillsOpen}
-              disabled={Boolean(running) || busy || talkBusy || composerBusy}
-              onError={setError}
-            />
-            <div className="composer-actions">
-              {voiceScope && (
-                <ConversationVoice
-                  key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
-                  compact
-                  controller={controller}
-                  scope={voiceScope}
-                  available={
-                    voiceExposure.key === voiceHostKey &&
-                    (voiceExposure.talk || voiceExposure.realtime)
-                  }
-                  unavailableReason={voiceExposure.talkReason}
-                  disabled={busy}
-                  running={Boolean(running)}
-                  onBusy={setTalkBusy}
-                  context={
-                    controls?.model_selection && state.conversation
-                      ? {
-                          conversation_revision: state.conversation.revision,
-                          model_selection: controls.model_selection,
-                          write_targets: resources
-                            .filter((resource) =>
-                              (
-                                targetSelection[id ?? ''] ?? defaultTargetIds
-                              ).includes(resource.binding.binding_id),
-                            )
-                            .map((resource) => ({
-                              kind: resource.binding.kind as
-                                'artifact' | 'workspace',
-                              binding_id: resource.binding.binding_id,
-                              resource_id: resource.binding.resource_id,
-                              binding_revision: resource.binding.revision,
-                              resource_revision: resource.resource_revision,
-                            })),
-                        }
-                      : null
-                  }
-                  targets={resources
-                    .filter((resource) =>
-                      (targetSelection[id ?? ''] ?? defaultTargetIds).includes(
-                        resource.binding.binding_id,
-                      ),
-                    )
-                    .map((resource) => resource.title)}
-                />
-              )}
-              {voiceScope && (
-                <VoiceControls
-                  compact
-                  scope={voiceScope}
-                  available={
-                    voiceExposure.key === voiceHostKey && voiceExposure.dictate
-                  }
-                  unavailableReason={voiceExposure.dictateReason}
-                  disabled={busy || talkBusy}
-                  start={(request, signal) =>
-                    controller.startDictation(voiceScope, request, signal)
-                  }
-                  transcribe={(handle, utterance, audio, signal) =>
-                    controller.transcribeDictation(
-                      voiceScope,
-                      handle,
-                      utterance,
-                      audio,
-                      signal,
-                    )
-                  }
-                  stop={(handle, signal) =>
-                    controller.stopDictation(voiceScope, handle, signal)
-                  }
-                  applyTranscript={(scope, result) =>
-                    controller.applyDictation(scope, result)
-                  }
-                />
-              )}
-              <Button
-                variant="ghost"
-                iconOnly
-                aria-label="Attach file"
-                disabled={busy}
-                onClick={() => void attach()}
-              >
-                <Paperclip size={18} aria-hidden />
-              </Button>
-              {pendingSubmit && (
-                <Button disabled={busy} onClick={() => void recover()}>
-                  Check request receipt
-                </Button>
-              )}
-              {pendingResume && (
-                <Button disabled={busy} onClick={() => void resume(true)}>
-                  Check resume receipt
-                </Button>
-              )}
-              {pendingSteering && (
-                <Button disabled={busy} onClick={() => void queueMessage()}>
-                  Check queued message
-                </Button>
-              )}
-              {running && (
-                <Button
-                  disabled={
-                    !draft.text.trim() ||
-                    draft.text.length > 16000 ||
-                    busy ||
-                    Boolean(pendingSteering) ||
-                    Boolean(pendingSubmit) ||
-                    Boolean(pendingResume)
-                  }
-                  onClick={() => void action('conversation.steer')}
-                >
-                  Queue message
-                </Button>
-              )}
-              <span className="composer-primary-slot">
-                {running ? (
-                  <Button
-                    variant="danger"
-                    iconOnly
-                    aria-label="Stop"
-                    title="Stop"
-                    disabled={!generation.can_stop}
-                    onClick={() => void action('conversation.stop')}
-                  >
-                    <Square size={16} aria-hidden />
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    iconOnly
-                    aria-label="Send"
-                    aria-describedby={
-                      composerStateReason ? 'message-composer-state' : undefined
-                    }
-                    disabled={
-                      busy ||
-                      Boolean(pendingSteering) ||
-                      Boolean(pendingSubmit) ||
-                      Boolean(pendingResume) ||
-                      !draft.text.trim() ||
-                      state.status !== 'ready' ||
-                      !state.workspace?.actions.find((a) => a.action === 'send')
-                        ?.ready
-                    }
-                  >
-                    <ArrowUp size={20} aria-hidden />
-                  </Button>
+                    <div className="transcript-content">
+                      <TranscriptTrace
+                        conversation={id}
+                        groups={liveTraceGroups}
+                        live={{
+                          running: isRunning,
+                          thinking: thinkingActive,
+                          waiting:
+                            generation?.status === 'waiting_approval' &&
+                            !computerPause,
+                          paused: computerPause,
+                          stopping: generation?.status === 'stopping',
+                          startedAt: runStartedAt,
+                          answering,
+                        }}
+                      >
+                        {computer.visible && (
+                          <ComputerUseCard
+                            conversationId={id}
+                            snapshot={computer.snapshot}
+                            stopped={computer.stopped}
+                            loadPreview={controller.computerUsePreview}
+                            send={controller.computerUseCommand}
+                            onChange={computer.apply}
+                            onStopped={computer.markStopped}
+                          />
+                        )}
+                        {generation?.approval_id &&
+                          generation.status === 'waiting_approval' &&
+                          !computerPause &&
+                          computer.checked && (
+                            <ApprovalCard
+                              id={generation.approval_id}
+                              conversationId={id}
+                              hint={
+                                approvalEvent?.event.type ===
+                                'approval.required'
+                                  ? approvalEvent.event.payload
+                                  : undefined
+                              }
+                              onAllowInChat={
+                                controls?.approval_mode === 'allow_all' ||
+                                childThread
+                                  ? undefined
+                                  : allowInChat
+                              }
+                              // A delegated agent's turn is not live here, so
+                              // its thread re-reads once the answer is in (B162).
+                              onResolved={
+                                childThread
+                                  ? () => void controller.refreshWorkspace()
+                                  : undefined
+                              }
+                            />
+                          )}
+                      </TranscriptTrace>
+                      <TranscriptCards cards={pendingCards} live />
+                      {pendingMedia.length > 0 && (
+                        <div
+                          className="message-media-grid"
+                          data-count={pendingMedia.length}
+                        >
+                          {pendingMedia.map((media) => (
+                            <MediaPreview
+                              key={media.reference}
+                              reference={media.reference}
+                              mime={media.mime}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
-              </span>
-              {!running && generation?.status === 'interrupted' && (
-                <Button
-                  disabled={
-                    busy ||
-                    Boolean(pendingSubmit) ||
-                    Boolean(pendingSteering) ||
-                    Boolean(pendingResume)
-                  }
-                  onClick={() => void action('conversation.resume')}
+              {unanswered && (
+                // A stop can land after queued guidance was delivered: say so
+                // instead of leaving the last message silently unanswered.
+                <div className="turn-notice" data-tone="neutral">
+                  <CircleStop className="turn-notice-icon" aria-hidden />
+                  <div className="turn-notice-text">
+                    <strong>Stopped before a reply</strong>
+                    <span>
+                      {nextWaiting
+                        ? "Your last message wasn't answered. The message waiting below goes next."
+                        : "Your last message wasn't answered."}
+                    </span>
+                  </div>
+                  {!waiting.items.length && (
+                    <div className="turn-notice-actions">
+                      <Button
+                        variant="secondary"
+                        disabled={sendBlocked || !sendActionReady}
+                        onClick={retryLast}
+                      >
+                        Send again
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {(interrupted || failed) && (
+                <div
+                  className="turn-notice"
+                  data-tone={interrupted ? 'warning' : 'danger'}
                 >
-                  Resume
-                </Button>
+                  <TriangleAlert className="turn-notice-icon" aria-hidden />
+                  <div className="turn-notice-text">
+                    <strong>
+                      {interrupted
+                        ? 'The response was interrupted'
+                        : 'The response could not finish'}
+                    </strong>
+                    <span>
+                      {interrupted
+                        ? 'Resume to continue where it stopped, or switch to another model.'
+                        : 'Try again, or switch to another model.'}
+                      {generation?.external_outcome === 'uncertain'
+                        ? ' Some steps may already have run, so check what changed before you try again.'
+                        : ''}
+                    </span>
+                  </div>
+                  <div className="turn-notice-actions">
+                    {interrupted && (
+                      <Button
+                        disabled={
+                          busy ||
+                          Boolean(pendingSubmit) ||
+                          Boolean(pendingSteering) ||
+                          Boolean(pendingResume)
+                        }
+                        onClick={() => void action('conversation.resume')}
+                      >
+                        Resume
+                      </Button>
+                    )}
+                    {failed && lastUserText && (
+                      <Button
+                        disabled={sendBlocked || !sendActionReady}
+                        onClick={retryLast}
+                      >
+                        Retry
+                      </Button>
+                    )}
+                    {controls && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => setModelPickerOpen(true)}
+                      >
+                        Switch model
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {state.history?.next_cursor && (
+                <div className="transcript-sentinel">
+                  <Button
+                    variant="ghost"
+                    disabled={!historyReady}
+                    onClick={() =>
+                      void controller
+                        .showHistory(undefined, state.history!.next_cursor!)
+                        .catch((e) => setError(clientError(e).message))
+                    }
+                  >
+                    Later messages
+                  </Button>
+                </div>
               )}
             </div>
           </div>
-          {composerStateReason && (
-            <p
-              id="message-composer-state"
-              className="composer-state-reason"
-              role="status"
+          {(state.history || showLatest) && (
+            <button
+              type="button"
+              className="latest-pill"
+              aria-label="Latest messages"
+              aria-description={
+                generation?.status === 'waiting_approval' && !state.history
+                  ? 'An approval is waiting'
+                  : newCount > 0 && !state.history
+                    ? `${newCount} new`
+                    : undefined
+              }
+              onClick={() => {
+                followingLatest.current = true;
+                setShowLatest(false);
+                setNewCount(0);
+                if (state.history || state.earlier.length)
+                  controller.showLatest();
+                else scrollToLatest();
+              }}
             >
-              {composerStateReason}
-            </p>
+              <ArrowDown aria-hidden />
+              <span aria-hidden>
+                {generation?.status === 'waiting_approval' && !state.history
+                  ? 'Approval needed'
+                  : newCount > 0 && !state.history
+                    ? `${newCount} new`
+                    : 'Latest'}
+              </span>
+            </button>
           )}
-          <div className="composer-status-row">
-            <small role="status" className="draft-status">
-              {state.draftStatus === 'saving'
-                ? 'Saving draft…'
-                : state.draftStatus === 'conflict'
-                  ? 'Draft changed in another client. Your local text is preserved.'
-                  : state.draftStatus === 'failed'
-                    ? 'Draft could not be saved. Keep this page open and reconnect.'
-                    : 'Draft saved'}
-            </small>
-            {state.draftStatus === 'conflict' && (
-              <Button
-                onClick={() =>
-                  overlay.open({
-                    title: 'Resolve draft conflict',
-                    description:
-                      'Choose which draft to keep. Messages are unchanged.',
-                    content: <DraftConflict id={id} />,
-                  })
-                }
+          <p role="status" className="visually-hidden run-status">
+            {runAnnouncement}
+          </p>
+          {error && (
+            <div role="alert" className="chat-error">
+              <TriangleAlert aria-hidden />
+              <span>{error.message}</span>
+              {error.action && (
+                <ErrorFix
+                  action={error.action}
+                  retry={error.retry}
+                  sendNow={nextWaiting ? sendWaitingNow : undefined}
+                  chooseModel={
+                    controls ? () => setModelPickerOpen(true) : undefined
+                  }
+                />
+              )}
+              <button
+                type="button"
+                className="chat-error-dismiss"
+                aria-label="Dismiss error"
+                onClick={() => setError('')}
               >
-                Resolve draft conflict
-              </Button>
+                <X aria-hidden />
+              </button>
+            </div>
+          )}
+        </div>
+        {id && (
+          <form
+            className="composer"
+            data-single-line={singleLine ? 'true' : undefined}
+            aria-label="Message composer"
+            aria-busy={busy || talkBusy}
+            onSubmit={(e) => {
+              e.preventDefault();
+              send();
+            }}
+          >
+            <WaitingMessages
+              items={waiting.items}
+              running={turnInFlight}
+              busy={busy || state.status !== 'ready'}
+              onAction={waitingAction}
+            />
+            <div
+              className="composer-field"
+              ref={composerFieldRef}
+              data-dragging={dragging ? 'true' : undefined}
+              onDragEnter={(event) => {
+                if (!hasFiles(event)) return;
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragOver={(event) => {
+                if (!hasFiles(event)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = attachBlocked ? 'none' : 'copy';
+              }}
+              onDragLeave={(event) => {
+                const next = event.relatedTarget;
+                if (!(
+                  next instanceof Node && event.currentTarget.contains(next)
+                ))
+                  setDragging(false);
+              }}
+              onDrop={(event) => {
+                if (!hasFiles(event)) return;
+                event.preventDefault();
+                setDragging(false);
+                if (!attachBlocked)
+                  void attachFiles(Array.from(event.dataTransfer.files));
+              }}
+            >
+              {dragging && (
+                <div className="composer-drop" aria-hidden>
+                  <Paperclip />
+                  <span>
+                    Drop to attach · up to {ATTACHMENT_LIMITS.fileMegabytes} MB
+                    each
+                  </span>
+                </div>
+              )}
+              {(!!resources.length ||
+                !!draft.attachments.length ||
+                !!pendingUploads.length ||
+                (singleLine && needsModel) ||
+                Boolean(
+                  composerSnapshot &&
+                  (composerSnapshot.active_skills.length ||
+                    composerSnapshot.suggestions.length),
+                )) && (
+                <div className="composer-chips">
+                  {singleLine && needsModel && setupModelButton}
+                  {!!resources.length && (
+                    <ResourceTargets
+                      resources={resources}
+                      selected={targetSelection[id] ?? defaultTargetIds}
+                      onChange={chooseTarget}
+                    />
+                  )}
+                  <ComposerAttachments
+                    attachments={draft.attachments}
+                    uploads={pendingUploads}
+                    retryDisabled={attachBlocked}
+                    onRemove={(reference) =>
+                      controller.setDraft(id, {
+                        ...draft,
+                        attachments: draft.attachments.filter(
+                          (item) => item.attachment_ref !== reference,
+                        ),
+                      })
+                    }
+                    onRetry={(item) => void retryUpload(item)}
+                    onDismiss={uploads.dismiss}
+                  />
+                  {state.workspace?.model_status?.sees_images === false &&
+                    draft.attachments.some((a) =>
+                      a.mime_type?.startsWith('image/'),
+                    ) && (
+                      <p className="composer-vision-note" role="status">
+                        <ImageOff aria-hidden />
+                        <span>
+                          {modelName || 'This model'} can't see images.
+                        </span>
+                        <button
+                          type="button"
+                          className="composer-vision-choose"
+                          onClick={() => navigate('/settings/models#vision')}
+                        >
+                          Choose a vision model
+                        </button>
+                      </p>
+                    )}
+                  {composerSnapshot && (
+                    <ComposerSkillChips
+                      composer={composerSnapshot}
+                      disabled={isRunning || busy || composerBusy}
+                      action={skillAction}
+                    />
+                  )}
+                </div>
+              )}
+              {singleLine && composerControls}
+              <label className="sr-only" htmlFor="message-composer">
+                Message
+              </label>
+              <textarea
+                ref={composerRef}
+                id="message-composer"
+                className="input message-composer"
+                value={draft.text}
+                rows={1}
+                maxLength={200000}
+                placeholder={
+                  // A one-line field keeps its hint to one line.
+                  isRunning
+                    ? singleLine
+                      ? 'Follow-up…'
+                      : 'Queue a follow-up…'
+                    : singleLine
+                      ? 'Message'
+                      : 'Message Row-Bot…'
+                }
+                aria-describedby={
+                  composerStateReason ? 'message-composer-state' : undefined
+                }
+                onChange={(e) => {
+                  controller.setDraft(id, {
+                    ...draft,
+                    text: e.target.value,
+                  });
+                  setComposerCursor(
+                    e.target.selectionStart ?? e.target.value.length,
+                  );
+                }}
+                onSelect={(e) =>
+                  setComposerCursor(e.currentTarget.selectionStart ?? 0)
+                }
+                onPaste={(e) => {
+                  // A pasted screenshot or copied files attach; text pastes
+                  // as text (parity row 1).
+                  const files = Array.from(e.clipboardData?.files ?? []);
+                  if (!files.length) return;
+                  if (!e.clipboardData.getData('text/plain'))
+                    e.preventDefault();
+                  if (!attachBlocked)
+                    void attachFiles(
+                      files.map((file, index) =>
+                        pastedFileName(file, new Date(), index),
+                      ),
+                    );
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    !e.nativeEvent.isComposing &&
+                    (slashPaletteRef.current?.key(e) ||
+                      mentionPaletteRef.current?.key(e))
+                  ) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (
+                    e.key === 'ArrowUp' &&
+                    !draft.text &&
+                    !e.shiftKey &&
+                    !e.altKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    lastUserText
+                  ) {
+                    // ↑ in an empty composer brings back the last message.
+                    e.preventDefault();
+                    editMessage(lastUserText);
+                    return;
+                  }
+                  if (
+                    e.key === 'Enter' &&
+                    !e.shiftKey &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
+                    e.preventDefault();
+                    if (!isRunning) send();
+                    else if (
+                      draft.text.trim() &&
+                      draft.text.length <= 16000 &&
+                      !sendBlocked
+                    )
+                      void action('conversation.steer');
+                  }
+                }}
+              />
+              {composerSnapshot && (
+                <SlashPalette
+                  ref={slashPaletteRef}
+                  text={draft.text}
+                  cursor={composerCursor}
+                  commands={composerSnapshot.commands}
+                  disabled={isRunning || busy || composerBusy}
+                  inputRef={composerRef}
+                  onChoose={(command, token) =>
+                    void chooseSlash(command, token)
+                  }
+                />
+              )}
+              <MentionPalette
+                ref={mentionPaletteRef}
+                text={draft.text}
+                cursor={composerCursor}
+                items={mentionItems}
+                disabled={busy || composerBusy}
+                inputRef={composerRef}
+                onConsume={(token) => replaceSlashToken(token)}
+              />
+              <div className="composer-toolbar" ref={toolbarRef}>
+                {!singleLine && composerControls}
+                <div className="composer-actions">
+                  {compactToolbar &&
+                    (pendingSubmit || pendingResume || pendingSteering) && (
+                      <Menu
+                        label="Message actions"
+                        iconOnly
+                        variant="ghost"
+                        actions={[
+                          ...(pendingSubmit
+                            ? [
+                                {
+                                  label: 'Check message',
+                                  disabled: busy,
+                                  onSelect: () => void recover(),
+                                },
+                              ]
+                            : []),
+                          ...(pendingResume
+                            ? [
+                                {
+                                  label: 'Check Resume',
+                                  disabled: busy,
+                                  onSelect: () => void resume(true),
+                                },
+                              ]
+                            : []),
+                          ...(pendingSteering
+                            ? [
+                                {
+                                  label: 'Check waiting message',
+                                  disabled: busy,
+                                  onSelect: () => void queueMessage(),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      >
+                        <MoreHorizontal size={18} aria-hidden />
+                      </Menu>
+                    )}
+                  {!compactToolbar && pendingSubmit && (
+                    <Button disabled={busy} onClick={() => void recover()}>
+                      Check message
+                    </Button>
+                  )}
+                  {!compactToolbar && pendingResume && (
+                    <Button disabled={busy} onClick={() => void resume(true)}>
+                      Check Resume
+                    </Button>
+                  )}
+                  {!compactToolbar && pendingSteering && (
+                    <Button disabled={busy} onClick={() => void queueMessage()}>
+                      Check waiting message
+                    </Button>
+                  )}
+                  {!singleLine && (
+                    <ContextUsage usage={state.workspace?.context_usage} />
+                  )}
+                  {voiceScope && (
+                    <span className="composer-voice">
+                      <VoiceControls
+                        compact
+                        scope={voiceScope}
+                        available={
+                          voiceExposure.key === voiceHostKey &&
+                          voiceExposure.dictate
+                        }
+                        unavailableReason={voiceExposure.dictateReason}
+                        disabled={busy || talkBusy}
+                        start={(request, signal) =>
+                          controller.startDictation(voiceScope, request, signal)
+                        }
+                        transcribe={(handle, utterance, audio, signal) =>
+                          controller.transcribeDictation(
+                            voiceScope,
+                            handle,
+                            utterance,
+                            audio,
+                            signal,
+                          )
+                        }
+                        stop={(handle, signal) =>
+                          controller.stopDictation(voiceScope, handle, signal)
+                        }
+                        applyTranscript={(scope, result) =>
+                          controller.applyDictation(scope, result)
+                        }
+                      />
+                      <ConversationVoice
+                        key={`talk:${voiceScope.clientSessionId}:${voiceScope.serverEpoch}:${voiceScope.conversationId}:${voiceScope.selectionKey}`}
+                        compact
+                        chevron
+                        controller={controller}
+                        scope={voiceScope}
+                        available={
+                          voiceExposure.key === voiceHostKey &&
+                          (voiceExposure.talk || voiceExposure.realtime)
+                        }
+                        unavailableReason={voiceExposure.talkReason}
+                        disabled={busy}
+                        running={isRunning}
+                        onBusy={setTalkBusy}
+                        context={
+                          controls?.model_selection && state.conversation
+                            ? {
+                                conversation_revision:
+                                  state.conversation.revision,
+                                model_selection: controls.model_selection,
+                                write_targets: resources
+                                  .filter((resource) =>
+                                    (
+                                      targetSelection[id ?? ''] ??
+                                      defaultTargetIds
+                                    ).includes(resource.binding.binding_id),
+                                  )
+                                  .map((resource) => ({
+                                    kind: resource.binding.kind as
+                                      'artifact' | 'workspace',
+                                    binding_id: resource.binding.binding_id,
+                                    resource_id: resource.binding.resource_id,
+                                    binding_revision: resource.binding.revision,
+                                    resource_revision:
+                                      resource.resource_revision,
+                                  })),
+                              }
+                            : null
+                        }
+                        targets={resources
+                          .filter((resource) =>
+                            (
+                              targetSelection[id ?? ''] ?? defaultTargetIds
+                            ).includes(resource.binding.binding_id),
+                          )
+                          .map((resource) => resource.title)}
+                      />
+                    </span>
+                  )}
+                  {isRunning && draft.text.trim() && (
+                    <Button
+                      variant="ghost"
+                      className="composer-queue-button"
+                      aria-label="Queue message"
+                      title="Queue this message for the running response (Enter)"
+                      disabled={
+                        draft.text.length > 16000 ||
+                        busy ||
+                        Boolean(pendingSteering) ||
+                        Boolean(pendingSubmit) ||
+                        Boolean(pendingResume)
+                      }
+                      onClick={() => void action('conversation.steer')}
+                    >
+                      <ListPlus size={16} aria-hidden />
+                      <span>Queue</span>
+                    </Button>
+                  )}
+                  {!singleLine && needsModel && setupModelButton}
+                  <span className="composer-primary-slot">
+                    {/* One button morphs between Send and Stop, so focus and
+                      position hold while a response starts and ends. */}
+                    <Button
+                      type={running ? 'button' : 'submit'}
+                      variant={running ? 'secondary' : 'primary'}
+                      iconOnly
+                      className={`composer-primary ${running ? 'composer-stop' : 'composer-send'}`}
+                      data-state={running ? 'stop' : 'send'}
+                      aria-label={running ? 'Stop' : 'Send'}
+                      title={running ? 'Stop' : undefined}
+                      aria-describedby={
+                        !running && composerStateReason
+                          ? 'message-composer-state'
+                          : undefined
+                      }
+                      disabled={
+                        running
+                          ? !generation.can_stop
+                          : sendBlocked ||
+                            !draft.text.trim() ||
+                            state.status !== 'ready' ||
+                            !sendActionReady
+                      }
+                      onClick={
+                        running
+                          ? (event) => {
+                              event.preventDefault();
+                              void action('conversation.stop');
+                            }
+                          : undefined
+                      }
+                    >
+                      <ArrowUp
+                        className="composer-primary-send"
+                        size={18}
+                        aria-hidden
+                      />
+                      <Square
+                        className="composer-primary-stop"
+                        size={14}
+                        aria-hidden
+                      />
+                    </Button>
+                  </span>
+                </div>
+              </div>
+            </div>
+            {composerStateReason && (
+              <p
+                id="message-composer-state"
+                className="composer-state-reason visually-hidden"
+                role="status"
+              >
+                {composerStateReason}
+              </p>
             )}
-            {state.draftStatus === 'failed' && (
-              <Button onClick={() => void controller.retryDraft(id)}>
-                Retry saving draft
-              </Button>
-            )}
-          </div>
-          <ContextUsage usage={state.workspace?.context_usage} />
-        </form>
-      )}
-      {!compactContext && contextRail}
-    </div>
+            <div
+              className="composer-status-row"
+              data-visible={
+                state.draftStatus === 'conflict' ||
+                state.draftStatus === 'failed'
+                  ? 'true'
+                  : undefined
+              }
+            >
+              {/* Saving is silent; only a failure or conflict is shown. */}
+              <small
+                role="status"
+                className={`draft-status${
+                  state.draftStatus === 'conflict' ||
+                  state.draftStatus === 'failed'
+                    ? ''
+                    : ' visually-hidden'
+                }`}
+              >
+                {state.draftStatus === 'saving'
+                  ? 'Saving draft…'
+                  : state.draftStatus === 'conflict'
+                    ? 'Draft changed in another client. Your local text is preserved.'
+                    : state.draftStatus === 'failed'
+                      ? 'Draft could not be saved. Keep this page open and reconnect.'
+                      : 'Draft saved'}
+              </small>
+              {state.draftStatus === 'conflict' && (
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    overlay.open({
+                      title: 'Resolve draft conflict',
+                      description:
+                        'Choose which draft to keep. Messages are unchanged.',
+                      content: <DraftConflict id={id} />,
+                    })
+                  }
+                >
+                  Resolve draft conflict
+                </Button>
+              )}
+              {state.draftStatus === 'failed' && (
+                <Button
+                  variant="ghost"
+                  onClick={() => void controller.retryDraft(id)}
+                >
+                  Retry saving draft
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+        {(hosted || sheetHosted) &&
+          contextRail &&
+          createPortal(contextRail, contextHost!.element)}
+        {hosted ? (
+          <ContextSlot
+            active={cardActive}
+            className={`context-card ${floatingContext ? 'context-card-floating' : 'context-card-pinned'}`}
+          />
+        ) : (
+          !compactContext && contextRail
+        )}
+      </div>
+    </TranscriptContexts>
   );
 }

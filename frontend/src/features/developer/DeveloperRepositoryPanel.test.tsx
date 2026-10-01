@@ -4,8 +4,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import DeveloperRepositoryPanel, {
   createDeveloperRepositorySession,
   type DeveloperRepositoryReceipt,
@@ -46,6 +49,7 @@ const page: DeveloperRepositorySnapshot = {
     dirty: true,
     remote_configured: true,
     tracking_summary: '## main',
+    branches: ['main', 'feature/x'],
   },
   worktrees: [],
   sandbox: {
@@ -108,33 +112,54 @@ function options() {
     worktree_id: null,
     external_url: null,
   }));
-  return { scope, visible: true, session, load, review, execute };
+  return {
+    scope,
+    visible: true,
+    session,
+    load,
+    review,
+    execute,
+    onChanged: vi.fn(),
+  };
 }
+const ready = () => screen.findByRole('button', { name: 'Push branch' });
 
 it('reads repository state without starting a Git, sandbox, or network action', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Repository & sandbox' });
-  expect(screen.getByText('main · Local changes')).toBeVisible();
+  await ready();
+  const branch = screen.getByRole('region', { name: 'Branch' });
   expect(
-    screen.getByText(/delete: no recoverable repository delete owner/),
-  ).toBeVisible();
+    within(branch).getByRole('button', { name: 'Switch branch' }),
+  ).toHaveTextContent('main');
+  expect(within(branch).getByText(/Local changes/)).toBeVisible();
+  // Clone, install, network and delete stay outside this panel's authority.
+  for (const name of [/clone/i, /install/i, /^delete/i, /network/i])
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   expect(props.load).toHaveBeenCalledOnce();
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
 });
 
-it('commits exact confined paths from one click', async () => {
+it('commits exactly the checked changed files from one click', async () => {
   const props = options();
-  render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Repository & sandbox' });
+  render(
+    <DeveloperRepositoryPanel
+      {...props}
+      changedFiles={[
+        { path: 'src/one.py', status: 'modified' },
+        { path: 'src/two.py', status: 'added' },
+        { path: 'src/three.py', status: 'modified' },
+      ]}
+    />,
+  );
+  await ready();
   fireEvent.change(screen.getByLabelText('Commit message'), {
     target: { value: 'Save focused changes' },
   });
-  fireEvent.change(screen.getByLabelText(/Commit paths/), {
-    target: { value: 'src/one.py\nsrc/two.py' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Commit changes' }));
+  expect(screen.getByRole('button', { name: 'Commit changes' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'src/three.py' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Commit 2 files' }));
   expect(props.review).toHaveBeenCalledWith(
     'developer.repository.commit',
     {
@@ -144,33 +169,80 @@ it('commits exact confined paths from one click', async () => {
     },
     expect.any(AbortSignal),
   );
-  await screen.findByText('Developer repository change completed.');
+  await screen.findByText('Committed.');
   expect(props.execute).toHaveBeenCalledOnce();
   expect(props.load).toHaveBeenCalledTimes(2);
+  expect(props.onChanged).toHaveBeenCalledOnce();
 });
 
-it('keeps unavailable clone install network and delete outside this authority', async () => {
+it('fills a suggested commit message that stays editable before committing', async () => {
+  const props = options();
+  render(
+    <DeveloperRepositoryPanel
+      {...props}
+      changedFiles={[{ path: 'src/one.py', status: 'modified' }]}
+      commitSuggestion={{ subject: 'Update one.py', body: '- src/one.py' }}
+    />,
+  );
+  await ready();
+  const commit = screen.getByRole('button', { name: 'Commit changes' });
+  expect(commit).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Suggest message' }));
+  expect(screen.getByLabelText('Commit message')).toHaveValue(
+    'Update one.py\n\n- src/one.py',
+  );
+  expect(props.review).not.toHaveBeenCalled();
+  fireEvent.click(commit);
+  await screen.findByText('Committed.');
+  expect(props.review.mock.calls[0][1]).toEqual({
+    revision: page.revision,
+    message: 'Update one.py\n\n- src/one.py',
+    paths: [],
+  });
+});
+
+it('switches to a local branch from the branch menu in one reviewed step', async () => {
+  const user = userEvent.setup();
   const props = options();
   render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Safety boundaries' });
+  await ready();
+  await user.click(screen.getByRole('button', { name: 'Switch branch' }));
+  expect(screen.getByRole('menuitem', { name: /main/ })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await user.click(screen.getByRole('menuitem', { name: 'feature/x' }));
+  await screen.findByText('Switched branch.');
+  expect(props.review).toHaveBeenCalledWith(
+    'developer.repository.branch.switch',
+    { revision: page.revision, branch: 'feature/x' },
+    expect.any(AbortSignal),
+  );
+  expect(props.execute).toHaveBeenCalledOnce();
+});
+
+it('asks before pushing and keeps the current state when cancelled', async () => {
+  const props = options();
+  render(<DeveloperRepositoryPanel {...props} />);
+  fireEvent.click(await ready());
+  const confirm = await screen.findByRole('group', {
+    name: 'Confirm repository change',
+  });
   expect(
-    screen.queryByRole('button', { name: /clone/i }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole('button', { name: /install/i }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole('button', { name: /^delete/i }),
-  ).not.toBeInTheDocument();
-  expect(
-    screen.getByText(/network: use workspace process review/),
+    within(confirm).getByText('Synthetic reviewed repository effect.'),
   ).toBeVisible();
+  expect(props.execute).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(confirm).getByRole('button', { name: 'Keep current state' }),
+  );
+  await screen.findByText('Cancelled. No repository change was made.');
+  expect(props.execute).not.toHaveBeenCalled();
 });
 
 it('saves exact sandbox policy fields in one click without rebuilding', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Execution sandbox' });
+  await ready();
   fireEvent.change(screen.getByLabelText('Execution mode'), {
     target: { value: 'docker' },
   });
@@ -183,7 +255,7 @@ it('saves exact sandbox policy fields in one click without rebuilding', async ()
   fireEvent.click(
     screen.getByRole('button', { name: 'Save sandbox settings' }),
   );
-  await screen.findByText('Developer repository change completed.');
+  await screen.findByText('Sandbox settings saved.');
   expect(props.review).toHaveBeenCalledWith(
     'developer.repository.sandbox.configure',
     {
@@ -215,8 +287,7 @@ it('shows a blocked policy review without making it executable', async () => {
     action_digest: 'b'.repeat(64),
   }));
   render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Git repository' });
-  fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
+  fireEvent.click(await ready());
   await screen.findByText(/policy blocks this action/);
   expect(props.execute).not.toHaveBeenCalled();
 });
@@ -225,7 +296,7 @@ it('retains one unconfirmed command across remount and checks only that command'
   const props = options();
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const rendered = render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Repository & sandbox' });
+  await ready();
   fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
   await screen.findByText('Synthetic reviewed repository effect.');
   fireEvent.click(
@@ -240,7 +311,7 @@ it('retains one unconfirmed command across remount and checks only that command'
   });
   await waitFor(() => expect(recovery).toBeEnabled());
   fireEvent.click(recovery);
-  await screen.findByText('Developer repository change completed.');
+  await screen.findByText('Pushed.');
   expect(props.execute.mock.calls[1]).toEqual(original);
   expect(props.review).toHaveBeenCalledOnce();
 });
@@ -254,7 +325,7 @@ it('tombstones drafts and an in-flight command when authentication ends', async 
     }),
   );
   render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Repository & sandbox' });
+  await ready();
   fireEvent.change(screen.getByLabelText('Pull request body'), {
     target: { value: 'private draft' },
   });
@@ -302,7 +373,7 @@ it('rejects a response for another resource and retains the original recovery id
     external_url: null,
   }));
   render(<DeveloperRepositoryPanel {...props} />);
-  await screen.findByRole('heading', { name: 'Repository & sandbox' });
+  await ready();
   fireEvent.click(screen.getByRole('button', { name: 'Push branch' }));
   await screen.findByText('Synthetic reviewed repository effect.');
   fireEvent.click(
@@ -314,9 +385,130 @@ it('rejects a response for another resource and retains the original recovery id
   ).toBeVisible();
 });
 
+it('re-reads the repository when the inspector reads the folder again', async () => {
+  const props = options();
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  expect(props.load).toHaveBeenCalledOnce();
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  expect(props.review).not.toHaveBeenCalled();
+});
+
+it('lets a review finish before re-reading for a new inspector revision', async () => {
+  const user = userEvent.setup();
+  const props = options();
+  const answer = props.review.getMockImplementation()!;
+  let finish = () => undefined as unknown;
+  let signal: AbortSignal | undefined;
+  props.review.mockImplementationOnce(
+    (action, payload, reviewSignal: AbortSignal) =>
+      new Promise((resolve) => {
+        signal = reviewSignal;
+        finish = () => resolve(answer(action, payload, reviewSignal));
+      }),
+  );
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  await user.click(screen.getByRole('button', { name: 'Push branch' }));
+  await waitFor(() => expect(props.review).toHaveBeenCalledOnce());
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  expect(signal?.aborted).toBe(false);
+  expect(props.load).toHaveBeenCalledOnce();
+  await act(async () => {
+    finish();
+  });
+  // The review stands, and the skipped read runs afterwards.
+  await screen.findByRole('group', { name: 'Confirm repository change' });
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  expect(signal?.aborted).toBe(false);
+  expect(props.execute).not.toHaveBeenCalled();
+});
+
+it('lets a click during a background re-read supersede it and re-read afterwards', async () => {
+  const user = userEvent.setup();
+  const props = options();
+  let backgroundSignal: AbortSignal | undefined;
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  // The inspector's next revision starts a re-read that is still in flight.
+  props.load.mockImplementationOnce(
+    (signal: AbortSignal) =>
+      new Promise(() => {
+        backgroundSignal = signal;
+      }),
+  );
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  const push = screen.getByRole('button', { name: 'Push branch' });
+  expect(push).toBeEnabled();
+  await user.click(push);
+  await screen.findByRole('group', { name: 'Confirm repository change' });
+  expect(props.review).toHaveBeenCalledOnce();
+  expect(backgroundSignal?.aborted).toBe(true);
+  // The superseded read runs again once the review is in.
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(3));
+});
+
 it('does not read or reuse a session outside its exact binding scope', async () => {
   const props = options();
   render(<DeveloperRepositoryPanel {...props} scope="another-scope" />);
   expect(await screen.findByText('Developer workspace changed')).toBeVisible();
   await waitFor(() => expect(props.load).not.toHaveBeenCalled());
+});
+
+it('shows the Connect GitHub card when a pull request needs the GitHub tool', async () => {
+  const props = options();
+  props.review.mockRejectedValueOnce({ code: 'github_cli_missing' });
+  render(
+    <MemoryRouter>
+      <DeveloperRepositoryPanel {...props} />
+    </MemoryRouter>,
+  );
+  await ready();
+  fireEvent.change(screen.getByLabelText('Pull request title'), {
+    target: { value: 'Add dates' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }));
+  const card = await screen.findByRole('group', { name: 'Connect GitHub' });
+  expect(card).toHaveTextContent('GitHub command-line tool (gh)');
+  expect(
+    within(card).getByRole('link', { name: 'Connect GitHub' }),
+  ).toHaveAttribute('href', '/settings/accounts#github');
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(props.execute).not.toHaveBeenCalled();
+});
+
+it('keeps sandbox choices made while a re-read was on its way (B176)', async () => {
+  const props = options();
+  let finish = () => undefined as unknown;
+  const view = render(
+    <DeveloperRepositoryPanel {...props} revisionKey="0:a" />,
+  );
+  await ready();
+  props.load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve(page);
+      }),
+  );
+  view.rerender(<DeveloperRepositoryPanel {...props} revisionKey="0:b" />);
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  fireEvent.change(screen.getByLabelText('Execution mode'), {
+    target: { value: 'docker' },
+  });
+  await act(async () => {
+    finish();
+  });
+  expect(screen.getByLabelText('Execution mode')).toHaveValue('docker');
+  // Fields the person left alone still follow the repository.
+  expect(screen.getByLabelText('Sandbox image')).toHaveValue(
+    page.sandbox.image,
+  );
 });

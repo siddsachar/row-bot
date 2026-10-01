@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import sqlite3
 from contextlib import closing
 from typing import Any
@@ -139,9 +140,24 @@ def _find_public_text(reader: Any, record: dict, needle: str) -> str | None:
         text = overlap + fragment
         at = text.casefold().find(needle)
         if at >= 0:
-            return text[max(0, at - 80):at + len(needle) + 240][:400]
+            return _excerpt(text, at, len(needle))
         overlap = text[-(len(needle) + 80):]
     return None
+
+
+def _excerpt(text: str, at: int, length: int) -> str:
+    """The match with some words either side, cut between words, with an
+    ellipsis where text was left out ("…hardened container modules…")."""
+    start, end = max(0, at - 80), min(len(text), at + length + 240)
+    if start > 0:
+        space = re.search(r"\s", text[start:at])
+        if space:
+            start += space.end()
+    if end < len(text):
+        spaces = list(re.finditer(r"\s", text[at + length:end]))
+        if spaces:
+            end = at + length + spaces[-1].start()
+    return ("…" if start > 0 else "") + text[start:end].strip()[:398] + ("…" if end < len(text) else "")
 
 
 def history_window(service: Any, conversation_id: str, *, message_id: str | None = None,

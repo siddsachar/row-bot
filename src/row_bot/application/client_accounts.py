@@ -31,13 +31,16 @@ def _revision(status: github_account.GitHubAccountStatus, cli_installed: bool) -
 
 
 def _github_status(owner_id: str) -> tuple[github_account.GitHubAccountStatus, bool]:
-    passive = github_account.get_passive_github_account_status()
+    # The status Monitor shows too (B118): the last verified result for the
+    # credential in use now, else what is saved (a GitHub CLI sign-in
+    # included) as not yet checked. Never contacts GitHub.
+    shared = github_account.shared_github_status()
     with _LOCK:
         cached = _GITHUB.get(owner_id)
-    if cached and cached.fingerprint == passive.fingerprint:
+    if cached and cached.fingerprint == shared.fingerprint and cached.source == shared.source:
         status = cached
     else:
-        status = passive
+        status = shared
     return status, bool(resolve_github_cli())
 
 

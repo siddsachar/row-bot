@@ -1,0 +1,233 @@
+name: Nightly
+
+# What pull requests don't run: the whole deterministic suite (slow tests
+# included) on Linux with coverage, on Windows and on macOS; the browser nightly
+# set at desktop and phone width; a Linux package build and install smoke; the
+# docs reference check. Weekly: installer-verify on Windows and macOS, and the
+# browser smoke set on Firefox and WebKit. release.yml calls this workflow for a
+# commit that has no green nightly run yet.
+
+on:
+  schedule:
+    - cron: "23 3 * * *"  # daily
+    - cron: "23 5 * * 0"  # weekly (Sunday)
+  workflow_dispatch:
+    inputs:
+      weekly:
+        description: Also run the weekly jobs (installers on Windows and macOS, Firefox and WebKit)
+        type: boolean
+        default: false
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  python-full:
+    name: Full suite (${{ matrix.os }})
+    if: github.event.schedule != '23 5 * * 0'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+            tier: nightly
+          - os: windows-latest
+            python: "3.13"
+            tier: deterministic
+          - os: macos-latest
+            python: "3.12"
+            tier: deterministic
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build local client assets
+        uses: ./.github/actions/build-client
+
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: ">=0.7,<1.0"
+          python-version: ${{ steps.python.outputs.python-path }}
+
+      - name: Install Linux runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+
+      - name: Install macOS runtime libraries
+        if: runner.os == 'macOS'
+        run: brew install portaudio
+
+      - name: Install Python packages
+        run: uv sync --locked --all-extras --group test
+
+      - name: Run the ${{ matrix.tier }} tier
+        run: uv run python scripts/run_test_matrix.py ${{ matrix.tier }}
+
+      - name: Upload coverage report
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-nightly
+          path: .tmp/coverage/python-full.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
+  browser:
+    name: Browser nightly set (Chromium desktop and phone)
+    if: github.event.schedule != '23 5 * * 0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build local client assets
+        uses: ./.github/actions/build-client
+
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: ">=0.7,<1.0"
+          python-version: ${{ steps.python.outputs.python-path }}
+
+      - name: Install Linux runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+
+      - name: Install Python packages
+        run: uv sync --locked --all-extras --group test
+
+      - name: Read the locked Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./frontend/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Playwright browser cache
+        uses: actions/cache@v6
+        with:
+          path: .tmp/p2-browser-cache
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium and its system libraries
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp/p2-browser-cache
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+
+      - name: Browser nightly set
+        run: uv run python scripts/run_test_matrix.py browser-nightly --continue-on-failure
+
+      - name: Upload browser evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-nightly-evidence
+          path: .local/evidence/unified-client-platform/phase-3-visual-alignment/qa
+          if-no-files-found: ignore
+          retention-days: 7
+
+  linux-package:
+    name: Linux package
+    if: github.event.schedule != '23 5 * * 0'
+    uses: ./.github/workflows/installer-verify.yml
+    with:
+      windows: false
+      linux: true
+      macos: false
+
+  docs-reference:
+    name: Docs reference
+    if: github.event.schedule != '23 5 * * 0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python docs dependencies
+        run: python -m pip install pyyaml pytest pillow
+
+      - name: Generated reference pages match the code
+        run: |
+          python scripts/docs/collect_inventory.py --out docs-build/inventory
+          python scripts/docs/generate_mdx.py --inventory docs-build/inventory --check
+
+  installers:
+    name: Installers (weekly)
+    if: github.event.schedule == '23 5 * * 0' || inputs.weekly
+    uses: ./.github/workflows/installer-verify.yml
+    with:
+      windows: true
+      linux: false
+      macos: true
+
+  browser-engines:
+    name: Browser smoke (${{ matrix.engine }}, weekly)
+    if: github.event.schedule == '23 5 * * 0' || inputs.weekly
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build local client assets
+        uses: ./.github/actions/build-client
+
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: ">=0.7,<1.0"
+          python-version: ${{ steps.python.outputs.python-path }}
+
+      - name: Install Linux runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+
+      - name: Install Python packages
+        run: uv sync --locked --all-extras --group test
+
+      - name: Install ${{ matrix.engine }} and its system libraries
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.tmp/p2-browser-cache
+        run: node node_modules/@playwright/test/cli.js install --with-deps ${{ matrix.engine }}
+
+      - name: Browser smoke set
+        run: uv run python scripts/run_test_matrix.py browser-${{ matrix.engine }}
+
+      - name: Upload browser evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-${{ matrix.engine }}-evidence
+          path: .local/evidence/unified-client-platform/phase-3-visual-alignment/qa
+          if-no-files-found: ignore
+          retention-days: 7

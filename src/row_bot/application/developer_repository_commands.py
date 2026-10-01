@@ -184,6 +184,13 @@ class CanonicalDeveloperRepositoryBackend:
         if status.error:
             raise _error("git_status_unavailable")
         branch = _text(status.branch or "", 256)
+        branches: list[str] = []
+        if status.is_git:
+            try:
+                branches = [_text(name, 256) for name in git.list_branches(str(root), limit=50)]
+            except Exception:
+                # The switcher offers only the current branch when the list is unreadable.
+                branches = []
         public = {
             "state": "ready" if status.is_git else "plain_folder",
             "is_git": bool(status.is_git),
@@ -193,6 +200,7 @@ class CanonicalDeveloperRepositoryBackend:
             "dirty": bool(status.dirty),
             "remote_configured": bool(status.remote),
             "tracking_summary": _text(status.ahead_behind or "", 512),
+            "branches": branches,
         }
         private = {
             **public,
@@ -322,7 +330,7 @@ class CanonicalDeveloperRepositoryBackend:
                 confirmed=True,
             )
             if not result.ran or not result.ok:
-                raise _error("pull_request_failed")
+                raise _error(_pull_request_error(result))
             return {"external_url": _text(result.url, 2048)}
         elif action == "developer.repository.worktree.create":
             result = worktrees.allocate_worktree(
@@ -449,6 +457,23 @@ def _branch(value: object) -> str:
     return branch
 
 
+def _github_cli_ready() -> bool:
+    """gh is installed (a local lookup; signing in is checked when it runs)."""
+    from row_bot.developer.executables import resolve_github_cli
+    return bool(resolve_github_cli())
+
+
+def _pull_request_error(result: Any) -> str:
+    """What to fix when gh could not open the pull request."""
+    if not result.ran and "not installed" in str(result.stderr or ""):
+        return "github_cli_missing"
+    output = f"{result.stdout or ''} {result.stderr or ''}".lower()
+    if result.ran and ("gh auth login" in output or "not logged in" in output or "not logged into" in output
+                       or "authentication" in output):
+        return "github_cli_unauthenticated"
+    return "pull_request_failed"
+
+
 def _review(action: str, payload: dict[str, Any], resource_id: str, conversation_id: str, validate: Callable[[], None], backend: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     if action in _UNAVAILABLE:
         raise _error(_UNAVAILABLE[action])
@@ -476,6 +501,10 @@ def _review(action: str, payload: dict[str, Any], resource_id: str, conversation
     elif action == "developer.repository.pull_request":
         if set(payload) != {"revision", "title", "body", "draft"} or type(payload.get("draft")) is not bool:
             raise _error("invalid_developer_repository_command")
+        # Pull requests go through the GitHub command-line tool: without it
+        # the panel shows the Connect GitHub card before anything is reviewed.
+        if not _github_cli_ready():
+            raise _error("github_cli_missing")
         normalized.update(title=_text(payload["title"], 256), body=_text(payload["body"], 16384), draft=payload["draft"])
     elif action == "developer.repository.worktree.create":
         if set(payload) != {"revision", "objective", "seed_mode"} or payload.get("seed_mode") != "current_changes":

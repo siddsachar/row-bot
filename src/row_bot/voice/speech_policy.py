@@ -40,19 +40,6 @@ class SpeakableResponse:
     reason: str = "assistant_response"
 
 
-def user_requested_read_aloud(text: str) -> bool:
-    normalized = " ".join(str(text or "").lower().split())
-    markers = (
-        "read this aloud",
-        "read it aloud",
-        "read aloud",
-        "say this exactly",
-        "speak this exactly",
-        "tell me the whole thing out loud",
-    )
-    return any(marker in normalized for marker in markers)
-
-
 def make_speakable_response(
     text: str,
     *,

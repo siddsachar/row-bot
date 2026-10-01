@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
-from pathlib import Path
 
 import pytest
 
@@ -25,61 +23,23 @@ def _serve_args(*arguments: str) -> argparse.Namespace:
     return build_remote_access_parser().parse_args(("serve", *arguments))
 
 
-def test_startup_does_not_automatically_fetch_network_model_catalogs() -> None:
-    source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    module = ast.parse(source)
-    startup = next(
-        node
-        for node in module.body
-        if isinstance(node, ast.AsyncFunctionDef)
-        and node.name == "_run_startup_sequence"
+def test_server_mode_never_prewarms_the_provider_graph(monkeypatch) -> None:
+    import row_bot.app as app
+
+    scheduled = []
+    monkeypatch.setattr(
+        app,
+        "_schedule_background_task",
+        lambda coro, *, name: scheduled.append(name) or coro.close(),
     )
-    names = {
-        node.id
-        for node in ast.walk(startup)
-        if isinstance(node, ast.Name)
-    }
 
-    assert "fetch_context_catalog" not in names
-    assert "schedule_model_catalog_refresh_jobs" not in names
+    monkeypatch.setenv("ROW_BOT_DEPLOYMENT_MODE", "server")
+    assert app._schedule_agent_graph_prewarm() is None
+    assert scheduled == []
 
-
-def test_agent_graph_prewarm_treats_unconfigured_provider_as_a_skip() -> None:
-    source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    module = ast.parse(source)
-    prewarm = next(
-        node
-        for node in module.body
-        if isinstance(node, ast.AsyncFunctionDef)
-        and node.name == "_prewarm_agent_graph_background"
-    )
-    handled = {
-        handler.type.id
-        for node in ast.walk(prewarm)
-        if isinstance(node, ast.Try)
-        for handler in node.handlers
-        if isinstance(handler.type, ast.Name)
-    }
-
-    assert "AgentCompatibilityError" in handled
-
-
-def test_server_mode_skips_agent_graph_provider_prewarm() -> None:
-    source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-    module = ast.parse(source)
-    schedule = next(
-        node
-        for node in module.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_schedule_agent_graph_prewarm"
-    )
-    function_source = ast.unparse(schedule)
-
-    assert "ROW_BOT_DEPLOYMENT_MODE" in function_source
-    assert "server_mode" in function_source
-    assert function_source.index("server_mode") < function_source.index(
-        "_schedule_background_task"
-    )
+    monkeypatch.setenv("ROW_BOT_DEPLOYMENT_MODE", "desktop")
+    app._schedule_agent_graph_prewarm()
+    assert scheduled == ["row-bot-agent-graph-prewarm"]
 
 
 def test_serve_defaults_are_safe_and_headless(tmp_path) -> None:

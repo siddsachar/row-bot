@@ -9,18 +9,19 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Accounts are service logins Row-Bot can use for tools such as email, calendar, or provider-specific subscription flows. They are separate from ordinary API keys and separate from Row-Bot itself, which does not require a Row-Bot account.
 
-<Screenshot id="settings-accounts" alt="Settings: Accounts in Row-Bot." caption="The Accounts tab lists account connections and sign-in actions without exposing private tokens." />
+<Screenshot id="settings-accounts" alt="Settings: Accounts in Row-Bot." caption="The Accounts page lists GitHub, Google and X with their status and sign-in actions, without exposing private tokens." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Accounts** from the left tab list.
+Open **Settings**, then choose **Accounts** in the **Connections** group, or search for it with **Find a setting**.
 
 ## Controls
 
-- Connection cards show whether an account is connected, disconnected, or needs attention.
-- Sign in and reconnect buttons start the provider's account flow.
-- Disconnect removes Row-Bot's local access to that account.
-- Status messages explain what a connected account enables.
+- **GitHub** lets tools and code folders use your GitHub access, such as opening pull requests. **Check** confirms what Row-Bot can reach; public sources use anonymous access when needed.
+- **Google** connects Gmail and Calendar. Add your Google sign-in file, then sign in in the browser window that opens.
+- **X** connects your X account for posting and reading.
+- Each section shows whether the account is connected or needs attention, the result of its last check, and its sign-in, check and disconnect actions. Disconnecting removes Row-Bot's local access to that account.
+- If a sign-in expires, Monitor and Overview offer **Reconnect** for it.
 
 ## Common Workflow
 
@@ -39,7 +40,7 @@ Review credential, account, channel, provider, or tool settings before enabling 
 
 ## Control-Level Reference
 
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#accounts-controls) lists the visible controls found in the current application source, including defaults, allowed values when they are declared inline, dependencies, restart notes, security notes, and source locations.
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#accounts-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
 
 ## Troubleshooting
 

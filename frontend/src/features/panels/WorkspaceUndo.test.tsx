@@ -73,9 +73,7 @@ it('reviews and restores in one click without executing on mount', async () => {
   expect(io.review).toHaveBeenCalledTimes(1);
   expect(io.apply).toHaveBeenCalledTimes(1);
   expect(document.querySelector('section script')).toBeNull();
-  expect(
-    screen.queryByRole('button', { name: 'Undo these changes' }),
-  ).toBeNull();
+  expect(screen.getByRole('button', { name: 'Dismiss details' })).toBeVisible();
 });
 it('preserves the original immutable nonce and command across partial recovery and remount', async () => {
   const session = new WorkspaceUndoSession('auth:chat:binding');
@@ -140,11 +138,11 @@ it('keeps an uncertain original on an absent or mismatched receipt without resen
   });
   render(<WorkspaceUndo {...io} />);
   await started(io);
-  await screen.findByText(/outcome is unconfirmed/);
-  fireEvent.click(screen.getByRole('button', { name: 'Check Undo receipt' }));
-  await screen.findByText(/No confirmed receipt/);
+  await screen.findByText(/couldn't confirm the undo/);
+  fireEvent.click(screen.getByRole('button', { name: 'Check Undo' }));
+  await screen.findByText(/can't confirm what happened/);
   vi.mocked(io.receipt).mockResolvedValue(result('another-command'));
-  fireEvent.click(screen.getByRole('button', { name: 'Check Undo receipt' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check Undo' }));
   await waitFor(() => expect(io.receipt).toHaveBeenCalledTimes(2));
   expect(io.apply).toHaveBeenCalledTimes(1);
   expect(io.recover).not.toHaveBeenCalled();
@@ -188,7 +186,7 @@ it('blocks confirmation when policy denies and fences a cancelled late review', 
   expect(screen.getByText('<script>text.txt')).toBeInTheDocument();
   expect(screen.getByText('new/nested')).toBeInTheDocument();
   expect(io.apply).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Dismiss details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Keep changes' }));
   vi.mocked(io.review).mockImplementation(
     () =>
       new Promise((done) => {
@@ -199,7 +197,7 @@ it('blocks confirmation when policy denies and fences a cancelled late review', 
   act(() => session.cancelReview());
   await act(async () => resolve(review));
   expect(
-    screen.queryByRole('button', { name: 'Undo these changes' }),
+    screen.queryByRole('list', { name: 'Files this undo restores' }),
   ).toBeNull();
   expect(io.apply).not.toHaveBeenCalled();
 });

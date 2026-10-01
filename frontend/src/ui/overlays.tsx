@@ -3,27 +3,39 @@ import {
   useContext,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Toast from '@radix-ui/react-toast';
-import { X } from 'lucide-react';
-import { Button } from './primitives';
+import { PanelLeftClose, X } from 'lucide-react';
+import { Button, IconButton } from './primitives';
 
 type Overlay = {
   key?: string;
-  title: string;
+  className?: string;
+  /** Usually text; a node can follow live state, e.g. a renamed item. */
+  title: ReactNode;
   description: string;
   content?: ReactNode;
-  kind?: 'dialog' | 'sheet' | 'drawer' | 'alert';
+  /** A palette has no header or footer chrome; Escape closes it. */
+  kind?: 'dialog' | 'sheet' | 'drawer' | 'alert' | 'palette';
   confirmLabel?: string;
   onConfirm?: () => void;
   returnFocusTo?: HTMLElement | null;
 };
 type Task = Overlay & { opener: HTMLElement | null };
-type Notice = { id: number; message: string };
+export type NoticeTone = 'warning' | 'danger';
+/** One action on a notice, e.g. Undo after an easy-to-regret removal. */
+export type NoticeAction = { label: string; onAction: () => void };
+type Notice = {
+  id: number;
+  message: string;
+  tone?: NoticeTone;
+  action?: NoticeAction;
+};
 let historyOwner = 0;
 
 /** Same-URL history entries let platform Back dismiss modal work first. */
@@ -83,11 +95,23 @@ function useOverlayHistoryLevel(level: number, onBack: () => void) {
   };
 }
 
+/** How long a notice stays (Radix holds it while hovered or focused). An Undo
+ * notice goes soon after the change it offers to take back; a warning stays
+ * long enough to read. */
+export const NOTICE_MS = 5000;
+export const ACTION_NOTICE_MS = 6000;
+export const TONED_NOTICE_MS = 8000;
+
 const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
   close: (returnFocusTo?: HTMLElement | null) => void;
   dismiss: (key: string) => void;
-  notify: (message: string) => void;
+  /**
+   * A short notice that goes away by itself (5 s; warnings and errors 8 s
+   * and announced; with an action such as Undo 12 s, run at most once).
+   * Hovering or focusing one holds it.
+   */
+  notify: (message: string, tone?: NoticeTone, action?: NoticeAction) => void;
 } | null>(null);
 
 /** A single Radix modal focus/scroll scope; confirmation suspends a mounted task. */
@@ -100,6 +124,20 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
   const resumeFocus = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const current = confirmation ?? task;
+  // Handlers inside an overlay's content were created when it opened; closing
+  // and dismissing act on the overlays shown now, not on that render's state.
+  const shown = useRef({ task, confirmation });
+  useLayoutEffect(() => {
+    shown.current = { task, confirmation };
+  });
+  const shownClass = `dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : task?.kind === 'palette' ? 'palette' : ''} ${current?.className ?? ''}`;
+  // A closing surface keeps its presentation. Dropping the kind class would
+  // switch it to the base dialog animation, which Radix treats as an exit
+  // animation: an empty card would fade in for a moment and its outside-
+  // dismiss would swallow the next tap (reopening the drawer at once).
+  const [closingClass, setClosingClass] = useState(shownClass);
+  if (current && closingClass !== shownClass) setClosingClass(shownClass);
+  const palette = !confirmation && task?.kind === 'palette';
   const level = confirmation ? 2 : task ? 1 : 0;
   const activeElement = () =>
     document.activeElement instanceof HTMLElement
@@ -120,6 +158,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
     }
   }
   function closeInternal(returnFocusTo?: HTMLElement | null) {
+    const { task, confirmation } = shown.current;
     if (confirmation) {
       if (task) resumeFocus.current = confirmation.opener;
       else returningTo.current = confirmation.opener;
@@ -141,11 +180,14 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       resumeFocus.current = null;
     }
   }, [confirmation]);
-  const notify = (message: string) =>
+  const notify = (message: string, tone?: NoticeTone, action?: NoticeAction) =>
     setNotices((previous) =>
       previous.some((notice) => notice.message === message)
         ? previous
-        : [...previous, { id: nextNotice.current++, message }].slice(-3),
+        : [
+            ...previous,
+            { id: nextNotice.current++, message, tone, action },
+          ].slice(-3),
     );
   return (
     <OverlayContext.Provider
@@ -153,12 +195,12 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
         open,
         close,
         dismiss: (key) => {
-          if (task?.key === key) close();
+          if (shown.current.task?.key === key) close();
         },
         notify,
       }}
     >
-      <Toast.Provider duration={6000} swipeDirection="right">
+      <Toast.Provider duration={NOTICE_MS} swipeDirection="right">
         <div className="overlay-layout">
           <div className="overlay-content">{children}</div>
           <Dialog.Root
@@ -172,7 +214,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Dialog.Content
                 aria-modal="true"
                 role={confirmation ? 'alertdialog' : 'dialog'}
-                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : ''}`}
+                className={current ? shownClass : closingClass}
                 onOpenAutoFocus={(event) => {
                   const search = document.querySelector<HTMLElement>(
                     '[role="dialog"] [data-initial-focus]',
@@ -191,7 +233,9 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     returningTo.current.focus();
                 }}
               >
-                <header className="dialog-header">
+                <header
+                  className={`dialog-header ${palette ? 'visually-hidden' : ''}`}
+                >
                   <div>
                     <Dialog.Title className="dialog-title">
                       {current?.title}
@@ -200,9 +244,9 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                       {current?.description}
                     </Dialog.Description>
                   </div>
-                  {!confirmation && (
+                  {!confirmation && !palette && (
                     <Button
-                      iconOnly={task?.kind !== 'drawer'}
+                      iconOnly
                       variant="ghost"
                       aria-label={
                         task?.kind === 'drawer'
@@ -212,7 +256,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                       onClick={() => close()}
                     >
                       {task?.kind === 'drawer' ? (
-                        'Back'
+                        <PanelLeftClose size={20} aria-hidden />
                       ) : (
                         <X size={20} aria-hidden />
                       )}
@@ -229,7 +273,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                 {confirmation && (
                   <div className="dialog-body">{confirmation.content}</div>
                 )}
-                {(confirmation || task?.kind !== 'sheet') && (
+                {(confirmation || (task?.kind !== 'sheet' && !palette)) && (
                   <footer className="dialog-footer">
                     {confirmation ? (
                       <>
@@ -254,8 +298,10 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
+          {/* Floats over the page below the top bar, never over the
+              composer, and takes no room in the layout. */}
           <div
-            className="notification-footer"
+            className="notification-layer"
             hidden={Boolean(current) || notices.length === 0}
           >
             <Toast.Viewport className="toast-viewport" label="Notifications" />
@@ -265,6 +311,17 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
               <Toast.Root
                 className="toast"
                 key={notice.id}
+                data-tone={notice.tone}
+                type={
+                  notice.tone || notice.action ? 'foreground' : 'background'
+                }
+                duration={
+                  notice.action
+                    ? ACTION_NOTICE_MS
+                    : notice.tone
+                      ? TONED_NOTICE_MS
+                      : NOTICE_MS
+                }
                 onOpenChange={(value) => {
                   if (!value)
                     setNotices((values) =>
@@ -272,7 +329,26 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     );
                 }}
               >
-                <Toast.Description>{notice.message}</Toast.Description>
+                <Toast.Description className="toast-message">
+                  {notice.message}
+                </Toast.Description>
+                {notice.action && (
+                  <Toast.Action altText={notice.action.label} asChild>
+                    <Button
+                      variant="ghost"
+                      className="small"
+                      onClick={() => {
+                        const run = notice.action!.onAction;
+                        setNotices((values) =>
+                          values.filter((item) => item.id !== notice.id),
+                        );
+                        run();
+                      }}
+                    >
+                      {notice.action.label}
+                    </Button>
+                  </Toast.Action>
+                )}
                 <Toast.Close asChild>
                   <Button
                     iconOnly
@@ -300,6 +376,9 @@ type ModalTaskProps = {
   kind?: 'dialog' | 'sheet';
   dismissible?: boolean;
   returnFocusTo?: HTMLElement | null;
+  fallbackFocusTo?: HTMLElement | null;
+  /** Extra class on the dialog, e.g. a wider task such as the workflow builder. */
+  className?: string;
 };
 
 /** Declarative settings/setup task using the same Radix/back/focus contract. */
@@ -313,14 +392,19 @@ export function ModalTask({
   kind = 'dialog',
   dismissible = true,
   returnFocusTo,
+  fallbackFocusTo,
+  className = '',
 }: ModalTaskProps) {
   const opener = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(open);
+  const focusTarget = () =>
+    [returnFocusTo, opener.current, fallbackFocusTo].find(
+      (target) => target?.isConnected,
+    );
   const restoreFocus = () => {
-    const target = returnFocusTo ?? opener.current;
     queueMicrotask(() => {
-      if (target?.isConnected) target.focus();
+      focusTarget()?.focus();
     });
   };
   const restoreAfterClose = useEffectEvent(restoreFocus);
@@ -347,7 +431,7 @@ export function ModalTask({
         <Dialog.Overlay className="overlay-backdrop" />
         <Dialog.Content
           ref={contentRef}
-          className={`dialog shared-dialog-task ${kind === 'sheet' ? 'sheet' : ''}`}
+          className={`dialog shared-dialog-task ${kind === 'sheet' ? 'sheet' : ''} ${className}`}
           aria-label={ariaLabel}
           aria-modal="true"
           data-testid="shared-dialog-task"
@@ -368,8 +452,8 @@ export function ModalTask({
             }
           }}
           onCloseAutoFocus={(event) => {
-            const target = returnFocusTo ?? opener.current;
-            if (!target?.isConnected) return;
+            const target = focusTarget();
+            if (!target) return;
             event.preventDefault();
             target.focus();
           }}
@@ -397,6 +481,106 @@ export function ModalTask({
     </Dialog.Root>
   );
 }
+type DrawerProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  /** Extra header icon actions shown before Close. */
+  actions?: ReactNode;
+  side?: 'right' | 'left';
+  /**
+   * Inspectors default to non-modal: the canvas stays interactive, focus moves
+   * to the drawer heading and Escape or Close dismisses it.
+   */
+  modal?: boolean;
+  /** Render inside a positioned container instead of the viewport edge. */
+  container?: HTMLElement | null;
+  closeLabel?: string;
+  className?: string;
+};
+
+/** Side inspector for details (knowledge node, tool step, workflow run). */
+export function Drawer({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  actions,
+  side = 'right',
+  modal = false,
+  container,
+  closeLabel,
+  className = '',
+}: DrawerProps) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange} modal={modal}>
+      <Dialog.Portal container={container ?? undefined}>
+        {modal && <Dialog.Overlay className="overlay-backdrop" />}
+        <Dialog.Content
+          className={`drawer-panel ${className}`}
+          data-side={side}
+          data-contained={container ? 'true' : undefined}
+          // Radix expects an explicit opt-out when no description renders.
+          {...(description ? {} : { 'aria-describedby': undefined })}
+          onOpenAutoFocus={(event) => {
+            if (modal) return;
+            event.preventDefault();
+            heading.current?.focus({ preventScroll: true });
+          }}
+          onInteractOutside={(event) => {
+            if (!modal) event.preventDefault();
+          }}
+        >
+          <header className="drawer-header">
+            <div className="drawer-heading">
+              <Dialog.Title
+                ref={heading}
+                tabIndex={-1}
+                className="drawer-title"
+              >
+                {title}
+              </Dialog.Title>
+              {description && (
+                <Dialog.Description className="drawer-description">
+                  {description}
+                </Dialog.Description>
+              )}
+            </div>
+            <div className="drawer-actions">
+              {actions}
+              <Dialog.Close asChild>
+                <IconButton
+                  size="sm"
+                  label={closeLabel ?? `Close ${title}`}
+                  shortcut="Escape"
+                >
+                  <X size={16} aria-hidden />
+                </IconButton>
+              </Dialog.Close>
+            </div>
+          </header>
+          <div className="drawer-body">{children}</div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+const noNotify = () => {};
+
+/** notify() where an OverlayProvider may be missing (then it does nothing). */
+export function useNotify(): (
+  message: string,
+  tone?: NoticeTone,
+  action?: NoticeAction,
+) => void {
+  return useContext(OverlayContext)?.notify ?? noNotify;
+}
+
 export function useOverlay() {
   const context = useContext(OverlayContext);
   if (!context) throw new Error('OverlayProvider is required');

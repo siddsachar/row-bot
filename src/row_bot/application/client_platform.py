@@ -1,4 +1,4 @@
-"""Application services shared by authenticated clients and legacy adapters."""
+"""Application services shared by authenticated clients."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing
 from datetime import datetime, timezone
 from dataclasses import asdict
@@ -35,6 +36,25 @@ class ClientPlatformError(ValueError):
 
 _COMMAND_LOCK = threading.RLock()
 _LOG = logging.getLogger(__name__)
+# The client shows a trailing marker as a "Stopped" chip (TranscriptMessage).
+_STOPPED_MARKER = "\n\n⏹️ *[Stopped]*"
+# Conversation listings by group. The sidebar's type filters (B239) read the
+# conversations the client shows under each type: a thread's category
+# (threads.classify_thread) plus its resource bindings (conversation_resources,
+# derived from the legacy columns while none are stored). Filtering in SQL keeps
+# a page one bounded scan of thread_meta, never a read of the whole library.
+_BOUND = ("EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) "
+          "THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='{}')")
+_CODE_THREAD = "(COALESCE(thread_type,'')='code' OR COALESCE(developer_workspace_id,'')<>'')"
+_DESIGN = f"(COALESCE(project_id,'')<>'' OR {_BOUND.format('artifact')})"
+_CODE = (f"((COALESCE(project_id,'')='' AND {_CODE_THREAD}) OR {_BOUND.format('workspace')} "
+         "OR (COALESCE(resource_bindings_json,'')='' AND (COALESCE(developer_workspace_id,'')<>'' "
+         "OR COALESCE(project_workspace_id,'')<>'')))")
+_WORKFLOW = (f"(COALESCE(project_id,'')='' AND NOT {_CODE_THREAD} "
+             "AND thread_id IN (SELECT value FROM json_each(:workflows)))")
+_LIST_GROUPS = {"all": "1=1", "pinned": "COALESCE(pinned_at,'')<>''", "artifact": _DESIGN,
+                "workspace": _CODE, "workflow": _WORKFLOW,
+                "chat": f"NOT {_DESIGN} AND NOT {_CODE} AND NOT {_WORKFLOW}"}
 
 
 def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, maximum: int = 128 * 1024) -> list[tuple[int, dict]]:
@@ -51,6 +71,100 @@ def project_checkpoint_records(reader: Any, records: list[tuple[int, dict]], *, 
         for _, record in records
     ])
     return [(indexed[0], row) for indexed, row in zip(records, projected)]
+
+
+def _buddy(conversation_id: str, event_type: str, label: str, **payload: Any) -> None:
+    """Tell Buddy what a turn is doing; Buddy never breaks a turn."""
+    try:
+        from row_bot.buddy.events import emit_buddy_event
+        emit_buddy_event(event_type, source="client_platform",
+                         payload={"thread_id": conversation_id, "label": label, **payload})
+    except Exception:
+        _LOG.debug("Buddy event failed for %s", conversation_id, exc_info=True)
+
+
+def _buddy_follows(conversation_id: str, event: tuple) -> None:
+    kind, payload = event[0], event[1] if len(event) > 1 else None
+    if kind == "tool_call":
+        name = str(getattr(payload, "get", lambda *_: "")("name") or "")
+        _buddy(conversation_id, "tool.started", "Using a tool", tool=name[:128])
+    elif kind == "tool_done":
+        _buddy(conversation_id, "tool.finished", "Tool finished")
+    elif kind == "interrupt":
+        from row_bot.application.client_computer_controls import pause_item
+        if pause_item(payload) is not None:
+            _buddy(conversation_id, "generation.interrupted", "Waiting for you")
+        else:
+            _buddy(conversation_id, "approval.needed", "Approval pending")
+    elif kind == "done":
+        _buddy(conversation_id, "generation.done", "Done")
+    elif kind == "error":
+        _buddy(conversation_id, "generation.error", "Error")
+
+
+def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: str,
+                    expected_results: int, computer: bool) -> Iterator[tuple]:
+    """A denied approval ends the turn once the denied calls have their results.
+
+    The model is not asked again, so it cannot retry the action or reach for
+    another way to do it: the stream is closed there, and the reply says so.
+    Closing it before LangGraph saves the tool step leaves the results unsaved,
+    so they are recorded before the reply (B234).
+    """
+    message = ("Computer Use access was denied. No action was taken." if computer
+               else "The requested action was denied. No action was taken.")
+    iterator = iter(events)
+    settled = 0
+    try:
+        for event in iterator:
+            kind = event[0] if isinstance(event, tuple) and event else ""
+            if kind in {"tool_call", "token", "thinking", "thinking_token", "summarizing"}:
+                continue  # a replayed pending call or a new model attempt
+            if kind in {"interrupt", "done"}:
+                break
+            yield event
+            if kind == "error":
+                return
+            if kind == "tool_done":
+                settled += 1
+                if settled >= max(1, expected_results):
+                    break
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            close()
+    from langchain_core.messages import AIMessage
+    from row_bot import threads
+    from row_bot.tools.approval_gate import APPROVAL_DENIED
+    if threads.answer_open_tool_calls(conversation_id, APPROVAL_DENIED,
+                                      then=[AIMessage(id=identity, content=message)]):
+        yield ("output_binding", {"native_message_id": identity,
+                                  "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id)})
+    yield ("done", message)
+
+
+def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> list[str]:
+    """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``)."""
+    from row_bot.tasks import _get_conn
+    withdrawn = []
+    with closing(_get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT id, approval_payload_json FROM approval_requests "
+            "WHERE source_thread_id=? AND resume_kind='conversation' AND status='pending'",
+            (conversation_id,)).fetchall()
+        for row in rows:
+            try:
+                context = json.loads(row["approval_payload_json"] or "{}")
+            except ValueError:
+                context = {}
+            if generation_id and str(context.get("generation_id") or "") != generation_id:
+                continue
+            if conn.execute("UPDATE approval_requests SET status='cancelled', responded_at=? "
+                            "WHERE id=? AND status='pending'",
+                            (datetime.now().isoformat(), row["id"])).rowcount:
+                withdrawn.append(str(row["id"]))
+        conn.commit()
+    return withdrawn
 
 
 class ClientPlatformService:
@@ -116,8 +230,9 @@ class ClientPlatformService:
     def admit_execution(self, conversation_id: str, config: dict, *, text: str | None = None,
                         cancel_scope: Any = None, queued_pass_id: str = "", queue_context: dict | None = None,
                         resume_pending: bool = False,
-                        attachments: list[dict[str, Any]] | None = None) -> Any:
-        """Single admission path for the API and retained NiceGUI producer."""
+                        attachments: list[dict[str, Any]] | None = None,
+                        note: str = "") -> Any:
+        """Single admission path for every conversation turn."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
         from row_bot.models import get_current_model
@@ -151,10 +266,19 @@ class ClientPlatformService:
                 if attachments
                 else {}
             )
+            if note:
+                # A server-started follow-up: the transcript shows the note,
+                # the model reads the prompt.
+                public_metadata = {"platform_public_content": note, "platform_note": "continuation"}
+            first_message = text is not None and not note and not threads.get_latest_checkpoint_revision(conversation_id)
             if text is not None and not threads.append_checkpoint_messages(
                     conversation_id, [HumanMessage(content=text, id=submission_id,
                                                    additional_kwargs=public_metadata)]):
                 raise ClientPlatformError("checkpoint_unavailable")
+            if first_message:
+                # Named before the cut is published, so pages re-reading it see the name (B230).
+                from row_bot.application.conversation_naming import name_first_message
+                name_first_message(conversation_id, text)
             # Admission is already durable at this point. Publish that exact
             # checkpoint cut before exposing the running generation so every
             # client can adopt the submitted user row without waiting for the
@@ -170,16 +294,22 @@ class ClientPlatformService:
             handle.segment_id = admissions.start_segment(handle.pass_id)
             handle.input_checkpoint_revision = threads.get_latest_checkpoint_revision(conversation_id)
             handle.model_ref = str(configurable.get("model_override") or "")
+            handle.submission_id = submission_id
             handle.runtime_surface = str(configurable.get("runtime_surface") or "normal_chat")
             configurable.update({"generation_id": generation_id, "platform_submission_id": submission_id,
                                  "platform_pass_id": handle.pass_id, "platform_segment_id": handle.segment_id})
             self.projection.publish(conversation_id, "generation.state", handle.view())
             self._publish_queue(conversation_id)
-            return handle
+        if not note:
+            # The person's own turn (not a server-started follow-up) keeps
+            # heavy background memory work waiting for idle.
+            from row_bot.memory_extraction import mark_user_activity
+            mark_user_activity("conversation turn")
+        return handle
 
-    def _publish_queue(self, conversation_id: str) -> None:
+    def _publish_queue(self, conversation_id: str, *, finishing: str = "") -> None:
         self.projection.publish(conversation_id, "queue.updated", {
-            "submission_ids": admissions.queued_submission_ids(conversation_id),
+            "submission_ids": admissions.queued_submission_ids(conversation_id, excluding_pass=finishing),
             "revision": str(int(self.projection.snapshot(conversation_id)["projection_revision"]) + 1)})
 
     def finish_execution(self, handle: Any, status: str) -> None:
@@ -189,6 +319,14 @@ class ClientPlatformService:
             if handle.producer_done.is_set():
                 return
             status = "stopped" if handle.cancel_scope.is_cancelled() else status
+            if status == "stopped":
+                self._keep_stopped_reply(handle)
+            if status not in {"completed", "waiting_approval"}:
+                self._answer_open_calls(handle.conversation_id, status)
+            # Clients reset on a checkpoint installed below and resubscribe
+            # from a snapshot, which carries no queue: an update published
+            # after it never reaches them and they kept "1 queued" (B97).
+            self._publish_queue(handle.conversation_id, finishing=handle.pass_id)
             self._refresh_checkpoint(handle.conversation_id)
             from row_bot.application.live_content import discard, references
             for reference in references(handle.conversation_id):
@@ -200,18 +338,68 @@ class ClientPlatformService:
                 "segment_id": handle.segment_id, "message_id": handle.output_message_id,
                 "checkpoint_revision": handle.output_checkpoint_revision})
             self._publish_queue(handle.conversation_id)
+            from row_bot.application import client_queue
+            # Pause waiting inputs before announcing the terminal state, so a
+            # client that re-reads its waiting messages on that state sees
+            # their paused revision rather than a stale one.
+            if status != "completed":
+                client_queue.pause_pending(self, handle.conversation_id)
             final_view = {**handle.view(), "status": status, "revision": str(handle.revision + 1),
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
             self.projection.publish(handle.conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
-            from row_bot.application import client_queue
             if status == "completed":
                 try:
                     client_queue.dispatch(self, handle.conversation_id, automatic=True)
                 except Exception:
                     client_queue.pause_pending(self, handle.conversation_id)
-            else:
-                client_queue.pause_pending(self, handle.conversation_id)
+            if handle.followups:
+                from row_bot.application import conversation_followups
+                conversation_followups.after_finish(self, handle, status)
+
+    def _keep_stopped_reply(self, handle: Any) -> None:
+        """Stop keeps the reply streamed so far (B149).
+
+        The model's message is only saved when its step completes, so a stop
+        mid-answer used to leave nothing but the spool this cleanup discards.
+        The current segment's text becomes the assistant's reply, marked as
+        stopped; a segment whose message was already saved (a tool-calling
+        step, or one that finished just before Stop) is left as it is.
+        """
+        from langchain_core.messages import AIMessage
+        from row_bot import threads
+        from row_bot.application.live_content import read_text
+        conversation_id = handle.conversation_id
+        if not handle.segment_id or handle.segment_committed:
+            return
+        try:
+            if admissions.deletion_state(conversation_id) != "active":
+                return
+            text = read_text(conversation_id, f"live:{handle.pass_id}:{handle.segment_id}").rstrip()
+            if not text.strip():
+                return
+            messages = threads.get_latest_checkpoint_messages(conversation_id)
+            last = messages[-1] if messages else None
+            if last is not None and getattr(last, "type", "") == "ai":
+                # Its step completed: the text is saved (with any tool calls).
+                return
+            identity = str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                      f"row-bot:stopped:{handle.submission_id or handle.pass_id}"))
+            threads.append_checkpoint_messages(conversation_id, [AIMessage(
+                id=identity, content=text + _STOPPED_MARKER)])
+        except Exception:
+            _LOG.warning("A stopped reply could not be kept for %s", conversation_id, exc_info=True)
+
+    @staticmethod
+    def _answer_open_calls(conversation_id: str, status: str) -> None:
+        """A turn that ended early leaves no call looking as if it still runs (B234)."""
+        from row_bot import threads
+        reason = ("Cancelled: stopped before it finished." if status == "stopped"
+                  else "Error: the turn ended before it finished.")
+        try:
+            threads.answer_open_tool_calls(conversation_id, reason)
+        except Exception:
+            _LOG.warning("Unanswered tool calls could not be closed for %s", conversation_id, exc_info=True)
 
     def _metadata(self, conversation_id: str) -> dict:
         from row_bot import threads
@@ -223,15 +411,55 @@ class ClientPlatformService:
                 raise ClientPlatformError("not_found")
             return dict(row)
 
+    @staticmethod
+    def _awaiting_approval(conversation_ids: list[str]) -> set[str]:
+        """Conversations whose own turn is paused on a pending approval.
+
+        A paused turn is quiesced, so it has no live generation state; the
+        durable request is the only signal that the conversation needs you.
+        A delegated agent's thread counts too: its turn waits the same way (B162).
+        """
+        if not conversation_ids:
+            return set()
+        from row_bot.tasks import _get_conn
+        placeholders = ",".join("?" for _ in conversation_ids)
+        try:
+            with closing(_get_conn()) as conn:
+                return {str(row[0]) for row in conn.execute(
+                    "SELECT DISTINCT source_thread_id FROM approval_requests "
+                    "WHERE resume_kind IN ('conversation','agent_run') AND status='pending' "
+                    f"AND source_thread_id IN ({placeholders})", conversation_ids)}
+        except sqlite3.Error:
+            return set()
+
     def get_conversation(
-        self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None
+        self, conversation_id: str, *, workflow_thread_ids: set[str] | None = None,
+        parent_conversation_id: str | None = None,
+        orchestration_activity: dict | None = None,
+        awaiting_approval: bool | None = None,
     ) -> dict:
         row = self._metadata(conversation_id)
         from row_bot import threads
         from row_bot.conversation_resources import list_bindings
         resources = list_bindings(conversation_id)
+        if parent_conversation_id is None:
+            from row_bot import agent_runs
+            own_run = agent_runs.get_agent_run_for_thread(conversation_id)
+            parent_conversation_id = str(own_run.get("parent_thread_id") or "") if own_run else ""
+        if orchestration_activity is None:
+            from row_bot.agent_orchestrator import get_thread_orchestration_activity
+            orchestration_activity = get_thread_orchestration_activity([conversation_id]).get(conversation_id, {})
+        if awaiting_approval is None:
+            awaiting_approval = conversation_id in self._awaiting_approval([conversation_id])
+        if awaiting_approval:
+            # Nothing urgent is hidden: a paused approval needs the user.
+            orchestration_activity = {"state": "attention", "phase": "waiting_approval"}
         return {"id": conversation_id, "revision": str(row["client_revision"]),
                 "title": row["name"], "pinned": bool(row["pinned_at"]),
+                "updated_at": str(row.get("updated_at") or ""),
+                "parent_conversation_id": parent_conversation_id or None,
+                "activity_state": orchestration_activity.get("state"),
+                "activity_phase": str(orchestration_activity.get("phase") or "")[:64],
                 "category": threads.classify_thread(
                     str(row.get("project_id") or ""), conversation_id,
                     workflow_tids=workflow_thread_ids,
@@ -270,8 +498,9 @@ class ClientPlatformService:
         from row_bot import threads
         threads._ensure_thread_db()
         limit = min(200, max(1, limit))
-        if group not in {"all", "pinned", "artifact", "workspace"}:
+        if group not in _LIST_GROUPS:
             raise ClientPlatformError("invalid_command")
+        workflow_thread_ids = threads.get_workflow_thread_ids()
         with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
             from row_bot.application.conversation_search import _library_revision
             revision = _library_revision(conn) + ":" + group
@@ -283,20 +512,37 @@ class ClientPlatformService:
                         raise ValueError()
                 except (ValueError, TypeError) as exc:
                     raise ClientPlatformError("cursor_expired") from exc
+            pinned, recent, thread_id = after or (0, "", "")
             rows = conn.execute(
                 "SELECT thread_id,CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END AS pinned,"
                 "COALESCE(updated_at,'') AS recent FROM thread_meta "
-                + "WHERE " + ({"all": "1=1", "pinned": "COALESCE(pinned_at,'')<>''",
-                    "artifact": "(COALESCE(project_id,'')<>'' OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='artifact'))",
-                    "workspace": "(COALESCE(developer_workspace_id,'')<>'' OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='workspace'))"}[group]) + " "
-                + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)<(?,?,?) " if after else "")
-                + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT ?",
-                (*after, limit + 1) if after else (limit + 1,),
+                + "WHERE " + _LIST_GROUPS[group] + " "
+                + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)"
+                   "<(:pinned,:recent,:thread_id) " if after else "")
+                + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT :limit",
+                {"pinned": pinned, "recent": recent, "thread_id": thread_id, "limit": limit + 1,
+                 "workflows": json.dumps(sorted(workflow_thread_ids))},
             ).fetchall()
         more = len(rows) > limit
         selected = rows[:limit]
-        workflow_thread_ids = threads.get_workflow_thread_ids()
-        return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids) for row in selected], "has_more": more,
+        from row_bot import agent_runs
+        agent_runs.ensure_agent_run_schema()
+        parent_ids: dict[str, str] = {}
+        if selected:
+            with closing(agent_runs._get_conn()) as runs_conn:
+                placeholders = ",".join("?" for _ in selected)
+                for child_id, parent_id in runs_conn.execute(
+                    f"SELECT thread_id,parent_thread_id FROM agent_runs WHERE kind='subagent' AND thread_id IN ({placeholders}) ORDER BY updated_at DESC,created_at DESC",
+                    [row[0] for row in selected],
+                ):
+                    parent_ids.setdefault(str(child_id), str(parent_id))
+        from row_bot.agent_orchestrator import get_thread_orchestration_activity
+        activity = get_thread_orchestration_activity([row[0] for row in selected]) if selected else {}
+        awaiting = self._awaiting_approval([row[0] for row in selected])
+        return {"items": [self.get_conversation(row[0], workflow_thread_ids=workflow_thread_ids,
+                parent_conversation_id=parent_ids.get(row[0], ""),
+                orchestration_activity=activity.get(row[0], {}),
+                awaiting_approval=row[0] in awaiting) for row in selected], "has_more": more,
                 "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:
@@ -310,12 +556,68 @@ class ClientPlatformService:
                     rows = [row for _, row in project_checkpoint_records(reader, records)]
                     self.projection.install_rows(conversation_id, reader.revision, rows)
 
+    def conversation_changed(self, conversation_id: str) -> None:
+        """A conversation was written outside its own turns (a delegated
+        agent's approval notice in its parent, the agent's paused turn): pages
+        showing it re-read it (B186). Best effort, off the writer's thread."""
+
+        def publish() -> None:
+            try:
+                with _COMMAND_LOCK:
+                    before = self.projection.snapshot(conversation_id)["projection_revision"]
+                    self._refresh_checkpoint(conversation_id)
+                    current = self.projection.snapshot(conversation_id)
+                    if current["projection_revision"] == before:
+                        self.projection.publish(conversation_id, "transcript.checkpoint",
+                                                {"checkpoint_revision": current["checkpoint_revision"]})
+            except Exception:
+                _LOG.debug("Could not publish an outside change to %s", conversation_id, exc_info=True)
+
+        threading.Thread(target=publish, daemon=True, name="conversation-changed").start()
+
+    def _paused_approval_generation(self, conversation_id: str) -> dict | None:
+        """The paused turn of a conversation whose approval is still pending.
+
+        The live generation state is in memory only, so after a restart a
+        pending approval had nothing to show it and the turn could neither be
+        approved nor resumed. The durable request restores the waiting state.
+        A delegated agent's paused turn is never live in this projection, so
+        its thread shows the card from the request too (B162).
+        """
+        from row_bot.tasks import _get_conn
+        try:
+            with closing(_get_conn()) as conn:
+                row = conn.execute(
+                    "SELECT id, approval_payload_json FROM approval_requests "
+                    "WHERE source_thread_id=? AND resume_kind IN ('conversation','agent_run') "
+                    "AND status='pending' ORDER BY requested_at DESC LIMIT 1",
+                    (conversation_id,)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        approval_id = str(row["id"])
+        try:
+            context = json.loads(str(row["approval_payload_json"] or "{}"))
+        except (TypeError, ValueError):
+            context = {}
+        pass_id = str(context.get("pass_id") or "") if isinstance(context, dict) else ""
+        restored = f"approval:{approval_id}"
+        return {"execution_id": restored, "conversation_id": conversation_id,
+                "generation_id": restored, "pass_id": pass_id or restored,
+                "segment_id": None, "status": "waiting_approval", "revision": "0",
+                "cancel_requested": False, "quiesced": True, "cleanup_complete": True,
+                "external_outcome": "not_applicable", "approval_id": approval_id,
+                "can_stop": False}
+
     def snapshot(self, conversation_id: str) -> dict:
         from row_bot.application.live_content import references
         with _COMMAND_LOCK:
             self._metadata(conversation_id)
             self._refresh_checkpoint(conversation_id)
             snapshot = self.projection.snapshot(conversation_id)
+            if snapshot.get("generation") is None and not self.registry.active(conversation_id):
+                snapshot["generation"] = self._paused_approval_generation(conversation_id)
             present = {row["id"] for row in snapshot["rows"]}
             for reference in references(conversation_id)[-100:]:
                 row_id = "assistant:" + reference
@@ -453,7 +755,7 @@ class ClientPlatformService:
                 from row_bot.application.workspace_edit_commands import execute_workspace_edit
                 return execute_workspace_edit(self, command, target, owner_id=owner_id, key=idempotency_key,
                                               validate=validate or (lambda: None))
-            if command["type"] in {"task.create", "task.update", "task.delete", "task.delivery.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
+            if command["type"] in {"task.create", "task.update", "task.delete", "task.duplicate", "task.delivery.update", "task.graph.update", "task.settings.update", "task.webhook.rotate"}:
                 if target != "tasks":
                     raise ClientPlatformError("invalid_command")
                 from row_bot.application.task_commands import execute_task_command
@@ -473,6 +775,9 @@ class ClientPlatformService:
                     from row_bot.application.workspace_setup import setup
                     result = setup(self, command, target, owner_id=owner_id, key=idempotency_key,
                                    authorized_folder=authorized_folder, validate=validate)
+                elif command["type"] == "resource.forget":
+                    from row_bot.application.workspace_setup import forget_saved_resource
+                    result = forget_saved_resource(command, target, validate=validate)
                 elif command["type"] == "artifact.edit":
                     from row_bot.application.artifact_controls import edit_artifact
                     result = edit_artifact(self, command, target, validate=validate)
@@ -517,17 +822,66 @@ class ClientPlatformService:
         kind = command["type"]
         if kind == "conversation.create":
             conversation_id = str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "conversation"))
-            threads.create_thread(str(payload.get("title") or "New conversation"), thread_id=conversation_id)
-            return {"conversation_id": conversation_id, "revision": "0", "status": "completed"}
+            profile_id = str(payload.get("agent_profile_id") or "")
+            profile = None
+            if profile_id:
+                from row_bot.agent_profiles import AgentProfileError, require_agent_profile
+
+                try:
+                    profile = require_agent_profile(profile_id, enabled_only=True)
+                except AgentProfileError as exc:
+                    raise ClientPlatformError("invalid_command") from exc
+            threads.create_thread(
+                str(payload.get("title") or "New conversation"),
+                thread_id=conversation_id,
+                agent_profile_id=str(profile["id"]) if profile else "",
+                agent_profile_slug=str(profile["slug"]) if profile else "",
+            )
+            if profile:
+                skills = profile.get("skill_policy_json") or {}
+                raw_skills = skills.get("skills_override") if isinstance(skills, dict) else None
+                selected = (
+                    list(dict.fromkeys(
+                        item.strip() for item in raw_skills
+                        if isinstance(item, str) and item.strip()
+                    ))
+                    if isinstance(raw_skills, list) else []
+                )
+                threads.set_thread_skills_override(conversation_id, selected or None)
+            revision = (
+                threads.get_thread_composer_context(conversation_id)["client_revision"]
+                if profile else 0
+            )
+            return {"conversation_id": conversation_id, "revision": str(revision), "status": "completed"}
         if kind == "approval.resolve":
             approval = self.get_approval(target)
             if str(command.get("expected_revision")) != approval["revision"]:
                 raise ClientPlatformError("revision_conflict", approval["revision"])
-            return self._resolve_approval(target, payload)
+            return self._resolve_approval(target, payload, runtime_surface=runtime_surface)
         row = self._metadata(target)
         expected = command.get("expected_revision")
         if expected is None or str(expected) != str(row["client_revision"]):
             raise ClientPlatformError("revision_conflict", str(row["client_revision"]))
+        if kind == "resource.discard":
+            from row_bot.application.conversation_resource_commands import discard
+            return discard(self, target, str(payload["binding_id"]), expected_revision=str(expected))
+        if kind == "resource.rename":
+            from row_bot.application.conversation_resource_commands import rename
+            return rename(self, target, str(payload["binding_id"]), str(payload["name"]))
+        if kind in {"agent.stop", "agent.message", "agent.start", "agent.resume", "agent.dismiss"}:
+            from row_bot.application import delegated_activity
+            if kind == "agent.stop":
+                delegated_activity.stop_run(self, target, str(payload["run_id"]))
+            elif kind == "agent.message":
+                delegated_activity.message_run(self, target, str(payload["run_id"]), str(payload["text"]),
+                                               str(payload["message_id"]))
+            elif kind == "agent.resume":
+                delegated_activity.resume_work(self, target)
+            elif kind == "agent.dismiss":
+                delegated_activity.dismiss_work(self, target)
+            else:
+                delegated_activity.start_run(self, target, str(payload["text"]))
+            return {"conversation_id": target, "revision": str(row["client_revision"]), "status": "completed"}
         if kind == "media.save":
             from row_bot.application.conversation_media_copy import save_output
             try:
@@ -622,21 +976,7 @@ class ClientPlatformService:
                                runtime_surface=runtime_surface,
                                **({"frozen_context": frozen_context} if frozen_context is not None else {}))
         if kind == "conversation.stop":
-            generation_id = payload.get("generation_id")
-            if generation_id:
-                # A Buddy click owns the displayed run even if a replacement
-                # has started before dispatch. Never stop that replacement or
-                # pause its queue through an old generation's control.
-                handle = self.registry.conversation_generation(target, str(generation_id))
-                if handle is not None:
-                    self.registry.cancel(handle)
-            else:
-                self.registry.stop(target)
-                from row_bot.application.client_queue import pause_pending
-                pause_pending(self, target)
-            for handle in self.registry.active(target):
-                self.projection.publish(target, "generation.state", handle.view())
-            return {"conversation_id": target, "status": "cancel_requested"}
+            return self.stop_conversation(target, str(payload.get("generation_id") or ""))
         if kind == "conversation.steer":
             from row_bot.agent_orchestrator import get_active_orchestration, route_parent_steering
             orchestration = get_active_orchestration(target)
@@ -670,10 +1010,49 @@ class ClientPlatformService:
             }
         raise ClientPlatformError("invalid_command")
 
+    def stop_conversation(self, conversation_id: str, generation_id: str = "") -> dict:
+        """Stop a conversation's turn, and the computer use it holds.
+
+        The computer is released first, then the turn is cancelled; every
+        approval the turn waits on is withdrawn, since nothing will go on with
+        it (answering one later must not start the run again).
+        """
+        with _COMMAND_LOCK:
+            from row_bot.application.client_computer_controls import stop_computer_use
+            waiting = (self.projection.snapshot(conversation_id).get("generation")
+                       or self._paused_approval_generation(conversation_id))
+            withdrawn = stop_computer_use(conversation_id, generation_id=generation_id)
+            withdrawn += _withdraw_turn_approvals(conversation_id, generation_id)
+            if generation_id:
+                # A Buddy click owns the displayed run even if a replacement
+                # has started before dispatch. Never stop that replacement or
+                # pause its queue through an old generation's control.
+                handle = self.registry.conversation_generation(conversation_id, generation_id)
+                if handle is not None:
+                    self.registry.cancel(handle)
+            else:
+                self.registry.stop(conversation_id)
+                from row_bot.application.client_queue import pause_pending
+                pause_pending(self, conversation_id)
+            for handle in self.registry.active(conversation_id):
+                self.projection.publish(conversation_id, "generation.state", handle.view())
+            if (waiting and waiting.get("approval_id") in withdrawn
+                    and not self.registry.active(conversation_id)):
+                # The paused call will never run: it gets its result, and
+                # every client drops its card.
+                self._answer_open_calls(conversation_id, "stopped")
+                self._refresh_checkpoint(conversation_id)
+                self.projection.publish(conversation_id, "generation.state", {
+                    **waiting, "status": "stopped", "approval_id": None, "cancel_requested": True,
+                    "quiesced": True, "cleanup_complete": True, "can_stop": False,
+                    "revision": str(int(str(waiting.get("revision") or "0")) + 1)})
+            return {"conversation_id": conversation_id, "status": "cancel_requested"}
+
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",
                approval_context: dict | None = None, queue_record: dict | None = None,
                frozen_context: dict | None = None,
-               runtime_surface: str = "normal_chat") -> dict:
+               runtime_surface: str = "normal_chat",
+               followup: Any = None) -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
         from row_bot.application import client_queue
@@ -700,27 +1079,12 @@ class ClientPlatformService:
                    "agent_profile_id": frozen_config.get("agent_profile_id"),
                    "client_runtime_mode": frozen_config.get("runtime_mode")}
         runtime_mode = row.get("client_runtime_mode") or "agent"
-        auto_setup = None
-        if not resume and frozen_context is None and command_id:
-            from row_bot.application.conversation_creation import ensure_for_submission
-            auto_setup = ensure_for_submission(self, conversation_id, str(payload.get("text") or ""), command_id)
-            if auto_setup is not None and auto_setup.get("status") != "completed":
-                raise ClientPlatformError("resource_setup_partial")
+        # Designs and code folders are created by the assistant's own tools
+        # when the work needs one (conversation_setup_tool), never from the
+        # wording of a message.
         from row_bot.conversation_resources import list_bindings, describe
         captured_bindings = list_bindings(conversation_id).bindings
         targets = frozen_context.get("write_targets") if frozen_context is not None else payload.get("write_targets")
-        if auto_setup is not None:
-            selected_auto = next((binding for binding in captured_bindings
-                                  if binding.binding_id == auto_setup.get("binding_id")), None)
-            if selected_auto is None:
-                raise ClientPlatformError("resource_binding_revoked")
-            targets = [*(targets or []), {
-                "kind": selected_auto.kind,
-                "binding_id": selected_auto.binding_id,
-                "resource_id": selected_auto.resource_id,
-                "binding_revision": selected_auto.revision,
-                "resource_revision": describe(selected_auto).resource_revision,
-            }]
         if frozen_context is not None:
             from row_bot.conversation_resources import ResourceBinding
             frozen_bindings = tuple(ResourceBinding(**value) for value in frozen_context["bindings"])
@@ -749,8 +1113,13 @@ class ClientPlatformService:
                 selected.append(binding)
             captured_bindings = tuple(selected)
         submission_id = str(payload.get("submission_id") or uuid.uuid4())
-        generation_id = str(queue_record["generation_id"]) if queue_record else str(uuid.uuid4())
+        # An approved turn keeps the paused turn's identity when its computer
+        # session is still held: the lease belongs to that generation.
+        generation_id = (str(queue_record["generation_id"]) if queue_record
+                         else str((approval_context or {}).get("generation_id") or uuid.uuid4()))
         text = str(payload.get("text") or "")
+        if followup is not None:
+            text = followup.prompt
         attachment_refs = list(payload.get("attachment_refs") or ())
         if len(attachment_refs) > 32:
             raise ClientPlatformError("payload_too_large")
@@ -780,6 +1149,9 @@ class ClientPlatformService:
                   "platform_submission_id": submission_id,
                   "platform_command_id": command_id,
                   "model_override": model_ref}}
+        if followup is not None:
+            # Continues the conversation's own work; never routed as steering.
+            config["configurable"]["internal_goal_continuation"] = True
         from copy import deepcopy
         from row_bot.application.profile_controls import freeze_profile
         if frozen_context is not None:
@@ -795,11 +1167,25 @@ class ClientPlatformService:
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
         handle = self.admit_execution(conversation_id, config, text=None if resume else text,
             queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
-            resume_pending=resume, attachments=None if resume else attachment_views)
+            resume_pending=resume, attachments=None if resume else attachment_views,
+            note=followup.note if followup is not None else "")
+        handle.followups = True
+        if not resume and frozen_context is None and queue_record is None and followup is None and command_id:
+            from row_bot.application.conversation_drafts import consume_admitted_draft
+            try:
+                consume_admitted_draft(self, conversation_id, text, attachment_refs)
+            except Exception:
+                _LOG.warning("The sent draft could not be cleared for %s", conversation_id, exc_info=True)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
 
         def producer() -> None:
+            from row_bot.application.conversation_followups import after_platform_turn, live_goal
             status = "interrupted"
+            final_text = ""
+            error_text = ""  # A provider limit here makes a goal wait (B244).
+            # The goal this turn works on, even if the model finishes it mid-turn.
+            started_goal = live_goal(conversation_id)
+            _buddy(conversation_id, "generation.started", "Thinking")
             try:
                 self.registry.check_dispatch(handle)
                 files = []
@@ -866,24 +1252,55 @@ class ClientPlatformService:
                               bool((approval_context or {}).get("approved")),
                               interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event)
                               if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
+                    if approval_context is not None and not approval_context.get("approved"):
+                        events = _settled_denial(
+                            events, conversation_id=conversation_id,
+                            identity=str(uuid.uuid5(uuid.NAMESPACE_URL, f"row-bot:denied:{handle.pass_id}")),
+                            expected_results=len(approval_context.get("interrupt_ids") or ()),
+                            computer=bool(approval_context.get("computer")))
                     for event in events:
                         self.registry.check_dispatch(handle)
                         if self.stream_factory is not None and event[0] in {"token", "tool_start", "tool_done", "output_binding"}:
                             client_queue.acknowledge_consumed(handle)
                         self.observe_event(conversation_id, event, handle)
+                        _buddy_follows(conversation_id, event)
                         if event[0] == "done":
                             status = "completed"
+                            final_text = str(event[1] or "") if len(event) > 1 else ""
                         elif event[0] == "interrupt":
                             status = "waiting_approval"
                         elif event[0] == "error":
                             status = "interrupted"
+                            error_text = str(event[1] if len(event) > 1 else "")
             except InterruptedError:
                 status = "stopped"
             except Exception:
                 _LOG.exception("Conversation generation failed for %s", conversation_id)
                 self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
             finally:
+                if handle.cancel_scope.is_cancelled():
+                    status = "stopped"
+                    _buddy(conversation_id, "generation.stopped", "Stopped")
+                try:
+                    from row_bot.application.client_computer_controls import release_after_turn
+                    release_after_turn(conversation_id, generation_id, status)
+                except Exception:
+                    _LOG.warning("Computer use was not released after a turn in %s", conversation_id,
+                                 exc_info=True)
+                if status == "interrupted":
+                    # Monitor checks a failed local model's server again (B252).
+                    try:
+                        from row_bot.application.client_diagnosis import recheck_after_failed_turn
+                        recheck_after_failed_turn(model_ref)
+                    except Exception:
+                        _LOG.warning("Monitor could not recheck the model after a failed turn", exc_info=True)
+                after_platform_turn(conversation_id, generation_id=generation_id, status=status,
+                                    assistant_text=final_text, model_ref=model_ref,
+                                    goal_id=str((started_goal or {}).get("id") or ""),
+                                    error_text=error_text)
                 self.finish_execution(handle, status)
+                from row_bot.application.conversation_naming import after_turn
+                after_turn(self, conversation_id, status=status, reply=final_text, model_ref=model_ref)
         def start_failed(_exc: BaseException) -> None:
             try:
                 self.projection.publish(conversation_id, "generation.error", {"code": "generation_failed"})
@@ -957,12 +1374,16 @@ class ClientPlatformService:
         elif kind in {"tool_call", "tool_done"}:
             getter = getattr(payload, "get", lambda key, default="": default)
             from row_bot.application.conversation_traces import (
+                CARD_SPECIALIZATIONS,
+                _public_specialization as public_specialization,
                 build_trace_item,
                 canonical_group,
                 canonical_tool_name,
             )
 
             tool_name = canonical_tool_name(getter("name") or getter("tool_name"))
+            raw_tool = str(getter("raw_name") or "")
+            design_step = raw_tool if re.fullmatch(r"designer_[a-z_]{1,55}", raw_tool) else ""
             call_id = str(getter("tool_call_id") or getter("id") or "")
             if not call_id:
                 call_id = hashlib.sha256(
@@ -995,6 +1416,7 @@ class ClientPlatformService:
             )
             self.projection.publish(conversation_id, "tool.activity", {
                 "tool_name": tool_name[:128],
+                **({"runtime_tool": design_step} if design_step else {}),
                 "state": kind, "tool_call_id": call_id,
                 "message_id": str(getter("message_id") or ""),
                 "pass_id": handle.pass_id, "segment_id": handle.segment_id,
@@ -1003,7 +1425,10 @@ class ClientPlatformService:
                 "status": item.status, "safe_input": item.safe_input,
                 "safe_summary": item.safe_summary,
                 "summary_truncated": item.summary_truncated,
-                "content_ref": item.content_ref})
+                "content_ref": item.content_ref,
+                **({"specialization": public_specialization(item.specialization)}
+                   if item.specialization is not None and item.specialization.kind in CARD_SPECIALIZATIONS
+                   else {})})
             if kind == "tool_done":
                 for metadata in getter("media", []) or []:
                     self.projection.publish(conversation_id, metadata["type"], {
@@ -1050,7 +1475,8 @@ class ClientPlatformService:
                              if isinstance(item, dict) and item.get("__interrupt_id")]
             context = {"model_selection": {"provider_id": parsed[0] if parsed else "", "model_ref": handle.model_ref},
                        "interrupt_ids": interrupt_ids, "interrupt": payload,
-                       "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id), "pass_id": handle.pass_id}
+                       "checkpoint_revision": threads.get_latest_checkpoint_revision(conversation_id), "pass_id": handle.pass_id,
+                       "generation_id": handle.generation_id}
             public_approval = project_approval_context(payload)
             _, handle.approval_id = create_approval_request(
                 handle.pass_id, "", "conversation", public_approval["reason"], resume_kind="conversation",
@@ -1074,11 +1500,17 @@ class ClientPlatformService:
             context = json.loads(str(row["approval_payload_json"] or "{}"))
         except (TypeError, ValueError, json.JSONDecodeError):
             context = {}
+        if not isinstance(context, dict):
+            context = {}
+        # A delegated agent's request keeps its interrupts as a list, with the
+        # reason in words beside them (B162).
+        agent_request = row["resume_kind"] == "agent_run"
         public_context = project_approval_context(
-            context.get("interrupt") if isinstance(context, dict) else None,
-            fallback_reason=str(row["message"] or ""),
+            context.get("interrupts") if agent_request else context.get("interrupt"),
+            fallback_reason=str((context.get("reason") if agent_request else "") or row["message"] or ""),
         )
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
+                "requested_at": row["requested_at"],
                 "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
                 "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row)),
                 **public_context}
@@ -1116,11 +1548,13 @@ class ClientPlatformService:
             context = json.loads(row["approval_payload_json"])
             return str(context["model_selection"]["model_ref"])
 
-    def _resolve_approval(self, approval_id: str, payload: dict) -> dict:
+    def _resolve_approval(self, approval_id: str, payload: dict, *,
+                          runtime_surface: str = "normal_chat") -> dict:
         with _COMMAND_LOCK:
-            return self._resolve_approval_locked(approval_id, payload)
+            return self._resolve_approval_locked(approval_id, payload, runtime_surface=runtime_surface)
 
-    def _resolve_approval_locked(self, approval_id: str, payload: dict) -> dict:
+    def _resolve_approval_locked(self, approval_id: str, payload: dict, *,
+                                 runtime_surface: str = "normal_chat") -> dict:
         from row_bot.tasks import _get_conn, respond_to_approval
         with _get_conn() as conn:
             row = conn.execute("SELECT * FROM approval_requests WHERE id=?", (approval_id,)).fetchone()
@@ -1128,11 +1562,35 @@ class ClientPlatformService:
             raise ClientPlatformError("approval_already_resolved")
         if row["resume_kind"] == "conversation":
             conversation_id = str(row["source_thread_id"])
-            context = self.claim_legacy_approval(approval_id, conversation_id, payload.get("decision") == "approve")
+            approved = payload.get("decision") == "approve"
+            from row_bot.application import client_computer_controls as computer
+            stored = computer.approval_context(row["approval_payload_json"])
+            if computer.pause_item(stored.get("interrupt")) is not None and not approved:
+                # A computer-use pause has no "deny": its alternative is Stop.
+                # Replaying the paused turn could start the computer again.
+                self.stop_conversation(conversation_id)
+                return {"approval_id": approval_id, "status": "completed"}
+            # A paused computer runs again, from a fresh capture, before the
+            # turn goes on (Resume).
+            lease_generation = computer.prepare_approval_resume(
+                self, conversation_id, stored, approved=approved, runtime_surface=runtime_surface)
+            try:
+                context = self.claim_legacy_approval(approval_id, conversation_id, approved)
+            except ClientPlatformError:
+                if lease_generation and computer.pause_item(stored.get("interrupt")) is not None:
+                    computer.stop_computer_use(conversation_id, generation_id=lease_generation)
+                raise
+            from row_bot.application.conversation_followups import after_approval
+            after_approval(conversation_id, approved=approved)
+            interrupt = stored.get("interrupt")
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
-                                 approval_context={"approved": payload.get("decision") == "approve",
+                                 approval_context={"approved": approved,
                                                    "interrupt_ids": context["interrupt_ids"],
-                                                   "pass_id": context.get("pass_id")})
+                                                   "pass_id": context.get("pass_id"),
+                                                   "generation_id": lease_generation,
+                                                   "computer": any(
+                                                       isinstance(item, dict) and item.get("tool") == "computer_use"
+                                                       for item in (interrupt if isinstance(interrupt, list) else [interrupt]))})
             return {**result, "approval_id": approval_id}
         if not respond_to_approval(row["resume_token"], payload.get("decision") == "approve"):
             raise ClientPlatformError("approval_already_resolved")

@@ -25,8 +25,8 @@ def domain(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "_conversation_available", lambda _: True)
     def forbidden(*args, **kwargs):
         pytest.fail("Empty setup invoked execution, a conversation or policy change")
-    for name in ("clone_repository", "create_workspace_thread", "ensure_workspace_thread",
-                 "create_thread_worktree", "set_workspace_approval_mode", "set_workspace_execution_settings",
+    for name in ("clone_repository", "ensure_workspace_thread",
+                 "set_workspace_approval_mode", "set_workspace_execution_settings",
                  "detect_git_summary", "remember_clone_parent_folder"):
         monkeypatch.setattr(storage, name, forbidden)
     monkeypatch.setattr(storage.subprocess, "run", forbidden)

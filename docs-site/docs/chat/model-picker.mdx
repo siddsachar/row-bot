@@ -1,44 +1,50 @@
 ---
 title: "Model Picker"
-description: "Choose, pin, and troubleshoot Row-Bot models across local, hosted, subscription, and custom providers."
+description: "Choose a conversation's model from one list across local, subscription, pay-per-use and custom providers, and troubleshoot missing models."
 ---
+
+import Screenshot from '@site/src/components/Screenshot';
 
 # Model Picker
 
-The Model Picker chooses which model powers the current chat thread. It is where provider setup becomes visible in day-to-day use.
+The model picker in the composer chooses which model answers in the current conversation. It is where provider setup becomes visible in day-to-day use.
+
+<Screenshot id="chat-model-picker" alt="Row-Bot model picker open in the composer, grouped by provider with search." caption="The model picker lists every available model in one place, grouped by provider, with how each is paid for and a search box." />
 
 ## Where Models Come From
 
 Models appear after Row-Bot discovers them from a connected provider or local runtime:
 
-- Local Ollama models come from the Ollama service running on your machine.
-- API provider models come from a provider connected in Settings -> Providers.
-- Subscription models come from a supported account-backed provider after sign-in or token import.
+- Local Ollama models come from the Ollama service running on your computer.
+- Subscription models come from a ChatGPT, Claude or Grok account you signed in to.
+- Pay-per-use models come from a provider connected with an API key in Settings › Providers.
 - Custom endpoint models come from the compatible endpoint details you provide.
-- Pinned Quick Choices come from Settings -> Models and are shown first for convenience.
+- Models you pin in Settings › Models appear first.
 
-## UI Walkthrough
+The same list is used everywhere a model is chosen: the composer, and the Brain, Vision, Image and Video pickers in Settings › Models.
 
-- **Pinned models** are your quick picks for everyday use.
-- **Provider groups** keep local, API, subscription, and custom endpoint models understandable.
-- **Search** narrows long model lists.
-- **Capability labels** help distinguish chat, tool-capable, vision, reasoning, embedding, media, and voice models.
-- **Disabled or missing providers** stay out of normal selection until they are configured and healthy.
-- **Thread override** means the selected model applies to the active thread without changing your global default.
+## Using The Picker
+
+- **Search models** narrows long lists; **Recent** shows the models you used last.
+- Models are grouped by provider, each marked **Connected** or **Not connected**, and tagged with how they are paid for: **Subscription**, **Pay per use**, **Credits**, or **Local · free** (runs on this device).
+- A model that can't be used right now, for example because its provider is disconnected, shows as **Unavailable** with the reason.
+- **Chat only** marks models that can't use tools.
+- The choice applies to this conversation only; it doesn't change your default model in Settings › Models.
 
 ## Choosing Well
 
-Use a smaller or local model for quick private chats. Use a stronger tool-capable model for workflows, Developer Studio, Designer Studio, long context, or multi-step tool use. For local and self-hosted endpoints, prefer a context window large enough for Row-Bot's instructions and tool schemas.
+Use a smaller or local model for quick private chats. Use a stronger tool-capable model for workflows, designs, code folders, long context, or multi-step tool use. For local and self-hosted endpoints, prefer a context window large enough for Row-Bot's instructions and tool schemas.
 
 Reasoning choices belong to the exact provider-qualified model, not just its display name. After choosing a supported model, use the conditional Thinking control described in [Reasoning Controls](/docs/chat/reasoning-controls).
 
 ## Pinning Models
 
-Open Settings -> Models, refresh the catalog, and pin the models you use often. Pinning does not create a new model; it just puts an existing discovered model into your Quick Choices.
+Open **Settings › Models**, find a model in the **Catalog**, and pin the ones you use often. Pinning doesn't create a new model; it puts an existing one at the top of every picker.
 
 ## Troubleshooting
 
-- If a model is missing, refresh Providers, then refresh Models.
-- If a provider is connected but disabled, review the provider row message.
-- If a model appears but fails with tools, choose a model labeled or tested for Agent Mode.
+- If the picker says there are no models yet, choose how Row-Bot thinks in Setup, or connect a provider in Settings › Providers.
+- If a model is missing, refresh the provider in Settings › Providers, then refresh the catalog in Settings › Models.
+- If a model shows as unavailable, read its reason; reconnecting its provider usually fixes it.
+- If a model appears but fails with tools, choose a model that isn't marked **Chat only**.
 - If custom endpoint models look duplicated, use the provider-qualified name.

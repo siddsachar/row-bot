@@ -1,52 +1,12 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
-
 import pytest
 
+from tests.fixtures.channels import FakeChannel, SentMessage
 from tests.fixtures.tasks import fresh_tasks_module
 
 
-pytestmark = pytest.mark.subsystem
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
-def test_workflow_audit_source_contracts_are_wired() -> None:
-    tasks_source = (REPO_ROOT / "src" / "row_bot" / "tasks.py").read_text(encoding="utf-8")
-    shell_source = (REPO_ROOT / "src" / "row_bot" / "tools" / "shell_tool.py").read_text(encoding="utf-8")
-    telegram_source = (REPO_ROOT / "src" / "row_bot" / "channels" / "telegram.py").read_text(encoding="utf-8")
-    sidebar_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
-    command_center_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "command_center.py").read_text(encoding="utf-8")
-
-    functions = {
-        node.name: ast.get_source_segment(tasks_source, node)
-        for node in ast.parse(tasks_source).body if isinstance(node, ast.FunctionDef)
-    }
-    run_task_background = functions["run_task_background"]
-    resume_graph = functions["_resume_graph_interrupted"]
-    subtask_sync = functions["_run_subtask_sync"]
-    deliver_channels = functions["_deliver_to_channels"]
-
-    assert 'approval_mode == "block"' in run_task_background
-    assert 'approval_mode == "allow_all"' in run_task_background
-    assert "resume_invoke_agent" in run_task_background
-    assert "not interrupts" in run_task_background
-    assert "_stop_event.is_set()" in run_task_background
-    assert "isinstance(result, dict)" in subtask_sync
-    assert "cannot surface approval" in subtask_sync.lower()
-    assert "_clear_graph_interrupted(" in resume_graph
-    assert 'approval_mode == "block"' in resume_graph
-    assert 'approval_mode == "allow_all"' in resume_graph
-    assert "checkpoint" in resume_graph.lower()
-    assert "no target configured" in deliver_channels
-    assert "def _strip_quoted" in shell_source
-    assert "classify_command(line" in shell_source or "classify_command(line," in shell_source
-    assert "_PENDING_TTL_SECONDS" in telegram_source
-    assert "def _cleanup_stale_pending" in telegram_source
-    assert telegram_source.count("with _pending_lock:") >= 6
-    assert "Already handled" in sidebar_source or "Already handled" in command_center_source
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_shell_command_classification_regressions() -> None:
@@ -148,3 +108,32 @@ def test_get_task_channels_distinguishes_none_from_empty_list(tmp_path, monkeypa
     assert tasks.get_effective_task_channel_names(tasks.get_task(default_task)) == ["slack", "not-running"]
     assert tasks.get_task_channels(tasks.get_task(no_delivery_task)) == []
     registry._reset()
+
+
+def test_a_channel_without_a_target_is_a_failed_delivery_not_a_send(tmp_path, monkeypatch) -> None:
+    tasks = fresh_tasks_module(tmp_path, monkeypatch)
+    from row_bot.channels import registry
+
+    untargeted = FakeChannel(name="untargeted", display_name="Untargeted", default_target="")
+    targeted = FakeChannel(name="targeted", display_name="Targeted", default_target="channel-1")
+    untargeted._running = targeted._running = True
+    registry._reset()
+    try:
+        registry.register(untargeted)
+        assert tasks._deliver_to_channels({"name": "T", "channels": ["untargeted"]}, "done") == (
+            "delivery_failed",
+            "Untargeted (no target configured)",
+        )
+
+        registry.register(targeted)
+        status, detail = tasks._deliver_to_channels({"name": "T", "channels": ["untargeted", "targeted"]}, "done")
+        assert status == "delivered"
+        assert "Untargeted (no target configured)" in detail
+        assert untargeted.messages == []
+        assert targeted.messages == [SentMessage("channel-1", "📋 T\n\ndone")]
+
+        # The task's own target wins over the channel default.
+        tasks._deliver_to_channels({"name": "T", "channels": ["targeted"], "delivery_target": "chosen"}, "x")
+        assert targeted.messages[-1].target == "chosen"
+    finally:
+        registry._reset()

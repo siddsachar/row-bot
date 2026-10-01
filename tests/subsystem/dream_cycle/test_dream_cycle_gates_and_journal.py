@@ -9,6 +9,14 @@ import pytest
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.fixture(autouse=True)
+def _chosen_model(monkeypatch):
+    """Nothing is preset (decision 9): these flows run with a chosen model."""
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
+
+
 def fresh_dream_cycle(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "row-bot-data"))
     import row_bot.knowledge_graph as kg

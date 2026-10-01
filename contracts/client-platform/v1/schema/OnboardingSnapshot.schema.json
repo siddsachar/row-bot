@@ -1,5 +1,29 @@
 {
   "$defs": {
+    "OnboardingImportSource": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "hermes",
+            "openclaw"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "OnboardingImportSource",
+      "type": "object"
+    },
     "OnboardingIntent": {
       "additionalProperties": false,
       "properties": {
@@ -60,9 +84,30 @@
       "title": "Completed Steps",
       "type": "array"
     },
+    "default_model": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Default Model"
+    },
     "dismissed_home_card": {
       "title": "Dismissed Home Card",
       "type": "boolean"
+    },
+    "import_sources": {
+      "items": {
+        "$ref": "#/$defs/OnboardingImportSource"
+      },
+      "maxItems": 2,
+      "title": "Import Sources",
+      "type": "array"
     },
     "intents": {
       "items": {
@@ -71,6 +116,20 @@
       "maxItems": 7,
       "title": "Intents",
       "type": "array"
+    },
+    "live_done": {
+      "items": {
+        "maxLength": 32,
+        "type": "string"
+      },
+      "maxItems": 11,
+      "title": "Live Done",
+      "type": "array"
+    },
+    "needs_model": {
+      "default": false,
+      "title": "Needs Model",
+      "type": "boolean"
     },
     "profile": {
       "items": {

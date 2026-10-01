@@ -118,6 +118,7 @@
         "status": {
           "enum": [
             "published",
+            "unpublished",
             "submitted",
             "partial",
             "uncertain",
@@ -446,6 +447,80 @@
         "partial"
       ],
       "title": "DocumentRemovalStageCounts",
+      "type": "object"
+    },
+    "McpChatOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "effective_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective Enabled"
+        },
+        "resource_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resource Revision"
+        },
+        "saved_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved Enabled"
+        },
+        "schema_version": {
+          "const": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "saved",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "resource_revision",
+        "saved_enabled",
+        "effective_enabled",
+        "code"
+      ],
+      "title": "McpChatOutcome",
       "type": "object"
     },
     "McpConfigurationOutcome": {
@@ -1580,6 +1655,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/McpRuntimeOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "native_mcp": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpChatOutcome"
         },
         {
           "type": "null"

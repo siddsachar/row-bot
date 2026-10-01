@@ -43,6 +43,8 @@ try:
     from mcp.client.streamable_http import streamablehttp_client
 except Exception:  # pragma: no cover
     streamablehttp_client = None
+# The SDK logs each server's session id at INFO; ids stay out of Row-Bot's logs.
+logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
 
 try:
     from mcp.client.sse import sse_client
@@ -933,15 +935,6 @@ def reconcile_server_release_owned(name: str, expected_runtime_id: str) -> dict[
         confirmed = confirmed and runtime._release_confirmed
     return {"runtime_id": expected_runtime_id, "receipt_confirmed": confirmed,
             "session_quiesced": runtime.cleanup_complete and runtime._finished.is_set()}
-
-
-def refresh_server(name: str) -> None:
-    stop_server(name)
-    with _runtime_lock:
-        if name in _servers:
-            return
-        _statuses.pop(name, None)
-    discover_enabled_servers()
 
 
 def shutdown() -> None:

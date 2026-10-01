@@ -28,7 +28,7 @@ def test_draft_roundtrip_between_retained_owner_and_two_api_clients(draft_servic
     from row_bot.application.attachments import register_attachment
     conversation = threads.create_thread("Draft", seed_default_skills=False)
     attachment = register_attachment(conversation, "fixture.txt", b"Synthetic attachment")
-    threads.save_thread_draft(conversation, "Retained draft\nUnicode café", source="nicegui", attachments=[attachment])
+    threads.save_thread_draft(conversation, "Retained draft\nUnicode café", source="insight_investigate", attachments=[attachment])
     endpoint = f"/api/v1/conversations/{conversation}/draft"
     with _client(draft_service) as client:
         _, first = bootstrap(client)
@@ -54,7 +54,7 @@ def test_draft_roundtrip_between_retained_owner_and_two_api_clients(draft_servic
         assert conflict.status_code == 409, conflict.text
         assert conflict.json()["code"] == "draft_revision_conflict"
         assert threads.load_thread_draft(conversation) == retained
-        threads.save_thread_draft(conversation, "Later retained edit", source="nicegui", attachments=[])
+        threads.save_thread_draft(conversation, "Later retained edit", source="insight_investigate", attachments=[])
         reloaded = client.get(endpoint, headers=first).json()
         assert reloaded["text"] == "Later retained edit"
         assert reloaded["attachments"] == []

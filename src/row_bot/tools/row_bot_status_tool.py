@@ -416,6 +416,20 @@ def _query_model(*, compact_pinned: bool = False) -> str:
         default_model = get_current_model()
         override = _active_model_override.get("")
         model = override if override else default_model
+        if not model:
+            # Nothing is preset (B147): say so, and still list the pinned
+            # choices the person can pick from (B158).
+            return "\n".join([
+                "**Current Model**",
+                "- No model is chosen yet. Choose one with the model pill or in Settings › Models.",
+                *_pinned_choice_status_lines(
+                    "chat",
+                    "Pinned Brain Model Choices",
+                    value_label="Canonical ref",
+                    value_key="canonical_ref",
+                    limit=8 if compact_pinned else 0,
+                ),
+            ])
         try:
             context_policy = get_context_policy(model)
             ctx = context_policy.effective_limit_tokens
@@ -1263,10 +1277,11 @@ def _query_agent_profiles() -> str:
 def _query_goals() -> str:
     try:
         from row_bot.goals import (
-            DEFAULT_GOAL_MAX_TURNS,
             GOAL_TERMINAL_STATUSES,
+            default_goal_max_turns,
             get_current_goal,
             list_goals,
+            turn_words,
         )
 
         sampled_goals = list_goals(limit=200)
@@ -1278,7 +1293,7 @@ def _query_goals() -> str:
             "**Goals**",
             f"- Current goals: {len(current_goals)} active/attention from {len(sampled_goals)} sampled",
             f"- By status: {_counts_by(sampled_goals, 'status')}",
-            f"- Default turn budget: {DEFAULT_GOAL_MAX_TURNS}",
+            f"- Default turn limit: {default_goal_max_turns() or 'none'}",
         ]
         thread_id = _active_runtime_thread_id()
         if thread_id:
@@ -1288,7 +1303,7 @@ def _query_goals() -> str:
                 lines.append(
                     "- Current thread: "
                     f"{current.get('status')} - {objective} "
-                    f"({current.get('turns_used', 0)}/{current.get('max_turns', DEFAULT_GOAL_MAX_TURNS)} turns)"
+                    f"(turns {turn_words(current)})"
                 )
             else:
                 lines.append("- Current thread: no visible goal")
@@ -1315,8 +1330,7 @@ def _query_goals() -> str:
                 verifier = f", verifier failures {goal.get('verifier_failures')}"
             suffix = f" - {progress}" if progress else ""
             lines.append(
-                f"- {objective} [{status}, turns {goal.get('turns_used', 0)}/"
-                f"{goal.get('max_turns', DEFAULT_GOAL_MAX_TURNS)}{verifier}]{suffix}"
+                f"- {objective} [{status}, turns {turn_words(goal)}{verifier}]{suffix}"
             )
         if len(current_goals) > 8:
             lines.append(f"- ... and {len(current_goals) - 8} more current goals")
@@ -1380,9 +1394,16 @@ def _query_errors() -> str:
 def _query_vision() -> str:
     """Vision / camera model and settings."""
     try:
-        from row_bot.vision import _load_settings, DEFAULT_VISION_MODEL
+        from row_bot.vision import _load_settings
         settings = _load_settings()
-        model = settings.get("model", DEFAULT_VISION_MODEL)
+        # An empty Vision model means "Same as chat model" (decision 11).
+        chosen = settings.get("model") or ""
+        if chosen:
+            model = chosen
+        else:
+            from row_bot.models import get_current_model
+
+            model = get_current_model()
         enabled = settings.get("enabled", True)
         camera = settings.get("camera_index", 0)
         provider_id = ""
@@ -1446,7 +1467,7 @@ def _query_vision() -> str:
             readiness = "vision inferred"
         lines = [
             "**Vision**",
-            f"- Model: {model}",
+            f"- Model: {model or 'not chosen'}{'' if chosen else ' (same as chat model)'}",
             f"- Runtime model: {runtime_model}",
             f"- Provider: {provider_label}",
             f"- Enabled: {'yes' if enabled else 'no'}",
@@ -1487,16 +1508,14 @@ def _vision_probe_error_is_inconclusive(error: str) -> bool:
 def _query_image_gen() -> str:
     """Image generation model."""
     try:
-        from row_bot.tools.image_gen_tool import _get_configured_selection, DEFAULT_MODEL
+        from row_bot.tools.image_gen_tool import _get_configured_selection
         from row_bot.tools.registry import is_enabled
         selection = _get_configured_selection()
         lines = [
             "**Image Generation**",
             f"- Tool: {'enabled' if is_enabled('image_gen') else 'disabled'}",
-            f"- Model: {selection}",
+            f"- Model: {selection or 'not chosen (choose one in Settings → Models)'}",
         ]
-        if selection == DEFAULT_MODEL:
-            lines.append(f"- (default — change in Settings → Models)")
         lines.extend(_pinned_choice_status_lines(
             "image",
             "Pinned Image Model Choices",
@@ -1511,16 +1530,14 @@ def _query_image_gen() -> str:
 def _query_video_gen() -> str:
     """Video generation model."""
     try:
-        from row_bot.tools.video_gen_tool import _get_configured_selection, DEFAULT_MODEL
+        from row_bot.tools.video_gen_tool import _get_configured_selection
         from row_bot.tools.registry import is_enabled
         selection = _get_configured_selection()
         lines = [
             "**Video Generation**",
             f"- Tool: {'enabled' if is_enabled('video_gen') else 'disabled'}",
-            f"- Model: {selection}",
+            f"- Model: {selection or 'not chosen (choose one in Settings → Models)'}",
         ]
-        if selection == DEFAULT_MODEL:
-            lines.append("- (default — change in Settings → Models)")
         lines.extend(_pinned_choice_status_lines(
             "video",
             "Pinned Video Model Choices",
@@ -1595,27 +1612,18 @@ def _query_voice() -> str:
         except Exception:
             lines.append("- OpenAI Realtime: unavailable")
         try:
-            from row_bot.ui.state import _active_generations
+            from row_bot.runtime import executions
 
-            active = list(_active_generations.items())
+            active = executions.generation_registry.active()
             if not active:
                 lines.append("- Active Row-Bot run: none")
             else:
                 lines.append(f"- Active Row-Bot runs: {len(active)}")
-                for thread_id, gen in active[:3]:
-                    pending_tools = getattr(gen, "pending_tools", {}) or {}
-                    tool_names = [
-                        str(tool.get("name") or "")
-                        for tool in pending_tools.values()
-                        if isinstance(tool, dict)
-                    ]
-                    queued = list(getattr(gen, "voice_control_queue", []) or [])
+                for handle in active[:3]:
                     lines.append(
-                        f"  - {thread_id}: {getattr(gen, 'status', 'streaming')}; "
-                        f"tools={', '.join(tool_names) if tool_names else 'none'}; "
-                        f"approval={'yes' if getattr(gen, 'interrupt_data', None) else 'no'}; "
-                        f"cancel={'yes' if getattr(gen, 'stop_event', None) else 'no'}; "
-                        f"follow-up/steer={'yes'}; queued_controls={len(queued)}"
+                        f"  - {handle.conversation_id}: {handle.status}; "
+                        f"approval={'yes' if handle.approval_id else 'no'}; "
+                        f"cancel={'requested' if handle.cancel_scope.is_cancelled() else 'available'}"
                     )
         except Exception:
             lines.append("- Active Row-Bot run: unavailable")
@@ -2161,13 +2169,27 @@ def _update_setting(setting: str, value: str) -> str:
         if current_state == on:
             return f"Tool '{resolved_label}' is already {'enabled' if on else 'disabled'}."
         canonical_value = f"{resolved_name}:{'on' if on else 'off'}"
-        approval = interrupt({
+        request = {
             "tool": "row_bot_update_setting",
             "label": f"{'Enable' if on else 'Disable'} tool '{resolved_label}'",
             "description": f"Set tool '{resolved_label}' to {'enabled' if on else 'disabled'}",
             "args": {"setting": "tool_toggle", "value": canonical_value},
-        })
+        }
+        if on:
+            # Shown as a "Turn on …" card in the conversation (decision 12).
+            request.update({
+                "label": f"Turn on {resolved_label}",
+                "description": (
+                    f"Row-Bot needs {resolved_label} for this. You can turn it off again in "
+                    "Settings › Tools."
+                ),
+                "setup": {"kind": "tool", "label": resolved_label},
+            })
+        approval = interrupt(request)
         if not approval:
+            if on:
+                from row_bot.tools.conversation_setup_tool import declined
+                return declined(resolved_label) + " Answer without it."
             return "Tool toggle cancelled."
         try:
             if resolved_name == "mcp":

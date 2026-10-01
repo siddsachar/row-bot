@@ -64,6 +64,7 @@ def test_real_read_save_replay_and_receipt_never_expose_recovery(editable):
     assert len(ledger.list_change_sets(workspace_id=created["resource_id"])) == 1
 
 
+@pytest.mark.slow
 def test_lost_ledger_completion_reconciles_original_file_once(editable, monkeypatch):
     service, client, headers, created, root, ledger = editable
     body = command(service, headers, created, read(client, headers, created).json())

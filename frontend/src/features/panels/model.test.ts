@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   closePanel,
+  closeResourcePanels,
   createPanelLayout,
   focusPanel,
   movePanel,
@@ -16,6 +17,7 @@ import {
   samplePanels,
   suggestPanel,
   toggleRegion,
+  widenSide,
 } from './model';
 
 describe('typed presentation-only panel registry', () => {
@@ -34,6 +36,19 @@ describe('typed presentation-only panel registry', () => {
     state = closePanel(state, first!);
     expect(state.panels).toHaveLength(0);
     expect(state.activePanelId).toBeNull();
+  });
+  it('closes every view of a removed resource and nothing else', () => {
+    const removed = {
+      ...samplePanels[0],
+      resource_ref: 'conversation-a:binding-a',
+    };
+    let state = openPanel(createPanelLayout(), removed);
+    state = openPanel(state, removed, 'bottom', true);
+    state = openPanel(state, samplePanels[1]);
+    const kept = state.activePanelId;
+    state = closeResourcePanels(state, 'conversation-a:binding-a');
+    expect(state.panels.map((panel) => panel.instance_id)).toEqual([kept]);
+    expect(closeResourcePanels(state, 'conversation-a:binding-a')).toBe(state);
   });
   it('suggestions never open a panel or steal user focus', () => {
     const state = openPanel(createPanelLayout(), samplePanels[0]);
@@ -141,6 +156,18 @@ describe('typed presentation-only panel registry', () => {
       Number.isSafeInteger(openPanel(safe, samplePanels[0]).nextInstance),
     ).toBe(true);
   });
+  it('drops a terminal saved as a side panel: the terminal has its own dock (B249)', () => {
+    let state = openPanel(createPanelLayout(), {
+      panel_kind: 'native.terminal',
+      title: 'Interactive terminal',
+    });
+    state = openPanel(state, samplePanels[0]);
+    const restored = restoreLayout(persistLayout(state), 1440, 900);
+    expect(restored.panels.map((panel) => panel.descriptor.title)).toEqual([
+      'Workspace notes',
+    ]);
+    expect(restored.activePanelId).toBe(restored.panels[0].instance_id);
+  });
   it('preserves Back to conversation across compact refresh while retaining panels', () => {
     const opened = openPanel(createPanelLayout(390, 844), samplePanels[1]);
     const conversation = focusPanel(opened, null);
@@ -155,4 +182,14 @@ describe('typed presentation-only panel registry', () => {
       opened.activePanelId,
     );
   });
+});
+
+it('opens a new design with the side region at its widest, desktop only', () => {
+  const layout = openPanel(createPanelLayout(1440, 900), samplePanels[0]);
+  const wide = widenSide(layout);
+  expect(wide.side.size).toBe(regionBounds(wide, 'side').max);
+  expect(wide.side.size).toBeGreaterThan(layout.side.size);
+  expect(widenSide(wide)).toBe(wide);
+  const phone = createPanelLayout(390, 844);
+  expect(widenSide(phone)).toBe(phone);
 });

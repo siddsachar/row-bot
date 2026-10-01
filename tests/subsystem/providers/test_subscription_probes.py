@@ -14,8 +14,8 @@ pytestmark = pytest.mark.subsystem
 def transport(request, store, monkeypatch):
     from row_bot.providers.transports.claude_subscription_messages import ChatClaudeSubscriptionMessages
     from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
-    from tests.test_claude_subscription_transport import _FakeAnthropicClient, _ClientFactory, _SDKError
-    from tests.test_xai_oauth_transport import _HttpClient, _SSETextResponse
+    from tests.subsystem.providers.test_claude_subscription_transport import _FakeAnthropicClient, _ClientFactory, _SDKError
+    from tests.subsystem.providers.test_xai_oauth_transport import _HttpClient, _SSETextResponse
     provider = request.param
     monkeypatch.setattr(claude_subscription, "claude_subscription_cli_version", lambda: "synthetic-version")
     if provider == "claude_subscription":
@@ -294,7 +294,7 @@ def test_actual_strict_model_and_sdk_use_bounded_fake_http_only(probes, monkeypa
     import json
     import httpx
     from row_bot.application import subscription_probes as controls
-    from tests.test_xai_oauth_transport import _text_sse, _sse_event
+    from tests.subsystem.providers.test_xai_oauth_transport import _text_sse, _sse_event
     if provider == "claude_subscription":
         claude_subscription.save_claude_subscription_oauth_tokens(claude_subscription.ClaudeSubscriptionTokenSet(access_token="synthetic-bearer"))
         monkeypatch.setattr(claude_subscription, "claude_cli_info", lambda: pytest.fail("No CLI process"))

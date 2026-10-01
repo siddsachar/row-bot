@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable
@@ -22,8 +22,6 @@ _DATA_DIR = get_row_bot_data_dir()
 _PROBE_CACHE_TTL_SECONDS = 30.0
 _OLLAMA_ROUTINE_PROBE_TIMEOUT_SECONDS = 0.2
 _OLLAMA_LIVE_PROBE_TIMEOUT_SECONDS = 1.0
-_HEAVY_CHECK_TIMEOUT_SECONDS = 3.0
-_HEAVY_CHECK_WORKERS = 4
 _probe_cache: dict[str, tuple[float, CheckResult]] = {}
 
 
@@ -190,13 +188,6 @@ def check_ollama(*, live_probe: bool = True) -> CheckResult:
         )
 
 
-def _routine_check_ollama() -> CheckResult:
-    return check_ollama(live_probe=False)
-
-
-_routine_check_ollama.__name__ = "check_ollama"
-
-
 def check_active_model() -> CheckResult:
     """Check if the configured model is available."""
     try:
@@ -244,8 +235,16 @@ def check_channels() -> list[CheckResult]:
                     results.append(CheckResult(ch.display_name, "inactive",
                                                "Not configured", settings_tab="Channels"))
                 elif ch.is_running():
-                    results.append(CheckResult(ch.display_name, "ok",
-                                               "Running", settings_tab="Channels"))
+                    problem = getattr(ch, "reachability_problem", None)
+                    problem = problem() if callable(problem) else None
+                    if problem:
+                        # Running, but not reachable: never "OK" (B106).
+                        results.append(CheckResult(ch.display_name, "warn",
+                                                   f"Running. {problem}",
+                                                   settings_tab="Channels"))
+                    else:
+                        results.append(CheckResult(ch.display_name, "ok",
+                                                   "Running", settings_tab="Channels"))
                 else:
                     results.append(CheckResult(ch.display_name, "warn",
                                                "Stopped", settings_tab="Channels"))
@@ -261,21 +260,14 @@ def check_tunnel() -> CheckResult:
     """Health check for the tunnel subsystem."""
     try:
         from row_bot.tunnel import tunnel_manager
+        # The manager reports what this process is doing, including a start
+        # that failed, never "Ready" while a wanted tunnel is down (B106).
         status_code, detail = tunnel_manager.status()
-        if not tunnel_manager.is_available():
-            return CheckResult("Tunnel", status_code, detail,
-                               settings_tab="System")
-        active = tunnel_manager.active_tunnels()
-        if active:
-            urls = ", ".join(f"{p}\u2192{u}" for p, u in active.items())
-            return CheckResult("Tunnel", "ok",
-                               f"{len(active)} active: {urls}",
-                               settings_tab="System")
-        return CheckResult("Tunnel", "inactive", "Ready (no active tunnels)",
-                           settings_tab="System")
+        return CheckResult("Tunnel", status_code, detail, settings_tab="Access")
     except Exception as exc:
-        return CheckResult("Tunnel", "error", str(exc),
-                           settings_tab="System")
+        from row_bot.tunnel import describe_tunnel_error
+        return CheckResult("Tunnel", "error", describe_tunnel_error(exc),
+                           settings_tab="Access")
 
 
 def check_gmail_oauth() -> CheckResult:
@@ -665,11 +657,11 @@ def check_search_tools() -> CheckResult:
         enabled = [tool for tool in available if _tool_reg.is_enabled(tool.name)]
         total = len(available)
         if not total:
-            return CheckResult("Search", "inactive", "No search tools", settings_tab="Search")
+            return CheckResult("Search", "inactive", "No search tools", settings_tab="Tools")
         status = "ok" if enabled else "warn"
-        return CheckResult("Search", status, f"{len(enabled)} / {total} enabled", settings_tab="Search")
+        return CheckResult("Search", status, f"{len(enabled)} / {total} enabled", settings_tab="Tools")
     except Exception as exc:
-        return CheckResult("Search", "error", str(exc), settings_tab="Search")
+        return CheckResult("Search", "error", str(exc), settings_tab="Tools")
 
 
 def check_tools() -> CheckResult:
@@ -679,10 +671,10 @@ def check_tools() -> CheckResult:
         n_enabled = len(_tool_reg.get_enabled_tools())
         n_total = len(_tool_reg.get_all_tools())
         if n_enabled:
-            return CheckResult("Tools", "ok", f"{n_enabled} / {n_total} enabled", settings_tab="Utilities")
-        return CheckResult("Tools", "error", f"0 / {n_total} enabled", settings_tab="Utilities")
+            return CheckResult("Tools", "ok", f"{n_enabled} / {n_total} enabled", settings_tab="Tools")
+        return CheckResult("Tools", "error", f"0 / {n_total} enabled", settings_tab="Tools")
     except Exception as exc:
-        return CheckResult("Tools", "error", str(exc), settings_tab="Utilities")
+        return CheckResult("Tools", "error", str(exc), settings_tab="Tools")
 
 
 def check_skills() -> CheckResult:
@@ -828,41 +820,6 @@ ALL_CHECKS = [
     check_tools,
 ]
 
-# Lightweight checks (just reading Python booleans — near zero cost)
-LIGHT_CHECKS = [
-    check_active_model,
-    check_channels,
-    check_tunnel,
-    check_task_scheduler,
-    check_tts,
-    check_tools,
-    check_search_tools,
-    check_buddy,
-    check_mcp,
-    check_plugins,
-]
-
-# Heavier checks (I/O, network, OAuth token probing)
-HEAVY_CHECKS = [
-    check_ollama,
-    check_cloud_api,
-    check_gmail_oauth,
-    check_calendar_oauth,
-    check_x_oauth,
-    check_github_oauth,
-    check_memory_extraction,
-    check_dream_cycle,
-    check_wiki_vault,
-    check_logging,
-    check_disk_space,
-    check_threads_db,
-    check_faiss_index,
-    check_document_store,
-    check_skills,
-    check_tracker,
-    check_network,
-]
-
 
 _RESULT_ORDER = {
     "Ollama": 0,
@@ -899,73 +856,35 @@ def status_result_order_key(result: CheckResult) -> tuple[float, str]:
     return (_RESULT_ORDER.get(result.name, 3.0), result.name)
 
 
-def order_status_results(results: list[CheckResult]) -> list[CheckResult]:
-    return sorted(results, key=status_result_order_key)
+# Checks that contact a provider, an account or the internet (B252). They run
+# hourly only while Monitor's "Check connections every hour" is on, and when
+# the person runs diagnosis. Every other check reads local state only and runs
+# by itself every 15 minutes.
+NETWORK_CHECKS = (
+    check_ollama,
+    check_gmail_oauth,
+    check_calendar_oauth,
+    check_x_oauth,
+    check_github_oauth,
+    check_network,
+)
+LOCAL_CHECKS = tuple(fn for fn in ALL_CHECKS if fn not in NETWORK_CHECKS)
+# Local checks slow enough (the vault is read file by file) to wait for a
+# quiet moment when they run in the background.
+SLOW_CHECKS = (check_wiki_vault,)
 
 
-def _run_checks(checks: list[Callable[[], CheckResult | list[CheckResult]]], *, kind: str) -> list[CheckResult]:
-    results: list[CheckResult] = []
-    for fn in checks:
-        results.extend(_run_timed_check(fn, kind=kind))
-    return results
+def _check_id(fn: Callable[[], CheckResult | list[CheckResult]], result: CheckResult) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", result.name.lower()).strip("-")[:48] or "check"
+    return f"channel:{slug}" if fn is check_channels else slug
 
 
-def _run_checks_concurrently(
-    checks: list[Callable[[], CheckResult | list[CheckResult]]],
-    *,
-    kind: str,
-    max_workers: int = _HEAVY_CHECK_WORKERS,
-    timeout_seconds: float = _HEAVY_CHECK_TIMEOUT_SECONDS,
-) -> list[CheckResult]:
-    results_by_index: dict[int, list[CheckResult]] = {}
-    executor = ThreadPoolExecutor(max_workers=max(1, int(max_workers)))
-    futures = {
-        index: executor.submit(_run_timed_check, fn, kind=kind)
-        for index, fn in enumerate(checks)
-    }
-    try:
-        for index, future in futures.items():
-            fn = checks[index]
-            try:
-                results_by_index[index] = future.result(timeout=timeout_seconds)
-            except TimeoutError:
-                log_ui_perf(
-                    f"home.status_check.{fn.__name__}.timeout",
-                    timeout_seconds * 1000.0,
-                    threshold_ms=350.0,
-                    check=fn.__name__,
-                    kind=kind,
-                    timeout=True,
-                    results=1,
-                )
-                results_by_index[index] = [
-                    CheckResult(fn.__name__, "warn", f"Timed out after {timeout_seconds:.0f}s")
-                ]
-            except Exception as exc:
-                results_by_index[index] = [CheckResult(fn.__name__, "error", str(exc))]
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-
-    results: list[CheckResult] = []
-    for index in range(len(checks)):
-        results.extend(results_by_index.get(index, []))
-    return results
-
-
-def run_all_checks() -> list[CheckResult]:
-    """Run every registered check and return results."""
-    return _run_checks(ALL_CHECKS, kind="full")
-
-
-def run_light_checks() -> list[CheckResult]:
-    """Run only lightweight (instant) checks."""
-    return _run_checks(LIGHT_CHECKS, kind="light")
-
-
-def run_heavy_checks(*, live_ollama_probe: bool = True) -> list[CheckResult]:
-    """Run heavier status checks with bounded concurrency."""
-    checks = [
-        _routine_check_ollama if fn is check_ollama and not live_ollama_probe else fn
-        for fn in HEAVY_CHECKS
+def run_checks(
+    checks: tuple[Callable[[], CheckResult | list[CheckResult]], ...],
+) -> list[tuple[str, CheckResult]]:
+    """Run *checks* in order; each result with the id it is kept under."""
+    return [
+        (_check_id(fn, result), result)
+        for fn in checks
+        for result in _run_timed_check(fn, kind="full")
     ]
-    return _run_checks_concurrently(checks, kind="heavy")

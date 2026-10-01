@@ -6,27 +6,33 @@ guides:
     - README.md
     - installer/README.md
   first-launch:
-    title: Complete First Launch Setup
+    title: Choose How Row-Bot Thinks And Finish Setup
     route: /docs/getting-started/first-launch
     sources:
-    - src/row_bot/ui/setup_wizard.py
+    - frontend/src/features/shell/Onboarding.tsx
+    - frontend/src/features/shell/FirstRun.tsx
   create-workflow:
     title: Create A Workflow
     route: /docs/guides/workflows
     sources:
-    - src/row_bot/ui/home.py
+    - frontend/src/features/tasks/TaskLibrary.tsx
+    - frontend/src/features/tasks/TaskEditor.tsx
     - src/row_bot/tasks.py
     - bundled_skills/task_automation/SKILL.md
   use-designer:
-    title: Use Designer Studio
+    title: Make A Design In A Conversation
     route: /docs/designer/
     sources:
+    - frontend/src/features/panels/ArtifactPreview.tsx
+    - frontend/src/features/shell/ResourceSetup.tsx
     - src/row_bot/designer/
     - bundled_skills/design_creator/SKILL.md
   use-developer:
-    title: Use Developer Studio
+    title: Work On A Code Folder From A Conversation
     route: /docs/developer/
     sources:
+    - frontend/src/features/panels/WorkspaceInspector.tsx
+    - frontend/src/features/shell/FolderSetupCard.tsx
     - src/row_bot/developer/
     - bundled_skills/developer_coding/SKILL.md
     - bundled_skills/developer_review/SKILL.md
@@ -35,14 +41,16 @@ guides:
     route: /docs/configuration/models-and-providers
     sources:
     - src/row_bot/providers/
-    - src/row_bot/ui/settings.py
-    - src/row_bot/ui/model_catalog.py
+    - frontend/src/features/settings/ModelsPanel.tsx
+    - frontend/src/features/settings/ModelCatalog.tsx
   use-chat:
     title: Use Chat And Approvals
     route: /docs/chat/
     sources:
-    - src/row_bot/ui/chat.py
-    - src/row_bot/ui/tool_trace.py
+    - frontend/src/features/shell/Conversation.tsx
+    - frontend/src/features/shell/InPlaceApproval.tsx
+    - frontend/src/features/shell/ConversationLibrary.tsx
+    - frontend/src/features/shell/TranscriptTrace.tsx
     - src/row_bot/tools/approval_gate.py
   control-model-reasoning:
     title: Control Model Reasoning
@@ -50,8 +58,8 @@ guides:
     sources:
     - src/row_bot/providers/reasoning.py
     - src/row_bot/providers/transports/reasoning_fallback.py
-    - src/row_bot/ui/chat_components.py
-    - src/row_bot/ui/mobile_chat.py
+    - frontend/src/features/shell/ComposerControls.tsx
+    - frontend/src/features/shell/ModelPicker.tsx
     - src/row_bot/channels/commands.py
   use-skills-plugins-mcp:
     title: Use Skills Plugins And MCP
@@ -72,7 +80,7 @@ guides:
     sources:
     - src/row_bot/launcher.py
     - src/row_bot/buddy/
-    - src/row_bot/ui/buddy.py
+    - frontend/src/features/buddy/BuddySurface.tsx
   review-privacy-safety:
     title: Review Privacy And Safety
     route: /docs/privacy-safety/
@@ -84,7 +92,8 @@ guides:
     title: Troubleshoot Row-Bot
     route: /docs/troubleshooting/
     sources:
-    - src/row_bot/ui/status_checks.py
+    - frontend/src/features/home/MonitorHome.tsx
+    - frontend/src/features/home/FixAction.tsx
     - src/row_bot/startup_diagnostics.py
     - scripts/smoke_app.py
   review-knowledge:
@@ -92,17 +101,19 @@ guides:
     route: /docs/knowledge/
     sources:
     - src/row_bot/knowledge_graph.py
-    - src/row_bot/ui/graph_panel.py
+    - frontend/src/features/home/KnowledgeHome.tsx
   review-monitor:
     title: Use Monitor
     route: /docs/monitor/
     sources:
-    - src/row_bot/ui/home.py
+    - frontend/src/features/home/MonitorHome.tsx
     - src/row_bot/startup_diagnostics.py
   use-profiles-goals-agents:
     title: Use Profiles Goals And Agents
     route: /docs/profiles-goals-agents/
     sources:
+    - frontend/src/features/settings/GoalProfileSettings.tsx
+    - frontend/src/features/shell/ContextGoal.tsx
     - src/row_bot/agent_profiles.py
     - src/row_bot/goals.py
     - src/row_bot/agent_runs.py
@@ -119,20 +130,21 @@ guides:
     - src/row_bot/knowledge_graph.py
     - src/row_bot/memory.py
   pair-android:
-    title: Pair And Use Android
+    title: Connect And Use A Phone
     route: /docs/mobile-native/
     sources:
     - src/row_bot/access/
-    - src/row_bot/mobile/auth.py
-    - src/row_bot/ui/mobile.py
-    - src/row_bot/ui/remote_access_settings.py
+    - src/row_bot/mobile/store.py
+    - frontend/src/features/shell/layout.ts
+    - frontend/src/features/settings/AccessConnect.tsx
   configure-remote-access:
     title: Configure Remote Access And Server Mode
     route: /docs/operations/remote-access
     sources:
     - README.md
     - src/row_bot/access/
-    - src/row_bot/ui/remote_access_settings.py
+    - frontend/src/features/settings/AccessConnect.tsx
+    - frontend/src/features/settings/AccessNetwork.tsx
     - deploy/docker/README.md
   operate-docker-vps:
     title: Operate Row-Bot With Docker Or A VPS
@@ -156,11 +168,23 @@ guides:
     title: Connect External Accounts
     route: /docs/integrations/accounts
     sources:
-    - src/row_bot/ui/settings.py
+    - frontend/src/features/settings/AccountAuthControls.tsx
     - src/row_bot/github_account.py
+  use-home-overview:
+    title: Start From Home Overview
+    route: /docs/home/overview
+    sources:
+    - frontend/src/features/home/OverviewHome.tsx
+    - frontend/src/features/shell/InPlaceApproval.tsx
+  review-insights:
+    title: Review Insights
+    route: /docs/home/insights
+    sources:
+    - frontend/src/features/home/InsightsHome.tsx
   backup-and-recover:
     title: Back Up And Recover Row-Bot
     route: /docs/operations/
     sources:
+    - frontend/src/features/settings/DataBackup.tsx
     - src/row_bot/data_paths.py
     - src/row_bot/updater.py

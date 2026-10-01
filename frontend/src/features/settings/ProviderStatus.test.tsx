@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { ProviderLiveCard, ProviderLiveSnapshot } from '../../api/types';
 import ProviderStatus from './ProviderStatus';
@@ -40,7 +46,8 @@ it('shows the live NiceGUI connection facts without saved-catalog internals', as
   expect(screen.getByLabelText('Provider summary')).toHaveTextContent(
     '1 connected',
   );
-  expect(screen.getByLabelText('API Providers')).toBeVisible();
+  expect(screen.getByLabelText('API providers')).toBeVisible();
+  expect(screen.getByText('API key')).toBeVisible();
   expect(screen.queryByText(/connection readiness not checked/i)).toBeNull();
   expect(
     screen.queryByRole('button', { name: /Reload saved status/ }),
@@ -139,10 +146,12 @@ it('runs a real subscription runtime test from the row and shows its outcome', a
       testRuntime={testRuntime}
     />,
   );
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Claude Subscription',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
   fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Test Claude Subscription runtime',
-    }),
+    screen.getByRole('menuitem', { name: 'Test Claude Subscription runtime' }),
   );
   await waitFor(() =>
     expect(testRuntime).toHaveBeenCalledWith('claude_subscription'),

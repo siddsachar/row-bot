@@ -6,6 +6,7 @@
         "pin",
         "unpin",
         "dismiss",
+        "restore",
         "generate",
         "review_skills",
         "apply",

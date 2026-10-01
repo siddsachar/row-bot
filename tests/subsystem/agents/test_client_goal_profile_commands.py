@@ -135,6 +135,8 @@ def test_profile_reads_are_global_bounded_and_never_return_instruction_bodies():
         )
     )
     detail = commands.read_profile(saved["id"], validate=_valid)
+    assert detail["profile"]["group"] == ""
+    assert detail["profile"]["icon"] == ""
     assert detail["profile"]["surface_scope"] == "global"
     assert detail["profile"]["instruction_edit"] == {
         "mode": "replace_only",
@@ -146,6 +148,14 @@ def test_profile_reads_are_global_bounded_and_never_return_instruction_bodies():
     assert "sk-private123456" not in public
     assert detail["profile"]["instructions_preview"] == ""
     assert detail["profile"]["instructions_truncated"] is True
+
+
+def test_builtin_profile_projection_exposes_only_bounded_ui_metadata():
+    page = commands.read_profiles(validate=_valid)
+    everyday = next(item for item in page["items"] if item["source"] == "builtin")
+    assert everyday["group"] in {"Everyday", "Work", "Creative", "Developer", "Advanced/Internal"}
+    assert everyday["icon"]
+    assert everyday["instructions_preview"] == ""
 
 
 def test_goal_review_is_closed_and_detects_revision_conflict():
@@ -196,6 +206,57 @@ def test_goal_commands_start_pause_resume_complete_and_replay_once(monkeypatch):
     assert resumed["goal"]["status"] == "active"
     completed = _execute_goal(_goal_request("conversation-a", "complete"), command_id=4)
     assert completed["goal"]["status"] == "completed"
+
+
+def test_goal_start_offers_no_limit_by_default_or_the_chosen_default(tmp_path, monkeypatch):
+    """B243: no turn limit unless the person or Agent runtime sets one."""
+    from row_bot import agent_settings
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    page = commands.read_goals("conversation-a", validate=_valid)
+    assert page["default_max_turns"] == 0
+    unlimited = _execute_goal(_goal_request("conversation-a", "start", max_turns=None))
+    assert unlimited["goal"]["max_turns"] == 0
+
+    agent_settings.save_agent_runtime_settings(
+        {**agent_settings.load_agent_runtime_settings().to_dict(), "goal_max_turns": 30}
+    )
+    assert commands.read_goals("conversation-b", validate=_valid)["default_max_turns"] == 30
+    limited = _execute_goal(_goal_request("conversation-b", "start", max_turns=7), command_id=2)
+    assert limited["goal"]["max_turns"] == 7
+    # A goal started elsewhere without a count takes the chosen default.
+    assert goals.start_goal("conversation-c", "From a channel")["max_turns"] == 30
+
+
+def test_goal_start_takes_an_optional_time_limit_and_reports_its_usage():
+    """B244: turns, time running and tokens, with optional turn and time limits."""
+    started = _execute_goal(_goal_request("conversation-a", "start", max_minutes=480))
+    summary = started["goal"]
+    assert (summary["max_minutes"], summary["turns_used"], summary["tokens_used"]) == (480, 0, 0)
+    assert summary["started_at"] and summary["window_started_at"] == summary["started_at"]
+    untimed = _execute_goal(_goal_request("conversation-b", "start"), command_id=2)
+    assert untimed["goal"]["max_minutes"] == 0
+    with pytest.raises(commands.GoalProfileCommandError, match="invalid_fields"):
+        commands.review_goal_command(
+            _goal_request("conversation-c", "start", max_minutes=0), validate=_valid)
+
+
+def test_resume_at_a_limit_gives_the_goal_another_window(monkeypatch):
+    clock = {"now": "2026-09-30T08:00:00"}
+    monkeypatch.setattr(goals, "_now", lambda: clock["now"])
+    goal = goals.start_goal("conversation-a", "Keep researching", max_turns=2, max_minutes=60)
+    for turn in range(2):
+        goals.after_turn(thread_id="conversation-a", turn_id=f"turn-{turn}",
+                         verifier=lambda _goal, _context: {"progress": "progress", "reason": "More."})
+    assert goals.get_goal(goal["id"])["status"] == "paused"
+    later = clock["now"] = "2026-09-30T10:00:00"
+
+    resumed = _execute_goal(_goal_request("conversation-a", "resume"), command_id=9)
+
+    assert resumed["goal"]["status"] == "active"
+    assert resumed["goal"]["max_turns"] == 4
+    assert resumed["goal"]["window_started_at"] == later
+    assert not goals.time_limit_reached(goals.get_goal(goal["id"]))
 
 
 def test_goal_revision_cas_rejects_a_change_after_review(monkeypatch):

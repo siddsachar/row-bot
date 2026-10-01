@@ -1,80 +1,78 @@
 ---
 title: "Row-Bot Interface"
-description: "Navigate Row-Bot's sidebar, threads, Home tabs, Activity Center, Buddy, Settings, and terminal."
+description: "Find your way around Row-Bot: the sidebar, Home, a conversation and its details card, panels, the terminal, the command palette and Settings."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Row-Bot Interface
 
-The Row-Bot Interface is the main workspace you see after launch. It combines conversations, Home tabs, status panels, approvals, workflows, Buddy, Settings, and terminal output in one local app window.
+Row-Bot has one window with three parts: the **sidebar** on the left, the main area in the middle (Home, a conversation, the conversation library, or Settings), and, in a conversation, the **panels** for its designs and code folders on the right, with the **terminal** docked underneath when you open it.
 
-<Screenshot id="app-shell-overview" alt="Row-Bot main interface." caption="The main interface shows the left sidebar, Home tabs, central work area, Activity Center, Buddy, Settings, and terminal." />
+<Screenshot id="app-shell-overview" alt="Row-Bot main window on Home › Overview with the sidebar." caption="The sidebar holds Home and search at the top, New chat, your conversations and your agents; Home opens on Overview." />
 
-## Left Sidebar
+## The Sidebar
 
-- **Home** returns to the Home tabs: Workflows, Designer, Developer, Knowledge, and Monitor.
-- **New** starts a fresh conversation thread.
-- **Conversations** shows recent threads. The sidebar keeps the list short so the workspace stays usable; use **Show all** when you need older threads.
-- **Thread menu** on a conversation row opens actions such as rename and delete.
-- **Rename** changes the visible thread title without changing the messages.
-- **Delete** stops work owned by the conversation and removes its Row-Bot-managed messages, sessions, media, drafts, tool history, workflow state, and related Agent state after confirmation. Developer worktrees or sandboxes with unimported changes are retained and reported instead of being discarded.
-- **Agent profiles** opens the profile selector and profile management area.
-- **Buddy** appears near the bottom when enabled. In the native Windows and macOS apps, drag Buddy itself away from the sidebar to undock its compact thread overlay.
-- **Settings** opens the full configuration dialog.
+- The top row holds **Home** (the house icon, also the Row-Bot logo), which opens the Home tabs: Overview, Workflows, Knowledge, Monitor and Insights (see [Home](/docs/home/)); **Search**, which opens the command palette; and the button that collapses the sidebar.
+- **New chat** starts a conversation. Its **▾** starts a chat with one of your favourite agents, or **All agents…** opens the Agents dialog.
+- **Conversations** lists your conversations, pinned ones first. The icons beside the heading filter by type: All, Chats, Designs, Code and Workflows. A conversation's row shows when it is replying, waiting for approval, or has agents working.
+- A row's pin button keeps it at the top; its **⋯** menu renames it, exports it as Markdown or PDF, or deletes it.
+- **Show all** lists every conversation in the sidebar; **Conversation library** opens the full library to search, filter, export and clean up. See [Chat](/docs/chat/#find-export-and-clean-up).
+- **Agents**, below the conversations, shows your favourite agent profiles as icons (one click starts a chat with that agent) and **All agents**, which opens the Agents dialog with the whole profile library. See [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
+- The **attention indicator** at the bottom appears only when something needs you: waiting approvals (with **Approve** and **Deny** in place), problems (opens Monitor), or an available update (opens Updates).
+- **Buddy** sits above **Settings**. In the native Windows and macOS apps, drag Buddy itself out of the sidebar to undock its desktop overlay. See [Settings: Buddy](/docs/settings/buddy).
+- **Settings** opens the settings pages. See [Settings](/docs/settings/).
 
-## Show All Threads
+Collapse the sidebar to a narrow rail with its toggle; the rail keeps New chat, Home, Agents, the attention indicator, Settings and Buddy as icons.
 
-When you have more threads than the sidebar shows, use **Show all** from the conversations area. The dialog groups user-managed conversations into **All**, **Chat**, **Design**, **Code**, and **Workflow** filters. Agent child threads remain owned by their parent run and do not appear as independent cleanup targets.
+## A Conversation
 
-Use **Select** to enter selection mode. Check individual rows, or use **Select all** to select only the conversations in the current filter; switch filters to add other conversations without losing the existing selection. **Clear all** affects the current filter, while the action bar's **Clear** resets the whole selection. The destructive action reports the exact selected count and always asks for confirmation.
+The conversation's header shows its name (click it to rename), **Find** to search the conversation, **Share or export**, and **Conversation details**. The **details card** beside the conversation lists what the conversation is **Working on** (its designs and code folders), its **Outputs**, its **Goal**, and the **Agents** it started. A delegated agent's own conversation shows the way back to its parent in the header. See [Chat](/docs/chat/).
 
-**Delete all** also respects the current filter. Deletion stops active generation, Agent, workflow, shell, browser, and Computer Use work for each target before removing Row-Bot-managed state. The progress dialog keeps the cleanup off the interface event loop. If a Developer worktree contains changes or a sandbox has unimported work, Row-Bot keeps it and reports that recovery path instead of silently deleting it. This cleanup cannot be undone, so export anything you still need first.
+## Panels And The Terminal
 
-Start a new thread when the task has a new goal; continue an existing thread when the earlier context still matters.
+A design opens in a **Design panel** and a code folder in a **Developer panel**, beside the conversation. Open them from the details card or the header's **Open panel** menu; drag the divider to resize. See [Designs](/docs/designer/) and [Code Folders](/docs/developer/).
 
-## Buddy Desktop Overlay
+In the desktop app, the **terminal** opens docked under the conversation with the terminal button, **Open panel › Interactive terminal**, or Ctrl+`. See [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal#interactive-terminal).
 
-The undocked Buddy follows the thread selected in Row-Bot and shows its name, Chat/Developer/Designer context, current response, and approval state. You can send text, stop the active response, handle simple approvals, or open the full thread for complete details. The overlay menu also collapses, hides, or docks Buddy. Read [Settings: Buddy](/docs/settings/buddy) for the complete user workflow.
+## The Command Palette
 
-## Home Tabs
+Press ⌘K (Ctrl+K on Windows and Linux), or the search button in the sidebar's top row, to open the command palette. Type what you want in your own words:
 
-The central Home area has five tabs:
+<Screenshot id="command-palette" alt="Row-Bot command palette answering a typed request with its matching action first." caption="The command palette understands requests such as connect a phone, finds conversations and messages, and flips settings in place." />
 
-- **Workflows** for saved automations and background agents.
-- **Designer** for starting design projects.
-- **Developer** for opening code workspaces and Custom Tools.
-- **Knowledge** for memory, document, and graph review.
-- **Monitor** for logs, journals, channel state, and background activity.
+- **Requests** such as "connect a model", "phone", "connect telegram", "add mcp server", "install a skill", "change model", "connect gmail" or "back up" go straight to the exact place it is done. Words can come in any order.
+- **Conversations and messages** are found by title and by words in their messages.
+- **Commands** open Home tabs, the conversation library, Setup Center, Settings or the Agents dialog, and toggle the sidebar, the details card or the terminal. Each shows its shortcut.
+- **Settings pages and rows** open at the exact row.
+- **Switches** flip a setting in place, showing its current state, with **Undo** afterwards: for example "turn off shell", "turn on developer tools", the browser tool, Dream Cycle, learning new skills, or the habit tracker. "dark mode", "light mode" and "follow the system appearance" change this device's appearance.
+- **Agents** and **workflows**: "Chat with …" starts a chat with an agent; "Run …" runs a workflow.
 
-Home pages in these docs are short entry-point pages. The dedicated feature pages are the full guides.
+Enter runs the top result only when it matches what you typed; otherwise choose a result with the arrow keys.
 
-## Activity Center And Right Drawer
+## Keyboard Shortcuts
 
-The right side summarizes what needs attention:
+| Shortcut | Action |
+| --- | --- |
+| ⌘K / Ctrl+K | Open the command palette |
+| ⌘⇧O / Ctrl+Shift+O | New chat |
+| ⌘. / Ctrl+. | Show or hide the conversation details card |
+| Ctrl+` | Open or close the terminal |
+| / | Find a setting, on a Settings page |
+| ⌘Enter / Ctrl+Enter | Approve the focused approval |
+| ⌘Z and ⌘⇧Z / Ctrl+Z and Ctrl+Shift+Z | Undo and redo in the Design panel |
+| Esc | Close the palette, a menu or a dialog |
 
-- **Current goals and agents** shows running or waiting goal-mode and child-agent activity.
-- **Approvals** shows pending approval prompts from chats, child agents, and background work.
-- **Workflows** shows active and upcoming workflow state, plus run and new controls.
-- **Launch** lets you choose a workflow and run it manually.
-- **Insights** expands supporting status and suggestions when available.
+## On A Phone Or Tablet
 
-Use the Activity Center when you want to know whether Row-Bot is idle, waiting for you, running background work, or ready to launch a workflow. Child-agent approvals also appear in the parent thread so you can decide without leaving the conversation.
-
-## Terminal Panel
-
-The terminal panel at the bottom shows command-oriented output when a tool, Developer workspace, or local runtime exposes it through the UI. It is not a general replacement for your system terminal. Command execution still follows Row-Bot's active tool availability, workspace boundaries, and approval mode.
-
-## Agent Profiles
-
-Agent profiles change how Row-Bot behaves for a thread or specialist run. The sidebar profile control opens the profile selector; the detailed walkthrough is in [Agent Profiles](/docs/app-shell/agent-profiles).
+On a narrow screen, the sidebar becomes a drawer opened from the top bar, panels open as full-screen sheets, and the conversation header's **⋯** menu holds Find, Conversation details, Share or export, the panels and the command palette. See [Phone And Native Desktop](/docs/mobile-native/).
 
 ## What Is Saved
 
-Threads, thread names, selected models, profile choices, workflow records, knowledge records, settings, and logs are saved in the local Row-Bot data directory. Some choices are thread-specific; Settings usually changes global app behavior.
+Conversations, their names, models, profiles, workflows, knowledge, settings and logs are saved in the local Row-Bot data directory. Panel sizes, the terminal's height, favourite agents and appearance are remembered on each device.
 
 ## Troubleshooting
 
-- If a thread is missing from the sidebar, open Show All and search.
-- If a panel looks stale, use the visible refresh control or reload the app.
-- If a button is disabled, check the related Settings tab and Monitor for readiness messages.
+- If a conversation is missing from the sidebar, use **Show all**, the type filter, or the conversation library's search.
+- If a panel looks stale, close and reopen it from the details card.
+- If a button is disabled, check the related Settings page and Monitor for readiness messages.

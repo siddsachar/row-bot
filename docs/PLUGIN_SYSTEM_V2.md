@@ -8,11 +8,12 @@ may add only these surfaces:
 - Bundled skills under `skills/<skill_id>/SKILL.md`
 - Channels registered with `PluginAPI.register_channel(...)`
 
-Plugins must not add arbitrary app panels, custom NiceGUI, JavaScript, provider
+Plugins must not add arbitrary app panels, custom UI code, JavaScript, provider
 runtimes, memory providers, workflow triggers, general hooks, or custom settings
-tabs. Row-Bot owns one native Plugin Center that renders plugin metadata,
-permissions, settings, secrets, auth, health checks, tools, channels, skills,
-logs, updates, and enablement.
+tabs. The loader refuses plugins that import UI frameworks such as `nicegui`,
+`streamlit`, `gradio`, or `webview`. Row-Bot owns one native Plugin Center that
+renders plugin metadata, permissions, settings, secrets, auth, health checks,
+tools, channels, skills, logs, updates, and enablement.
 
 ## Manifest v2
 
@@ -64,8 +65,8 @@ from plugins.api import Channel
 
 The loader blocks imports from Row-Bot internals and UI frameworks. Channel
 plugins can subclass the public `Channel` export, but plugin-owned channels do
-not render arbitrary settings UI and do not render `build_custom_ui`; their
-setup is rendered by Plugin Center metadata.
+not render arbitrary settings UI; their setup is rendered by Plugin Center
+metadata.
 
 Plugin-packaged MCP servers follow plugin enablement. Disabling a plugin removes
 native tools, plugin MCP tools, plugin skills, and plugin-owned channels from
@@ -79,7 +80,7 @@ Plugin channels may act as transport adapters while Row-Bot core owns agent
 execution, shared slash commands, approval gates, Goal Mode, media processing,
 pairing, and webhook lifecycle. Plugin code must keep using `plugins.api`; it
 must not import `row_bot.agent`, `row_bot.channels.*`, `row_bot.tasks`,
-`row_bot.tunnel`, NiceGUI, or other Row-Bot internals.
+`row_bot.tunnel`, UI frameworks, or other Row-Bot internals.
 
 The public channel bridge is exposed from `plugins.api`:
 
@@ -95,8 +96,11 @@ The public channel bridge is exposed from `plugins.api`:
   fetched by core.
 - `PluginAPI.register_webhook_route(...)`, `get_webhook_path(...)`, and
   `get_webhook_url(...)` register namespaced plugin webhooks under
-  `/plugin-webhooks/{plugin_id}/{name}` without exposing Starlette or NiceGUI
-  types to plugin code.
+  `/plugin-webhooks/{plugin_id}/{name}` without exposing Starlette or FastAPI
+  types to plugin code. These routes need no Row-Bot session (external services
+  call them through the tunnel), so the handler must authenticate every request
+  itself, for example by checking the service's signature or token, and refuse
+  anything it cannot verify.
 - Pairing and allowlist helpers on `PluginAPI` wrap the same channel auth store
   used by native channels.
 
@@ -175,11 +179,15 @@ row-bot-plugins/
 ```
 
 Set `ROW_BOT_PLUGIN_INDEX_URL` to a plain local `index.json` path, a `file://`
-URL, or a remote HTTPS index while testing the marketplace flow. Local index
-entries can use relative `path` values; Row-Bot resolves them against the index
-`source`, verifies the `sha256:` checksum when present, installs disabled, and
-reuses the same source/checksum data for updates. Entries can also provide an
-`archive_url` that points at a local or remote zip archive containing either the
+URL, or a remote HTTPS index while testing the marketplace flow. The index
+`source` says where its plugins live. When it is a local folder (an absolute
+path or a `file://` URL), relative `path` values resolve inside it and the
+`sha256:` checksum is verified when present. When it is an HTTPS GitHub
+repository, a relative `path` is that plugin's folder in the repository's
+`main` archive, and the entry must carry a `sha256:` checksum. A `path` is never
+resolved against Row-Bot's working folder. Installs stay disabled, and updates
+reuse the same source/checksum data. Entries can also provide an HTTPS
+`archive_url` (a checksum is required) for a zip archive containing either the
 plugin directory itself or a `plugins/<plugin_id>/` tree.
 
 ## Health Checks

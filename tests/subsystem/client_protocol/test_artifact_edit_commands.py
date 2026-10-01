@@ -66,3 +66,88 @@ def test_wrong_binding_never_edits_another_resource(artifact_service):
         assert response.status_code == 403 and response.json()["code"] == "resource_binding_revoked"
         assert {path.name: path.read_bytes() for path in storage.PROJECTS_DIR.glob("*.json")} == before
         assert artifacts.read_artifact(second["resource_id"]).name != "Wrong"
+
+
+@pytest.mark.slow
+def test_page_ops_and_size_change_through_the_command_path(artifact_service):
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        state = editing(client, headers, created)
+        kwargs = {"target": created["conversation_id"], "revision": created["revision"]}
+
+        def edit(**payload):
+            current = editing(client, headers, created)
+            payload["target"] = target(client, headers, created, current["resource_revision"])
+            response = _command(client, headers, "artifact.edit", payload, **kwargs)
+            assert response.status_code == 200, response.text
+            return editing(client, headers, created)
+
+        added = edit(operation="page_add", page_id=state["page_id"])
+        assert added["page_count"] == state["page_count"] + 1
+        assert added["page_title"] == "New slide"
+        resized = edit(operation="canvas_size", aspect_ratio="1:1")
+        assert (resized["canvas_width"], resized["canvas_height"]) == (1080, 1080)
+        removed = edit(operation="page_delete", page_id=added["page_id"])
+        assert removed["page_count"] == state["page_count"]
+        refused = _command(client, headers, "artifact.edit", {
+            "target": target(client, headers, created, removed["resource_revision"]),
+            "operation": "canvas_size", "aspect_ratio": "landing"}, **kwargs)
+        assert refused.status_code == 422
+
+
+def test_duplicate_binds_a_copy_beside_the_original(artifact_service):
+    from tests.subsystem.client_platform.test_workspace_setup_integrity import _setup
+
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        source = artifacts.read_artifact(created["resource_id"])
+        payload = {"kind": "artifact", "intent": "create", "duplicate_of": source.id,
+                   "expected_resource_revision": source.updated_at}
+        copy = _completed(_setup(client, headers, payload, target=created["conversation_id"],
+                                 revision=created["revision"]))
+        assert copy["conversation_id"] == created["conversation_id"]
+        assert copy["resource_id"] != source.id
+        duplicate = artifacts.read_artifact(copy["resource_id"])
+        assert duplicate.name == f"{source.name} (copy)"
+        assert duplicate.thread_id == created["conversation_id"]
+        workspace = client.get(f"/api/v1/conversations/{created['conversation_id']}/workspace",
+                               headers=headers).json()
+        bound = {item["binding"]["resource_id"] for item in workspace["resources"]}
+        assert {source.id, duplicate.id} <= bound
+        stale = _setup(client, headers, {**payload, "expected_resource_revision": "old"},
+                       target=created["conversation_id"], revision=copy["revision"])
+        assert stale.status_code == 409 and stale.json()["code"] == "resource_revision_conflict"
+        refused = _setup(client, headers, {**payload, "artifact": {"mode": "deck"}},
+                         target=created["conversation_id"], revision=copy["revision"])
+        assert refused.status_code == 422
+
+
+def test_brand_suggestion_reads_a_website_only_through_the_guarded_fetch(artifact_service, monkeypatch):
+    from row_bot.designer import brand_fetch
+    from row_bot.designer.client_service import ArtifactError
+
+    seen = []
+
+    def suggestion(url):
+        seen.append(url)
+        if "intranet" in url:
+            raise ArtifactError("brand_website_unavailable")
+        return {"found": True, "site": "example.com", "primary_color": "#1D4ED8", "secondary_color": None,
+                "accent_color": None, "heading_font": None, "body_font": None}
+
+    monkeypatch.setattr(brand_fetch, "brand_suggestion", suggestion)
+    with _client(artifact_service) as client:
+        _, headers = bootstrap(client)
+        created = _completed(_create(client, headers, "deck"))
+        url = f"/api/v1/conversations/{created['conversation_id']}/artifacts/{created['binding_id']}/brand-suggestion"
+        ok = client.post(url, headers=headers, json={"url": "https://example.com/"})
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["primary_color"] == "#1D4ED8" and ok.json()["site"] == "example.com"
+        refused = client.post(url, headers=headers, json={"url": "http://intranet.example/"})
+        assert refused.status_code == 422 and refused.json()["code"] == "brand_website_unavailable"
+        before = artifacts.read_artifact(created["resource_id"]).updated_at
+        assert seen == ["https://example.com/", "http://intranet.example/"]
+        # A suggestion never changes the design by itself.
+        assert artifacts.read_artifact(created["resource_id"]).updated_at == before

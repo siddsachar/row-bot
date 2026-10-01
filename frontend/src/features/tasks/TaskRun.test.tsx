@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type {
@@ -16,7 +17,12 @@ import type {
 } from '../../api/types';
 import TaskRun, { type TaskRunProps } from './TaskRun';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+const EMPTY_HISTORY = 'No runs yet. Run it when you are ready.';
 
 const review: TaskRunReview = {
   task_id: 'task-a',
@@ -108,31 +114,77 @@ function props(overrides: Partial<TaskRunProps> = {}): TaskRunProps {
 it('loads a review and saved history without running or granting approval', async () => {
   const callbacks = props();
   render(<TaskRun {...callbacks} />);
-  await screen.findByText('No saved runs');
+  await screen.findByText(EMPTY_HISTORY);
+  expect(
+    screen.getByRole('region', { name: 'Task runs and approvals' }),
+  ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Refresh runs' })).toBeEnabled();
   expect(callbacks.run).not.toHaveBeenCalled();
   expect(callbacks.respondApproval).not.toHaveBeenCalled();
-  expect(screen.getByText(/Approval policy:/)).toHaveTextContent('block');
+  expect(callbacks.loadApprovals).not.toHaveBeenCalled();
+  // The reviewed facts are shown in words, not as raw policy tokens.
+  expect(screen.getByText('2 steps')).toBeInTheDocument();
+  expect(screen.getByText('Profile Workflow default')).toBeInTheDocument();
+  expect(screen.getByText('Blocks actions')).toBeInTheDocument();
+  expect(
+    screen.queryByRole('region', { name: 'Selected run' }),
+  ).not.toBeInTheDocument();
 });
 
-it('starts only one explicit operation and requires fresh review for another run', async () => {
+it('starts only one explicit operation and follows the run until it ends (B121)', async () => {
+  vi.useFakeTimers();
   const started = deferred<TaskRunResult>();
-  const callbacks = props({ run: vi.fn().mockReturnValue(started.promise) });
-  render(<TaskRun {...callbacks} />);
-  await screen.findByText('No saved runs');
+  const halfway = { ...runSummary('run-a', 'running'), steps_done: 1 };
+  const loadRun = vi
+    .fn()
+    .mockResolvedValueOnce(halfway)
+    .mockResolvedValueOnce(runSummary('run-a', 'completed'));
+  const onFinished = vi.fn();
+  const callbacks = props({
+    run: vi.fn().mockReturnValue(started.promise),
+    loadRun,
+  });
+  render(<TaskRun {...callbacks} onFinished={onFinished} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
   const button = screen.getByRole('button', { name: 'Run now' });
   fireEvent.click(button);
   fireEvent.click(button);
   expect(callbacks.run).toHaveBeenCalledTimes(1);
   expect(callbacks.run).toHaveBeenCalledWith(review);
   await act(async () =>
-    started.resolve({ run: runSummary(), replayed: false }),
+    started.resolve({ run: runSummary('run-a', 'running'), replayed: false }),
   );
+  // While it runs, Run now waits; the drawer reads the run by itself.
   expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
-  expect(screen.queryByText('No saved runs')).not.toBeInTheDocument();
-  expect(
-    screen.getByRole('button', { name: 'Show run run-a' }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Run started.');
+  expect(screen.getByRole('status')).not.toHaveTextContent('Refresh');
+  const selected = () => screen.getByRole('region', { name: 'Selected run' });
+  expect(within(selected()).getByText('0 of 2 steps')).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(loadRun).toHaveBeenCalledWith('task-a', 'run-a', expect.anything());
+  expect(within(selected()).getByText('1 of 2 steps')).toBeInTheDocument();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(within(selected()).getByText('Completed')).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Run finished · Completed.',
+  );
+  // A finished run is followed by a fresh review, so Run now is ready again,
+  // and the list behind the drawer re-reads its row (B178).
+  expect(onFinished).toHaveBeenCalledOnce();
+  expect(callbacks.loadReview).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10000);
+  });
+  expect(loadRun).toHaveBeenCalledTimes(2);
+  expect(callbacks.run).toHaveBeenCalledTimes(1);
 });
 
 it('preserves uncertainty and does not automatically retry the run', async () => {
@@ -140,13 +192,20 @@ it('preserves uncertainty and does not automatically retry the run', async () =>
     run: vi.fn().mockRejectedValue({ code: 'task_run_unconfirmed' }),
   });
   render(<TaskRun {...callbacks} />);
-  await screen.findByText('No saved runs');
+  await screen.findByText(EMPTY_HISTORY);
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Run now' })),
   );
   expect(callbacks.run).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('alert')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+  const refresh = screen.getByRole('button', { name: 'Refresh runs' });
+  expect(refresh).toBeEnabled();
+  // Refreshing loads a fresh review; it never replays the unconfirmed run.
+  await act(async () => fireEvent.click(refresh));
+  expect(callbacks.loadReview).toHaveBeenCalledTimes(2);
+  expect(callbacks.run).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Run now' })).toBeEnabled();
 });
 
 it('binds approval to the exact reviewed card and keeps generated text inert', async () => {
@@ -160,6 +219,11 @@ it('binds approval to the exact reviewed card and keeps generated text inert', a
   const view = render(<TaskRun {...callbacks} />);
   await screen.findByText(card.message);
   expect(view.container.querySelector('script')).toBeNull();
+  expect(
+    within(
+      screen.getByRole('article', { name: 'Pending task approval' }),
+    ).getByRole('heading', { name: 'Approval needed' }),
+  ).toBeInTheDocument();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Approve' })),
   );
@@ -200,6 +264,40 @@ it('does not offer actions for a truncated or other-owner approval and opens its
   expect(callbacks.openConversation).toHaveBeenCalledWith('conversation-a');
 });
 
+it('says since when a workflow approval waits (B255)', async () => {
+  const callbacks = props({
+    loadHistory: vi
+      .fn()
+      .mockResolvedValue(history([runSummary('run-a', 'paused')])),
+    loadApprovals: vi.fn().mockResolvedValue(approvalPage([approval()])),
+  });
+  render(<TaskRun {...callbacks} />);
+  const card = await screen.findByRole('article', {
+    name: 'Pending task approval',
+  });
+  expect(card).toHaveTextContent(/Waiting since .*10:00/);
+});
+
+it('explains a skipped scheduled run and offers no Stop (B255)', async () => {
+  const callbacks = props({
+    loadHistory: vi
+      .fn()
+      .mockResolvedValue(
+        history([
+          runSummary('run-b', 'skipped'),
+          runSummary('run-a', 'paused'),
+        ]),
+      ),
+  });
+  render(<TaskRun {...callbacks} />);
+  const selected = await screen.findByRole('region', { name: 'Selected run' });
+  expect(selected).toHaveTextContent('Skipped');
+  expect(selected).toHaveTextContent(
+    'This scheduled run was skipped: an earlier run still waited for your approval.',
+  );
+  expect(screen.queryByRole('button', { name: 'Stop run' })).toBeNull();
+});
+
 it('shows a stop request without claiming cleanup completed', async () => {
   const callbacks = props({
     loadHistory: vi
@@ -213,11 +311,72 @@ it('shows a stop request without claiming cleanup completed', async () => {
   );
   expect(callbacks.stop).toHaveBeenCalledWith('task-a', 'run-a');
   expect(screen.getByRole('status')).toHaveTextContent(
-    'Waiting for confirmed worker cleanup',
+    'Stop requested. Waiting for the run to finish.',
   );
   expect(
     screen.getByText(/Completion and cleanup are not yet confirmed/),
   ).toBeInTheDocument();
+});
+
+it('shows the selected run status in words with its start time and step progress', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 0, 1, 12));
+  const waiting = { ...runSummary('run-b', 'paused'), steps_done: 1 };
+  const callbacks = props({
+    loadHistory: vi
+      .fn()
+      .mockResolvedValue(history([waiting, runSummary('run-a', 'completed')])),
+  });
+  render(<TaskRun {...callbacks} />);
+  const selected = await screen.findByRole('region', { name: 'Selected run' });
+  const twoHoursAgo = new Intl.RelativeTimeFormat(undefined, {
+    numeric: 'auto',
+    style: 'long',
+  }).format(-2, 'hour');
+  expect(within(selected).getByText('Waiting for approval')).toBeVisible();
+  expect(within(selected).queryByText(/paused/)).not.toBeInTheDocument();
+  expect(within(selected).queryByText(/Saved status/)).not.toBeInTheDocument();
+  expect(within(selected).getByText(/^Started/)).toHaveTextContent(
+    `Started ${twoHoursAgo}`,
+  );
+  expect(within(selected).getByText(twoHoursAgo)).toHaveAttribute(
+    'datetime',
+    new Date(2026, 0, 1, 10).toISOString(),
+  );
+  expect(
+    within(selected).getByRole('progressbar', { name: 'Run progress' }),
+  ).toHaveAttribute('value', '1');
+  expect(within(selected).getByText('1 of 2 steps')).toBeInTheDocument();
+  expect(
+    within(selected).getByRole('button', { name: 'Stop run' }),
+  ).toBeEnabled();
+
+  const waitingRow = screen.getByRole('button', { name: 'Show run run-b' });
+  const completedRow = screen.getByRole('button', { name: 'Show run run-a' });
+  expect(waitingRow).toHaveAttribute('aria-current', 'true');
+  expect(waitingRow).toHaveTextContent('Waiting for approval');
+  expect(waitingRow).toHaveTextContent('1/2');
+  expect(completedRow).not.toHaveAttribute('aria-current');
+  expect(completedRow).toHaveTextContent('Completed');
+
+  await act(async () => fireEvent.click(completedRow));
+  expect(completedRow).toHaveAttribute('aria-current', 'true');
+  expect(waitingRow).not.toHaveAttribute('aria-current');
+  expect(within(selected).getByText('Completed')).toBeVisible();
+  expect(within(selected).getByText('2 of 2 steps')).toBeInTheDocument();
+  expect(
+    within(selected).queryByRole('button', { name: 'Stop run' }),
+  ).not.toBeInTheDocument();
+  // Only the non-terminal run asked for its pending approvals.
+  expect(callbacks.loadApprovals).toHaveBeenCalledOnce();
+  expect(callbacks.loadApprovals).toHaveBeenCalledWith(
+    'task-a',
+    'run-b',
+    undefined,
+    expect.any(AbortSignal),
+  );
+  expect(callbacks.run).not.toHaveBeenCalled();
+  expect(callbacks.stop).not.toHaveBeenCalled();
 });
 
 it('aborts late load results when another task is selected', async () => {
@@ -234,19 +393,20 @@ it('aborts late load results when another task is selected', async () => {
   const view = render(<TaskRun {...callbacks} />);
   const signal = loadReview.mock.calls[0][1] as AbortSignal;
   view.rerender(<TaskRun {...callbacks} taskId="task-b" />);
-  await screen.findByText(/second-profile/);
+  await screen.findByText('Profile Second profile');
   expect(signal.aborted).toBe(true);
   await act(async () => delayed.resolve(review));
-  expect(screen.getByText(/Approval policy:/)).toHaveTextContent(
-    'second-profile',
-  );
+  expect(screen.getByText('Profile Second profile')).toBeInTheDocument();
+  expect(
+    screen.queryByText('Profile Workflow default'),
+  ).not.toBeInTheDocument();
 });
 
 it('ignores run completion after unmount and retains it in the controller owner', async () => {
   const delayed = deferred<TaskRunResult>();
   const callbacks = props({ run: vi.fn().mockReturnValue(delayed.promise) });
   const view = render(<TaskRun {...callbacks} />);
-  await screen.findByText('No saved runs');
+  await screen.findByText(EMPTY_HISTORY);
   fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
   view.unmount();
   await act(async () =>

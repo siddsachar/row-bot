@@ -7,7 +7,7 @@ import pytest
 
 from tests.subsystem.client_protocol.test_workspace_edit_commands import editable, workspace_api, service, send  # noqa: F401
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def review(client, headers, created, command_id=None):

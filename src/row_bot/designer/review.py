@@ -2,16 +2,14 @@
 brand-lint (brand policy) findings into a single report, and routes fixes
 to the matching deterministic repairer or an agent request.
 
-Pure logic (no NiceGUI). The dialog lives in ``designer.review_dialog``.
+Pure logic; it touches no UI.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import inspect
 from dataclasses import dataclass, asdict
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
 from row_bot.designer.critique import critique_page_html, apply_page_repairs
 from row_bot.designer.brand_lint import (
@@ -19,8 +17,6 @@ from row_bot.designer.brand_lint import (
     apply_brand_repairs_to_html,
     _BRAND_AUTO_CATEGORIES,
 )
-from row_bot.designer.session import prepare_project_mutation
-from row_bot.designer.storage import save_project
 
 
 _SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3}
@@ -199,77 +195,6 @@ def _apply_to_page(project, idx: int, source: str, categories: list[str]) -> tup
     return True, changes
 
 
-def apply_fix(project, finding: dict) -> dict[str, Any]:
-    """Apply a safe fix for a single finding. Note: deterministic repairers
-    operate per-category on the full page, so this fixes every instance of
-    that category on that page, not only the one finding."""
-    if not finding.get("auto_fixable"):
-        return {"applied": False, "changes": [], "reason": "not auto-fixable"}
-    idx = int(finding["page_index"])
-    pages = getattr(project, "pages", None) or []
-    if not (0 <= idx < len(pages)):
-        return {"applied": False, "changes": [], "reason": "invalid page"}
-    source = finding["source"]
-    category = finding["category"]
-    prepare_project_mutation(project, f"review_fix_{source}_{category}_p{idx}")
-    ok, changes = _apply_to_page(project, idx, source, [category])
-    if not ok:
-        return {"applied": False, "changes": []}
-    project.manual_edits.append(
-        f"Review: applied {source}/{category} fix on page {idx + 1} "
-        f"({len(changes)} change(s))."
-    )
-    save_project(project)
-    return {"applied": True, "changes": changes}
-
-
-def apply_fixes_bulk(project, findings: list[dict]) -> dict[str, Any]:
-    """Apply all auto-fixable findings grouped by (page, source)."""
-    auto = [f for f in findings if f.get("auto_fixable")]
-    if not auto:
-        return {"applied": 0, "changes": [], "pages_touched": 0}
-
-    # group
-    by_page: dict[int, dict[str, set[str]]] = {}
-    for f in auto:
-        idx = int(f["page_index"])
-        src = f["source"]
-        by_page.setdefault(idx, {"critique": set(), "brand_lint": set()})[src].add(f["category"])
-
-    prepare_project_mutation(project, "review_fix_bulk")
-    total_changes: list[dict] = []
-    pages_touched = 0
-    pages = getattr(project, "pages", None) or []
-
-    for idx, by_src in by_page.items():
-        if not (0 <= idx < len(pages)):
-            continue
-        page_changed = False
-        for source in ("critique", "brand_lint"):
-            cats = sorted(by_src.get(source) or [])
-            if not cats:
-                continue
-            ok, changes = _apply_to_page(project, idx, source, cats)
-            if ok:
-                total_changes.extend(changes)
-                page_changed = True
-        if page_changed:
-            pages_touched += 1
-
-    if total_changes:
-        project.manual_edits.append(
-            f"Review: bulk-applied {len(total_changes)} safe fix(es) "
-            f"across {pages_touched} page(s)."
-        )
-        save_project(project)
-
-    return {
-        "applied": len(total_changes),
-        "changes": total_changes,
-        "pages_touched": pages_touched,
-    }
-
-
 def build_ai_fix_request(finding: dict) -> str:
     """Craft a focused instruction the agent can act on."""
     page_num = int(finding.get("page_index", 0)) + 1
@@ -287,25 +212,3 @@ def build_ai_fix_request(finding: dict) -> str:
         parts.append(f"Guidance: {suggested}")
     parts.append("Use designer_update_page or designer_restyle_element as appropriate.")
     return " ".join(parts)
-
-
-def request_ai_fix(finding: dict, send_agent_message: Callable) -> str:
-    """Dispatch a focused AI fix request. ``send_agent_message`` may be
-    sync or async; in the async case we schedule it on the running loop.
-    Returns the message that was sent (or queued)."""
-    request = build_ai_fix_request(finding)
-    try:
-        result = send_agent_message(request)
-        if inspect.iscoroutine(result):
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(result)
-                else:
-                    loop.run_until_complete(result)
-            except RuntimeError:
-                # No loop — fire and forget in a new one
-                asyncio.run(result)
-    except Exception:
-        pass
-    return request

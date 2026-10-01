@@ -1,80 +1,126 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import Home from './Home';
+
+const onboarding = (extra: Record<string, unknown> = {}) => ({
+  schema_version: 1,
+  revision: 'c'.repeat(64),
+  setup_complete: true,
+  starter_workflows_missing: 0,
+  profile: [],
+  completed_steps: ['models'],
+  skipped_steps: [],
+  dismissed_home_card: true,
+  steps: [{ id: 'models', title: 'Models', description: 'Connect a model.' }],
+  intents: [],
+  ...extra,
+});
+
+const emptyGraph = {
+  schema_version: 1,
+  availability: 'available',
+  revision: 'a'.repeat(64),
+  nodes: [],
+  edges: [],
+  total_entities: 0,
+  total_relations: 0,
+  shown_entities: 0,
+  shown_relations: 0,
+  truncated: false,
+  center_id: null,
+  entity_types: [],
+  sources: [],
+  status_counts: { active: 0, needs_review: 0, superseded: 0, archived: 0 },
+};
+
+const monitorSnapshot = {
+  schema_version: 1,
+  dream_revision: 'b'.repeat(64),
+  extraction: {
+    availability: 'available',
+    last_run: null,
+    interval_hours: 2,
+    threads_scanned: 0,
+    entities_saved: 0,
+    islands_repaired: 0,
+  },
+  extraction_journal: [],
+  extraction_journal_availability: 'missing',
+  dream: {
+    availability: 'available',
+    enabled: true,
+    window: '1:00 – 5:00',
+    last_run: null,
+    last_summary: null,
+    recent: [],
+  },
+  dream_journal: [],
+  dream_journal_availability: 'missing',
+  logs: {
+    availability: 'unavailable',
+    authorized: false,
+    entries: [],
+    full_available: false,
+  },
+};
+
+const taskPage = (items: unknown[] = []) => ({
+  schema_version: 1,
+  revision: 't'.repeat(64),
+  items,
+  total: items.length,
+  next_cursor: null,
+});
 
 const mock = vi.hoisted(() => ({
   overlayOpen: vi.fn(),
+  overlayNotify: vi.fn(),
+  taskEditSessions: { open: vi.fn() },
   state: {
     status: 'ready',
-    handshake: { instance_id: 'server-a', client_session_id: 'session-a' },
-    conversations: [] as { id: string; title: string }[],
+    handshake: { instance_id: 'server-a', client_session_id: 'session-a' } as {
+      instance_id: string;
+      client_session_id: string;
+      authentication_kind?: string;
+    } | null,
+    conversations: [] as {
+      id: string;
+      title: string;
+      revision?: string;
+      pinned?: boolean;
+    }[],
   },
   controller: {
     selectConversation: vi.fn(),
     onboardingCommand: vi.fn(),
-    onboarding: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      revision: 'c'.repeat(64),
-      setup_complete: true,
-      profile: [],
-      completed_steps: ['models'],
-      skipped_steps: [],
-      dismissed_home_card: true,
-      steps: [
-        { id: 'models', title: 'Models', description: 'Connect a model.' },
-      ],
-      intents: [],
-    }),
-    knowledgeGraph: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      availability: 'available',
-      revision: 'a'.repeat(64),
-      nodes: [],
-      edges: [],
-      total_entities: 0,
-      total_relations: 0,
-      shown_entities: 0,
-      shown_relations: 0,
-      truncated: false,
-      center_id: null,
-      entity_types: [],
-      sources: [],
-    }),
-    monitorSnapshot: vi.fn().mockResolvedValue({
-      schema_version: 1,
-      dream_revision: 'b'.repeat(64),
-      extraction: {
-        availability: 'available',
-        last_run: null,
-        interval_hours: 2,
-        threads_scanned: 0,
-        entities_saved: 0,
-        islands_repaired: 0,
-      },
-      extraction_journal: [],
-      extraction_journal_availability: 'missing',
-      dream: {
-        availability: 'available',
-        enabled: true,
-        window: '1:00 – 5:00',
-        last_run: null,
-        last_summary: null,
-        recent: [],
-      },
-      dream_journal: [],
-      dream_journal_availability: 'missing',
-      logs: {
-        availability: 'unavailable',
-        authorized: false,
-        entries: [],
-        full_available: false,
-      },
-    }),
+    onboarding: vi.fn(),
+    knowledgeGraph: vi.fn(),
+    monitorSnapshot: vi.fn(),
+    notices: vi.fn(),
+    attention: vi.fn(),
+    savedTasks: vi.fn(),
     knowledgeEntityDetail: vi.fn(),
+    savedEntities: vi.fn(),
+    reviewKnowledgeMaintenance: vi.fn(),
+    executeKnowledgeMaintenance: vi.fn(),
+    reviewKnowledge: vi.fn(),
+    executeKnowledge: vi.fn(),
     reviewDreamRun: vi.fn(),
     executeDreamRun: vi.fn(),
     monitorLogs: vi.fn(),
+    systemDiagnosis: vi.fn(),
+    systemHealth: vi.fn(),
+    setHourlyConnectionChecks: vi.fn(),
+    insights: vi.fn(),
   },
 }));
 
@@ -83,12 +129,16 @@ vi.mock('../../runtime', () => ({
   useRuntime: () => ({
     controller: mock.controller,
     platform: { writeClipboard: vi.fn() },
+    taskEditSessions: mock.taskEditSessions,
   }),
 }));
 
 vi.mock('../../ui/overlays', async (load) => {
   const actual = await load<typeof import('../../ui/overlays')>();
-  return { ...actual, useOverlay: () => ({ open: mock.overlayOpen }) };
+  return {
+    ...actual,
+    useOverlay: () => ({ open: mock.overlayOpen, notify: mock.overlayNotify }),
+  };
 });
 
 vi.mock('../tasks/TaskLibrary', () => ({
@@ -97,10 +147,21 @@ vi.mock('../tasks/TaskLibrary', () => ({
   ),
 }));
 
+function Location() {
+  const location = useLocation();
+  return (
+    <output aria-label="Current location">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
+
 function show(path = '/') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Home />
+      <Location />
     </MemoryRouter>,
   );
 }
@@ -112,8 +173,39 @@ function chooseTab(name: string) {
   });
 }
 
+function location() {
+  return screen.getByLabelText('Current location').textContent;
+}
+
 beforeEach(() => {
-  mock.overlayOpen.mockClear();
+  // Home opens Setup until a model is chosen; these tests are about Home, so
+  // they open it the way "Set up later" does (the gate has its own tests).
+  sessionStorage.setItem('row-bot:setup-later:v1', '1');
+  mock.overlayOpen.mockReset();
+  mock.overlayNotify.mockReset();
+  mock.taskEditSessions.open.mockReset();
+  for (const fn of Object.values(mock.controller)) fn.mockReset();
+  mock.controller.onboarding.mockResolvedValue(onboarding());
+  mock.controller.knowledgeGraph.mockResolvedValue(emptyGraph);
+  mock.controller.monitorSnapshot.mockResolvedValue(monitorSnapshot);
+  mock.controller.notices.mockResolvedValue({
+    server_epoch: 'epoch',
+    latest: 0,
+    notices: [],
+    startup_warnings: [],
+  });
+  mock.controller.attention.mockResolvedValue({
+    schema_version: 1,
+    problems: [],
+    update: null,
+  });
+  mock.controller.savedTasks.mockResolvedValue(taskPage());
+  mock.controller.monitorLogs.mockResolvedValue(monitorSnapshot.logs);
+  mock.controller.systemHealth.mockResolvedValue({
+    schema_version: 1,
+    hourly_network_checks: true,
+    checks: [],
+  });
   mock.state.status = 'ready';
   mock.state.handshake = {
     instance_id: 'server-a',
@@ -122,29 +214,194 @@ beforeEach(() => {
   mock.state.conversations = [];
 });
 
-it('offers recent work and opens the selected conversation', () => {
-  mock.state.conversations = [{ id: 'chat-a', title: 'Design review' }];
+it('opens on Overview with the five Home capability tabs and no pane-backed resources', async () => {
   show();
-  fireEvent.click(screen.getByRole('button', { name: 'Design review' }));
-  expect(mock.controller.selectConversation).toHaveBeenCalledWith('chat-a');
+  expect(
+    await screen.findByRole('tablist', { name: 'Home capabilities' }),
+  ).toBeVisible();
+  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+    'Overview',
+    'Workflows',
+    'Knowledge',
+    'Monitor',
+    'Insights',
+  ]);
+  expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(
+    await screen.findByRole('heading', { level: 2, name: /^Good / }),
+  ).toBeVisible();
+  expect(screen.queryByRole('region', { name: 'Workflow library' })).toBeNull();
+  expect(screen.queryByRole('tab', { name: 'Designer' })).toBeNull();
+  expect(screen.queryByRole('tab', { name: 'Developer' })).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: /Search all conversations/ }),
+  ).toBeNull();
+  expect(location()).toBe('/');
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
+  );
 });
 
-it('shows first-run examples passively and delegates one click to the shared chat creator', async () => {
-  const onExamplePrompt = vi.fn();
+it('keeps the old welcome, examples, and connection chrome out of Overview while continuing recent threads', async () => {
+  mock.state.conversations = [
+    { id: 'chat-a', title: 'Design review', revision: 'r', pinned: false },
+  ];
+  show();
+  expect(screen.queryByRole('region', { name: 'Start working' })).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'Recent conversations' }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole('region', { name: 'Start with an example' }),
+  ).toBeNull();
+  expect(screen.queryByText('Connected · local workspace')).toBeNull();
+  const recent = screen.getByRole('list', {
+    name: 'Continue where you left off',
+  });
+  fireEvent.click(
+    within(recent).getByRole('button', { name: 'Open Design review' }),
+  );
+  expect(mock.controller.selectConversation).toHaveBeenCalledWith('chat-a');
+  expect(location()).toBe('/conversations/chat-a');
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
+  );
+});
+
+it('uses the explicit one-shot workflow deep-link intent without persistent last-tab state', () => {
+  const { unmount } = show('/?tab=workflows');
+  expect(screen.getByRole('tab', { name: 'Workflows' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(
+    screen.getByRole('region', { name: 'Workflow library' }),
+  ).toBeVisible();
+  // The Workflows tab owns its own reads.
+  expect(mock.controller.savedTasks).not.toHaveBeenCalled();
+  unmount();
+  show('/?tab=WORKFLOWS');
+  expect(screen.getByRole('tab', { name: 'Workflows' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+it('falls back to Overview for an unknown tab', () => {
+  show('/?tab=designer');
+  expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+it('opens a workflow from Overview with a one-shot workflow intent', async () => {
+  mock.controller.savedTasks.mockResolvedValue(
+    taskPage([
+      {
+        id: 'task-7',
+        name: 'Morning digest',
+        description: '',
+        icon: '',
+        enabled: true,
+        notify_only: false,
+        step_count: 1,
+        schedule: 'daily:08:00',
+        at: null,
+        last_run: null,
+        last_status: 'failed',
+        conversation_id: null,
+        next_run: '2099-01-01T08:00:00',
+      },
+    ]),
+  );
+  show();
+  fireEvent.click(
+    await screen.findByRole('button', {
+      name: 'Open failed workflow: Morning digest',
+    }),
+  );
+  expect(location()).toBe('/?tab=workflows&workflow=task-7');
+  expect(screen.getByRole('tab', { name: 'Workflows' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  chooseTab('Overview');
+  expect(location()).toBe('/?tab=overview');
+  fireEvent.click(await screen.findByRole('button', { name: /^Workflows: / }));
+  expect(location()).toBe('/?tab=workflows');
+  chooseTab('Overview');
+  fireEvent.click(await screen.findByRole('button', { name: 'Monitor' }));
+  expect(location()).toBe('/?tab=monitor');
+  expect(
+    await screen.findByRole('region', { name: 'System Monitor' }),
+  ).toBeVisible();
+});
+
+it('starts a new chat from Overview through the shell’s New chat owner', async () => {
+  const onAsk = vi.fn();
   render(
     <MemoryRouter>
-      <Home onExamplePrompt={onExamplePrompt} />
+      <Home onAsk={onAsk} asking={false} />
     </MemoryRouter>,
   );
-  const example = await screen.findByRole('button', {
-    name: 'Design a landing page',
-  });
-  expect(onExamplePrompt).not.toHaveBeenCalled();
-  fireEvent.click(example);
-  expect(onExamplePrompt).toHaveBeenCalledOnce();
-  expect(onExamplePrompt).toHaveBeenCalledWith(
-    'Draft a landing page in Designer Studio for a new product',
+  fireEvent.change(
+    await screen.findByRole('textbox', { name: 'Ask Row-Bot' }),
+    { target: { value: 'Plan my week' } },
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Start chat' }));
+  expect(onAsk).toHaveBeenCalledWith('Plan my week');
+  // Overview itself never creates a conversation.
+  expect(mock.controller.selectConversation).not.toHaveBeenCalled();
+});
+
+it('opens New design and New code folder setup, and a new workflow’s editor', async () => {
+  const onPanel = vi.fn();
+  render(
+    <MemoryRouter>
+      <Home onPanel={onPanel} />
+      <Location />
+    </MemoryRouter>,
+  );
+  const quick = await screen.findByRole('group', { name: 'Quick starts' });
+  fireEvent.click(within(quick).getByRole('button', { name: 'New design' }));
+  expect(mock.overlayOpen).toHaveBeenLastCalledWith(
+    expect.objectContaining({ title: 'New design' }),
+  );
+  fireEvent.click(
+    within(quick).getByRole('button', { name: 'New code folder' }),
+  );
+  expect(mock.overlayOpen).toHaveBeenLastCalledWith(
+    expect.objectContaining({ title: 'New code folder' }),
+  );
+  fireEvent.click(within(quick).getByRole('button', { name: 'New workflow' }));
+  expect(mock.taskEditSessions.open).toHaveBeenCalledWith('task');
+  expect(location()).toBe('/?tab=workflows');
+});
+
+it('reads Insights for Overview only where this device may', async () => {
+  mock.controller.insights.mockResolvedValue({
+    schema_version: 1,
+    revision: 'i',
+    curator_report: null,
+    items: [],
+  });
+  const { unmount } = show();
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
+  );
+  expect(mock.controller.insights).not.toHaveBeenCalled();
+  unmount();
+  mock.state.handshake = {
+    instance_id: 'server-b',
+    client_session_id: 'session-b',
+    authentication_kind: 'local_owner',
+  };
+  show();
+  await waitFor(() => expect(mock.controller.insights).toHaveBeenCalledOnce());
 });
 
 it('checks Dream Cycle from one click and opens the irreversible-change confirmation', async () => {
@@ -173,105 +430,542 @@ it('checks Dream Cycle from one click and opens the irreversible-change confirma
   expect(mock.controller.executeDreamRun).not.toHaveBeenCalled();
 });
 
-it('opens on Workflows and leaves conversations and pane-backed resources out of Home', () => {
-  show();
-  expect(screen.getByRole('tab', { name: 'Workflows' })).toHaveAttribute(
-    'data-state',
-    'active',
+it('runs the reviewed Dream Cycle only on confirmation and then re-reads knowledge and monitor', async () => {
+  mock.controller.reviewDreamRun.mockResolvedValueOnce({
+    review_id: 'dream-review',
+    snapshot_revision: 'b'.repeat(64),
+    action_digest: 'd'.repeat(64),
+  });
+  mock.controller.executeDreamRun.mockResolvedValueOnce({
+    status: 'completed',
+    summary: 'Merged 2 duplicates.',
+  });
+  show('/?tab=knowledge');
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Run Dream Cycle' }),
   );
-  expect(
-    screen.getByRole('region', { name: 'Workflow library' }),
-  ).toBeVisible();
-  expect(screen.queryByText('Recent conversations')).toBeNull();
-  expect(
-    screen.queryByRole('button', { name: /Search all conversations/ }),
-  ).toBeNull();
-  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-    'Workflows',
-    'Knowledge',
-    'Monitor',
-    'Insights',
-  ]);
-  expect(screen.queryByRole('tab', { name: 'Designer' })).toBeNull();
-  expect(screen.queryByRole('tab', { name: 'Developer' })).toBeNull();
+  await waitFor(() => expect(mock.overlayOpen).toHaveBeenCalledTimes(1));
+  expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(1);
+  expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(1);
+  const { onConfirm } = mock.overlayOpen.mock.calls[0][0] as {
+    onConfirm: () => void;
+  };
+  await act(async () => onConfirm());
+  expect(mock.controller.executeDreamRun).toHaveBeenCalledTimes(1);
+  expect(mock.controller.executeDreamRun).toHaveBeenCalledWith(
+    expect.objectContaining({
+      client_session_id: 'session-a',
+      type: 'dream.run',
+      payload: {
+        snapshot_revision: 'b'.repeat(64),
+        action_digest: 'd'.repeat(64),
+        review_id: 'dream-review',
+      },
+    }),
+  );
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
+  );
+  await waitFor(() =>
+    expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(2),
+  );
+  expect(mock.controller.executeDreamRun).toHaveBeenCalledTimes(1);
+  expect(mock.controller.reviewDreamRun).toHaveBeenCalledTimes(1);
 });
 
-it('uses the explicit one-shot workflow deep-link intent without persistent last-tab state', () => {
-  show('/?tab=workflows');
-  expect(screen.getByRole('tab', { name: 'Workflows' })).toHaveAttribute(
-    'aria-selected',
-    'true',
+// Suspected product bug: Home.tsx's monitor refresh (triggered by the Dream
+// completion itself) resets any non-running Dream state to idle, erasing the
+// "completed with errors" alert and the "Retry Dream" label as soon as the
+// refreshed snapshot arrives. Flip to `it` once the outcome survives.
+it('keeps a Dream Cycle outcome visible after the refresh it triggers', async () => {
+  mock.controller.reviewDreamRun.mockResolvedValueOnce({
+    review_id: 'dream-review',
+    snapshot_revision: 'b'.repeat(64),
+    action_digest: 'd'.repeat(64),
+  });
+  mock.controller.executeDreamRun.mockResolvedValueOnce({
+    status: 'failed',
+    summary: '',
+  });
+  show('/?tab=knowledge');
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Run Dream Cycle' }),
   );
+  await waitFor(() => expect(mock.overlayOpen).toHaveBeenCalledTimes(1));
+  const { onConfirm } = mock.overlayOpen.mock.calls[0][0] as {
+    onConfirm: () => void;
+  };
+  await act(async () => onConfirm());
+  await waitFor(() =>
+    expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(2),
+  );
+  await act(async () => {});
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Dream Cycle completed with errors.',
+  );
+  expect(screen.getByRole('button', { name: 'Retry Dream' })).toBeEnabled();
 });
 
-it('keeps Knowledge and Monitor as passive, truthful boundaries', () => {
+it('keeps Knowledge and Monitor as passive, truthful boundaries', async () => {
   show();
   chooseTab('Knowledge');
   expect(screen.getByRole('region', { name: 'Knowledge' })).toBeVisible();
   chooseTab('Monitor');
   expect(screen.getByRole('region', { name: 'System Monitor' })).toBeVisible();
+  await waitFor(() =>
+    expect(mock.controller.monitorSnapshot).toHaveBeenCalled(),
+  );
+  // Monitor reads the checks the server keeps; it never runs them itself.
+  await waitFor(() => expect(mock.controller.systemHealth).toHaveBeenCalled());
+  expect(mock.controller.reviewDreamRun).not.toHaveBeenCalled();
+  expect(mock.controller.executeDreamRun).not.toHaveBeenCalled();
+  expect(mock.controller.systemDiagnosis).not.toHaveBeenCalled();
+  expect(mock.controller.onboardingCommand).not.toHaveBeenCalled();
 });
 
-it('reports connection state without exposing client identity', () => {
+it('reuses monitor, knowledge, and workflow reads across tab switches for 20 seconds', async () => {
+  let clock = 1_000_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => clock);
+  // Overview's Memory card reads 8 memories; Knowledge reads the map.
+  const graphReads = (limit: number) =>
+    mock.controller.knowledgeGraph.mock.calls.filter(
+      ([value]) => value === limit,
+    ).length;
   show();
-  expect(screen.getByRole('status')).toHaveTextContent(
-    'Connected · local workspace',
+  await waitFor(() =>
+    expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(1),
   );
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1),
+  );
+  await waitFor(() => expect(graphReads(8)).toBe(1));
+  chooseTab('Knowledge');
+  await waitFor(() => expect(graphReads(2000)).toBe(1));
+  expect(mock.controller.knowledgeGraph).toHaveBeenCalledWith(
+    2000,
+    expect.any(AbortSignal),
+  );
+  await screen.findByRole('button', { name: 'Run Dream Cycle' });
+  chooseTab('Monitor');
+  await screen.findByRole('region', { name: 'System Monitor' });
+  chooseTab('Overview');
+  chooseTab('Knowledge');
+  await screen.findByRole('button', { name: 'Run Dream Cycle' });
+  expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(1);
+  expect(graphReads(2000)).toBe(1);
+  expect(graphReads(8)).toBe(1);
+  expect(mock.controller.savedTasks).toHaveBeenCalledTimes(1);
+
+  clock += 20_001;
+  chooseTab('Overview');
+  await waitFor(() =>
+    expect(mock.controller.monitorSnapshot).toHaveBeenCalledTimes(2),
+  );
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(2),
+  );
+  await waitFor(() => expect(graphReads(8)).toBe(2));
+  chooseTab('Knowledge');
+  await waitFor(() => expect(graphReads(2000)).toBe(2));
+});
+
+it('does not cache a failed workflow read', async () => {
+  mock.controller.savedTasks
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValue(taskPage());
+  show();
+  expect(
+    await screen.findByText(/^Workflows could not be read:/),
+  ).toBeVisible();
+  chooseTab('Monitor');
+  await waitFor(() =>
+    expect(mock.controller.savedTasks).toHaveBeenCalledTimes(2),
+  );
+});
+
+it('reads a bounded knowledge graph and raises the limit only when Show all is chosen', async () => {
+  const node = (id: string) => ({
+    id,
+    revision: `r-${id}`,
+    subject: `Memory ${id}`,
+    description: '',
+    entity_type: 'fact',
+    source: 'manual',
+    updated_at: '2026-09-25T10:00:00',
+    relation_count: 0,
+    orphan: true,
+    is_user: false,
+    status: 'active',
+    tier: 'semantic',
+  });
+  mock.controller.knowledgeGraph
+    .mockResolvedValueOnce({
+      ...emptyGraph,
+      nodes: [node('a'), node('b')],
+      total_entities: 3,
+      shown_entities: 2,
+      truncated: true,
+      entity_types: ['fact'],
+      sources: ['manual'],
+    })
+    .mockResolvedValueOnce({
+      ...emptyGraph,
+      revision: 'e'.repeat(64),
+      nodes: [node('a'), node('b'), node('c')],
+      total_entities: 3,
+      shown_entities: 3,
+      truncated: false,
+      entity_types: ['fact'],
+      sources: ['manual'],
+    });
+  show('/?tab=knowledge');
+  const stats = await screen.findByLabelText('Knowledge statistics');
+  expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(1);
+  // Up to 2,000 memories open at once; Show all asks for up to 5,000 (B251).
+  expect(mock.controller.knowledgeGraph).toHaveBeenLastCalledWith(
+    2000,
+    expect.any(AbortSignal),
+  );
+  fireEvent.click(
+    within(stats).getByRole('button', { name: 'Show all memories' }),
+  );
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
+  );
+  expect(mock.controller.knowledgeGraph).toHaveBeenLastCalledWith(
+    5000,
+    expect.any(AbortSignal),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Knowledge statistics')).not.toHaveTextContent(
+      'showing',
+    ),
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Show all memories' }),
+  ).toBeNull();
+});
+
+function memoryNode(id: string) {
+  return {
+    id,
+    revision: `r-${id}`,
+    subject: `Memory ${id}`,
+    description: '',
+    entity_type: 'fact',
+    source: 'manual',
+    updated_at: '2026-09-25T10:00:00',
+    relation_count: 0,
+    orphan: true,
+    is_user: false,
+    status: 'active',
+    tier: 'semantic',
+  };
+}
+
+function graphOf(ids: string[]) {
+  return {
+    ...emptyGraph,
+    nodes: ids.map(memoryNode),
+    total_entities: ids.length,
+    shown_entities: ids.length,
+    entity_types: ['fact'],
+    sources: ['manual'],
+    status_counts: { ...emptyGraph.status_counts, active: ids.length },
+  };
+}
+
+// B264: bulk deletion moved from Settings › Memory to Knowledge; it keeps the
+// reviewed maintenance command, bound to the catalog and each revision.
+it('deletes ticked memories in one reviewed bulk deletion at their current revisions', async () => {
+  mock.controller.knowledgeGraph.mockResolvedValue(graphOf(['a', 'b', 'c']));
+  mock.controller.savedEntities.mockResolvedValue({ revision: 'c'.repeat(64) });
+  mock.controller.knowledgeEntityDetail.mockImplementation(
+    async (id: string) => ({ id, revision: id.repeat(64) }),
+  );
+  const targets = [
+    { entity_id: 'a', revision: 'a'.repeat(64) },
+    { entity_id: 'b', revision: 'b'.repeat(64) },
+  ];
+  mock.controller.reviewKnowledgeMaintenance.mockResolvedValue({
+    action: 'knowledge.delete.bulk',
+    catalog_revision: 'c'.repeat(64),
+    targets,
+    action_digest: 'd'.repeat(64),
+    review_id: 'review-bulk',
+  });
+  mock.controller.executeKnowledgeMaintenance.mockResolvedValue({
+    status: 'completed',
+  });
+  show('/?tab=knowledge');
+  fireEvent.click(await screen.findByRole('radio', { name: 'List' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Memory a' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select Memory b' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete selected memories' }),
+  );
+  await waitFor(() => expect(mock.overlayOpen).toHaveBeenCalledTimes(1));
+  expect(mock.controller.reviewKnowledgeMaintenance).toHaveBeenCalledWith({
+    action: 'knowledge.delete.bulk',
+    catalog_revision: 'c'.repeat(64),
+    targets,
+  });
+  const dialog = mock.overlayOpen.mock.calls[0][0] as {
+    title: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  };
+  expect(dialog.title).toBe('Delete 2 memories?');
+  expect(dialog.confirmLabel).toBe('Delete 2 memories');
+  // Nothing is deleted before the confirmation.
+  expect(mock.controller.executeKnowledgeMaintenance).not.toHaveBeenCalled();
+  await act(async () => dialog.onConfirm());
+  expect(mock.controller.executeKnowledgeMaintenance).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'knowledge.delete.bulk',
+      payload: {
+        catalog_revision: 'c'.repeat(64),
+        targets,
+        action_digest: 'd'.repeat(64),
+        review_id: 'review-bulk',
+      },
+    }),
+  );
+  expect(mock.overlayNotify).toHaveBeenCalledWith('2 memories deleted.');
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
+  );
+});
+
+it('archives a memory through the reviewed knowledge command, then re-reads the map', async () => {
+  mock.controller.knowledgeGraph.mockResolvedValue(graphOf(['a']));
+  mock.controller.knowledgeEntityDetail.mockResolvedValue({
+    id: 'a',
+    revision: 'a'.repeat(64),
+    subject: 'Memory a',
+    status: 'active',
+    can_archive: true,
+  });
+  mock.controller.reviewKnowledge.mockResolvedValue({
+    revision: 'f'.repeat(64),
+    review_id: 'review-archive',
+  });
+  mock.controller.executeKnowledge
+    .mockResolvedValueOnce({ status: 'completed' })
+    .mockResolvedValueOnce({ status: 'rejected', code: 'knowledge_changed' });
+  show('/?tab=knowledge');
+  fireEvent.click(await screen.findByRole('button', { name: 'Memory a' }));
+  const inspector = await screen.findByRole('dialog', { name: 'Memory a' });
+  fireEvent.click(
+    await within(inspector).findByRole('button', { name: 'Archive memory' }),
+  );
+  await waitFor(() =>
+    expect(mock.overlayNotify).toHaveBeenCalledWith('Memory a archived.'),
+  );
+  expect(mock.controller.reviewKnowledge).toHaveBeenCalledWith(
+    'knowledge.archive',
+    { entity_id: 'a', revision: 'a'.repeat(64) },
+  );
+  expect(mock.controller.executeKnowledge).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'knowledge.archive',
+      payload: {
+        entity_id: 'a',
+        revision: 'f'.repeat(64),
+        review_id: 'review-archive',
+      },
+    }),
+  );
+  await waitFor(() =>
+    expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2),
+  );
+
+  // A change the server turns down is said and nothing is re-read.
+  fireEvent.click(
+    await within(
+      await screen.findByRole('dialog', { name: 'Memory a' }),
+    ).findByRole('button', { name: 'Archive memory' }),
+  );
+  await waitFor(() =>
+    expect(mock.overlayNotify).toHaveBeenLastCalledWith(
+      expect.any(String),
+      'danger',
+    ),
+  );
+  expect(mock.controller.knowledgeGraph).toHaveBeenCalledTimes(2);
+});
+
+// Suspected product bug: Home.tsx passes loadLogs as a new inline function on
+// every render and MonitorHome's log console re-reads whenever it changes, so
+// any Home re-render (for example a conversation update) aborts the current
+// log read, sends another monitorLogs request and restarts the follow timer.
+it('does not re-read the full log when Home re-renders', async () => {
+  const logs = {
+    availability: 'available',
+    authorized: true,
+    entries: [],
+    full_available: true,
+  };
+  mock.controller.monitorSnapshot.mockResolvedValue({
+    ...monitorSnapshot,
+    logs,
+  });
+  mock.controller.monitorLogs.mockResolvedValue(logs);
+  const tree = () => (
+    <MemoryRouter initialEntries={['/?tab=monitor']}>
+      <Home />
+    </MemoryRouter>
+  );
+  const { rerender } = render(tree());
+  await waitFor(() =>
+    expect(mock.controller.monitorLogs).toHaveBeenCalledTimes(1),
+  );
+  rerender(tree());
+  rerender(tree());
+  await act(async () => {});
+  expect(mock.controller.monitorLogs).toHaveBeenCalledTimes(1);
+});
+
+it('reports reconnecting state without exposing client identity', () => {
+  mock.state.status = 'reconnecting';
+  mock.state.handshake = null;
+  show();
+  expect(screen.getByText('Connecting to your workspace…')).toHaveAttribute(
+    'role',
+    'status',
+  );
+  expect(mock.controller.onboarding).not.toHaveBeenCalled();
+  expect(mock.controller.monitorSnapshot).not.toHaveBeenCalled();
   expect(document.body.textContent).not.toContain('server-a');
   expect(document.body.textContent).not.toContain('session-a');
 });
 
-it('shows a first-run setup route without changing setup on mount', async () => {
-  mock.controller.onboarding.mockResolvedValueOnce({
-    schema_version: 1,
-    revision: 'c'.repeat(64),
-    setup_complete: false,
-    profile: [],
-    completed_steps: [],
-    skipped_steps: [],
-    dismissed_home_card: false,
-    steps: [],
-    intents: [],
-  });
+// Suspected product bug: Home.tsx's shared loadTasks is not gated on the
+// connection identity like the onboarding, monitor and knowledge reads, so
+// Overview calls savedTasks while still connecting and can show a
+// "Workflows could not be read" error under the connecting status.
+it('does not read workflows before the workspace is connected', () => {
+  mock.state.status = 'reconnecting';
+  mock.state.handshake = null;
   show();
+  expect(mock.controller.savedTasks).not.toHaveBeenCalled();
+});
+
+it('asks to connect when the workspace is disconnected', () => {
+  mock.state.status = 'disconnected';
+  mock.state.handshake = null;
+  show();
+  expect(screen.getByText('Connect to open your workflows.')).toHaveAttribute(
+    'role',
+    'status',
+  );
+});
+
+it('opens Setup instead of Home until a model is chosen (decision 10)', async () => {
+  sessionStorage.removeItem('row-bot:setup-later:v1');
+  mock.controller.onboarding.mockResolvedValueOnce(
+    onboarding({
+      setup_complete: false,
+      needs_model: true,
+      completed_steps: [],
+      dismissed_home_card: false,
+      steps: [],
+    }),
+  );
+  show();
+  await waitFor(() => expect(location()).toBe('/setup'));
   expect(
-    await screen.findByRole('region', { name: 'Continue setup' }),
-  ).toBeVisible();
-  expect(
-    screen.getByRole('link', { name: 'Open Setup Center' }),
-  ).toHaveAttribute('href', '/setup');
-  expect(mock.controller.onboarding).toHaveBeenCalled();
+    screen.queryByRole('tablist', { name: 'Home capabilities' }),
+  ).toBeNull();
+  expect(mock.controller.onboardingCommand).not.toHaveBeenCalled();
+});
+
+it('never traps a deep link or "Set up later" in Setup', async () => {
+  mock.controller.onboarding.mockResolvedValue(
+    onboarding({
+      setup_complete: false,
+      needs_model: true,
+      completed_steps: [],
+      dismissed_home_card: false,
+      steps: [],
+    }),
+  );
+  sessionStorage.removeItem('row-bot:setup-later:v1');
+  show('/?tab=workflows');
+  expect(await screen.findByRole('tab', { name: 'Workflows' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(location()).toBe('/?tab=workflows');
+  cleanup();
+  sessionStorage.setItem('row-bot:setup-later:v1', '1');
+  try {
+    show();
+    const region = await screen.findByRole('region', {
+      name: 'Continue setup',
+    });
+    expect(location()).toBe('/');
+    expect(
+      within(region).getByRole('link', { name: 'Choose a model' }),
+    ).toHaveAttribute('href', '/setup');
+    expect(
+      within(region).queryByRole('button', { name: 'Hide setup reminder' }),
+    ).toBeNull();
+    // The reminder lives in Overview, not above the tabs.
+    chooseTab('Workflows');
+    expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull();
+  } finally {
+    sessionStorage.removeItem('row-bot:setup-later:v1');
+  }
+});
+
+const optionalSetup = onboarding({
+  dismissed_home_card: false,
+  steps: [
+    { id: 'models', title: 'Models', description: 'Connect a model.' },
+    { id: 'voice', title: 'Voice', description: 'Configure voice.' },
+  ],
 });
 
 it('hides a saved optional setup reminder on one click', async () => {
-  const setup = {
-    schema_version: 1,
-    revision: 'c'.repeat(64),
-    setup_complete: true,
-    profile: [],
-    completed_steps: ['models'],
-    skipped_steps: [],
-    dismissed_home_card: false,
-    steps: [
-      { id: 'models', title: 'Models', description: 'Connect a model.' },
-      { id: 'voice', title: 'Voice', description: 'Configure voice.' },
-    ],
-    intents: [],
-  };
-  mock.controller.onboarding.mockResolvedValueOnce(setup);
+  mock.controller.onboarding.mockResolvedValueOnce(optionalSetup);
   mock.controller.onboardingCommand.mockResolvedValueOnce({
     schema_version: 1,
     status: 'completed',
-    snapshot: { ...setup, dismissed_home_card: true },
+    snapshot: { ...optionalSetup, dismissed_home_card: true },
   });
+  show();
+  const region = await screen.findByRole('region', { name: 'Continue setup' });
+  expect(
+    within(region).getByRole('link', { name: 'Continue setup' }),
+  ).toHaveAttribute('href', '/setup');
+  fireEvent.click(
+    within(region).getByRole('button', { name: 'Hide setup reminder' }),
+  );
+  expect(mock.controller.onboardingCommand).toHaveBeenCalledTimes(1);
+  expect(mock.controller.onboardingCommand).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'dismiss_home',
+      expected_revision: optionalSetup.revision,
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole('region', { name: 'Continue setup' })).toBeNull(),
+  );
+});
+
+it('keeps the reminder and explains a failed hide', async () => {
+  mock.controller.onboarding.mockResolvedValueOnce(optionalSetup);
+  mock.controller.onboardingCommand.mockRejectedValueOnce(
+    new Error('C:\\Users\\private\\settings.json'),
+  );
   show();
   fireEvent.click(
     await screen.findByRole('button', { name: 'Hide setup reminder' }),
   );
-  expect(mock.controller.onboardingCommand).toHaveBeenCalledWith(
-    expect.objectContaining({
-      action: 'dismiss_home',
-      expected_revision: setup.revision,
-    }),
+  const region = screen.getByRole('region', { name: 'Continue setup' });
+  expect(await within(region).findByRole('status')).toHaveTextContent(
+    'Could not hide the setup reminder. Refresh this page and try again.',
   );
+  expect(document.body.textContent).not.toContain('private');
 });

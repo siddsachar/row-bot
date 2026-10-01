@@ -9,8 +9,8 @@ Usage (called once at import time from ``app.py``)::
     from row_bot.logging_config import setup_file_logging
     setup_file_logging()
 
-Log level for file output is configurable at runtime via
-``set_file_log_level()`` and persisted in ``~/.row-bot/user_config.json``.
+The file log level is read at start-up from ``file_log_level`` in
+``~/.row-bot/user_config.json``.
 """
 
 from __future__ import annotations
@@ -114,39 +114,9 @@ def _load_file_log_level() -> str:
     return "DEBUG"
 
 
-def _save_file_log_level(level: str) -> None:
-    """Persist the file log level to user_config.json."""
-    cfg: dict = {}
-    try:
-        if _CONFIG_PATH.exists():
-            cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    cfg["file_log_level"] = level.upper()
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # RUNTIME API
 # ═════════════════════════════════════════════════════════════════════════════
-
-def set_file_log_level(level: str) -> None:
-    """Change the file handler's log level at runtime and persist it."""
-    numeric = getattr(logging, level.upper(), None)
-    if numeric is None:
-        return
-    if _file_handler is not None:
-        _file_handler.setLevel(numeric)
-    _save_file_log_level(level.upper())
-
-
-def get_file_log_level() -> str:
-    """Return the current file log level as a string."""
-    if _file_handler is not None:
-        return logging.getLevelName(_file_handler.level)
-    return _load_file_log_level()
-
 
 def get_log_dir() -> pathlib.Path:
     """Return the log directory path."""

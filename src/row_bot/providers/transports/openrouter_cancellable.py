@@ -6,10 +6,18 @@ from typing import Any
 
 from langchain_openrouter import ChatOpenRouter
 
+from row_bot.brand import APP_DISPLAY_NAME, APP_WEBSITE_URL
 from row_bot.providers.transports.cancellable_http import (
     cancellable_async_http_client,
     cancellable_http_client,
 )
+
+# OpenRouter credits usage, in its public app rankings, to the app these name:
+# the SDK sends them as the HTTP-Referer and X-OpenRouter-Title headers on every
+# request. They identify Row-Bot, never the user, the account or the request.
+# Every OpenRouter SDK client Row-Bot builds passes them; ChatOpenRouter's own
+# app_url/app_title defaults would credit LangChain instead.
+OPENROUTER_APP_ATTRIBUTION = {"http_referer": APP_WEBSITE_URL, "x_open_router_title": APP_DISPLAY_NAME}
 
 
 class CancellableChatOpenRouter(ChatOpenRouter):
@@ -21,23 +29,13 @@ class CancellableChatOpenRouter(ChatOpenRouter):
 
         client_kwargs: dict[str, Any] = {
             "api_key": self.openrouter_api_key.get_secret_value(),  # type: ignore[union-attr]
+            **OPENROUTER_APP_ATTRIBUTION,
         }
         if self.openrouter_api_base:
             client_kwargs["server_url"] = self.openrouter_api_base
 
-        extra_headers: dict[str, str] = {}
-        if self.app_url:
-            extra_headers["HTTP-Referer"] = self.app_url
-        if self.app_title:
-            extra_headers["X-Title"] = self.app_title
-        if self.app_categories:
-            extra_headers["X-OpenRouter-Categories"] = ",".join(self.app_categories)
-
-        http_kwargs: dict[str, Any] = {"follow_redirects": True}
-        if extra_headers:
-            http_kwargs["headers"] = extra_headers
-        client_kwargs["client"] = cancellable_http_client(**http_kwargs)
-        client_kwargs["async_client"] = cancellable_async_http_client(**http_kwargs)
+        client_kwargs["client"] = cancellable_http_client(follow_redirects=True)
+        client_kwargs["async_client"] = cancellable_async_http_client(follow_redirects=True)
 
         if self.request_timeout is not None:
             client_kwargs["timeout_ms"] = self.request_timeout

@@ -70,13 +70,6 @@ export const panelRegistry = {
     capabilities: ['browser_navigate'],
     compact: 'tab',
   },
-  'native.terminal': {
-    title: 'Interactive terminal',
-    resourceKinds: [],
-    requiresResource: false,
-    capabilities: [],
-    compact: 'tab',
-  },
   'fake.info': {
     title: 'Sample information',
     resourceKinds: [],
@@ -347,6 +340,15 @@ export function closePanel(layout: PanelLayout, id: string): PanelLayout {
         : layout.activePanelId,
   };
 }
+/** Close every panel showing a resource the person just removed (Undo). */
+export function closeResourcePanels(
+  layout: PanelLayout,
+  resourceRef: string,
+): PanelLayout {
+  return layout.panels
+    .filter((panel) => panel.descriptor.resource_ref === resourceRef)
+    .reduce((next, panel) => closePanel(next, panel.instance_id), layout);
+}
 export function closeAllPanels(layout: PanelLayout): PanelLayout {
   return {
     ...layout,
@@ -376,6 +378,14 @@ export function movePanel(
     ),
   };
 }
+/** A newly made design opens with the side region at its widest (U36). */
+export function widenSide(layout: PanelLayout): PanelLayout {
+  const { max } = regionBounds(layout, 'side');
+  return layout.widthClass === 'desktop' && layout.side.size < max
+    ? resizeRegion(layout, 'side', max)
+    : layout;
+}
+
 export function resizeRegion(
   layout: PanelLayout,
   region: 'navigation' | PanelPlacement,
@@ -510,6 +520,8 @@ export function restoreLayout(
             !/^panel-\d{1,15}$/.test(item.instance_id) ||
             ids.has(item.instance_id) ||
             !isPanelDescriptor(item.descriptor) ||
+            // The terminal moved to its own dock (B249).
+            item.descriptor.panel_kind === 'native.terminal' ||
             !['side', 'bottom'].includes(item.placement) ||
             !['visible', 'collapsed'].includes(item.visibility) ||
             (item.presentationKey !== undefined &&

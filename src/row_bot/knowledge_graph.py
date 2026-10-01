@@ -36,7 +36,7 @@ import sqlite3
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -65,7 +65,7 @@ _skip_reindex = False
 
 # PDF extraction and web scraping can introduce lone UTF-16 surrogates
 # (U+D800–U+DFFF) into text.  These are valid in Python str but
-# invalid in strict UTF-8, causing orjson (NiceGUI) to crash on encode.
+# invalid in strict UTF-8, so strict encoders (orjson, file writers) fail on them.
 _SURROGATE_RE = re.compile('[\ud800-\udfff]')
 
 
@@ -178,6 +178,13 @@ VALID_RELATION_TYPES = {
     "extracted_from", "uploaded",
     "builds_on", "cites", "extends", "contradicts",
 }
+
+# Relation labels that say nothing about how two entries relate. Writers
+# refuse them (after normalisation); the entity editor explains why.
+VAGUE_RELATION_TYPES = frozenset({
+    "related_to", "associated_with", "connected_to", "linked_to",
+    "has_relation", "involves", "correlates_with",
+})
 
 # Aliases map common LLM-produced variants to their canonical form.
 # Checked *before* the VALID_RELATION_TYPES warning so normalised types
@@ -688,6 +695,17 @@ def _initialize_projections(conn: sqlite3.Connection, *, lexical: bool) -> None:
             AFTER {operation} ON relations BEGIN
             UPDATE knowledge_projection_state SET revision=revision+1 WHERE singleton=1;
             {work} END""")
+    # Wiki articles are named after their subject: a rename refreshes the
+    # articles that link to it.
+    conn.execute("""CREATE TRIGGER IF NOT EXISTS knowledge_entity_rename
+        AFTER UPDATE OF subject ON entities WHEN OLD.subject IS NOT NEW.subject BEGIN
+        UPDATE knowledge_projection_state SET revision=revision+1 WHERE singleton=1;
+        INSERT INTO knowledge_projection_work(entity_id,revision,semantic_pending,wiki_pending)
+            SELECT CASE WHEN source_id=NEW.id THEN target_id ELSE source_id END,
+                (SELECT revision FROM knowledge_projection_state WHERE singleton=1),0,1
+            FROM relations WHERE source_id=NEW.id OR target_id=NEW.id
+            ON CONFLICT(entity_id) DO UPDATE SET revision=excluded.revision,wiki_pending=1;
+        END""")
     if lexical:
         if fresh:
             conn.execute("DELETE FROM entities_fts")
@@ -1071,8 +1089,8 @@ def _reuse_current_vector_projection(*, cancelled=None) -> bool:
         if (current["revision"] != captured["revision"] or current["generation"] != captured["generation"]
                 or metadata["embedding"] != active_embedding_metadata()):
             return False
-        # Full-row/wiki changes (including recalled_at) keep their own pending
-        # work; only validated complete semantic coverage can be acknowledged.
+        # Full-row/wiki changes keep their own pending work; only validated
+        # complete semantic coverage can be acknowledged.
         conn.execute("UPDATE knowledge_projection_work SET semantic_pending=0 WHERE revision<=?",
                      (captured["revision"],))
         conn.execute("DELETE FROM knowledge_projection_work WHERE semantic_pending=0 AND wiki_pending=0")
@@ -1292,37 +1310,53 @@ def _vector_readiness():
 
 
 def _read_vector_readiness():
+    """Report whether the selected generation covers current knowledge.
+
+    Coverage compares semantic hashes, so only semantic edits leave it
+    pending. Knowledge that changes while it is checked (a relation, a field
+    outside the embedded text, a real edit) gets one more check, which a real
+    semantic edit fails honestly.
+    """
+    for _attempt in range(2):
+        status, loaded, revision = _check_vector_coverage()
+        if revision is None or _projection_state()["revision"] == revision:
+            return status, loaded
+    return {"state": "pending", "ready": False, "detail": "Knowledge changed while vector coverage was checked."}, None
+
+
+def _check_vector_coverage():
+    """One snapshot check; a complete result also returns the revision it saw."""
     from row_bot.embedding_config import active_embedding_metadata
 
-    state = _projection_state()
-    if not state["generation"]:
-        return {"state": "missing", "ready": False, "detail": "The memory vector index needs a complete rebuild."}, None
-    try:
-        metadata, vectors = _load_vector_generation(state)
-    except (OSError, ValueError, TypeError, KeyError):
-        return {"state": "failed", "ready": False, "detail": "The memory vector generation could not be validated."}, None
-    if metadata["embedding"] != active_embedding_metadata():
-        return {"state": "stale", "ready": False, "detail": "The memory vector index does not match the selected embedding model."}, None
-    coverage = dict(zip(metadata["ids"], metadata["source_hashes"]))
-    count = 0
     conn = _get_conn()
     try:
         conn.execute("BEGIN")
-        for batch in _projection_source_batches(conn, 256):
-            for row in batch:
-                entity = dict(row)
-                count += 1
-                if coverage.get(entity["id"]) != _semantic_hash(entity):
-                    return {"state": "pending", "ready": False, "detail": "Saved knowledge has pending semantic projection work."}, None
-    except (KnowledgeProjectionIncomplete, ValueError, TypeError, RecursionError):
-        return {"state": "failed", "ready": False, "detail": "Saved knowledge exceeds safe projection bounds."}, None
+        state = _projection_state(conn)
+        if not state["generation"]:
+            return {"state": "missing", "ready": False, "detail": "The memory vector index needs a complete rebuild."}, None, None
+        try:
+            metadata, vectors = _load_vector_generation(state)
+        except (OSError, ValueError, TypeError, KeyError):
+            return {"state": "failed", "ready": False, "detail": "The memory vector generation could not be validated."}, None, None
+        if metadata["embedding"] != active_embedding_metadata():
+            return {"state": "stale", "ready": False, "detail": "The memory vector index does not match the selected embedding model."}, None, None
+        coverage = dict(zip(metadata["ids"], metadata["source_hashes"]))
+        count = 0
+        try:
+            for batch in _projection_source_batches(conn, 256):
+                for row in batch:
+                    entity = dict(row)
+                    count += 1
+                    if coverage.get(entity["id"]) != _semantic_hash(entity):
+                        return {"state": "pending", "ready": False, "detail": "Saved knowledge has pending semantic projection work."}, None, None
+        except (KnowledgeProjectionIncomplete, ValueError, TypeError, RecursionError):
+            return {"state": "failed", "ready": False, "detail": "Saved knowledge exceeds safe projection bounds."}, None, None
+        if count != len(coverage):
+            return {"state": "pending", "ready": False, "detail": "Knowledge vector coverage does not match current entities."}, None, None
+        return ({"state": "ready", "ready": True, "detail": "The memory vector index completely covers current knowledge."},
+                (metadata, vectors), state["revision"])
     finally:
         conn.close()
-    if count != len(coverage):
-        return {"state": "pending", "ready": False, "detail": "Knowledge vector coverage does not match current entities."}, None
-    if _projection_state()["revision"] != state["revision"]:
-        return {"state": "pending", "ready": False, "detail": "Knowledge changed while vector coverage was checked."}, None
-    return {"state": "ready", "ready": True, "detail": "The memory vector index completely covers current knowledge."}, (metadata, vectors)
 
 
 def memory_vector_status() -> dict[str, object]:
@@ -1559,10 +1593,46 @@ def _init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique
         ON relations(source_id, target_id, relation_type)
     """)
+    # Recall stamps live apart from the saved memory: a recall is not a
+    # knowledge change, so it bumps no revision and queues no projection work.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS knowledge_recall_stamps (
+            entity_id   TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+            recalled_at TEXT NOT NULL
+        )
+    """)
     _initialize_projections(conn, lexical=_ensure_fts(conn))
+    _migrate_recall_stamps(conn)
 
     conn.commit()
     conn.close()
+
+
+def _migrate_recall_stamps(conn: sqlite3.Connection) -> None:
+    """Move ``recalled_at`` out of saved properties into the recall stamps table.
+
+    Earlier versions kept the stamp in ``properties``. Moving it is a one-time
+    saved change per memory (its projections refresh once); later recalls
+    never touch the memory row again.
+    """
+    rows = conn.execute("SELECT id,properties FROM entities WHERE instr(properties,'\"recalled_at\"')").fetchall()
+    moved = 0
+    for row in rows:
+        try:
+            props = json.loads(row["properties"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(props, dict) or "recalled_at" not in props:
+            continue
+        stamp = props.pop("recalled_at")
+        if isinstance(stamp, str) and stamp:
+            conn.execute("""INSERT INTO knowledge_recall_stamps(entity_id,recalled_at) VALUES(?,?)
+                ON CONFLICT(entity_id) DO UPDATE SET recalled_at=MAX(recalled_at,excluded.recalled_at)""",
+                         (row["id"], stamp))
+        conn.execute("UPDATE entities SET properties=? WHERE id=?", (json.dumps(props), row["id"]))
+        moved += 1
+    if moved:
+        logger.info("Moved %d memory recall stamps out of saved properties.", moved)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1652,8 +1722,8 @@ def _scrub_surrogates() -> None:
     """One-time startup cleanup: strip surrogate chars from existing entities.
 
     PDF text extraction can inject lone UTF-16 surrogates into entity text.
-    These are valid Python str but invalid in strict UTF-8, crashing orjson
-    when NiceGUI serialises graph data for the browser.  This scan fixes
+    These are valid Python str but invalid in strict UTF-8, so strict encoders
+    fail when graph data is serialised.  This scan fixes
     existing rows so the data layer is clean going forward.
     """
     conn = _get_conn()
@@ -1774,8 +1844,6 @@ def _entity_text(entity: dict) -> str:
             props = json.loads(props)
         except (json.JSONDecodeError, TypeError):
             props = {}
-    if isinstance(props, dict):
-        props = {key: value for key, value in props.items() if key != "recalled_at"}
     if props:
         parts.append(json.dumps(props, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return " | ".join(p for p in parts if p)
@@ -2571,12 +2639,8 @@ def add_relation(
         return None
 
     # Block vague/meaningless relation types
-    _BANNED_RELATION_TYPES = {
-        "related_to", "associated_with", "connected_to", "linked_to",
-        "has_relation", "involves", "correlates_with",
-    }
     _norm_check = normalize_relation_type(relation_type)
-    if _norm_check in _BANNED_RELATION_TYPES:
+    if _norm_check in VAGUE_RELATION_TYPES:
         logger.debug(
             "Rejected vague relation type '%s': %s → %s",
             relation_type, source_id, target_id,
@@ -2883,48 +2947,6 @@ def get_subgraph(entity_id: str, hops: int = 2) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
-def get_connected_components() -> list[list[str]]:
-    """Return connected components as lists of entity IDs (largest first)."""
-    g = _ensure_graph()
-    undirected = g.to_undirected()
-    components = sorted(nx.connected_components(undirected), key=len, reverse=True)
-    return [list(c) for c in components]
-
-
-def get_graph_stats() -> dict:
-    """Return summary statistics about the knowledge graph."""
-    g = _ensure_graph()
-    conn = _get_conn()
-
-    # Entity type breakdown
-    type_counts = {}
-    for row in conn.execute(
-        "SELECT entity_type, COUNT(*) as cnt FROM entities GROUP BY entity_type"
-    ).fetchall():
-        type_counts[row[0]] = row[1]
-
-    # Relation type breakdown
-    rel_counts = {}
-    for row in conn.execute(
-        "SELECT relation_type, COUNT(*) as cnt FROM relations GROUP BY relation_type"
-    ).fetchall():
-        rel_counts[row[0]] = row[1]
-
-    conn.close()
-
-    components = get_connected_components()
-
-    return {
-        "total_entities": g.number_of_nodes(),
-        "total_relations": g.number_of_edges(),
-        "entity_types": type_counts,
-        "relation_types": rel_counts,
-        "connected_components": len(components),
-        "largest_component": len(components[0]) if components else 0,
-        "isolated_entities": sum(1 for c in components if len(c) == 1),
-    }
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # Mermaid export
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2980,211 +3002,20 @@ def to_mermaid(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# vis-network JSON serialization (used by the UI graph tab)
-# ═════════════════════════════════════════════════════════════════════════════
-
-# Color palette for entity types — muted, readable on dark backgrounds.
-_VIS_TYPE_COLORS: dict[str, str] = {
-    "person":       "#4FC3F7",   # light blue
-    "preference":   "#FFD54F",   # amber
-    "fact":         "#81C784",   # green
-    "event":        "#FF8A65",   # deep orange
-    "place":        "#BA68C8",   # purple
-    "project":      "#4DB6AC",   # teal
-    "organisation": "#A1887F",   # brown
-    "concept":      "#90A4AE",   # blue-grey
-    "skill":        "#F06292",   # pink
-    "media":        "#AED581",   # light green
-    "self_knowledge": "#7E57C2", # deep purple
-}
-_VIS_DEFAULT_COLOR = "#B0BEC5"  # grey fallback
-
-
-def graph_to_vis_json(
-    entity_id: str | None = None,
-    hops: int = 2,
-    max_nodes: int = 500,
-) -> dict:
-    """Serialize the graph (or a subgraph) into vis-network JSON format.
-
-    Parameters
-    ----------
-    entity_id
-        If given, returns the *hops*-hop neighborhood around this entity.
-        If ``None``, returns the full graph (degree-sorted, capped at
-        *max_nodes*).
-    hops
-        Neighborhood radius when *entity_id* is provided.
-    max_nodes
-        Hard cap on node count for the full-graph mode.
-
-    Returns
-    -------
-    dict with keys:
-        ``nodes`` — list of vis-network node objects
-        ``edges`` — list of vis-network edge objects
-        ``center`` — entity_id of the center node (or highest-degree node)
-        ``stats`` — ``{total_entities, total_relations, shown_nodes, shown_edges}``
-    """
-    g = _ensure_graph()
-
-    if entity_id and entity_id in g:
-        # ── Local subgraph mode ──────────────────────────────────────────
-        sub = get_subgraph(entity_id, hops=hops)
-        raw_nodes = sub["nodes"]
-        raw_edges = sub["edges"]
-        center_id = entity_id
-    else:
-        # ── Full graph mode (degree-sorted, capped) ─────────────────────
-        if g.number_of_nodes() == 0:
-            return {
-                "nodes": [], "edges": [], "center": None,
-                "stats": {"total_entities": 0, "total_relations": 0,
-                          "shown_nodes": 0, "shown_edges": 0},
-            }
-        degree_sorted = sorted(
-            g.nodes, key=lambda n: g.degree(n), reverse=True,
-        )[:max_nodes]
-        node_ids = set(degree_sorted)
-
-        raw_nodes = [dict(g.nodes[nid]) for nid in degree_sorted if g.nodes.get(nid)]
-        raw_edges = []
-        for u, v, data in g.edges(data=True):
-            if u in node_ids and v in node_ids:
-                edge = dict(data)
-                edge["source_id"] = u
-                edge["target_id"] = v
-                edge["source_subject"] = g.nodes[u].get("subject", u)
-                edge["target_subject"] = g.nodes[v].get("subject", v)
-                raw_edges.append(edge)
-
-        # Center = "User" entity if present, else highest-degree node
-        center_id = degree_sorted[0]
-        for nid in degree_sorted:
-            subj = g.nodes[nid].get("subject", "")
-            if subj.lower() == "user":
-                center_id = nid
-                break
-
-    # ── Build vis-network nodes ──────────────────────────────────────────
-    # Compute degree range for sizing
-    node_ids_set = {n["id"] for n in raw_nodes}
-    degrees = {n["id"]: g.degree(n["id"]) for n in raw_nodes if n["id"] in g}
-    min_deg = min(degrees.values()) if degrees else 0
-    max_deg = max(degrees.values()) if degrees else 0
-    deg_range = max_deg - min_deg if max_deg > min_deg else 1
-
-    vis_nodes = []
-    for n in raw_nodes:
-        nid = n["id"]
-        etype = n.get("entity_type", "")
-        subject = n.get("subject", "?")
-        color = _VIS_TYPE_COLORS.get(etype, _VIS_DEFAULT_COLOR)
-
-        # Size: 15–40 based on degree
-        deg = degrees.get(nid, 0)
-        size = 15 + int(25 * (deg - min_deg) / deg_range)
-
-        desc = n.get("description", "") or ""
-        aliases = n.get("aliases", "") or ""
-        tags = n.get("tags", "") or ""
-        source = n.get("source", "live") or "live"
-        updated_at = n.get("updated_at", "") or ""
-        props = n.get("properties", "{}")
-        if isinstance(props, str):
-            try:
-                props = json.loads(props or "{}")
-            except (json.JSONDecodeError, TypeError):
-                props = {}
-        props = props if isinstance(props, dict) else {}
-        status = str(props.get("status") or "active").strip().lower()
-        if status not in {"active", "archived", "superseded", "needs_review"}:
-            status = "active"
-        tier = str(props.get("memory_tier") or "").strip().lower()
-        if tier not in {"core", "semantic", "episodic", "resource"}:
-            tier = "resource" if source.startswith("document:") or etype == "media" else "semantic"
-
-        vis_nodes.append({
-            "id": nid,
-            "label": subject,
-            "color": color,
-            "size": size,
-            "font": {"color": "#ECEFF1"},
-            "title": (
-                f"{subject}\n"
-                f"Type: {etype}\n"
-                f"Connections: {deg}"
-                + (f"\n{desc[:120]}" if desc else "")
-            ),
-            # Extra data for the detail card and filtering
-            "_type": etype,
-            "_description": desc,
-            "_aliases": aliases,
-            "_tags": tags,
-            "_degree": deg,
-            "_source": source,
-            "_updated_at": updated_at,
-            "_status": status,
-            "_tier": tier,
-            "_confidence": props.get("confidence"),
-            "_review_reason": props.get("review_reason", ""),
-            "_superseded_by": props.get("superseded_by", ""),
-            "_recalled_at": props.get("recalled_at", ""),
-        })
-
-    # ── Build vis-network edges ──────────────────────────────────────────
-    vis_edges = []
-    for e in raw_edges:
-        src = e.get("source_id", "")
-        tgt = e.get("target_id", "")
-        if src not in node_ids_set or tgt not in node_ids_set:
-            continue
-        rel = e.get("relation_type", "")
-        vis_edges.append({
-            "id": f"{src}__{tgt}__{rel}",
-            "from": src,
-            "to": tgt,
-            "label": rel,
-            "arrows": "to",
-            "color": {"color": "#616161", "highlight": "#FFD54F"},
-        })
-
-    return {
-        "nodes": vis_nodes,
-        "edges": vis_edges,
-        "center": center_id,
-        "stats": {
-            "total_entities": g.number_of_nodes(),
-            "total_relations": g.number_of_edges(),
-            "shown_nodes": len(vis_nodes),
-            "shown_edges": len(vis_edges),
-        },
-    }
-
-
-# ═════════════════════════════════════════════════════════════════════════════
 # Memory decay & recall reinforcement
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _decay_multiplier(entity: dict) -> float:
+def _decay_multiplier(entity: dict, recalled_at: str) -> float:
     """Return a decay factor (0.7–1.0) based on recency of access/update.
 
     Mimics human memory: recently accessed or updated memories stay vivid,
     while unused ones gradually fade.  Recalling a memory refreshes it
-    (the *testing effect*).
+    (the *testing effect*); ``recalled_at`` is its recall stamp.
 
     * Within 7 days  → 1.0 (no decay)
     * 7–90 days      → linear from 1.0 → 0.7
     * 90+ days       → 0.7 (floor — never fully forgotten)
     """
-    props = entity.get("properties", "{}")
-    if isinstance(props, str):
-        try:
-            props = json.loads(props)
-        except (json.JSONDecodeError, TypeError):
-            props = {}
-
-    recalled_at = props.get("recalled_at", "") if isinstance(props, dict) else ""
     updated_at = entity.get("updated_at", "")
 
     # Use the most recent of recalled_at and updated_at
@@ -3207,36 +3038,43 @@ def _decay_multiplier(entity: dict) -> float:
 
 
 def _touch_recalled(entity_ids: list[str]) -> None:
-    """Update ``recalled_at`` in properties for entities just recalled.
+    """Stamp ``recalled_at`` for entities just recalled.
 
     This 'refreshes' memories in the decay system — mimicking how human
-    memory strengthens through recall (the *testing effect*).
+    memory strengthens through recall (the *testing effect*). The stamp is
+    kept apart from the memory, so a recall is not a knowledge change.
     """
     if not entity_ids:
         return
     now = datetime.now().isoformat()
     conn = _get_conn()
-    for eid in entity_ids:
-        row = conn.execute(
-            "SELECT properties FROM entities WHERE id = ?", (eid,)
-        ).fetchone()
-        if row:
-            try:
-                props = json.loads(row[0] or "{}")
-            except (json.JSONDecodeError, TypeError):
-                props = {}
-            props["recalled_at"] = now
-            conn.execute(
-                "UPDATE entities SET properties = ? WHERE id = ?",
-                (json.dumps(props), eid),
-            )
-    conn.commit()
-    conn.close()
+    try:
+        conn.executemany("""INSERT INTO knowledge_recall_stamps(entity_id,recalled_at)
+            SELECT id,? FROM entities WHERE id=?
+            ON CONFLICT(entity_id) DO UPDATE SET recalled_at=excluded.recalled_at""",
+                         ((now, entity_id) for entity_id in entity_ids))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def touch_recalled(entity_ids: list[str]) -> None:
     """Public wrapper for reinforcing memories that were actually used."""
     _touch_recalled(entity_ids)
+
+
+def recall_stamps(entity_ids: Iterable[str] | None = None) -> dict[str, str]:
+    """Return when memories were last recalled, by ID (every stamp when ``entity_ids`` is None)."""
+    conn = _get_conn()
+    try:
+        if entity_ids is None:
+            rows = conn.execute("SELECT entity_id,recalled_at FROM knowledge_recall_stamps").fetchall()
+        else:
+            rows = conn.execute("""SELECT entity_id,recalled_at FROM knowledge_recall_stamps
+                WHERE entity_id IN (SELECT value FROM json_each(?))""", (json.dumps(list(entity_ids)),)).fetchall()
+    finally:
+        conn.close()
+    return {row[0]: row[1] for row in rows}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -3332,7 +3170,7 @@ def _field_keyword_score(entity: dict, query: str) -> tuple[float, str]:
     return 0.0, ""
 
 
-def _keyword_candidate_hits(query: str, limit: int = 20) -> list[dict]:
+def _keyword_candidate_hits(query: str, limit: int, stamps: dict[str, str]) -> list[dict]:
     """Return keyword candidates scored by matched field strength."""
     conn = _get_conn()
     rows = conn.execute("SELECT * FROM entities ORDER BY updated_at DESC").fetchall()
@@ -3344,7 +3182,7 @@ def _keyword_candidate_hits(query: str, limit: int = 20) -> list[dict]:
         lexical_score, matched_field = _field_keyword_score(entity, query)
         if lexical_score <= 0:
             continue
-        decay = _decay_multiplier(entity)
+        decay = _decay_multiplier(entity, stamps.get(entity["id"], ""))
         entity["score"] = round(lexical_score * decay, 4)
         entity["semantic_score"] = 0.0
         entity["lexical_score"] = round(lexical_score, 4)
@@ -3406,6 +3244,7 @@ def _expand_graph_recall_candidates(
     seeds: list[dict],
     *,
     hops: int,
+    stamps: dict[str, str],
 ) -> None:
     if not seeds or hops <= 0:
         return
@@ -3442,7 +3281,7 @@ def _expand_graph_recall_candidates(
             relation_confidence = max(relation_confidences) if relation_confidences else 0.8
             nbr["semantic_score"] = 0.0
             nbr["lexical_score"] = 0.0
-            nbr["decay_multiplier"] = round(_decay_multiplier(nbr), 4)
+            nbr["decay_multiplier"] = round(_decay_multiplier(nbr, stamps.get(nbr["id"], "")), 4)
             nbr["score"] = round(seed.get("score", 0) * 0.5 * relation_confidence, 4)
             nbr["via"] = "graph"
             nbr["relations"] = connecting_rels
@@ -3522,10 +3361,11 @@ def retrieve_memory_candidates(
                 (time.perf_counter() - semantic_started) * 1000
             )
 
+    stamps = recall_stamps()
     decay_floor = threshold * 0.7
     for seed in seeds:
         semantic_score = float(seed.get("score", 0) or 0)
-        decay = _decay_multiplier(seed)
+        decay = _decay_multiplier(seed, stamps.get(seed["id"], ""))
         seed["semantic_score"] = round(semantic_score, 4)
         seed["lexical_score"] = 0.0
         seed["decay_multiplier"] = round(decay, 4)
@@ -3545,7 +3385,7 @@ def retrieve_memory_candidates(
                 field_score, matched_field = _field_keyword_score(entity, query)
                 bm25_score = float(entity.get("bm25_score", 0) or 0)
                 lexical_score = max(field_score, bm25_score * 0.65)
-                decay = _decay_multiplier(entity)
+                decay = _decay_multiplier(entity, stamps.get(entity["id"], ""))
                 entity["semantic_score"] = 0.0
                 entity["field_score"] = round(field_score, 4)
                 entity["lexical_score"] = round(lexical_score, 4)
@@ -3564,7 +3404,7 @@ def retrieve_memory_candidates(
             pass
 
         try:
-            for entity in _keyword_candidate_hits(query, limit=max(10, max_results)):
+            for entity in _keyword_candidate_hits(query, max(10, max_results), stamps):
                 _merge_recall_candidate(result_by_id, entity)
         except Exception:
             pass
@@ -3579,7 +3419,7 @@ def retrieve_memory_candidates(
         key=lambda s: s.get("score", 0),
         reverse=True,
     )[:max(8, top_k)]
-    _expand_graph_recall_candidates(result_by_id, expansion_seeds, hops=hops)
+    _expand_graph_recall_candidates(result_by_id, expansion_seeds, hops=hops, stamps=stamps)
 
     result = sorted(result_by_id.values(), key=lambda m: m.get("score", 0), reverse=True)
     return result[:max_results]

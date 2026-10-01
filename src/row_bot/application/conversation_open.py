@@ -32,4 +32,7 @@ def read_open(service: Any, conversation_id: str, *, limit: int = 100) -> dict:
         result = {"conversation": conversation, "history": history, "workspace": workspace, "draft": draft}
         if len(json.dumps(result, ensure_ascii=False).encode()) > 2 * 1024 * 1024:
             raise ClientPlatformError("payload_too_large")
-        return result
+    from row_bot.memory_extraction import mark_conversation_open
+
+    mark_conversation_open(conversation_id)
+    return result

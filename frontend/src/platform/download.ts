@@ -1,3 +1,4 @@
+import { pywebviewHost } from './host';
 import { protect, unavailable } from './types';
 
 /** Browser save presentation over already authenticated, bounded content. */
@@ -15,6 +16,10 @@ export function saveBrowserDownload(
     [...name].some((char) => char.charCodeAt(0) < 32)
   )
     return Promise.resolve(unavailable('invalid_name'));
+  // pywebview cancels every download, so a desktop window never pretends one
+  // started (B275); callers offer what works there instead.
+  if (pywebviewHost(target))
+    return Promise.resolve(unavailable('desktop_download_unavailable'));
   if (navigator.userActivation && !navigator.userActivation.isActive)
     return Promise.resolve(unavailable('user_gesture_required'));
   return protect(async () => {

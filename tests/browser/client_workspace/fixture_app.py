@@ -18,7 +18,7 @@ from dataclasses import replace
 
 from fastapi import Header, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from nicegui import app
+from row_bot.server import app
 
 from row_bot.application import client_browser_controls as _browser_controls
 from row_bot.tools import registry as _tool_registry
@@ -36,6 +36,18 @@ _voice_fixture = {"transcriptions": 0, "bytes": 0, "syntheses": 0, "credentials"
 _sharing_fixture: list[dict] = []
 _wiki_fixture: dict[str, str] = {}
 _browser_control_fixture: dict[str, dict] = {}
+
+
+def _mount_static() -> None:
+    """Serve /static as the desktop app does (app.py): the Design panel's font
+    picker shows bundled fonts in their own face from /static/fonts."""
+    from starlette.staticfiles import StaticFiles
+    from row_bot.runtime_paths import static_dir
+
+    app.mount("/static", StaticFiles(directory=static_dir()), name="static")
+
+
+_mount_static()
 
 
 class _SyntheticBrowserControlBackend:
@@ -374,20 +386,47 @@ def natural_result(conversation_id: str, x_fixture_token: str = Header(default="
     return result
 
 
+def _natural_final(call: dict, thread: str, final: str, key: str):
+    from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_revision
+    native_id = fixture_id(f"natural:{key}:" + call["generation_id"])
+    append_checkpoint_messages(thread, [AIMessage(id=native_id, content=final)])
+    yield "token", final
+    yield "output_binding", {"native_message_id": native_id,
+        "checkpoint_revision": get_latest_checkpoint_revision(thread)}
+    yield "done", final
+
+
+def _goal_verifier(goal, _context):
+    """A goal's second step completes it; the first asks for one more."""
+    if int(goal.get("turns_used") or 0) >= 2:
+        return {"verdict": "complete", "reason": "Fixture goal: both steps are done."}
+    return {"verdict": "continue", "reason": "Fixture goal: one more step."}
+
+
 def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None):
     """Script real tools/media projection and a durable final behind a barrier."""
-    if "natural code fixture" in text or "natural design fixture" in text:
+    if (text.startswith("[Goal mode started]") or text.startswith("[Goal continuation]")) and "approval" not in text:
+        # One goal step finishes at once; the real goal owner counts it and
+        # the scripted verifier (_goal_verifier) decides what happens next.
+        call = predecessor._record("submit", config, "goal-step")
+        try:
+            yield from _natural_final(call, call["conversation_id"], "Goal step done.", "goal")
+        finally:
+            call["quiesced"] = True
+        return
+    if text.startswith("[Continue in the new code folder]") or text.startswith("[Continue in the new design]"):
+        # The follow-up turn the create_* tool scheduled: the new resource is
+        # bound now, so the real Developer/Designer owners write into it.
         from row_bot import agent
-        from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_revision
         from row_bot.conversation_resources import current_execution_context
-        call = predecessor._record("submit", config, "natural-resource")
+        call = predecessor._record("submit", config, "natural-followup")
         thread = call["conversation_id"]
         agent._set_active_runtime_context(thread_id=thread, runtime_surface="normal_chat",
             approval_mode=config["configurable"]["approval_mode"],
             agent_run_id=config["configurable"].get("agent_run_id", ""))
         context = current_execution_context()
         try:
-            if "natural code fixture" in text:
+            if "code folder" in text.split("\n", 1)[0]:
                 from row_bot.tools.developer_tool import _write_file
                 assert context and context.resolve("workspace")
                 outcome = _write_file("index.html", "<!doctype html><title>Fixture landing</title>")
@@ -399,12 +438,102 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                 outcome = _set_pages([{"title": "Fixture cover", "html": "<!doctype html><html><body><h1>Fixture deck</h1></body></html>"}])
                 assert outcome.startswith("Set 1 pages")
                 final = "Created the synthetic presentation in the bound design."
-            native_id = fixture_id("natural:" + call["generation_id"])
-            append_checkpoint_messages(thread, [AIMessage(id=native_id, content=final)])
-            yield "token", final
-            yield "output_binding", {"native_message_id": native_id,
-                "checkpoint_revision": get_latest_checkpoint_revision(thread)}
-            yield "done", final
+            yield from _natural_final(call, thread, final, "followup")
+        finally:
+            call["quiesced"] = True
+        return
+    if "setup fixture" in text:
+        # The work needs a tool that is off: the setting tool asks through the
+        # standard approval, shown as a "Turn on" card (decision 12).
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "setup-card")
+        thread = call["conversation_id"]
+        identity = f"setup:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        args = {"setting": "tool_toggle", "value": "web_search:on"}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "row_bot_update_setting", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "row_bot_update_setting", "args": args}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "row_bot_update_setting", "label": "Turn on Web Search",
+                                 "description": "Row-Bot needs Web Search for this. You can turn it off "
+                                                "again in Settings › Tools.",
+                                 "args": args, "setup": {"kind": "tool", "label": "Web Search"}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "folder fixture" in text:
+        # The work needs a folder the person has: use_code_folder pauses the
+        # turn on a folder card (B277) where they pick it.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "folder-card")
+        thread = call["conversation_id"]
+        identity = f"folder:{call['generation_id']}"
+        tool_id = fixture_id(identity + ":tool")
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "use_code_folder", "args": {}}])])
+            yield "tool_call", {"tool_call_id": tool_id, "name": "use_code_folder", "args": {}}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"),
+                                 "tool": "use_code_folder", "label": "Use an existing folder",
+                                 "description": "Choose the folder on this computer; Row-Bot adds it and "
+                                                "works only inside it. Its files and Git history stay as they are.",
+                                 "args": {}, "setup": {"kind": "folder", "label": "Use an existing folder",
+                                                       "folders": []}}]
+        finally:
+            call["quiesced"] = True
+        return
+    if "connect fixture" in text:
+        # The work needs an account: request_connection leaves a Connect card.
+        from row_bot.threads import append_checkpoint_messages
+        from row_bot.tools.conversation_setup_tool import request_connection
+        call = predecessor._record("submit", config, "connect-card")
+        thread = call["conversation_id"]
+        identity = f"connect:{call['generation_id']}"
+        tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
+        args = {"service": "google", "reason": "Reading your calendar needs Google."}
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "request_connection", "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message,
+                                "name": "request_connection", "args": args}
+            result = request_connection(**args)
+            append_checkpoint_messages(thread, [ToolMessage(id=tool_message, tool_call_id=tool_id,
+                                                          name="request_connection", content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message,
+                                "name": "request_connection", "args": args, "content": result}
+            yield from _natural_final(call, thread, "Connect Google and I'll read the calendar.", "connect")
+        finally:
+            call["quiesced"] = True
+        return
+    if "natural code fixture" in text or "natural design fixture" in text:
+        # The model decides the work needs a code folder or a design and calls
+        # the real conversation_setup tool; nothing is created from wording.
+        from row_bot import agent
+        from row_bot.threads import append_checkpoint_messages
+        from row_bot.tools.conversation_setup_tool import create_code_folder, create_design
+        call = predecessor._record("submit", config, "natural-resource")
+        thread = call["conversation_id"]
+        agent._set_active_runtime_context(thread_id=thread, runtime_surface="normal_chat",
+            approval_mode=config["configurable"]["approval_mode"],
+            agent_run_id=config["configurable"].get("agent_run_id", ""))
+        code = "natural code fixture" in text
+        name = "create_code_folder" if code else "create_design"
+        args = {"name": "Landing page"} if code else {"design_type": "deck", "name": "Fixture deck"}
+        identity = f"natural:{call['generation_id']}"
+        tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": name, "args": args}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message, "name": name, "args": args}
+            result = create_code_folder(**args) if code else create_design(**args)
+            append_checkpoint_messages(thread, [ToolMessage(id=tool_message, tool_call_id=tool_id,
+                                                          name=name, content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message, "name": name,
+                                "args": args, "content": result}
+            final = ("Setting up a code folder for it." if code else "Setting up a deck for it.")
+            yield from _natural_final(call, thread, final, "reply")
         finally:
             call["quiesced"] = True
         return
@@ -717,6 +846,26 @@ def start_expiry(barrier_id: str, x_fixture_token: str = Header(default="")) -> 
     return {"started": True}
 
 
+_client_security: dict = {}
+
+
+@app.post("/__p4_fixture/sessions/forget")
+def forget_client_sessions(x_fixture_token: str = Header(default="")) -> dict:
+    """Lose every client session and cursor key, as a server restart does."""
+    predecessor._authorize(x_fixture_token)
+    import secrets
+    security = _client_security.get("security")
+    if security is None:
+        raise HTTPException(status_code=503)
+    with security._lock:
+        forgotten = len(security._sessions)
+        security._sessions.clear()
+        security._subscriptions.clear()
+        security._nonces.clear()
+        security._key = secrets.token_bytes(32)
+    return {"forgotten": forgotten}
+
+
 @app.get("/__p3_fixture/conversation/{conversation_id}")
 def conversation_state(conversation_id: str, x_fixture_token: str = Header(default="")) -> dict:
     """Observe only test-owned IDs; credentials and private paths never returned."""
@@ -758,15 +907,27 @@ def _p4_registered_folder(resource_id: str, workspace) -> Path:
     from row_bot.developer.review import scoped_workspace_path
     folder = Path(workspace.path).absolute()
     name = folder.name
-    if name.startswith("Draft-") and name[6:].replace("-", "").isalnum():
-        drafts = scoped_workspace_path(predecessor.DATA / "attachment-workspace" / "Drafts")
-        expected = scoped_workspace_path(drafts, name)
+    drafts = predecessor.DATA / "attachment-workspace" / "Drafts"
+    # Drafts are named from the request ("Code folder", "Tiny date app 2"),
+    # so a local draft is known by where it lives, not by its name.
+    if folder.parent == drafts.absolute():
+        expected = scoped_workspace_path(scoped_workspace_path(drafts), name)
     else:
         expected = _p4_workspace_folder(name)
     if (folder != expected.absolute()
             or storage._workspace_id_for_path(expected) != resource_id):
         raise HTTPException(status_code=404, detail="Unknown synthetic workspace")
     return expected
+
+
+@app.get("/__p4_fixture/workspace-parent")
+def p4_workspace_parent(x_fixture_token: str = Header(default="")) -> dict:
+    """The synthetic parent a spec's stand-in desktop bridge "chooses"."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.developer.review import scoped_workspace_path
+    parent = scoped_workspace_path(predecessor.DATA / "fixture-workspace")
+    parent.mkdir(parents=True, exist_ok=True)
+    return {"path": str(parent)}
 
 
 @app.post("/__p4_fixture/workspace-save-failure/{folder_name}")
@@ -1037,6 +1198,10 @@ def p4_provider_credentials(x_fixture_token: str = Header(default="")) -> dict:
     # Capture mode normally suppresses all secret reads. This explicit fixture
     # uses only the in-memory backend above, including staged-value readback.
     secret_store._docs_capture_active = lambda: False
+    # Provider cards then report the seeded credential through the real status
+    # path instead of the display-only capture cards.
+    from row_bot.providers import live_settings
+    live_settings.docs_capture_fake_provider_status = lambda: False
     for name in auth_store.PROVIDER_API_KEY_ENV.values():
         os.environ.pop(name, None)
     auth_store._session_provider_secrets.clear()
@@ -1247,6 +1412,8 @@ def p4_runtime_installation(x_fixture_token: str = Header(default="")) -> dict:
         destination.write_bytes(data)
     requirements.resolve_managed_runtime_plan = resolve
     requirements._download = download
+    # No system copy, whatever this machine has: the page offers its one Install.
+    requirements.system_runtime_available = lambda runtime_id: False
     return {'calls': list(_installation_fixture)}
 
 
@@ -1625,6 +1792,186 @@ def p4_tools(state: str, x_fixture_token: str = Header(default="")) -> dict:
     return {"state": state, "seeded_tools": count}
 
 
+_reasoning_fixture: dict = {}
+
+
+@app.post("/__p4_fixture/reasoning-default")
+def p4_reasoning_default(x_fixture_token: str = Header(default="")) -> dict:
+    """Restore the one Thinking-capable synthetic model as the saved default.
+
+    Earlier specs may choose another default; this publishes the choice the
+    same way a reviewed save does, without creating or unloading clients.
+    """
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models
+    from row_bot.providers import saved_model_settings
+    if not Path(saved_model_settings.SETTINGS_PATH).resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    reference = _reasoning_fixture.get("model")
+    if not reference:
+        raise HTTPException(status_code=409, detail="Reasoning fixture unavailable")
+    saved_model_settings.update_saved_model_settings(lambda raw: {**raw, "model": reference})
+    models.adopt_saved_default(reference)
+    return {"model_ref": reference}
+
+
+
+# ── Phase 10: first run ─────────────────────────────────────────────────────
+# Setup detects Ollama, tests the chosen model, checks keys and loads provider
+# catalogs. In this disposable server all of that is synthetic: nothing reaches
+# a runtime, a provider or the network, and the real machine's Ollama is never
+# seen (a fixed "not installed" unless a spec says otherwise).
+_p10_state: dict = {"runtime": "not_installed", "models": [], "test": "ok", "backup": None, "active": False}
+_P10_SYNTHETIC_CHAT = ("fixture-chat-1", "fixture-chat-2")
+
+
+def _p10_install_fakes() -> None:
+    from row_bot.application import client_first_run
+    from row_bot.providers import model_catalog_cache as cache
+
+    client_first_run.ollama_running = lambda: _p10_state["runtime"] == "running"
+    client_first_run.ollama_installed = lambda: _p10_state["runtime"] != "not_installed"
+    client_first_run.local_models = lambda: list(_p10_state["models"]) if _p10_state["runtime"] == "running" else []
+
+    def invoke(_reference):
+        if _p10_state["test"] != "ok":
+            raise RuntimeError("synthetic model failed to load")
+        return "ready"
+
+    client_first_run.test_invoker = invoke
+    client_first_run.key_validators = lambda: {
+        # A key the spec marks "refused" is refused; any other synthetic key passes.
+        provider: (lambda key: "refused" not in key)
+        for provider in ("openai", "anthropic", "google", "openrouter", "xai")
+    }
+
+    def refresh(*, reason="manual", force=False, provider_id=None):
+        """Write synthetic rows for the provider instead of contacting it."""
+        snapshot = cache.read_model_catalog_cache()
+        cloud = dict(snapshot.cloud_cache)
+        ollama_rows = list(snapshot.ollama_rows)
+        if provider_id == "ollama":
+            ollama_rows = [
+                {"provider_id": "ollama", "model_id": name, "display_name": name, "installed": True,
+                 "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"],
+                                           "output_modalities": ["text"], "tool_calling": True}}
+                for name in _p10_state["models"]
+            ]
+        elif provider_id:
+            for model_id in _P10_SYNTHETIC_CHAT:
+                cloud[f"model:{provider_id}:{model_id}"] = {
+                    "provider": provider_id, "model_id": model_id, "label": f"Fixture chat {model_id[-1]}",
+                    "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"],
+                                              "output_modalities": ["text"], "tool_calling": True},
+                }
+        updated = cache.CatalogCacheSnapshot(
+            1, snapshot.generated_at + 1, cloud, ollama_rows,
+            {provider_id or "all": {"status": "ok", "count": len(_P10_SYNTHETIC_CHAT)}}, (), "synthetic-browser",
+        )
+        cache.write_model_catalog_cache(updated)
+        return updated
+
+    cache.refresh_model_catalog_cache = refresh
+
+    def start(*, reason="manual", provider_id=None, force=False):
+        refresh(reason=reason, force=force, provider_id=provider_id)
+        return True
+
+    cache.start_model_catalog_refresh_background = start
+    cache.model_catalog_refresh_state = lambda: {
+        "running": False, "last_result": {"ok": True, "provider_id": "", "provider_status": {}},
+    }
+
+    # A real sign-in stores runnable tokens; the synthetic ones are not, so
+    # while a first-run spec runs a signed-in subscription counts as runnable.
+    from row_bot.providers import model_catalog
+
+    statuses = model_catalog._provider_status_by_id
+
+    def first_run_statuses():
+        result = statuses()
+        if _p10_state["active"]:
+            for provider_id in ("codex", "claude_subscription", "xai_oauth"):
+                status = result.get(provider_id)
+                if isinstance(status, dict) and status.get("configured"):
+                    status["runtime_enabled"] = True
+        return result
+
+    model_catalog._provider_status_by_id = first_run_statuses
+
+
+@app.post("/__p10_fixture/first-run/{action}")
+def p10_first_run(action: str, runtime: str = "", models: str = "", test: str = "",
+                  x_fixture_token: str = Header(default="")) -> dict:
+    """fresh: no default model (and not finished); restore: the seeded profile back."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot import models as runtime_models
+    from row_bot.providers import config as provider_config, model_catalog_cache, saved_model_settings
+
+    settings = predecessor.DATA / "model_settings.json"
+    app_config = predecessor.DATA / "app_config.json"
+    # A first run pins its pick and loads catalogs; restore puts both back.
+    kept = {"providers": Path(provider_config.CONFIG_PATH), "catalog": Path(model_catalog_cache.CATALOG_CACHE_PATH)}
+    if not settings.resolve().is_relative_to(predecessor.DATA.resolve()):
+        raise HTTPException(status_code=403, detail="Synthetic data scope required")
+    if runtime:
+        if runtime not in {"not_installed", "installed", "running"}:
+            raise HTTPException(status_code=422, detail="Unknown runtime state")
+        _p10_state["runtime"] = runtime
+        _p10_state["models"] = [name for name in models.split(",") if name]
+    if test:
+        _p10_state["test"] = test
+    if action == "fresh":
+        _p10_state["active"] = True
+        if _p10_state["backup"] is None:
+            _p10_state["backup"] = {
+                "settings": settings.read_text(encoding="utf-8") if settings.exists() else None,
+                "app_config": app_config.read_text(encoding="utf-8") if app_config.exists() else None,
+                **{key: path.read_text(encoding="utf-8") if path.exists() else None for key, path in kept.items()},
+            }
+        saved_model_settings.update_saved_model_settings(
+            lambda raw: {key: value for key, value in raw.items() if key != "model"}, path=settings)
+        runtime_models.adopt_saved_default("")
+        config = json.loads(app_config.read_text(encoding="utf-8")) if app_config.exists() else {}
+        config.update({"setup_complete": False, "onboarding_version": 4,
+                       "onboarding_completed_steps": [], "onboarding_skipped_steps": []})
+        app_config.write_text(json.dumps(config), encoding="utf-8")
+    elif action == "restore":
+        backup = _p10_state["backup"] or {}
+        for path, key in ((settings, "settings"), (app_config, "app_config"), *((p, k) for k, p in kept.items())):
+            if backup.get(key) is not None:
+                path.write_text(backup[key], encoding="utf-8")
+            elif key in kept and path.exists() and backup:
+                path.unlink()
+        restored = json.loads(settings.read_text(encoding="utf-8")).get("model", "") if settings.exists() else ""
+        runtime_models.adopt_saved_default(restored)
+        _p10_state.update(runtime="not_installed", models=[], test="ok", backup=None, active=False)
+    elif action != "runtime":
+        raise HTTPException(status_code=422, detail="Unknown first-run action")
+    return {"action": action, "runtime": _p10_state["runtime"], "models": _p10_state["models"]}
+
+
+def _p17_install_connection_check_fakes() -> None:
+    """Monitor's connection checks (B252) run hourly and on Run diagnosis; in
+    this disposable server they answer from the fixture and never reach a
+    runtime, an account or the internet."""
+    from row_bot import status_checks
+
+    def check_ollama() -> status_checks.CheckResult:
+        running = _p10_state["runtime"] == "running"
+        return status_checks.CheckResult("Ollama", "ok" if running else "inactive",
+                                         "Server reachable" if running else "Server offline", settings_tab="Models")
+
+    def check_github_oauth() -> status_checks.CheckResult:
+        return status_checks.CheckResult("GitHub", "inactive", "Not connected", settings_tab="Accounts")
+
+    def check_network() -> status_checks.CheckResult:
+        return status_checks.CheckResult("Network", "ok", "Connected", settings_tab="System")
+
+    status_checks.check_ollama = check_ollama
+    status_checks.NETWORK_CHECKS = (check_ollama, check_github_oauth, check_network)
+
+
 def main() -> None:
     # Resolve the fixture's already selected isolated Python for child probes.
     os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
@@ -1678,8 +2025,8 @@ def main() -> None:
         return b'v=0\r\nsynthetic-browser-answer'
     client_voice.realtime_provider = lambda: SimpleNamespace(create_client_secret=fixture_credentials, exchange_sdp=fixture_exchange)
 
-    # NiceGUI adds its BaseHTTPMiddleware instances later inside ui.run().
-    # Wrap the completed stack so their own exceptions are observed too.
+    # The middleware stack is built on the first request. Wrap the completed
+    # stack so the middlewares' own exceptions are observed too.
     build_middleware_stack = app.build_middleware_stack
     app.build_middleware_stack = lambda: SyntheticRequestDiagnostics(build_middleware_stack())
 
@@ -1715,6 +2062,7 @@ def main() -> None:
     # Exactly one isolated synthetic model supplies Thinking controls. These
     # fixture capabilities perform no discovery and never reach a provider.
     reasoning_model = model_choice_value(models.get_current_model())
+    _reasoning_fixture["model"] = reasoning_model
     reasoning_provider = (parse_model_ref(reasoning_model) or ("ollama", ""))[0]
     reasoning_caps = reasoning.ReasoningCapabilities(
         supported_efforts=("low", "high"), request_style="ollama" if reasoning_provider == "ollama" else "openai",
@@ -1757,8 +2105,16 @@ def main() -> None:
     from row_bot.application.folder_selections import FolderSelections
 
     client_platform_service.readiness_factory = lambda _: True
+    _p10_install_fakes()
+    _p17_install_connection_check_fakes()
     client_platform_service.stream_factory = stream
     client_platform_service.resume_factory = predecessor.resume
+    from row_bot import goals as goal_owner
+    # Goals verify with a scripted verdict, never a model call.
+    goal_owner._invoke_goal_verifier = _goal_verifier
+    from row_bot.application import conversation_naming
+    # A new conversation keeps its first-words name: its title is never a model call.
+    conversation_naming._ask = lambda model_ref, message, reply: ""
     from row_bot import agent_orchestrator as orchestration
     # The explicit fixture control is the scheduler barrier. Every pass still
     # uses the real owner lease, batch selection, acknowledgement and projection.
@@ -1778,7 +2134,9 @@ def main() -> None:
 
     def install_with_synthetic_picker(*args, **kwargs):
         kwargs["folder_selections"] = FolderSelections(picker=lambda: predecessor.DATA / "fixture-workspace")
-        return install(*args, **kwargs)
+        security = install(*args, **kwargs)
+        _client_security["security"] = security
+        return security
 
     routes.install_client_platform = install_with_synthetic_picker
     problem = routes.problem

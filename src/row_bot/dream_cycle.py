@@ -270,27 +270,38 @@ def _should_dream() -> bool:
         return False
     if not _is_idle():
         return False
+    if not _model_chosen():
+        logger.info("Dream cycle deferred — no model is chosen yet")
+        return False
     if _is_ollama_busy():
         logger.info("Dream cycle deferred — Ollama is busy processing a request")
         return False
     # Never run while any agent generation is in flight — a long dream
     # cycle competes with live requests for LLM bandwidth and can
     # starve the UI.
-    try:
-        from row_bot.ui.state import _active_generations
-        if _active_generations:
-            logger.info(
-                "Dream cycle deferred — %d active generation(s) in flight",
-                len(_active_generations),
-            )
-            return False
-    except Exception:
-        # ui.state import failures should not prevent dreaming
-        pass
+    from row_bot.runtime import executions
+
+    active = executions.generation_registry.active()
+    if active:
+        logger.info(
+            "Dream cycle deferred — %d active generation(s) in flight",
+            len(active),
+        )
+        return False
     return True
 
 
 # ── LLM helper ───────────────────────────────────────────────────────────────
+
+NO_MODEL_SKIP = "Skipped — no model is chosen yet. Choose a model in Row-Bot."
+
+
+def _model_chosen() -> bool:
+    """Nothing is preset (decision 9): Dream Cycle waits for a chosen model."""
+    from row_bot.models import get_current_model
+
+    return bool(str(get_current_model() or "").strip())
+
 
 def _llm_call(prompt: str) -> str:
     """Make a direct LLM call. Returns raw response text."""
@@ -1287,7 +1298,10 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
         result["errors"].append(f"JSON parse error: {exc}")
         return result
 
-    # Store each insight
+    # Store each insight, with the model in use: it may stop applying (B124).
+    from row_bot.models import get_current_model
+
+    model = get_current_model()
     for item in items[:5]:  # Cap at 5 per cycle
         try:
             added = insights.add_insight(
@@ -1301,6 +1315,7 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
                 confidence=float(item.get("confidence", 0.5)),
                 source_cycle=cycle_id,
                 skill_draft=item.get("skill_draft"),
+                found_with_model=model,
             )
             if added:
                 if added.get("_merged"):
@@ -1355,6 +1370,12 @@ def run_dream_cycle(on_status=None) -> dict:
         logger.info("Dream [%s]: %s", cycle_id, msg)
         if on_status:
             on_status(msg)
+
+    if not _model_chosen():
+        _status(NO_MODEL_SKIP)
+        summary["summary"] = NO_MODEL_SKIP
+        summary["duration_s"] = (datetime.now(timezone.utc) - start_time).total_seconds()
+        return summary
 
     # Check minimum entity count
     entity_count = kg.count_entities()

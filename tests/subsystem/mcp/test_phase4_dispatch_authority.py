@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport]
+pytestmark = [pytest.mark.subsystem, pytest.mark.mcp_transport, pytest.mark.platform]
 
 
 @pytest.fixture

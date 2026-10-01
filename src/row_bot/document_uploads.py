@@ -184,7 +184,9 @@ async def _stage_reviewed_upload(service, batch_id, sequence, original_name, str
             name = job.stored_name
             temporary = f".{name}.uploading"
             leaf = temporary if descriptor is not None else directory / temporary
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os,"O_NOFOLLOW",0)
+            # O_BINARY: in text mode Windows writes each \n byte as \r\n.
+            flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os,"O_NOFOLLOW",0)
+                | getattr(os,"O_BINARY",0))
             validate()
             fd = os.open(leaf,flags,0o600,dir_fd=descriptor)
             digest,size = hashlib.sha256(),0

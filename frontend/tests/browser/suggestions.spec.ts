@@ -6,6 +6,7 @@ import {
   type FixtureWindow,
 } from './fixture';
 import { readLayout } from './panel-helpers';
+import { headerAction } from './unified-helpers';
 
 test('an advisory panel waits for explicit open and preserves conversation focus', async ({
   page,
@@ -34,7 +35,14 @@ test('an advisory panel waits for explicit open and preserves conversation focus
       page.getByRole('button', { name: 'Toggle navigation', exact: true }),
     ).toBeFocused();
   }
-  const focus = page.getByRole('button', { name: 'Open panel', exact: true });
+  // Phones keep Open panel inside the header's menu.
+  const focus = page.getByRole('button', {
+    name:
+      testInfo.project.use.viewport!.width < 768
+        ? 'Conversation menu'
+        : 'Open panel',
+    exact: true,
+  });
   await focus.focus();
   await expect(focus).toBeFocused();
   const suggest = () =>
@@ -49,22 +57,36 @@ test('an advisory panel waits for explicit open and preserves conversation focus
         descriptor: { panel_kind: 'fake.info', title: 'QA suggested notes' },
       });
     });
+  const pending = () =>
+    page.evaluate(
+      () =>
+        (window as FixtureWindow).__ROW_BOT_FIXTURE__.controller.getSnapshot()
+          .suggestions.length,
+    );
   await suggest();
-  await expect(
-    page.getByText('Suggested: QA suggested notes', { exact: true }),
-  ).toBeVisible();
+  // An advisory waits in Context: nothing opens and focus stays put.
+  await expect.poll(pending).toBe(1);
   expect((await readLayout(page)).panels).toHaveLength(0);
   await expect(focus).toBeFocused();
-  await page
-    .getByRole('button', { name: 'Dismiss suggestion', exact: true })
+  if (testInfo.project.use.viewport!.width < 1024)
+    await headerAction(page, 'Conversation details');
+  const context = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  await expect(
+    context.getByText('QA suggested notes', { exact: true }),
+  ).toBeVisible();
+  await context
+    .getByRole('button', { name: 'Dismiss QA suggested notes', exact: true })
     .click();
   await expect(
-    page.getByText('Suggested: QA suggested notes', { exact: true }),
+    context.getByText('QA suggested notes', { exact: true }),
   ).toHaveCount(0);
+  expect(await pending()).toBe(0);
   expect((await readLayout(page)).panels).toHaveLength(0);
   await suggest();
-  await page
-    .getByRole('button', { name: 'Open suggested panel', exact: true })
+  await context
+    .getByRole('button', { name: 'Open QA suggested notes', exact: true })
     .click();
   await expect(
     page

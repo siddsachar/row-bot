@@ -18,7 +18,7 @@ from tests.subsystem.client_protocol.test_document_queue_api import isolated_que
 from tests.subsystem.client_protocol.test_protocol_application import _client, service  # noqa: F401
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 BASE = "/api/v1/documents/uploads"
 CONTENT_TYPE = "application/vnd.row-bot.document-upload-v1"
 
@@ -79,6 +79,20 @@ def test_two_file_upload_is_paused_with_exact_bytes_and_original_receipt(service
         receipt = client.get(BASE + "/commands/" + command["command_id"], headers=headers)
         assert receipt.status_code == 200 and receipt.json() == result.json()
         assert "_document_upload" not in result.text and "staged_path" not in result.text
+
+
+def test_upload_keeps_newline_and_control_bytes_exact(service, queue):
+    # Text-mode descriptors on Windows turned each \n into \r\n, so any file
+    # with a newline byte (every PDF) failed staging as "changed".
+    data = b"line\nnext\r\nctrl-z\x1aend\x00\n"
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        _, command = reviewed(client, headers, [{"name": "notes.md", "size_bytes": len(data)}])
+        result = send(client, headers, command, (data,))
+        assert result.status_code == 200, result.text
+        assert result.json()["status"] == "completed", result.text
+        rows = queue.service.list_jobs(batch_id(command))
+        assert [Path(row.staged_path).read_bytes() for row in rows] == [data]
 
 
 def test_review_is_passive_with_no_service_or_body_effects(service, tmp_path, monkeypatch):

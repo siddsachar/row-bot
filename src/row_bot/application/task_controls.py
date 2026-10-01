@@ -180,6 +180,28 @@ def _read_committed(task_id: str) -> TaskEditorSnapshot:
         raise TaskControlError("task_saved_read_unconfirmed", task_id=task_id, committed=True) from exc
 
 
+def _runs_now(fields: TaskEditableFields, *, before: TaskEditableFields | None = None,
+              last_run: str | None = None) -> bool:
+    """Would this save start a one-off whose time has passed (B133)?
+
+    Saving never starts a run. An enabled one-off in the past would fire at
+    once, so it is refused unless it already ran at that time and neither
+    its time nor its switch changed (editing or switching off a finished
+    one-off stays possible, B150).
+    """
+    if not fields.enabled or fields.at is None:
+        return False
+    at = datetime.fromisoformat(fields.at)
+    if at > datetime.now():
+        return False
+    if before is not None and before.enabled and before.at == fields.at and last_run:
+        try:
+            return datetime.fromisoformat(last_run) < at
+        except (TypeError, ValueError):
+            return True
+    return True
+
+
 def create_saved_task(
     fields: TaskEditableFields, *, stable_task_id: str, validate: Callable[[], None],
     record_commit: Callable[[sqlite3.Connection, str], None] | None = None,
@@ -190,6 +212,8 @@ def create_saved_task(
     if not fields.notify_only and not fields.prompts:
         raise TaskControlError("invalid_task_fields")
     validate()
+    if _runs_now(fields) and tasks.get_task(stable_task_id) is None:
+        raise TaskControlError("task_time_passed")
     try:
         tasks.create_task(**_kwargs(fields), task_id=stable_task_id, validate=validate,
                           **({"record_commit": record_commit} if record_commit is not None else {}))
@@ -228,6 +252,8 @@ def update_saved_task(
         raise TaskControlError("task_delivery_review_required", task_id=task_id)
     if not current.advanced and not fields.notify_only and not fields.prompts:
         raise TaskControlError("invalid_task_fields")
+    if _runs_now(fields, before=current.fields, last_run=(tasks.get_task(task_id) or {}).get("last_run")):
+        raise TaskControlError("task_time_passed", task_id=task_id)
     try:
         tasks.update_task(task_id, expected_revision=expected_revision, validate=validate, **_kwargs(fields),
                           **({"record_commit": record_commit} if record_commit is not None else {}))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -65,20 +65,3 @@ def load_voice_runtime_settings() -> VoiceRuntimeSettings:
     except Exception:
         pass
     return VoiceRuntimeSettings()
-
-
-def save_voice_runtime_settings(settings: VoiceRuntimeSettings) -> None:
-    settings_path = _settings_path()
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
-
-
-def update_voice_runtime_settings(**updates: Any) -> VoiceRuntimeSettings:
-    settings = load_voice_runtime_settings()
-    for key, value in updates.items():
-        if hasattr(settings, key):
-            if key == "realtime_voice":
-                value = _coerce_realtime_voice(value)
-            setattr(settings, key, value)
-    save_voice_runtime_settings(settings)
-    return settings

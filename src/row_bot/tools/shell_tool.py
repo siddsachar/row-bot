@@ -37,7 +37,7 @@ from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
-from row_bot.tools.approval_gate import gate_action
+from row_bot.tools.approval_gate import APPROVAL_NOT_NEEDED_SAFE, approval_check, with_approval
 
 logger = logging.getLogger(__name__)
 
@@ -598,9 +598,10 @@ class ShellTool(BaseTool):
                 f"cannot be executed: {command}"
             )
 
+        approval = APPROVAL_NOT_NEEDED_SAFE
         if classification == "needs_approval":
             # Determine execution context for background-audit compatibility.
-            # gate_action() below handles block / approve / allow_all.
+            # approval_check() below handles block / approve / allow_all.
             try:
                 from row_bot.agent import is_background_workflow
 
@@ -608,7 +609,7 @@ class ShellTool(BaseTool):
             except Exception:
                 _is_bg = False
             logger.debug("Shell command approval required; background=%s", _is_bg)
-            blocked = gate_action(
+            blocked, approval = approval_check(
                 {
                     "tool": "run_command",
                     "label": "Run shell command",
@@ -653,7 +654,7 @@ class ShellTool(BaseTool):
             parts.append(output)
         parts.append(f"\n[Exit code: {exit_code} | Duration: {duration}s | cwd: {cwd}]")
 
-        return "\n".join(parts)
+        return with_approval(approval, "\n".join(parts))
 
     def as_langchain_tools(self) -> list:
         """Return ``run_command`` and ``read_terminal`` tools."""

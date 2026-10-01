@@ -12,10 +12,19 @@ export function isCommandReceipt(value: unknown): value is Wire.CommandReceipt {
 
 export type * from '../../../contracts/client-platform/v1/typescript/client';
 
+/** The one thing a person can do about an error (see `api/errors.ts`). */
+export type ErrorAction =
+  | { kind: 'retry' }
+  | { kind: 'reconnect' }
+  | { kind: 'choose_model' }
+  | { kind: 'send_now' }
+  | { kind: 'open_setting'; href: string; label: string };
 export type ClientError = {
   code: string;
   message: string;
   recovery: 'authenticate' | 'update' | 'retry' | 'review' | 'none';
+  /** Absent when the sentence already says what to change. */
+  action?: ErrorAction;
 };
 export type DictationScope = Readonly<{
   conversationId: string;
@@ -47,13 +56,27 @@ export type ClientPanelSuggestion = {
   conversation_revision: string;
   descriptor: PanelDescriptor;
 };
+/** A server conversation listing (`GET /conversations?group=`). */
+export type ConversationListGroup =
+  'all' | 'pinned' | 'artifact' | 'workspace' | 'chat' | 'workflow';
+/**
+ * The sidebar's type filter reads its type's own server listing and cursor
+ * (B239), beside the unfiltered list the rest of the app shares.
+ */
+export type TypedConversationList = {
+  group: Exclude<ConversationListGroup, 'all' | 'pinned'>;
+  rows: Wire.ConversationView[];
+  hasMore: boolean;
+  loading: boolean;
+  error: ClientError | null;
+};
 export type ClientState = {
   status: ClientStatus;
   error: ClientError | null;
   connection: 'none' | 'sse' | 'poll';
   handshake: Omit<Wire.HandshakeView, 'csrf_token'> | null;
   conversations: Wire.ConversationView[];
-  conversationGroup: 'all' | 'pinned' | 'artifact' | 'workspace';
+  typedConversations: TypedConversationList | null;
   hasMoreConversations: boolean;
   loadingConversations: boolean;
   conversationListError: ClientError | null;
@@ -64,6 +87,11 @@ export type ClientState = {
   activity: Wire.EventRecord[];
   history: Wire.TranscriptPage | null;
   historyFocus: string | null;
+  /** Older rows loaded above the live window by scrolling up (newest last). */
+  earlier: Wire.TranscriptRow[];
+  /** Whether history exists before the first loaded row. */
+  earlierAvailable: boolean;
+  loadingEarlier: boolean;
   search: Wire.SearchPage | null;
   searching: boolean;
   draftStatus: 'saved' | 'saving' | 'conflict' | 'failed';
@@ -143,12 +171,54 @@ export interface ClientTransport {
     command: Wire.Command,
     signal?: AbortSignal,
   ): Promise<Wire.BrowserReceipt>;
+  computerUse?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ComputerUseSnapshot>;
+  computerUsePreview?(
+    conversation: string,
+    revision: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ComputerUsePreview>;
+  sendComputerUse?(
+    conversation: string,
+    command: Wire.ComputerUseCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.ComputerUseReceipt>;
   artifactExport?(
     conversation: string,
     binding: string,
     exportId: string,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactExport>;
+  suggestArtifactBrand?(
+    conversation: string,
+    binding: string,
+    body: Wire.ArtifactBrandSuggestionRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactBrandSuggestion>;
+  saveArtifactExport?(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactSavedExport>;
+  revealArtifactExport?(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    body: Wire.ArtifactExportReveal,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactExportRevealResult>;
+  /** Local owner: write a conversation export into Exports (B238). */
+  saveAttachmentExport?(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ExportSaved>;
+  revealExport?(
+    body: Wire.ExportRevealRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactExportRevealResult>;
   artifactDownload?(
     conversation: string,
     binding: string,
@@ -193,6 +263,20 @@ export interface ClientTransport {
     binding: string,
     signal?: AbortSignal,
   ): Promise<Wire.CustomToolSnapshot>;
+  customToolLibrary?(signal?: AbortSignal): Promise<Wire.CustomToolLibrary>;
+  customToolLibraryReceipt?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolLibraryReceipt>;
+  executeCustomToolLibrary?(
+    command: Wire.CustomToolLibraryCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.CustomToolLibraryReceipt>;
+  dataBackup?(signal?: AbortSignal): Promise<Wire.DataBackupState>;
+  executeDataBackup?(
+    command: Wire.DataBackupCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.DataBackupReceipt>;
   insights?(signal?: AbortSignal): Promise<Wire.InsightsSnapshot>;
   insightReceipt?(
     command: string,
@@ -413,6 +497,11 @@ export interface ClientTransport {
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.ClientQueueView>;
+  /** Messages not yet sent or discarded, oldest first, in one page. */
+  waitingMessages?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClientQueueView>;
   messageText?(
     conversation: string,
     message: string,
@@ -574,8 +663,15 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.KnowledgeGraphSnapshot>;
   monitorSnapshot?(signal?: AbortSignal): Promise<Wire.MonitorSnapshot>;
+  attention?(signal?: AbortSignal): Promise<Wire.AttentionSnapshot>;
+  pendingApprovals?(signal?: AbortSignal): Promise<Wire.PendingApprovalPage>;
   monitorLogs?(limit?: number, signal?: AbortSignal): Promise<Wire.MonitorLogs>;
   systemDiagnosis?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
+  systemHealth?(signal?: AbortSignal): Promise<Wire.SystemDiagnosis>;
+  setHourlyConnectionChecks?(
+    enabled: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.SystemDiagnosis>;
   updates?(signal?: AbortSignal): Promise<Wire.UpdateSnapshot>;
   updateCommand?(
     command: Wire.UpdateCommand,
@@ -593,6 +689,7 @@ export interface ClientTransport {
     commandId: string,
     signal?: AbortSignal,
   ): Promise<Wire.UpdateInstallStatus>;
+  migrationSources?(signal?: AbortSignal): Promise<Wire.MigrationSources>;
   scanMigration?(
     request: Wire.MigrationScanRequest,
     signal?: AbortSignal,
@@ -667,6 +764,12 @@ export interface ClientTransport {
     command: Wire.OnboardingCommand,
     signal?: AbortSignal,
   ): Promise<Wire.OnboardingReceipt>;
+  localRuntime?(signal?: AbortSignal): Promise<Wire.LocalRuntimeSnapshot>;
+  testChosenModel?(signal?: AbortSignal): Promise<Wire.ModelTestResult>;
+  checkProviderKey?(
+    body: Wire.ProviderKeyCheckRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.ProviderKeyCheck>;
   browserPreview?(
     conversationId: string,
     revision: string,
@@ -754,6 +857,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.WikiReceipt>;
   channels?(query: string, signal?: AbortSignal): Promise<Wire.ChannelPage>;
+  channelLink?(
+    channel: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ChannelLink>;
   reviewChannel?(
     body: Wire.ChannelActionRequest,
     signal?: AbortSignal,
@@ -870,6 +977,10 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ProfileReceipt>;
   channels?(query: string, signal?: AbortSignal): Promise<Wire.ChannelPage>;
+  channelLink?(
+    channel: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ChannelLink>;
   reviewChannel?(
     body: Wire.ChannelActionRequest,
     signal?: AbortSignal,
@@ -948,6 +1059,11 @@ export interface ClientTransport {
     body: Wire.McpPolicyRequest,
     signal?: AbortSignal,
   ): Promise<Wire.McpPolicyReview>;
+  mcpChat?(signal?: AbortSignal): Promise<Wire.McpChatState>;
+  reviewMcpChat?(
+    body: Wire.McpChatReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpChatReview>;
   mcpRuntime?(
     server: string,
     signal?: AbortSignal,
@@ -1233,10 +1349,19 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactSetupOptions>;
   pickFolder?(signal?: AbortSignal): Promise<Wire.FolderGrantView>;
+  claimFolder?(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.FolderGrantView>;
   artifactShareChannels?(
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<Wire.ArtifactShareChannels>;
+  artifactPublication?(
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactPublication>;
   prepareArtifactShare?(
     conversation: string,
     binding: string,
@@ -1282,6 +1407,12 @@ export interface ClientTransport {
     options: Wire.DesignControlOptions,
     signal?: AbortSignal,
   ): Promise<Wire.DesignControlsState>;
+  designAssetThumbnail?(
+    conversation: string,
+    binding: string,
+    asset: string,
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   designReview?(
     conversation: string,
     binding: string,
@@ -1369,7 +1500,7 @@ export interface ClientTransport {
   listConversations(
     cursor?: string,
     signal?: AbortSignal,
-    group?: ClientState['conversationGroup'],
+    group?: ConversationListGroup,
   ): Promise<Wire.ConversationPage>;
   getConversation(
     id: string,
@@ -1385,12 +1516,21 @@ export interface ClientTransport {
     subscription: string,
     cursor: string,
     signal: AbortSignal,
-  ): AsyncIterable<Wire.EventRecord | Wire.StreamReset>;
+    notices?: Wire.NoticePosition,
+  ): AsyncIterable<
+    Wire.EventRecord | Wire.StreamReset | { notice: Wire.NoticeFrame }
+  >;
   poll(
     subscription: string,
     cursor: string,
     signal?: AbortSignal,
+    notices?: Wire.NoticePosition,
   ): Promise<Wire.EventPage>;
+  /** Background notices and start-up warnings (no conversation stream). */
+  notices?(
+    position?: Wire.NoticePosition,
+    signal?: AbortSignal,
+  ): Promise<Wire.NoticePage>;
   acknowledge(
     subscription: string,
     cursor: string,
@@ -1412,11 +1552,15 @@ export interface ClientTransport {
     conversation: string,
     file: File,
     signal?: AbortSignal,
+    /** Called with the bytes sent so far after each chunk. */
+    progress?: (sent: number) => void,
   ): Promise<Wire.AttachmentView>;
   attachmentMetadata(
     reference: string,
     signal?: AbortSignal,
   ): Promise<Wire.AttachmentView>;
+  /** A PNG of at most 160 px of an image attachment (B232). */
+  attachmentThumbnail?(reference: string, signal?: AbortSignal): Promise<Blob>;
   terminalRead(
     terminal: string,
     cursor: number,

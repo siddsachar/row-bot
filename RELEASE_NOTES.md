@@ -2,6 +2,531 @@
 
 ---
 
+## v5.0.0 - New React App, Conversation-First Workspace & One-Click Fixes
+
+This major release replaces Row-Bot's NiceGUI interface with one React app
+and rebuilds the workspace around the conversation. Designs, code folders,
+goals, delegated agents, approvals and the terminal now live with the
+conversation that uses them; Home opens on an Overview of what needs you; a
+fresh profile asks one question, "How should Row-Bot think?", and never runs
+on a model you didn't choose. Approvals can be answered wherever you are,
+Monitor keeps its checks and offers one fix per problem, phones and other
+computers connect with a self-renewing QR code, and your profile can be backed
+up and restored. Underneath, the server is plain FastAPI run by uvicorn, about
+65,000 lines of NiceGUI-era code are gone, and the test and release pipeline
+runs each genuine test once. Local-first defaults, approval gates and the
+single-owner access model are unchanged. Read **Upgrade Notes And Breaking
+Changes** below before upgrading.
+
+### One App, Rebuilt In React
+
+- **React is the only interface** - the desktop window, browsers, phones,
+  tablets and server mode all open the same React app at `/app-v2/`. `/`
+  redirects there and keeps its query string; a remote browser without a
+  session goes to `/connect` first.
+- **Plain FastAPI server** - the app server is a FastAPI app run by uvicorn,
+  using HTTP and server-sent events only (no WebSockets). Start-up, shutdown
+  and cleanup keep their order, responses are compressed and the event stream
+  is never compressed or buffered. NiceGUI and 16 locked packages left the
+  dependency set.
+- **Background work sees what you are doing** - Dream Cycle, memory
+  extraction, checkpoint and thread cleanup, browser tab eviction and the
+  status tool now see turns running in the app, and sending a message or
+  opening a conversation marks you active, so background jobs wait while you
+  work and never extract from the conversation you have open.
+- **One launcher per data folder** - starting Row-Bot again from a shortcut
+  while it runs brings the running app forward instead of starting a second
+  instance against the same profile.
+- **Reconnects by itself** - after a server restart or a lost connection, open
+  windows reconnect, reopen the conversation and keep unsent drafts, with
+  Reconnect offered instead of a dead end.
+- **Errors that say what to do** - every server error reads as one sentence
+  with at most one fix (Retry, Reconnect, Choose a model, open the exact
+  setting, or Send now); an unexpected one shows its code under Details.
+- **Quiet background notices** - plugin load failures, tunnel start-up
+  failures and token warnings arrive as short floating notices, once per
+  device per start, and start-up warnings are listed in Monitor.
+- **A desktop window that behaves like an app** - native windows get a
+  right-click menu (Cut, Copy, Paste, Select All, never on password fields),
+  message text can be selected and copied, the Windows clipboard keeps accents
+  intact, and exports and downloads use the native Save dialog and land where
+  you chose.
+- **Buddy desktop overlay in React** - the torn-off Buddy is now part of the
+  React app: it follows the selected conversation's turns, drafts and
+  approvals, docks back reliably, keeps its desktop features through long
+  sessions, and places itself correctly on high-DPI and multi-monitor setups.
+  The sidebar Buddy is larger and wears an activity ring.
+
+### A Redesigned Workspace
+
+- **Sidebar** - New chat (Mod+Shift+O) or a new chat with an agent, Home,
+  Agents (favourite profiles start a chat in one click; All agents opens the
+  profile library), and conversations by date with pinning and a type filter
+  (All, Chats, Designs, Code, Workflows) that covers every conversation, not
+  only the most recent pages. Settings and the attention indicator sit in the
+  footer; the collapsed rail keeps every destination as a labelled icon.
+- **Home** - five tabs: Overview, Workflows, Knowledge, Monitor and Insights.
+  Overview greets you with Buddy and an Ask box, then Needs you (approvals,
+  problems and setup, with their fixes in place), Continue where you left off,
+  today's agents and workflow runs, Since yesterday evening, and Learned this
+  week.
+- **Conversation details card** - a floating card beside the chat shows what
+  the conversation is Working on (designs, code folders, the browser), its
+  goal, its outputs and its agents. Below desktop width it opens as a sheet.
+- **A calmer transcript** - a centred reading column with speaker markers
+  (your Buddy's image for Row-Bot, a person icon for you), one activity row
+  per turn ("Used 3 tools · 1 failed") that expands into its steps,
+  highlighted code with Copy and Download, tables that copy as CSV, citations
+  as source chips, link chips, inline PDFs, generated media shown once, and
+  agent runs marked where they start, finish or fail.
+- **One composer field** - paste screenshots, drop files or pick several at
+  once, with limits stated up front (25 MB a file, 32 files, 100 MB a
+  message); attachments show as thumbnails with progress and Retry, and Send
+  waits for uploads still running. `/goal`, `/reasoning`, `/profile` and
+  `/agent` run with their argument, `@` mentions agent profiles, write targets
+  and files, active skills show as chips, and Send turns into Stop.
+- **Messages that wait their turn** - a message sent while Row-Bot works waits
+  in one list above the composer with Send now, Edit and Discard; Stop pauses
+  waiting messages, and nothing is ever sent twice.
+- **Stop keeps what was written** - a stopped reply stays in the conversation
+  with a Stopped marker, also after a reload.
+- **Conversations name themselves** - a new conversation takes its first words
+  at once and a short descriptive name after the first reply.
+- **Command palette (Ctrl+K / ⌘K)** - one search across conversations
+  (including message text), commands, settings and saved workflows. It
+  understands plain intents in any word order ("connect a model", "turn on
+  developer tools", "phone", "connect telegram", "dark mode"), lists settings
+  switches as actions showing their current state with Undo, ranks message
+  matches above scattered letter matches, lists the open design's commands,
+  and Enter runs only a result that matches what you typed.
+- **Library and conversation menus** - each conversation's menu pins,
+  renames, exports as Markdown or PDF in one step, and deletes. The Library
+  lists every conversation with type filters, search and multi-select (Select
+  all, Clear all) to pin, export or delete many at once, with deletion
+  progress shown. Deleting the open conversation keeps the app connected.
+- **Appearance** - bundled Geist type, light and dark themes that follow the
+  operating system until you choose, plus accent colour, density and reduce
+  transparency in Settings › Appearance.
+- **Phones and tablets** - phones get one header per page, a one-line
+  composer, panels as full-screen sheets and 44 px touch targets throughout;
+  tablets keep centred dialogs; Settings keeps its search at every width.
+
+### First Run And Models
+
+- **No preset models** - a fresh profile has no chat, vision, image or video
+  model until you choose one; the built-in `qwen3:14b`, `gemma3:4b`,
+  `gpt-image-1.5` and `veo-3.1` presets are gone. Channels, workflows, Dream
+  Cycle, memory extraction, delegated agents and Buddy's Hatch wait or reply
+  politely until a model is chosen, and removing a provider keeps your saved
+  default (shown as unavailable) instead of falling back to another model.
+- **"How should Row-Bot think?"** - the first run asks one question: On this
+  computer (Ollama detected and re-checked automatically, with install steps
+  for your operating system and your installed models listed), With my
+  subscription (ChatGPT, Claude or Grok with a device code that is checked
+  automatically), With an API key (OpenAI, Anthropic, Google Gemini and
+  OpenRouter first, the rest under More providers; each key is checked before
+  it is saved), or a custom endpoint. The pick becomes your default, a
+  one-message test runs and Home opens; if another assistant's data is found,
+  an import is offered. It replaces the setup wizard.
+- **Setup Center** - the remaining areas live in Setup Center, which counts
+  done and skipped areas separately and reads their real state.
+- **An honest model pill** - the composer's model pill shows a local or cloud
+  glyph, "Chat only", "Choose a model", or "Unavailable" with the reason and
+  Reconnect or Choose another model. It never reads "Ready" for a model that
+  cannot run.
+- **One model list everywhere** - the composer and the Brain, Vision, Image
+  and Video pickers share one grouped, searchable list with billing tags
+  (Subscription, Pay per use, Credits, Local · free), so subscription models
+  such as ChatGPT and Claude subscription models can be chosen as Brain and
+  Vision. Vision defaults to "Same as chat model", and attaching an image to a
+  model that can't see images says so and offers Choose a vision model.
+- **Settings › Models** - rebuilt as plain rows with readable model names,
+  labelled icon buttons and the default model renamed "Brain model".
+- **Voice** - Settings › Voice installs Whisper at the chosen size, showing
+  its download size and source first; Realtime Talk says it is paid per minute
+  through OpenAI.
+- **Custom endpoints** - refusals show inside the dialog, the list stays put
+  while it refreshes, and an endpoint that doesn't answer reads Unavailable
+  instead of waiting forever.
+
+### Doing Things By Conversation
+
+- **Designs and code folders on request** - ask for a deck or an app and the
+  assistant creates the design or a code folder named after the request, then
+  keeps working in it. A card in the transcript offers Open, Rename and Undo.
+  Wording alone never creates or binds anything, and the old keyword-based
+  setup before a turn is gone.
+- **Existing folders and clones** - "use my <name> folder" binds a registered
+  code folder by name, or offers Choose folder when none matches; "clone
+  <address>" shows a clone card, you choose where it goes, and the
+  conversation continues in the new folder. A "Using code folder" card offers
+  Open and Undo, which unbinds the folder and keeps its files. The model never
+  picks a path.
+- **Setup cards** - when work needs a tool that is off, such as web search or
+  Developer tools, the transcript asks "Turn on <tool>?" with Turn on and Not
+  now through the approval-gated settings change; a missing account or channel
+  shows a Connect card that opens its setup. Not now is final for that
+  request.
+- **Goals without a turn limit** - set a goal from the conversation details
+  card or with `/goal`. It starts at once and continues after each turn until
+  it is done, with no turn limit by default and optional turn and time limits.
+  The goal card shows the turn, time running, tokens, the latest progress
+  reason, Pause or Resume, and Stop.
+- **Goals that know when to stop** - a goal pauses with its reason after two
+  turns without progress or when the same step fails three times; it waits
+  out a provider's rate or usage limit and continues when the limit resets
+  (or pauses and says so when the provider gives no time); approvals pause it;
+  a conversation's goal continues after Row-Bot restarts, while a channel goal
+  pauses.
+- **Delegated agents in reach** - every agent appears in the transcript as it
+  starts, finishes or fails, and in the details card's Agents with Stop and
+  Message. An agent's own conversation opens with "Task from the parent
+  conversation" instead of its internal handoff prompt and offers a compact way
+  back to the parent. Agent work interrupted by a restart can be resumed or
+  dismissed.
+
+### Approvals Answered Where You Are
+
+- **One place for every approval** - approvals from workflows, other
+  conversations and delegated agents appear in the attention indicator's list,
+  in Overview's Needs you, as a floating notice and in Buddy, each with
+  Approve and Deny in place. A delegated agent's approval can be answered in
+  its own conversation or in the parent's.
+- **Approvals wait until answered** - approvals no longer expire after 30
+  minutes by default, and each shows how long it has waited. A timeout set
+  explicitly on a workflow step still applies, and while a run waits, the same
+  workflow's next scheduled run is skipped and says so.
+- **Truthful outcomes** - a denied action ends the turn with your answer
+  instead of letting the model try another way, its step reads as skipped
+  rather than spinning, and tool results tell the model whether approval was
+  needed, given or denied. Stop withdraws every approval the turn was waiting
+  on.
+- **Survives restarts** - a pending approval comes back with its card after a
+  restart, and conversations waiting for one are marked in the sidebar.
+  Ctrl+Enter approves only outside text fields.
+
+### Design, Code, Terminal And Computer Use Panels
+
+- **Design panel** - a design opens in its conversation's Design panel: a
+  canvas with a page strip, Edit with an inspector that uses font and logo
+  pickers instead of raw fields, drafting from a brief in one step with
+  "Drafting · …" progress, add and delete pages with Undo, a Size menu (16:9,
+  4:3, 1:1, A4, 9:16 phone) that re-fits every page, full-screen Present,
+  Review with per-issue Fix and "Fix all safe issues", brand colours and fonts
+  "From a website", and Duplicate.
+- **Export and publish** - Export is four format buttons; on this computer one
+  click saves into the workspace's Exports folder with Open and Show in
+  folder. Publish asks once, then Share shows the link with Copy, Open, a QR
+  code drawn locally, and Unpublish.
+- **Developer panel** - a code folder opens in its conversation's Developer
+  panel with a status strip (folder and branch) and Changes, Files, Run and
+  Git tabs; it opens on Changes when there are some and reads the folder
+  afresh each time. Shell operators such as `&&` and `|` are explained before
+  a command is sent, Stop all processes ends everything the folder started,
+  and a missing or signed-out GitHub CLI shows the Connect GitHub card.
+- **Custom tools** - Settings › Tools lists custom tools with add from a
+  folder, Test, on and off, and remove; test commands that need approval use
+  the standard approval card.
+- **Interactive terminal** - in the desktop app, a real terminal docks under
+  the conversation: keystrokes, colours, history, tab completion, Ctrl+C and
+  Stop, a resizable height remembered per device, Ctrl+` to show or hide it,
+  and a full-screen sheet on phones. "Open in your terminal" opens your own
+  terminal app at the code folder without Row-Bot's keys in its environment.
+- **Computer use card** - a Computer Use turn shows "Using your computer" with
+  the app, the latest picture (kept in memory only), Pause to take over,
+  Resume and Stop.
+
+### Workflows
+
+- **Run in one click** - Run starts a workflow at once and the run drawer
+  follows it live until "Run finished"; New workflow opens on the page, like
+  Edit; Overview offers "Run <name> again" for a failed run.
+- **Clearer editor** - "Send results to" is In this app plus a checklist of
+  your configured channels, prefilled from your defaults; agent profile and
+  model pickers; Duplicate (the copy starts switched off, without a
+  schedule); typing `{{` suggests date variables and earlier steps' results;
+  leaving with unsaved changes asks first; a one-off time that has already
+  passed is refused.
+- **Webhook triggers** - the trigger shows its address with Copy and the
+  secret sent as the `X-Row-Bot-Webhook-Secret` header, plus an explicit
+  "Make reachable from the internet" that asks first.
+- **Honest run history** - runs that a previous process left unfinished are
+  settled as stopped at start-up instead of reading "running" for months.
+
+### Knowledge And Memory
+
+- **Knowledge graph** - Home › Knowledge draws the graph with WebGL and lets
+  it settle visibly, shows up to 2,000 memories by default and up to 5,000
+  with Show all, and searches the whole library.
+- **Everything about memories in one place** - status and type filters, the
+  Review queue, bulk select and delete, full details, Add memory and the
+  activity logs moved into Knowledge; Settings › Memory keeps the settings.
+- **Reliable recall with parallel agents** - recalling a memory no longer
+  counts as a change to it, so agents recalling at the same time keep using
+  semantic recall instead of falling back to word search, and recalls no
+  longer rewrite wiki vault files.
+- **Readable wiki vault names** - articles keep readable `<Subject>.md` names
+  under an ownership manifest, so the app only writes or removes articles it
+  created. A renamed memory's article is renamed with it, a clash gets a short
+  suffix instead of overwriting anything, and the vault status reads quickly
+  on large vaults.
+- **Document processing model** - documents are processed with the "Model for
+  documents" chosen beside the queue rather than the last conversation's
+  model.
+- **Clearer relation editing** - vague relation types are refused with an
+  explanation before anything is saved.
+
+### Monitor, Insights And One-Click Fixes
+
+- **Checks that run and are kept** - Monitor's local checks run shortly after
+  start and every 15 minutes; connection checks (Ollama, the Google, X and
+  GitHub sign-ins, and internet reachability) run hourly while "Check
+  connections every hour" is on, and whenever you ask. Results are kept with
+  their time, so tiles no longer fall back to "Not checked".
+- **A fix for every problem** - each warning or failure comes with one fix on
+  Monitor's tiles, its detail drawer, Needs attention and Overview: restart a
+  stopped channel, renew a Google or X sign-in, choose the default model, open
+  the exact Settings row, or check again.
+- **Attention indicator** - a sidebar indicator appears only when something
+  needs you (a problem, an approval or an update) and stays quiet otherwise;
+  an update offer can be put off with Remind me later.
+- **Honest Insights** - review-only proposals offer no Apply, an applied
+  proposal says what it did, and each insight records the model that found it
+  and says when it may be out of date.
+
+### Devices And Remote Access
+
+- **Devices & remote access** - the Settings page that replaces Remote Access.
+  Connect a phone or computer detects the ways in (Tailscale, Same Wi-Fi, or
+  the internet through your public link), shows one QR code backed by a
+  one-time, 10-minute invitation that renews itself, waits for the device and
+  then shows Connected with Rename and how to install Row-Bot on that phone.
+- **Your devices** - each device with "This device", when and where it was
+  last seen in words, Rename, and Sign out, which ends every session of that
+  device.
+- **Advanced** - where Row-Bot listens, one list of allowed addresses applied
+  live, the Tailscale share with Stop sharing, the tunnel provider and token,
+  and one Public line with the address, Copy and Stop.
+- **Sessions renew themselves** - invited devices renew their session in the
+  app and never revive a revoked one. Tailscale's own consent page is linked
+  when it asks, a Serve conflict comes with next steps, and Same Wi-Fi is
+  offered only while Row-Bot listens on the network.
+- **Tunnels never outlive Row-Bot** - tunnels close on every exit, agents a
+  crash left behind are stopped at the next start, agents Row-Bot didn't start
+  are never touched, and Devices & remote access and Monitor report the real
+  tunnel state.
+- **SMS and plugin webhooks through the tunnel** - Twilio messages and plugin
+  webhooks reach Row-Bot through the public link and are checked by their own
+  Twilio signature or webhook secret; every other route still needs a
+  session.
+
+### Connections, Plugins, MCP And Skills
+
+- **One connect sheet** - Telegram, Slack, Discord, SMS, WhatsApp, Google, X,
+  GitHub and plugin setup each use numbered steps with links. Channels add
+  "Send a test message to me" (confirmed, one message to your own account),
+  WhatsApp shows its live QR code and Reset session, a channel that needs a
+  public address opens the tunnel and shows "Reachable at <address>", and X
+  shows its callback address with Copy.
+- **Accounts that agree with Monitor** - one GitHub status shared with
+  Monitor, stored Check results, and Google's short-lived access tokens and
+  X's expiry read correctly.
+- **Reviewed plugin changes** - install, update, prepare and uninstall show a
+  review (version, source, checksum, permissions and disclosures) and run only
+  after you confirm. Marketplace downloads require the index's checksum and
+  verify it, remote index entries download their source archive, plugins that
+  run in their own worker get a reviewed Prepare step, and a plugin that fails
+  to load says so.
+- **MCP servers** - Add a server takes arguments one per line and environment
+  values and headers as masked name and value rows; "Add and connect" saves,
+  tests, accepts tools, turns the server on and connects, stopping at the
+  first step that needs you. Enable in chat is on the MCP page, the Node.js
+  runtime install recovers from an interrupted install, and saved servers
+  connect reliably.
+- **Skills** - public skill search answers quickly (GitHub keyword search uses
+  the browse index, sources are read in parallel and partial results show as
+  they arrive); a skill opens in its own dialog with Install, and new skills
+  are available in chats by default. Skills created or edited in Settings
+  reach the agent without a restart.
+
+### Settings And Your Data
+
+- **Settings regrouped** - six groups (General, Models, Knowledge,
+  Capabilities, Connections, System) with 19 pages and a search over pages
+  and individual rows.
+- **Saved as you go, with Undo** - every field saves at once and shows "Saved
+  · Undo"; the Save and Revert buttons are gone except for typed credentials
+  and editors such as a custom endpoint or MCP server. Unbinding a resource and
+  dismissing an insight can be undone too, and Settings shows times, states
+  and names in words rather than raw dates and ids.
+- **Back up and restore** - Settings › Data › Back up now writes one zip to
+  the workspace's Backups folder, without keys, sign-ins, sessions, caches,
+  logs or runtimes, with webhook secrets and MCP headers and environment
+  values blanked, and lists what to set up again. Restore from backup, in the
+  desktop app, checks the archive (a foreign, newer or unsafe one is refused),
+  applies it at the next start, keeps the current profile aside in
+  `before-restore-<time>` and rolls back if anything fails.
+- **Export conversations** - as Markdown or PDF. The PDF is printed offline in
+  Chromium with scripts off and every request refused, or as a text PDF when
+  Chromium isn't installed.
+- **Import from another assistant** - Hermes Agent and OpenClaw data is found
+  in its usual folder or picked in the desktop app, with Select all and Clear
+  all.
+- **Tidier data folder** - start-up removes temporary and splash files
+  Row-Bot itself left behind, by exact name pattern and age only.
+
+### Reliability, Security And Privacy Fixes
+
+- **Webhook secrets** - compared in constant time; a workflow whose saved
+  secret is empty no longer runs for any caller; the secret can travel in a
+  header instead of the address, while existing `?secret=` addresses keep
+  working and a request carrying two different secrets runs nothing.
+- **No secrets in logs** - MCP server environment values and headers are no
+  longer written to `row_bot.log` in plain text.
+- **Windows credential storage** - when Credential Manager can't store more
+  secrets, keys and sign-ins are saved as Windows-protected (DPAPI) records
+  for your user instead of failing; Row-Bot never falls back to plain text.
+- **Windows upgrades** - the installer replaces the application's source
+  folder, so an upgrade never leaves a removed module behind.
+- **Stopping commands on Windows** - Stop ends workspace commands started from
+  a source checkout instead of leaving them running.
+- **Workflow fixes** - double-encoded characters in new workflows and run
+  titles are fixed, and a past one-off schedule no longer fires on save.
+- **Approval monitor** - an agent approval that timed out no longer locks the
+  database every minute.
+- **Windows file locks** - provider settings, the wiki manifest and the
+  document index retry while Windows briefly holds a file that was just
+  written.
+- **OpenCode Go** - requests no longer fail with "missing x-opencode-session":
+  Row-Bot now names itself and sends the session id OpenCode Go requires on
+  every model route. The id is a private value per conversation, never the
+  conversation's own id. OpenCode Zen requests carry the same headers.
+- **OpenRouter attribution** - OpenRouter requests, from chat and document
+  processing alike, now identify Row-Bot as the app (its website address and
+  name, as OpenRouter asks apps to) instead of LangChain, which lets OpenRouter
+  show Row-Bot in its public app rankings. No user, prompt or account data is
+  added.
+- **Dependency security updates** - anyio 4.14.2 (fixing a critical
+  advisory), soupsieve 2.10, and image-size 2.0.4 in the client toolchain.
+
+### Testing, CI And Release Pipeline
+
+- **One test pass per pull request** - CI runs the deterministic suite once,
+  sharded on Linux, beside static checks, the client checks, a Windows (Python
+  3.13) and macOS platform lane and a Chromium browser smoke, with one
+  `CI / ci-ok` result; slow tests run nightly.
+- **Nightly and weekly runs** - the full suite with slow tests on Linux,
+  Windows and macOS, the browser nightly set at desktop and phone sizes, a
+  Linux package smoke and the docs reference check; installer verification
+  and Firefox and WebKit smokes weekly.
+- **Release gate** - a release refuses a commit without a green `CI / ci-ok`,
+  runs the nightly suite only if that commit has no green nightly run, and
+  each Windows and macOS build install-smokes its own package.
+- **Genuine tests only** - a guard fails any deterministic test that reaches
+  the network, a missing snapshot fails instead of being recorded, the strict
+  app smoke requires `/` to reach the React app, and low-value and
+  bookkeeping tests were removed.
+
+### Documentation And Website
+
+- **Public docs for the new app** - the user guide describes the React app,
+  with screenshots captured from it, and the generated reference pages read
+  the client's settings pages and Home tabs directly.
+- **row-bot.ai** - a redesigned landing page with product demos.
+- **Developer docs** - `AGENTS.md`, `CONTRIBUTING.md`, the architecture,
+  source layout and client platform guides describe the React client, the
+  FastAPI server and the new test lanes.
+
+### Upgrade Notes And Breaking Changes
+
+- **NiceGUI is gone** - the old interface and its routes are removed.
+  `--legacy-ui` and `--client-v2` are deprecated no-ops that log a warning and
+  open the React app. Bookmarks to `/` keep working; addresses that only the
+  old interface served open Home.
+- **Places that moved** - designs and code folders are conversations with a
+  Design or Developer panel (Home's Designer and Developer tabs and the
+  separate studios are gone); the Activity Center is replaced by the
+  attention indicator, Overview's Needs you and the conversation details card;
+  agent profiles live in the sidebar's Agents dialog; Settings › Utilities is
+  now Settings › Tools; Remote Access is Settings › Devices & remote access;
+  Google is under Accounts; migration is under Data; goals are set in the
+  conversation. Old Settings links redirect to the new pages.
+- **Memory editing moved** - the memory list, Review queue and editing are in
+  Home › Knowledge; Settings › Memory keeps memory on and off, extraction,
+  graph health, the wiki vault and Delete all knowledge.
+- **Models after upgrading** - a profile that finished setup on an earlier
+  version keeps the models it was effectively using: the old presets it ran
+  on are written once as its own choices. Values you saved are never changed.
+  A new profile chooses its first model in the first run.
+- **Developer tools turned on once** - the Developer tool was off by default
+  in earlier versions and saved settings kept that default. The first start of
+  5.0.0 turns it on once and says so ("Developer tools are now on · Settings ›
+  Tools"); if you want it off, turn it off again and it stays off. Its actions
+  keep their approval gates.
+- **Wiki vault tidy** - the first sync after upgrading adopts existing
+  articles in place, under the same names, so Obsidian links keep working.
+  Vaults written by pre-release builds with `entity-<hash>.md` names get one
+  readable article per memory, and the hashed copies move to
+  `raw/.row-bot-retired/hashed-names-<date>/`. Nothing is deleted, and
+  hand-edited old articles are left alone and listed for review.
+- **Approvals and goals** - new approvals wait until answered (existing
+  pending approvals keep their expiry); new goals have no turn limit (existing
+  goals keep theirs).
+- **Webhook workflows** - a webhook workflow whose saved secret is empty no
+  longer runs; save its trigger again to generate a secret. Prefer sending the
+  secret in the `X-Row-Bot-Webhook-Secret` header.
+- **Hourly connection checks** - Monitor checks connections hourly by default:
+  Ollama, the Google, X and GitHub sign-ins, and internet reachability (a
+  connection to 1.1.1.1 on port 53). Turning off "Check connections every
+  hour" in Monitor stops them, along with the periodic account sign-in checks.
+- **Plugins** - marketplace plugins without a checksum in their index can no
+  longer be downloaded; a plugin that runs in its own worker and reads "Needs
+  preparing" needs Prepare once.
+- **Reverse proxies** - the app uses no WebSockets; keep the event stream
+  (`/api/v1/events`, `text/event-stream`) unbuffered. The Caddy example drops
+  `stream_close_delay`. The old interface's internal routes (`/_nicegui…`,
+  `/_media/`, `/api/voice/local`, `/api/client-error`) are gone; scripts use
+  the authenticated `/api/v1` API.
+- **Dropped features** - plain-text conversation export (Markdown and PDF
+  remain), Realtime voice diagnostics, the Designer's zero-state quick
+  actions, its separate command palette (⌘K lists design commands) and its
+  references list (the conversation's attachments are the references).
+- **Running from source** - the app serves the built client from
+  `frontend/dist`; build it once with Node.js 24.15 or later and npm 11
+  (`npm ci` then `npm run build` in `frontend/`). Installers and Docker images
+  already contain the built client.
+- **New files in the data folder** - `launcher.lock` (held while Row-Bot runs),
+  `system_health.json` (Monitor's kept checks), backup state, and
+  `before-restore-<time>` folders after a restore.
+
+### Known Issues And Deferred Work
+
+- **Subscription sign-ins will change** - the ChatGPT subscription sign-in
+  will be reworked, and Claude subscription is planned to move to the Claude
+  Agent SDK using your own Claude Code sign-in, in later releases; 5.0.0 keeps
+  the current sign-ins. Image generation through the ChatGPT subscription is
+  not offered, because OpenAI's route for outside apps doesn't support it.
+- **Stop and delegated agents** - stopping a turn doesn't stop the delegated
+  agents that turn started; stop them from the details card's Agents.
+- **No system notification for approvals yet** - a waiting approval shows in
+  the app, as a floating notice and in Buddy, but not as an operating-system
+  notification when the window isn't focused.
+- **Goal cost** - the goal card shows tokens but not cost for pay-per-use
+  models.
+- **Private GitHub clones** - cloning a private repository in conversation
+  with your connected GitHub account comes in a later release.
+- **Buddy Hatch** - Hatch doesn't show its model and number of calls before
+  generating, and a missing image model gives a generic error; both come with
+  the Buddy revamp after this release.
+- **Wiki vault recovery folder** - the vault's recovery folder keeps every
+  retained version and candidate link; there is no pruning yet.
+- **Voice** - Talk shows a generic message for transcription failures such as
+  a missing ffmpeg (Dictate names the problem), and voice mode doesn't speak
+  the combined answer of an agent orchestration.
+- **Smaller items** - renaming a custom endpoint shows it unchecked until its
+  next check, and a workflow run that asks for a second approval after an
+  approved step can read "running" while it waits.
+
 ## v4.9.1 - Optional Computer Use Verification & Calculator Reliability
 
 This patch release builds on v4.9.0 with a focused Computer Use setup fix. A

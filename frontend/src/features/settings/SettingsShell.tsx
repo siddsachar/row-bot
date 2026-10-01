@@ -8,83 +8,107 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
+  ArrowUpCircle,
   Bot,
   Brain,
-  Calculator,
   Cloud,
   Cpu,
+  Database,
   FileText,
+  KeyRound,
   Mic,
+  Palette,
   Plug,
   Puzzle,
   Radio,
+  Search,
   Settings2,
   Shield,
   SlidersHorizontal,
   Sparkles,
-  Target,
   UserRound,
+  UsersRound,
   Wrench,
   X,
 } from 'lucide-react';
-import { Field, Input, Select } from '../../ui/primitives';
-import { searchSettings, settingsGroups, settingsLeaves } from './model';
+import { Field, Input, Kbd } from '../../ui/primitives';
+import {
+  agentProfileLibrary,
+  searchFindsAgentProfiles,
+  searchSettings,
+  searchSettingsRows,
+  settingsGroups,
+  settingsLeaves,
+  settingsRowHref,
+  type SettingsLeaf,
+} from './model';
+import {
+  SettingsHeaderSlot,
+  SettingsStatusSlot,
+  useSettingsAnchor,
+} from './anatomy';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 
-type SettingsLeaf = (typeof settingsLeaves)[number];
 type Icon = ComponentType<{ size?: number; 'aria-hidden'?: boolean }>;
 
 const icons: Record<string, Icon> = {
+  preferences: SlidersHorizontal,
+  appearance: Palette,
+  buddy: Bot,
   providers: Cloud,
   models: Cpu,
   voice: Mic,
   knowledge: Brain,
   documents: FileText,
+  tracker: Activity,
   tools: Wrench,
   skills: Sparkles,
-  mcp: Plug,
   plugins: Puzzle,
+  mcp: Plug,
   accounts: UserRound,
   channels: Radio,
-  buddy: Bot,
-  goals: Target,
-  tracker: Activity,
-  utilities: Calculator,
-  preferences: SlidersHorizontal,
+  profiles: UsersRound,
   system: Shield,
+  access: KeyRound,
+  updates: ArrowUpCircle,
+  data: Database,
 };
 
 const descriptions: Record<string, string> = {
-  providers:
-    'Connect model providers, review credential sources, refresh catalogs, and check provider health. Model pinning and defaults live in the Models tab.',
-  models: 'Choose defaults, input models, and pinned catalogue choices.',
-  knowledge: 'Manage memory, graph health, and stored knowledge.',
-  buddy: 'Tune companion visibility, behaviour, look, and motion.',
-  goals: 'Manage conversation goals and reusable agent profiles.',
-  voice:
-    'Configure Talk, Dictation, Realtime Talk Voice, normal read-aloud, voice models, and diagnostics.',
-  system:
-    'Control local access, command execution, browser automation, tunnels, and logs.',
-  tracker: 'Track recurring activities, habits, symptoms, and health events.',
-  documents:
-    'Upload files, choose embedding engines, rebuild indexes, and manage source material.',
-  tools:
-    'Configure capability loading, retrieval compression, and research tools.',
-  skills: 'Browse, create, enable, pin, audit, and maintain local skills.',
-  accounts:
-    'Connect GitHub, Google, and X accounts without exposing credentials.',
-  channels:
-    'Connect Row-Bot to external messaging platforms. Tunnel credentials live in System.',
-  utilities: 'Lightweight productivity tools available to the assistant.',
-  mcp: 'Configure external MCP servers, runtimes, permissions, and tested tools.',
-  plugins:
-    'Manage installed plugins, provenance, permissions, and configuration.',
-  preferences:
-    'Customize identity, launch behaviour, background intelligence, updates, and migration.',
+  preferences: 'How Row-Bot introduces itself, opens and tidies up overnight.',
+  appearance: 'Theme, accent colour and density on this device.',
+  buddy: 'Your companion’s look, personality and motion.',
+  providers: 'Where Row-Bot’s models come from. Defaults live in Models.',
+  models: 'Which model does each job.',
+  voice: 'Talk, dictation and read-aloud.',
+  knowledge:
+    'Memory, graph health and the wiki vault. Memories live in Knowledge.',
+  documents: 'Files Row-Bot can search and learn from.',
+  tracker: 'Habits, symptoms and health events you track.',
+  tools: 'Search, research and built-in tools the assistant can use.',
+  skills: 'Reusable instructions: installed skills and public ones.',
+  plugins: 'Installed plugins and the plugin marketplace.',
+  mcp: 'Tools from MCP servers, on this computer or online.',
+  accounts: 'Services Row-Bot can use for you. Keys stay in your keychain.',
+  channels: 'Messaging platforms Row-Bot can talk through.',
+  system: 'Where Row-Bot works on this computer, and what it may do there.',
+  access:
+    'Use Row-Bot on a phone or another computer, and see what is signed in.',
+  updates: 'The version you have and how new ones arrive.',
+  data: 'Back up and restore, import from other assistants, and irreversible clean-up.',
 };
 
 export function SettingIcon({ id, size = 18 }: { id: string; size?: number }) {
   const Icon = icons[id] ?? Settings2;
   return <Icon size={size} aria-hidden />;
+}
+
+function typingTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  );
 }
 
 export default function SettingsShell({
@@ -96,105 +120,224 @@ export default function SettingsShell({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const compactControls = useWorkspaceActions()?.compactControls;
   const heading = useRef<HTMLHeadingElement>(null);
-  const [category, setCategory] = useState(leaf.category);
+  const search = useRef<HTMLInputElement>(null);
+  const [content, setContent] = useState<HTMLDivElement | null>(null);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const [statusSlot, setStatusSlot] = useState<HTMLDivElement | null>(null);
   const [query, setQuery] = useState('');
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
+    if (content && !location.hash) content.scrollTop = 0;
+    // Only a new page resets focus and scroll, not a new row anchor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
-  useEffect(() => setCategory(leaf.category), [leaf.category]);
-  const visibleLeaves = query.trim()
-    ? searchSettings(query)
-    : settingsLeaves.filter((item) => item.category === category);
+  useSettingsAnchor(content);
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (
+        event.key !== '/' ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        typingTarget(event.target) ||
+        !search.current
+      )
+        return;
+      event.preventDefault();
+      search.current.focus();
+    };
+    window.addEventListener('keydown', focusSearch);
+    return () => window.removeEventListener('keydown', focusSearch);
+  }, []);
+  const searching = Boolean(query.trim());
+  const pages = searching ? searchSettings(query) : [];
+  const rows = searching ? searchSettingsRows(query) : [];
+  const profileLibrary = searching && searchFindsAgentProfiles(query);
+  const leafLabel = (id: string) =>
+    settingsLeaves.find((item) => item.id === id)?.label ?? id;
   return (
-    <section className="settings-shell" aria-label="Settings">
-      <header className="settings-shell-header">
-        <Settings2 size={20} aria-hidden />
-        <h1>Settings</h1>
-        <Link className="icon-button" to="/" aria-label="Close settings">
-          <X size={18} aria-hidden />
-        </Link>
-      </header>
-      <div className="settings-compact-picker">
-        <Field label="Settings section">
-          <Select
-            value={leaf.id}
-            onChange={(event) =>
-              navigate(`/settings/${encodeURIComponent(event.target.value)}`)
-            }
-          >
-            {settingsLeaves.map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <div className="settings-shell-body">
+    // The frame is a size container, so the shell also compacts when the
+    // settings area is narrow in a wide window (sidebar open, 200% zoom).
+    <div className="settings-shell-frame">
+      <section className="settings-shell" aria-label="Settings">
+        <header
+          className="settings-shell-header"
+          data-compact-controls={compactControls ? 'true' : undefined}
+        >
+          {compactControls?.navigation}
+          <h1>Settings</h1>
+          {compactControls?.commands}
+          <Link className="icon-button" to="/" aria-label="Close settings">
+            <X size={18} aria-hidden />
+          </Link>
+        </header>
+        <div className="settings-compact-picker">
+          <Field label="Settings section">
+            <select
+              className="input select"
+              value={leaf.id}
+              onChange={(event) =>
+                navigate(`/settings/${encodeURIComponent(event.target.value)}`)
+              }
+            >
+              {settingsGroups.map((group) => (
+                <optgroup key={group.id} label={group.label}>
+                  {settingsLeaves
+                    .filter((item) => item.group === group.id)
+                    .map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </Field>
+        </div>
         <nav
           className="settings-side-navigation"
           aria-label="Settings sections"
         >
           <label className="settings-navigation-search">
             <span className="visually-hidden">Find a setting</span>
+            <Search size={14} aria-hidden className="settings-search-icon" />
             <Input
+              ref={search}
               type="search"
-              placeholder="Find a setting"
+              placeholder="Search settings"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          <div
-            className="settings-category-list"
-            role="group"
-            aria-label="Settings categories"
-          >
-            {settingsGroups.map((group) => (
-              <button
-                className="settings-category"
-                type="button"
-                key={group.id}
-                aria-pressed={category === group.label && !query.trim()}
-                onClick={() => {
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query) {
+                  event.preventDefault();
                   setQuery('');
-                  setCategory(group.label);
-                }}
-              >
-                {group.label}
-              </button>
-            ))}
-          </div>
-          <ul aria-label={query.trim() ? 'Matching settings' : category}>
-            {visibleLeaves.map((item) => (
-              <li key={item.id}>
-                <Link
-                  to={item.href}
-                  aria-current={item.id === leaf.id ? 'page' : undefined}
-                >
-                  <SettingIcon id={item.id} />
-                  <span>{item.label}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {visibleLeaves.length === 0 && (
-            <p className="muted settings-no-results">No settings found.</p>
+                }
+              }}
+            />
+            {!query && (
+              <span className="settings-search-kbd" aria-hidden>
+                <Kbd keys="/" />
+              </span>
+            )}
+          </label>
+          {searching ? (
+            <div className="settings-search-results">
+              {pages.length > 0 && (
+                <div className="settings-nav-group">
+                  <span className="settings-nav-label" aria-hidden>
+                    Pages
+                  </span>
+                  <ul aria-label="Matching pages">
+                    {pages.map((item) => (
+                      <li key={item.id}>
+                        <Link
+                          to={item.href}
+                          aria-current={
+                            item.id === leaf.id ? 'page' : undefined
+                          }
+                          onClick={() => setQuery('')}
+                        >
+                          <SettingIcon id={item.id} size={16} />
+                          <span>{item.label}</span>
+                          <small aria-hidden>{item.category}</small>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(rows.length > 0 || profileLibrary) && (
+                <div className="settings-nav-group">
+                  <span className="settings-nav-label" aria-hidden>
+                    Settings
+                  </span>
+                  <ul aria-label="Matching settings">
+                    {rows.map((row) => (
+                      <li key={`${row.leaf}:${row.anchor}`}>
+                        <Link
+                          to={settingsRowHref(row)}
+                          onClick={() => setQuery('')}
+                        >
+                          <SettingIcon id={row.leaf} size={16} />
+                          <span>{row.label}</span>
+                          <small aria-hidden>{leafLabel(row.leaf)}</small>
+                        </Link>
+                      </li>
+                    ))}
+                    {profileLibrary && (
+                      // The sidebar's Agents dialog (B260).
+                      <li>
+                        <Link
+                          to={agentProfileLibrary.href}
+                          onClick={() => setQuery('')}
+                        >
+                          <SettingIcon id="profiles" size={16} />
+                          <span>{agentProfileLibrary.label}</span>
+                          <small aria-hidden>Agents</small>
+                        </Link>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+              {!pages.length && !rows.length && !profileLibrary && (
+                <p className="muted settings-no-results">No settings found.</p>
+              )}
+            </div>
+          ) : (
+            <div className="settings-category-list">
+              {settingsGroups.map((group) => (
+                <div className="settings-nav-group" key={group.id}>
+                  {/* A label, not a heading: group names ("System", "Models")
+                    repeat page titles. The list carries the name. */}
+                  <span className="settings-nav-label" aria-hidden>
+                    {group.label}
+                  </span>
+                  <ul aria-label={group.label}>
+                    {settingsLeaves
+                      .filter((item) => item.group === group.id)
+                      .map((item) => (
+                        <li key={item.id}>
+                          <Link
+                            to={item.href}
+                            aria-current={
+                              item.id === leaf.id ? 'page' : undefined
+                            }
+                          >
+                            <SettingIcon id={item.id} size={16} />
+                            <span>{item.label}</span>
+                          </Link>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
           )}
         </nav>
-        <div className="settings-page-content">
+        <div className="settings-page-content" ref={setContent}>
           <header className="settings-pane-header">
-            <SettingIcon id={leaf.id} size={22} />
-            <div>
+            <span className="settings-pane-icon" aria-hidden>
+              <SettingIcon id={leaf.id} size={18} />
+            </span>
+            <div className="settings-pane-title">
               <h2 ref={heading} tabIndex={-1}>
                 {leaf.label}
               </h2>
               <p>{descriptions[leaf.id]}</p>
+              <div className="settings-pane-status" ref={setStatusSlot} />
             </div>
+            <div className="settings-pane-summary" ref={setSlot} />
           </header>
-          {children}
+          <SettingsHeaderSlot.Provider value={slot}>
+            <SettingsStatusSlot.Provider value={statusSlot}>
+              {children}
+            </SettingsStatusSlot.Provider>
+          </SettingsHeaderSlot.Provider>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

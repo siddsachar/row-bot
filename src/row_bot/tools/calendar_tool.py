@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.account_token_checks import record_token_check
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools import registry
 from row_bot.tools.base import BaseTool
@@ -132,7 +133,16 @@ def _load_google_credentials(token_path: str) -> Any:
 
 
 def _check_google_token(token_path: str) -> tuple[str, str]:
-    """Probe a Google OAuth token and attempt a concurrency-safe silent refresh."""
+    """Probe a Google OAuth token and attempt a concurrency-safe silent refresh.
+
+    Settings › Accounts reports the verdict (B263).
+    """
+    result = _probe_google_token(token_path)
+    record_token_check(token_path, result[0])
+    return result
+
+
+def _probe_google_token(token_path: str) -> tuple[str, str]:
     if not os.path.isfile(token_path):
         return ("missing", "No token file found")
     try:

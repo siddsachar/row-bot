@@ -21,7 +21,7 @@ const mock = vi.hoisted(() => ({
     library: vi.fn(),
     selectConversation: vi.fn(),
   },
-  platform: { selectFolder: vi.fn() },
+  platform: { selectFolder: vi.fn(), discover: vi.fn() },
   navigate: vi.fn(),
   routeKey: 'opening-route',
   selectionVersion: 1,
@@ -61,7 +61,7 @@ it('keeps an admitting result reconcilable and never offers a duplicate create',
     view();
   });
   expect(
-    screen.getByRole('button', { name: 'Check setup receipt' }),
+    screen.getByRole('button', { name: 'Check setup' }),
   ).toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: 'Create Deck' }),
@@ -128,9 +128,7 @@ it('never restores an opaque folder grant after reopening with a new handshake',
     rendered = view();
   });
   await act(async () => {
-    fireEvent.change(screen.getByLabelText('Resource type'), {
-      target: { value: 'workspace' },
-    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Code folder' }));
   });
   await act(async () => {
     fireEvent.change(screen.getByLabelText('Folder setup'), {
@@ -170,9 +168,19 @@ function view(
     </MemoryRouter>,
   );
 }
+const discovered = (kind: 'pywebview' | 'browser') => ({
+  status: 'ok' as const,
+  value: {
+    kind,
+    platform:
+      kind === 'pywebview' ? ('windows' as const) : ('browser' as const),
+    capabilities: kind === 'pywebview' ? ['select_folder'] : [],
+  },
+});
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  mock.platform.discover.mockResolvedValue(discovered('pywebview'));
   mock.handshake.instance_id = crypto.randomUUID();
   mock.routeKey = 'opening-route';
   mock.selectionVersion = 1;
@@ -268,6 +276,30 @@ it.each([
     expect(mock.controller.intent.mock.calls[0][2]).not.toHaveProperty('deck');
   },
 );
+
+it('says the desktop app is reconnecting, not that it needs the desktop window (B231)', async () => {
+  mock.platform.selectFolder.mockResolvedValue({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
+  });
+  await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Folder setup'), {
+      target: { value: 'empty_folder' },
+    }),
+  );
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Choose parent folder' }),
+    ),
+  );
+  expect(
+    screen.getByText(
+      'Desktop features are reconnecting. Try again in a moment.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/requires the local desktop window/)).toBeNull();
+});
 
 it('requires an explicit name and parent before creating one empty workspace', async () => {
   mock.platform.selectFolder.mockResolvedValue({
@@ -524,6 +556,79 @@ it('creates a configured draft through one receipt-backed setup command', async 
   );
 });
 
+it('names a new draft from the request, or leaves the name to Row-Bot', async () => {
+  await act(async () =>
+    view('conversation-a', { kind: 'workspace', mode: 'create' }),
+  );
+  const field = screen.getByRole('textbox', { name: 'Name (optional)' });
+  expect(field).toHaveAttribute('placeholder', 'Tiny date app');
+  expect(field).toHaveAttribute('maxlength', '120');
+  fireEvent.change(field, { target: { value: '  Tiny date app  ' } });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create draft code folder' }),
+    ),
+  );
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'resource.setup',
+    {
+      kind: 'workspace',
+      intent: 'create',
+      draft_workspace: true,
+      draft_name: 'Tiny date app',
+    },
+    expect.any(String),
+    expect.any(String),
+  );
+});
+
+const FOLDER_PICKS = ['existing_folder', 'empty_folder', 'clone_repository'];
+const DESKTOP_NOTE =
+  'Choosing a folder on this computer needs the Row-Bot desktop app. In the browser, start a new draft or ask Row-Bot in the chat.';
+
+it('says before any pick that folders on this computer need the desktop app', async () => {
+  mock.platform.discover.mockResolvedValue(discovered('browser'));
+  setupSessions.update(setupSessions.scope(mock.handshake.instance_id, null), {
+    kind: 'workspace',
+    workspaceMode: 'existing_folder',
+  });
+  await act(async () => view(null));
+  const setup = screen.getByRole('combobox', { name: 'Folder setup' });
+  // A saved choice that needs a pick falls back to a new draft.
+  expect(setup).toHaveValue('draft_folder');
+  for (const value of FOLDER_PICKS)
+    expect(
+      setup.querySelector(`option[value="${value}"]`) as HTMLOptionElement,
+    ).toBeDisabled();
+  expect(screen.getByText(DESKTOP_NOTE)).toBeVisible();
+  expect(setup).toHaveAccessibleDescription(DESKTOP_NOTE);
+  expect(
+    screen.queryByRole('button', { name: /Choose (existing|parent) folder/ }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Create draft code folder' }),
+  ).toBeEnabled();
+  expect(mock.platform.selectFolder).not.toHaveBeenCalled();
+});
+
+it('keeps every folder setup in the desktop app', async () => {
+  await act(async () =>
+    view('conversation-a', { kind: 'workspace', mode: 'create' }),
+  );
+  const setup = screen.getByRole('combobox', { name: 'Folder setup' });
+  for (const value of FOLDER_PICKS)
+    expect(
+      setup.querySelector(`option[value="${value}"]`) as HTMLOptionElement,
+    ).toBeEnabled();
+  expect(screen.queryByText(DESKTOP_NOTE)).not.toBeInTheDocument();
+  fireEvent.change(setup, { target: { value: 'existing_folder' } });
+  expect(setup).toHaveValue('existing_folder');
+  expect(
+    screen.getByRole('button', { name: 'Choose existing folder' }),
+  ).toBeEnabled();
+});
+
 it('protects an unresolved setup receipt from a new Home starter', async () => {
   const scope = setupSessions.scope(mock.handshake.instance_id, null);
   setupSessions.reserve(scope, 'pending-before-home');
@@ -534,7 +639,9 @@ it('protects an unresolved setup receipt from a new Home starter', async () => {
   await act(async () => view(null, { kind: 'workspace', mode: 'create' }));
   expect(setupSessions.read(scope).commandId).toBe('pending-before-home');
   expect(setupSessions.read(scope).kind).toBe('artifact');
-  expect(screen.getByText(/Review the earlier setup receipt/)).toBeVisible();
+  expect(
+    screen.getByText(/Check the earlier setup before starting another/),
+  ).toBeVisible();
   expect(mock.controller.intent).not.toHaveBeenCalled();
 });
 
@@ -627,7 +734,7 @@ it('reopens a lost setup response through its saved receipt without recreating t
   ).toBeInTheDocument();
 });
 
-it('shows actual controls and target before one explicit generation and keeps its receipt separate', async () => {
+it('creates a design and starts its first draft in one step (U35)', async () => {
   let rendered!: ReturnType<typeof view>;
   await act(async () => {
     rendered = view();
@@ -635,25 +742,25 @@ it('shows actual controls and target before one explicit generation and keeps it
   fireEvent.change(screen.getByLabelText('Brief (optional)'), {
     target: { value: 'First draft brief' },
   });
-  fireEvent.click(screen.getByRole('switch', { name: 'Generate first draft' }));
+  // A brief means "draft it now" unless switched off.
+  expect(screen.getByRole('switch', { name: 'Draft it now' })).toBeChecked();
+  mock.controller.intent
+    .mockImplementationOnce(async (_target, _kind, _payload, _revision, id) =>
+      result(id),
+    )
+    .mockImplementationOnce(
+      async (_target, _kind, _payload, _revision, id) => ({
+        command_id: id,
+        status: 'accepted',
+      }),
+    );
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
   });
-  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
-  expect(mock.controller.intent.mock.calls[0][1]).toBe('resource.setup');
-  mock.controller.intent.mockImplementation(
-    async (_target, _kind, _payload, _revision, id) => ({
-      command_id: id,
-      status: 'accepted',
-    }),
-  );
-  await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Generate first draft' }),
-    );
-  });
-  expect(mock.controller.workspaceFor).toHaveBeenCalledWith('conversation-a');
   expect(mock.controller.intent).toHaveBeenCalledTimes(2);
+  expect(mock.controller.intent.mock.calls[0][1]).toBe('resource.setup');
+  expect(mock.controller.intent.mock.calls[1][1]).toBe('conversation.submit');
+  expect(mock.controller.workspaceFor).toHaveBeenCalledWith('conversation-a');
   expect(mock.controller.intent.mock.calls[1][2]).toMatchObject({
     text: 'First draft brief',
     model_selection: { model_ref: 'fixture::shown-model' },
@@ -665,6 +772,8 @@ it('shows actual controls and target before one explicit generation and keeps it
       },
     ],
   });
+  // The dialog closes: the panel shows the draft being written.
+  expect(mock.overlay.close).toHaveBeenCalled();
   const key = setupSessions.scope(mock.handshake.instance_id, 'conversation-a'),
     saved = setupSessions.read(key);
   expect(saved.receipt?.resource_id).toBe('deck-a');
@@ -680,6 +789,43 @@ it('shows actual controls and target before one explicit generation and keeps it
   expect(
     screen.queryByRole('button', { name: 'Generate first draft' }),
   ).not.toBeInTheDocument();
+});
+
+it('creates without drafting when Draft it now is off', async () => {
+  await act(async () => {
+    view();
+  });
+  fireEvent.change(screen.getByLabelText('Brief (optional)'), {
+    target: { value: 'A brief for later' },
+  });
+  fireEvent.click(screen.getByRole('switch', { name: 'Draft it now' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
+  });
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.overlay.close).not.toHaveBeenCalled();
+});
+
+it('keeps the dialog, with the reason, when no model is ready to draft', async () => {
+  const ready = await mock.controller.workspaceFor('conversation-a');
+  mock.controller.workspaceFor.mockResolvedValue({
+    ...ready,
+    controls: { ...ready.controls, model_selection: null },
+  });
+  await act(async () => {
+    view();
+  });
+  fireEvent.change(screen.getByLabelText('Brief (optional)'), {
+    target: { value: 'First draft brief' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Create Deck' }));
+  });
+  expect(mock.controller.intent).toHaveBeenCalledTimes(1);
+  expect(mock.overlay.close).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('region', { name: 'First draft generation' }),
+  ).toBeInTheDocument();
 });
 
 it.each([null, 'conversation-a'])(
@@ -710,9 +856,7 @@ it.each([null, 'conversation-a'])(
       view(conversationId);
     });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Choose resource'), {
-        target: { value: 'existing' },
-      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Open saved' }));
     });
     const first = screen.getByRole('button', {
       name: 'Untitled Deck Resource ID: deck-identical-prefix-first',
@@ -983,9 +1127,7 @@ it('recovers a lost separate-history response on remount without creating anothe
     fireEvent.click(newWorkspaceButton());
   });
   const id = mock.controller.intent.mock.calls[0][4];
-  expect(
-    screen.getByRole('button', { name: 'Check setup receipt' }),
-  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Check setup' })).toBeVisible();
   rendered.unmount();
   mock.controller.receipt.mockResolvedValue(newWorkspaceConversation(id));
   await act(async () => {
@@ -1148,9 +1290,7 @@ it.each(['success', 'failure'] as const)(
     const held = holdResourcePage();
     expect(held.signal.aborted).toBe(false);
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Choose resource'), {
-        target: { value: 'create' },
-      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Create new' }));
     });
     expect(held.signal.aborted).toBe(true);
     mock.controller.library.mockResolvedValue({
@@ -1158,9 +1298,7 @@ it.each(['success', 'failure'] as const)(
       next_cursor: null,
     });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('Choose resource'), {
-        target: { value: 'existing' },
-      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Open saved' }));
     });
     fireEvent.click(
       screen.getByRole('button', {
@@ -1230,5 +1368,117 @@ it('keeps the latest continuation when an earlier request completes out of order
   expect(screen.queryByText('Obsolete page choice')).not.toBeInTheDocument();
   expect(
     screen.queryByRole('button', { name: 'More saved resources' }),
+  ).not.toBeInTheDocument();
+});
+
+const removeSaved = () =>
+  screen.getByRole('button', {
+    name: 'Remove Saved workspace from this list',
+  });
+
+it('removes a saved code folder from the list and puts it back with Undo', async () => {
+  await savedWorkspaceView();
+  expect(screen.getByRole('button', { name: 'Open resource' })).toBeEnabled();
+  mock.controller.intent.mockImplementation(
+    async (_target, _kind, _payload, _revision, id) => ({
+      command_id: id,
+      status: 'completed',
+      resource_id: savedWorkspace.resource_id,
+      resource_kind: 'workspace',
+      resource_revision: 'revision-after-remove',
+    }),
+  );
+  mock.controller.library.mockResolvedValue({ items: [], next_cursor: null });
+  await act(async () => fireEvent.click(removeSaved()));
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    null,
+    'resource.forget',
+    {
+      kind: 'workspace',
+      resource_id: 'workspace-saved',
+      expected_resource_revision: 'workspace-revision',
+    },
+    '0',
+    expect.any(String),
+  );
+  expect(screen.getByRole('status')).toHaveTextContent(
+    'Removed Saved workspace from the list',
+  );
+  expect(
+    screen.queryByRole('button', {
+      name: 'Saved workspace Resource ID: workspace-saved',
+    }),
+  ).not.toBeInTheDocument();
+  // The removed choice is no longer selected.
+  expect(screen.getByRole('button', { name: 'Open resource' })).toBeDisabled();
+
+  mock.controller.library.mockResolvedValue({
+    items: [savedWorkspace],
+    next_cursor: null,
+  });
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' })),
+  );
+  expect(mock.controller.intent).toHaveBeenLastCalledWith(
+    null,
+    'resource.forget',
+    {
+      kind: 'workspace',
+      resource_id: 'workspace-saved',
+      expected_resource_revision: 'revision-after-remove',
+      restore: true,
+    },
+    '0',
+    expect.any(String),
+  );
+  expect(
+    screen.queryByText('Removed Saved workspace from the list'),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', {
+      name: 'Saved workspace Resource ID: workspace-saved',
+    }),
+  ).toBeVisible();
+});
+
+it('says why a saved code folder could not be removed', async () => {
+  await savedWorkspaceView();
+  mock.controller.intent.mockRejectedValue({
+    code: 'resource_revision_conflict',
+  });
+  await act(async () => fireEvent.click(removeSaved()));
+  expect(screen.getByRole('alert')).toBeVisible();
+  expect(screen.queryByText(/from the list/)).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', {
+      name: 'Saved workspace Resource ID: workspace-saved',
+    }),
+  ).toBeVisible();
+});
+
+it('offers removal only for saved code folders', async () => {
+  setupSessions.update(setupSessions.scope(mock.handshake.instance_id, null), {
+    kind: 'artifact',
+    mode: 'existing',
+  });
+  mock.controller.library.mockResolvedValue({
+    items: [
+      {
+        resource_id: 'saved-deck',
+        kind: 'artifact',
+        name: 'Saved Deck',
+        revision: 'deck-revision',
+        origin_status: 'available',
+        available: true,
+      },
+    ],
+    next_cursor: null,
+  });
+  await act(async () => view(null));
+  expect(
+    screen.getByRole('button', { name: 'Saved Deck Resource ID: saved-deck' }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: /^Remove / }),
   ).not.toBeInTheDocument();
 });

@@ -1,13 +1,12 @@
 # Client platform service boundary
 
-The launcher opens the React application at `/app-v2/` by default. The retained
-NiceGUI compatibility application stays mounted at `/` and is available through
-the explicit `--legacy-ui` launch choice. Both clients and the authenticated
-`/api/v1` transport use the same application services, execution registry,
+The launcher opens the React application at `/app-v2/`, the only client; `/`
+redirects there. The React client uses the authenticated `/api/v1` transport,
+which sits on the existing application services, execution registry,
 checkpoint store and resource bindings. This boundary does not start a separate
 daemon or copy transcripts into a new database.
 See [frontend development](../frontend/README.md),
-[dual hosting](CLIENT_PLATFORM_HOSTING.md), and
+[hosting](CLIENT_PLATFORM_HOSTING.md), and
 [the shared product system](CLIENT_PLATFORM_PRODUCT_SYSTEM.md).
 
 ## Ownership
@@ -27,8 +26,7 @@ See [frontend development](../frontend/README.md),
 | Execution attachment caches | `application.attachment_context`; scoped around admitted producer work |
 | Generated media publication | `application.generated_media`; exact tool-call results and existing media storage |
 | Existing message-shape conversion | `message_projection`; pure shared converter with legacy helper exports |
-| Page elements and renderer recovery | `ui.legacy_adapter` and existing NiceGUI rendering |
-| Inspector snapshot collection | `developer.inspector_snapshot`, using asyncio without NiceGUI scheduling |
+| Inspector snapshot collection | `developer.inspector_snapshot`, using asyncio |
 
 Module paths are relative to `row_bot`. Workflow approvals, Goal transitions
 and child-agent records remain with their existing domain owners. The execution
@@ -36,7 +34,7 @@ registry coordinates active producers without replacing those state machines.
 
 ```mermaid
 sequenceDiagram
-    participant C as Authenticated client or NiceGUI adapter
+    participant C as Authenticated client
     participant A as Application service
     participant D as Existing durable stores
     participant R as Execution registry
@@ -60,7 +58,8 @@ sequenceDiagram
 
 `install_client_platform(app, service, instance_id=...)` mounts routes on an
 existing host without taking over its global exception handlers or lifespan.
-NiceGUI startup composes `ApplicationLifecycle` explicitly.
+`app.py` mounts them on `row_bot.server.app` and runs `application_lifecycle`
+from its start-up and shutdown hooks.
 `create_client_platform_app(service, ...)` creates a standalone FastAPI host
 with the same access middleware and an explicit application lifespan.
 
@@ -83,21 +82,17 @@ blob without constructing persisted Python objects or loading unrelated content.
 
 Checkpoint association uses native message identity and exact output comparison.
 New media sidecars retain native message IDs. Older sidecars and resource
-metadata retain explicit compatibility readers. These supported data readers
-are separate from the temporary NiceGUI adapter lifecycle.
+metadata retain explicit compatibility readers.
 
-Each page owns its renderer, selection epoch and subscription. Reconnect
-invalidates assumptions about delivered patches, reconstructs the transcript
-and preserves the unsent composer value. It does not replay a send.
-Secondary NiceGUI viewers recover final checkpoint state. Their retained renderer
-does not continuously mirror another page's live DOM; protocol subscribers have
-independent live replay. This is a temporary presentation limitation.
+Each page owns its renderer, selection epoch and subscription, with
+independent live replay. Reconnect invalidates assumptions about delivered
+patches, reconstructs the transcript and preserves the unsent composer value.
+It does not replay a send.
 
 Attachment preparation runs after admission and uses the configured Vision
 service and existing file materializer. Chart and image/video tool caches are
-execution-local for headless runs, including runs with no attachments. Their
-legacy cache fallback remains for existing NiceGUI callers. Bound workspace
-relationships determine attachment placement when present.
+execution-local for headless runs, including runs with no attachments. Bound
+workspace relationships determine attachment placement when present.
 Parallel tool calls have private pending media slots and exclusively created
 output filenames. Captured references travel with the exact native tool result;
 an unavailable or oversized media reference does not discard a successful tool
@@ -127,8 +122,9 @@ Node tests their behavior. The import/public-annotation ratchet checks the new
 Python boundaries. Neither check is described as a full semantic type checker.
 
 Contract and subsystem tests use isolated real stores with scripted providers
-and transports. `tests/browser/client_platform` runs the real NiceGUI host with
-disposable data and fake dependencies. The PR lane performs `uv sync`; use a
+and transports. `tests/browser/client_platform/fixture_app.py` runs the real
+app on `row_bot.server.app` with disposable data and scripted external calls;
+the browser runners start it. The PR lane performs `uv sync`; use a
 separate validation environment when an application may use the development
 environment. Browser evidence does not certify live accounts, installed-machine
 behavior, signing or notarization.

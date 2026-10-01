@@ -5,495 +5,525 @@ description: >-
   screenshot capture instructions are inputs to this map, not competing coverage ledgers.
 surfaces:
   first_launch_wizard:
-    title: First-launch setup wizard
-    app_route: /?docs_surface=first-launch-setup-wizard
+    title: 'First launch: How should Row-Bot think?'
+    app_route: /app-v2/setup
     state: clean first run
     scenario: first-run
     docs_page: /docs/getting-started/first-launch
     screenshot_id: first-launch-setup-wizard
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/setup_wizard.py]
+    source_files: [frontend/src/features/shell/Onboarding.tsx, frontend/src/features/shell/FirstRun.tsx]
   setup_center:
     title: Resumable Setup Center
-    app_route: /?dialog=setup-center
+    app_route: /app-v2/setup
     state: configured demo
     scenario: configured
     docs_page: /docs/getting-started/first-launch
     screenshot_id: setup-center
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/onboarding_center.py]
+    source_files: [frontend/src/features/shell/Onboarding.tsx, src/row_bot/application/client_onboarding.py]
   app_shell:
-    title: Expanded desktop application shell
-    app_route: /?home_tab=Workflows
-    state: configured demo, all drawers visible
+    title: Row-Bot window on Home Overview with the sidebar
+    app_route: /app-v2/
+    state: configured demo, sidebar expanded
     scenario: configured
     docs_page: /docs/app-shell/navigation
     screenshot_id: app-shell-overview
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/app.py, src/row_bot/ui/sidebar.py, src/row_bot/ui/command_center.py]
+    source_files: [src/row_bot/app.py, frontend/src/features/shell/Workspace.tsx, frontend/src/features/shell/Navigation.tsx]
+  home_overview:
+    title: Home Overview
+    app_route: /app-v2/
+    state: configured demo with approvals waiting, live status and recent work
+    scenario: configured
+    docs_page: /docs/home/overview
+    screenshot_id: home-overview
+    capture_type: automated
+    status: ready
+    source_files: [frontend/src/features/home/OverviewHome.tsx, frontend/src/features/shell/InPlaceApproval.tsx, frontend/src/features/home/FixAction.tsx]
   chat_main:
     title: Chat conversation and composer
-    app_route: /?docs_surface=chat-main
+    app_route: /app-v2/conversations/<conversation id>
     state: configured demo thread
     scenario: configured
     docs_page: /docs/chat/
     screenshot_id: chat-main
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/chat.py, src/row_bot/ui/chat_components.py]
+    source_files: [frontend/src/features/shell/Conversation.tsx, frontend/src/features/shell/ComposerControls.tsx]
   chat_model_picker:
     title: Provider-qualified model picker
-    app_route: /?docs_surface=chat-main
+    app_route: /app-v2/conversations/<conversation id>
     state: configured demo, picker open
     scenario: configured
     docs_page: /docs/chat/model-picker
     screenshot_id: chat-model-picker
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/chat_components.py, src/row_bot/providers/selection.py]
+    source_files: [frontend/src/features/shell/ModelPicker.tsx, src/row_bot/providers/selection.py]
   chat_tool_trace:
     title: Tool trace and results
-    app_route: /?docs_surface=chat-tool-trace
+    app_route: /app-v2/conversations/<conversation id>
     state: configured demo with inert local tool results
     scenario: configured
     docs_page: /docs/chat/tools-approvals-and-terminal
     screenshot_id: chat-tool-trace
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/tool_trace.py, src/row_bot/ui/render.py]
+    source_files: [frontend/src/features/shell/TranscriptTrace.tsx, frontend/src/features/shell/tool-activity.ts]
+  terminal_dock:
+    title: Interactive terminal docked under a conversation
+    app_route: /app-v2/conversations/<conversation id>
+    state: terminal dock open
+    scenario: native-manual
+    docs_page: /docs/chat/tools-approvals-and-terminal
+    capture_type: manual
+    status: ready
+    no_image_reason: The terminal opens only in the Row-Bot desktop app; automated capture runs in a browser and must not start a real shell, so the page describes it in words.
+    source_files: [frontend/src/features/panels/terminal-dock.tsx, frontend/src/features/panels/NativeTerminal.tsx]
   chat_approval:
-    title: Consequential action approval
-    app_route: /?docs_surface=chat-main&dialog=approval
+    title: Approve or deny in place
+    app_route: /app-v2/conversations/<conversation id>
     state: fictional reversible file write awaiting approval
     scenario: configured
     docs_page: /docs/privacy-safety/
     screenshot_id: chat-approval
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/streaming.py, src/row_bot/approval_policy.py]
+    source_files: [frontend/src/features/shell/ApprovalCard.tsx, frontend/src/features/shell/InPlaceApproval.tsx, src/row_bot/approval_policy.py]
   chat_export:
-    title: Conversation export dialog
-    app_route: /?docs_surface=chat-main&dialog=export
+    title: Conversation actions dialog
+    app_route: /app-v2/conversations/<conversation id>
     state: configured demo thread
     scenario: configured
     docs_page: /docs/chat/
     screenshot_id: chat-export
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/export.py]
-  agent_profiles:
-    title: Agent profile library
-    app_route: /?docs_surface=chat-main
-    state: configured demo profiles, library open
+    source_files: [frontend/src/features/settings/ConversationActions.tsx, src/row_bot/application/conversation_pdf.py]
+  conversation_library:
+    title: Conversation library
+    app_route: /app-v2/library
+    state: configured demo conversations
     scenario: configured
-    docs_page: /docs/app-shell/agent-profiles
-    screenshot_id: agent-profile-library
+    docs_page: /docs/chat/
+    screenshot_id: conversation-library
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/profile_library.py, src/row_bot/agent_profiles.py]
+    source_files: [frontend/src/features/shell/ConversationLibrary.tsx]
+  command_palette:
+    title: Command palette
+    app_route: /app-v2/ with the command palette open
+    state: a typed request with its matching action
+    scenario: configured
+    docs_page: /docs/app-shell/navigation
+    screenshot_id: command-palette
+    capture_type: automated
+    status: ready
+    source_files: [frontend/src/features/shell/CommandPalette.tsx, frontend/src/features/shell/palette-intents.ts, frontend/src/features/shell/palette-switches.ts]
   goals_and_agents:
-    title: Goal and delegated agent progress
-    app_route: /?docs_surface=chat-main
+    title: Goal and delegated agents in the conversation details card
+    app_route: /app-v2/conversations/<conversation id>
     state: active demo goal with parent and child agents
     scenario: configured
-    docs_page: /docs/app-shell/agent-profiles
+    docs_page: /docs/profiles-goals-agents/
     screenshot_id: goal-and-agents
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/goal_ui.py, src/row_bot/ui/parent_agent_card.py]
+    source_files: [frontend/src/features/shell/ContextGoal.tsx, frontend/src/features/shell/DelegatedActivity.tsx, frontend/src/features/shell/AgentStubs.tsx]
+  agents_dialog:
+    title: Agents dialog with the profile library
+    app_route: /app-v2/ (sidebar All agents)
+    state: configured demo profiles, dialog open
+    scenario: configured
+    docs_page: /docs/profiles-goals-agents/
+    screenshot_id: agents-dialog
+    capture_type: automated
+    status: ready
+    source_files: [frontend/src/features/settings/GoalProfileSettings.tsx, frontend/src/features/shell/agent-profiles.tsx, frontend/src/features/shell/Navigation.tsx, src/row_bot/agent_profiles.py]
   home_workflows:
     title: Workflows Home tab
-    app_route: /?home_tab=Workflows
+    app_route: /app-v2/?tab=workflows
     state: complete, failed, and approval-pending demo runs
     scenario: configured
     docs_page: /docs/home/workflows
     screenshot_id: home-workflows
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/home.py, src/row_bot/tasks.py]
+    source_files: [frontend/src/features/tasks/TaskLibrary.tsx, src/row_bot/tasks.py]
   workflow_editor:
     title: Workflow editor
-    app_route: /?dialog=workflow-editor
+    app_route: /app-v2/?tab=workflows
     state: new workflow, advanced controls visible
     scenario: configured
     docs_page: /docs/guides/workflows
     screenshot_id: workflow-editor
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/task_dialog.py]
-  home_designer:
-    title: Designer Home tab
-    app_route: /?home_tab=Designer
-    state: configured demo project
-    scenario: configured
-    docs_page: /docs/home/designer
-    screenshot_id: home-designer
-    capture_type: automated
-    status: ready
-    source_files: [src/row_bot/designer/home_tab.py]
+    source_files: [frontend/src/features/tasks/TaskEditor.tsx]
   designer_editor:
-    title: Designer Studio editor
-    app_route: /?docs_surface=designer-editor
+    title: A conversation's Design panel
+    app_route: /app-v2/conversations/<design conversation id>
     state: two-page fictional presentation
     scenario: configured
     docs_page: /docs/designer/
     screenshot_id: designer-editor
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/designer/editor.py, src/row_bot/designer/preview.py]
+    source_files: [frontend/src/features/panels/ArtifactEditor.tsx, frontend/src/features/panels/ArtifactPreview.tsx, src/row_bot/designer/preview.py]
   designer_import_export_dialogs:
     title: Designer import, export, share, review, and history dialogs
-    app_route: native and browser dialogs opened from Designer
+    app_route: native and browser dialogs opened from a design conversation
     state: requires interactive file/save destinations or platform sharing
     scenario: native-manual
     docs_page: /docs/designer/
     no_image_reason: Main editor is sufficient for the public task flow; platform-specific dialogs require manual native review.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/designer/import_dialog.py, src/row_bot/designer/export_dialog.py, src/row_bot/designer/share_dialog.py, src/row_bot/designer/review_dialog.py]
-  home_developer:
-    title: Developer Home tab
-    app_route: /?home_tab=Developer
-    state: configured local demo repository
-    scenario: configured
-    docs_page: /docs/home/developer
-    screenshot_id: home-developer
-    capture_type: automated
-    status: ready
-    source_files: [src/row_bot/developer/ui.py]
+    source_files: [frontend/src/features/panels/ArtifactDocumentImport.tsx, frontend/src/features/panels/ArtifactExports.tsx, frontend/src/features/panels/ArtifactSharing.tsx, src/row_bot/designer/review.py]
   developer_workspace:
-    title: Developer Studio workspace
-    app_route: /?docs_surface=developer-workspace
+    title: A conversation's Developer panel
+    app_route: /app-v2/conversations/<code conversation id>
     state: isolated repository with one safe uncommitted edit
     scenario: configured
     docs_page: /docs/developer/
     screenshot_id: developer-workspace
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/developer/ui.py, src/row_bot/developer/git.py]
+    source_files: [frontend/src/features/panels/WorkspaceInspector.tsx, frontend/src/features/developer/DeveloperRepositoryPanel.tsx, src/row_bot/developer/git.py]
   developer_approvals_and_servers:
     title: Developer command approvals and local server controls
-    app_route: native Developer workspace
+    app_route: native code conversation workspace
     state: requires an interactive subprocess and approval cycle
     scenario: native-manual
     docs_page: /docs/developer/
     no_image_reason: Automated public capture must not execute commands; controls are documented from source and need manual native review.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/developer/runtime.py, src/row_bot/developer/ui.py]
+    source_files: [frontend/src/features/panels/WorkspaceProcesses.tsx, src/row_bot/developer/runtime.py]
   home_knowledge:
     title: Knowledge graph Home tab
-    app_route: /?home_tab=Knowledge
+    app_route: /app-v2/?tab=knowledge
     state: deterministic entities, relations, and sources
     scenario: configured
     docs_page: /docs/knowledge/
-    screenshot_id: home-knowledge
+    screenshot_id: knowledge-graph
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/graph_panel.py, src/row_bot/knowledge_graph.py]
+    source_files: [frontend/src/features/home/KnowledgeHome.tsx, frontend/src/features/home/KnowledgeGraphCanvas.tsx, src/row_bot/knowledge_graph.py]
+  landing_knowledge_image:
+    title: Knowledge graph image on the marketing landing page
+    app_route: /app-v2/?tab=knowledge
+    state: hand-curated image kept for the landing page; the docs use knowledge-graph
+    scenario: configured
+    docs_page: /docs/knowledge/
+    screenshot_id: home-knowledge
+    capture_type: manual
+    status: ready
+    source_files: [frontend/src/features/home/KnowledgeHome.tsx]
   home_monitor:
     title: Monitor Home tab
-    app_route: /?home_tab=Monitor
-    state: deterministic Dream Cycle, channel, and extraction status
+    app_route: /app-v2/?tab=monitor
+    state: kept checks with a stopped channel and its Restart fix
     scenario: configured
     docs_page: /docs/monitor/
     screenshot_id: home-monitor
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/home.py, src/row_bot/dream_cycle.py]
+    source_files: [frontend/src/features/home/MonitorHome.tsx, frontend/src/features/home/FixAction.tsx, src/row_bot/application/client_diagnosis.py]
+  home_insights:
+    title: Home Insights
+    app_route: /app-v2/?tab=insights
+    state: deterministic insights with proposals for review
+    scenario: configured
+    docs_page: /docs/home/insights
+    screenshot_id: home-insights
+    capture_type: automated
+    status: ready
+    source_files: [frontend/src/features/home/InsightsHome.tsx]
   wiki_vault:
     title: Wiki vault output and provenance repair
-    app_route: Knowledge settings and isolated generated vault
+    app_route: Memory settings (/app-v2/settings/knowledge#wiki-vault) and isolated generated vault
     state: deterministic pages generated under capture data directory
     scenario: configured
     docs_page: /docs/knowledge/wiki-vault
     no_image_reason: The graph and Knowledge settings screenshots already show the relevant controls; generated files are better explained as a task flow.
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/wiki_vault.py, src/row_bot/knowledge_graph.py]
+    source_files: [frontend/src/features/knowledge/WikiSettings.tsx, src/row_bot/wiki_vault.py, src/row_bot/knowledge_graph.py]
   settings_providers:
     title: Providers settings
-    app_route: /?settings_tab=Providers
+    app_route: /app-v2/settings/providers
     state: local, subscription, and API routes shown equally with no credentials
     scenario: configured
     docs_page: /docs/settings/providers
     screenshot_id: settings-providers
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/provider_settings.py]
+    source_files: [frontend/src/features/settings/ProviderStatus.tsx, frontend/src/features/settings/ProviderSettingsPanel.tsx]
   settings_models:
     title: Models settings
-    app_route: /?settings_tab=Models
+    app_route: /app-v2/settings/models
     state: deterministic Quick Choices
     scenario: configured
     docs_page: /docs/settings/models
     screenshot_id: settings-models
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/ModelsPanel.tsx]
   settings_knowledge:
-    title: Knowledge settings
-    app_route: /?settings_tab=Knowledge
+    title: Memory settings
+    app_route: /app-v2/settings/knowledge
     state: isolated index and Wiki vault
     scenario: configured
     docs_page: /docs/settings/knowledge
     screenshot_id: settings-knowledge
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/MemorySettings.tsx, frontend/src/features/knowledge/WikiSettings.tsx]
   settings_buddy:
     title: Buddy settings
-    app_route: /?settings_tab=Buddy
+    app_route: /app-v2/settings/buddy
     state: configured demo appearance
     scenario: configured
     docs_page: /docs/settings/buddy
     screenshot_id: settings-buddy
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/buddy.py]
+    source_files: [frontend/src/features/buddy/BuddySurface.tsx]
   settings_voice:
     title: Voice settings
-    app_route: /?settings_tab=Voice
+    app_route: /app-v2/settings/voice
     state: no microphone capture
     scenario: configured
     docs_page: /docs/settings/voice
     screenshot_id: settings-voice
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/Phase4RetainedSettings.tsx]
   settings_system:
     title: System settings
-    app_route: /?settings_tab=System
-    state: isolated data, workspace paths, and network-silent Remote Access status
+    app_route: /app-v2/settings/system
+    state: isolated workspace folder and what Row-Bot may do
     scenario: configured
     docs_page: /docs/settings/system
     screenshot_id: settings-system
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py, src/row_bot/ui/remote_access_settings.py]
+    source_files: [frontend/src/features/settings/Phase4RetainedSettings.tsx]
   settings_remote_access:
-    title: Remote Access settings
-    app_route: /?settings_tab=System
+    title: Devices & remote access settings
+    app_route: /app-v2/settings/access
     state: protected device access with no network probe until the owner requests it
     scenario: configured
     docs_page: /docs/operations/remote-access
     screenshot_id: settings-remote-access
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/remote_access_settings.py, src/row_bot/access/]
+    source_files: [frontend/src/features/settings/AccessConnect.tsx, frontend/src/features/settings/AccessDevices.tsx, frontend/src/features/settings/AccessNetwork.tsx, frontend/src/features/settings/AccessTailscale.tsx, src/row_bot/access/]
   remote_access_invitation:
-    title: Remote Access invitation
-    app_route: /?settings_tab=System
+    title: Connect a phone or computer
+    app_route: /app-v2/settings/access#connect
     state: current route selector with desktop and compact layouts plus full owner access disclosure
     scenario: configured
     docs_page: /docs/operations/remote-access
     screenshot_id: remote-access-invitation
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/remote_access_settings.py, src/row_bot/access/service.py]
+    source_files: [frontend/src/features/settings/AccessConnect.tsx, src/row_bot/access/service.py]
   settings_tracker:
     title: Tracker settings
-    app_route: /?settings_tab=Tracker
+    app_route: /app-v2/settings/tracker
     state: fictional local tracker data
     scenario: configured
     docs_page: /docs/settings/tracker
     screenshot_id: settings-tracker
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/Phase4RetainedSettings.tsx]
   settings_documents:
     title: Documents settings
-    app_route: /?settings_tab=Documents
+    app_route: /app-v2/settings/documents
     state: two fictional indexed documents
     scenario: configured
     docs_page: /docs/settings/documents
     screenshot_id: settings-documents
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py, src/row_bot/documents.py]
+    source_files: [frontend/src/features/settings/DocumentsCatalog.tsx, frontend/src/features/knowledge/DocumentUploadPanel.tsx, src/row_bot/documents.py]
   settings_tools:
     title: Tools settings
-    app_route: /?settings_tab=Tools
+    app_route: /app-v2/settings/tools
     state: automatic capability loading, network disabled, options visible
     scenario: configured
     docs_page: /docs/settings/tools
     screenshot_id: settings-tools
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/ToolCatalog.tsx, frontend/src/features/settings/CustomToolsSettings.tsx]
   settings_skills:
     title: Skills settings
-    app_route: /?settings_tab=Skills
+    app_route: /app-v2/settings/skills
     state: built-in and local skills only
     scenario: configured
     docs_page: /docs/settings/skills
     screenshot_id: settings-skills
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py, src/row_bot/skills.py]
+    source_files: [frontend/src/features/settings/SkillsSettings.tsx, src/row_bot/skills.py]
   settings_accounts:
     title: Accounts settings
-    app_route: /?settings_tab=Accounts
+    app_route: /app-v2/settings/accounts
     state: all external accounts disconnected
     scenario: configured
     docs_page: /docs/settings/accounts
     screenshot_id: settings-accounts
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/Phase4RetainedSettings.tsx, frontend/src/features/settings/AccountAuthControls.tsx, frontend/src/features/settings/GitHubAccessControls.tsx]
   settings_channels:
     title: Channels settings
-    app_route: /?settings_tab=Channels
+    app_route: /app-v2/settings/channels
     state: fictional adapters configured but stopped
     scenario: configured
     docs_page: /docs/settings/channels
     screenshot_id: settings-channels
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py, src/row_bot/channels/registry.py]
-  settings_utilities:
-    title: Utilities settings
-    app_route: /?settings_tab=Utilities
-    state: deterministic local options
-    scenario: configured
-    docs_page: /docs/settings/utilities
-    screenshot_id: settings-utilities
-    capture_type: automated
-    status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/ChannelSettings.tsx, src/row_bot/channels/registry.py]
   settings_mcp:
     title: MCP settings
-    app_route: /?settings_tab=MCP
+    app_route: /app-v2/settings/mcp
     state: sample servers configured and disabled
     scenario: configured
     docs_page: /docs/settings/mcp
     screenshot_id: settings-mcp
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mcp_settings.py]
+    source_files: [frontend/src/features/settings/CapabilitySettings.tsx, frontend/src/features/settings/McpConnections.tsx]
   settings_plugins:
     title: Plugins settings
-    app_route: /?settings_tab=Plugins
+    app_route: /app-v2/settings/plugins
     state: inert local demonstration plugin
     scenario: configured
     docs_page: /docs/settings/plugins
     screenshot_id: settings-plugins
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/plugins/ui_settings.py]
+    source_files: [frontend/src/features/settings/PluginSettings.tsx]
   settings_preferences:
     title: Preferences settings
-    app_route: /?settings_tab=Preferences
+    app_route: /app-v2/settings/preferences
     state: deterministic assistant identity and launch settings
     scenario: configured
     docs_page: /docs/settings/preferences
     screenshot_id: settings-preferences
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py]
+    source_files: [frontend/src/features/settings/Preferences.tsx]
   skills_hub:
     title: Browse Skills marketplace
-    app_route: /?dialog=skills-hub
+    app_route: /app-v2/settings/skills#public-skills
     state: bundled catalogue only, network disabled
     scenario: configured
     docs_page: /docs/skills/
     screenshot_id: skills-hub
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/skills_hub/ui.py]
+    source_files: [frontend/src/features/settings/PublicSkillHub.tsx, src/row_bot/application/client_skill_hub.py]
   plugin_marketplace:
     title: Plugin Marketplace
-    app_route: /?dialog=plugin-marketplace
+    app_route: /app-v2/settings/plugins#plugin-marketplace
     state: bundled catalogue only, no install
     scenario: configured
     docs_page: /docs/integrations/plugins
     screenshot_id: plugin-marketplace
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/plugins/ui_marketplace.py]
+    source_files: [frontend/src/features/settings/PluginSettings.tsx, src/row_bot/plugins/marketplace.py]
   mcp_add_server:
     title: Add MCP server dialog
-    app_route: /?dialog=mcp-add-server
+    app_route: /app-v2/settings/mcp#mcp-servers
     state: blank disabled configuration, no connection attempt
     scenario: configured
     docs_page: /docs/integrations/mcp
     screenshot_id: mcp-add-server
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mcp_settings.py]
+    source_files: [frontend/src/features/settings/CapabilitySettings.tsx, frontend/src/features/settings/mcp-add-connect.ts]
   mcp_marketplace:
     title: Browse MCP server marketplace
-    app_route: /?dialog=mcp-marketplace
+    app_route: /app-v2/settings/mcp#mcp-servers
     state: bundled curated starter catalogue only, no directory request or import
     scenario: configured
     docs_page: /docs/integrations/mcp
     screenshot_id: mcp-marketplace
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mcp_settings.py, src/row_bot/mcp_client/marketplace.py]
+    source_files: [frontend/src/features/settings/CapabilitySettings.tsx, src/row_bot/mcp_client/marketplace.py]
   mobile_chat_list:
-    title: Android chat list
-    app_route: /?mobile=1&mobile_view=chat
+    title: Phone sidebar and conversations
+    app_route: /app-v2/ at phone width
     state: paired fictional device and demo threads
     scenario: mobile
     docs_page: /docs/mobile-native/
     screenshot_id: mobile-chat-list
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mobile.py, src/row_bot/ui/mobile_chat.py]
+    source_files: [frontend/src/features/shell/Navigation.tsx, frontend/src/features/shell/layout.ts]
   mobile_chat_detail:
-    title: Android chat detail
-    app_route: /?mobile=1&mobile_view=chat&thread_id=docs-demo-launch
+    title: Phone conversation
+    app_route: /app-v2/conversations/<conversation id> at phone width
     state: configured demo thread
     scenario: mobile
     docs_page: /docs/mobile-native/
     screenshot_id: mobile-chat-detail
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mobile_chat.py]
+    source_files: [frontend/src/features/shell/Conversation.tsx]
   mobile_activity:
-    title: Android Activity
-    app_route: /?mobile=1&mobile_view=activity
-    state: active goal, agents, and pending approval
+    title: Phone Home Overview with Needs you
+    app_route: /app-v2/ at phone width
+    state: approvals waiting in Needs you
     scenario: mobile
     docs_page: /docs/mobile-native/
     screenshot_id: mobile-activity
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mobile.py]
+    source_files: [frontend/src/features/home/OverviewHome.tsx, frontend/src/features/shell/InPlaceApproval.tsx]
   mobile_workflows:
-    title: Android Workflows
-    app_route: /?mobile=1&mobile_view=workflows
+    title: Phone Workflows
+    app_route: /app-v2/?tab=workflows at phone width
     state: seeded workflow runs
     scenario: mobile
     docs_page: /docs/mobile-native/
     screenshot_id: mobile-workflows
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mobile_workflows.py]
+    source_files: [frontend/src/features/tasks/TaskLibrary.tsx]
   mobile_knowledge:
-    title: Android Knowledge
-    app_route: /?mobile=1&mobile_view=knowledge
+    title: Phone Knowledge
+    app_route: /app-v2/?tab=knowledge at phone width
     state: deterministic knowledge entities
     scenario: mobile
     docs_page: /docs/mobile-native/
     screenshot_id: mobile-knowledge
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/mobile.py]
+    source_files: [frontend/src/features/home/KnowledgeHome.tsx]
   mobile_settings:
-    title: Android settings
-    app_route: /?mobile=1&mobile_view=settings
+    title: Phone settings
+    app_route: /app-v2/settings/providers at phone width
     state: authenticated owner session and inert provider configuration in compact presentation
     scenario: mobile
     docs_page: /docs/mobile-native/
     screenshot_id: mobile-settings
     capture_type: automated
     status: ready
-    source_files: [src/row_bot/ui/settings.py, src/row_bot/ui/mobile_settings.py]
+    source_files: [frontend/src/features/settings/SettingsShell.tsx, frontend/src/features/settings/ProviderStatus.tsx]
   native_mobile_pairing:
     title: Native pairing, trusted LAN, and QR flow
     app_route: native desktop plus physical Android device
@@ -503,7 +533,7 @@ surfaces:
     no_image_reason: Physical-device pairing and permission prompts cannot be represented faithfully in isolated browser automation.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/ui/mobile_access_settings.py, src/row_bot/mobile/auth.py]
+    source_files: [frontend/src/features/settings/AccessConnect.tsx, src/row_bot/mobile/store.py]
   native_voice_permissions:
     title: Microphone, realtime voice, and read-aloud permissions
     app_route: native desktop
@@ -513,7 +543,7 @@ surfaces:
     no_image_reason: OS permission prompts and audio device labels vary by platform and must not be fabricated.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/ui/settings.py, src/row_bot/voice]
+    source_files: [frontend/src/features/shell/VoiceControls.tsx, src/row_bot/voice]
   native_tray_window_and_buddy:
     title: Native tray, window modes, and Buddy drag-to-tear-off overlay
     app_route: Windows and macOS native applications
@@ -523,7 +553,7 @@ surfaces:
     no_image_reason: Browser automation cannot represent native tray menus, window ownership, or the native Buddy overlay faithfully.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/launcher.py, src/row_bot/buddy, src/row_bot/ui/buddy.py]
+    source_files: [src/row_bot/launcher.py, src/row_bot/buddy, frontend/src/features/buddy/BuddySurface.tsx]
   native_computer_use:
     title: Camera and Computer Use disclosure, live control, takeover, and stop
     app_route: native desktop
@@ -533,7 +563,7 @@ surfaces:
     no_image_reason: Phase A may not drive real applications or external accounts; capture requires explicit manual review.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/ui/computer_use.py, src/row_bot/computer_use/service.py]
+    source_files: [frontend/src/features/shell/ComputerUseCard.tsx, src/row_bot/computer_use/service.py]
   live_provider_connections:
     title: Live provider, Codex, and xAI connection states
     app_route: Providers and Accounts settings with real provider credentials or OAuth
@@ -543,7 +573,7 @@ surfaces:
     no_image_reason: Phase A uses display-only provider status and may not sign in, probe live accounts, or call a provider.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/providers, src/row_bot/ui/provider_settings.py]
+    source_files: [src/row_bot/providers, frontend/src/features/settings/ProviderStatus.tsx]
   native_channels_and_accounts:
     title: Live account sign-in, channel QR, webhook, and message delivery
     app_route: native/browser external services
@@ -553,7 +583,7 @@ surfaces:
     no_image_reason: Phase A forbids live sign-in, provider calls, and channel messages.
     capture_type: manual
     status: ready
-    source_files: [src/row_bot/channels, src/row_bot/ui/settings.py]
+    source_files: [src/row_bot/channels, frontend/src/features/settings/ChannelSettings.tsx]
   live_plugins_and_mcp:
     title: Live configured plugin and MCP health, tools, permissions, and recovery
     app_route: Plugins and MCP settings with the review machine's configured extensions

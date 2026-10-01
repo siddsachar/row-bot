@@ -6,6 +6,8 @@ export type AccessSession = {
   expires_at: string;
   revoked_at: string | null;
   lifetime: 'trusted' | 'temporary' | 'migrated';
+  /** The session making this request (B141). */
+  current?: boolean;
 };
 
 export type AccessDevice = {
@@ -17,6 +19,10 @@ export type AccessDevice = {
   user_agent: string | null;
   paired_from: string | null;
   access_route: string | null;
+  /** The client address it was last seen from (owner-only). */
+  last_address?: string | null;
+  /** The device making this request: "This device" (B141). */
+  current?: boolean;
   sessions: AccessSession[];
 };
 
@@ -84,6 +90,9 @@ function validDevice(value: unknown): value is AccessDevice {
     typeof row.display_name === 'string' &&
     row.display_name.length <= 80 &&
     typeof row.created_at === 'string' &&
+    (row.last_address == null ||
+      (typeof row.last_address === 'string' &&
+        row.last_address.length <= 128)) &&
     Array.isArray(row.sessions) &&
     row.sessions.length <= 256 &&
     row.sessions.every(validSession)
@@ -97,6 +106,11 @@ export interface AccessClient {
   ): Promise<{ renewed: boolean; expires_at: string }>;
   revokeSession(sessionId: string, signal?: AbortSignal): Promise<void>;
   revokeDevice(deviceId: string, signal?: AbortSignal): Promise<void>;
+  rename(
+    deviceId: string,
+    displayName: string,
+    signal?: AbortSignal,
+  ): Promise<AccessDevice>;
   logout(signal?: AbortSignal): Promise<void>;
 }
 
@@ -113,6 +127,8 @@ export type AccessRoute = {
 
 export type AccessRouteSettings = {
   listen_mode: 'local_only' | 'local_network';
+  /** Bound beyond this computer right now; a launch host can override the mode (B184). */
+  listening_on_network?: boolean;
   configured_origins: string[];
   managed_externally: boolean;
   can_manage_routes: boolean;
@@ -125,6 +141,8 @@ export type AccessInvitation = {
   expires_at: string;
   claimed_at: string | null;
   cancelled_at: string | null;
+  /** The device a claimed invitation connected. */
+  claimed_device_id?: string | null;
 };
 
 export interface AccessInvitationClient {
@@ -136,7 +154,12 @@ export interface AccessInvitationClient {
     lifetime: 'trusted' | 'temporary',
     signal?: AbortSignal,
   ): Promise<{ invitation: AccessInvitation; url: string }>;
-  cancel(invitationId: string, signal?: AbortSignal): Promise<void>;
+  cancel(
+    invitationId: string,
+    signal?: AbortSignal,
+    /** Still sent while the page is being left. */
+    keepalive?: boolean,
+  ): Promise<void>;
   setListenMode(
     expected: AccessRouteSettings['listen_mode'],
     next: AccessRouteSettings['listen_mode'],
@@ -320,6 +343,10 @@ export const accessInvitationClient: AccessInvitationClient = {
       throw { code: 'dependency_unavailable' };
     return {
       listen_mode: value.listen_mode,
+      listening_on_network:
+        typeof value.listening_on_network === 'boolean'
+          ? value.listening_on_network
+          : undefined,
       configured_origins: value.configured_origins,
       managed_externally: value.managed_externally,
       can_manage_routes: value.can_manage_routes,
@@ -360,11 +387,11 @@ export const accessInvitationClient: AccessInvitationClient = {
       throw { code: 'dependency_unavailable' };
     return { invitation: value.invitation, url: value.invitation_url };
   },
-  async cancel(invitationId, signal) {
+  async cancel(invitationId, signal, keepalive = false) {
     if (!identifier.test(invitationId)) throw { code: 'invalid_command' };
     await request(
       `/api/access/invitations/${encodeURIComponent(invitationId)}/cancel`,
-      { method: 'POST', signal },
+      { method: 'POST', signal, keepalive },
     );
   },
   async setListenMode(expected, next) {
@@ -431,6 +458,16 @@ export const accessClient: AccessClient = {
         signal,
       },
     );
+  },
+  async rename(deviceId, displayName, signal) {
+    if (!identifier.test(deviceId)) throw { code: 'invalid_command' };
+    const value = await request(
+      `/api/access/devices/${encodeURIComponent(deviceId)}/rename`,
+      { method: 'POST', signal },
+      { display_name: displayName },
+    );
+    if (!validDevice(value.device)) throw { code: 'dependency_unavailable' };
+    return value.device;
   },
   async logout(signal) {
     await request('/api/access/logout', { method: 'POST', signal });

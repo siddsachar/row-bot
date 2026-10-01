@@ -1,11 +1,13 @@
 ---
 title: "Tools, Approvals, And Terminal"
-description: "Understand Row-Bot tools, approval prompts, tool results, and terminal output."
+description: "Understand Row-Bot tools and tool steps, approvals that wait until you answer, and the interactive terminal docked under a conversation."
 ---
+
+import Screenshot from '@site/src/components/Screenshot';
 
 # Tools, Approvals, And Terminal
 
-Tools are actions Row-Bot can take beyond writing text. They can search documents, read files, use a browser, run Developer commands, create designs, inspect knowledge, call MCP servers, use plugins, or send through channels.
+Tools are actions Row-Bot can take beyond writing text. They can search documents, read files, use a browser, run commands, work on designs and code folders, inspect knowledge, call MCP servers, use plugins, or send through channels.
 
 ## Progressive Discovery
 
@@ -15,40 +17,61 @@ Discovery does not widen permissions. The selected provider, Agent Profile, work
 
 ## How Tool Use Appears
 
-When Row-Bot uses a tool, the transcript can show a tool trace or result block. Read it as an activity receipt: what Row-Bot tried, what came back, and whether more action is needed.
+<Screenshot id="chat-tool-trace" alt="Row-Bot conversation with a folded tool step and its results." caption="Tool steps fold into one line per turn; open one to see each call, what came back, and whether approval was needed." />
 
-## Approval Prompts
+When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what came back, and whether more action is needed. Open it for each call's details. Each result also records whether approval was needed, given or denied, so Row-Bot reports it truthfully. A denied action shows as skipped, never as done, and Row-Bot is told that it did not run.
 
-Approval prompts appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP/plugin tools, or do something else that deserves review.
+## Approvals
 
-If a child agent needs approval, Row-Bot posts a compact approval prompt in the parent thread, keeps the desktop Activity Center in sync, and routes channel-started work back to the originating channel when possible. The prompt may include a short model-written reason, but Row-Bot's approval policy still decides whether the action is blocked, allowed, or waiting for you.
+<Screenshot id="chat-approval" alt="Row-Bot approval card for a file change with Approve and Deny." caption="An approval card names the action and what it affects; Approve and Deny decide it in place." />
+
+Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the mode for the conversation: **Ask**, **Block** or **Auto**.
+
+**Approvals wait until you answer.** They no longer expire after a set time; a workflow step that sets its own time limit still honours it. Each one shows how long it has been waiting.
+
+**Answer them where you are.** Every waiting approval, from this conversation, another conversation, a workflow or a delegated agent, shows with **Approve** and **Deny** in place:
+
+- in its conversation, as an approval card;
+- in the sidebar's attention indicator ("1 approval is waiting"), which opens the list;
+- in Overview's **Needs you** card;
+- in Buddy, including the desktop overlay;
+- in the channel a workflow or channel-started task came from, when that channel supports approvals.
+
+A floating notice also says when a new one arrives. An answer in one place resolves it everywhere. When a delegated agent needs approval, its parent conversation shows it too. The card may include a short reason written by the model, but Row-Bot's approval policy still decides whether the action is blocked, allowed, or waiting for you.
 
 Before approving, check:
 
 - What action is being requested.
-- What file, workspace, account, channel, server, or provider is involved.
+- What file, folder, account, channel, server, or provider is involved.
 - Whether the action can send data outside the app.
 - Whether the proposed command or file change matches your request.
-- Whether rejecting is safer until you inspect settings.
+- Whether denying is safer until you inspect settings.
 
-Approving lets Row-Bot continue that action. Rejecting stops that action and returns control to the conversation. On small screens and in channels, prompts stay brief; open the thread or Activity Center when you need more context.
+Approving lets Row-Bot continue that action. Denying stops that action and returns control to the conversation.
 
-## Terminal Output
+## Interactive Terminal
 
-The terminal panel shows command-style output when Row-Bot surfaces it from local tools, Developer Studio, or related runtime activity. It is a review surface, not permission by itself. Commands still follow workspace boundaries, tool availability, and approval mode.
+In the Row-Bot desktop app, a conversation can open a real interactive terminal docked at the bottom of the window. Open or close it with the terminal button in the header, **Open panel › Interactive terminal**, the command palette (**Toggle terminal**), or Ctrl+`.
+
+- Type straight into it: colours, line editing, command history (the arrow keys) and Tab completion work as in your own terminal, and interactive programs answer.
+- **Stop** (Ctrl+C) interrupts the running command, **Clear** clears the screen, **Open in your terminal** opens your own terminal app, and **Close** hides the dock. Closing and reopening keeps the session and its scrollback.
+- Drag the divider to resize it; the height is remembered on this device. In a phone-sized window it opens as a full-screen sheet instead.
+- After the shell exits, **Start again** opens a new one.
+
+The terminal is for you: what you type runs as your own commands on this computer. Commands Row-Bot runs as tools still follow workspace boundaries, tool availability and approval mode, and appear in the conversation's tool steps. The terminal needs the Row-Bot desktop app: in a browser on this computer the dock says so, and other devices don't offer it.
 
 ## Common Workflow
 
 1. Ask for a task that may need tools.
 2. Let Row-Bot explain the intended action.
-3. Review the approval prompt.
+3. Review the approval card, wherever you see it.
 4. Approve only if the action matches your intent.
-5. Inspect the tool trace or terminal output.
+5. Open the tool step to check the result.
 6. Ask Row-Bot to summarize what changed.
 
 ## Troubleshooting
 
-- If no approval appears, the action may be read-only or blocked before execution.
+- If no approval appears, the action may be read-only, allowed by the conversation's **Auto** mode, or blocked before running.
 - If a tool result is confusing, ask Row-Bot to explain the last tool call.
-- If command output is missing, check whether you are in Developer Studio or a tool-capable context.
-- If you rejected by mistake, ask Row-Bot to try again and review the next prompt.
+- If the terminal says it needs the Row-Bot desktop app, open the conversation there; the button is not offered on other devices.
+- If you denied by mistake, ask Row-Bot to try again and review the next approval.

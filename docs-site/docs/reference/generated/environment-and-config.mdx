@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Environment And Config
 
 <!-- generated-from: src/row_bot/brand.py -->
-<!-- inventory-hash: 8730e026e00876f4 -->
+<!-- inventory-hash: 474215a1520358dc -->
 
 <GeneratedNotice source="src/row_bot/brand.py" />
 
@@ -16,14 +16,14 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 
 | Variable | Purpose | Source |
 | --- | --- | --- |
-| ROW_BOT_DATA_DIR | Override the local Row-Bot data directory for this process. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/brand.py, src/row_bot/docs_capture.py, src/row_bot/launcher.py, src/row_bot/tools/registry.py` |
+| ROW_BOT_DATA_DIR | Override the local Row-Bot data directory for this process. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/brand.py, src/row_bot/docs_capture.py, src/row_bot/launcher.py, src/row_bot/tools/registry.py, src/row_bot/wiki_vault.py` |
 | ROW_BOT_WORKSPACE | Override the default workspace used by file-oriented tools. | `src/row_bot/brand.py, src/row_bot/designer/export.py` |
-| ROW_BOT_HOST | Choose the interface bound by the local application server. | `src/row_bot/access/access_routes.py, src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py, src/row_bot/ui/mobile_access_settings.py` |
+| ROW_BOT_HOST | Choose the interface bound by the local application server. | `src/row_bot/access/access_routes.py, src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/routes.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py` |
 | ROW_BOT_PORT | Choose the preferred local application port. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py, src/row_bot/updater.py` |
 | ROW_BOT_DEPLOYMENT_MODE | Choose desktop or authenticated server request policy. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/app.py, src/row_bot/launcher.py, src/row_bot/secret_store.py` |
 | ROW_BOT_PUBLIC_URL | Set the canonical browser-facing origin for server mode. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py` |
 | ROW_BOT_PUBLIC_ORIGINS | Set one or more allowed browser-facing origins. | `src/row_bot/access/config.py` |
-| ROW_BOT_ALLOWED_HOSTS | Allow exact HTTP Host authorities accepted by the access gate. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/routes.py, src/row_bot/app.py, src/row_bot/application/settings_snapshot.py, src/row_bot/ui/remote_access_settings.py, src/row_bot/ui/settings.py` |
+| ROW_BOT_ALLOWED_HOSTS | Allow exact HTTP Host authorities accepted by the access gate. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py, src/row_bot/access/routes.py, src/row_bot/app.py, src/row_bot/application/settings_snapshot.py` |
 | ROW_BOT_TRUSTED_PROXY_CIDRS | Trust forwarding headers only from exact connecting proxy networks. | `src/row_bot/access/cli.py, src/row_bot/access/config.py, src/row_bot/access/diagnostics.py` |
 | ROW_BOT_UNTRUSTED_FORWARDED_ACTION | Reject or ignore forwarding headers received from an untrusted peer. | `src/row_bot/access/config.py` |
 | ROW_BOT_WORKERS | Set the server worker count; Row-Bot requires exactly one. | `src/row_bot/access/cli.py, src/row_bot/access/diagnostics.py` |
@@ -40,4 +40,4 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 | ROW_BOT_XAI_OAUTH_CLIENT_ID | Override the xAI OAuth client identifier. | `src/row_bot/application/subscription_options.py, src/row_bot/providers/xai_oauth.py` |
 | ROW_BOT_XAI_OAUTH_REDIRECT_PORT | Override the local xAI OAuth callback port. | `src/row_bot/providers/xai_oauth.py` |
 | ROW_BOT_XAI_OAUTH_SCOPES | Override the requested xAI OAuth scopes. | `src/row_bot/providers/xai_oauth.py` |
-| ROW_BOT_REALTIME_INSTRUCTIONS | Override additional realtime voice session instructions. | `src/row_bot/app.py, src/row_bot/voice/openai_realtime.py` |
+| ROW_BOT_REALTIME_INSTRUCTIONS | Override additional realtime voice session instructions. | `src/row_bot/voice/openai_realtime.py` |

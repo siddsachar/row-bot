@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -329,6 +330,38 @@ def inspect_attachment(reference: str) -> dict:
             return {k: metadata[k] for k in ("attachment_ref", "name", "mime_type", "size_bytes", "revision")}
         except OSError:
             raise AttachmentError("not_found") from None
+
+
+THUMBNAIL_PIXELS = 160
+THUMBNAIL_SOURCE_PIXELS = 64_000_000
+
+
+def read_attachment_thumbnail(reference: str) -> bytes:
+    """A PNG of at most 160 px of an image attachment, for the composer's tiles.
+
+    The picture is decoded and drawn again upright, so no original bytes or
+    metadata are served. Anything but a PNG or JPEG attachment, or one that
+    does not decode, is not_found; one over 64 megapixels is never decoded.
+    """
+    from PIL import Image, ImageOps
+    metadata, data = read_attachment(reference)
+    if metadata["mime_type"] not in {"image/png", "image/jpeg"}:
+        raise AttachmentError("not_found")
+    try:
+        with Image.open(io.BytesIO(data)) as source:
+            if source.width * source.height > THUMBNAIL_SOURCE_PIXELS:
+                raise AttachmentError("payload_too_large")
+            # A JPEG decodes at a fraction of its size (no-op for a PNG).
+            source.draft(None, (THUMBNAIL_PIXELS * 2, THUMBNAIL_PIXELS * 2))
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail((THUMBNAIL_PIXELS, THUMBNAIL_PIXELS))
+            output = io.BytesIO()
+            image.convert("RGBA").save(output, format="PNG")
+    except AttachmentError:
+        raise
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise AttachmentError("not_found") from None
+    return output.getvalue()
 
 
 @dataclass

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { TranscriptRow } from '../../api/types';
 import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
@@ -6,6 +6,14 @@ import { publicBlockText, TranscriptBlocks } from './TranscriptBlocks';
 const download = vi.fn();
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({ controller: { download } }),
+}));
+vi.mock('../../ui/overlays', () => ({
+  useOverlay: () => ({
+    open: vi.fn(),
+    close: vi.fn(),
+    dismiss: vi.fn(),
+    notify: vi.fn(),
+  }),
 }));
 
 beforeEach(() => {
@@ -18,7 +26,7 @@ beforeEach(() => {
   );
 });
 
-it('keeps YouTube external until explicit consent and uses the no-cookie host', () => {
+it('embeds a playable YouTube frame immediately without a separate link', () => {
   const blocks: TranscriptRow['blocks'] = [
     {
       id: 'block:youtube',
@@ -29,13 +37,23 @@ it('keeps YouTube external until explicit consent and uses the no-cookie host', 
     },
   ];
   const { container } = render(<TranscriptBlocks blocks={blocks} />);
-  expect(container.querySelector('iframe')).toBeNull();
-  expect(screen.getByText(/contacts YouTube/i)).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Load YouTube player' }));
+  expect(container.querySelector('.youtube-player')).toBeInTheDocument();
   expect(screen.getByTitle('Synthetic video')).toHaveAttribute(
     'src',
     'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
   );
+  expect(screen.getByTitle('Synthetic video')).toHaveAttribute(
+    'allow',
+    'encrypted-media; picture-in-picture',
+  );
+  expect(screen.getByTitle('Synthetic video')).toHaveAttribute(
+    'referrerpolicy',
+    'strict-origin-when-cross-origin',
+  );
+  expect(
+    screen.queryByRole('button', { name: /Play YouTube video/i }),
+  ).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Open video' })).toBeNull();
 });
 
 it('renders canonical Markdown and returns only represented public text', () => {
@@ -72,7 +90,7 @@ it('renders a durable attachment chip and authenticated local media preview', as
   render(<TranscriptBlocks blocks={blocks} />);
 
   expect(screen.getByText('fixture.wav')).toBeVisible();
-  expect(screen.getByText('2 KB · audio/wav')).toBeVisible();
+  expect(screen.getByText('2 KB · WAV audio')).toBeVisible();
   expect(
     await screen.findByRole('group', { name: 'fixture.wav' }),
   ).toBeVisible();
@@ -81,4 +99,27 @@ it('renders a durable attachment chip and authenticated local media preview', as
     expect.any(AbortSignal),
   );
   expect(publicBlockText(blocks[0])).toBe('fixture.wav');
+});
+
+it('names a plain file once, on its card (B111)', async () => {
+  download.mockResolvedValue(
+    new Blob(['notes'], { type: 'application/octet-stream' }),
+  );
+  const blocks: TranscriptRow['blocks'] = [
+    {
+      id: 'attachment:notes',
+      type: 'attachment',
+      attachment_ref: 'conversation-a:attachment-notes',
+      name: 'notes.bin',
+      mime_type: 'application/octet-stream',
+      size_bytes: 81,
+      revision: '1',
+    },
+  ];
+
+  const { container } = render(<TranscriptBlocks blocks={blocks} />);
+
+  expect(await screen.findByText('notes.bin')).toBeVisible();
+  expect(screen.getAllByText('notes.bin')).toHaveLength(1);
+  expect(container.querySelector('.rich-attachment-caption')).toBeNull();
 });

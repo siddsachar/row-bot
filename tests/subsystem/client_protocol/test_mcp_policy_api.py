@@ -29,7 +29,7 @@ def reviewed(client, headers, intent):
 
 def test_global_server_tool_utility_controls_use_exact_review_without_connection_effects(service, owner, monkeypatch):
     from row_bot.mcp_client import runtime
-    for name in ('discover_enabled_servers','stop_server','refresh_server','probe_server'):
+    for name in ('discover_enabled_servers','stop_server','probe_server'):
         monkeypatch.setattr(runtime,name,lambda *_a,**_k:pytest.fail('Saved permissions cannot start connection work'))
     clock = [0.0]
     security = ClientSecurity(service.instance_id, clock=lambda:clock[0], policy=current_policy_snapshot)

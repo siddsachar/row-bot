@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import { clientError } from '../../api/errors';
 import type { WikiSettingsSnapshot } from '../../api/types';
 import WikiSettings, {
   WikiSettingsSession,
@@ -110,6 +111,20 @@ it('selects an authorized vault explicitly before exposing article controls', as
   expect(io.articles).toHaveBeenCalledTimes(1);
 });
 
+it('says why Browse opened no folder instead of failing silently (B280)', async () => {
+  const { io, session } = setup(false);
+  vi.mocked(io.chooseVault!).mockRejectedValueOnce(
+    clientError({ code: 'folder_picker_requires_desktop' }),
+  );
+  render(<WikiSettings session={session} />);
+  await screen.findByText(/Select an authorized vault/);
+  fireEvent.click(screen.getByRole('button', { name: 'Browse' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Choose the folder in the Row-Bot desktop app.',
+  );
+  expect(io.articles).not.toHaveBeenCalled();
+});
+
 it('shows an editable display path but requires Browse authority before Apply', async () => {
   const { io, session } = setup();
   const snapshot: WikiSettingsSnapshot = {
@@ -142,6 +157,10 @@ it('saves the enabled switch in one click without rebuilding the vault', async (
   const enabled = await screen.findByRole('switch', {
     name: 'Enable wiki vault',
   });
+  // The saved status reflects the completed command.
+  const saved = await io.status(new AbortController().signal);
+  vi.mocked(io.status).mockResolvedValue({ ...saved, enabled: false });
+  vi.mocked(io.status).mockClear();
   fireEvent.click(enabled);
   await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
   expect(vi.mocked(io.execute).mock.calls[0][0]).toBe('wiki.configure');
@@ -149,7 +168,12 @@ it('saves the enabled switch in one click without rebuilding the vault', async (
     revision,
     enabled: false,
   });
-  expect(session.getSnapshot().status?.enabled).toBe(false);
+  // The completed command's new revision is read back for the next action.
+  await waitFor(() => expect(io.status).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(session.getSnapshot().status?.enabled).toBe(false),
+  );
+  expect(enabled).not.toBeChecked();
 });
 
 it('shows both versions and confirms an explicit conflict import', async () => {
@@ -217,11 +241,9 @@ it('never retries an uncertain command and reconciles only its receipt', async (
   fireEvent.click(
     screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
   );
-  await screen.findByText(/outcome is unconfirmed/);
+  await screen.findByText(/couldn't confirm that change/);
   const commandId = session.getSnapshot().pending?.commandId;
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await screen.findByText(/Finished: 2 completed/);
   expect(io.execute).toHaveBeenCalledTimes(1);
   expect(io.receipt).toHaveBeenCalledWith(commandId, expect.any(AbortSignal));
@@ -252,4 +274,105 @@ it('purges retained content and ignores late passive reads after disposal', asyn
   await pending;
   expect(session.getSnapshot().status).toBeNull();
   expect(session.hasRetained()).toBe(false);
+});
+
+it('shows the saved wiki vault and counts without authorizing or mutating it', async () => {
+  const io: WikiSettingsIO = {
+    status: vi.fn(async () => ({
+      schema_version: 1,
+      revision,
+      enabled: true,
+      availability: 'scope_required' as const,
+      scope_id: null,
+      articles: null,
+      edited: null,
+      conflicts: null,
+    })),
+    articles: vi.fn(async () => {
+      throw new Error('an unauthorized vault must not be read');
+    }),
+    article: vi.fn(async () => {
+      throw new Error('not called');
+    }),
+    review: vi.fn(async () => {
+      throw new Error('not called');
+    }),
+    execute: vi.fn(async () => {
+      throw new Error('not called');
+    }),
+    receipt: vi.fn(async () => null),
+  };
+  const snapshot: WikiSettingsSnapshot = {
+    availability: 'available',
+    enabled: true,
+    vault_path: 'C:\\Synthetic\\wiki-vault',
+    path_state: 'available',
+    articles: 601,
+    conversations: 14,
+  };
+  render(
+    <WikiSettings session={new WikiSettingsSession(io)} snapshot={snapshot} />,
+  );
+
+  expect(screen.getByText('C:\\Synthetic\\wiki-vault')).toBeVisible();
+  expect(screen.getByText('601')).toBeVisible();
+  expect(screen.getByText('14')).toBeVisible();
+  expect(
+    await screen.findByText(
+      'Sync status: Select an authorized vault to read or change its files.',
+    ),
+  ).toBeVisible();
+  expect(io.status).toHaveBeenCalledTimes(1);
+  expect(io.articles).not.toHaveBeenCalled();
+  expect(io.review).not.toHaveBeenCalled();
+  expect(io.execute).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('button', { name: 'Check vault sync' }),
+  ).toBeEnabled();
+  expect(
+    screen.getByRole('button', { name: 'Rebuild managed wiki files' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Open vault folder' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('link', { name: 'Browse or create knowledge' }),
+  ).toHaveAttribute('href', '/app-v2/?tab=knowledge');
+});
+
+it('reports the one-time vault tidy until it is dismissed', async () => {
+  localStorage.clear();
+  const snapshot: WikiSettingsSnapshot = {
+    availability: 'available',
+    enabled: true,
+    vault_path: 'C:/Synthetic/Vault',
+    path_state: 'available',
+    articles: 660,
+    conversations: 0,
+    tidy: {
+      date: '2026-09-30',
+      tidied: 660,
+      moved: 660,
+      folder: 'raw/.row-bot-retired/hashed-names-2026-09-30',
+      review: ['wiki/person/Erin.md'],
+    },
+  };
+  const first = render(
+    <WikiSettings compact session={setup().session} snapshot={snapshot} />,
+  );
+  fireEvent.click(await screen.findByText(/Tidied 660 articles/));
+  expect(
+    screen.getByText('raw/.row-bot-retired/hashed-names-2026-09-30'),
+  ).toBeVisible();
+  expect(screen.getByText(/Nothing was deleted/)).toBeVisible();
+  expect(screen.getByText('wiki/person/Erin.md')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+  expect(screen.queryByText(/Tidied 660 articles/)).toBeNull();
+  first.unmount();
+
+  render(
+    <WikiSettings compact session={setup().session} snapshot={snapshot} />,
+  );
+  await screen.findByText('Reviewed article');
+  expect(screen.queryByText(/Tidied 660 articles/)).toBeNull();
 });

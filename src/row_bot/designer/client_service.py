@@ -225,6 +225,46 @@ def create_artifact(project_id: str, setup: ArtifactSetup) -> DesignerProject:
         return project
 
 
+def duplicate_artifact(project_id: str, source_id: str, *, expected_revision: str) -> DesignerProject:
+    """Copy a design under a preallocated id (parity row 22); receipts own input dedupe.
+
+    The copy keeps the pages, brand, canvas and assets, gets "<name> (copy)",
+    starts unpublished and without a conversation (the caller binds it).
+    """
+    import shutil
+    from datetime import datetime, timezone
+
+    _identifier(project_id)
+    _identifier(source_id)
+    if project_id == source_id:
+        raise ArtifactError("invalid_setup")
+    with storage._project_save_lock(project_id):
+        try:
+            return read_artifact(project_id)
+        except ArtifactError as exc:
+            if exc.code != "not_found":
+                raise
+        source = read_artifact(source_id)
+        if source.mode not in DESIGNER_MODES:
+            raise ArtifactError("artifact_type_unavailable")
+        if source.updated_at != expected_revision:
+            raise ArtifactError("resource_revision_conflict", source.updated_at)
+        copy = DesignerProject.from_dict(source.to_dict())
+        copy.id = project_id
+        copy.name = f"{source.name[:193].rstrip()} (copy)"
+        copy.thread_id = None
+        copy.thread_ownership = "resume"
+        copy.missing_origin_thread_id = None
+        copy.publish_url = ""
+        copy.published_at = ""
+        copy.created_at = copy.updated_at = datetime.now(timezone.utc).isoformat()
+        for directory in (storage._project_reference_dir, storage._project_asset_dir):
+            if directory(source_id).exists():
+                shutil.copytree(directory(source_id), directory(project_id), dirs_exist_ok=True)
+        storage.save_project(copy)
+        return read_artifact(project_id)
+
+
 def associate_origin(project_id: str, conversation_id: str, *, expected_revision: str,
                      expected_origin: str | None, repair: bool = False) -> DesignerProject:
     """CAS a resume-only pointer after application validation of the destination."""
@@ -297,8 +337,6 @@ def read_preview(project_id: str, *, page_id: str | None = None,
                 from row_bot.designer.interaction import inject_bridge_js
 
                 rendered = render_page_html(project, authoring_page_html(project, pages[index].id), page_index=index)
-                rendered = inject_bridge_js(rendered, preview_id=preview_id, revision=revision, capability=capability,
-                                           plain_text=True)
             else:
                 rendered = (render_multi_route_html(project, active_route_id=pages[index].id)
                             if scripts_allowed else
@@ -307,6 +345,10 @@ def read_preview(project_id: str, *, page_id: str | None = None,
             markup = isolate_preview_html(rendered, scripts=scripts_allowed, brand=project.brand, strict_fonts=True)
         except FontReadError as exc:
             raise ArtifactError(str(exc)) from None
+        if authoring:
+            # After sanitation, so the bridge text matches the client policy's digest.
+            markup = inject_bridge_js(markup, preview_id=preview_id, revision=revision, capability=capability,
+                                      plain_text=True)
         if len(markup.encode()) > 2 * 1024 * 1024:
             raise ArtifactError("preview_too_large")
     metadata = storage.get_project_metadata(project_id)

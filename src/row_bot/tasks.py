@@ -89,7 +89,7 @@ _CREATE_TABLE_SQL = {
             id                  TEXT PRIMARY KEY,
             name                TEXT NOT NULL,
             description         TEXT DEFAULT '',
-            icon                TEXT DEFAULT 'âš¡',
+            icon                TEXT DEFAULT '⚡',
             prompts             TEXT NOT NULL,
             schedule            TEXT,
             at                  TEXT,
@@ -224,7 +224,7 @@ _CREATE_TABLE_SQL = {
 _COLUMN_MIGRATIONS = {
     "tasks": [
         ("description", "TEXT DEFAULT ''"),
-        ("icon", "TEXT DEFAULT 'âš¡'"),
+        ("icon", "TEXT DEFAULT '⚡'"),
         ("prompts", "TEXT DEFAULT '[]'"),
         ("schedule", "TEXT"),
         ("at", "TEXT"),
@@ -895,7 +895,7 @@ def _migrate_from_workflows() -> None:
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         d["id"], d["name"], d.get("description", ""),
-                        d.get("icon", "âš¡"), d["prompts"],
+                        d.get("icon", "⚡"), d["prompts"],
                         d.get("schedule"), d.get("enabled", 1),
                         d.get("last_run"), d["created_at"],
                         d.get("sort_order", 0),
@@ -1473,16 +1473,20 @@ def expand_template_vars(
     }
     if task_id:
         replacements["task_id"] = task_id
-    result = prompt
-    for key, value in replacements.items():
-        result = result.replace("{{" + key + "}}", value)
+    import re
+
+    # "{{ date }}" and "{{date}}" alike: the step editor accepts both.
+    result = re.sub(
+        r"\{\{\s*(" + "|".join(map(re.escape, replacements)) + r")\s*\}\}",
+        lambda match: replacements[match.group(1)],
+        prompt,
+    )
     # Resolve {{step.<step_id>.output}} references
     if step_outputs:
-        import re
         def _resolve_step_ref(m):
             sid = m.group(1)
             return step_outputs.get(sid, "")
-        result = re.sub(r"\{\{step\.([^.]+)\.output\}\}", _resolve_step_ref, result)
+        result = re.sub(r"\{\{\s*step\.([^.\s]+)\.output\s*\}\}", _resolve_step_ref, result)
     return result
 
 
@@ -1806,8 +1810,10 @@ def list_tasks() -> list[dict]:
 def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
     """Yield bounded saved task metadata from one SQLite read snapshot.
 
-    Prompts, delivery destinations, approval tokens and runtime configuration
-    are deliberately absent. This never starts a task or loads its channels.
+    Prompt and step counts are calculated in SQLite. Their contents, delivery
+    destinations, approval tokens and runtime configuration are absent, apart
+    from the saved profile reference and approval mode a run starts with. This
+    never starts a task or loads its channels.
     """
     conn = _get_conn()
     try:
@@ -1816,10 +1822,29 @@ def iter_task_summary_snapshot() -> Iterator[dict[str, Any]]:
             "SELECT t.id, substr(t.name, 1, 256) AS name, "
             "substr(t.description, 1, 2048) AS description, "
             "substr(t.icon, 1, 32) AS icon, t.enabled, t.notify_only, "
+            "substr(t.agent_profile_id, 1, 128) AS agent_profile_id, "
+            "substr(t.safety_mode, 1, 32) AS safety_mode, "
+            "CASE WHEN json_valid(t.steps) AND json_type(t.steps)='array' "
+            "AND json_array_length(t.steps)>0 THEN json_array_length(t.steps) "
+            "WHEN json_valid(t.prompts) AND json_type(t.prompts)='array' "
+            "THEN json_array_length(t.prompts) ELSE 0 END AS step_count, "
             "substr(t.schedule, 1, 256) AS schedule, substr(t.at, 1, 80) AS at, "
             "substr(t.last_run, 1, 80) AS last_run, t.persistent_thread_id, "
             "(SELECT substr(r.status, 1, 80) FROM task_runs r WHERE r.task_id=t.id "
-            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status "
+            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS last_status, "
+            # The ten newest saved runs (status and start only), newest first.
+            "(SELECT json_group_array(json_object('status', h.status, "
+            "'started_at', h.started_at)) FROM (SELECT substr(r.status, 1, 80) "
+            "AS status, substr(r.started_at, 1, 80) AS started_at FROM task_runs r "
+            "WHERE r.task_id=t.id ORDER BY r.started_at DESC, r.id DESC LIMIT 10) h"
+            ") AS recent_runs_json, "
+            # The newest run that has not finished, with its saved step progress.
+            "(SELECT json_object('id', r.id, 'status', substr(r.status, 1, 80), "
+            "'started_at', substr(r.started_at, 1, 80), "
+            "'steps_done', r.steps_done, 'steps_total', r.steps_total) "
+            "FROM task_runs r WHERE r.task_id=t.id AND r.status IN "
+            "('starting','running','resuming','paused','waiting_approval','stopping') "
+            "ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS active_run_json "
             "FROM tasks t ORDER BY t.sort_order, t.created_at, t.id"
         )
         while batch := rows.fetchmany(128):
@@ -2288,27 +2313,15 @@ def delete_task(task_id: str, *, expected_revision: str | None = None,
             )
 
 
-@_schema_retry
-def delete_tasks(task_ids: list[str]) -> tuple[int, list[tuple[str, str]]]:
-    """Delete several tasks at once.
+def duplicate_task(task_id: str, *, new_task_id: str | None = None,
+                   validate: Callable[[], None] | None = None,
+                   record_commit: Callable[[sqlite3.Connection, str], None] | None = None) -> str | None:
+    """Clone a task and return the new ID.
 
-    Wraps :func:`delete_task` in a loop so the scheduler-job removal,
-    pipeline state cleanup, and approval-request cancellation run for
-    every id. Returns ``(deleted_count, failures)``.
+    The copy has no schedule, one-off time or trigger (a webhook secret is
+    never copied), so it never runs by itself, and it starts switched off
+    until the person turns it on (B177).
     """
-    deleted = 0
-    failures: list[tuple[str, str]] = []
-    for tid in task_ids:
-        try:
-            delete_task(tid)
-            deleted += 1
-        except Exception as exc:
-            failures.append((tid, str(exc)))
-    return deleted, failures
-
-
-def duplicate_task(task_id: str) -> str | None:
-    """Clone a task and return the new ID."""
     task = get_task(task_id)
     if not task:
         return None
@@ -2332,6 +2345,10 @@ def duplicate_task(task_id: str) -> str | None:
         advanced_mode=bool(task.get("advanced_mode")),
         agent_profile_id=task.get("agent_profile_id"),
         apply_default_skills=False,
+        enabled=False,
+        **({"task_id": new_task_id} if new_task_id is not None else {}),
+        **({"validate": validate} if validate is not None else {}),
+        **({"record_commit": record_commit} if record_commit is not None else {}),
     )
 
 
@@ -2992,32 +3009,6 @@ def get_upcoming_tasks(limit: int = 5) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-def get_next_fire_times(limit: int = 10) -> list[dict]:
-    """Return upcoming scheduled task fire times from APScheduler."""
-    if _scheduler is None:
-        return []
-    results = []
-    for job in _scheduler.get_jobs():
-        if not job.id.startswith("task_"):
-            continue
-        task_id = job.id[5:]  # strip "task_" prefix
-        task = get_task(task_id)
-        if not task:
-            continue
-        next_time = job.next_run_time
-        if next_time is None:
-            continue
-        results.append({
-            "task_id": task_id,
-            "task_name": task["name"],
-            "task_icon": task["icon"],
-            "next_run": next_time.isoformat(),
-            "schedule": task.get("schedule") or task.get("at") or "",
-        })
-    results.sort(key=lambda x: x["next_run"])
-    return results[:limit]
-
-
 # ── Background Execution Engine ──────────────────────────────────────────────
 
 _active_runs: dict[str, dict] = {}  # thread_id -> {task_id, run_id, step, total, name}
@@ -3045,15 +3036,6 @@ def get_running_tasks() -> dict[str, dict]:
     started_at, step_label, log}}`` for all in-flight task executions."""
     with _active_lock:
         return dict(_active_runs)
-
-
-def get_task_logs(thread_id: str, last_n: int = 15) -> list[str]:
-    """Return the last *last_n* log lines for a running task."""
-    with _active_lock:
-        info = _active_runs.get(thread_id)
-        if info:
-            return list(info.get("log", [])[-last_n:])
-    return []
 
 
 def stop_task(thread_id: str) -> bool:
@@ -3175,15 +3157,6 @@ def cleanup_thread_state(thread_id: str) -> dict[str, int]:
     return stats
 
 
-def get_running_task_thread(task_id: str) -> str | None:
-    """Return the thread_id of a currently-running task, or None."""
-    with _active_lock:
-        for tid, info in _active_runs.items():
-            if info.get("task_id") == task_id:
-                return tid
-    return None
-
-
 # Backward-compat alias used by app sidebar
 get_running_workflows = get_running_tasks
 
@@ -3252,70 +3225,6 @@ def set_workflow_default_channels(channels: list[str] | None) -> None:
         seen.add(name)
     data["workflow_default_channels"] = clean
     _save_task_config(data)
-
-
-def _workflow_draft_id(task_id: str | None) -> str:
-    return task_id or "__new__"
-
-
-@_schema_retry
-def save_workflow_draft(task_id: str | None, payload: dict) -> None:
-    """Persist an autosaved workflow editor draft.
-
-    ``task_id is None`` represents the single "new workflow" draft.  Drafts
-    are intentionally separate from the canonical tasks table and are cleared
-    when the user saves or discards them.
-    """
-    conn = _get_conn()
-    now = datetime.now().isoformat()
-    draft_id = _workflow_draft_id(task_id)
-    conn.execute(
-        "INSERT OR REPLACE INTO workflow_drafts "
-        "(id, task_id, mode, payload, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (
-            draft_id,
-            task_id,
-            "edit" if task_id else "new",
-            json.dumps(payload, ensure_ascii=False),
-            now,
-        ),
-    )
-    conn.commit()
-    conn.close()
-
-
-@_schema_retry
-def get_workflow_draft(task_id: str | None) -> dict | None:
-    conn = _get_conn()
-    row = conn.execute(
-        "SELECT * FROM workflow_drafts WHERE id = ?",
-        (_workflow_draft_id(task_id),),
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    try:
-        payload = json.loads(row["payload"] or "{}")
-    except Exception:
-        payload = {}
-    return {
-        "id": row["id"],
-        "task_id": row["task_id"],
-        "mode": row["mode"],
-        "payload": payload if isinstance(payload, dict) else {},
-        "updated_at": row["updated_at"],
-    }
-
-
-@_schema_retry
-def delete_workflow_draft(task_id: str | None) -> None:
-    conn = _get_conn()
-    conn.execute(
-        "DELETE FROM workflow_drafts WHERE id = ?",
-        (_workflow_draft_id(task_id),),
-    )
-    conn.commit()
-    conn.close()
 
 
 def get_effective_task_channel_names(task: dict) -> list[str]:
@@ -3953,7 +3862,8 @@ def run_task_background(
                 title="⏰ Row-Bot Reminder",
                 message=label,
                 sound="timer",
-                icon="⏰",
+                source="workflow",
+                requested=True,
             )
             try:
                 _validate_effect()
@@ -3993,7 +3903,8 @@ def run_task_background(
                     title="⚠️ Delivery Failed",
                     message=f"{task['name']} — {delivery_detail}",
                     sound="timer",
-                    icon="⚠️",
+                    toast_type="warning",
+                    source="workflow",
                 )
             if task.get("delete_after_run"):
                 _validate_effect()
@@ -4040,6 +3951,7 @@ def run_task_background(
                 _workflow_entry_failed(run_id, thread_id, exc)
                 raise
         from row_bot.agent import invoke_agent, TaskStoppedError
+        from row_bot.models import NoModelChosenError
         from row_bot.threads import _save_thread_meta, _list_threads
 
         def _thread_exists(tid):
@@ -4429,7 +4341,9 @@ def run_task_background(
                                         title="⏸️ Approval Required",
                                         message=f"{task['name']}: {approval_msg}",
                                         sound="workflow",
-                                        icon="⏸️",
+                                        toast_type="warning",
+                                        source="workflow",
+                                        in_app=False,  # the app lists pending approvals itself
                                     )
                                 break  # exit retry loop — approval will resume graph
                             if result:
@@ -4446,6 +4360,13 @@ def run_task_background(
                             break
                         except _WorkflowEffectDenied:
                             raise
+                        except NoModelChosenError as exc:
+                            # No preset and no fallback (decision 9): stop at once
+                            # with the one "choose a model" reason, no retries.
+                            failure_message = str(exc)
+                            _task_log(f"✗ {failure_message}")
+                            step_on_error = "stop"
+                            break
                         except Exception as exc:
                             _task_log(f"✗ Step {step_index + 1} error: {str(exc)[:80]}")
                             err_str = str(exc).lower()
@@ -4500,7 +4421,7 @@ def run_task_background(
                         prev_output=last_response,
                         step_outputs=step_outputs,
                     )
-                    timeout_min = step.get("timeout_minutes", 30)
+                    timeout_min = step.get("timeout_minutes") or 0
                     resume_token, approval_req_id = create_approval_request(
                         run_id=run_id,
                         task_id=task_id,
@@ -4537,7 +4458,9 @@ def run_task_background(
                             title="⏸️ Approval Required",
                             message=f"{task['name']}: {approval_msg}",
                             sound="workflow",
-                            icon="⏸️",
+                            toast_type="warning",
+                            source="workflow",
+                            in_app=False,  # the app lists pending approvals itself
                         )
                     break  # exit the step loop — resume will continue
 
@@ -4937,7 +4860,8 @@ def run_task_background(
                             title=f"📋 {task['name']}",
                             message=notify_msg,
                             sound="workflow",
-                            icon="📋",
+                            source="workflow",
+                            requested=True,
                         )
                     else:
                         # Use task's delivery channel mechanism
@@ -5002,7 +4926,7 @@ def run_task_background(
                         error=failure_message,
                     )
                     if _thread_exists(thread_id):
-                        thread_name = (f"âš¡ {task['name']} (failed) â€” "
+                        thread_name = (f"⚡ {task['name']} (failed) — "
                                        f"{datetime.now().strftime('%b %d, %I:%M %p')}")
                         _save_thread_meta(thread_id, thread_name)
                     return
@@ -5024,7 +4948,7 @@ def run_task_background(
                         title="⏹️ Task Stopped",
                         message=f"{task['name']} was stopped.",
                         sound="workflow",
-                        icon="⏹️",
+                        source="workflow",
                     )
                 return  # skip delivery, skip delete_after_run
 
@@ -5087,7 +5011,8 @@ def run_task_background(
                     title="⚡ Task Complete",
                     message=f"{task['name']} finished ({total} step{'s' if total != 1 else ''}).{suffix}",
                     sound="workflow",
-                    icon="⚡",
+                    source="workflow",
+                    requested=True,
                 )
                 if delivery_status == "delivery_failed":
                     _validate_effect()
@@ -5095,7 +5020,8 @@ def run_task_background(
                         title="⚠️ Delivery Failed",
                         message=f"{task['name']} — {delivery_detail}",
                         sound="timer",
-                        icon="⚠️",
+                        toast_type="warning",
+                        source="workflow",
                     )
 
             # Auto-delete one-shot tasks
@@ -5299,6 +5225,72 @@ def _build_trigger(task: dict):
     return None
 
 
+def estimate_next_run(task: Mapping[str, Any], now: datetime | None = None) -> str | None:
+    """Next fire time implied by a saved schedule, as a local ISO timestamp.
+
+    This reads saved metadata only and never asks the scheduler, so list views
+    stay free of runtime probes. Daily, weekly, cron and one-time schedules are
+    exact; interval schedules are estimated from the last run. Disabled,
+    unscheduled, finished or unreadable schedules return None.
+    """
+    if not task.get("enabled"):
+        return None
+    now = (now or datetime.now()).replace(microsecond=0)
+
+    def local(value: object) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(str(value or "").strip())
+        except ValueError:
+            return None
+        return parsed.astimezone().replace(tzinfo=None) if parsed.tzinfo else parsed
+
+    at = str(task.get("at") or "").strip()
+    if at:
+        at_dt = local(at)
+        if at_dt is None:
+            return None
+        if at_dt > now:
+            return at_dt.isoformat(timespec="seconds")
+        last = local(task.get("last_run"))
+        # A past one-time task that never ran is scheduled immediately.
+        return None if last and last >= at_dt else now.isoformat(timespec="seconds")
+    sched = _parse_schedule(task.get("schedule"))
+    if not sched:
+        return None
+    kind = sched["kind"]
+    if kind in ("interval", "interval_minutes"):
+        delta = (
+            timedelta(hours=sched["hours"])
+            if kind == "interval"
+            else timedelta(minutes=int(sched["minutes"]))
+        )
+        last = local(task.get("last_run"))
+        if delta <= timedelta(0) or last is None:
+            return None
+        upcoming = last + delta
+        if upcoming <= now:
+            upcoming = last + delta * (int((now - last) / delta) + 1)
+        return upcoming.isoformat(timespec="seconds")
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+
+        if kind == "daily":
+            trigger = CronTrigger(hour=sched["hour"], minute=sched["minute"])
+        elif kind == "weekly":
+            day = _DAY_MAP.get(sched["day"])
+            if day is None:
+                return None
+            trigger = CronTrigger(
+                day_of_week=_DAY_TO_AP[day], hour=sched["hour"], minute=sched["minute"]
+            )
+        else:
+            trigger = CronTrigger.from_crontab(sched["expr"])
+        fire = trigger.get_next_fire_time(None, now.astimezone())
+    except Exception:
+        return None
+    return fire.astimezone().replace(tzinfo=None).isoformat(timespec="seconds") if fire else None
+
+
 def _job_id(task_id: str) -> str:
     """Deterministic APScheduler job ID for a task."""
     return f"task_{task_id}"
@@ -5336,14 +5328,72 @@ def _prepare_task_thread(task: dict) -> str:
     return thread_id
 
 
+def _run_waiting_for_approval(task_id: str) -> dict | None:
+    """This workflow's run that waits on an unanswered approval, if any."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT r.thread_id, r.started_at FROM task_runs r "
+            "JOIN approval_requests a ON a.run_id = r.id "
+            "WHERE r.task_id = ? AND r.status IN ('paused', 'waiting_approval') "
+            "AND a.status = 'pending' AND (a.timeout_at IS NULL OR a.timeout_at >= ?) "
+            "ORDER BY r.started_at LIMIT 1",
+            (task_id, datetime.now().isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def _skip_scheduled_run(task: dict, waiting: dict) -> None:
+    """Record and announce a scheduled run skipped behind a waiting one (B255).
+
+    The skipped run points at the waiting run's conversation, where its
+    approval is answered.
+    """
+    now = datetime.now()
+    started = datetime.fromisoformat(waiting["started_at"])
+    if started.date() == now.date():
+        earlier = f"the {started.hour}:{started.minute:02d} run"
+    elif started.date() == (now - timedelta(days=1)).date():
+        earlier = "yesterday's run"
+    else:
+        earlier = f"the run from {started:%b} {started.day}"
+    message = f"Skipped {now.hour}:{now.minute:02d} run: {earlier} still waits for your approval"
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO task_runs (id, task_id, thread_id, started_at, finished_at, status, "
+            "status_message, steps_total, steps_done, task_name, task_icon) "
+            "VALUES (?, ?, ?, ?, ?, 'skipped', ?, ?, 0, ?, ?)",
+            (uuid.uuid4().hex[:12], task["id"], waiting["thread_id"], now.isoformat(), now.isoformat(),
+             message, 0 if task.get("notify_only") else len(task.get("steps") or []),
+             task.get("name", ""), task.get("icon", "")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    logger.info("Skipped scheduled run of '%s': an earlier run waits for approval", task["name"])
+    from row_bot.notifications import notify
+    notify(title=task["name"], message=message, sound="none", toast_type="warning", source="workflow")
+
+
 def _on_task_fire(task_id: str) -> None:
-    """Callback invoked by APScheduler when a task's trigger fires."""
+    """Callback invoked by APScheduler when a task's trigger fires.
+
+    A recurring run never starts while the workflow's last run still waits
+    for an approval: it is recorded as skipped instead, so runs don't pile up.
+    """
     from row_bot.tools import registry as tool_registry
 
     task = get_task(task_id)
     if not task:
         return
     if not task.get("enabled", True):
+        return
+    waiting = None if task.get("at") else _run_waiting_for_approval(task_id)
+    if waiting:
+        _skip_scheduled_run(task, waiting)
         return
 
     logger.info("Scheduler firing task: %s", task["name"])
@@ -5411,9 +5461,58 @@ def sync_all_jobs() -> None:
     logger.info("Synced %d task(s) to APScheduler", len(tasks))
 
 
+_PROCESS_STARTED_AT = datetime.now()
+_interrupted_runs_settled = False
+_INTERRUPTED_RUN_STATUSES = ("starting", "running", "resuming", "stopping")
+
+
+def settle_interrupted_runs(before: datetime | None = None) -> list[str]:
+    """Mark runs an earlier Row-Bot process left unfinished as stopped.
+
+    Their worker died with that process, so they could never report back:
+    they read as running forever and Stop could not settle them. Paused runs
+    are kept because they resume from saved state, and a run that started in
+    this process is never touched. No delivery or notification is sent.
+    """
+    cutoff = (before or _PROCESS_STARTED_AT).isoformat()
+    placeholders = ",".join("?" for _ in _INTERRUPTED_RUN_STATUSES)
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            f"SELECT id FROM task_runs WHERE status IN ({placeholders}) "
+            "AND started_at < ? ORDER BY started_at",
+            (*_INTERRUPTED_RUN_STATUSES, cutoff),
+        ).fetchall()
+    finally:
+        conn.close()
+    settled = [str(row["id"]) for row in rows]
+    for run_id in settled:
+        _finish_run(
+            run_id,
+            "stopped",
+            status_message="Interrupted: Row-Bot closed before this run finished.",
+            terminal_reason="interrupted",
+        )
+    if settled:
+        logger.info("Marked %d interrupted workflow run(s) as stopped", len(settled))
+    return settled
+
+
 @_schema_retry
 def start_task_scheduler() -> None:
     """Start the APScheduler and sync all task jobs (idempotent)."""
+    global _interrupted_runs_settled
+    if not _interrupted_runs_settled:
+        _interrupted_runs_settled = True
+        try:
+            settle_interrupted_runs()
+        except Exception:
+            logger.warning("Could not settle interrupted workflow runs", exc_info=True)
+        try:
+            from row_bot.goals import settle_interrupted_goals
+            settle_interrupted_goals()
+        except Exception:
+            logger.warning("Could not pause goals left working", exc_info=True)
     _get_scheduler()
     sync_all_jobs()
     start_approval_monitor()
@@ -5439,9 +5538,14 @@ def handle_webhook(task_id: str, secret: str | None = None,
     if not trigger or trigger.get("type") != "webhook":
         return {"status": "error", "message": "Task does not have a webhook trigger"}
 
-    # Validate secret
-    expected_secret = trigger.get("secret", "")
-    if expected_secret and expected_secret != secret:
+    # Validate the secret in constant time. A webhook without a secret never
+    # runs: an empty stored secret used to accept any caller.
+    import hmac
+
+    expected_secret = str(trigger.get("secret") or "")
+    if not expected_secret or not hmac.compare_digest(
+        expected_secret.encode(), str(secret or "").encode()
+    ):
         return {"status": "error", "message": "Invalid secret"}
 
     if not task.get("enabled", True):
@@ -5455,6 +5559,29 @@ def handle_webhook(task_id: str, secret: str | None = None,
     run_task_background(task_id, thread_id, enabled)
     logger.info("Webhook triggered task '%s'", task["name"])
     return {"status": "ok", "message": f"Task '{task['name']}' triggered"}
+
+
+WEBHOOK_SECRET_HEADER = "X-Row-Bot-Webhook-Secret"
+
+
+def webhook_request_secret(headers: Any, query: Any) -> str | None:
+    """The secret a webhook request carries: a header, or the older query form.
+
+    The header keeps the secret out of addresses, which proxies and logs keep
+    (B132). Addresses copied before the header existed still carry
+    ``?secret=`` and keep working. A request carrying two different secrets
+    never runs anything.
+    """
+    lowered = {str(key).lower(): str(value) for key, value in dict(headers or {}).items()}
+    header = lowered.get(WEBHOOK_SECRET_HEADER.lower(), "").strip()
+    if not header:
+        authorization = lowered.get("authorization", "").strip()
+        if authorization[:7].lower() == "bearer ":
+            header = authorization[7:].strip()
+    query_secret = str(dict(query or {}).get("secret") or "")
+    if header and query_secret and header != query_secret:
+        return None
+    return header or query_secret or None
 
 
 def generate_webhook_secret() -> str:
@@ -6183,7 +6310,7 @@ def create_approval_request(
     step_id: str,
     message: str,
     channel: str | None = None,
-    timeout_minutes: int = 30,
+    timeout_minutes: int = 0,
     agent_run_id: str = "",
     resume_kind: str = "",
     source_label: str = "",
@@ -6191,7 +6318,11 @@ def create_approval_request(
     parent_thread_id: str = "",
     approval_payload_json: Mapping[str, Any] | str | None = None,
 ) -> tuple[str, str]:
-    """Create an approval request and return ``(resume_token, request_id)``."""
+    """Create an approval request and return ``(resume_token, request_id)``.
+
+    It waits until someone answers it; only a positive *timeout_minutes* (a
+    workflow step that sets one) makes it expire, as a denial (B255).
+    """
     req_id = uuid.uuid4().hex[:12]
     resume_token = uuid.uuid4().hex
     timeout_at = None
@@ -6301,36 +6432,36 @@ def get_pending_approvals(
     return [dict(r) for r in rows]
 
 
-def get_pending_approval_for_agent_run(agent_run_id: str) -> dict | None:
-    """Return the newest pending approval for a child Agent Run."""
+def cancel_agent_run_approvals(agent_run_id: str) -> int:
+    """Withdraw a stopped Agent's pending approvals; its question no longer applies.
 
-    rows = get_pending_approvals(agent_run_id=str(agent_run_id or ""))
-    return rows[0] if rows else None
-
-
-@_schema_retry
-def get_approval_request_statuses(approval_ids: Sequence[str]) -> dict[str, str]:
-    """Return authoritative statuses for a bounded set of approval cards."""
-
-    clean_ids = list(
-        dict.fromkeys(
-            str(approval_id or "").strip()
-            for approval_id in approval_ids
-            if str(approval_id or "").strip()
-        )
-    )[:200]
-    if not clean_ids:
-        return {}
+    Stop used to leave them pending, so "Needs approval" stayed on the Buddy and
+    in Home until they timed out (B165). Channels that received one show it
+    resolved, as a timeout does.
+    """
+    if not agent_run_id:
+        return 0
     conn = _get_conn()
     try:
-        placeholders = ", ".join("?" for _ in clean_ids)
-        rows = conn.execute(
-            f"SELECT id, status FROM approval_requests WHERE id IN ({placeholders})",
-            clean_ids,
-        ).fetchall()
+        ids = [str(row["id"]) for row in conn.execute(
+            "SELECT id FROM approval_requests WHERE agent_run_id = ? AND status = 'pending'",
+            (str(agent_run_id),),
+        )]
+        if ids:
+            conn.execute(
+                "UPDATE approval_requests SET status = 'cancelled', responded_at = ? "
+                "WHERE agent_run_id = ? AND status = 'pending'",
+                (datetime.now().isoformat(), str(agent_run_id)),
+            )
+            conn.commit()
     finally:
         conn.close()
-    return {str(row["id"]): str(row["status"] or "") for row in rows}
+    for approval_id in ids:
+        try:
+            _resolve_approval_on_channels(approval_id, "cancelled", source_channel="system")
+        except Exception:
+            logger.warning("Could not mark approval %s withdrawn on channels", approval_id, exc_info=True)
+    return len(ids)
 
 
 @_schema_retry
@@ -6595,60 +6726,77 @@ def resume_reviewed_task_approval(
 
 
 def _check_approval_timeouts() -> None:
-    """Check for expired approval requests and apply timeout action."""
-    conn = _get_conn()
+    """Check for expired approval requests and apply timeout action.
+
+    Each expiry is committed before its effects run: resuming an Agent or a
+    pipeline writes this same database, and an open write here made that wait
+    until "database is locked", so the approval never timed out and the
+    monitor failed every minute (B166).
+    """
     now = datetime.now().isoformat()
-    expired = conn.execute(
-        "SELECT * FROM approval_requests "
-        "WHERE status = 'pending' AND timeout_at IS NOT NULL AND timeout_at < ?",
-        (now,),
-    ).fetchall()
-    for row in expired:
-        r = dict(row)
-        conn.execute(
-            "UPDATE approval_requests SET status = 'timed_out', responded_at = ? "
-            "WHERE id = ?",
-            (now, r["id"]),
-        )
-        # Resume pipeline with denial — for graph-interrupted steps
-        # this lets the tool return "cancelled" and the pipeline
-        # continues to subsequent steps.  For explicit approval steps
-        # this stops the pipeline.
-        _resolve_approval_on_channels(r["id"], "timed_out",
-                                      source_channel="system")
-        _emit_buddy_approval_event(
-            "timed_out",
-            run_id=str(r.get("run_id") or ""),
-            task_id=str(r.get("task_id") or ""),
-            step_id=str(r.get("step_id") or ""),
-            approval_id=str(r.get("id") or ""),
-            resume_token=str(r.get("resume_token") or ""),
-            label="Approval timed out",
-            message=str(r.get("message") or ""),
-        )
-        if str(r.get("resume_kind") or "") == "agent_run":
-            from row_bot.agent_runner import resume_agent_run
-
-            resume_agent_run(
-                str(r.get("agent_run_id") or r.get("run_id") or ""),
-                resume_token=str(r.get("resume_token") or ""),
-                approved=False,
-            )
-        elif str(r.get("resume_kind") or "") == "parent_orchestration":
-            from row_bot.agent_orchestrator import resume_parent_orchestration
-
-            resume_parent_orchestration(
-                str(r.get("step_id") or "").removeprefix("orchestration:"),
-                resume_token=str(r.get("resume_token") or ""),
-                approved=False,
-            )
-        elif str(r.get("resume_kind") or "") != "conversation":
-            _resume_pipeline(r["resume_token"], approved=False)
-        logger.info("Approval request %s timed out for task %s",
-                     r["id"], r["task_id"])
-    if expired:
+    conn = _get_conn()
+    try:
+        expired = [dict(row) for row in conn.execute(
+            "SELECT * FROM approval_requests "
+            "WHERE status = 'pending' AND timeout_at IS NOT NULL AND timeout_at < ?",
+            (now,),
+        ).fetchall()]
+        claimed = [
+            r for r in expired
+            if conn.execute(
+                "UPDATE approval_requests SET status = 'timed_out', responded_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                (now, r["id"]),
+            ).rowcount == 1
+        ]
         conn.commit()
-    conn.close()
+    finally:
+        conn.close()
+    for r in claimed:
+        try:
+            _apply_approval_timeout(r)
+        except Exception:
+            logger.exception("Timing out approval request %s failed", r["id"])
+
+
+def _apply_approval_timeout(r: dict) -> None:
+    """Resume whatever waited on an approval that timed out, as a denial."""
+    # Resume pipeline with denial — for graph-interrupted steps
+    # this lets the tool return "cancelled" and the pipeline
+    # continues to subsequent steps.  For explicit approval steps
+    # this stops the pipeline.
+    _resolve_approval_on_channels(r["id"], "timed_out",
+                                  source_channel="system")
+    _emit_buddy_approval_event(
+        "timed_out",
+        run_id=str(r.get("run_id") or ""),
+        task_id=str(r.get("task_id") or ""),
+        step_id=str(r.get("step_id") or ""),
+        approval_id=str(r.get("id") or ""),
+        resume_token=str(r.get("resume_token") or ""),
+        label="Approval timed out",
+        message=str(r.get("message") or ""),
+    )
+    if str(r.get("resume_kind") or "") == "agent_run":
+        from row_bot.agent_runner import resume_agent_run
+
+        resume_agent_run(
+            str(r.get("agent_run_id") or r.get("run_id") or ""),
+            resume_token=str(r.get("resume_token") or ""),
+            approved=False,
+        )
+    elif str(r.get("resume_kind") or "") == "parent_orchestration":
+        from row_bot.agent_orchestrator import resume_parent_orchestration
+
+        resume_parent_orchestration(
+            str(r.get("step_id") or "").removeprefix("orchestration:"),
+            resume_token=str(r.get("resume_token") or ""),
+            approved=False,
+        )
+    elif str(r.get("resume_kind") or "") != "conversation":
+        _resume_pipeline(r["resume_token"], approved=False)
+    logger.info("Approval request %s timed out for task %s",
+                 r["id"], r["task_id"])
 
 
 def _resume_graph_interrupted(
@@ -6853,7 +7001,9 @@ def _resume_graph_interrupted(
                     title="⏸️ Approval Required",
                     message=f"{task['name']}: {approval_msg}",
                     sound="workflow",
-                    icon="⏸️",
+                    toast_type="warning",
+                    source="workflow",
+                    in_app=False,  # the app lists pending approvals itself
                 )
                 return
 
@@ -7016,7 +7166,7 @@ def _resume_pipeline(resume_token: str, approved: bool = True, *,
         from row_bot.notifications import notify
         notify(title="❌ Task Denied",
                message=f"{task['name']}: approval denied by user",
-               sound="workflow", icon="❌")
+               sound="workflow", source="workflow")
         return
 
     _update_pipeline_status(state["run_id"], "running")
@@ -7282,7 +7432,8 @@ def _run_subtask_sync(
                         title=f"📋 {child_task['name']}",
                         message=msg,
                         sound="workflow",
-                        icon="📋",
+                        source="workflow",
+                        requested=True,
                     )
                 else:
                     try:
@@ -7873,7 +8024,6 @@ _DEFAULT_TASKS = [
             {
                 "type": "approval",
                 "message": "Review the research brief before Row-Bot prepares the final shareable report.",
-                "timeout_minutes": 120,
             },
             {
                 "type": "prompt",

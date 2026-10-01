@@ -43,6 +43,7 @@ def settle(service):
         return client_queue.read_queue(service, "conversation-a")
 
 
+@pytest.mark.slow
 def test_seven_exact_inputs_drain_in_order_without_entering_current_prompt(platform, monkeypatch):
     from row_bot import threads
     barriers = [StreamBarrier() for _ in range(8)]
@@ -139,6 +140,98 @@ def test_stop_pauses_unconsumed_and_explicit_dispatch_uses_frozen_controls(platf
         next_barrier.release.set()
         assert platform.registry.get(result["execution_id"]).producer_done.wait(10)
     assert settle(platform).items[0].state == "consumed"
+
+
+def test_stop_with_a_waiting_message_stays_sendable_and_never_wedges(platform):
+    """B107: after Stop, the waiting message is listed, refuses nothing silently
+    and can be sent or discarded; a refused send ran nothing."""
+    from row_bot.application.client_platform import ClientPlatformError
+    barrier, sent_barrier = StreamBarrier(), StreamBarrier()
+    fake = ScriptedAgentStream((barrier,), completed("sent-now", sent_barrier), completed("after-discard"))
+    receipt = submit(platform, fake, "wedge-initial")
+    assert barrier.entered.wait(10)
+    queued = enqueue(platform, "wedge-waiting", "Waiting follow-up")
+    execute(platform, "conversation.stop", "wedge-stop", {})
+    barrier.release.set()
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+
+    from row_bot.application.client_platform import _COMMAND_LOCK
+    with _COMMAND_LOCK:
+        waiting = client_queue.read_queue(platform, "conversation-a", waiting=True, limit=256)
+    assert [(item.text, item.state, item.editable) for item in waiting.items] == [
+        ("Waiting follow-up", "paused", True)]
+    assert not waiting.has_more
+
+    # "Send again" for the stopped message is refused before anything runs:
+    # the command is recorded as rejected, so a check reads the refusal back.
+    again = command("conversation.submit", "wedge-send-again", {
+        "submission_id": fixture_id("wedge-send-again"), "text": "Identical synthetic input",
+        "attachment_refs": [], "model_selection": {"provider_id": "fixture", "model_ref": "fixture/model"}})
+    with pytest.raises(ClientPlatformError, match="queue_pending"):
+        platform.execute(owner_id="fixture-owner", idempotency_key=fixture_id("wedge-send-again:key"),
+                         target="conversation-a", command=again)
+    assert platform.receipt("fixture-owner", again["command_id"])["status"] == "rejected"
+    assert len(fake.calls) == 1
+
+    # Send now: the waiting message runs with its own text.
+    result = execute(platform, "conversation.queue.dispatch", "wedge-send-now", {
+        "submission_id": queued["submission_id"], "expected_queue_revision": waiting.items[0].revision})
+    try:
+        assert sent_barrier.entered.wait(10)
+        assert fake.calls[-1]["submission_id"] == queued["submission_id"]
+    finally:
+        sent_barrier.release.set()
+        assert platform.registry.get(result["execution_id"]).producer_done.wait(10)
+    with _COMMAND_LOCK:
+        assert client_queue.read_queue(platform, "conversation-a", waiting=True).items == ()
+        # The full history still pages through consumed inputs.
+        assert [item.state for item in client_queue.read_queue(platform, "conversation-a").items] == ["consumed"]
+
+
+def test_waiting_inputs_are_paused_before_the_terminal_state_is_announced(platform, monkeypatch):
+    """A client re-reads its waiting messages on the terminal state; it must
+    see the paused revision, or its next Send now or Discard conflicts."""
+    # An interrupted run pauses its waiting inputs only as it finishes (an
+    # explicit Stop pauses them at once).
+    barrier = StreamBarrier()
+    receipt = submit(platform, ScriptedAgentStream((barrier, ("error", "synthetic failure"))), "order-initial")
+    assert barrier.entered.wait(10)
+    queued = enqueue(platform, "order-waiting", "Waiting follow-up")
+    seen = []
+    original = platform.projection.publish
+
+    def publish(conversation_id, kind, payload, *args, **kwargs):
+        if kind == "generation.state" and payload.get("quiesced"):
+            seen.append(client_queue._row(conversation_id, queued["submission_id"])["queue_state"])
+        return original(conversation_id, kind, payload, *args, **kwargs)
+
+    monkeypatch.setattr(platform.projection, "publish", publish)
+    barrier.release.set()
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+    assert seen and seen[-1] == "paused"
+
+
+def test_discarding_the_waiting_message_unblocks_new_messages(platform):
+    from row_bot.application.client_platform import ClientPlatformError
+    barrier = StreamBarrier()
+    fake = ScriptedAgentStream((barrier,), completed("fresh"))
+    receipt = submit(platform, fake, "discard-initial")
+    assert barrier.entered.wait(10)
+    queued = enqueue(platform, "discard-waiting", "Waiting follow-up")
+    execute(platform, "conversation.stop", "discard-stop", {})
+    barrier.release.set()
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+    with pytest.raises(ClientPlatformError, match="queue_pending"):
+        submit(platform, fake, "discard-blocked")
+    waiting = settle(platform).items[0]
+    execute(platform, "conversation.queue.remove", "discard-remove", {
+        "submission_id": queued["submission_id"], "expected_queue_revision": waiting.revision})
+    from row_bot.application.client_platform import _COMMAND_LOCK
+    with _COMMAND_LOCK:
+        assert client_queue.read_queue(platform, "conversation-a", waiting=True).items == ()
+    fresh = submit(platform, fake, "discard-fresh")
+    assert platform.registry.get(fresh["execution_id"]).producer_done.wait(10)
+    assert [call["submission_id"] for call in fake.calls] == [fixture_id("discard-initial"), fixture_id("discard-fresh")]
 
 
 def test_done_without_effect_proof_never_consumes(platform):
@@ -240,7 +333,7 @@ def test_chat_only_actual_prepared_boundary_preserves_native_identity(platform, 
     from row_bot.providers import readiness
     from row_bot.runtime import executions
     from langchain_core.messages import HumanMessage, AIMessageChunk
-    from tests.test_chat_only_runtime import _chat_ready_result
+    from tests.subsystem.providers.test_chat_only_runtime import _chat_ready_result
     barrier = StreamBarrier()
     receipt = submit(platform, ScriptedAgentStream((barrier,)), "chat-hook-initial")
     assert barrier.entered.wait(10)
@@ -451,3 +544,27 @@ def test_queue_api_errors_are_typed_and_never_leak_private_exception(client, mon
     assert response.status_code == status
     assert response.json()["code"] == code
     assert "PRIVATE" not in response.text
+
+
+def test_the_first_queue_read_never_races_a_writer_into_database_is_locked(tmp_path, monkeypatch):
+    """B175: the first checkpoint read switched threads.db into WAL lazily, and that switch
+    fails at once (no busy wait) while another connection writes, so a queue read 503'd."""
+    from row_bot import threads
+
+    path = tmp_path / "threads.db"
+    monkeypatch.setattr(threads, "DB_PATH", str(path))
+    threads._init_thread_db(raise_on_error=True)
+    with closing(sqlite3.connect(path)) as probe:
+        assert probe.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    writer = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("INSERT INTO thread_meta(thread_id, name) VALUES ('busy', 'Synthetic')")
+    release = threading.Timer(0.2, lambda: writer.execute("COMMIT"))
+    release.start()
+    saver = threads._DeletionAwareSqliteSaver(threads._ManagedSqliteConnection(str(path)))
+    try:
+        assert saver.get_tuple({"configurable": {"thread_id": "fresh", "checkpoint_ns": "queue"}}) is None
+    finally:
+        release.join()
+        writer.close()
+        saver.conn.close()

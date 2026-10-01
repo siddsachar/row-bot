@@ -12,16 +12,31 @@ const publicShell = [
   'icon-192.png',
   'icon-512.png',
 ];
-const paths = new Set(['index.html', ...publicShell]);
+// Shell documents: the workspace and the desktop Buddy (its own entry).
+const documents = ['index.html', 'buddy-overlay.html'];
+for (const document of documents)
+  if (!build[document]?.isEntry)
+    throw new Error(`Missing shell document entry: ${document}`);
+const paths = new Set([...documents, ...publicShell]);
 for (const entry of Object.values(build)) {
   paths.add(entry.file);
   for (const file of [...(entry.css ?? []), ...(entry.assets ?? [])])
     paths.add(file);
 }
+// Vite emits worker bundles without manifest entries: add the workers the
+// built scripts start with new Worker(new URL(".../assets/<name>.js", ...)).
+const workerStart =
+  /new (?:Shared)?Worker\(new URL\(["'][^"']*\/assets\/([A-Za-z0-9_.-]+\.js)["']/g;
+for (const path of [...paths])
+  if (/^assets\/[A-Za-z0-9_.-]+\.js$/.test(path))
+    for (const [, name] of (
+      await readFile(resolve(root, path), 'utf8')
+    ).matchAll(workerStart))
+      paths.add(`assets/${name}`);
 const files = {};
 for (const path of [...paths].sort()) {
   if (
-    !/^(index\.html|app\.webmanifest|service-worker\.js|icon-(?:192|512)\.png|assets\/[A-Za-z0-9_.-]+)$/.test(
+    !/^(index\.html|buddy-overlay\.html|app\.webmanifest|service-worker\.js|icon-(?:192|512)\.png|assets\/[A-Za-z0-9_.-]+)$/.test(
       path,
     )
   ) {

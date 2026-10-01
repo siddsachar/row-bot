@@ -14,12 +14,17 @@ from bs4 import BeautifulSoup, Tag
 
 from row_bot.designer import history, storage
 from row_bot.designer.client_service import ArtifactError, ArtifactPage, _identifier, read_artifact
-from row_bot.designer.state import DESIGNER_MODES, DesignerProject
+from row_bot.designer.preview import branded_blank_html
+from row_bot.designer.state import DESIGNER_MODES, DesignerPage, DesignerProject, default_page_kind_for_mode
 from row_bot.thread_cleanup import resolve_managed_path
 
 _TEXT_TAGS = frozenset("h1 h2 h3 h4 h5 h6 p span a li td th label figcaption blockquote button dt dd strong em b i small code pre caption summary div section".split())
+_EXCLUDED = frozenset({"html", "head", "script", "style", "meta", "link", "base", "title", "iframe", "object", "embed", "template"})
 _SNAPSHOT_ID = re.compile(r"[0-9]{1,20}(?:\.[0-9]{1,12})?")
 _MAX_TEXT = 20000
+# The sizes the panel's size menu offers (parity row 29); anything else by asking.
+PANEL_SIZES = ("16:9", "4:3", "1:1", "A4", "9:16")
+_NEW_PAGE_WORDS = {"slide": "slide", "screen": "screen", "shot": "shot"}
 
 
 @dataclass(frozen=True)
@@ -70,6 +75,35 @@ def _selected(project: DesignerProject, page_id: str | None):
     return project.pages[index]
 
 
+def _page_index(project: DesignerProject, page_id: str | None) -> int:
+    index = next((i for i, page in enumerate(project.pages) if page.route_id == page_id), -1)
+    if not isinstance(page_id, str) or index < 0:
+        raise ArtifactError("page_unavailable")
+    return index
+
+
+def _new_page_title(mode: str) -> str:
+    kind = default_page_kind_for_mode(mode)
+    word = "page" if mode == "document" else _NEW_PAGE_WORDS.get(kind, "page")
+    return f"New {word}"
+
+
+def _unique_route_id(project: DesignerProject, title: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:100] or "page"
+    taken = {page.route_id for page in project.pages}
+    candidate, suffix = base, 2
+    while candidate in taken:
+        candidate, suffix = f"{base}-{suffix}", suffix + 1
+    return candidate
+
+
+def element_key(route_id: str, ordinal: int, tag_name: str) -> str:
+    """A page element's panel id: its place on the page, not its text, so an
+    element keeps its id (and stays selected) when its own text is edited."""
+    identity = json.dumps([route_id, ordinal, tag_name], ensure_ascii=False)
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
 def _text_targets(page):
     if not isinstance(page.html, str):
         raise ArtifactError("resource_state_invalid")
@@ -87,19 +121,34 @@ def _text_targets(page):
         text = tag.get_text()
         if not text.strip() or tag.find_parent(["head", "script", "style", "svg", "template"]):
             continue
-        identity = json.dumps([page.route_id, ordinal, tag.name, text], ensure_ascii=False)
-        target_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        targets.append((target_id, tag, text))
+        targets.append((element_key(page.route_id, ordinal, tag.name), tag, text))
     return soup, targets
 
 
+def element_targets(route_id: str, soup: BeautifulSoup) -> list[tuple[str, Tag]]:
+    """Every element the panel can select on a parsed page, with its panel id."""
+    result = []
+    for ordinal, tag in enumerate(soup.find_all(True)):
+        if ordinal >= 10000:
+            raise ArtifactError("design_page_too_complex")
+        if tag.name in _EXCLUDED or tag.find_parent(["head", "script", "style", "template", "svg", "iframe", "object", "embed"]):
+            continue
+        result.append((element_key(route_id, ordinal, tag.name), tag))
+    return result
+
+
 def authoring_page_html(project: DesignerProject, page_id: str) -> str:
-    """Mark a parsed preview copy; reading never persists element identifiers."""
+    """Mark a parsed preview copy; reading never persists element identifiers.
+
+    Every element carries its panel id, so any of them can be selected; text
+    short enough for the panel is also marked as editable in place."""
     page = _selected(project, page_id)
     soup, targets = _text_targets(page)
-    for target_id, tag, text in targets:
-        if len(text) <= _MAX_TEXT:
-            tag["data-row-bot-element-id"] = target_id
+    editable = {id(tag) for _key, tag, text in targets if len(text) <= _MAX_TEXT}
+    for key, tag in element_targets(page.route_id, soup):
+        tag["data-row-bot-element-id"] = key
+        if id(tag) in editable:
+            tag["data-row-bot-text"] = ""
     return str(soup)
 
 
@@ -221,14 +270,16 @@ def read_editing(project_id: str, *, page_id: str | None = None, page_cursor: st
         raise ArtifactError("resource_state_invalid")
     all_pages = [ArtifactPage(item.route_id, item.title, index) for index, item in enumerate(project.pages)]
     pages, next_page = _paged(all_pages, page_cursor, limit, project.updated_at, f"{project.id}:pages:{page.route_id}")
-    _soup, targets = _text_targets(page)
+    soup, targets = _text_targets(page)
     all_elements = [ArtifactTextElement(key, tag.name, text if len(text) <= _MAX_TEXT else "", len(text) <= _MAX_TEXT)
                     for key, tag, text in targets]
     if element_id is not None and element_cursor is None:
         position = next((index for index, item in enumerate(all_elements) if item.id == element_id), -1)
-        if position < 0:
+        if position >= 0:
+            element_cursor = _encode_cursor(position, project.updated_at, f"{project.id}:elements:{page.route_id}")
+        elif element_id not in {key for key, _tag in element_targets(page.route_id, soup)}:
+            # A selected picture or box has no text to edit; only a gone element is an error.
             raise ArtifactError("element_unavailable")
-        element_cursor = _encode_cursor(position, project.updated_at, f"{project.id}:elements:{page.route_id}")
     elements, next_element = _paged(all_elements, element_cursor, limit, project.updated_at, f"{project.id}:elements:{page.route_id}")
     snapshots, history_count, next_history = _history_page(project, page.route_id, history_cursor, limit)
     result = ArtifactEditingState(project.id, project.updated_at, project.mode, project.name,
@@ -284,13 +335,15 @@ def _restore_state(project: DesignerProject, snapshot_id: str, *, value: dict | 
 def apply_edit(project_id: str, *, expected_revision: str, operation: str,
                page_id: str | None = None, name: str | None = None, title: str | None = None,
                notes: str | None = None, element_id: str | None = None, text: str | None = None,
-               snapshot_id: str | None = None,
+               snapshot_id: str | None = None, aspect_ratio: str | None = None,
                validate: Callable[[], None] | None = None) -> DesignerProject:
     """Apply an explicit captured edit under the existing document save owner."""
     supplied = {key for key, value in {"page_id": page_id, "name": name, "title": title, "notes": notes,
-                "element_id": element_id, "text": text, "snapshot_id": snapshot_id}.items() if value is not None}
+                "element_id": element_id, "text": text, "snapshot_id": snapshot_id,
+                "aspect_ratio": aspect_ratio}.items() if value is not None}
     allowed = {"project_properties": {"name"}, "page_properties": {"page_id", "title", "notes"},
-               "text": {"page_id", "element_id", "text"}, "restore": {"snapshot_id"}}
+               "text": {"page_id", "element_id", "text"}, "restore": {"snapshot_id"},
+               "page_add": {"page_id"}, "page_delete": {"page_id"}, "canvas_size": {"aspect_ratio"}}
     if operation not in allowed or supplied - allowed[operation] or not supplied:
         raise ArtifactError("invalid_edit")
     with storage._project_save_lock(_identifier(project_id)):
@@ -305,6 +358,26 @@ def apply_edit(project_id: str, *, expected_revision: str, operation: str,
         updated._row_bot_persisted_updated_at = project.updated_at
         if operation == "project_properties":
             updated.name = _plain(name, maximum=200, empty=False)
+        elif operation == "page_add":
+            # A blank page right after the one shown, then shown itself.
+            index = _page_index(updated, page_id) + 1
+            page_title = _new_page_title(updated.mode)
+            updated.pages.insert(index, DesignerPage(
+                html=branded_blank_html(updated, page_title), title=page_title,
+                route_id=_unique_route_id(updated, page_title), kind=default_page_kind_for_mode(updated.mode)))
+            updated.active_page = index
+        elif operation == "page_delete":
+            index = _page_index(updated, page_id)
+            if len(updated.pages) <= 1:
+                raise ArtifactError("invalid_edit")
+            updated.pages.pop(index)
+            if index < updated.active_page or updated.active_page >= len(updated.pages):
+                updated.active_page = max(0, updated.active_page - 1)
+        elif operation == "canvas_size":
+            from row_bot.designer.canvas_resize import apply_canvas_size
+            if aspect_ratio not in PANEL_SIZES:
+                raise ArtifactError("invalid_edit")
+            apply_canvas_size(updated, aspect_ratio, source="the Design panel")
         elif operation == "restore":
             history.apply_project_state(updated, _restore_state(project, snapshot_id))
         else:

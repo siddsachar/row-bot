@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import GoalProfileSettings, {
@@ -42,6 +43,7 @@ const goalPage: GoalPage = {
   items: [currentGoal],
   total: 1,
   next_cursor: null,
+  default_max_turns: 0,
 };
 const builtinProfile: ProfileSummary = {
   id: 'builtin:general',
@@ -209,6 +211,24 @@ it('validates and applies the exact goal draft once', async () => {
   expect(props.session.hasRetained()).toBe(false);
 });
 
+it('starts a goal with no turn limit unless one is typed (B243)', async () => {
+  const props = options();
+  render(<GoalProfileSettings {...props} />);
+  await screen.findByText('Complete the migration');
+  expect(screen.getByLabelText('Maximum turns')).toHaveValue(null);
+  expect(screen.getByText('Active · 4 of 24 turns')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Goal objective'), {
+    target: { value: 'Keep going overnight' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start goal' }));
+  await screen.findByText('Goal change completed.');
+  expect(props.reviewGoal.mock.calls[0][0]).toMatchObject({
+    operation: 'start',
+    objective: 'Keep going overnight',
+    max_turns: null,
+  });
+});
+
 it('retains an uncertain goal attempt across remount for explicit recovery', async () => {
   const props = options();
   props.executeGoal.mockRejectedValueOnce(Error('transport lost'));
@@ -266,8 +286,8 @@ it('keeps built-ins read only while allowing an explicit duplicate', async () =>
   await screen.findByText('Complete the migration');
   await openProfiles();
   expect(
-    screen.getByRole('button', { name: 'Edit General Assistant' }),
-  ).toBeDisabled();
+    screen.queryByRole('button', { name: 'Edit General Assistant' }),
+  ).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'Duplicate General Assistant' }),
   );
@@ -286,11 +306,196 @@ it('keeps built-ins read only while allowing an explicit duplicate', async () =>
   });
 });
 
+it('manages grouped profiles without a conversation and starts a selected profile chat', async () => {
+  const props = options();
+  const onStartProfileChat = vi.fn();
+  render(
+    <GoalProfileSettings
+      {...props}
+      conversationId={undefined}
+      profilesOnly
+      onStartProfileChat={onStartProfileChat}
+    />,
+  );
+  await screen.findByText('General Assistant');
+  expect(props.loadGoals).not.toHaveBeenCalled();
+  expect(screen.getByText('Everyday')).toBeInTheDocument();
+  expect(screen.getByText('My Profiles')).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'View General Assistant' }),
+  );
+  await screen.findByRole('region', { name: 'Profile details' });
+  await waitFor(() =>
+    expect(
+      screen.getByRole('region', { name: 'Profile details' }),
+    ).toHaveFocus(),
+  );
+  expect(
+    screen.getByText(/Stored instructions are private/),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'View General Assistant' }),
+    ).toHaveFocus(),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Start chat with General Assistant' }),
+  );
+  expect(onStartProfileChat).toHaveBeenCalledWith(builtinProfile);
+  expect(props.reviewProfile).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
+  expect(
+    screen.getByRole('group', { name: 'Create profile' }),
+  ).toBeInTheDocument();
+});
+
+it('lays the profile library directly on its dialog, with an icon Refresh that reloads it', async () => {
+  const props = options();
+  const { container } = render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  await screen.findByText('General Assistant');
+  // No card inside the dialog: the library is not framed as a settings
+  // section, twice over, as it was.
+  expect(container.querySelector('.settings-section, .surface')).toBeNull();
+  expect(
+    screen.getByRole('searchbox', { name: 'Search profiles' }),
+  ).toBeVisible();
+  const refresh = screen.getByRole('button', { name: 'Refresh profiles' });
+  expect(refresh.textContent).toBe('');
+  expect(props.loadProfiles).toHaveBeenCalledTimes(1);
+  fireEvent.click(refresh);
+  await waitFor(() => expect(props.loadProfiles).toHaveBeenCalledTimes(2));
+});
+
+it('pins a profile as a sidebar favourite on this device, and only one that can start a chat (B268)', async () => {
+  const props = options();
+  const disabled = {
+    ...userProfile,
+    id: 'profile-off',
+    display_name: 'Retired Helper',
+    enabled: false,
+  };
+  props.loadProfiles.mockResolvedValue({
+    ...profilePage,
+    items: [builtinProfile, userProfile, disabled],
+    total: 3,
+  });
+  const library = (
+    <GoalProfileSettings
+      {...props}
+      conversationId={undefined}
+      profilesOnly
+      onStartProfileChat={vi.fn()}
+    />
+  );
+  const view = render(library);
+  const pin = await screen.findByRole('button', {
+    name: 'Pin General Assistant to the sidebar',
+  });
+  expect(pin).toHaveAttribute('aria-pressed', 'false');
+  expect(
+    screen.queryByRole('button', { name: /Pin Retired Helper/ }),
+  ).toBeNull();
+  fireEvent.click(pin);
+  expect(
+    screen.getByRole('button', {
+      name: 'Unpin General Assistant from the sidebar',
+    }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  // Remembered: the library opens again with it pinned.
+  view.unmount();
+  render(library);
+  const unpin = await screen.findByRole('button', {
+    name: 'Unpin General Assistant from the sidebar',
+  });
+  fireEvent.click(unpin);
+  expect(
+    screen.getByRole('button', {
+      name: 'Pin General Assistant to the sidebar',
+    }),
+  ).toHaveAttribute('aria-pressed', 'false');
+  expect(props.reviewProfile).not.toHaveBeenCalled();
+});
+
+it('loads the profile panel after a retained session finishes another read', async () => {
+  const props = options();
+  props.session.update({ busy: 'load-goals' });
+  render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  expect(props.loadProfiles).not.toHaveBeenCalled();
+  act(() => props.session.update({ busy: '' }));
+  await screen.findByText('General Assistant');
+  expect(props.loadProfiles).toHaveBeenCalledTimes(1);
+});
+
+it('groups built-in and custom profile scopes with independent disclosure state', async () => {
+  const props = options();
+  const variants = [
+    {
+      ...builtinProfile,
+      id: 'builtin:work',
+      display_name: 'Work Helper',
+      group: 'Work',
+    },
+    {
+      ...builtinProfile,
+      id: 'builtin:creative',
+      display_name: 'Creative Helper',
+      group: 'Creative',
+    },
+    {
+      ...builtinProfile,
+      id: 'builtin:developer',
+      display_name: 'Developer Helper',
+      group: 'Developer',
+    },
+    {
+      ...builtinProfile,
+      id: 'builtin:advanced',
+      display_name: 'Advanced Helper',
+      group: 'Advanced/Internal',
+    },
+    { ...userProfile, id: 'workspace:helper', scope: 'workspace' as const },
+    { ...userProfile, id: 'plugin:helper', scope: 'plugin' as const },
+    { ...userProfile, id: 'imported:helper', scope: 'imported' as const },
+  ];
+  props.loadProfiles.mockResolvedValue({
+    ...profilePage,
+    items: [builtinProfile, userProfile, ...variants],
+    total: variants.length + 2,
+  });
+  render(<GoalProfileSettings {...props} profilesOnly />);
+  await screen.findByText('Work Helper');
+  for (const group of [
+    'Everyday',
+    'Work',
+    'Creative',
+    'Developer',
+    'Advanced/Internal',
+    'My Profiles',
+    'Workspace Profiles',
+    'Plugin Profiles',
+    'Imported Profiles',
+  ])
+    expect(screen.getByText(group, { exact: true })).toBeInTheDocument();
+  const work = screen.getByText('Work', { exact: true }).closest('details')!;
+  expect(work.open).toBe(false);
+  fireEvent.click(work.querySelector('summary')!);
+  expect(work.open).toBe(true);
+  expect(screen.getByText('Everyday').closest('details')!.open).toBe(true);
+});
+
 it('creates a bounded profile draft from one click', async () => {
   const props = options();
   render(<GoalProfileSettings {...props} />);
   await screen.findByText('Complete the migration');
   await openProfiles();
+  const mine = () =>
+    screen.getByText('My Profiles', { exact: true }).closest('details')!;
+  expect(mine().open).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Create profile' }));
   fireEvent.change(screen.getByLabelText('Profile slug'), {
     target: { value: 'safe_reader' },
@@ -319,6 +524,8 @@ it('creates a bounded profile draft from one click', async () => {
     },
   });
   await waitFor(() => expect(props.executeProfile).toHaveBeenCalledOnce());
+  // The created profile's group opens so the new row is visible.
+  await waitFor(() => expect(mine().open).toBe(true));
 });
 
 it('tombstones private drafts and late settlements after authentication loss', async () => {
@@ -373,4 +580,58 @@ it('admits one execution during repeated synchronous clicks', async () => {
   await waitFor(() => expect(props.executeGoal).toHaveBeenCalledTimes(1));
   act(() => props.session.dispose());
   await act(async () => pending.reject(Error('synthetic cancellation')));
+});
+
+it('names the profile in its delete confirmation and keeps it on Keep profile', async () => {
+  const props = options();
+  render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  await screen.findByText('Focused Writer');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Delete Focused Writer' }),
+  );
+  const review = await screen.findByRole('region', {
+    name: 'Goal or profile change review',
+  });
+  expect(
+    within(review).getByRole('heading', { name: 'Delete “Focused Writer”?' }),
+  ).toBeVisible();
+  expect(within(review).getByText('Cannot be undone.')).toBeVisible();
+  expect(within(review).queryByText(/Profile action/)).not.toBeInTheDocument();
+  expect(
+    within(review).getByRole('button', { name: 'Confirm removal' }),
+  ).toHaveClass('danger');
+  fireEvent.click(within(review).getByRole('button', { name: 'Keep profile' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'Goal or profile change review' }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(props.executeProfile).not.toHaveBeenCalled();
+});
+
+it('opens the group that holds a search match', async () => {
+  const props = options();
+  props.loadProfiles.mockImplementation(async ({ query }) =>
+    query ? { ...profilePage, items: [userProfile], total: 1 } : profilePage,
+  );
+  const { container } = render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  await screen.findByText('General Assistant');
+  const mine = () =>
+    [...container.querySelectorAll('details.profile-library-group')].find(
+      (group) =>
+        group.querySelector('summary')?.textContent?.includes('My Profiles'),
+    ) as HTMLDetailsElement;
+  expect(mine().open).toBe(false);
+  fireEvent.change(screen.getByLabelText('Search profiles'), {
+    target: { value: 'focused' },
+  });
+  fireEvent.keyDown(screen.getByLabelText('Search profiles'), { key: 'Enter' });
+  await waitFor(() => expect(mine().open).toBe(true));
+  expect(
+    screen.getByRole('button', { name: 'Delete Focused Writer' }),
+  ).toBeVisible();
 });

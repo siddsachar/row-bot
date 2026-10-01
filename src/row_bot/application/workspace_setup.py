@@ -106,6 +106,31 @@ def _clone_workspace(command: dict, target: str, *, owner_id: str, key: str,
     return result, registration
 
 
+def forget_saved_resource(command: dict, target: str, *, validate: Any = None) -> dict:
+    """Remove a saved code folder from Open saved, or put it back (``restore``).
+
+    Only the saved-list entry changes (see ``set_workspace_listed``); the
+    folder, its files and every conversation using it are untouched.
+    Removing an entry already gone, or restoring one already listed, is a
+    harmless repeat.
+    """
+    from row_bot.developer.client_workspace import set_workspace_listed
+    payload = command["payload"]
+    if target != "resources" or payload.get("kind") != "workspace":
+        raise ClientPlatformError("invalid_command")
+    try:
+        choice = set_workspace_listed(str(payload["resource_id"]), str(payload["expected_resource_revision"]),
+                                      listed=payload.get("restore") is True, validate=validate)
+    except ClientPlatformError:
+        raise
+    except ValueError as exc:
+        code = str(exc)
+        raise ClientPlatformError(code if code in {"resource_revision_conflict", "resource_unavailable",
+                                                   "action_denied"} else "invalid_resource") from None
+    return {"status": "completed", "resource_id": choice.resource_id, "resource_kind": "workspace",
+            "resource_revision": choice.revision}
+
+
 def resource_choice(kind: str, identity: str, revision: str | None = None) -> dict:
     from row_bot import threads
     if kind == "artifact":
@@ -229,7 +254,14 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                     "setup_intent": intent, "association_required": True, "confirmed_stages": [],
                     **({"conversation_id": target} if target != "resources" else {}),
                 })
-                if payload.get("artifact") is not None:
+                if payload.get("duplicate_of") is not None:
+                    from row_bot.designer.client_service import ArtifactError, duplicate_artifact
+                    try:
+                        duplicate_artifact(identity, payload["duplicate_of"],
+                                           expected_revision=payload.get("expected_resource_revision") or "")
+                    except ArtifactError as exc:
+                        raise ClientPlatformError(exc.code, exc.current_revision) from exc
+                elif payload.get("artifact") is not None:
                     if payload.get("deck") is not None or payload.get("folder_grant") is not None:
                         raise ClientPlatformError("invalid_command")
                     create_artifact(identity, ArtifactSetup(**payload["artifact"]))
@@ -245,10 +277,16 @@ def setup(service: Any, command: dict, target: str, *, owner_id: str, key: str,
                     return empty_result
                 identity, created = registration.workspace.resource_id, registration.created
             elif payload.get("draft_workspace") is True:
-                from row_bot.application.conversation_creation import _draft_parent
+                from row_bot.application.conversation_creation import (
+                    _draft_parent, code_folder_name, free_folder_name,
+                )
                 authorized_folder = _draft_parent()
+                # Named once, from the request ("Tiny date app", then "Tiny
+                # date app 2"); a replay returns this receipt and continuing
+                # uses the name saved with the created folder.
                 command = {**command, "payload": {**payload, "empty_workspace": {
-                    "folder_name": f"Draft-{str(command['command_id'])[:12]}",
+                    "folder_name": free_folder_name(
+                        authorized_folder.path, code_folder_name(payload.get("draft_name") or "")),
                 }}}
                 empty_result, registration = _empty_workspace(command, target, owner_id=owner_id, key=key,
                                                                authorized_folder=authorized_folder, validate=validate)
@@ -430,12 +468,14 @@ def conversation_workspace(service: Any, identity: str) -> dict:
         resources.append({"resource_ref": identity + ":" + binding.binding_id, "conversation_revision": str(row["client_revision"]),
                           "binding": asdict(binding), "title": descriptor.title, "resource_revision": descriptor.resource_revision,
                           "available": descriptor.available})
-    ready = generation_readiness(service, controls)
+    status = model_status(service, controls)
+    ready = status["state"] == "ready"
     from row_bot.application.context_status import read_usage
     from row_bot.application.reasoning_controls import reasoning_view
     from row_bot.application.attachments import list_generated_outputs
     from row_bot.application.conversation_writer import writer_status
     return {"conversation_id": identity, "revision": str(row["client_revision"]), "controls": controls,
+            "model_status": status,
             "generated_outputs": list_generated_outputs(identity),
             "writer_status": writer_status(identity),
             "context_usage": read_usage(service, identity, controls),
@@ -449,12 +489,96 @@ def conversation_workspace(service: Any, identity: str) -> dict:
                     "client_revision": int(row["client_revision"]),
                 },
             ),
-            "profiles": [{"id": p["id"], "label": p["display_name"]} for p in list_agent_profiles(enabled_only=True)][:256],
+            "profiles": _people_facing_profiles(str(row.get("agent_profile_id") or "")),
             "resources": resources, "actions": [
                 {"action": action, "ready": ready, "code": None if ready else "model_configuration_required"}
                 for action in ("send", "generate")] + [
                 {"action": action, "ready": not threads._thread_write_blocked(identity), "code": None}
                 for action in ("create_deck", "bind", "preview") ]}
+
+
+def _people_facing_profiles(current: str) -> list[dict]:
+    """Profiles a person picks for a chat: not the internal helpers (U20).
+
+    Built-in worker/synthesize/verify helpers are grouped "Advanced/Internal"
+    for delegation; they stay available there, and a chat already using one
+    still lists it.
+    """
+    from row_bot.agent_profiles import list_agent_profiles
+
+    profiles = []
+    for profile in list_agent_profiles(enabled_only=True):
+        ui = profile.get("ui_json") if isinstance(profile.get("ui_json"), dict) else {}
+        if str(ui.get("group") or "") == "Advanced/Internal" and profile["id"] != current:
+            continue
+        profiles.append({"id": profile["id"], "label": profile["display_name"]})
+    return profiles[:256]
+
+
+def _sees_images(model_ref: str) -> bool | None:
+    """False when attached images can't be seen here; None when unknown."""
+    try:
+        from row_bot.vision import vision_model_compatibility
+        from row_bot.vision_runtime import get_vision_service
+
+        vision = get_vision_service()
+        if not vision.enabled:
+            return False
+        compatibility = vision_model_compatibility(vision.effective_model(model_ref))
+        if compatibility.get("explicit") and not compatibility.get("usable"):
+            return False
+    except Exception:
+        return None
+    return None
+
+
+def _unavailable_reason(model_ref: str, provider_id: str, result: Any, runtime_mode: str) -> tuple[str, str]:
+    """A short reason in words and the one fix that helps (decision 10)."""
+    from row_bot.providers.selection import provider_display_label
+
+    chosen = result.chat if runtime_mode == "chat_only" else result.agent
+    if chosen.credential_status == "missing":
+        if provider_id == "ollama":
+            return "Ollama isn't running", "reconnect"
+        if provider_id.startswith("custom_openai_"):
+            from row_bot.providers.custom import get_custom_endpoint
+
+            if not get_custom_endpoint(provider_id):
+                return "Its endpoint was removed", "choose"
+        return f"{provider_display_label(provider_id)} isn't connected", "reconnect"
+    if runtime_mode != "chat_only" and result.chat.ready:
+        return "It can't use tools; switch to Chat only or choose another model", "choose"
+    errors = " ".join(chosen.errors).lower()
+    if "context window" in errors:
+        return "Its context window is too small", "choose"
+    return "It isn't ready right now", "choose"
+
+
+def model_status(service: Any, controls: dict) -> dict:
+    """What the composer's model pill shows: never "Ready" for an unavailable model."""
+    selection = controls.get("model_selection")
+    if not selection:
+        return {"state": "missing", "reason": "No model chosen yet", "fix": "choose",
+                "local": False, "sees_images": None}
+    model_ref = str(selection.get("model_ref") or "")
+    provider_id = str(selection.get("provider_id") or "")
+    from row_bot.providers.catalog import provider_billing
+
+    base = {"local": provider_billing(provider_id) == "local", "sees_images": _sees_images(model_ref)}
+    if service.readiness_factory is not None:
+        ready = bool(service.readiness_factory(controls))
+        return {**base, "state": "ready" if ready else "unavailable",
+                "reason": "" if ready else "It isn't ready right now", "fix": None if ready else "choose"}
+    from row_bot.providers.readiness import evaluate_runtime_readiness
+    try:
+        result = evaluate_runtime_readiness(model_ref, refresh_provider_status=False, probe_ollama_tools=False)
+    except (ValueError, RuntimeError):
+        return {**base, "state": "unavailable", "reason": "This model can't be used right now", "fix": "choose"}
+    runtime_mode = str(controls.get("runtime_mode") or "agent")
+    if (result.chat if runtime_mode == "chat_only" else result.agent).ready:
+        return {**base, "state": "ready", "reason": "", "fix": None}
+    reason, fix = _unavailable_reason(model_ref, provider_id, result, runtime_mode)
+    return {**base, "state": "unavailable", "reason": reason, "fix": fix}
 
 
 def generation_readiness(service: Any, controls: dict) -> bool:

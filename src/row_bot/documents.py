@@ -953,13 +953,6 @@ def clear_documents_details(*, removal_id: str | None = None,
         return result
 
 
-def reset_vector_store() -> None:
-    """Compatibility clear entry point; partial outcomes cannot report success."""
-    result = clear_documents_details()
-    if result["status"] != "complete":
-        raise RuntimeError(f"Document clear is {result['status']}; retry removal {result['removal_id']}")
-
-
 def remove_document(document_id: str) -> bool:
     """Compatibility removal entry point for existing callers."""
     result = remove_document_details(document_id)

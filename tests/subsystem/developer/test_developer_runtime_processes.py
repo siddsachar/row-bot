@@ -8,7 +8,7 @@ from row_bot.process_cancellation import ProcessRunResult
 from tests.fixtures.developer import fake_workspace
 
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def _py_command(code: str) -> str:
@@ -16,6 +16,7 @@ def _py_command(code: str) -> str:
     return f'"{sys.executable}" -c "{escaped}"'
 
 
+@pytest.mark.slow
 def test_run_workspace_command_captures_stdout_stderr_nonzero_and_timeout(tmp_path) -> None:
     from row_bot.developer import runtime
 
@@ -149,7 +150,12 @@ def test_managed_background_process_starts_and_stops_cleanly(tmp_path) -> None:
     try:
         assert result.returncode == 0
         assert "Started PID" in result.stdout
-        assert runtime.stop_workspace_processes(workspace.path) == 1
-        assert runtime.stop_workspace_processes(workspace.path) == 0
+        states = runtime.tracked_processes(workspace.path)
+        assert len(states) == 1
+        runtime.stop_tracked_process(states[0])
+        assert states[0].done.wait(10)
+        assert states[0].quiesced
     finally:
-        runtime.stop_workspace_processes(workspace.path)
+        for state in runtime.tracked_processes(workspace.path):
+            runtime.stop_tracked_process(state)
+            assert state.done.wait(10)

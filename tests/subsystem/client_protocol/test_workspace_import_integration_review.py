@@ -16,6 +16,7 @@ from tests.subsystem.developer.test_client_workspace_imports import domain, impo
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.slow
 def test_expiry_after_admission_preserves_original_review_for_explicit_nonce_renewal(imports, monkeypatch):
     d = imports
     pending = d.pending({'file.txt': 'before\n'}, {'file.txt': 'after\n'})

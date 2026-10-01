@@ -164,27 +164,6 @@ def test_plugin_api_compat_alias_exports_channel_runtime_types() -> None:
     assert imported_api.PluginWebhookResponse is PluginWebhookResponse
 
 
-def test_plugin_api_exposes_channel_runtime_methods(tmp_path: Path) -> None:
-    api = PluginAPI("sample-plugin", tmp_path / "plugin", FakeStateBackend())
-
-    for name in [
-        "handle_channel_message",
-        "handle_channel_approval",
-        "process_channel_attachment",
-        "record_channel_activity",
-        "generate_channel_pairing_code",
-        "verify_channel_pairing_code",
-        "is_channel_user_approved",
-        "get_channel_approved_users",
-        "revoke_channel_user",
-        "register_webhook_route",
-        "get_webhook_path",
-        "get_webhook_url",
-        "verify_bot_framework_jwt",
-    ]:
-        assert hasattr(api, name)
-
-
 def test_plugin_api_background_context_is_read_from_agent_context(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

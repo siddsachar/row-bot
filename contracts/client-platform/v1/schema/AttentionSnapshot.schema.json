@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "AttentionProblem": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "maxLength": 512,
+          "title": "Detail",
+          "type": "string"
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProblemFix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "place": {
+          "enum": [
+            "channels",
+            "plugins",
+            "mcp",
+            "access",
+            "models",
+            "workflows",
+            "health"
+          ],
+          "title": "Place",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "detail",
+        "place"
+      ],
+      "title": "AttentionProblem",
+      "type": "object"
+    },
+    "AttentionUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "AttentionUpdate",
+      "type": "object"
+    },
+    "ProblemFix": {
+      "additionalProperties": false,
+      "description": "The one fix offered with a problem (Phase 18). The client words it and\nruns it through the owner that does it in Settings: a channel restart or\nan account sign-in reviewed as there, or opening the exact setting.",
+      "properties": {
+        "href": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "pattern": "^/[A-Za-z0-9/?=&#._:-]{0,159}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Href"
+        },
+        "kind": {
+          "enum": [
+            "restart_channel",
+            "reconnect_account",
+            "choose_model",
+            "open",
+            "check_again"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "kind",
+        "href",
+        "target",
+        "name"
+      ],
+      "title": "ProblemFix",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What needs the person now: the sidebar's one indicator (parity 12, 13).",
+  "properties": {
+    "problems": {
+      "items": {
+        "$ref": "#/$defs/AttentionProblem"
+      },
+      "maxItems": 20,
+      "title": "Problems",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "update": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttentionUpdate"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "problems",
+    "update"
+  ],
+  "title": "AttentionSnapshot",
+  "type": "object"
+}

@@ -29,9 +29,13 @@ it('labels absent and stale usage without claiming a current measurement', () =>
     'aria-valuenow',
     '12345',
   );
-  expect(document.querySelector('.context-meter-threshold')).toHaveStyle({
-    insetInlineStart: '75%',
-  });
+  // The ring marks the compaction threshold (75%) with a tick.
+  expect(document.querySelector('.context-ring-threshold')).not.toBeNull();
+  expect(
+    screen.getByRole('button', {
+      name: 'Context ~12%; automatic compaction threshold marker',
+    }),
+  ).toBeVisible();
   fireEvent.click(screen.getByText('Context ~12%'));
   expect(
     screen.getByText('Last provider-confirmed input: 0 tokens.'),

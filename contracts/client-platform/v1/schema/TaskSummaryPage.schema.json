@@ -1,8 +1,91 @@
 {
   "$defs": {
+    "TaskActiveRun": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "started_at": {
+          "maxLength": 80,
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        },
+        "steps_done": {
+          "minimum": 0,
+          "title": "Steps Done",
+          "type": "integer"
+        },
+        "steps_total": {
+          "minimum": 0,
+          "title": "Steps Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "started_at",
+        "steps_done",
+        "steps_total"
+      ],
+      "title": "TaskActiveRun",
+      "type": "object"
+    },
+    "TaskRunDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "started_at": {
+          "maxLength": 80,
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "started_at"
+      ],
+      "title": "TaskRunDigest",
+      "type": "object"
+    },
     "TaskSummary": {
       "additionalProperties": false,
       "properties": {
+        "active_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskActiveRun"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "agent_profile_id": {
+          "maxLength": 128,
+          "title": "Agent Profile Id",
+          "type": "string"
+        },
+        "approval_mode": {
+          "maxLength": 64,
+          "title": "Approval Mode",
+          "type": "string"
+        },
         "at": {
           "anyOf": [
             {
@@ -79,9 +162,30 @@
           "title": "Name",
           "type": "string"
         },
+        "next_run": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Run"
+        },
         "notify_only": {
           "title": "Notify Only",
           "type": "boolean"
+        },
+        "recent_runs": {
+          "items": {
+            "$ref": "#/$defs/TaskRunDigest"
+          },
+          "maxItems": 10,
+          "title": "Recent Runs",
+          "type": "array"
         },
         "schedule": {
           "anyOf": [
@@ -94,6 +198,11 @@
             }
           ],
           "title": "Schedule"
+        },
+        "step_count": {
+          "minimum": 0,
+          "title": "Step Count",
+          "type": "integer"
         }
       },
       "required": [
@@ -103,11 +212,14 @@
         "icon",
         "enabled",
         "notify_only",
+        "step_count",
         "schedule",
         "at",
         "last_run",
         "last_status",
-        "conversation_id"
+        "conversation_id",
+        "agent_profile_id",
+        "approval_mode"
       ],
       "title": "TaskSummary",
       "type": "object"

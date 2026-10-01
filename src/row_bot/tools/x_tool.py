@@ -23,6 +23,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.account_token_checks import record_token_check
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -210,8 +211,7 @@ def _run_oauth_flow(client_id: str, client_secret: str, *, persist: bool = True)
     the code for tokens.
 
     **Important**: This function blocks until the user completes the flow
-    or the 120-second timeout expires.  Call from a background thread
-    (e.g. ``await run.io_bound(_run_oauth_flow, ...)`` in NiceGUI).
+    or the 120-second timeout expires.  Call from a background thread.
 
     Parameters
     ----------
@@ -703,7 +703,14 @@ class XTool(BaseTool):
         - "expired"   — refresh token failed; re-authenticate
         - "missing"   — no token file
         - "error"     — unexpected error (e.g. bad credentials)
+
+        Settings › Accounts reports the verdict (B263).
         """
+        result = self._probe_token_health()
+        record_token_check(_TOKEN_PATH, result[0])
+        return result
+
+    def _probe_token_health(self) -> tuple[str, str]:
         token = _load_token()
         if not token:
             return ("missing", "No token file found")

@@ -1,57 +1,16 @@
 """Contested ordering, identity and memory checks independent of the authors."""
 from __future__ import annotations
 
-import asyncio
 import json
-import threading
 
 from langchain_core.messages import AIMessage
 import pytest
 
 from row_bot.projection.conversation import ConversationProjection
-from row_bot.ui.legacy_adapter.view_subscription import LegacyViewSubscription
 from tests.contracts.client_platform.test_headless_lifecycle import command, platform as platform, submit
 from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier, fixture_id
 
 pytestmark = pytest.mark.contract
-
-
-def test_f_u04_old_checkpoint_load_cannot_apply_after_a_b_a_selection():
-    async def scenario():
-        projection = ConversationProjection(fixture_id("view-epoch"))
-        entered, release = threading.Event(), threading.Event()
-        applied, finished = [], asyncio.Event()
-        calls = []
-
-        def load(target):
-            calls.append(target)
-            if len(calls) == 1:
-                entered.set()
-                assert release.wait(10)
-                return [{"content": "old A before selection changed"}]
-            return [{"content": "current A after selection changed"}]
-
-        def apply(target, messages):
-            applied.append((target, messages))
-            if messages[0]["content"].startswith("current"):
-                finished.set()
-
-        viewer = LegacyViewSubscription(projection, load, apply)
-        try:
-            projection.install_checkpoint("a", "checkpoint-1", [])
-            viewer.observe("a")
-            assert await asyncio.to_thread(entered.wait, 10)
-            viewer.observe("b")
-            viewer.observe("a")
-            projection.install_checkpoint("a", "checkpoint-2", [])
-            release.set()
-            await asyncio.wait_for(finished.wait(), 10)
-            assert applied == [("a", [{"content": "current A after selection changed"}])]
-        finally:
-            release.set()
-            viewer.close()
-
-    asyncio.run(scenario())
 
 
 def test_f_p01_two_native_ai_messages_commit_distinct_segments_in_one_pass(platform):
@@ -259,6 +218,7 @@ def test_f_p05_safe_legacy_json_checkpoint_preserves_native_identity_and_fields(
     assert migrated.parent_config["configurable"]["checkpoint_id"] == saved.checkpoint["id"]
 
 
+@pytest.mark.slow
 def test_f_p05_large_active_stream_remains_retrievable_and_completes(platform):
     import base64
 
@@ -294,3 +254,35 @@ def test_f_p05_large_active_stream_remains_retrievable_and_completes(platform):
     rows = platform.transcript("conversation-a")["rows"]
     assert [row["message_id"] for row in rows if row["role"] == "assistant"] == [native_id]
     assert next(row for row in rows if row["message_id"] == native_id)["content_ref"] == native_id
+
+
+def test_designer_steps_carry_their_runtime_tool_for_the_design_panel(platform):
+    """A drafting turn's tool activity names the designer step (U35); other tools keep only their public name."""
+    design_id, shell_id, first_id, final_id = map(
+        fixture_id, ("design-step-tool", "design-step-shell", "design-step-first", "design-step-final"))
+    fake = ScriptedAgentStream((
+        ("token", "Drafting"),
+        CheckpointCommit((AIMessage(content="Drafting", id=first_id, tool_calls=[
+            {"name": "designer_set_pages", "args": {}, "id": design_id},
+            {"name": "shell_run", "args": {}, "id": shell_id},
+        ]),), first_id),
+        ("tool_call", {"id": design_id, "message_id": first_id, "name": "🎨 Designer",
+                       "raw_name": "designer_set_pages"}),
+        ("tool_done", {"id": design_id, "message_id": first_id, "name": "🎨 Designer",
+                       "raw_name": "designer_set_pages"}),
+        ("tool_call", {"id": shell_id, "message_id": first_id, "name": "🖥️ Shell", "raw_name": "shell_run"}),
+        ("tool_done", {"id": shell_id, "message_id": first_id, "name": "🖥️ Shell", "raw_name": "shell_run"}),
+        ("token", "Done"),
+        CheckpointCommit((AIMessage(content="Done", id=final_id),), final_id),
+        ("done", "Done"),
+    ))
+    cursor = platform.snapshot("conversation-a")["cursor"]
+    receipt = submit(platform, fake, "design-step")
+    handle = platform.registry.get(receipt["execution_id"])
+    assert handle.producer_done.wait(10)
+    activity = [event["payload"] for event in platform.events_since("conversation-a", cursor)["events"]
+                if event["type"] == "tool.activity"]
+    assert [(item["tool_name"], item.get("runtime_tool", "")) for item in activity] == [
+        ("🎨 Designer", "designer_set_pages"), ("🎨 Designer", "designer_set_pages"),
+        ("🖥️ Shell", ""), ("🖥️ Shell", ""),
+    ]

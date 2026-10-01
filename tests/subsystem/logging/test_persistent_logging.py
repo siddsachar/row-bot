@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 import logging
 import sys
@@ -55,20 +54,6 @@ def test_json_formatter_preserves_core_extra_and_exception_fields(monkeypatch, t
     assert "ValueError" in parsed_failed["exc"]
 
 
-def test_file_log_level_persists_and_invalid_values_are_ignored(monkeypatch, tmp_path) -> None:
-    logging_config = _reload_logging_config(monkeypatch, tmp_path)
-
-    assert logging_config.get_file_log_level() == "DEBUG"
-    logging_config.set_file_log_level("WARNING")
-    assert logging_config.get_file_log_level() == "WARNING"
-
-    sys.modules.pop("row_bot.logging_config", None)
-    reloaded = importlib.import_module("row_bot.logging_config")
-    assert reloaded.get_file_log_level() == "WARNING"
-    reloaded.set_file_log_level("INVALID_LEVEL")
-    assert reloaded.get_file_log_level() == "WARNING"
-
-
 def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tmp_path) -> None:
     logging_config = _reload_logging_config(monkeypatch, tmp_path)
     try:
@@ -83,7 +68,6 @@ def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tm
             and Path(handler.baseFilename).parent == logging_config.get_log_dir()
         ]
         assert len(file_handlers) == 1
-        assert logging_config._RETENTION_DAYS == 7
 
         logger = logging.getLogger("row_bot.test.logging_contract")
         logger.warning("visible persistent log entry")
@@ -100,21 +84,11 @@ def test_setup_is_idempotent_and_recent_log_stats_are_structured(monkeypatch, tm
         _detach_file_handler(logging_config)
 
 
-def test_logging_health_and_ui_wiring_contracts() -> None:
-    from row_bot.ui.status_checks import ALL_CHECKS, check_logging
+def test_logging_health_check_is_registered() -> None:
+    from row_bot.status_checks import ALL_CHECKS, check_logging
 
     result = check_logging()
     assert result.name == "Logging"
     assert result.status in {"ok", "warn", "error", "inactive"}
     assert result.settings_tab == "System"
     assert check_logging in ALL_CHECKS
-
-    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
-    home_source = Path("src/row_bot/ui/home.py").read_text(encoding="utf-8")
-    app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "set_file_log_level" in settings_source
-    assert "Open Log Folder" in settings_source
-    assert "read_recent_logs" in home_source
-    assert "View Full Log" in home_source
-    assert "setup_file_logging()" in app_source

@@ -807,6 +807,7 @@ def spawn_agent_run(
             stop_event,
             requires_write_lock,
             write_lock_key,
+            objective,
         ),
         conversation_id=str(config["configurable"]["thread_id"]),
         stop_event=stop_event,
@@ -906,6 +907,19 @@ def _pause_agent_for_approval(
         status_message="Waiting for approval",
     )
     notify_agent_run_approval(approval_id)
+    # An open page of the agent's own thread shows its paused turn (B186).
+    _conversation_changed(str(configurable.get("thread_id") or run.get("thread_id") or ""))
+
+
+def _conversation_changed(thread_id: str) -> None:
+    if not thread_id:
+        return
+    try:
+        from row_bot.application.client_platform import client_platform_service
+
+        client_platform_service.conversation_changed(thread_id)
+    except Exception:
+        logger.debug("Could not tell open pages about %s", thread_id, exc_info=True)
 
 
 def _agent_entry_failed(run_id: str, exc: BaseException) -> None:
@@ -928,6 +942,17 @@ def _agent_entry_failed(run_id: str, exc: BaseException) -> None:
                     _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
 
+def _with_task_note(config: dict[str, Any], kind: str, text: str) -> dict[str, Any]:
+    """The same config, marking this input as the agent's task or guidance.
+
+    The model reads the full handoff prompt; the child thread shows the short
+    text as a note instead of the prompt as the person's bubble (B167).
+    """
+    configurable = dict(config.get("configurable") or {})
+    configurable["platform_task_note"] = {"kind": kind, "text": text}
+    return {**config, "configurable": configurable}
+
+
 def _run_agent_thread(
     run_id: str,
     prompt: str,
@@ -936,6 +961,7 @@ def _run_agent_thread(
     stop_event: threading.Event,
     requires_write_lock: bool = False,
     write_lock_key: str = "",
+    task_text: str = "",
 ) -> None:
     from row_bot.agent_runs import (
         append_agent_event,
@@ -988,9 +1014,11 @@ def _run_agent_thread(
         )
         parent_records = pending_parent_message_records(run_id)
         parent_messages = [item["content"] for item in parent_records]
+        shown_task = task_text
         if parent_messages:
             joined = "\n".join(f"- {message}" for message in parent_messages)
             prompt = f"{prompt}\n\n[Parent follow-up before start]\n{joined}"
+            shown_task = "\n\n".join(part for part in (task_text, "\n".join(parent_messages)) if part)
             append_agent_event(
                 run_id,
                 "parent.messages.applied",
@@ -1000,7 +1028,7 @@ def _run_agent_thread(
         result = _invoke_agent(
             prompt,
             enabled_tool_names,
-            config,
+            _with_task_note(config, "agent_task", shown_task) if shown_task else config,
             stop_event=stop_event,
         )
         if not stop_event.is_set():
@@ -1026,7 +1054,7 @@ def _run_agent_thread(
                 result = _invoke_agent(
                     follow_up_prompt,
                     enabled_tool_names,
-                    config,
+                    _with_task_note(config, "agent_guidance", "\n".join(follow_ups)),
                     stop_event=stop_event,
                 )
                 if not stop_event.is_set():
@@ -1114,6 +1142,8 @@ def _run_agent_thread(
                 finally:
                     with _ACTIVE_LOCK:
                         _ACTIVE_AGENT_RUNS.pop(run_id, None)
+                    # An open page of the agent's thread shows how it ended (B186).
+                    _conversation_changed(str((config.get("configurable") or {}).get("thread_id") or ""))
 
 
 def resume_agent_run(
@@ -1128,6 +1158,8 @@ def resume_agent_run(
     run = get_agent_run(run_id)
     if not run:
         return None
+    # The answered card leaves an open page of the agent's thread (B186).
+    _conversation_changed(str(run.get("thread_id") or ""))
     try:
         from row_bot.agent_orchestrator import (
             get_member_for_run,
@@ -1291,7 +1323,7 @@ def _resume_agent_thread(
                         + "\n".join(f"- {message}" for message in follow_ups)
                         + "\n\nUpdate or verify your result in light of this guidance.",
                         enabled_tool_names,
-                        config,
+                        _with_task_note(config, "agent_guidance", "\n".join(follow_ups)),
                         stop_event=stop_event,
                     )
                     if not stop_event.is_set():
@@ -1381,6 +1413,8 @@ def _resume_agent_thread(
                 finally:
                     with _ACTIVE_LOCK:
                         _ACTIVE_AGENT_RUNS.pop(run_id, None)
+                    # An open page of the agent's thread shows how it ended (B186).
+                    _conversation_changed(str((config.get("configurable") or {}).get("thread_id") or ""))
 
 
 def wait_for_agent_run(run_id: str, timeout: float | None = None) -> dict[str, Any] | None:
@@ -1481,6 +1515,12 @@ def stop_agent_run(run_id: str) -> dict[str, Any] | None:
     from row_bot.agent_runs import stop_agent_run as _stop_agent_run
 
     run = _stop_agent_run(run_id)
+    try:
+        from row_bot.tasks import cancel_agent_run_approvals
+
+        cancel_agent_run_approvals(run_id)
+    except Exception:
+        logger.exception("Failed to withdraw approvals for stopped child Agent %s", run_id)
     _notify_child_agent_waiters(run_id)
     return run
 

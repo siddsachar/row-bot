@@ -11,6 +11,9 @@ from row_bot import knowledge_views as views
 from tests.fixtures.knowledge_graph import fresh_knowledge_graph
 
 
+pytestmark = pytest.mark.platform
+
+
 @pytest.fixture
 def saved(tmp_path, monkeypatch):
     kg = fresh_knowledge_graph(tmp_path, monkeypatch)
@@ -118,8 +121,100 @@ def test_graph_projection_caps_nodes_and_marks_truncation(saved):
     assert graph.total_entities == 205
     assert graph.truncated is True
 
+    # "Show all" asks for up to 5,000 memories; more is refused.
+    everything = views.read_knowledge_graph(limit=5000)
+    assert len(everything.nodes) == 205 and everything.truncated is False
     with pytest.raises(views.KnowledgeViewError, match="invalid_knowledge_query"):
-        views.read_knowledge_graph(limit=251)
+        views.read_knowledge_graph(limit=5001)
+
+
+def test_graph_nodes_carry_status_and_tier_and_counts_cover_the_library(saved):
+    from row_bot.api.v1 import schemas as dto
+
+    with sqlite3.connect(saved.DB_PATH) as conn:
+        conn.execute(
+            "UPDATE entities SET properties=?, source='manual' WHERE id='entity-0001'",
+            (json.dumps({"status": "needs_review", "memory_tier": "core"}),),
+        )
+        conn.execute(
+            "UPDATE entities SET properties=?, source='manual' WHERE id='entity-0002'",
+            (json.dumps({"status": "Archived"}),),
+        )
+        conn.execute(
+            "UPDATE entities SET properties='not-json', source='manual'"
+            " WHERE id='entity-0003'"
+        )
+
+    graph = views.read_knowledge_graph(limit=20)
+
+    nodes = {node.id: node for node in graph.nodes}
+    assert (nodes["entity-0000"].status, nodes["entity-0000"].tier) == (
+        "active",
+        "resource",
+    )
+    assert (nodes["entity-0001"].status, nodes["entity-0001"].tier) == (
+        "needs_review",
+        "core",
+    )
+    assert (nodes["entity-0002"].status, nodes["entity-0002"].tier) == (
+        "archived",
+        "semantic",
+    )
+    assert (nodes["entity-0003"].status, nodes["entity-0003"].tier) == (
+        "active",
+        "semantic",
+    )
+    # Twenty memories are shown; the counts cover the whole library, as the
+    # saved list's status filter does.
+    counts = asdict(graph.status_counts)
+    assert counts == {"active": 203, "needs_review": 1, "superseded": 0, "archived": 1}
+    for status, count in counts.items():
+        assert views.list_saved_entities(status=status).total == count
+    for node in graph.nodes[:4]:
+        detail = views.read_saved_entity_detail(node.id)
+        assert (node.status, node.tier) == (detail.status, detail.tier)
+    dto.KnowledgeGraphSnapshot.model_validate(json.loads(json.dumps(asdict(graph))))
+
+
+@pytest.mark.slow
+def test_show_all_reads_thousands_of_linked_memories_within_the_wire_contract(
+    tmp_path, monkeypatch
+):
+    from row_bot.api.v1 import schemas as dto
+
+    kg = fresh_knowledge_graph(tmp_path, monkeypatch)
+    with sqlite3.connect(kg.DB_PATH) as conn:
+        conn.executemany(
+            "INSERT INTO entities VALUES(?,?,?,?,?,?,?,?,?,?)",
+            [
+                (f"m-{i:04}", "fact", f"Memory {i}", "Synthetic", "", "", "{}",
+                 "manual", "created", "updated")
+                for i in range(5001)
+            ],
+        )
+        # Three links from each of the first 5,000 memories, one more on the
+        # first: 15,001 links among the shown memories; the last has none.
+        links = [(i, (i + step) % 5000) for i in range(5000) for step in (1, 2, 3)]
+        conn.executemany(
+            "INSERT INTO relations VALUES(?,?,?,?,?,?,?,?,?)",
+            [
+                (f"r-{n:05}", f"m-{a:04}", f"m-{b:04}", "related_to", 0.9, "{}",
+                 "manual", "created", "updated")
+                for n, (a, b) in enumerate([*links, (0, 4)])
+            ],
+        )
+
+    graph = views.read_knowledge_graph(limit=5000)
+
+    assert graph.availability == "available"
+    assert graph.total_entities == 5001 and graph.total_relations == 15001
+    assert graph.shown_entities == len(graph.nodes) == 5000
+    assert "m-5000" not in {node.id for node in graph.nodes}
+    # Links are capped at three per shown memory, and the cut is reported.
+    assert graph.shown_relations == len(graph.edges) == 15000
+    assert graph.truncated is True
+    # The same projection the route returns validates at the new limits.
+    dto.KnowledgeGraphSnapshot.model_validate(json.loads(json.dumps(asdict(graph))))
 
 
 @pytest.mark.parametrize(
@@ -200,7 +295,6 @@ def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved)
                         "evidence": [f"Evidence {index}" for index in range(10)],
                         "last_user_modified_at": "user-time",
                         "last_evolved_at": "evolved-time",
-                        "recalled_at": "recall-time",
                     }
                 ),
             ),
@@ -234,6 +328,13 @@ def test_entity_detail_is_passive_bounded_and_tolerates_optional_metadata(saved)
     assert len(detail.relations) == 5 and detail.relation_count == 7
     assert detail.evidence == ("Evidence 0", "Evidence 1", "Evidence 2")
     assert "private" not in json.dumps(asdict(detail))
+    assert detail.last_recalled_at == ""
+
+    # A recall shows when it happened without invalidating a reviewed edit.
+    saved.touch_recalled(["entity-0001"])
+    recalled = views.read_saved_entity_detail("entity-0001")
+    assert recalled.last_recalled_at
+    assert recalled.revision == detail.revision
 
     with sqlite3.connect(saved.DB_PATH) as conn:
         conn.execute("UPDATE entities SET properties='not-json' WHERE id='entity-0001'")

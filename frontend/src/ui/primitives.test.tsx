@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import { Button, CompactAction, Hint, Menu } from './primitives';
+import { Button, CompactAction, CopyGlyph, Hint, Menu } from './primitives';
 
 it('gives a compact icon action a stable accessible name and keyboard tooltip', async () => {
   const user = userEvent.setup();
@@ -111,4 +111,11 @@ it('reveals the full current value on keyboard focus and marks the selected menu
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   await user.keyboard('{Escape}');
   expect(screen.getByRole('button', { name: 'Model' })).toHaveFocus();
+});
+
+it('draws a check in place of the copy glyph after a copy', () => {
+  const { container, rerender } = render(<CopyGlyph copied={false} />);
+  expect(container.querySelector('svg')).not.toHaveClass('icon-draw');
+  rerender(<CopyGlyph copied />);
+  expect(container.querySelector('svg')).toHaveClass('icon-draw');
 });

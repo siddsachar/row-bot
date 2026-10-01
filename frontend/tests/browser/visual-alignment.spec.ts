@@ -19,6 +19,9 @@ import {
   openConversation,
   reloadDocument,
   releaseProducer,
+  restoreThinkingDefault,
+  openAddResource,
+  revealContextControl,
 } from './unified-helpers';
 
 test.use({ serviceWorkers: 'allow' });
@@ -61,7 +64,7 @@ async function home(page: Page): Promise<void> {
 }
 
 async function addDeck(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Add resource', exact: true }).click();
+  await openAddResource(page);
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });
   const another = setup.getByRole('button', {
     name: 'Start another resource',
@@ -110,7 +113,7 @@ async function independentPeer(browser: Browser, page: Page) {
   };
 }
 
-test('Home is workflow-focused and New chat creates exactly once without setup', async ({
+test('Home opens on Overview and New chat creates exactly once without setup', async ({
   page,
 }, info) => {
   const creates: string[] = [];
@@ -128,17 +131,21 @@ test('Home is workflow-focused and New chat creates exactly once without setup',
   await expect(
     page.getByRole('heading', { name: 'Home', exact: true }),
   ).toBeVisible();
-  await expect(page.locator('.home-connection-status')).toContainText(
-    'Connected · local workspace',
-  );
+  await expect(page.locator('.home-connection-status')).toHaveCount(0);
   await expect(
-    page.getByRole('tab', { name: 'Workflows', exact: true }),
+    page.getByRole('tab', { name: 'Overview', exact: true }),
   ).toHaveAttribute('aria-selected', 'true');
   await expect(
-    page.getByRole('heading', { name: 'Workflows', exact: true }),
+    page.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
   ).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Recent conversations', exact: true }),
+  ).toHaveCount(0);
+  await assertNoOverflow(page);
+  await accessibility(page, info, 'home-overview');
+  await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Workflows', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Designer' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'Developer' })).toHaveCount(0);
@@ -258,8 +265,9 @@ test('explicit Deck opens automatically, persists close through revisit/reload, 
   await reloadDocument(page);
   await expect(composer(page)).toBeVisible();
   expect((await layoutFor(page, id)).panels).toEqual([]);
+  await revealContextControl(page, 'Automatic presentation Deck Design');
   await page
-    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('complementary', { name: 'Conversation details' })
     .getByRole('button', {
       name: 'Automatic presentation Deck Design',
       exact: true,
@@ -306,9 +314,12 @@ for (const zoom of [1, 2])
     await markWorkspaceIdentity(page);
     try {
       await addDeck(peer, `Background available Deck ${zoom}`);
-      await expect
-        .poll(async () => (await layoutFor(page, id))?.panels.length)
-        .toBe(1);
+      // A resource bound by another client becomes a composer write target;
+      // only an explicit open creates a panel, so nothing moves focus.
+      await expect(
+        page.getByRole('group', { name: 'Resource write targets' }),
+      ).toContainText(`Design · Background available Deck ${zoom}`);
+      expect((await layoutFor(page, id))?.panels.length ?? 0).toBe(0);
       await expect(composer(page)).toBeVisible();
       await expect(composer(page)).toBeFocused();
       await expect(composer(page)).toHaveValue(
@@ -322,14 +333,8 @@ for (const zoom of [1, 2])
       ).toEqual([2, 9]);
       await assertWorkspaceIdentity(page);
       if (page.viewportSize()!.width < 1024) {
-        expect((await layoutFor(page, id)).activePanelId).toBeNull();
+        expect((await layoutFor(page, id))?.activePanelId ?? null).toBeNull();
         await expect(page.getByRole('dialog')).toHaveCount(0);
-        await expect(
-          page.locator('.panel-rail').getByRole('button', {
-            name: `Background available Deck ${zoom}`,
-            exact: true,
-          }),
-        ).toBeVisible();
       }
       await assertNoOverflow(page);
       await screenshot(
@@ -370,19 +375,15 @@ test('last explicitly opened Deck retains priority when another client adds a wo
   if (await back.isVisible()) await back.click();
   await expect(composer(peer)).toBeVisible();
   try {
-    await peer
-      .getByRole('button', { name: 'Add resource', exact: true })
-      .click();
+    await openAddResource(peer);
     const setup = peer.getByRole('dialog', {
       name: 'Add resource',
       exact: true,
     });
     await setup
-      .getByRole('combobox', { name: 'Resource type', exact: true })
-      .selectOption('workspace');
-    await setup
-      .getByRole('combobox', { name: 'Choose resource', exact: true })
-      .selectOption('existing');
+      .getByRole('radio', { name: 'Code folder', exact: true })
+      .click();
+    await setup.getByRole('radio', { name: 'Open saved', exact: true }).click();
     await setup
       .getByRole('button', {
         name: `Phase 1 workspace Resource ID: ${(await fixtureResources(peer)).workspace_id}`,
@@ -395,10 +396,14 @@ test('last explicitly opened Deck retains priority when another client adds a wo
     await expect(
       setup.getByText('Resource ready', { exact: true }),
     ).toBeVisible();
-    await expect
-      .poll(async () => (await layoutFor(page, id)).panels.length)
-      .toBe(2);
+    // The background workspace is listed for this client without opening a
+    // panel, so the explicitly opened Deck keeps its place. (Below 1024px the
+    // Deck is a full-height sheet over the still-mounted composer.)
+    await expect(
+      page.locator('[aria-label="Resource write targets"]'),
+    ).toContainText('Folder · Phase 1 workspace');
     const after = await layoutFor(page, id);
+    expect(after.panels).toHaveLength(before.panels.length);
     expect(after.activePanelId).toBe(before.activePanelId);
     expect(after.presentation.lastExplicitKey).toBe(
       before.presentation.lastExplicitKey,
@@ -424,30 +429,54 @@ test('last explicitly opened Deck retains priority when another client adds a wo
 test('Thinking persists its exact-model choice and changes the admitted fake request', async ({
   page,
 }, info) => {
+  await restoreThinkingDefault(page);
   const id = await newConversation(page);
-  await page.getByRole('button', { name: 'Model', exact: true }).click();
+  // Thinking lives in the model picker's footer as a segmented choice. A
+  // one-line (phone) composer opens the picker from + › Model.
+  const model = page.getByRole('button', { name: 'Model', exact: true });
+  // The composer controls arrive with the conversation's workspace.
+  await expect(
+    page.getByRole('button', { name: 'Add files and more', exact: true }),
+  ).toBeVisible();
+  if (await model.isVisible()) await model.click();
+  else {
+    await page
+      .getByRole('button', { name: 'Add files and more', exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: /^Model/ }).click();
+  }
+  const picker = page.getByRole('dialog', {
+    name: 'Choose a model',
+    exact: true,
+  });
   await screenshot(page, info, 'compact-model-menu');
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Thinking', exact: true }).click();
-  const thinking = page.getByRole('dialog', { name: 'Thinking', exact: true });
+  const thinking = picker.getByRole('radiogroup', {
+    name: 'Thinking',
+    exact: true,
+  });
   await expect(
-    thinking.getByRole('button', { name: 'Provider default', exact: true }),
+    thinking.getByRole('radio', { name: 'Default', exact: true }),
   ).toBeVisible();
   await expect(
-    thinking.getByRole('button', { name: 'Low', exact: true }),
+    thinking.getByRole('radio', { name: 'Low', exact: true }),
   ).toBeVisible();
   await expect(
-    thinking.getByRole('button', { name: 'High', exact: true }),
+    thinking.getByRole('radio', { name: 'High', exact: true }),
   ).toBeVisible();
   await screenshot(page, info, 'compact-thinking-menu');
-  await thinking.getByRole('button', { name: 'High', exact: true }).click();
+  await thinking.getByRole('radio', { name: 'High', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: 'Thinking', exact: true }),
-  ).toContainText('High');
+    thinking.getByRole('radio', { name: 'High', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
+  // The pill states the choice; a one-line composer has no pill, and the
+  // admitted request below proves the choice either way.
+  const pill = (await model.count()) > 0;
+  if (pill)
+    await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
+  await page.keyboard.press('Escape');
   await reloadDocument(page);
-  await expect(
-    page.getByRole('button', { name: 'Thinking', exact: true }),
-  ).toContainText('High');
+  if (pill)
+    await expect(model).toHaveAttribute('aria-description', /Thinking: High$/);
   await composer(page).fill('Thinking request uses admitted configuration');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect

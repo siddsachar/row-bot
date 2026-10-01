@@ -100,7 +100,7 @@ function io(changes: Partial<SkillsSettingsIO> = {}): SkillsSettingsIO {
   };
 }
 
-it('renders path-free skills as text and searches only on submission', async () => {
+it('renders path-free skills as text and searches from the inline field', async () => {
   const api = io({
     list: vi.fn(async () =>
       page({
@@ -123,8 +123,9 @@ it('renders path-free skills as text and searches only on submission', async () 
   expect(screen.getByText('<img onerror=sentinel()>')).toBeVisible();
   expect(container.querySelector('script,img')).toBeNull();
   await userEvent.type(screen.getByRole('searchbox'), '  saved  ');
+  // Typing waits for a pause; Enter searches at once.
   expect(api.list).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+  await userEvent.keyboard('{Enter}');
   expect(api.list).toHaveBeenLastCalledWith(
     'saved',
     undefined,
@@ -171,9 +172,10 @@ it('presents compact skill rows with saved metrics, filters, and sorting', async
   const { container } = render(
     <SkillsSettings session={createSkillsSettingsSession()} io={api} />,
   );
-  expect(await screen.findByText('2 available shown')).toBeVisible();
-  expect(screen.getByText('1 pinned shown')).toBeVisible();
-  expect(screen.getByText('2 custom shown')).toBeVisible();
+  // The whole library is loaded, so the counts need no "shown" qualifier.
+  expect(await screen.findByText('2 available')).toBeVisible();
+  expect(screen.getByText('1 pinned')).toBeVisible();
+  expect(screen.getByText('2 custom')).toBeVisible();
   const list = container.querySelector('.settings-skill-list')!;
   expect(list.querySelectorAll('.settings-skill-row')).toHaveLength(3);
   expect(list.querySelector('.surface')).toBeNull();
@@ -185,6 +187,9 @@ it('presents compact skill rows with saved metrics, filters, and sorting', async
 
   await userEvent.selectOptions(screen.getByLabelText('Filter'), 'pinned');
   expect(await screen.findByText(/1 shown of 1 matching skills/)).toBeVisible();
+  // A filter narrows the page, so the summary counts the matches only.
+  expect(screen.getByText('1 matching')).toBeVisible();
+  expect(screen.queryByText('1 pinned')).not.toBeInTheDocument();
   expect(screen.queryByText('✨ Alpha custom')).not.toBeInTheDocument();
   expect(screen.getByText('✨ Zulu bundled')).toBeVisible();
 
@@ -272,6 +277,48 @@ it('creates and imports from one explicit click per action', async () => {
   );
 });
 
+it('explains the skill name rule before review instead of failing it', async () => {
+  const api = io();
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
+  await screen.findByText('✨ Sample skill');
+  fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
+  const name = screen.getByLabelText('Skill name');
+  await userEvent.type(name, 'weekly-review');
+  await userEvent.type(screen.getByLabelText('Display name'), 'Weekly review');
+  await userEvent.type(screen.getByLabelText('Instructions'), 'Review.');
+  expect(name).toHaveAttribute('aria-invalid', 'true');
+  expect(name).toHaveAccessibleDescription(/^Not a valid name\. Lowercase/);
+  expect(screen.getByRole('button', { name: 'Save new skill' })).toBeDisabled();
+  await userEvent.clear(name);
+  await userEvent.type(name, 'weekly_review');
+  expect(name).not.toHaveAttribute('aria-invalid');
+  expect(screen.getByRole('button', { name: 'Save new skill' })).toBeEnabled();
+  expect(api.review).not.toHaveBeenCalledWith(
+    'skill.create',
+    expect.anything(),
+    expect.anything(),
+  );
+});
+
+it('says which field to fix when the server refuses a new skill', async () => {
+  const api = io({
+    review: vi.fn(async () => {
+      throw { status: 422, code: 'invalid_skill_fields' };
+    }),
+  });
+  render(<SkillsSettings session={createSkillsSettingsSession()} io={api} />);
+  await screen.findByText('✨ Sample skill');
+  fireEvent.click(screen.getByRole('button', { name: 'Create skill' }));
+  await userEvent.type(screen.getByLabelText('Skill name'), 'weekly_review');
+  await userEvent.type(screen.getByLabelText('Display name'), 'Weekly review');
+  await userEvent.type(screen.getByLabelText('Instructions'), 'Review.');
+  fireEvent.click(screen.getByRole('button', { name: 'Save new skill' }));
+  expect(
+    await screen.findByText(/^Check the fields: a display name, icon/),
+  ).toBeVisible();
+  expect(screen.queryByText(/Reload and try again/)).not.toBeInTheDocument();
+});
+
 it('keeps supplemental imports and proposals closed in the resting view', async () => {
   const api = io({
     proposals: vi.fn(async () => ({
@@ -300,11 +347,21 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
-it('keeps public discovery explicit and links to the in-app hub', async () => {
+it('keeps public discovery explicit in its own tab', async () => {
   render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
 
-  const browse = await screen.findByRole('link', { name: 'Browse skills' });
-  expect(browse).toHaveAttribute('href', '#public-skill-hub');
+  await screen.findByText('✨ Sample skill');
+  const installed = screen.getByRole('tab', { name: /^Installed/ });
+  const discover = screen.getByRole('tab', { name: 'Discover' });
+  expect(installed).toHaveAttribute('aria-selected', 'true');
+  fireEvent.click(discover);
+  expect(discover).toHaveAttribute('aria-selected', 'true');
+  expect(
+    screen.getByText('Public skill sources are unavailable.'),
+  ).toBeVisible();
+  // The installed list stays mounted behind its tab.
+  expect(screen.getByText('✨ Sample skill')).not.toBeVisible();
+  fireEvent.click(installed);
   expect(
     screen.getByText('Import a skill').closest('details'),
   ).not.toHaveAttribute('open');
@@ -348,6 +405,9 @@ it('opens, edits, duplicates, and confirms destructive deletion', async () => {
   expect(
     await screen.findByRole('button', { name: 'Confirm removal' }),
   ).toHaveClass('danger');
+  // The confirmation names the skill as people see it and offers to keep it.
+  expect(screen.getByText('Delete skill “Sample skill”.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Keep skill' })).toBeVisible();
 });
 
 it('keeps the exact unconfirmed command and performs receipt-only recovery', async () => {
@@ -367,15 +427,11 @@ it('keeps the exact unconfirmed command and performs receipt-only recovery', asy
     (await screen.findByText('✨ Sample skill')).closest('li')!,
   );
   fireEvent.click(row.getByRole('button', { name: 'Pin for new work' }));
-  expect(
-    await screen.findByText(/original change is unconfirmed/),
-  ).toBeVisible();
+  expect(await screen.findByText(/couldn't confirm that change/)).toBeVisible();
   const command = original.getSnapshot().pending?.command;
   first.unmount();
   render(<SkillsSettings session={original} io={api} />);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await screen.findByText('The original skill change is confirmed.');
   expect(api.receipt).toHaveBeenCalledWith(
     command?.command_id,

@@ -10,15 +10,20 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 import json
+import logging
 import math
 import os
+import re
 import threading
+import time
 from uuid import UUID
 
 import psutil
 
 from row_bot.mcp_client import requirements
 from row_bot.runtime import admissions
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeInstallationError(ValueError):
@@ -61,6 +66,8 @@ class RuntimeInstallationSnapshot:
     installed: bool | None
     active_command_id: str | None
     quiesced: bool | None
+    version: str | None
+    system_available: bool | None
 
 
 @dataclass
@@ -79,6 +86,10 @@ _LOCK = threading.RLock()
 _OPERATIONS: dict[str, _Operation] = {}
 _TYPES = {"mcp.runtime.resolve", "mcp.runtime.install", "mcp.runtime.install.cancel"}
 _PRIVATE = "_runtime_installation"
+_FINISHED = {"resolved", "installed", "cancelled"}
+# A running worker checks cancellation on every step, but the session at most this often.
+SESSION_CHECK_SECONDS = 1.0
+_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 
 
 def _uuid(value):
@@ -186,19 +197,82 @@ def _dead_owner(private: dict) -> bool:
         return False
 
 
+def _saved_outcome(private: dict) -> dict | None:
+    """A stopped owner's saved outcome when that record alone proves it; "installed" needs the publication proof."""
+    outcome = private.get("finished_outcome")
+    return outcome if type(outcome) is dict and outcome.get("stage") in {"resolved", "cancelled"} else None
+
+
+def _settle(owner_id: str, command_id: str, runtime_id: str, value: dict, outcome: dict | None,
+            *, validate: Callable[[], None], owner_lost: bool) -> dict:
+    """Write the final receipt of a stopped worker: its outcome, its publication, or a failure.
+
+    A failure is final, so the runtime is released and a retry can be accepted.
+    _merge never rewrites a receipt that is already final.
+    """
+    private = value[_PRIVATE]
+    installation = {**value["installation"], "quiesced": True}
+    if type(outcome) is dict and outcome.get("stage") in _FINISHED:
+        return _merge(owner_id, command_id, {"status": "completed", "installation": {
+            **installation, **outcome, "quiesced": True}}, {"observed_quiescence": True}, terminal=True)
+    if (private.get("publication") and private.get("generation")
+            and requirements.read_runtime_installation_proof(runtime_id, command_id, private, validate=validate)):
+        return _merge(owner_id, command_id, {"status": "completed", "installation": {
+            **installation, "installed": True, "stage": "installed"}}, {"observed_quiescence": True}, terminal=True)
+    if owner_lost:
+        # A live worker removes its own staging folder; a stopped process could not.
+        requirements.discard_install_staging(runtime_id)
+    return _merge(owner_id, command_id, {"status": "partial", "code": "runtime_installation_failed",
+        "installation": {**installation, "stage": "failed", "installed": None}}, {"observed_quiescence": True},
+        terminal=True)
+
+
+def recover_runtime_installations() -> None:
+    """Settle runtime installs whose owning process stopped; runs at startup.
+
+    Only a proven dead owner (see _dead_owner) is settled, never a live one.
+    A failure is logged and never stops startup; the row stays for recovery.
+    """
+    for runtime_id in ("node", "uv"):
+        try:
+            unfinished = admissions.read_unfinished_target_commands(_target(runtime_id))["items"]
+        except Exception as error:
+            logger.warning("Could not read %s runtime installs to recover (%s)", runtime_id, type(error).__name__)
+            continue
+        for row in unfinished:
+            if row["type"] not in {"mcp.runtime.resolve", "mcp.runtime.install"}:
+                continue
+            try:
+                value = admissions.read_command_receipt(row["owner_id"], row["command_id"])
+                private = value.get(_PRIVATE) if value else None
+                if type(private) is not dict or not _dead_owner(private):
+                    continue
+                settled = _settle(row["owner_id"], row["command_id"], runtime_id, value, _saved_outcome(private),
+                                  validate=lambda: None, owner_lost=True)
+                logger.info("Recovered a %s runtime %s left by a stopped process (%s)", runtime_id,
+                            row["type"].rsplit(".", 1)[-1], settled["installation"]["stage"])
+            except Exception as error:
+                logger.warning("Could not recover a %s runtime install (%s)", runtime_id, type(error).__name__)
+
+
 class McpRuntimeInstallationService:
     """Bounded explicit workers; root supplies current policy/session authority."""
 
     def snapshot(self, runtime_id: str, *, validate: Callable[[], None], owner_id: str | None = None) -> RuntimeInstallationSnapshot:
         validate()
         _runtime(runtime_id)
+        version = None
         try:
             revision = requirements.runtime_install_revision(runtime_id)
-            present = bool(requirements._read_manifest(runtime_id))
-            installed = requirements._managed_bin_dir(runtime_id) is not None if present else False
-            availability = "available" if installed else "unavailable" if present else "missing"
+            manifest = requirements.owned_manifest(runtime_id)
+            installed = requirements._managed_bin_dir(runtime_id) is not None if manifest else False
+            availability = "available" if installed else "unavailable" if manifest else "missing"
+            saved_version = manifest.get("version")
+            if installed and type(saved_version) is str and _VERSION.fullmatch(saved_version):
+                version = saved_version
         except (OSError, ValueError, RuntimeError):
             revision, installed, availability = None, None, "unavailable"
+        system = requirements.system_runtime_available(runtime_id)
         with _LOCK:
             active = _OPERATIONS.get(runtime_id)
             active_id = active.command_id if active and active.owner_id == owner_id else None
@@ -214,7 +288,8 @@ class McpRuntimeInstallationService:
                     except RuntimeInstallationError:
                         active_id = None  # Preserve recovery status without exposing corrupt identifiers.
         validate()
-        return RuntimeInstallationSnapshot(1, runtime_id, revision, availability, installed, active_id, quiesced)
+        return RuntimeInstallationSnapshot(1, runtime_id, revision, availability, installed, active_id, quiesced,
+                                           version, system)
 
     def review(self, *, owner_id: str, runtime_id: str, operation: str, resource_revision: str,
                source_command_id: str | None, validate: Callable[[], None],
@@ -243,45 +318,30 @@ class McpRuntimeInstallationService:
                     or active.outcome is None):
                 return
             outcome = {**active.outcome, "quiesced": True, "cancel_requested": active.cancelled.is_set()}
-            successful = outcome["stage"] in {"resolved", "installed", "cancelled"}
-            _merge(active.owner_id, active.command_id,
-                {"status": "completed" if successful else "partial", "installation": outcome},
-                {"observed_quiescence": True}, terminal=successful)
-            if successful:
-                _OPERATIONS.pop(active.runtime_id, None)
+        # The proof read may wait for another runtime's install lock; never hold _LOCK meanwhile.
+        _settle(active.owner_id, active.command_id, active.runtime_id,
+                admissions.read_command_receipt(active.owner_id, active.command_id), outcome,
+                validate=lambda: None, owner_lost=False)
+        with _LOCK:
+            if _OPERATIONS.get(active.runtime_id) is active:
+                _OPERATIONS.pop(active.runtime_id)
 
     def receipt(self, *, owner_id: str, runtime_id: str, command_id: str,
                 validate: Callable[[], None]) -> dict:
         validate()
         with _LOCK:
             active = _OPERATIONS.get(_runtime(runtime_id))
-        if active and active.owner_id == owner_id and active.command_id == command_id:
+        matching = active is not None and active.owner_id == owner_id and active.command_id == command_id
+        if matching:
             self._finish(active)
-        _metadata, value = _saved(owner_id, command_id, runtime_id)
-        if value["status"] not in {"completed", "rejected"}:
+        metadata, value = _saved(owner_id, command_id, runtime_id)
+        # The row status says whether the command is final; a final failure's receipt says "partial".
+        if metadata["status"] not in {"completed", "rejected"} and not matching:
             private = value[_PRIVATE]
-            matching = active is not None and active.owner_id == owner_id and active.command_id == command_id
-            quiesced = (active.thread is not None and not active.thread.is_alive()) if matching else _dead_owner(private)
-            if quiesced and private.get("publication") and private.get("generation"):
-                verified = requirements.read_runtime_installation_proof(runtime_id, command_id, private, validate=validate)
-                if verified:
-                    installation = {**value["installation"], "installed": True, "stage": "installed"}
-                    if quiesced:
-                        installation["quiesced"] = True
-                        value = _merge(owner_id, command_id, {"status": "completed", "installation": installation},
-                                       {"observed_quiescence": True}, terminal=True)
-                        with _LOCK:
-                            if _OPERATIONS.get(runtime_id) is active:
-                                _OPERATIONS.pop(runtime_id)
-            if value["status"] not in {"completed", "rejected"} and quiesced:
-                outcome = private.get("finished_outcome")
-                if type(outcome) is dict and outcome.get("stage") in {"resolved", "cancelled"}:
-                    value = _merge(owner_id, command_id, {"status": "completed", "installation": {
-                        **outcome, "quiesced": True}}, {"observed_quiescence": True}, terminal=True)
-                else:
-                    value = _merge(owner_id, command_id, {"status": "partial", "code": "runtime_installation_unconfirmed",
-                        "installation": {**value["installation"], "quiesced": True}}, {"observed_quiescence": True})
-            elif value["status"] not in {"completed", "rejected"} and not matching:
+            if _dead_owner(private):
+                value = _settle(owner_id, command_id, runtime_id, value, _saved_outcome(private),
+                                validate=validate, owner_lost=True)
+            else:
                 value = {**value, "status": "partial", "code": "runtime_installation_owner_unavailable",
                          "installation": {**value["installation"], "quiesced": None}}
         validate()
@@ -318,9 +378,13 @@ class McpRuntimeInstallationService:
         review = self.review(owner_id=owner_id, runtime_id=runtime_id, operation=operation,
             resource_revision=payload["resource_revision"], source_command_id=payload["source_command_id"],
             validate=validate, read_policy=read_policy)
-        if review.action_digest != payload["action_digest"] or _policy(read_policy, operation) != policy:
+        if review.action_digest != payload["action_digest"]:
             raise RuntimeInstallationError("runtime_review_changed")
+        # The approval and the policy are checked once, here, when the install is accepted.
+        # Later MCP connections or catalog changes do not stop a running install.
         validate_review(review)
+        if _policy(read_policy, operation) != policy:
+            raise RuntimeInstallationError("runtime_review_changed")
         plan = _source_plan(owner_id, payload["source_command_id"], runtime_id) if operation == "install" else None
         with _LOCK:
             unfinished = admissions.read_unfinished_target_commands(_target(runtime_id), limit=1)
@@ -340,46 +404,68 @@ class McpRuntimeInstallationService:
                 _OPERATIONS.pop(runtime_id, None)
             raise
 
+        stage = "admitted"
+        checked = time.monotonic()
+
         def authority() -> None:
-            validate()
+            """Cancellation and the session, checked before each stage and each saved step."""
+            nonlocal checked
             if active.cancelled.is_set():
                 raise RuntimeInstallationError("runtime_installation_cancelled")
-            if _policy(read_policy, operation) != policy:
-                raise RuntimeInstallationError("runtime_installation_policy_changed")
-            validate_review(review)
+            validate()
+            checked = time.monotonic()
 
-        def checkpoint(stage: str, proof: dict) -> None:
+        def unpacking() -> None:
+            """The per-file and per-megabyte check: cancellation always, the session about once a second."""
+            if active.cancelled.is_set():
+                raise RuntimeInstallationError("runtime_installation_cancelled")
+            if time.monotonic() - checked >= SESSION_CHECK_SECONDS:
+                authority()
+
+        def checkpoint(name: str, proof: dict) -> None:
+            nonlocal stage
             authority()
-            _merge(owner_id, identity, {"installation": {**installation, "stage": stage}}, proof)
+            _merge(owner_id, identity, {"installation": {**installation, "stage": name}}, proof)
+            stage = name
 
         def worker() -> None:
             outcome = dict(installation)
             try:
                 authority()
                 if operation == "resolve":
+                    checkpoint("resolving", {})
                     resolved = requirements.resolve_managed_runtime_plan(runtime_id, validate=authority, cancelled=active.cancelled.is_set)
                     authority()
                     _merge(owner_id, identity, {}, {"plan": asdict(resolved)})
                     outcome.update(stage="resolved", plan=asdict(_view(resolved)))
                 else:
-                    result = requirements.install_runtime_plan(plan, validate=authority, cancelled=active.cancelled.is_set,
+                    checkpoint("downloading", {})
+                    result = requirements.install_runtime_plan(plan, validate=unpacking, cancelled=active.cancelled.is_set,
                                                                command_id=identity, checkpoint=checkpoint)
                     outcome.update(stage="installed" if result.ok else "cancelled", installed=True if result.ok else None)
-            except Exception:
-                # Retained effects and uncertainty stay private; never expose raw paths/errors.
-                outcome.update(stage="cancelled" if active.cancelled.is_set() else "needs_attention")
+            except Exception as error:
+                # Retained effects stay private: the log names the error class and stage, never a path.
+                if active.cancelled.is_set():
+                    outcome.update(stage="cancelled")
+                else:
+                    logger.warning("Managed %s runtime %s failed at stage %s (%s)", runtime_id, operation, stage,
+                                   type(error).__name__)
+                    outcome.update(stage="failed")
             finally:
                 active.outcome = outcome
                 try:
                     _merge(owner_id, identity, {}, {"finished_outcome": outcome})
                 except Exception:
                     pass  # Original owner remains retained for exact bookkeeping recovery.
+            if outcome["stage"] != "failed":
+                logger.info("Managed %s runtime %s finished: %s", runtime_id, operation, outcome["stage"])
+        logger.info("Managed %s runtime %s accepted", runtime_id, operation)
         active.thread = threading.Thread(target=worker, name="mcp-runtime-" + runtime_id, daemon=True)
         try:
             active.thread.start()
         except Exception:
             if active.thread.ident is None and not active.thread.is_alive():
-                active.outcome = {**installation, "stage": "needs_attention"}
+                active.outcome = {**installation, "stage": "failed"}
             raise RuntimeInstallationError("runtime_installation_unconfirmed") from None
         return self.receipt(owner_id=owner_id, runtime_id=runtime_id, command_id=identity, validate=validate)
 
@@ -391,7 +477,7 @@ class McpRuntimeInstallationService:
             raise RuntimeInstallationError("runtime_installation_command_unavailable")
         with _LOCK:
             active = _OPERATIONS.get(runtime_id)
-            if saved.get("status") == "completed" and saved["installation"].get("quiesced") is True:
+            if metadata["status"] == "completed" and saved["installation"].get("quiesced") is True:
                 validate()
                 admissions.claim_command(owner_id, identity, command, _target(runtime_id))
                 receipt = {"command_id": identity, "status": "completed", "installation": {

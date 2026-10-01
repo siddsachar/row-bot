@@ -1,4 +1,5 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
 import {
   useTaskEditSession,
   useTaskEditValue,
@@ -10,7 +11,16 @@ import type {
   TaskGraphStepEdit,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, Field, Input, Select, Skeleton } from '../../ui/primitives';
+import PromptTextarea, { type PromptVariable } from './PromptTextarea';
+import {
+  Button,
+  Field,
+  IconButton,
+  Input,
+  Segmented,
+  Select,
+  Skeleton,
+} from '../../ui/primitives';
 
 export interface TaskGraphEditorProps {
   session?: TaskEditSession;
@@ -24,6 +34,8 @@ export interface TaskGraphEditorProps {
   onSaved: (snapshot: TaskGraphSnapshot) => void;
   onCancel: () => void;
   onTaskSettings?: () => void;
+  /** Switch back to the builder for this workflow. */
+  onBuilder?: () => void;
 }
 
 const kinds = {
@@ -81,7 +93,8 @@ function initialFields(kind: string): TaskGraphFields {
         if_false: 'end',
       };
     case 'approval':
-      return { ...fields, message: '', timeout_minutes: 30, if_denied: 'end' };
+      // Approvals wait until answered unless a timeout is set (B255).
+      return { ...fields, message: '', timeout_minutes: 0, if_denied: 'end' };
     case 'subtask':
       return { ...fields, task_id: '', pass_output: true, on_error: 'stop' };
     case 'notify':
@@ -103,6 +116,24 @@ function initialFields(kind: string): TaskGraphFields {
   }
 }
 
+/** Saved step ids read as words; new steps have no name until saved. */
+function displayId(id: string) {
+  return id.startsWith('draft_') ? 'new step' : id;
+}
+
+/** A one-line hint of what a step does, beside its row. */
+function stepSummary(step: TaskGraphStepEdit) {
+  const text =
+    step.fields.prompt ??
+    step.fields.message ??
+    step.fields.objective ??
+    step.fields.condition ??
+    step.fields.task_id ??
+    '';
+  const line = String(text).replace(/\s+/g, ' ').trim();
+  return line ? (line.length > 80 ? `${line.slice(0, 79)}…` : line) : '';
+}
+
 export default function TaskGraphEditor({
   taskId,
   load,
@@ -110,6 +141,7 @@ export default function TaskGraphEditor({
   onSaved,
   onCancel,
   onTaskSettings,
+  onBuilder,
   session: injectedSession,
 }: TaskGraphEditorProps) {
   const session = useTaskEditSession(injectedSession, 'graph', taskId);
@@ -132,6 +164,8 @@ export default function TaskGraphEditor({
   const [error, setError] = useTaskEditValue(session, 'error', '');
   const [stale, setStale] = useTaskEditValue(session, 'stale', false);
   const [reload, setReload] = useTaskEditValue(session, 'reload', 0);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const epoch = useRef(0);
   const pending = useRef(false);
 
@@ -204,6 +238,15 @@ export default function TaskGraphEditor({
       ),
     );
   }
+  function reorder(from: number, to: number) {
+    if (from === to || to < 0 || to >= steps.length) return;
+    setSteps((current) => {
+      const next = [...current];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  }
   function move(offset: number) {
     setSteps((current) => {
       const next = [...current];
@@ -248,16 +291,41 @@ export default function TaskGraphEditor({
     }
   }
 
-  function text(field: keyof TaskGraphFields, label: string, hint?: string) {
+  // Earlier saved steps' results, for {{ in this step's text (parity row 19).
+  const earlier = (): PromptVariable[] =>
+    steps
+      .slice(0, Math.max(index, 0))
+      .filter((item) => !item.id.startsWith('draft_'))
+      .map((item) => ({
+        token: `step.${item.id}.output`,
+        label: `Result of step ${steps.indexOf(item) + 1} · ${kindLabel(item.type)}`,
+      }));
+  function text(
+    field: keyof TaskGraphFields,
+    label: string,
+    hint?: string,
+    variables = true,
+  ) {
     return (
       <Field label={label} hint={hint}>
-        <textarea
-          className="input"
-          rows={3}
-          maxLength={16384}
-          value={String(step.fields[field] ?? '')}
-          onChange={(event) => change(field, event.target.value)}
-        />
+        {variables ? (
+          <PromptTextarea
+            className="input"
+            rows={3}
+            maxLength={16384}
+            variables={earlier()}
+            value={String(step.fields[field] ?? '')}
+            onChange={(next) => change(field, next)}
+          />
+        ) : (
+          <textarea
+            className="input"
+            rows={3}
+            maxLength={16384}
+            value={String(step.fields[field] ?? '')}
+            onChange={(event) => change(field, event.target.value)}
+          />
+        )}
       </Field>
     );
   }
@@ -337,7 +405,7 @@ export default function TaskGraphEditor({
           .filter((item) => item.id !== selected)
           .map((item): [string, string] => [
             item.id,
-            `${kinds[item.type as keyof typeof kinds] ?? item.type} · ${item.id}`,
+            `Step ${steps.indexOf(item) + 1} · ${kinds[item.type as keyof typeof kinds] ?? item.type}${item.id.startsWith('draft_') ? '' : ` · ${item.id}`}`,
           ]),
       ],
       fallback,
@@ -350,33 +418,59 @@ export default function TaskGraphEditor({
         Workflow access changed. Reopen the editor in the current session.
       </p>
     );
+  const kindLabel = (type: string) => kinds[type as keyof typeof kinds] ?? type;
   return (
-    <section
-      aria-label="Workflow graph editor"
-      className="task-editor task-graph-editor stack capability-section"
-    >
-      <header className="capability-header">
-        <div>
-          <h2>Edit workflow steps</h2>
-          <p>
-            Save changes to the workflow. Use Run separately when you are ready.
-          </p>
-        </div>
-      </header>
+    <section aria-label="Workflow graph editor" className="task-graph-editor">
+      <h2 className="visually-hidden">Edit workflow steps</h2>
+      <div className="task-graph-bar">
+        {onBuilder && (
+          <Segmented
+            label="Editor"
+            size="sm"
+            value="graph"
+            onChange={(value) => {
+              if (value === 'builder') onBuilder();
+            }}
+            options={[
+              { value: 'builder', label: 'Builder' },
+              { value: 'graph', label: 'Step graph' },
+            ]}
+          />
+        )}
+        <p className="home-caption">
+          Branches, approvals and agents. Saving never starts a run.
+        </p>
+        <span className="home-page-header-spacer" />
+        {onTaskSettings && (
+          <Button
+            variant="ghost"
+            className="small"
+            onClick={onTaskSettings}
+            disabled={saving}
+          >
+            Schedule and task settings
+          </Button>
+        )}
+        {!loading && (
+          <Button
+            variant="ghost"
+            className="small"
+            disabled={saving || meta.uncertain}
+            onClick={() => setReload((value) => value + 1)}
+          >
+            Reload saved graph
+          </Button>
+        )}
+      </div>
       {snapshot?.notify_only && (
-        <p role="status">
+        <p role="status" className="task-builder-note">
           This workflow currently sends a notification only. Change that in task
           settings to run these steps.
         </p>
       )}
-      {onTaskSettings && (
-        <Button onClick={onTaskSettings} disabled={saving}>
-          Schedule and task settings
-        </Button>
-      )}
       {loading && <Skeleton label="Loading workflow steps" />}
       {meta.limit && (
-        <p role="alert">
+        <p className="task-builder-alert" role="alert">
           This retained draft reached its size limit. Shorten a field before
           adding more content.
         </p>
@@ -389,7 +483,7 @@ export default function TaskGraphEditor({
         </p>
       )}
       {error && (
-        <div role="alert">
+        <div className="task-builder-alert" role="alert">
           <p>{error}</p>
           {stale && (
             <p>
@@ -399,35 +493,68 @@ export default function TaskGraphEditor({
           )}
         </div>
       )}
-      {!loading && (
-        <Button
-          disabled={saving || meta.uncertain}
-          onClick={() => setReload((value) => value + 1)}
-        >
-          Reload saved graph
-        </Button>
-      )}
       {snapshot && (
-        <>
-          <ol aria-label="Workflow step order">
-            {steps.map((item, position) => (
-              <li key={item.id}>
-                <Button
-                  variant={item.id === selected ? 'primary' : 'secondary'}
-                  aria-pressed={item.id === selected}
-                  onClick={() => setSelected(item.id)}
-                  disabled={saving}
+        <div className="task-graph-body">
+          <div className="task-graph-steps">
+            <ol className="task-graph-list" aria-label="Workflow step order">
+              {steps.map((item, position) => (
+                <li
+                  key={item.id}
+                  className="task-graph-step"
+                  data-selected={item.id === selected ? 'true' : undefined}
+                  data-over={
+                    dragOver === position && dragFrom !== position
+                      ? 'true'
+                      : undefined
+                  }
+                  draggable={!disabled}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', item.id);
+                    setDragFrom(position);
+                  }}
+                  onDragEnd={() => {
+                    setDragFrom(null);
+                    setDragOver(null);
+                  }}
+                  onDragOver={(event) => {
+                    if (dragFrom === null) return;
+                    event.preventDefault();
+                    setDragOver(position);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (dragFrom !== null) reorder(dragFrom, position);
+                    setDragFrom(null);
+                    setDragOver(null);
+                  }}
                 >
-                  {position + 1}.{' '}
-                  {kinds[item.type as keyof typeof kinds] ?? item.type} ·{' '}
-                  {item.id}
-                </Button>
-              </li>
-            ))}
-          </ol>
-          <fieldset disabled={disabled} className="stack">
-            <legend>Add a workflow step</legend>
-            <div className="field-row">
+                  <GripVertical
+                    className="task-graph-grip"
+                    size={14}
+                    aria-hidden
+                  />
+                  <button
+                    type="button"
+                    className="task-graph-step-button"
+                    aria-pressed={item.id === selected}
+                    onClick={() => setSelected(item.id)}
+                    disabled={saving}
+                  >
+                    {position + 1}. {kindLabel(item.type)} ·{' '}
+                    {displayId(item.id)}
+                  </button>
+                  <span className="task-graph-step-summary">
+                    {stepSummary(item)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            {!steps.length && (
+              <p className="home-caption">No steps yet. Add the first one.</p>
+            )}
+            <fieldset disabled={disabled} className="task-graph-add">
+              <legend className="visually-hidden">Add a workflow step</legend>
               <Field label="New step type">
                 <Select
                   value={kind}
@@ -441,6 +568,7 @@ export default function TaskGraphEditor({
                 </Select>
               </Field>
               <Button
+                className="small"
                 disabled={steps.length >= 100}
                 onClick={() => {
                   const id = `draft_${crypto.randomUUID().replaceAll('-', '')}`;
@@ -451,241 +579,265 @@ export default function TaskGraphEditor({
                   setSelected(id);
                 }}
               >
-                Add step
+                <Plus size={14} aria-hidden /> Add step
               </Button>
-            </div>
-            {steps.length >= 100 && (
-              <p>Up to 100 steps can be reviewed here.</p>
-            )}
-          </fieldset>
-          {step && (
-            <fieldset disabled={disabled} className="stack">
-              <legend>
-                {kinds[step.type as keyof typeof kinds] ?? step.type} ·{' '}
-                {step.id}
-              </legend>
-              <div className="actions action-cluster">
-                <Button disabled={index === 0} onClick={() => move(-1)}>
-                  Move step up
-                </Button>
-                <Button
-                  disabled={index === steps.length - 1}
-                  onClick={() => move(1)}
-                >
-                  Move step down
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={steps.length === 1}
-                  onClick={() => {
-                    const remaining = steps.filter(
-                      (item) => item.id !== selected,
-                    );
-                    setSteps(remaining);
-                    setSelected(
-                      remaining[Math.min(index, remaining.length - 1)]?.id ??
-                        '',
-                    );
-                  }}
-                >
-                  Remove step
-                </Button>
-              </div>
-              {retained?.retained_fields && (
-                <p>
-                  Additional saved settings are preserved when you edit these
-                  fields.
+              {steps.length >= 100 && (
+                <p className="home-caption">
+                  Up to 100 steps can be reviewed here.
                 </p>
-              )}
-              {retained?.editable === false ? (
-                <p>
-                  This saved step type is not editable here. Its existing
-                  content is preserved.
-                </p>
-              ) : (
-                <>
-                  <Field
-                    label="Step type"
-                    hint="Changing type resets the editable fields for this step."
-                  >
-                    <Select
-                      value={step.type}
-                      onChange={(event) =>
-                        setSteps((current) =>
-                          current.map((item) =>
-                            item.id === selected
-                              ? {
-                                  ...item,
-                                  type: event.target.value,
-                                  fields: initialFields(event.target.value),
-                                }
-                              : item,
-                          ),
-                        )
-                      }
-                    >
-                      {Object.entries(kinds).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  {step.type === 'prompt' && (
-                    <>
-                      {text('prompt', 'Prompt')}
-                      <div className="field-row">
-                        {number('max_retries', 'Maximum retries', 1, 10, 2)}
-                        {number(
-                          'retry_delay_seconds',
-                          'Retry delay (seconds)',
-                          0,
-                          300,
-                          5,
-                        )}
-                      </div>
-                    </>
-                  )}
-                  {step.type === 'condition' && (
-                    <>
-                      {text(
-                        'condition',
-                        'Condition expression',
-                        'Examples: contains:done, gte:3, json:status:equals:ok, and:[not_empty,contains:done]. LLM conditions are evaluated only when run.',
-                      )}
-                      {branch('if_true', 'When true')}
-                      {branch('if_false', 'When false')}
-                    </>
-                  )}
-                  {step.type === 'approval' && (
-                    <>
-                      {text('message', 'Approval message')}
-                      {number(
-                        'timeout_minutes',
-                        'Approval timeout (minutes, 0 means no timeout)',
-                        0,
-                        1440,
-                        30,
-                      )}
-                      {branch('if_approved', 'When approved')}
-                      {branch('if_denied', 'When denied', 'end')}
-                    </>
-                  )}
-                  {step.type === 'subtask' && (
-                    <>
-                      {input('task_id', 'Workflow ID')}
-                      <Field label="Pass previous output">
-                        <Select
-                          value={String(step.fields.pass_output ?? true)}
-                          onChange={(event) =>
-                            change('pass_output', event.target.value === 'true')
-                          }
-                        >
-                          <option value="true">Pass output</option>
-                          <option value="false">Do not pass output</option>
-                        </Select>
-                      </Field>
-                    </>
-                  )}
-                  {step.type === 'notify' && (
-                    <>
-                      {text('message', 'Notification message')}
-                      {input(
-                        'channel',
-                        'Notification channel',
-                        'Use an existing channel ID, or desktop for an app notification.',
-                      )}
-                    </>
-                  )}
-                  {step.type === 'delegate_agent' && (
-                    <>
-                      {text('objective', 'Agent objective')}
-                      {input('profile', 'Agent profile ID')}
-                      {input(
-                        'developer_workspace_id',
-                        'Developer workspace ID',
-                      )}
-                      {choice(
-                        'editing_safety',
-                        'Editing safety',
-                        [
-                          ['profile_default', 'Profile default'],
-                          ['read_only', 'Read only'],
-                          ['single_writer', 'Single writer'],
-                          ['worktree', 'Worktree'],
-                        ],
-                        'profile_default',
-                      )}
-                      {choice(
-                        'return_mode',
-                        'Agent return mode',
-                        [
-                          ['wait', 'Wait for result'],
-                          ['background', 'Continue in background'],
-                        ],
-                        'wait',
-                      )}
-                      {text('context', 'Additional context')}
-                    </>
-                  )}
-                  {step.type === 'wait_for_agents' && (
-                    <Field
-                      label="Agent run IDs"
-                      hint="Separate existing run IDs with commas. Leave empty to wait for agents returned by earlier steps."
-                    >
-                      <Input
-                        value={step.fields.run_ids?.join(', ') ?? ''}
-                        maxLength={12900}
-                        onChange={(event) =>
-                          change(
-                            'run_ids',
-                            event.target.value
-                              .split(',')
-                              .map((value) => value.trim())
-                              .filter(Boolean),
-                          )
-                        }
-                      />
-                    </Field>
-                  )}
-                  {['delegate_agent', 'wait_for_agents'].includes(step.type) &&
-                    number(
-                      'timeout_seconds',
-                      'Timeout (seconds)',
-                      1,
-                      7200,
-                      300,
-                    )}
-                  {[
-                    'prompt',
-                    'subtask',
-                    'delegate_agent',
-                    'wait_for_agents',
-                  ].includes(step.type) &&
-                    choice(
-                      'on_error',
-                      'On error',
-                      [
-                        ['stop', 'Stop workflow'],
-                        ['skip', 'Continue'],
-                      ],
-                      step.type === 'prompt' ? 'skip' : 'stop',
-                    )}
-                  {!['condition', 'approval'].includes(step.type) &&
-                    branch('next', 'Next step')}
-                </>
               )}
             </fieldset>
-          )}
-          <p>
-            Removing a referenced step requires updating its branches and named
-            output references before saving.
-          </p>
-        </>
+          </div>
+          <div className="task-graph-detail">
+            {step ? (
+              <fieldset disabled={disabled} className="task-graph-form">
+                <legend>
+                  Step {index + 1} · {kindLabel(step.type)}
+                </legend>
+                <div className="task-graph-form-actions">
+                  <IconButton
+                    size="sm"
+                    label="Move step up"
+                    disabled={index === 0}
+                    onClick={() => move(-1)}
+                  >
+                    <ArrowUp size={14} aria-hidden />
+                  </IconButton>
+                  <IconButton
+                    size="sm"
+                    label="Move step down"
+                    disabled={index === steps.length - 1}
+                    onClick={() => move(1)}
+                  >
+                    <ArrowDown size={14} aria-hidden />
+                  </IconButton>
+                  <IconButton
+                    size="sm"
+                    label="Remove step"
+                    variant="danger"
+                    disabled={steps.length === 1}
+                    onClick={() => {
+                      const remaining = steps.filter(
+                        (item) => item.id !== selected,
+                      );
+                      setSteps(remaining);
+                      setSelected(
+                        remaining[Math.min(index, remaining.length - 1)]?.id ??
+                          '',
+                      );
+                    }}
+                  >
+                    <Trash2 size={14} aria-hidden />
+                  </IconButton>
+                </div>
+                {retained?.retained_fields && (
+                  <p className="home-caption">
+                    Additional saved settings are preserved when you edit these
+                    fields.
+                  </p>
+                )}
+                {retained?.editable === false ? (
+                  <p>
+                    This saved step type is not editable here. Its existing
+                    content is preserved.
+                  </p>
+                ) : (
+                  <>
+                    <Field
+                      label="Step type"
+                      hint="Changing type resets the editable fields for this step."
+                    >
+                      <Select
+                        value={step.type}
+                        onChange={(event) =>
+                          setSteps((current) =>
+                            current.map((item) =>
+                              item.id === selected
+                                ? {
+                                    ...item,
+                                    type: event.target.value,
+                                    fields: initialFields(event.target.value),
+                                  }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        {Object.entries(kinds).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    {step.type === 'prompt' && (
+                      <>
+                        {text('prompt', 'Prompt')}
+                        <div className="field-row">
+                          {number('max_retries', 'Maximum retries', 1, 10, 2)}
+                          {number(
+                            'retry_delay_seconds',
+                            'Retry delay (seconds)',
+                            0,
+                            300,
+                            5,
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {step.type === 'condition' && (
+                      <>
+                        {text(
+                          'condition',
+                          'Condition expression',
+                          'Examples: contains:done, gte:3, json:status:equals:ok, and:[not_empty,contains:done]. LLM conditions are evaluated only when run.',
+                          false,
+                        )}
+                        {branch('if_true', 'When true')}
+                        {branch('if_false', 'When false')}
+                      </>
+                    )}
+                    {step.type === 'approval' && (
+                      <>
+                        {text('message', 'Approval message')}
+                        {number(
+                          'timeout_minutes',
+                          'Approval timeout (minutes, 0 means no timeout)',
+                          0,
+                          1440,
+                          0,
+                        )}
+                        {branch('if_approved', 'When approved')}
+                        {branch('if_denied', 'When denied', 'end')}
+                      </>
+                    )}
+                    {step.type === 'subtask' && (
+                      <>
+                        {input('task_id', 'Workflow ID')}
+                        <Field label="Pass previous output">
+                          <Select
+                            value={String(step.fields.pass_output ?? true)}
+                            onChange={(event) =>
+                              change(
+                                'pass_output',
+                                event.target.value === 'true',
+                              )
+                            }
+                          >
+                            <option value="true">Pass output</option>
+                            <option value="false">Do not pass output</option>
+                          </Select>
+                        </Field>
+                      </>
+                    )}
+                    {step.type === 'notify' && (
+                      <>
+                        {text('message', 'Notification message')}
+                        {input(
+                          'channel',
+                          'Notification channel',
+                          'Use an existing channel ID, or desktop for an app notification.',
+                        )}
+                      </>
+                    )}
+                    {step.type === 'delegate_agent' && (
+                      <>
+                        {text('objective', 'Agent objective')}
+                        {input('profile', 'Agent profile ID')}
+                        {input(
+                          'developer_workspace_id',
+                          'Developer workspace ID',
+                        )}
+                        {choice(
+                          'editing_safety',
+                          'Editing safety',
+                          [
+                            ['profile_default', 'Profile default'],
+                            ['read_only', 'Read only'],
+                            ['single_writer', 'Single writer'],
+                            ['worktree', 'Worktree'],
+                          ],
+                          'profile_default',
+                        )}
+                        {choice(
+                          'return_mode',
+                          'Agent return mode',
+                          [
+                            ['wait', 'Wait for result'],
+                            ['background', 'Continue in background'],
+                          ],
+                          'wait',
+                        )}
+                        {text('context', 'Additional context')}
+                      </>
+                    )}
+                    {step.type === 'wait_for_agents' && (
+                      <Field
+                        label="Agent run IDs"
+                        hint="Separate existing run IDs with commas. Leave empty to wait for agents returned by earlier steps."
+                      >
+                        <Input
+                          value={step.fields.run_ids?.join(', ') ?? ''}
+                          maxLength={12900}
+                          onChange={(event) =>
+                            change(
+                              'run_ids',
+                              event.target.value
+                                .split(',')
+                                .map((value) => value.trim())
+                                .filter(Boolean),
+                            )
+                          }
+                        />
+                      </Field>
+                    )}
+                    {['delegate_agent', 'wait_for_agents'].includes(
+                      step.type,
+                    ) &&
+                      number(
+                        'timeout_seconds',
+                        'Timeout (seconds)',
+                        1,
+                        7200,
+                        300,
+                      )}
+                    {[
+                      'prompt',
+                      'subtask',
+                      'delegate_agent',
+                      'wait_for_agents',
+                    ].includes(step.type) &&
+                      choice(
+                        'on_error',
+                        'On error',
+                        [
+                          ['stop', 'Stop workflow'],
+                          ['skip', 'Continue'],
+                        ],
+                        step.type === 'prompt' ? 'skip' : 'stop',
+                      )}
+                    {!['condition', 'approval'].includes(step.type) &&
+                      branch('next', 'Next step')}
+                  </>
+                )}
+              </fieldset>
+            ) : (
+              <p className="home-caption">Choose a step to edit it.</p>
+            )}
+            <p className="home-caption">
+              Removing a step that others point to needs their branches and
+              output references updated before saving.
+            </p>
+          </div>
+        </div>
       )}
-      <div className="actions action-cluster">
+      <footer className="task-builder-actions">
+        <Button className="small" disabled={saving} onClick={onCancel}>
+          Cancel
+        </Button>
         <Button
           variant="primary"
+          className="small"
           disabled={
             !snapshot ||
             saving ||
@@ -701,10 +853,7 @@ export default function TaskGraphEditor({
               ? 'Retry original graph save'
               : 'Save graph'}
         </Button>
-        <Button disabled={saving} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
+      </footer>
     </section>
   );
 }

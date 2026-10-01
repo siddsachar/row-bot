@@ -8,7 +8,7 @@ from tests.subsystem.client_protocol.test_protocol_security import bootstrap, cl
 pytestmark = pytest.mark.subsystem
 
 
-def test_live_cards_use_nicegui_status_owner_and_require_authentication(monkeypatch):
+def test_live_cards_use_provider_status_owner_and_require_authentication(monkeypatch):
     from row_bot.providers import live_settings
 
     calls = []
@@ -85,7 +85,7 @@ def test_refresh_is_explicit_targeted_and_reports_completion(monkeypatch):
         assert complete.json()["provider_id"] == "openai"
 
 
-def test_runtime_icon_runs_the_same_explicit_probe_as_nicegui(monkeypatch):
+def test_runtime_icon_runs_the_explicit_provider_probe(monkeypatch):
     from row_bot.providers import claude_subscription, xai_oauth
 
     calls = []

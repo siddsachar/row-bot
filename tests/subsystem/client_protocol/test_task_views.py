@@ -120,12 +120,19 @@ def test_all_saved_pages_and_filters_preserve_ids_and_private_field_boundary(api
             "icon",
             "enabled",
             "notify_only",
+            "step_count",
             "schedule",
             "at",
             "last_run",
             "last_status",
             "conversation_id",
+            "agent_profile_id",
+            "approval_mode",
+            "recent_runs",
+            "active_run",
+            "next_run",
         }
+        assert items[0]["recent_runs"] == [] and items[0]["active_run"] is None
         enabled = _read(client, headers, query="TASK 20", enabled="true", limit=1)
         assert enabled["total"] == 2 and enabled["items"][0]["id"] == "task-201"
         following = _read(
@@ -301,7 +308,6 @@ def test_task_reads_preserve_stored_history_and_do_not_execute_or_modify(
     for name in (
         "run_task_background",
         "get_task_channels",
-        "get_next_fire_times",
         "list_tasks",
     ):
         monkeypatch.setattr(
@@ -382,11 +388,18 @@ def test_response_and_sqlite_batches_remain_bounded_with_large_saved_metadata(
         "icon",
         "enabled",
         "notify_only",
+        "step_count",
         "schedule",
         "at",
         "last_run",
         "last_status",
         "persistent_thread_id",
+        # The profile reference and approval mode a run starts with.
+        "agent_profile_id",
+        "safety_mode",
+        # Saved run status, start time, id and step counts only.
+        "recent_runs_json",
+        "active_run_json",
     }
 
     class ObservedCursor:

@@ -19,6 +19,7 @@ def _generator():
     return module
 
 
+@pytest.mark.slow
 def test_generated_outputs_are_deterministic_and_cover_actual_routes():
     from row_bot.api.v1.routes import create_router
     from row_bot.api.v1.security import ClientSecurity

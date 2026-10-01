@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "description": "A background notice (application.app_notices): text for people only.",
+  "properties": {
+    "at": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "At",
+      "type": "string"
+    },
+    "count": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Count",
+      "type": "integer"
+    },
+    "id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Id",
+      "type": "integer"
+    },
+    "level": {
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 500,
+      "title": "Message",
+      "type": "string"
+    },
+    "requested": {
+      "title": "Requested",
+      "type": "boolean"
+    },
+    "source": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "startup": {
+      "title": "Startup",
+      "type": "boolean"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "level",
+    "title",
+    "message",
+    "source",
+    "requested",
+    "startup",
+    "count",
+    "at"
+  ],
+  "title": "Notice",
+  "type": "object"
+}

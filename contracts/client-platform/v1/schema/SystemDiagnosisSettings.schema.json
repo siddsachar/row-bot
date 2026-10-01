@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "hourly_network_checks": {
+      "title": "Hourly Network Checks",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "hourly_network_checks"
+  ],
+  "title": "SystemDiagnosisSettings",
+  "type": "object"
+}

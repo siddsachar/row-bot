@@ -10,6 +10,7 @@ import {
   Select,
   Skeleton,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 type Source = ToolCatalogPage['items'][number]['source'];
 const sourceLabels: Record<Source, string> = {
@@ -148,8 +149,9 @@ export default function ToolCatalog({
 
   return (
     <details
-      className="stack settings-tool-catalog"
+      className="stack settings-tool-catalog settings-supplemental-disclosure"
       aria-busy={loading || loadingMore}
+      data-setting-anchor="tool-catalogue"
     >
       <summary>
         <span>
@@ -274,9 +276,9 @@ export default function ToolCatalog({
                         </strong>
                         <small>
                           {tool.parent_id
-                            ? `Parent: ${tool.parent_id}`
+                            ? `Part of ${humanizeToken(tool.parent_id)}`
                             : tool.plugin_id
-                              ? `Plugin: ${tool.plugin_id}`
+                              ? `From the ${humanizeToken(tool.plugin_id)} plugin`
                               : tool.server_name
                                 ? `MCP server: ${tool.server_name}`
                                 : 'Saved catalog entry'}
@@ -302,58 +304,58 @@ export default function ToolCatalog({
                         )}
                         {tool.requires_approval && (
                           <span className="status-chip warning">
-                            Approval declared
+                            Asks first
                           </span>
                         )}
                       </span>
                     </summary>
                     <dl className="settings-catalog-facts">
-                      <dt>Stable tool ID</dt>
+                      <dt>Tool name</dt>
                       <dd>{tool.id}</dd>
-                      <dt>Enabled setting</dt>
+                      <dt>Turned on</dt>
                       <dd>
                         {tool.enabled == null
                           ? 'Unknown'
                           : tool.enabled
-                            ? 'Enabled'
-                            : 'Disabled'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
-                      <dt>Configuration record</dt>
+                      <dt>Set up</dt>
                       <dd>
                         {tool.configured == null
                           ? 'Unknown'
                           : tool.configured
-                            ? 'Recorded'
-                            : 'Not recorded'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
-                      <dt>Destructive action declaration</dt>
+                      <dt>Changes or deletes things</dt>
                       <dd>
                         {tool.destructive == null
                           ? 'Unknown'
                           : tool.destructive
-                            ? 'Declared'
-                            : 'Not declared'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
-                      <dt>Approval declaration</dt>
+                      <dt>Asks before it runs</dt>
                       <dd>
                         {tool.requires_approval == null
                           ? 'Unknown'
                           : tool.requires_approval
-                            ? 'Declared'
-                            : 'Not declared'}
+                            ? 'Yes'
+                            : 'No'}
                       </dd>
                       <dt>Runtime readiness</dt>
                       <dd>Unknown</dd>
                       {tool.parent_id && (
                         <>
                           <dt>Parent tool</dt>
-                          <dd>{tool.parent_id}</dd>
+                          <dd>{humanizeToken(tool.parent_id)}</dd>
                         </>
                       )}
                       {tool.plugin_id && (
                         <>
                           <dt>Plugin</dt>
-                          <dd>{tool.plugin_id}</dd>
+                          <dd>{humanizeToken(tool.plugin_id)}</dd>
                         </>
                       )}
                       {tool.server_name && (

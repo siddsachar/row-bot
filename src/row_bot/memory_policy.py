@@ -131,8 +131,8 @@ def _publish_fallback_notice(
             notice["title"],
             f"{notice['message']} Reason: {notice['detail']} Next: {notice['action']}",
             sound="none",
-            icon="⚠️",
             toast_type="warning",
+            source="memory",
         )
     except Exception:
         logger.debug("Could not publish memory fallback notification", exc_info=True)

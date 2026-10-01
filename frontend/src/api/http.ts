@@ -145,6 +145,35 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  computerUse(conversation: string, signal?: AbortSignal) {
+    return wire.getComputerUse(this.base, this.session(), conversation, signal);
+  }
+  computerUsePreview(
+    conversation: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getComputerUsePreview(
+      this.base,
+      this.session(),
+      conversation,
+      revision,
+      signal,
+    );
+  }
+  sendComputerUse(
+    conversation: string,
+    command: wire.ComputerUseCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendComputerUseCommand(
+      this.base,
+      this.session(),
+      conversation,
+      command,
+      signal,
+    );
+  }
   dictationCapability(signal?: AbortSignal) {
     return wire.dictationCapability(this.base, this.session(), signal);
   }
@@ -169,11 +198,28 @@ export class HttpTransport implements ClientTransport {
   monitorSnapshot(signal?: AbortSignal) {
     return wire.getMonitorSnapshot(this.base, this.session(), signal);
   }
+  attention(signal?: AbortSignal) {
+    return wire.getAttention(this.base, this.session(), signal);
+  }
+  pendingApprovals(signal?: AbortSignal) {
+    return wire.getPendingApprovals(this.base, this.session(), signal);
+  }
   monitorLogs(limit = 200, signal?: AbortSignal) {
     return wire.getMonitorLogs(this.base, this.session(), limit, signal);
   }
   systemDiagnosis(signal?: AbortSignal) {
     return wire.runSystemDiagnosis(this.base, this.session(), signal);
+  }
+  systemHealth(signal?: AbortSignal) {
+    return wire.getSystemDiagnosis(this.base, this.session(), signal);
+  }
+  setHourlyConnectionChecks(enabled: boolean, signal?: AbortSignal) {
+    return wire.saveSystemDiagnosisSettings(
+      this.base,
+      this.session(),
+      { hourly_network_checks: enabled },
+      signal,
+    );
   }
   updates(signal?: AbortSignal) {
     return wire.getUpdates(this.base, this.session(), signal);
@@ -194,6 +240,9 @@ export class HttpTransport implements ClientTransport {
       commandId,
       signal,
     );
+  }
+  migrationSources(signal?: AbortSignal) {
+    return wire.getMigrationSources(this.base, this.session(), signal);
   }
   scanMigration(request: wire.MigrationScanRequest, signal?: AbortSignal) {
     return wire.scanMigration(this.base, this.session(), request, signal);
@@ -325,6 +374,15 @@ export class HttpTransport implements ClientTransport {
       command,
       signal,
     );
+  }
+  localRuntime(signal?: AbortSignal) {
+    return wire.getLocalRuntime(this.base, this.session(), signal);
+  }
+  testChosenModel(signal?: AbortSignal) {
+    return wire.testChosenModel(this.base, this.session(), signal);
+  }
+  checkProviderKey(body: wire.ProviderKeyCheckRequest, signal?: AbortSignal) {
+    return wire.checkProviderKey(this.base, this.session(), body, signal);
   }
   browserPreview(conversation: string, revision: string, signal?: AbortSignal) {
     return wire.getBrowserPreview(
@@ -475,6 +533,9 @@ export class HttpTransport implements ClientTransport {
   }
   executeChannel(command: wire.Command, signal?: AbortSignal) {
     return wire.sendChannel(this.base, this.session(), command, signal);
+  }
+  channelLink(channel: string, signal?: AbortSignal) {
+    return wire.getChannelLink(this.base, this.session(), channel, signal);
   }
   plugins(
     query: string,
@@ -841,6 +902,12 @@ export class HttpTransport implements ClientTransport {
   }
   reviewMcpPolicy(body: wire.McpPolicyRequest, signal?: AbortSignal) {
     return wire.reviewMcpPolicy(this.base, this.session(), body, signal);
+  }
+  mcpChat(signal?: AbortSignal) {
+    return wire.getMcpChat(this.base, this.session(), signal);
+  }
+  reviewMcpChat(body: wire.McpChatReviewRequest, signal?: AbortSignal) {
+    return wire.reviewMcpChat(this.base, this.session(), body, signal);
   }
   reviewDocumentRemoval(document: string | null, signal?: AbortSignal) {
     return wire.reviewDocumentRemoval(
@@ -1513,6 +1580,14 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  waitingMessages(conversation: string, signal?: AbortSignal) {
+    return wire.getWaitingMessages(
+      this.base,
+      this.session(),
+      conversation,
+      signal,
+    );
+  }
   steering(
     conversation: string,
     generation?: string,
@@ -1823,6 +1898,39 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  customToolLibrary(signal?: AbortSignal) {
+    return wire.getCustomToolLibrary(this.base, this.session(), signal);
+  }
+  customToolLibraryReceipt(command: string, signal?: AbortSignal) {
+    return wire.getCustomToolLibraryReceipt(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  executeCustomToolLibrary(
+    command: wire.CustomToolLibraryCommand,
+    signal?: AbortSignal,
+  ) {
+    return wire.sendCustomToolLibraryCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
+  dataBackup(signal?: AbortSignal) {
+    return wire.getDataBackup(this.base, this.session(), signal);
+  }
+  executeDataBackup(command: wire.DataBackupCommand, signal?: AbortSignal) {
+    return wire.sendDataBackupCommand(
+      this.base,
+      this.session(),
+      command,
+      signal,
+    );
+  }
   insights(signal?: AbortSignal) {
     return wire.getInsights(this.base, this.session(), signal);
   }
@@ -2100,6 +2208,53 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  suggestArtifactBrand(
+    conversation: string,
+    binding: string,
+    body: wire.ArtifactBrandSuggestionRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.suggestArtifactBrand(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      body,
+      signal,
+    );
+  }
+  saveArtifactExport(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.saveArtifactExport(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      exportId,
+      signal,
+    );
+  }
+  revealArtifactExport(
+    conversation: string,
+    binding: string,
+    exportId: string,
+    body: wire.ArtifactExportReveal,
+    signal?: AbortSignal,
+  ) {
+    return wire.revealArtifactExport(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      exportId,
+      body,
+      signal,
+    );
+  }
   artifactDownload(
     conversation: string,
     binding: string,
@@ -2196,6 +2351,9 @@ export class HttpTransport implements ClientTransport {
   pickFolder(signal?: AbortSignal) {
     return wire.pickFolder(this.base, this.session(), signal);
   }
+  claimFolder(reference: string, signal?: AbortSignal) {
+    return wire.claimFolder(this.base, this.session(), { reference }, signal);
+  }
   prepareArtifactShare(
     conversation: string,
     binding: string,
@@ -2208,6 +2366,19 @@ export class HttpTransport implements ClientTransport {
       conversation,
       binding,
       options,
+      signal,
+    );
+  }
+  artifactPublication(
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getArtifactPublication(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
       signal,
     );
   }
@@ -2280,6 +2451,21 @@ export class HttpTransport implements ClientTransport {
       conversation,
       binding,
       options,
+      signal,
+    );
+  }
+  designAssetThumbnail(
+    conversation: string,
+    binding: string,
+    asset: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getDesignAssetThumbnail(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      asset,
       signal,
     );
   }
@@ -2529,17 +2715,38 @@ export class HttpTransport implements ClientTransport {
   subscribe(id: string, signal?: AbortSignal) {
     return wire.subscribe(this.base, this.session(), id, signal);
   }
-  observe(subscription: string, cursor: string, signal: AbortSignal) {
+  observe(
+    subscription: string,
+    cursor: string,
+    signal: AbortSignal,
+    notices?: wire.NoticePosition,
+  ) {
     return wire.observeEvents(
       this.base,
       this.session(),
       subscription,
       cursor,
       signal,
+      notices,
     );
   }
-  poll(subscription: string, cursor: string, signal?: AbortSignal) {
-    return wire.poll(this.base, this.session(), subscription, cursor, signal);
+  poll(
+    subscription: string,
+    cursor: string,
+    signal?: AbortSignal,
+    notices?: wire.NoticePosition,
+  ) {
+    return wire.poll(
+      this.base,
+      this.session(),
+      subscription,
+      cursor,
+      signal,
+      notices,
+    );
+  }
+  notices(position?: wire.NoticePosition, signal?: AbortSignal) {
+    return wire.getNotices(this.base, this.session(), position, signal);
   }
   acknowledge(subscription: string, cursor: string, signal?: AbortSignal) {
     return wire.acknowledge(
@@ -2595,6 +2802,7 @@ export class HttpTransport implements ClientTransport {
     conversation: string,
     file: File,
     signal?: AbortSignal,
+    progress?: (sent: number) => void,
   ): Promise<wire.AttachmentView> {
     if (file.size < 1 || file.size > 26214400)
       throw { code: 'payload_too_large' };
@@ -2628,6 +2836,7 @@ export class HttpTransport implements ClientTransport {
           file.slice(offset, offset + 1048576),
           signal,
         );
+        progress?.(Math.min(file.size, offset + 1048576));
       }
       return await wire.completeUpload(
         this.base,
@@ -2648,6 +2857,14 @@ export class HttpTransport implements ClientTransport {
   download(reference: string, signal?: AbortSignal) {
     return wire.readAttachment(this.base, this.session(), reference, signal);
   }
+  attachmentThumbnail(reference: string, signal?: AbortSignal) {
+    return wire.readAttachmentThumbnail(
+      this.base,
+      this.session(),
+      reference,
+      signal,
+    );
+  }
   attachmentMetadata(reference: string, signal?: AbortSignal) {
     return wire.getAttachmentMetadata(
       this.base,
@@ -2655,6 +2872,17 @@ export class HttpTransport implements ClientTransport {
       reference,
       signal,
     );
+  }
+  saveAttachmentExport(reference: string, signal?: AbortSignal) {
+    return wire.saveAttachmentExport(
+      this.base,
+      this.session(),
+      reference,
+      signal,
+    );
+  }
+  revealExport(body: wire.ExportRevealRequest, signal?: AbortSignal) {
+    return wire.revealExport(this.base, this.session(), body, signal);
   }
   terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {
     return wire.readNativeTerminal(

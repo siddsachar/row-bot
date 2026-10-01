@@ -1,15 +1,15 @@
-"""Unified notification system — desktop alerts, sounds, and in-app toasts.
+"""Unified notification system — desktop alerts, sounds, and in-app notices.
 
 All background subsystems (workflows, timers) call ``notify()`` to fire
-an immediate desktop notification + sound, and queue a toast message for
-the next Streamlit rerun.
+an immediate desktop notification + sound, and post an in-app notice that
+every open client shows (``application.app_notices``; the React client reads
+it over the event stream).
 """
 
 from __future__ import annotations
 
 import logging
 import pathlib
-import queue
 import subprocess
 import sys
 
@@ -17,9 +17,7 @@ from row_bot.runtime_paths import sounds_dir
 
 logger = logging.getLogger(__name__)
 
-# ── Toast queue (thread-safe) ────────────────────────────────────────────────
-# Background threads push messages here; the Streamlit render loop drains them.
-_toast_queue: queue.Queue[dict] = queue.Queue()
+_LEVELS = {"negative": "error", "warning": "warning"}
 
 # ── Sound files ──────────────────────────────────────────────────────────────
 _SOUNDS_DIR = sounds_dir()
@@ -33,8 +31,11 @@ def notify(
     title: str,
     message: str,
     sound: str = "default",
-    icon: str = "🔔",
     toast_type: str = "positive",
+    *,
+    source: str = "app",
+    requested: bool = False,
+    in_app: bool = True,
 ) -> None:
     """Fire a notification through all channels.
 
@@ -47,8 +48,13 @@ def notify(
     sound : str
         Sound key: ``"workflow"``, ``"timer"``, or ``"default"``
         (falls back to Windows system beep).
-    icon : str
-        Emoji prefix for the Streamlit ``st.toast()`` message.
+    source : str
+        Where the notice comes from (``workflow``, ``documents``, ``buddy`` …).
+    requested : bool
+        The person started the job this reports on. Clients always show
+        warnings and errors, and information only when it was requested.
+    in_app : bool
+        False when the open conversation already shows the same problem.
     """
     from datetime import datetime
     timestamp = datetime.now().strftime("%I:%M %p")
@@ -68,23 +74,15 @@ def notify(
     # 2. Sound — immediate, non-blocking
     _play_sound(sound)
 
-    # 3. Queue toast for next Streamlit rerun
-    _toast_queue.put({"icon": icon, "message": f"{message} ({timestamp})",
-                      "type": toast_type})
+    # 3. In-app notice for every open client
+    try:
+        from row_bot.application.app_notices import app_notices
 
-
-def drain_toasts() -> list[dict]:
-    """Drain all pending toast messages (called by the Streamlit render loop).
-
-    Returns a list of ``{"icon": str, "message": str}`` dicts.
-    """
-    toasts: list[dict] = []
-    while True:
-        try:
-            toasts.append(_toast_queue.get_nowait())
-        except queue.Empty:
-            break
-    return toasts
+        if in_app:
+                app_notices.post(title=title, message=message, level=_LEVELS.get(toast_type, "info"),
+                             source=source, requested=requested)
+    except Exception:
+        logger.debug("In-app notice failed (non-fatal)", exc_info=True)
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────

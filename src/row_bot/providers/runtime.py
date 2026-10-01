@@ -341,6 +341,12 @@ def captured_chat_model(capture: CapturedChatRuntime, *, validate: Callable[[], 
     transport = str(getattr(resolved.transport, "value", resolved.transport))
     validate()
     with captured_http_clients(resolved.base_url, validate) as (sync, asynchronous):
+        if provider in {"opencode_zen", "opencode_go"}:
+            from row_bot.providers.opencode import add_opencode_request_headers, add_opencode_request_headers_async
+            sync.event_hooks = {**sync.event_hooks,
+                "request": [*sync.event_hooks["request"], add_opencode_request_headers]}
+            asynchronous.event_hooks = {**asynchronous.event_hooks,
+                "request": [*asynchronous.event_hooks["request"], add_opencode_request_headers_async]}
         if provider == "ollama":
             from langchain_ollama import ChatOllama
             from row_bot.providers.ollama import is_ollama_reasoning_model
@@ -424,9 +430,10 @@ def captured_chat_model(capture: CapturedChatRuntime, *, validate: Callable[[], 
                 **_reasoning_constructor_kwargs(capture.reasoning_plan, provider=provider))
         elif provider == "openrouter":
             import openrouter
-            from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
+            from row_bot.providers.transports.openrouter_cancellable import (
+                OPENROUTER_APP_ATTRIBUTION, CancellableChatOpenRouter)
             root = openrouter.OpenRouter(api_key=capture.credential, server_url=resolved.base_url,
-                                        client=sync, async_client=asynchronous,retry_config=None)
+                client=sync, async_client=asynchronous, retry_config=None, **OPENROUTER_APP_ATTRIBUTION)
             model = CancellableChatOpenRouter(model_name=resolved.runtime_model,
                 openrouter_api_key=capture.credential, openrouter_api_base=resolved.base_url,
                 max_retries=0, client=root,
@@ -787,6 +794,8 @@ def _create_chat_model(
     if provider in {"opencode_zen", "opencode_go"}:
         from row_bot.providers.opencode import (
             OpenCodeUnsupportedRouteError,
+            add_opencode_request_headers,
+            add_opencode_request_headers_async,
             opencode_anthropic_base_url,
             opencode_base_url,
             opencode_model_route,
@@ -819,7 +828,10 @@ def _create_chat_model(
             )
         if transport == "openai_responses" or transport.value == "openai_responses":
             from langchain_openai import ChatOpenAI
-            from row_bot.providers.transports.cancellable_http import cancellable_http_client
+            from row_bot.providers.transports.cancellable_http import (
+                cancellable_async_http_client,
+                cancellable_http_client,
+            )
 
             kwargs = _reasoning_constructor_kwargs(reasoning_plan, provider=provider, responses=True)
             return ChatOpenAI(
@@ -828,13 +840,16 @@ def _create_chat_model(
                 base_url=opencode_base_url(provider),
                 use_responses_api=True,
                 output_version="responses/v1",
-                http_client=cancellable_http_client(),
+                http_client=cancellable_http_client(event_hooks={"request": [add_opencode_request_headers]}),
+                http_async_client=cancellable_async_http_client(
+                    event_hooks={"request": [add_opencode_request_headers_async]},
+                ),
                 **kwargs,
             )
         if transport == "anthropic_messages" or transport.value == "anthropic_messages":
-            from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
+            from row_bot.providers.transports.anthropic_cancellable import OpenCodeChatAnthropic
 
-            return CancellableChatAnthropic(
+            return OpenCodeChatAnthropic(
                 model=model_name,
                 api_key=api_key,
                 base_url=opencode_anthropic_base_url(provider),

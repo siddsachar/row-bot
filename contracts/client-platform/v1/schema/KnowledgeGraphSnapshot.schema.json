@@ -95,9 +95,29 @@
           "title": "Source",
           "type": "string"
         },
+        "status": {
+          "enum": [
+            "active",
+            "needs_review",
+            "superseded",
+            "archived"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
         "subject": {
           "maxLength": 256,
           "title": "Subject",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "core",
+            "semantic",
+            "episodic",
+            "resource"
+          ],
+          "title": "Tier",
           "type": "string"
         },
         "updated_at": {
@@ -116,9 +136,42 @@
         "updated_at",
         "relation_count",
         "orphan",
-        "is_user"
+        "is_user",
+        "status",
+        "tier"
       ],
       "title": "KnowledgeGraphNode",
+      "type": "object"
+    },
+    "KnowledgeStatusCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Active",
+          "type": "integer"
+        },
+        "archived": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Archived",
+          "type": "integer"
+        },
+        "needs_review": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Needs Review",
+          "type": "integer"
+        },
+        "superseded": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Superseded",
+          "type": "integer"
+        }
+      },
+      "title": "KnowledgeStatusCounts",
       "type": "object"
     }
   },
@@ -152,7 +205,7 @@
       "items": {
         "$ref": "#/$defs/KnowledgeGraphEdge"
       },
-      "maxItems": 2000,
+      "maxItems": 15000,
       "title": "Edges",
       "type": "array"
     },
@@ -169,7 +222,7 @@
       "items": {
         "$ref": "#/$defs/KnowledgeGraphNode"
       },
-      "maxItems": 250,
+      "maxItems": 5000,
       "title": "Nodes",
       "type": "array"
     },
@@ -184,13 +237,13 @@
       "type": "integer"
     },
     "shown_entities": {
-      "maximum": 250,
+      "maximum": 5000,
       "minimum": 0,
       "title": "Shown Entities",
       "type": "integer"
     },
     "shown_relations": {
-      "maximum": 2000,
+      "maximum": 15000,
       "minimum": 0,
       "title": "Shown Relations",
       "type": "integer"
@@ -209,6 +262,9 @@
       "maxItems": 5,
       "title": "Sources",
       "type": "array"
+    },
+    "status_counts": {
+      "$ref": "#/$defs/KnowledgeStatusCounts"
     },
     "total_entities": {
       "maximum": 9007199254740991,
@@ -240,7 +296,8 @@
     "truncated",
     "center_id",
     "entity_types",
-    "sources"
+    "sources",
+    "status_counts"
   ],
   "title": "KnowledgeGraphSnapshot",
   "type": "object"

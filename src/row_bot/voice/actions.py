@@ -3,7 +3,6 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, Literal
 
 
@@ -11,43 +10,6 @@ VoiceInputMode = Literal["talk", "dictate"]
 ActiveRunControlKind = Literal["none", "status", "cancel", "follow_up", "steer"]
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ActiveVoiceSurfaceBinding:
-    """Per-client binding between voice input and the visible composer surface."""
-
-    surface: str
-    thread_id: str
-    get_composer_text: Callable[[], str]
-    set_composer_text: Callable[[str], None]
-    send_talk_text: Callable[..., Any]
-    active: bool = True
-
-    def is_current(self, thread_id: str | None) -> bool:
-        return self.active and bool(self.thread_id) and self.thread_id == str(thread_id or "")
-
-    def clear(self) -> None:
-        self.active = False
-
-    async def send_talk(self, text: str) -> None:
-        if not self.active:
-            return
-        await submit_voice_text(
-            self.send_talk_text,
-            text,
-            surface=self.surface,
-            thread_id=self.thread_id,
-        )
-
-    def append_dictation(self, text: str) -> str:
-        if not self.active:
-            return ""
-        updated = append_dictation_text(self.get_composer_text(), text)
-        if not self.active:
-            return ""
-        self.set_composer_text(updated)
-        return updated
 
 
 _STATUS_PHRASES = (

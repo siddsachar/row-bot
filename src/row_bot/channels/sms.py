@@ -2,16 +2,16 @@
 Row-Bot – SMS Channel Adapter (Twilio)
 =======================================
 SMS/MMS channel using Twilio REST API for outbound.  Inbound messages
-arrive via a ``POST /sms`` route mounted on the main NiceGUI/Starlette
-app (same port as the web UI), so a single ngrok tunnel covers both.
+arrive via a ``POST /sms`` route mounted on the main app (same port as
+the web UI), so a single ngrok tunnel covers both.
 
 Setup:
     1. Create a Twilio account at https://www.twilio.com/
     2. Get your **Account SID** and **Auth Token** from the console
     3. Buy or use a Twilio phone number
-    4. Enable the main-app tunnel in Settings → System → Tunnel Settings
-       (or manually set the Twilio webhook to ``<public-url>/sms``)
-    5. Enter credentials in Settings → Channels → SMS
+    4. Enter credentials in Settings → Channels → SMS and start the channel:
+       it opens the main-app tunnel and registers ``<public-url>/sms`` with
+       Twilio (or set that webhook in Twilio yourself)
 
 Required keys (stored via api_keys):
     TWILIO_ACCOUNT_SID  – Twilio Account SID
@@ -123,6 +123,21 @@ def is_configured() -> bool:
 
 def is_running() -> bool:
     return _running
+
+
+def reachability_problem() -> str | None:
+    """Why Twilio can't reach a running SMS channel, in words (B106)."""
+    if not _running or _webhook_public_url:
+        return None
+    if not ch_config.get("sms", "tunnel_enabled", True):
+        return None
+    try:
+        from row_bot.tunnel import tunnel_manager
+
+        error = tunnel_manager.last_error
+    except Exception:
+        error = None
+    return error or "Twilio can't reach it: the public tunnel isn't running."
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -367,8 +382,37 @@ def send_mms(phone: str, file_path: str, caption: str | None = None) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Inbound webhook handler (Starlette — mounted on main NiceGUI app)
+# Inbound webhook handler (Starlette — mounted on the main app)
 # ──────────────────────────────────────────────────────────────────────
+async def _refuse_unsigned(request, client_ip: str) -> Any:
+    """Refuse an inbound SMS that Twilio didn't sign; None when the signature is valid.
+
+    ``/sms`` is reachable without a Row-Bot session (through the tunnel), so the
+    Twilio signature is its only credential: without a saved auth token or the
+    validator, nothing is trusted.
+    """
+    from starlette.responses import Response
+
+    try:
+        from twilio.request_validator import RequestValidator
+    except ImportError:
+        log.warning("Inbound SMS refused: the Twilio signature check is unavailable")
+        return Response("Service unavailable", status_code=503)
+    auth_token = _get_auth_token()
+    if not auth_token:
+        log.warning("Inbound SMS refused: no Twilio auth token is saved")
+        return Response("Forbidden", status_code=403)
+    signature = request.headers.get("X-Twilio-Signature", "")
+    validation_url = (
+        _webhook_public_url + "/sms" if _webhook_public_url else str(request.url)
+    )
+    params = dict(await request.form())
+    if not RequestValidator(auth_token).validate(validation_url, params, signature):
+        log.warning("Invalid Twilio signature from %s", client_ip)
+        return Response("Forbidden", status_code=403)
+    return None
+
+
 async def _handle_inbound_sms(request) -> Any:
     """Handle inbound SMS via Twilio webhook (POST /sms)."""
     from starlette.responses import Response
@@ -380,7 +424,10 @@ async def _handle_inbound_sms(request) -> Any:
         return Response("SMS channel not running", status_code=503)
 
     # ── Body size limit (1 MB) ───────────────────────────────────
-    content_length = int(request.headers.get("content-length", 0))
+    try:
+        content_length = int(request.headers.get("content-length", 0))
+    except ValueError:
+        return Response("", status_code=400)
     if content_length > 1_048_576:
         return Response("Payload too large", status_code=413)
 
@@ -394,26 +441,9 @@ async def _handle_inbound_sms(request) -> Any:
     hits.append(now)
 
     # ── Twilio signature validation ──────────────────────────────
-    insecure = os.environ.get("SMS_INSECURE_NO_SIGNATURE", "").lower() == "true"
-    if not insecure:
-        try:
-            from twilio.request_validator import RequestValidator
-            auth_token = _get_auth_token()
-            if auth_token:
-                validator = RequestValidator(auth_token)
-                signature = request.headers.get("X-Twilio-Signature", "")
-                validation_url = (
-                    _webhook_public_url + "/sms"
-                    if _webhook_public_url
-                    else str(request.url)
-                )
-                form = await request.form()
-                params = dict(form)
-                if not validator.validate(validation_url, params, signature):
-                    log.warning("Invalid Twilio signature from %s", client_ip)
-                    return Response("Forbidden", status_code=403)
-        except ImportError:
-            pass  # twilio.request_validator not available — skip
+    refusal = await _refuse_unsigned(request, client_ip)
+    if refusal is not None:
+        return refusal
 
     try:
         data = await request.form()
@@ -688,10 +718,10 @@ async def start_bot() -> bool:
         from twilio.rest import Client
         _client = Client(sid, token)
 
-        # Mount /sms on the main NiceGUI/Starlette app (once)
+        # Mount /sms on the main app (once)
         if not _route_mounted:
-            from nicegui import app as _nicegui_app
-            _nicegui_app.add_route("/sms", _handle_inbound_sms, methods=["POST"])
+            from row_bot.server import add_late_route
+            add_late_route("/sms", _handle_inbound_sms, methods=["POST"])
             _route_mounted = True
             log.info("Mounted /sms webhook route on main app")
 
@@ -719,9 +749,9 @@ async def start_bot() -> bool:
                     _status_code, detail = tunnel_manager.status()
                     log.warning("SMS tunnel enabled but unavailable: %s", detail)
                     log.info(
-                        "Main-app tunnel not active — enable 'Expose task "
-                        "webhook endpoint' in Settings → System → Tunnel "
-                        "Settings, or set the Twilio webhook URL manually."
+                        "Main-app tunnel not active — check the public "
+                        "address in Settings → Devices & remote access, or "
+                        "set the Twilio webhook URL manually."
                     )
                     _webhook_public_url = None
             except ImportError:
@@ -825,7 +855,7 @@ class SMSChannel(Channel):
 
     @property
     def webhook_port(self) -> int | None:
-        return None  # /sms is mounted on the main NiceGUI app
+        return None  # /sms is mounted on the main app
 
     @property
     def needs_tunnel(self) -> bool:
@@ -838,10 +868,9 @@ class SMSChannel(Channel):
             "1. Create a [Twilio account](https://www.twilio.com/)\n"
             "2. Get your **Account SID** and **Auth Token** from the console\n"
             "3. Buy or use a Twilio phone number\n"
-            "4. Enable **Expose task webhook endpoint** in **Settings → System → Tunnel Settings**\n"
-            "   (the `/sms` webhook shares the main app's tunnel)\n"
-            "5. Paste credentials below and click **Save**\n"
-            "6. Click **▶️ Start** — Twilio webhook auto-registers"
+            "4. Paste credentials below and click **Save**\n"
+            "5. Click **▶️ Start**: the main app's tunnel opens and the `/sms`\n"
+            "   webhook registers with Twilio"
         )
 
     @property
@@ -907,6 +936,15 @@ class SMSChannel(Channel):
 
     def is_running(self) -> bool:
         return is_running()
+
+    def reachability_problem(self) -> str | None:
+        return reachability_problem()
+
+    def public_address(self) -> str | None:
+        """Twilio's webhook address while SMS runs behind the tunnel."""
+        if not _running or not _webhook_public_url:
+            return None
+        return _webhook_public_url.rstrip("/") + "/sms"
 
     def get_default_target(self) -> str:
         phone = _get_user_phone()

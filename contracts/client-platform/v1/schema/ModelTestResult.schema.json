@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "detail": {
+      "maxLength": 512,
+      "title": "Detail",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "minimum": 0,
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "ok",
+    "detail",
+    "elapsed_ms"
+  ],
+  "title": "ModelTestResult",
+  "type": "object"
+}

@@ -117,6 +117,9 @@ def _vision_analysis_failed(text: str) -> bool:
         "image file is empty",
         "could not access the camera",
         "ollama is not installed",
+        "no model is chosen yet",
+        "the chat model can't see images",
+        "the selected vision model is no longer",
     )
     return lowered.startswith(failure_prefixes)
 
@@ -145,7 +148,8 @@ def process_attached_files(
             images_b64.append(b64)
             if vision_svc and vision_svc.enabled:
                 description = vision_svc.analyze(
-                    data, f"Describe this image in detail. The filename is '{name}'."
+                    data, f"Describe this image in detail. The filename is '{name}'.",
+                    chat_model=model_name,
                 )
                 if _vision_analysis_failed(description):
                     context_parts.append(_with_workspace_hint(

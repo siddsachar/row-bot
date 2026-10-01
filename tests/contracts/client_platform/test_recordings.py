@@ -102,6 +102,7 @@ def generate(platform, client, trace, label, *, steps=None):
     return fake
 
 
+@pytest.mark.slow
 def test_record_f_p01_normal_native_identity(platform, client):
     trace = RecordedProtocolTrace("F-P01")
     subscription = subscribe(client, trace)
@@ -187,6 +188,7 @@ def test_record_f_p01_normal_native_identity(platform, client):
     finish(trace, snapshot=snapshot)
 
 
+@pytest.mark.slow
 def test_record_f_p02_duplicate_reordered_event_delivery(platform, client, monkeypatch):
     from row_bot import agent_runs
     trace = RecordedProtocolTrace("F-P02")
@@ -283,6 +285,7 @@ def test_record_f_p04_response_loss_and_stale_revision(platform, client):
     finish(trace)
 
 
+@pytest.mark.slow
 def test_record_f_p05_complete_long_history(platform):
     from row_bot.threads import append_checkpoint_messages
     trace = RecordedProtocolTrace("F-P05")
@@ -315,6 +318,7 @@ def test_record_f_p06_supported_and_unsupported_minor(client):
     finish(trace)
 
 
+@pytest.mark.slow
 def test_record_f_p07_upload_chunks_and_authenticated_reference(platform, client, protocol_clock):
     trace = RecordedProtocolTrace("F-P07")
     data = b"z" * 1048576 + b"safe!"
@@ -406,6 +410,7 @@ def test_record_f_p08_server_issued_local_group_and_spoof_rejection(platform, cl
     finish(trace)
 
 
+@pytest.mark.slow
 def test_record_f_p09_stop_is_not_quiescence(platform, client):
     trace = RecordedProtocolTrace("F-P09")
     barrier = StreamBarrier()

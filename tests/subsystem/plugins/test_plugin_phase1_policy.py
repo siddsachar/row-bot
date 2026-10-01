@@ -12,7 +12,7 @@ import pytest
 from tests.subsystem.plugins.conftest import prepare_worker_environment, write_plugin
 from tests.subsystem.plugins.test_plugin_environment import fake_venv, put_distribution, wheel
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.mark.parametrize("mode", ["conflict", "transitive", "timeout", "failure", "missing", "malformed"])
@@ -146,6 +146,7 @@ def test_bound_plugin_tool_revoked_by_disable_and_reload(plugin_modules, tmp_pat
         bound.invoke({"query": "fixture"})
 
 
+@pytest.mark.slow
 def test_registration_process_after_timeout_cannot_publish(plugin_modules, tmp_path, monkeypatch):
     from row_bot.plugins.worker import WorkerAPI
     state, loader, webhooks = (plugin_modules[k] for k in ("state", "loader", "webhooks"))

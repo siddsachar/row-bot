@@ -10,6 +10,9 @@ from langchain_core.embeddings import Embeddings
 import pytest
 
 
+pytestmark = pytest.mark.platform
+
+
 def test_chunk_batches_never_exceed_reviewed_bound(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.documents as documents

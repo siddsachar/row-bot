@@ -337,13 +337,29 @@ if find "$APP_SRC/scripts" -type f ! -name 'verify_runtime_dependencies.py' -pri
     fail "macOS app payload contains non-runtime scripts"
 fi
 
-# Strip debug symbols from native libraries to reduce bundle size
+# Strip debug symbols from native libraries to reduce bundle size. Stripping
+# rewrites a library, so its signature no longer matches and an Apple silicon
+# Mac kills the process that loads it ("Code Signature Invalid"). A signed
+# build signs every library below; an unsigned build signs each one ad hoc.
 info "Stripping debug symbols from shared libraries..."
-STRIPPED_COUNT=0
+# Debug-symbol bundles (PyObjC's test suite ships *.dSYM folders whose DWARF
+# files end in .so) are never loaded; they only add size.
+find "$APP_BUNDLE" -type d -name '*.dSYM' -prune -exec rm -rf {} +
 find "$APP_BUNDLE" \( -name '*.so' -o -name '*.dylib' \) -print0 | while IFS= read -r -d '' lib; do
-    strip -x "$lib" 2>/dev/null && STRIPPED_COUNT=$((STRIPPED_COUNT + 1)) || true
+    if strip -x "$lib" 2>/dev/null && [ -z "$CODESIGN_IDENTITY" ]; then
+        codesign --force --sign - "$lib"
+    fi
 done
 ok "Stripped debug symbols from shared libraries"
+if [ -z "$CODESIGN_IDENTITY" ]; then
+    INVALID_SIGNATURES=$(find "$APP_BUNDLE" \( -name '*.so' -o -name '*.dylib' \) -print0 \
+        | xargs -0 -n 1 sh -c 'codesign --verify "$0" 2>/dev/null || echo "$0"')
+    if [ -n "$INVALID_SIGNATURES" ]; then
+        fail "Native libraries with an invalid signature (macOS would kill the app):
+$INVALID_SIGNATURES"
+    fi
+    ok "Every native library carries a valid ad hoc signature"
+fi
 
 BUNDLE_SIZE=$(du -sh "$APP_BUNDLE" | cut -f1)
 ok "Bundle size: $BUNDLE_SIZE"

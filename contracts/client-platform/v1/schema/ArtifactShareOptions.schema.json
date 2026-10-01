@@ -4,6 +4,7 @@
     "action": {
       "enum": [
         "publish",
+        "unpublish",
         "channel",
         "x"
       ],

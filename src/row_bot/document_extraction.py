@@ -318,7 +318,7 @@ def _strict_copy_to_vault_raw(file_path, stored_name, *, original_name, document
         return name if descriptor is not None else directory / name
     def read_owned(directory, name, descriptor, maximum):
         name = leaf(directory, name, descriptor)
-        fd = os.open(name, os.O_RDONLY | getattr(os,"O_NOFOLLOW",0) | getattr(os,"O_NONBLOCK",0), dir_fd=descriptor)
+        fd = os.open(name, os.O_RDONLY | getattr(os,"O_BINARY",0) | getattr(os,"O_NOFOLLOW",0) | getattr(os,"O_NONBLOCK",0), dir_fd=descriptor)
         try:
             before = os.fstat(fd)
             if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > maximum:
@@ -364,7 +364,7 @@ def _strict_copy_to_vault_raw(file_path, stored_name, *, original_name, document
                         raise ValueError("document_raw_copy_conflict")
                     # Hash in bounded chunks below instead of materializing a full source.
                     with guard_directory(raw,directory_identity(raw,parent=True)) as selected:
-                        fd = os.open(leaf(raw,stored_name,selected),os.O_RDONLY | getattr(os,"O_NOFOLLOW",0),dir_fd=selected)
+                        fd = os.open(leaf(raw,stored_name,selected),os.O_RDONLY | getattr(os,"O_BINARY",0) | getattr(os,"O_NOFOLLOW",0),dir_fd=selected)
                         try:
                             before = os.fstat(fd)
                             digest,total = hashlib.sha256(),0
@@ -387,13 +387,13 @@ def _strict_copy_to_vault_raw(file_path, stored_name, *, original_name, document
                             os.close(fd)
                 temporary = f".{stored_name}.{document_id}.copying"
                 with guard_directory(source.parent,directory_identity(source.parent,parent=True)) as source_parent:
-                    source_fd = os.open(leaf(source.parent,source.name,source_parent),os.O_RDONLY | getattr(os,"O_NOFOLLOW",0),dir_fd=source_parent)
+                    source_fd = os.open(leaf(source.parent,source.name,source_parent),os.O_RDONLY | getattr(os,"O_BINARY",0) | getattr(os,"O_NOFOLLOW",0),dir_fd=source_parent)
                     try:
                         before = os.fstat(source_fd)
                         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_UPLOAD_BYTES:
                             raise ValueError("document_raw_source_unavailable")
                         validate()
-                        fd = os.open(leaf(raw,temporary,raw_fd),os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600,dir_fd=raw_fd)
+                        fd = os.open(leaf(raw,temporary,raw_fd),os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os,"O_BINARY",0),0o600,dir_fd=raw_fd)
                         try:
                             digest,total = hashlib.sha256(),0
                             while chunk := os.read(source_fd,1024**2):
@@ -433,7 +433,7 @@ def _strict_copy_to_vault_raw(file_path, stored_name, *, original_name, document
                     "stored_name":stored_name,"content_sha256":expected_sha256}).encode()
                 temp_meta = f".{stored_name}.{document_id}.json"
                 validate()
-                fd = os.open(leaf(meta,temp_meta,meta_fd),os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600,dir_fd=meta_fd)
+                fd = os.open(leaf(meta,temp_meta,meta_fd),os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os,"O_BINARY",0),0o600,dir_fd=meta_fd)
                 try:
                     with os.fdopen(fd,"wb",closefd=False) as output:
                         output.write(metadata)

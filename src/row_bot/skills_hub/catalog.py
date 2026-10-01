@@ -132,9 +132,20 @@ def _decorate_installed_state(entries: Iterable[SkillHubEntry]) -> list[SkillHub
     records = load_records()
     by_install = {record.install_ref: record for record in records.values()}
     by_source = {(record.source, record.install_ref): record for record in records.values()}
+    # A marketplace listing can install from another address (often GitHub);
+    # the record keeps the listing it was installed from as well.
+    by_listing = {
+        str(record.metadata.get("hub_entry_ref")): record
+        for record in records.values()
+        if record.metadata.get("hub_entry_ref")
+    }
     decorated: list[SkillHubEntry] = []
     for entry in entries:
-        record = by_source.get((entry.source, entry.install_ref)) or by_install.get(entry.install_ref)
+        record = (
+            by_source.get((entry.source, entry.install_ref))
+            or by_install.get(entry.install_ref)
+            or by_listing.get(entry.install_ref)
+        )
         if record is None:
             decorated.append(entry)
             continue
@@ -162,6 +173,8 @@ def _mode_from_statuses(statuses: list, has_entries: bool) -> str:
     if not statuses:
         return "empty"
     modes = {getattr(status, "status", "") for status in statuses}
+    if "pending" in modes:
+        return "partial"
     if "live" in modes and ("error" in modes or "stale" in modes):
         return "partial"
     if "live" in modes:

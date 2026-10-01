@@ -34,10 +34,77 @@ export interface MediaTransport {
     signal?: AbortSignal,
   ): Promise<AttachmentView>;
   download(reference: string, signal?: AbortSignal): Promise<Blob>;
+  /** Desktop app: the server writes a conversation export into Exports. */
+  saveToExports(
+    reference: string,
+    signal?: AbortSignal,
+  ): Promise<{ file_name: string; folder: string }>;
+  revealExport(fileName: string): Promise<{ status: string }>;
 }
+
+/**
+ * Where a save went (B238): the file chosen in the Save dialog, a browser
+ * download (a page cannot tell whether it finished), or, while a desktop
+ * window reconnects, a copy the server wrote into the Exports folder.
+ */
+export type SavedFile =
+  | { kind: 'file' }
+  | { kind: 'download' }
+  | {
+      kind: 'exports';
+      fileName: string;
+      folder: string;
+      /** Show the copy in the file manager; false if it could not. */
+      reveal(): Promise<boolean>;
+    };
+
+/** Whether a desktop window's native features are bound right now. */
+export type NativeConnection = 'ready' | 'reconnecting';
+
+/**
+ * Desktop Buddy placement actions. Main windows tear Buddy off, dock it and
+ * read its status; the desktop Buddy itself docks, hides and reports "ready"
+ * once its first view is drawn (the host reveals it only then).
+ */
+export type BuddyPlacementAction =
+  'status' | 'tear_off' | 'dock' | 'hide' | 'ready';
+export type BuddyPlacement = {
+  placement: 'docked' | 'desktop';
+  visible: boolean;
+};
+/** The conversation the desktop Buddy follows, as the native host last heard it. */
+export type BuddyTarget = { conversationId: string | null; revision: number };
+
+/** Conversation ids accepted by the native host (its `_SCOPE_VALUE`). */
+export const nativeConversationId = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9:_.-]{1,256}$/.test(value);
 
 export interface ClientPlatform {
   discover(): Promise<CapabilityResult<PlatformInfo>>;
+  /**
+   * Native windows only: exchange a fresh attestation to renew this
+   * document's native lease, which otherwise lapses after 30 minutes.
+   */
+  renewNative?(attestation: string): Promise<CapabilityResult<PlatformInfo>>;
+  buddyPlacement(
+    action: BuddyPlacementAction,
+    point?: { x: number; y: number },
+  ): Promise<CapabilityResult<BuddyPlacement>>;
+  /** Main windows: tell the desktop Buddy which conversation is open. */
+  publishBuddyTarget(
+    conversationId: string,
+  ): Promise<CapabilityResult<BuddyTarget>>;
+  /** Desktop Buddy: the conversation the main window has open. */
+  readBuddyTarget(): Promise<CapabilityResult<BuddyTarget>>;
+  /** Desktop Buddy: bring the main window forward on a conversation. */
+  showMainWindow(
+    conversationId: string | null,
+  ): Promise<CapabilityResult<null>>;
+  /**
+   * Frameless windows: move this window's top-left corner to a screen point
+   * (CSS pixels). Returns false where the host cannot move windows.
+   */
+  moveWindow(x: number, y: number): boolean;
   selectFile(
     signal?: AbortSignal,
     intent?: SelectionIntent,
@@ -58,11 +125,26 @@ export interface ClientPlatform {
   openTerminal(
     conversationId: string | null,
   ): Promise<CapabilityResult<{ terminalId: string }>>;
+  /**
+   * Desktop app only: open the person's own terminal app at the
+   * conversation's code folder (else home). The host picks the folder.
+   */
+  openExternalTerminal(
+    conversationId: string | null,
+  ): Promise<CapabilityResult<null>>;
   save(
     reference: string,
     name: string,
     signal?: AbortSignal,
-  ): Promise<CapabilityResult<null>>;
+  ): Promise<CapabilityResult<SavedFile>>;
+  /**
+   * Desktop windows: whether native features are bound, or reconnecting
+   * (the window binds its bridge again by itself; B231).
+   */
+  nativeConnection?: {
+    get(): NativeConnection;
+    subscribe(listener: () => void): () => void;
+  };
 }
 
 export const unavailable = (

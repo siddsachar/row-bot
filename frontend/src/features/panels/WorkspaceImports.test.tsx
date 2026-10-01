@@ -169,7 +169,7 @@ it('retains uncertainty and explicitly recovers only the original reviewed comma
   expect(
     screen.queryByRole('button', { name: 'Cancel review' }),
   ).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Check import receipt' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check import' }));
   await screen.findByText(/original receipt is still unconfirmed/);
   expect(session.hasRetained()).toBe(true);
   expect(p.apply).toHaveBeenCalledTimes(1);
@@ -211,11 +211,9 @@ it('rejects a receipt for another command and masks late settlement after auth d
     screen.getByRole('button', { name: 'Import selected changes' }),
   );
   await screen.findByText(/outcome is unconfirmed/);
-  fireEvent.click(screen.getByRole('button', { name: 'Check import receipt' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check import' }));
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Check import receipt' }),
-    ).toBeEnabled(),
+    expect(screen.getByRole('button', { name: 'Check import' })).toBeEnabled(),
   );
   expect(p.onImported).not.toHaveBeenCalled();
   expect(session.hasRetained()).toBe(true);

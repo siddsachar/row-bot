@@ -76,8 +76,10 @@ class _Page:
     availability: str
 
 
-def _rows(identifier=None, *, user=False):
+def _rows(identifier=None, *, user=False, ids=None):
     used = 0
+    # A batch of ids gets one entity's budget each, as bounded as single reads.
+    budget = 256 * 1024 * max(1, len(ids or ()))
     def build(row: Row) -> _Row:
         nonlocal used
         entity = dict(row)
@@ -86,16 +88,21 @@ def _rows(identifier=None, *, user=False):
             raise ValueError('Entity exceeds editing budget')
         raw = json.dumps(entity, ensure_ascii=True)
         used += len(raw)
-        if used > 256 * 1024:
+        if used > budget:
             raise ValueError('Entity review exceeds budget')
         return _Row(raw)
     columns = ','.join(f'substr("{key}",1,{bound + 1}) "{key}"' for key, bound in _COLUMNS.items())
     # A broad SQL prefilter admits every normalized User/alias candidate; Python
     # applies the canonical whitespace rule without an unbounded full row load.
-    where = "instr(lower(subject),'user') OR instr(lower(aliases),'user')" if user else 'id=?'
+    if user:
+        where, params = "instr(lower(subject),'user') OR instr(lower(aliases),'user')", ()
+    elif ids is not None:
+        where, params = f"id IN ({','.join('?' * len(ids))})", tuple(_id(item) for item in ids)
+    else:
+        where, params = 'id=?', (_id(identifier),)
     page = knowledge_views._read(get_memory_db_path(create_parent=False), {'entities': ' '.join(_COLUMNS)},
         f'SELECT {columns},1 matched FROM entities WHERE {where} ORDER BY (entity_type=\'person\') DESC,updated_at DESC,id',
-        () if user else (_id(identifier),), build, _Page, 'entity-editor', 0, None, 1000)
+        params, build, _Page, 'entity-editor', 0, None, 1000)
     if page.availability == 'unavailable' or page.next_cursor:
         raise _error()
     rows = [json.loads(row.value) for row in page.items]
@@ -108,6 +115,15 @@ def _rows(identifier=None, *, user=False):
 def _entity(identifier):
     values = _rows(identifier)
     return values[0] if values else None
+
+
+def _entities(identifiers) -> dict:
+    """Entities by id, read 200 at a time (the wiki inventory lists hundreds)."""
+    wanted = list(dict.fromkeys(identifiers))
+    found = {}
+    for start in range(0, len(wanted), 200):
+        found.update((row['id'], row) for row in _rows(ids=wanted[start:start + 200]))
+    return found
 
 
 def _props(entity):
@@ -353,19 +369,21 @@ def _maintenance_public(saved: dict) -> dict:
     status = saved.get('status')
     if status not in {'completed', 'partial', 'rejected'}:
         raise _error('knowledge_operation_unavailable')
+    lists = {name: saved.get(name, []) for name in ('deleted', 'stale', 'missing')}
+    if any(not isinstance(value, list) for value in lists.values()):
+        raise _error('knowledge_operation_unavailable')
+    # A receipt names at most 100 of each and counts them all: Delete all on
+    # a store over 100 entries otherwise failed to confirm (B283).
     result = {
         'command_id': command_id,
         'status': status,
         'action': saved.get('action'),
-        'deleted': saved.get('deleted', []),
-        'stale': saved.get('stale', []),
-        'missing': saved.get('missing', []),
+        **{name: value[:100] for name, value in lists.items()},
+        **{f'{name}_count': len(value) for name, value in lists.items()},
         'cleanup': saved.get('cleanup', {}),
         'code': saved.get('code'),
     }
     if result['action'] not in _MAINTENANCE_KINDS:
-        raise _error('knowledge_operation_unavailable')
-    if any(not isinstance(value, list) or len(value) > 100 for value in (result['deleted'], result['stale'], result['missing'])):
         raise _error('knowledge_operation_unavailable')
     if not isinstance(result['cleanup'], dict):
         raise _error('knowledge_operation_unavailable')

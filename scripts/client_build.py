@@ -21,6 +21,8 @@ from setuptools.errors import SetupError
 
 _CLIENT = Path("static/client-v2")
 _PRIVATE = ("asset-manifest.json", ".vite/manifest.json")
+# The workspace shell and the desktop Buddy's own document.
+_SHELL_DOCUMENTS = frozenset({"index.html", "buddy-overlay.html"})
 _HASHED = re.compile(r"assets/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpg|jpeg|webp|ico|woff2?)$")
 _PUBLIC_SHELL = frozenset(
     {"app.webmanifest", "service-worker.js", "icon-192.png", "icon-512.png"}
@@ -77,7 +79,7 @@ def select_client_payload(root: Path) -> dict[str, bytes]:
         payload: dict[str, bytes] = {}
         total = 0
         for name, entry in entries.items():
-            if name != "index.html" and name not in _PUBLIC_SHELL and not _HASHED.fullmatch(name):
+            if name not in _SHELL_DOCUMENTS and name not in _PUBLIC_SHELL and not _HASHED.fullmatch(name):
                 raise ValueError("invalid asset name")
             if (not isinstance(entry, dict) or set(entry) != {"sha256", "size"}
                     or type(entry["size"]) is not int or not 0 <= entry["size"] <= 8 * 1024 * 1024
@@ -86,7 +88,7 @@ def select_client_payload(root: Path) -> dict[str, bytes]:
             total += entry["size"]
             if total > 32 * 1024 * 1024:
                 raise ValueError("build too large")
-            data = _read(root, name, 256 * 1024 if name == "index.html" else 8 * 1024 * 1024)
+            data = _read(root, name, 256 * 1024 if name in _SHELL_DOCUMENTS else 8 * 1024 * 1024)
             if len(data) != entry["size"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
                 raise ValueError("asset integrity mismatch")
             payload[name] = data

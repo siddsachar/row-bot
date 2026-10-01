@@ -1,76 +1,78 @@
 ---
 title: "Troubleshooting"
-description: "Resolve setup, model, chat, workflow, Designer, Developer, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues."
+description: "Resolve setup, model, chat, approval, workflow, design, code folder, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues."
 ---
 
 # Troubleshooting
 
-Start with the visible status text in Row-Bot. Then check the relevant Settings tab and Monitor. Most issues fall into one of four categories: setup is incomplete, a provider or tool is disabled, the wrong model is selected, or Row-Bot is waiting for approval.
+Start with what Row-Bot already tells you. The sidebar's attention indicator appears when something needs you, Overview's **Needs you** lists it, and [Monitor](/docs/monitor/) shows every health check with a one-click fix. Most issues fall into one of four categories: setup is incomplete, a provider or tool is off, the wrong model is selected, or Row-Bot is waiting for your approval.
 
 ## Setup Problems
 
-- Reopen Setup Center if first launch was skipped or incomplete.
-- Check Settings -> Providers and Settings -> Models before troubleshooting Chat.
-- Check Settings -> System if local files, browser automation, command execution, or tunnels are involved.
-- For native application control, open the Computer Use setup card and resolve its driver or operating-system permission status before retrying.
+- If Row-Bot keeps opening setup, finish **How should Row-Bot think?** or choose **Set up later**. Open Setup Center from Overview or the command palette to continue optional setup.
+- Check Settings › Providers and Settings › Models before troubleshooting a conversation.
+- Check Settings › System if local files, browser automation, or command execution are involved, and Settings › Devices & remote access for other devices or the public link.
+- For native application control, open the Computer Use setup in Settings › System and resolve its driver or operating-system permission status before retrying.
 
 ## Model Problems
 
-- Refresh Providers, then refresh Models.
-- Choose a tool-capable model for workflows, Designer, Developer, and multi-step tool use.
-- For local and custom endpoints, use enough context for Row-Bot's instructions and tool schemas.
+- Refresh the provider in Settings › Providers, then refresh the catalog in Settings › Models.
+- A model marked **Unavailable** in a picker says why; reconnecting its provider usually fixes it.
+- Choose a tool-capable model for workflows, designs, code folders, and multi-step tool use.
+- For local and custom endpoints, use enough context for Row-Bot's instructions and tool schemas; lower the **Reading limit** in Settings › Models on smaller computers.
 - If reasoning choices are missing, rejected, or reset, use the active model's conditional control or `/reasoning`, then follow [Reasoning Controls](/docs/chat/reasoning-controls#troubleshooting).
 
-## Chat And Tool Problems
+## Chat, Tool, And Approval Problems
 
-- Check the model picker, Agent Profile, approval mode, and enabled tools.
-- If an action is waiting, review the thread approval prompt or open Activity Center.
+- Check the model picker, the composer's **Mode** (Agent or Chat only), the conversation's agent profile, its **Approvals** setting, and the enabled tools.
+- If an action is waiting, approve or deny it in the conversation, from the sidebar's attention indicator, or from Overview. Approvals wait until you answer.
+- If a step shows as skipped, it was denied and did not run.
 - Ask Row-Bot to explain the last tool result if the transcript is unclear.
 - If Computer Use is paused, choose Resume only after reviewing the target; if its lease is busy, stop or finish the active native task first.
 
 ## Workflow Problems
 
-- Confirm the workflow is not paused.
-- Run it manually once before trusting a schedule.
-- Check delivery defaults and channel status.
+- Confirm the workflow is enabled, and that an earlier run isn't still waiting for approval: while one waits, the next scheduled run is skipped.
+- Run it once with **Run** before trusting a schedule.
+- Check delivery defaults and the channel's status in Monitor.
 
-## Designer And Developer Problems
+## Design And Code Folder Problems
 
-- Designer: add a clearer goal, audience, references, or brand details.
-- Developer: confirm a workspace is open before asking for code actions.
-- Review commands and patches before approving or importing changes.
+- Designs: give a clearer goal, audience and length, and attach references. Exports use the last saved version.
+- Code folders: check that the folder is listed under **Working on** in the conversation's details card. Choosing or cloning a folder needs the Row-Bot desktop app.
+- Review commands and changes before approving or importing them.
 
 ## Knowledge And Monitor Problems
 
-- If Knowledge is empty, enable memory or index documents.
-- If a record is wrong, edit or remove it.
-- Use Monitor logs, extraction journal, dream journal, and View Full Log for background issues.
+- If Knowledge is empty, turn on memory in Settings › Memory or add documents in Settings › Documents.
+- If a memory is wrong, edit, merge or archive it in Home › Knowledge.
+- Use Monitor's **Needs attention**, **History** and **Logs** for background issues, and **Copy diagnosis report** when asking for help.
 
 ## Integrations
 
-- Channels need credentials, optional tunnel setup, start/stop state, and user pairing.
-- MCP needs the global switch, a trusted server, and a successful test.
+- Channels need credentials, sometimes a public link, a running state, and user pairing. A stopped channel shows **Restart** in Monitor.
+- Accounts whose sign-in expired show **Reconnect** in Monitor and Overview.
+- MCP needs **Use MCP servers** on, a trusted server, and a successful **Test connection**.
 - Plugins need installation, enablement, configuration, and sometimes a restart.
-- Skills need to be enabled and relevant to the prompt.
+- Skills need to be installed, available in chats, and relevant to the prompt.
 
 ## Remote Access And Server Mode
 
 - If the browser shows `untrusted_forwarding_headers`, a proxy supplied forwarding metadata from an address Row-Bot does not trust. Restart after enabling a Row-Bot-owned Tailscale route. For another proxy, configure only its exact connecting address or CIDR; do not trust a broad network.
 - If the browser shows `unexpected_host`, add the exact canonical browser-facing host and verify the proxy preserves it.
-- If an invitation cannot be claimed, create it for the exact scheme, host, and port currently used by that browser. Expired, consumed, and stale-route invitations must be recreated.
+- If a code cannot be used, create it for the exact scheme, host, and port currently used by that browser. Expired, used and stale-route codes must be recreated.
 - If Tailscale reports a conflict, Funnel, or an unowned route, inspect that configuration manually. Row-Bot deliberately refuses to reset or overwrite it.
 - If a remote microphone is unavailable, use `localhost` or HTTPS, grant browser permission, and install the local voice model explicitly.
-- Use `?mobile=1` for compact presentation or `?mobile=0` for desktop presentation. Switching layout does not change the session or its owner authority.
 - Run `row-bot access doctor` for a secret-free server and route safety report.
 
 The full route, authentication, Docker, proxy, and recovery guidance is in [Remote Access And Server Mode](/docs/operations/remote-access).
 
 ## Voice And Buddy
 
-- Check microphone/output device selection and permissions.
+- Check microphone and output device selection and permissions.
 - Use Dictate before Talk if you need review.
 - Check provider readiness for realtime voice.
-- If docked Buddy is missing, enable **Show Buddy** in Settings. If a torn-off overlay was hidden, use the tray's **Show Buddy** action.
-- Drag Buddy itself out of the sidebar in the native Windows or macOS app. Browser/server and compact mobile surfaces cannot create the native overlay.
+- If docked Buddy is missing, enable **Show Buddy** in Settings › Buddy. If a torn-off overlay was hidden, use the tray's **Show Buddy** action.
+- Drag Buddy itself out of the sidebar in the native Windows or macOS app. Browser/server and phone layouts cannot create the native overlay.
 - Use **Open full thread** for microphone controls, complex approvals, attachments, tool traces, and complete conversation history.
 - Restart Row-Bot to return Buddy placement to the sidebar dock; a saved hidden preference must still be turned back on.

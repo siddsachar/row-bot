@@ -141,26 +141,29 @@ def _inventory(scope: WikiScope) -> tuple[list[dict], str]:
                     used += len(content)
                     if used > 64 * 1024 * 1024:
                         raise common._error("wiki_enumeration_incomplete")
-                    baseline = manifest["files"].get(relative)
                     parsed = wiki._parse_entity_text(content.decode("utf-8"))
-                    entity_id = str(parsed["id"]) if parsed else None
-                    saved = common._entity(entity_id) if entity_id else None
-                    digest = hashlib.sha256(content).hexdigest()
-                    status = "unmanaged"
-                    if baseline and baseline.get("entity_id"):
-                        if entity_id != baseline["entity_id"]:
-                            status = "conflict"
-                        elif digest == baseline["hash"]:
-                            status = "unchanged"
-                        elif saved and wiki._source_revision(saved) == baseline.get("source_revision"):
-                            status = "edited"
-                        else:
-                            status = "conflict"
-                    elif entity_id and saved:
-                        status = "legacy_review"
-                    rows.append({"relative": relative, "entity_id": entity_id,
-                        "title": str((parsed or {}).get("subject", path.stem))[:256], "status": status,
-                        "vault_hash": digest, "db_revision": wiki._source_revision(saved) if saved else None})
+                    rows.append({"relative": relative, "entity_id": str(parsed["id"]) if parsed else None,
+                        "title": str((parsed or {}).get("subject", path.stem))[:256],
+                        "vault_hash": hashlib.sha256(content).hexdigest()})
+    # The saved memories are read in a few batches after the scan: one read
+    # per article took about 5 ms, past the bound for a vault of 660 (B280).
+    saved = common._entities([row["entity_id"] for row in rows if row["entity_id"]])
+    for row in rows:
+        entity = saved.get(row["entity_id"]) if row["entity_id"] else None
+        baseline = manifest["files"].get(row["relative"])
+        status = "unmanaged"
+        if baseline and baseline.get("entity_id"):
+            if row["entity_id"] != baseline["entity_id"]:
+                status = "conflict"
+            elif row["vault_hash"] == baseline["hash"]:
+                status = "unchanged"
+            elif entity and wiki._source_revision(entity) == baseline.get("source_revision"):
+                status = "edited"
+            else:
+                status = "conflict"
+        elif row["entity_id"] and entity:
+            status = "legacy_review"
+        row.update(status=status, db_revision=wiki._source_revision(entity) if entity else None)
     # Missing managed files must remain visible even though scandir cannot find them.
     present = {row["relative"] for row in rows}
     for relative, entry in manifest["files"].items():

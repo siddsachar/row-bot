@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import pytest
+
 from row_bot import launcher
 from row_bot.data_paths import (
     describe_data_paths,
     get_access_db_path,
     get_mobile_db_path,
 )
+
+
+pytestmark = pytest.mark.platform
 
 
 def test_access_database_keeps_mobile_filename_and_support_alias(tmp_path, monkeypatch) -> None:

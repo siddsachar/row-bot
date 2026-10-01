@@ -37,8 +37,11 @@ from scripts.marketing.capture_run import (  # noqa: E402
     require_profile_quiescent,
     sha256_file,
 )
-from scripts.marketing.clients.base import ClientAdapterError  # noqa: E402
-from scripts.marketing.clients.nicegui import NiceGuiAdapter  # noqa: E402
+from scripts.marketing.clients.base import ClientAdapter, ClientAdapterError  # noqa: E402
+
+# One semantic adapter per client. The NiceGUI one went with the NiceGUI UI;
+# the React one is not written yet, so preparing and capturing stop early.
+ADAPTERS: dict[str, type[ClientAdapter]] = {}
 from scripts.marketing.media_pipeline import process_run, publish_run, validate_run  # noqa: E402
 
 
@@ -339,8 +342,19 @@ def _create_goal_and_approval(records: dict[str, str]) -> None:
     records["approval-boundary"] = records["campaign-narrative"]
 
 
-def _preflight_ui(manifest: LandingStoryManifest, profile: Path) -> dict[str, Any]:
-    """Open read-only NiceGUI surfaces before any bounded generation begins."""
+def _adapter(client: str, base_url: str, *, page: Any, records: dict[str, str]) -> ClientAdapter:
+    try:
+        adapter_class = ADAPTERS[client]
+    except KeyError:
+        raise CaptureSafetyError(
+            f"there is no capture adapter for the {client} client yet; preparing, "
+            "capturing and the UI preflight need one"
+        ) from None
+    return adapter_class(base_url, page=page, records=records)
+
+
+def _preflight_ui(manifest: LandingStoryManifest, profile: Path, *, client: str) -> dict[str, Any]:
+    """Open read-only surfaces through the client's adapter before any generation."""
 
     from playwright.sync_api import sync_playwright
 
@@ -358,58 +372,19 @@ def _preflight_ui(manifest: LandingStoryManifest, profile: Path) -> dict[str, An
             )
             _block_external_routes(context)
             page = context.new_page()
-            adapter = NiceGuiAdapter(f"http://127.0.0.1:{port}", page=page, records={})
             try:
-                adapter._goto(docs_surface="chat-main")
-                try:
-                    page.wait_for_selector(
-                        '[data-docs-id="chat-composer"]',
-                        state="attached",
-                        timeout=30_000,
-                    )
-                except Exception as exc:
-                    screenshot = require_contained(
-                        run_dir / "ui-preflight-failure.png", run_dir
-                    )
-                    page.screenshot(path=str(screenshot), full_page=True)
-                    body = page.locator("body").inner_text(timeout=5_000)[:500]
-                    raise CaptureSafetyError(
-                        f"chat surface did not attach at {page.url}: {body}"
-                    ) from exc
+                adapter = _adapter(client, f"http://127.0.0.1:{port}", page=page, records={})
                 adapter.open_model_picker()
-                for required_model in (manifest.models.local, manifest.models.frontier):
-                    _option, label = adapter.reveal_chat_model_option(required_model)
-                    model_options = page.locator(
-                        ".q-menu:visible .q-item"
-                    ).all_inner_texts()
-                    if sum(label in option for option in model_options) != 1:
-                        model_id = required_model.split(":", 2)[-1]
-                        matching_labels = [
-                            option for option in model_options if model_id in option
-                        ]
-                        raise CaptureSafetyError(
-                            "provider-qualified model is absent or ambiguous in the "
-                            f"NiceGUI picker: {required_model}; matching labels={matching_labels!r}"
-                        )
-                    page.keyboard.press("Escape")
-                    if required_model != manifest.models.frontier:
-                        adapter.open_model_picker()
-                page.get_by_role("button", name="＋ New").wait_for(
-                    state="visible", timeout=10_000
-                )
-                adapter.open_home_surface("knowledge")
-                adapter.open_home_surface("workflow")
-                adapter.open_home_surface("designer")
-                return {
-                    "ok": True,
-                    "surfaces": ["chat", "knowledge", "workflow", "designer"],
-                }
+                surfaces = ["chat", "knowledge", "workflow", "designer"]
+                for surface in surfaces[1:]:
+                    adapter.open_home_surface(surface)
+                return {"ok": True, "surfaces": surfaces}
             finally:
                 context.close()
                 browser.close()
 
 
-def preflight(manifest: LandingStoryManifest) -> dict[str, Any]:
+def preflight(manifest: LandingStoryManifest, *, client: str = "react") -> dict[str, Any]:
     profile = _normal_profile()
     checks: dict[str, Any] = {
         "manifest": "ok",
@@ -460,7 +435,7 @@ def preflight(manifest: LandingStoryManifest) -> dict[str, Any]:
         and all(item.get("configured") for item in checks["models"].values())
     ):
         try:
-            checks["ui"] = _preflight_ui(manifest, profile)
+            checks["ui"] = _preflight_ui(manifest, profile, client=client)
         except Exception as exc:
             checks["ui"] = {"ok": False, "reason": str(exc)}
     checks["ok"] = bool(
@@ -483,8 +458,8 @@ def prepare(
     run_id: str | None = None,
     enrich_knowledge_graph: bool = False,
 ) -> RunReceipt:
-    if client != "nicegui":
-        raise CaptureSafetyError("prepare currently requires the NiceGUI adapter")
+    if client not in ADAPTERS:
+        _adapter(client, "", page=None, records={})
     profile = require_exact_normal_profile(
         selected_profile,
         authorize=authorize_real_profile,
@@ -551,8 +526,8 @@ def prepare(
                     reduced_motion="reduce",
                 )
                 page = context.new_page()
-                adapter = NiceGuiAdapter(
-                    f"http://127.0.0.1:{port}", page=page, records=records
+                adapter = _adapter(
+                    client, f"http://127.0.0.1:{port}", page=page, records=records
                 )
                 try:
                     for record_key, title in (
@@ -805,8 +780,8 @@ def prepare(
 
 
 def capture(manifest: LandingStoryManifest, *, client: str, run_id: str) -> RunReceipt:
-    if client != "nicegui":
-        raise CaptureSafetyError("only the NiceGUI adapter is implemented")
+    if client not in ADAPTERS:
+        _adapter(client, "", page=None, records={})
     run_dir = require_contained(RUN_ROOT / run_id, RUN_ROOT)
     receipt = RunReceipt.read(run_dir)
     if receipt.status not in {"prepared", "captured", "processed", "validated"}:
@@ -853,11 +828,12 @@ def capture(manifest: LandingStoryManifest, *, client: str, run_id: str) -> RunR
                         )
                     context = browser.new_context(**options)
                     _block_external_routes(context)
-                    NiceGuiAdapter.install_capture_privacy_filter(
+                    ADAPTERS[client].install_capture_privacy_filter(
                         context, receipt.records
                     )
                     page = context.new_page()
-                    adapter = NiceGuiAdapter(
+                    adapter = _adapter(
+                        client,
                         f"http://127.0.0.1:{port}",
                         page=page,
                         records=receipt.records,
@@ -900,15 +876,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH)
     sub = parser.add_subparsers(dest="phase", required=True)
     pre = sub.add_parser("preflight")
-    pre.add_argument("--client", default="nicegui", choices=("nicegui", "react"))
+    pre.add_argument("--client", default="react", choices=("react",))
     prep = sub.add_parser("prepare")
-    prep.add_argument("--client", default="nicegui", choices=("nicegui", "react"))
+    prep.add_argument("--client", default="react", choices=("react",))
     prep.add_argument("--profile", type=Path)
     prep.add_argument("--run-id")
     prep.add_argument("--authorize-real-profile", action="store_true")
     prep.add_argument("--enrich-knowledge-graph", action="store_true")
     cap = sub.add_parser("capture")
-    cap.add_argument("--client", default="nicegui", choices=("nicegui", "react"))
+    cap.add_argument("--client", default="react", choices=("react",))
     cap.add_argument("--run-id", required=True)
     for name in ("process", "validate"):
         child = sub.add_parser(name)
@@ -924,7 +900,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = load_manifest(args.manifest.resolve())
     try:
         if args.phase == "preflight":
-            result = preflight(manifest)
+            result = preflight(manifest, client=args.client)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result["ok"] else 1
         if args.phase == "prepare":

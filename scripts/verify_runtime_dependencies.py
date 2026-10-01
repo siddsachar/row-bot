@@ -28,9 +28,9 @@ FUNASR_VOICE_MODULES = () if (
 
 GROUPS = {
     "core": (
-        "nicegui",
         "fastapi",
         "starlette",
+        "uvicorn",
         "ollama",
         "langchain",
         "langchain_core",
@@ -87,9 +87,11 @@ GROUPS = {
         "pandas",
         "plotly",
         "kaleido",
+        "markdown2",
     ),
     "browser": (
         "playwright.sync_api",
+        "markdown2",
     ),
     "channels": (
         "telegram",

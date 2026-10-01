@@ -49,23 +49,17 @@ const chromiumLaunch = {
 const chromiumChannel = process.env.ROW_BOT_BROWSER_CHANNEL
   ? { channel: process.env.ROW_BOT_BROWSER_CHANNEL }
   : {};
-const phase5Projects =
+// Specs that run only in their own Chromium window below, never in the
+// engine x viewport matrix.
+const dedicatedSpecs =
+  /[\\/](?:compact|auth-state|offline-reconnect|pwa-update|buddy-overlay|remote-resource)\.spec\.ts$/;
+const dedicatedProjects =
   selectedEngine && selectedEngine !== 'chromium'
     ? []
     : [
         {
-          name: 'chromium-p5-localhost-desktop',
-          testMatch: /phase5-localhost-desktop\.spec\.ts/,
-          use: { viewport: { width: 1440, height: 900 } },
-        },
-        {
-          name: 'chromium-p5-authenticated-remote-desktop',
-          testMatch: /phase5-remote-desktop\.spec\.ts/,
-          use: { viewport: { width: 1440, height: 900 } },
-        },
-        {
-          name: 'chromium-p5-phone',
-          testMatch: /phase5-compact\.spec\.ts/,
+          name: 'chromium-compact-phone',
+          testMatch: /[\\/]compact\.spec\.ts$/,
           use: {
             viewport: { width: 390, height: 844 },
             hasTouch: true,
@@ -73,8 +67,8 @@ const phase5Projects =
           },
         },
         {
-          name: 'chromium-p5-tablet',
-          testMatch: /phase5-compact\.spec\.ts/,
+          name: 'chromium-compact-tablet',
+          testMatch: /[\\/]compact\.spec\.ts$/,
           use: {
             viewport: { width: 820, height: 1180 },
             hasTouch: true,
@@ -82,8 +76,8 @@ const phase5Projects =
           },
         },
         {
-          name: 'chromium-p5-narrow',
-          testMatch: /phase5-compact\.spec\.ts/,
+          name: 'chromium-compact-narrow',
+          testMatch: /[\\/]compact\.spec\.ts$/,
           use: {
             viewport: { width: 360, height: 800 },
             hasTouch: true,
@@ -92,15 +86,15 @@ const phase5Projects =
         },
         ...(['expired', 'revoked', 'unauthorized'] as const).map(
           (scenario) => ({
-            name: `chromium-p5-${scenario}`,
-            testMatch: /phase5-auth-state\.spec\.ts/,
-            metadata: { phase5Scenario: scenario },
+            name: `chromium-auth-${scenario}`,
+            testMatch: /[\\/]auth-state\.spec\.ts$/,
+            metadata: { authScenario: scenario },
             use: { viewport: { width: 1280, height: 720 } },
           }),
         ),
         {
-          name: 'chromium-p5-offline-reconnect',
-          testMatch: /phase5-offline-reconnect\.spec\.ts/,
+          name: 'chromium-offline-reconnect',
+          testMatch: /[\\/]offline-reconnect\.spec\.ts$/,
           use: {
             viewport: { width: 390, height: 844 },
             hasTouch: true,
@@ -108,8 +102,8 @@ const phase5Projects =
           },
         },
         {
-          name: 'chromium-p5-old-pwa-update',
-          testMatch: /phase5-pwa-update\.spec\.ts/,
+          name: 'chromium-pwa-update',
+          testMatch: /[\\/]pwa-update\.spec\.ts$/,
           use: {
             viewport: { width: 390, height: 844 },
             hasTouch: true,
@@ -117,8 +111,14 @@ const phase5Projects =
           },
         },
         {
-          name: 'chromium-p5-remote-artifact-resource',
-          testMatch: /phase5-remote-resource\.spec\.ts/,
+          // The desktop Buddy window's own size (Phase 7).
+          name: 'chromium-buddy-overlay',
+          testMatch: /[\\/]buddy-overlay\.spec\.ts$/,
+          use: { viewport: { width: 380, height: 230 } },
+        },
+        {
+          name: 'chromium-remote-resource',
+          testMatch: /[\\/]remote-resource\.spec\.ts$/,
           use: { viewport: { width: 1440, height: 900 } },
         },
       ].map((project) => ({
@@ -130,6 +130,41 @@ const phase5Projects =
           ...project.use,
         },
       }));
+
+const allProjects = [
+  ...engines
+    .filter((engine) => !selectedEngine || selectedEngine === engine)
+    .flatMap((engine) =>
+      viewports.map(({ name, width, height, touch }) => ({
+        name: `${engine}-${name}`,
+        testIgnore: dedicatedSpecs,
+        use: {
+          browserName: engine,
+          viewport: { width, height },
+          hasTouch: touch,
+          isMobile: engine === 'firefox' ? false : touch,
+          ...(engine === 'chromium' ? chromiumChannel : {}),
+          launchOptions: engine === 'chromium' ? chromiumLaunch : {},
+        },
+      })),
+    ),
+  ...dedicatedProjects,
+];
+// A bare `playwright test` runs the desktop project of one engine (Chromium
+// unless ROW_BOT_BROWSER_ENGINE says otherwise); other viewports, engines and
+// the special windows are opt-in with --project=<name>. Workers inherit the
+// choice through the environment, since their command lines have no --project.
+process.env.ROW_BOT_BROWSER_ALL_PROJECTS ??= process.argv.some(
+  (argument) => argument === '--project' || argument.startsWith('--project='),
+)
+  ? '1'
+  : '0';
+const projects =
+  process.env.ROW_BOT_BROWSER_ALL_PROJECTS === '1'
+    ? allProjects
+    : allProjects.filter(
+        (project) => project.name === `${selectedEngine ?? 'chromium'}-desktop`,
+      );
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -163,23 +198,5 @@ export default defineConfig({
     video: 'off',
     screenshot: 'only-on-failure',
   },
-  projects: [
-    ...engines
-      .filter((engine) => !selectedEngine || selectedEngine === engine)
-      .flatMap((engine) =>
-        viewports.map(({ name, width, height, touch }) => ({
-          name: `${engine}-${name}`,
-          testIgnore: /phase5-.*\.spec\.ts/,
-          use: {
-            browserName: engine,
-            viewport: { width, height },
-            hasTouch: touch,
-            isMobile: engine === 'firefox' ? false : touch,
-            ...(engine === 'chromium' ? chromiumChannel : {}),
-            launchOptions: engine === 'chromium' ? chromiumLaunch : {},
-          },
-        })),
-      ),
-    ...phase5Projects,
-  ],
+  projects,
 });

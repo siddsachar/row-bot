@@ -1,10 +1,11 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
-  type FormEvent,
 } from 'react';
+import { ArrowUp, GitBranch, GripVertical, Plus, X } from 'lucide-react';
 import {
   useTaskEditSession,
   useTaskEditValue,
@@ -19,11 +20,15 @@ import { clientError } from '../../api/errors';
 import {
   Button,
   Field,
+  IconButton,
   Input,
   Select,
   Skeleton,
   Toggle,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
+import PromptTextarea from './PromptTextarea';
+import ScheduleBuilder from './ScheduleBuilder';
 
 export interface TaskEditorProps {
   session?: TaskEditSession;
@@ -37,6 +42,16 @@ export interface TaskEditorProps {
   ) => Promise<TaskSaveResult>;
   onSaved: (task: TaskEditorSnapshot) => void;
   onCancel: () => void;
+  /** The configured channels; `selected` marks the workflow defaults. */
+  deliveryChannels?: ReadonlyArray<{
+    id: string;
+    label: string;
+    selected: boolean;
+  }>;
+  /** Open the step graph for this saved workflow. */
+  onAdvancedSteps?: () => void;
+  /** Open the saved workflow's model and approval settings. */
+  onTaskSettings?: () => void;
 }
 
 const emptyFields = (): TaskEditableFields => ({
@@ -52,6 +67,19 @@ const emptyFields = (): TaskEditableFields => ({
   channels: null,
 });
 
+function profileLabel(id: string) {
+  if (!id) return 'Default';
+  const name = id.replace(/^builtin:/, '').replace(/^row_bot_/, '');
+  return humanizeToken(name) || 'Default';
+}
+
+function approvalLabel(mode: string) {
+  if (mode === 'approve') return 'Ask before actions';
+  if (mode === 'block') return 'Block actions';
+  if (mode === 'allow_all') return 'Auto, within the profile';
+  return mode ? humanizeToken(mode) : 'Default';
+}
+
 export default function TaskEditor({
   taskId,
   load,
@@ -59,8 +87,12 @@ export default function TaskEditor({
   save,
   onSaved,
   onCancel,
+  deliveryChannels = [],
+  onAdvancedSteps,
+  onTaskSettings,
   session: injectedSession,
 }: TaskEditorProps) {
+  const formId = useId();
   const session = useTaskEditSession(injectedSession, 'task', taskId);
   const meta = useSyncExternalStore(session.subscribe, session.getMeta);
   const [fields, setFields] = useTaskEditValue<TaskEditableFields>(
@@ -79,17 +111,6 @@ export default function TaskEditor({
   const [error, setError] = useTaskEditValue(session, 'error', '');
   const [stale, setStale] = useTaskEditValue(session, 'stale', false);
   const [reload, setReload] = useTaskEditValue(session, 'reload', 0);
-  const [channelText, setChannelText] = useTaskEditValue(
-    session,
-    'channelText',
-    '',
-  );
-  const [delivery, setDelivery] = useTaskEditValue(
-    session,
-    'delivery',
-    'inherit',
-  );
-  const [advancedOpen, setAdvancedOpen] = useState(Boolean(taskId));
   const epoch = useRef(0);
   const pending = useRef(false);
 
@@ -104,8 +125,6 @@ export default function TaskEditor({
     setFields(emptyFields());
     setError('');
     setStale(false);
-    setChannelText('');
-    setDelivery('inherit');
     setLoading(!!taskId);
     if (taskId) {
       load(taskId, abort.signal).then(
@@ -113,14 +132,6 @@ export default function TaskEditor({
           if (abort.signal.aborted || !session.getMeta().active) return;
           setSnapshot(next);
           setFields(next.fields);
-          setChannelText(next.fields.channels?.join(', ') ?? '');
-          setDelivery(
-            next.fields.channels === null
-              ? 'inherit'
-              : next.fields.channels.length === 0
-                ? 'app'
-                : 'selected',
-          );
           setLoading(false);
           session.clean();
           session.finishRead(abort);
@@ -153,8 +164,6 @@ export default function TaskEditor({
     setFields,
     setError,
     setStale,
-    setChannelText,
-    setDelivery,
     setLoading,
   ]);
 
@@ -165,7 +174,15 @@ export default function TaskEditor({
     setFields((current) => ({ ...current, [key]: value }));
   }
 
-  async function submit(event: FormEvent) {
+  // B122: leaving for the step graph or the model settings with unsaved
+  // changes asks to save first instead of dropping them silently.
+  const [leaving, setLeaving] = useState<null | (() => void)>(null);
+  const leaveTo = (go: () => void) => () => {
+    if (session.getMeta().dirty) setLeaving(() => go);
+    else go();
+  };
+
+  async function submit(event: { preventDefault(): void }, after?: () => void) {
     event.preventDefault();
     if (
       pending.current ||
@@ -176,9 +193,16 @@ export default function TaskEditor({
       (taskId && !snapshot)
     )
       return;
-    if (delivery === 'selected' && !fields.channels?.length) {
+    // Saving never starts a run (B133): a one-off in the past is refused
+    // unless it is unchanged (the server knows whether it already ran).
+    if (
+      fields.enabled &&
+      fields.at &&
+      new Date(fields.at).getTime() <= Date.now() &&
+      (!snapshot?.fields.enabled || snapshot.fields.at !== fields.at)
+    ) {
       setError(
-        'Enter at least one registered channel name, or choose In app only.',
+        'That time has passed. Pick a later time, or switch the workflow off.',
       );
       return;
     }
@@ -213,7 +237,10 @@ export default function TaskEditor({
       setSnapshot(next.task);
       setFields(next.task.fields);
       session.clean('Saved task. No workflow was run.');
-      if (epoch.current === ticket) onSaved(next.task);
+      if (epoch.current === ticket) {
+        onSaved(next.task);
+        after?.();
+      }
     } catch (cause) {
       if (!session.getMeta().active) return;
       const failure = clientError(cause);
@@ -231,12 +258,8 @@ export default function TaskEditor({
 
   const advanced = snapshot?.advanced ?? false;
   const legacyDelivery = snapshot?.legacy_delivery ?? false;
-  const scheduleKind =
-    fields.at !== null
-      ? 'once'
-      : fields.schedule !== null
-        ? 'recurring'
-        : 'manual';
+  const locked =
+    saving || loading || meta.uncertain || stale || (!!taskId && !snapshot);
   if (loading) return <Skeleton label="Loading saved task" />;
   if (!meta.active)
     return (
@@ -244,21 +267,77 @@ export default function TaskEditor({
         Workflow access changed. Reopen the editor in the current session.
       </p>
     );
+  // Decision 18: results always stay in the app; the checklist adds the
+  // configured channels. Untouched it follows the defaults (null); a tick
+  // makes this workflow's own list ([] = in this app only).
+  const defaultIds = deliveryChannels
+    .filter((channel) => channel.selected)
+    .map((channel) => channel.id);
+  const following = fields.channels === null;
+  const ticked = new Set(following ? defaultIds : fields.channels);
+  const channelRows = [
+    ...deliveryChannels.map((channel) => ({
+      id: channel.id,
+      label: channel.label,
+    })),
+    // A saved channel that is no longer set up can still be unticked.
+    ...(fields.channels ?? [])
+      .filter((id) => !deliveryChannels.some((channel) => channel.id === id))
+      .map((id) => ({ id, label: `${id} (not set up)` })),
+  ];
+  const tick = (id: string, on: boolean) => {
+    const next = new Set(ticked);
+    if (on) next.add(id);
+    else next.delete(id);
+    change(
+      'channels',
+      channelRows.map((row) => row.id).filter((row) => next.has(row)),
+    );
+  };
   return (
     <form
-      className="task-editor stack capability-section"
+      className="task-builder"
       onSubmit={(event) => void submit(event)}
       aria-label={taskId ? 'Edit task' : 'Create task'}
     >
-      <header className="capability-header">
-        <div>
-          <h2>{taskId ? 'Edit task' : 'Create task'}</h2>
-          <p>Define the saved workflow before reviewing any changes.</p>
+      <h2 className="visually-hidden">
+        {taskId ? 'Edit task' : 'Create task'}
+      </h2>
+      {leaving && (
+        <div
+          role="group"
+          aria-label="Save your changes first?"
+          className="task-builder-leave"
+        >
+          <span>Your changes to this workflow aren't saved yet.</span>
+          <Button
+            variant="primary"
+            className="small"
+            disabled={saving}
+            onClick={(event) => {
+              const go = leaving;
+              setLeaving(null);
+              void submit(event, go);
+            }}
+          >
+            Save and continue
+          </Button>
+          <Button
+            variant="ghost"
+            className="small"
+            onClick={() => setLeaving(null)}
+          >
+            Keep editing
+          </Button>
         </div>
-      </header>
-      {error && <p role="alert">{error}</p>}
+      )}
+      {error && (
+        <p className="task-builder-alert" role="alert">
+          {error}
+        </p>
+      )}
       {meta.limit && (
-        <p role="alert">
+        <p className="task-builder-alert" role="alert">
           This retained draft reached its size limit. Shorten a field before
           adding more content.
         </p>
@@ -272,296 +351,212 @@ export default function TaskEditor({
       )}
       {taskId && (!snapshot || stale) && (
         <Button
+          className="small task-builder-reload"
           disabled={saving || meta.uncertain}
           onClick={() => setReload((value) => value + 1)}
         >
           Reload saved task
         </Button>
       )}
-      <fieldset
-        className="stack"
-        disabled={
-          saving ||
-          loading ||
-          meta.uncertain ||
-          stale ||
-          (!!taskId && !snapshot)
-        }
-      >
-        <div className="field-row">
-          <Field label="Name">
-            <Input
-              value={fields.name}
-              maxLength={256}
-              required
-              onChange={(event) => change('name', event.target.value)}
-            />
-          </Field>
-          <Field label="Icon">
-            <Input
-              value={fields.icon}
-              maxLength={32}
-              onChange={(event) => change('icon', event.target.value)}
-            />
-          </Field>
-        </div>
-        <Field label="Description">
-          <textarea
-            className="input"
-            value={fields.description}
-            maxLength={4096}
-            rows={2}
-            onChange={(event) => change('description', event.target.value)}
-          />
-        </Field>
-        <Field label="Task type">
-          <Select
-            value={fields.notify_only ? 'reminder' : 'workflow'}
-            disabled={advanced}
-            onChange={(event) =>
-              change('notify_only', event.target.value === 'reminder')
-            }
-          >
-            <option value="workflow">Workflow</option>
-            <option value="reminder">Reminder</option>
-          </Select>
-        </Field>
-        {advanced && (
-          <p className="muted">
-            This task uses an advanced workflow. Its steps, branches, and
-            approvals are preserved. Use the existing workflow editor to change
-            them.
-          </p>
-        )}
-        {fields.notify_only ? (
-          <Field label="Reminder text">
+      <fieldset className="task-builder-body" disabled={locked}>
+        <div className="task-builder-main">
+          <div className="task-builder-identity">
+            <Field label="Icon">
+              <Input
+                className="task-builder-icon"
+                value={fields.icon}
+                maxLength={32}
+                onChange={(event) => change('icon', event.target.value)}
+              />
+            </Field>
+            <Field label="Name">
+              <Input
+                value={fields.name}
+                maxLength={256}
+                required
+                placeholder="Morning briefing"
+                onChange={(event) => change('name', event.target.value)}
+              />
+            </Field>
+          </div>
+          <Field label="Description">
             <textarea
               className="input"
-              rows={3}
-              value={fields.notify_label}
+              value={fields.description}
               maxLength={4096}
-              onChange={(event) => change('notify_label', event.target.value)}
+              rows={2}
+              placeholder="What it does, in a sentence"
+              onChange={(event) => change('description', event.target.value)}
             />
           </Field>
-        ) : (
-          <div role="group" aria-label="Workflow prompts">
-            {fields.prompts.map((prompt, index) => (
-              <div key={index}>
-                <Field label={`Prompt ${index + 1}`}>
-                  <textarea
-                    className="input"
-                    rows={3}
-                    value={prompt}
-                    required={!advanced}
-                    readOnly={advanced}
-                    maxLength={16384}
-                    onChange={(event) =>
-                      change(
-                        'prompts',
-                        fields.prompts.map((value, position) =>
-                          position === index ? event.target.value : value,
-                        ),
-                      )
-                    }
-                  />
-                </Field>
-                {!advanced && (
-                  <div className="actions action-cluster">
-                    <Button
-                      disabled={index === 0}
-                      aria-label={`Move prompt ${index + 1} up`}
-                      onClick={() => {
-                        const prompts = [...fields.prompts];
-                        [prompts[index - 1], prompts[index]] = [
-                          prompts[index],
-                          prompts[index - 1],
-                        ];
-                        change('prompts', prompts);
-                      }}
-                    >
-                      Move up
-                    </Button>
-                    <Button
-                      disabled={fields.prompts.length === 1}
-                      aria-label={`Remove prompt ${index + 1}`}
-                      onClick={() =>
-                        change(
-                          'prompts',
-                          fields.prompts.filter(
-                            (_, position) => position !== index,
-                          ),
-                        )
-                      }
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-            {!advanced && (
-              <Button
-                disabled={fields.prompts.length >= 100}
-                onClick={() => change('prompts', [...fields.prompts, ''])}
+          <div className="task-builder-kind">
+            <Field label="Task type">
+              <Select
+                value={fields.notify_only ? 'reminder' : 'workflow'}
+                disabled={advanced}
+                onChange={(event) =>
+                  change('notify_only', event.target.value === 'reminder')
+                }
               >
-                Add prompt
+                <option value="workflow">Workflow</option>
+                <option value="reminder">Reminder</option>
+              </Select>
+            </Field>
+            {taskId && onAdvancedSteps && !fields.notify_only && (
+              <Button
+                variant="ghost"
+                className="small task-builder-graph"
+                onClick={leaveTo(onAdvancedSteps)}
+              >
+                <GitBranch size={14} aria-hidden /> Open step graph
               </Button>
             )}
           </div>
-        )}
-        <details
-          className="task-advanced"
-          open={advancedOpen}
-          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
-        >
-          <summary>
-            Schedule and delivery
-            <small>
-              {scheduleKind === 'manual'
-                ? 'No schedule'
-                : fields.schedule || fields.at || 'Scheduled'}
-              {' · '}
-              {delivery === 'inherit'
-                ? 'Workflow defaults'
-                : delivery === 'app'
-                  ? 'In app only'
-                  : 'Selected channels'}
-              {' · '}
-              {fields.enabled ? 'Enabled' : 'Off'}
-            </small>
-          </summary>
-          <div className="stack task-advanced-fields">
-            <div className="field-row">
-              <Field label="Schedule">
-                <Select
-                  value={scheduleKind}
-                  onChange={(event) =>
-                    setFields((current) => ({
-                      ...current,
-                      schedule:
-                        event.target.value === 'recurring'
-                          ? 'daily:09:00'
-                          : null,
-                      at: event.target.value === 'once' ? '' : null,
-                    }))
-                  }
-                >
-                  <option value="manual">No schedule</option>
-                  <option value="recurring">Recurring</option>
-                  <option value="once">Once</option>
-                </Select>
-              </Field>
-              {scheduleKind === 'recurring' && (
-                <Field
-                  label="Recurring schedule"
-                  hint="Examples: daily:09:00, weekly:mon:09:00, interval:2, interval_minutes:30, cron:0 9 * * mon"
-                >
-                  <Input
-                    required
-                    maxLength={256}
-                    value={fields.schedule ?? ''}
-                    onChange={(event) => change('schedule', event.target.value)}
-                  />
-                </Field>
-              )}
-              {scheduleKind === 'once' && (
-                <Field
-                  label="Date and time"
-                  hint="Local time. A past date that has not run is scheduled immediately when enabled."
-                >
-                  <Input
-                    type="datetime-local"
-                    required
-                    value={fields.at ?? ''}
-                    onChange={(event) => change('at', event.target.value)}
-                  />
-                </Field>
-              )}
-            </div>
-            <Field
-              label="Delivery"
-              hint={
-                legacyDelivery
-                  ? 'This task retains a destination from the existing app. It is preserved when you save.'
-                  : 'Channel choices use their configured destinations and approval settings.'
-              }
-            >
-              <Select
-                disabled={legacyDelivery}
-                value={delivery}
-                onChange={(event) => {
-                  setDelivery(event.target.value);
-                  if (event.target.value === 'selected') {
-                    change(
-                      'channels',
-                      channelText
-                        .split(',')
-                        .map((value) => value.trim())
-                        .filter(Boolean),
-                    );
-                  } else
-                    change(
-                      'channels',
-                      event.target.value === 'inherit' ? null : [],
-                    );
-                }}
-              >
-                <option value="inherit">
-                  {legacyDelivery
-                    ? 'Saved destination'
-                    : 'Use workflow defaults'}
-                </option>
-                <option value="app">In app only</option>
-                <option value="selected">Selected channels</option>
-              </Select>
+          {advanced && (
+            <p className="task-builder-note">
+              This workflow uses branches, approvals or agents. Its steps are
+              kept as they are; change them in the step graph.
+            </p>
+          )}
+          {fields.notify_only ? (
+            <Field label="Reminder text">
+              <textarea
+                className="input"
+                rows={3}
+                value={fields.notify_label}
+                maxLength={4096}
+                onChange={(event) => change('notify_label', event.target.value)}
+              />
             </Field>
-            {delivery === 'selected' && (
-              <Field
-                label="Channel names"
-                hint="Comma-separated registered channel IDs, for example telegram, slack. Availability is checked when delivery runs."
-              >
-                <Input
-                  disabled={legacyDelivery}
-                  value={channelText}
-                  maxLength={2048}
-                  onChange={(event) => {
-                    setChannelText(event.target.value);
-                    change(
-                      'channels',
-                      event.target.value
-                        .split(',')
-                        .map((value) => value.trim())
-                        .filter(Boolean),
-                    );
-                  }}
-                />
-              </Field>
-            )}
-            <div className="field">
-              <span>Enabled</span>
+          ) : (
+            <StepList
+              prompts={fields.prompts}
+              readOnly={advanced}
+              onChange={(prompts) => change('prompts', prompts)}
+            />
+          )}
+        </div>
+        <aside
+          className="task-builder-rail"
+          aria-label="Schedule, delivery and policy"
+        >
+          <section className="task-rail-section">
+            <h3>Schedule</h3>
+            <ScheduleBuilder
+              key={`${snapshot?.revision ?? 'new'}:${reload}`}
+              schedule={fields.schedule}
+              at={fields.at}
+              enabled={fields.enabled}
+              onChange={(next) =>
+                setFields((current) => ({ ...current, ...next }))
+              }
+            />
+            <div className="task-rail-switch">
+              <div>
+                <span id={`${formId}-enabled`}>Enabled</span>
+                <small>
+                  Scheduled runs happen only while this is on. Saving never
+                  starts a run.
+                </small>
+              </div>
               <Toggle
                 label="Enabled"
                 checked={fields.enabled}
                 onChange={(event) => change('enabled', event.target.checked)}
               />
-              <small>
-                Enabled scheduled tasks use the existing scheduler. Saving does
-                not manually run a workflow.
-              </small>
             </div>
-          </div>
-        </details>
-        {snapshot && (
-          <p className="muted">
-            Agent profile: {snapshot.agent_profile_id || 'Unspecified'}.
-            Approval policy: {snapshot.approval_mode || 'Unspecified'}.
+          </section>
+          <section className="task-rail-section">
+            <h3>Delivery</h3>
+            <fieldset className="task-delivery">
+              <legend>Send results to</legend>
+              {legacyDelivery ? (
+                <p className="field-hint">
+                  This task keeps a destination from the earlier app. It is
+                  preserved when you save.
+                </p>
+              ) : (
+                <>
+                  <label className="checkbox-row">
+                    <input type="checkbox" checked disabled />
+                    In this app
+                  </label>
+                  {channelRows.map((row) => (
+                    <label className="checkbox-row" key={row.id}>
+                      <input
+                        type="checkbox"
+                        checked={ticked.has(row.id)}
+                        onChange={(event) => tick(row.id, event.target.checked)}
+                      />
+                      {row.label}
+                    </label>
+                  ))}
+                  <p className="field-hint">
+                    {!channelRows.length
+                      ? 'Set up a channel in Settings › Channels to also send results there.'
+                      : following
+                        ? 'Following your defaults.'
+                        : ticked.size
+                          ? 'Only for this workflow.'
+                          : 'Only in this app.'}{' '}
+                    {!following && defaultIds.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        className="small"
+                        onClick={() => change('channels', null)}
+                      >
+                        Use my defaults
+                      </Button>
+                    )}
+                  </p>
+                </>
+              )}
+            </fieldset>
+          </section>
+          <section className="task-rail-section">
+            <h3>Model and approvals</h3>
+            {snapshot ? (
+              <dl className="task-rail-facts">
+                <div>
+                  <dt>Agent profile</dt>
+                  <dd>{profileLabel(snapshot.agent_profile_id)}</dd>
+                </div>
+                <div>
+                  <dt>Approvals</dt>
+                  <dd>{approvalLabel(snapshot.approval_mode)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="task-rail-note">
+                New workflows use the default agent profile and model, and block
+                actions until you allow them. Change this after the first save.
+              </p>
+            )}
+            {snapshot && onTaskSettings && (
+              <Button
+                variant="ghost"
+                className="small"
+                onClick={leaveTo(onTaskSettings)}
+              >
+                Change model and approvals
+              </Button>
+            )}
+          </section>
+        </aside>
+      </fieldset>
+      <footer className="task-builder-actions">
+        {saving && (
+          <p role="status" className="home-caption">
+            Saving this task. Waiting for its confirmed outcome.
           </p>
         )}
-      </fieldset>
-      <div className="actions action-cluster">
+        <Button className="small" disabled={saving} onClick={onCancel}>
+          Cancel
+        </Button>
         <Button
           type="submit"
           variant="primary"
+          className="small"
           disabled={
             saving || (stale && !meta.uncertain) || (!!taskId && !snapshot)
           }
@@ -572,15 +567,176 @@ export default function TaskEditor({
               ? 'Retry original save'
               : 'Save task'}
         </Button>
-        <Button disabled={saving} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-      {saving && (
-        <p role="status">
-          Saving this task. Waiting for its confirmed outcome.
-        </p>
-      )}
+      </footer>
     </form>
+  );
+}
+
+/**
+ * Prompt steps in run order. Drag a handle, use its arrow keys, or the move
+ * buttons; each step keeps its accessible name ("Prompt 2").
+ */
+function StepList({
+  prompts,
+  readOnly,
+  onChange,
+}: {
+  prompts: string[];
+  readOnly: boolean;
+  onChange: (prompts: string[]) => void;
+}) {
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= prompts.length || from === to) return;
+    const next = [...prompts];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChange(next);
+    setAnnouncement(`Step ${from + 1} moved to position ${to + 1}.`);
+  };
+  return (
+    <div className="task-steps" role="group" aria-label="Workflow prompts">
+      <div className="task-steps-head">
+        <h3>Steps</h3>
+        <span className="home-caption">
+          Steps run in order; each sees the previous output.
+          {!readOnly && ' Type {{ in a step to add the date or its result.'}
+        </span>
+      </div>
+      <ol className="task-step-list">
+        {prompts.map((prompt, index) => (
+          <li
+            key={index}
+            className="task-step"
+            data-dragging={dragging === index ? 'true' : undefined}
+            data-over={
+              over === index && dragging !== index ? 'true' : undefined
+            }
+            onDragOver={(event) => {
+              if (dragging === null) return;
+              event.preventDefault();
+              setOver(index);
+            }}
+            onDragLeave={() =>
+              setOver((value) => (value === index ? null : value))
+            }
+            onDrop={(event) => {
+              event.preventDefault();
+              if (dragging !== null) move(dragging, index);
+              setDragging(null);
+              setOver(null);
+            }}
+          >
+            {!readOnly && (
+              <button
+                type="button"
+                className="task-step-handle"
+                draggable
+                aria-label={`Reorder step ${index + 1}`}
+                title="Drag, or use the arrow keys, to reorder"
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', String(index));
+                  setDragging(index);
+                }}
+                onDragEnd={() => {
+                  setDragging(null);
+                  setOver(null);
+                }}
+                onKeyDown={(event) => {
+                  const target =
+                    event.key === 'ArrowUp'
+                      ? index - 1
+                      : event.key === 'ArrowDown'
+                        ? index + 1
+                        : null;
+                  if (target === null) return;
+                  event.preventDefault();
+                  move(index, target);
+                  const list = event.currentTarget.closest('.task-step-list');
+                  const position = Math.max(
+                    0,
+                    Math.min(target, prompts.length - 1),
+                  );
+                  requestAnimationFrame(() => {
+                    const handles =
+                      list?.querySelectorAll<HTMLButtonElement>(
+                        '.task-step-handle',
+                      );
+                    handles?.[position]?.focus();
+                  });
+                }}
+              >
+                <GripVertical size={14} aria-hidden />
+              </button>
+            )}
+            <span className="task-step-number" aria-hidden>
+              {index + 1}
+            </span>
+            <Field label={`Prompt ${index + 1}`}>
+              <PromptTextarea
+                className="input"
+                rows={3}
+                value={prompt}
+                required={!readOnly}
+                readOnly={readOnly}
+                maxLength={16384}
+                placeholder={
+                  index === 0
+                    ? 'What should Row-Bot do first?'
+                    : 'Then what? It can use the previous output.'
+                }
+                onChange={(next) =>
+                  onChange(
+                    prompts.map((value, position) =>
+                      position === index ? next : value,
+                    ),
+                  )
+                }
+              />
+            </Field>
+            {!readOnly && (
+              <div className="task-step-actions">
+                <IconButton
+                  size="sm"
+                  label={`Move prompt ${index + 1} up`}
+                  disabled={index === 0}
+                  onClick={() => move(index, index - 1)}
+                >
+                  <ArrowUp size={14} aria-hidden />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  label={`Remove prompt ${index + 1}`}
+                  disabled={prompts.length === 1}
+                  onClick={() =>
+                    onChange(
+                      prompts.filter((_, position) => position !== index),
+                    )
+                  }
+                >
+                  <X size={14} aria-hidden />
+                </IconButton>
+              </div>
+            )}
+          </li>
+        ))}
+      </ol>
+      {!readOnly && (
+        <Button
+          variant="ghost"
+          className="small task-step-add"
+          disabled={prompts.length >= 100}
+          onClick={() => onChange([...prompts, ''])}
+        >
+          <Plus size={14} aria-hidden /> Add step
+        </Button>
+      )}
+      <p className="visually-hidden" aria-live="polite">
+        {announcement}
+      </p>
+    </div>
   );
 }

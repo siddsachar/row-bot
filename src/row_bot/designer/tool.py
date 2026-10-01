@@ -380,6 +380,24 @@ def _get_project() -> str:
     return json.dumps(summary, indent=2)
 
 
+def _rename_project(name: str) -> str:
+    """Give the design a name; it shows in the panel and the conversation."""
+    project = _require_project()
+    cleaned = " ".join(str(name or "").split())
+    if not cleaned:
+        return "Error: the name is empty."
+    if len(cleaned) > 200:
+        return "Error: keep the name under 200 characters."
+    if any(0xD800 <= ord(char) <= 0xDFFF or ord(char) == 0 for char in cleaned):
+        return "Error: the name contains characters that cannot be saved."
+    if cleaned == project.name:
+        return f'The design is already named "{cleaned}".'
+    _pre_mutate(project, label="Rename design")
+    project.name = cleaned
+    save_project(project)
+    return f'Renamed the design to "{cleaned}".'
+
+
 def _resize_project(preset: Optional[str] = None, aspect_ratio: Optional[str] = None) -> str:
     """Resize the project canvas using a preset or explicit aspect ratio."""
     project = _require_project()
@@ -1354,15 +1372,8 @@ def _add_screen(title: str, route_id: str = "", html: str = "",
     else:
         base_html = html or ""
     if not base_html:
-        # Minimal branded skeleton reused from page_navigator.
-        try:
-            from row_bot.designer.page_navigator import _branded_blank_html
-            base_html = _branded_blank_html(project, title)
-        except Exception:
-            base_html = (
-                f"<!DOCTYPE html><html><head><title>{_escape_attr(title)}</title>"
-                f"</head><body><h1>{_escape_attr(title)}</h1></body></html>"
-            )
+        from row_bot.designer.preview import branded_blank_html
+        base_html = branded_blank_html(project, title)
     base_html = sanitize_agent_html(base_html)
     # Resolve route_id
     candidate = (route_id or "").strip()
@@ -1701,6 +1712,14 @@ class DesignerTool(BaseTool):
                     "Input: any combination of primary_color, secondary_color, "
                     "accent_color, bg_color, text_color, heading_font, body_font, "
                     "logo_mode, logo_scope, logo_position, logo_max_height, and logo_padding."
+                ),
+            ),
+            StructuredTool.from_function(
+                func=_rename_project,
+                name="designer_rename_project",
+                description=(
+                    "Name the design (shown in its panel and the conversation). "
+                    "Input: name, a short title such as the one the user gave."
                 ),
             ),
             StructuredTool.from_function(

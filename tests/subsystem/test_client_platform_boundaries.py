@@ -7,7 +7,7 @@ import textwrap
 
 import pytest
 
-from scripts.check_client_platform_boundaries import boundary_paths, inspect_source
+from scripts.check_client_platform_boundaries import boundary_paths, inspect_source, presentation_violations
 
 pytestmark = pytest.mark.subsystem
 
@@ -31,13 +31,23 @@ def test_real_headless_scopes_have_no_layer_or_annotation_regression():
     assert not {path: items for path, items in violations.items() if items}
 
 
-def test_legacy_message_helpers_reexport_one_pure_implementation():
-    from row_bot import message_projection
-    from row_bot.ui import helpers
-    assert helpers.langchain_messages_to_ui_messages is message_projection.langchain_messages_to_ui_messages
-    assert helpers.strip_file_context is message_projection.strip_file_context
+@pytest.mark.slow
+def test_nothing_imports_the_removed_nicegui_ui():
+    assert presentation_violations() == []
 
 
+def test_a_module_importing_the_removed_ui_is_reported(monkeypatch, tmp_path):
+    from scripts import check_client_platform_boundaries as checker
+    module = tmp_path / "src" / "row_bot" / "plugins" / "health.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("def check():\n    from .ui_settings import _record_manifest_health\n", encoding="utf-8")
+    monkeypatch.setattr(checker, "ROOT", tmp_path)
+
+    assert presentation_violations() == [
+        "src/row_bot/plugins/health.py:2: CP003 imports the removed NiceGUI UI (row_bot.plugins.ui_settings)"]
+
+
+@pytest.mark.slow
 def test_real_headless_generation_and_shutdown_with_presentation_imports_unavailable(tmp_path):
     script = textwrap.dedent('''
         import asyncio

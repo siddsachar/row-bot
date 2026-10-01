@@ -46,7 +46,7 @@ def test_service_worker_does_not_cache_private_surfaces(tmp_path) -> None:
     assert "BYPASS_PATHS" in body
     assert "'/mobile/pair'" in body
     assert "'/api/'" in body
-    assert "'/_media'" in body
+    assert "'/_buddy'" in body
     assert "'/published'" in body
     assert "cache.put" not in body
 

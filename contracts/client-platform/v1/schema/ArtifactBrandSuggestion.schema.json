@@ -1,0 +1,86 @@
+{
+  "additionalProperties": false,
+  "description": "Colours and fonts a website uses; nothing is saved until the panel applies them.",
+  "properties": {
+    "accent_color": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accent Color"
+    },
+    "body_font": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Body Font"
+    },
+    "found": {
+      "title": "Found",
+      "type": "boolean"
+    },
+    "heading_font": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Heading Font"
+    },
+    "primary_color": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Primary Color"
+    },
+    "secondary_color": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Secondary Color"
+    },
+    "site": {
+      "maxLength": 256,
+      "title": "Site",
+      "type": "string"
+    }
+  },
+  "required": [
+    "found",
+    "site"
+  ],
+  "title": "ArtifactBrandSuggestion",
+  "type": "object"
+}

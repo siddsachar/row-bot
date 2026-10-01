@@ -8,12 +8,19 @@ import type { TaskSettingsFields, TaskSettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import {
   Button,
-  Field,
+  Combobox,
   Input,
   Select,
+  SettingRow,
   Skeleton,
   Toggle,
+  type ComboboxOption,
 } from '../../ui/primitives';
+import { DangerAction, SettingsDangerZone } from '../settings/anatomy';
+import WebhookAddress, {
+  type WebhookAddressProps,
+  type WebhookConfiguration,
+} from './WebhookAddress';
 
 export interface TaskSettingsEditorProps {
   session?: TaskEditSession;
@@ -36,6 +43,15 @@ export interface TaskSettingsEditorProps {
   onCancel: () => void;
   profileOptions?: ReadonlyArray<{ id: string; label: string }>;
   modelOptions?: ReadonlyArray<{ id: string; label: string }>;
+  /** Shown in the page's one-line description. */
+  taskName?: string;
+  /** The saved webhook's address and reachability (parity rows 20, 52). */
+  webhook?: Omit<WebhookAddressProps, 'taskId' | 'readAddress'> & {
+    readAddress: (
+      taskId: string,
+      revision: string,
+    ) => Promise<WebhookConfiguration>;
+  };
 }
 
 export default function TaskSettingsEditor({
@@ -49,9 +65,30 @@ export default function TaskSettingsEditor({
   onCancel,
   profileOptions = [],
   modelOptions = [],
+  taskName = '',
+  webhook,
   session: injectedSession,
 }: TaskSettingsEditorProps) {
   const session = useTaskEditSession(injectedSession, 'settings', taskId);
+  // Pick from lists (U41). A saved value that is not offered any more stays
+  // visible, so it is never swapped silently.
+  const profileChoices = (current: string) =>
+    profileOptions.some((option) => option.id === current) || !current
+      ? profileOptions
+      : [
+          ...profileOptions,
+          { id: current, label: `${current} (not available)` },
+        ];
+  const modelChoicesFor = (current: string | null): ComboboxOption[] => [
+    { value: '', label: 'Default model' },
+    ...modelOptions.map((option) => ({
+      value: option.id,
+      label: option.label,
+    })),
+    ...(current && !modelOptions.some((option) => option.id === current)
+      ? [{ value: current, label: `${current} (not available)` }]
+      : []),
+  ];
   const meta = useSyncExternalStore(session.subscribe, session.getMeta);
   const [snapshot, setSnapshot] = useTaskEditValue<TaskSettingsSnapshot | null>(
     session,
@@ -331,23 +368,30 @@ export default function TaskSettingsEditor({
         Workflow access changed. Reopen the editor in the current session.
       </p>
     );
+  const locked = mutating || stale || meta.uncertain;
   return (
-    <section
-      className="task-editor stack capability-section"
-      aria-label="Workflow settings editor"
-    >
-      <header className="capability-header">
-        <div>
-          <h2>Workflow settings</h2>
-          <p>
-            Review how future runs choose their model, policy, conversation and
-            triggers. Saving does not run the workflow.
-          </p>
-        </div>
-      </header>
+    <section className="task-settings" aria-label="Workflow settings editor">
+      <h2 className="visually-hidden">Workflow settings</h2>
+      <div className="task-graph-bar">
+        <p className="home-caption">
+          {taskName ? `${taskName} · ` : ''}How future runs choose their model,
+          approvals, conversation and trigger. Saving never runs it.
+        </p>
+        <span className="home-page-header-spacer" />
+        {!loading && (
+          <Button
+            variant="ghost"
+            className="small"
+            disabled={mutating || meta.uncertain}
+            onClick={() => setReload((value) => value + 1)}
+          >
+            Reload saved settings
+          </Button>
+        )}
+      </div>
       {loading && <Skeleton label="Loading workflow settings" />}
       {error && (
-        <div role="alert">
+        <div className="task-builder-alert" role="alert">
           <p>{error}</p>
           {stale && (
             <p>
@@ -359,60 +403,62 @@ export default function TaskSettingsEditor({
       )}
       {notice && <p role="status">{notice}</p>}
       {meta.limit && (
-        <p role="alert">
+        <p className="task-builder-alert" role="alert">
           This retained draft reached its size limit. Shorten a field before
           adding more content.
         </p>
       )}
       {meta.uncertain && (
-        <>
+        <div className="task-builder-note">
           <p role="status">
             The original settings change is unconfirmed. Your draft is locked
             until its receipt is resolved.
           </p>
-          <Button disabled={!!busy} onClick={() => void effect(pendingKind)}>
+          <Button
+            className="small"
+            disabled={!!busy}
+            onClick={() => void effect(pendingKind)}
+          >
             Retry original settings change
           </Button>
-        </>
-      )}
-      {!loading && (
-        <Button
-          disabled={mutating || meta.uncertain}
-          onClick={() => setReload((value) => value + 1)}
-        >
-          Reload saved settings
-        </Button>
+        </div>
       )}
       {fields && (
         <>
-          <fieldset
-            disabled={mutating || stale || meta.uncertain}
-            className="stack"
-          >
-            <legend>Run policy</legend>
-            <Field
-              label="Agent profile ID"
-              hint="Choose or enter an existing enabled profile."
+          <fieldset disabled={locked} className="task-settings-group">
+            <legend>Model and approvals</legend>
+            <SettingRow
+              label="Agent profile"
+              htmlFor={`${inputId}-profile`}
+              description="Its tools and limits apply to every run."
             >
-              <Input
-                aria-label="Agent profile ID"
-                list={`${inputId}-profiles`}
-                maxLength={128}
+              <Select
+                id={`${inputId}-profile`}
+                aria-label="Agent profile"
                 value={fields.agent_profile_id}
                 onChange={(event) =>
                   change('agent_profile_id', event.target.value)
                 }
-              />
-              <datalist id={`${inputId}-profiles`}>
-                {profileOptions.slice(0, 200).map((option) => (
+              >
+                {profileChoices(fields.agent_profile_id).map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
                   </option>
                 ))}
-              </datalist>
-            </Field>
-            <Field label="Approval policy">
+              </Select>
+            </SettingRow>
+            <SettingRow
+              label="Approvals"
+              htmlFor={`${inputId}-approval`}
+              description={
+                fields.approval_mode === 'allow_all'
+                  ? 'Auto permits actions without asking when the selected profile allows them. Existing sandbox limits still apply.'
+                  : 'What happens when a run wants to act.'
+              }
+            >
               <Select
+                id={`${inputId}-approval`}
+                aria-label="Approval policy"
                 value={fields.approval_mode}
                 onChange={(event) =>
                   change(
@@ -427,59 +473,25 @@ export default function TaskSettingsEditor({
                   Auto — allow actions within the profile policy
                 </option>
               </Select>
-            </Field>
-            {fields.approval_mode === 'allow_all' && (
-              <p>
-                Auto permits actions without asking when the selected profile
-                allows them. Existing sandbox limits still apply.
-              </p>
-            )}
-            <Field
-              label="Model override"
-              hint="Leave empty to use the default. Use a provider-qualified model reference."
+            </SettingRow>
+            <SettingRow
+              label="Model"
+              description="Readiness is checked when it runs."
             >
-              <Input
-                aria-label="Model override"
-                list={`${inputId}-models`}
-                maxLength={1024}
+              <Combobox
+                label="Model"
                 value={fields.model_override ?? ''}
-                onChange={(event) =>
-                  change('model_override', event.target.value || null)
-                }
+                options={modelChoicesFor(fields.model_override)}
+                onChange={(value) => change('model_override', value || null)}
               />
-              <datalist id={`${inputId}-models`}>
-                {modelOptions.slice(0, 200).map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </datalist>
-            </Field>
-            {(profileOptions.length > 200 || modelOptions.length > 200) && (
-              <p>
-                Showing the first 200 suggestions in each list. You can enter
-                another existing profile ID or model reference.
-              </p>
-            )}
-            <p className="muted">
-              Review uses saved model information. Provider connection and live
-              readiness are checked when the workflow runs.
-            </p>
-            <Field
-              label="Concurrency group"
-              hint="Leave empty for the existing automatic behavior. Runs in the same group wait for each other."
+            </SettingRow>
+          </fieldset>
+          <fieldset disabled={locked} className="task-settings-group">
+            <legend>Runs</legend>
+            <SettingRow
+              label="Reuse a conversation across runs"
+              description="Turning this off keeps existing conversations and their content."
             >
-              <Input
-                aria-label="Concurrency group"
-                maxLength={128}
-                value={fields.concurrency_group ?? ''}
-                onChange={(event) =>
-                  change('concurrency_group', event.target.value || null)
-                }
-              />
-            </Field>
-            <div className="field">
-              <span>Reuse a conversation across runs</span>
               <Toggle
                 label="Reuse a conversation across runs"
                 checked={fields.persistent_enabled}
@@ -487,12 +499,33 @@ export default function TaskSettingsEditor({
                   change('persistent_enabled', event.target.checked)
                 }
               />
-              <small>
-                Turning this off keeps existing conversations and their content.
-              </small>
-            </div>
-            <Field label="Trigger">
+            </SettingRow>
+            <SettingRow
+              label="Concurrency group"
+              htmlFor={`${inputId}-group`}
+              description="Runs in the same group wait for each other. Empty keeps the automatic behaviour."
+            >
+              <Input
+                id={`${inputId}-group`}
+                aria-label="Concurrency group"
+                maxLength={128}
+                value={fields.concurrency_group ?? ''}
+                onChange={(event) =>
+                  change('concurrency_group', event.target.value || null)
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label="Trigger"
+              htmlFor={`${inputId}-trigger`}
+              description={
+                fields.trigger_type === 'webhook'
+                  ? 'A private secret is created when you save a new webhook trigger. Download its configuration after saving. No webhook request is sent here.'
+                  : 'Besides its schedule and manual runs.'
+              }
+            >
               <Select
+                id={`${inputId}-trigger`}
                 value={fields.trigger_type}
                 onChange={(event) =>
                   change(
@@ -507,39 +540,26 @@ export default function TaskSettingsEditor({
                 </option>
                 <option value="webhook">Webhook (HTTP POST)</option>
               </Select>
-            </Field>
+            </SettingRow>
             {fields.trigger_type === 'task_complete' && (
-              <Field label="Source workflow ID">
+              <SettingRow
+                label="Source workflow ID"
+                htmlFor={`${inputId}-source`}
+                description="This workflow runs after that one completes."
+              >
                 <Input
+                  id={`${inputId}-source`}
                   maxLength={128}
                   value={fields.trigger_task_id ?? ''}
                   onChange={(event) =>
                     change('trigger_task_id', event.target.value || null)
                   }
                 />
-              </Field>
-            )}
-            {fields.trigger_type === 'webhook' && (
-              <p>
-                A private secret is created when you save a new webhook trigger.
-                Download its configuration after saving. No webhook request is
-                sent here.
-              </p>
+              </SettingRow>
             )}
           </fieldset>
-          <div className="actions action-cluster">
-            <Button
-              variant="primary"
-              disabled={!!busy || stale || meta.uncertain}
-              onClick={() => void reviewFields()}
-            >
-              {busy === 'save' || busy === 'review'
-                ? 'Saving settings…'
-                : 'Save settings'}
-            </Button>
-          </div>
           {reviewed && (
-            <p role="status">
+            <p role="status" className="home-caption">
               {reviewed.profile_available
                 ? `Reviewed effective approval policy: ${reviewed.effective_approval_mode === 'block' ? 'Block' : reviewed.effective_approval_mode === 'approve' ? 'Ask' : 'Auto'}.`
                 : 'The saved profile is unavailable. Choose an enabled profile and review again.'}
@@ -548,52 +568,90 @@ export default function TaskSettingsEditor({
           {snapshot?.fields.trigger_type === 'webhook' && (
             <fieldset
               disabled={!!busy || stale || dirty || unsaved || meta.uncertain}
-              className="stack"
+              className="task-settings-group"
             >
               <legend>Saved webhook</legend>
-              <p>
-                {snapshot.webhook_configured
-                  ? 'A private webhook secret is configured.'
-                  : 'This existing webhook has no private secret. Rotate it to create one.'}
-              </p>
-              <Button
-                disabled={!snapshot.webhook_configured}
-                onClick={() => void effect('download')}
+              {webhook && snapshot.webhook_configured && (
+                <WebhookAddress
+                  taskId={taskId}
+                  localBase={webhook.localBase}
+                  readAddress={() =>
+                    webhook.readAddress(taskId, snapshot.revision)
+                  }
+                  writeClipboard={webhook.writeClipboard}
+                  loadTunnel={webhook.loadTunnel}
+                  setPublic={webhook.setPublic}
+                />
+              )}
+              <SettingRow
+                label="Configuration"
+                description={
+                  snapshot.webhook_configured
+                    ? 'A private webhook secret is configured. Keep the file private.'
+                    : 'This webhook has no private secret yet. Rotate it to create one.'
+                }
               >
-                Download private webhook configuration
-              </Button>
-              <label className="field">
-                <span>
-                  <input
-                    type="checkbox"
-                    checked={rotationAccepted}
-                    onChange={(event) =>
-                      setRotationAccepted(event.target.checked)
-                    }
-                  />{' '}
-                  I will update existing callers after rotating the secret
-                </span>
-              </label>
-              <Button
-                variant="danger"
-                disabled={!rotationAccepted}
-                onClick={() => void effect('rotate')}
-              >
-                Rotate webhook secret
-              </Button>
+                <Button
+                  className="small"
+                  disabled={!snapshot.webhook_configured}
+                  onClick={() => void effect('download')}
+                >
+                  Download private webhook configuration
+                </Button>
+              </SettingRow>
+              <SettingsDangerZone anchor="webhook-danger">
+                <DangerAction
+                  title="Rotate webhook secret"
+                  description="Existing callers stop working until they use the new configuration."
+                >
+                  <label className="task-settings-ack">
+                    <input
+                      type="checkbox"
+                      checked={rotationAccepted}
+                      onChange={(event) =>
+                        setRotationAccepted(event.target.checked)
+                      }
+                    />
+                    I will update existing callers after rotating the secret
+                  </label>
+                  <Button
+                    variant="danger"
+                    className="small"
+                    disabled={!rotationAccepted}
+                    onClick={() => void effect('rotate')}
+                  >
+                    Rotate webhook secret
+                  </Button>
+                </DangerAction>
+              </SettingsDangerZone>
             </fieldset>
           )}
         </>
       )}
-      <Button
-        disabled={mutating}
-        onClick={() => {
-          reviewAbort.current?.abort();
-          onCancel();
-        }}
-      >
-        Cancel
-      </Button>
+      <footer className="task-builder-actions">
+        <Button
+          className="small"
+          disabled={mutating}
+          onClick={() => {
+            reviewAbort.current?.abort();
+            onCancel();
+          }}
+        >
+          Cancel
+        </Button>
+        {fields && (
+          <Button
+            variant="primary"
+            className="small"
+            disabled={!!busy || stale || meta.uncertain}
+            onClick={() => void reviewFields()}
+          >
+            {busy === 'save' || busy === 'review'
+              ? 'Saving settings…'
+              : 'Save settings'}
+          </Button>
+        )}
+      </footer>
     </section>
   );
 }

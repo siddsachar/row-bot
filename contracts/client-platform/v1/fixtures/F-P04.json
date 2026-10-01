@@ -184,6 +184,10 @@
         "revision": "1",
         "title": "Synthetic renamed",
         "pinned": false,
+        "updated_at": "",
+        "parent_conversation_id": null,
+        "activity_state": null,
+        "activity_phase": "",
         "category": "chat",
         "generation_state": [],
         "resource_bindings": []

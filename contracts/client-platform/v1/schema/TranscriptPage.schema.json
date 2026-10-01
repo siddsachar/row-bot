@@ -307,6 +307,12 @@
           "title": "Display Name",
           "type": "string"
         },
+        "profile_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Profile Id",
+          "type": "string"
+        },
         "run_id": {
           "maxLength": 256,
           "minLength": 1,
@@ -361,6 +367,12 @@
           "title": "Agent Runs",
           "type": "array"
         },
+        "binding_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Binding Id",
+          "type": "string"
+        },
         "display_name": {
           "default": "",
           "maxLength": 180,
@@ -383,7 +395,10 @@
           "enum": [
             "skill_load",
             "delegated_agent",
-            "media"
+            "media",
+            "resource_created",
+            "resource_bound",
+            "setup_needed"
           ],
           "title": "Kind",
           "type": "string"
@@ -414,6 +429,38 @@
           "default": null,
           "title": "Newly Active"
         },
+        "resource_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "",
+          "enum": [
+            "",
+            "design",
+            "code"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "settings_page": {
+          "default": "",
+          "enum": [
+            "",
+            "accounts",
+            "channels"
+          ],
+          "title": "Settings Page",
+          "type": "string"
+        },
+        "setup_target": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Setup Target",
+          "type": "string"
+        },
         "skill_id": {
           "default": "",
           "maxLength": 180,
@@ -436,6 +483,19 @@
     "TranscriptRow": {
       "additionalProperties": false,
       "properties": {
+        "approval_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Id"
+        },
         "blocks": {
           "items": {
             "discriminator": {
@@ -522,6 +582,23 @@
           ],
           "default": null,
           "title": "Message Id"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "enum": [
+                "continuation",
+                "agent_task",
+                "agent_guidance"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         },
         "render_revision": {
           "anyOf": [

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ProviderConfiguration, {
@@ -13,6 +14,17 @@ import type {
   ProviderConfigurationPage,
   ProviderEndpointFields,
 } from '../../api/types';
+
+/** Compact endpoint rows keep Refresh visible; the rest is in their ⋯. */
+async function chooseEndpoint(item: string) {
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Synthetic endpoint',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(screen.getByRole('menuitem', { name: item })),
+  );
+}
 
 const fields: ProviderEndpointFields = {
   endpoint_id: 'synthetic',
@@ -77,9 +89,7 @@ it('runs a custom endpoint probe from its compact row action and reloads the res
     ],
   });
   render(<ProviderConfiguration {...props} compact />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Probe Synthetic endpoint' }),
-  );
+  await chooseEndpoint('Probe Synthetic endpoint');
   await waitFor(() =>
     expect(props.apply).toHaveBeenCalledWith(
       'provider.endpoint.probe',
@@ -89,12 +99,8 @@ it('runs a custom endpoint probe from its compact row action and reloads the res
       expect.objectContaining({ nonce: 'original-session-nonce' }),
     ),
   );
-  expect(await screen.findByText('agent ready')).toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', {
-      name: 'Show Synthetic endpoint probe details',
-    }),
-  );
+  expect(await screen.findByText('Agent ready')).toBeVisible();
+  await chooseEndpoint('Show Synthetic endpoint probe details');
   expect(screen.getByText('Tool round trip: ok')).toBeVisible();
   expect(
     screen.queryByRole('button', { name: 'Review configuration' }),
@@ -103,9 +109,7 @@ it('runs a custom endpoint probe from its compact row action and reloads the res
 it('refreshes a saved no-key endpoint using the reviewed endpoint operation', async () => {
   const props = options();
   render(<ProviderConfiguration {...props} compact />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Edit Synthetic endpoint' }),
-  );
+  await chooseEndpoint('Edit Synthetic endpoint');
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(props.apply).toHaveBeenCalledTimes(2));
   expect(vi.mocked(props.apply).mock.calls.map((call) => call[0])).toEqual([
@@ -384,7 +388,7 @@ it('retains an unsent draft and late uncertain command across remount without re
   ).toBeDisabled();
   fireEvent.click(
     screen.getByRole('button', {
-      name: 'Check original configuration receipt',
+      name: 'Check configuration',
     }),
   );
   await waitFor(() =>
@@ -447,13 +451,13 @@ it('labels rejected receipts as rejection and allows explicit unsent discard', a
   await waitFor(() =>
     expect(
       screen.getByRole('button', {
-        name: 'Check original configuration receipt',
+        name: 'Check configuration',
       }),
     ).toBeEnabled(),
   );
   fireEvent.click(
     screen.getByRole('button', {
-      name: 'Check original configuration receipt',
+      name: 'Check configuration',
     }),
   );
   await screen.findByText(
@@ -462,5 +466,44 @@ it('labels rejected receipts as rejection and allows explicit unsent discard', a
   expect(props.onSaved).not.toHaveBeenCalled();
   expect(
     screen.getByRole('button', { name: 'Discard unsent changes' }),
+  ).toBeEnabled();
+});
+
+it('says what is wrong inside the endpoint dialog and keeps the list after a refresh that fails (B114)', async () => {
+  const props = options();
+  render(<ProviderConfiguration {...props} compact />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add custom endpoint' }),
+  );
+  fireEvent.change(screen.getByLabelText('Endpoint id'), {
+    target: { value: 'Bad id!' },
+  });
+  fireEvent.change(screen.getByLabelText('Display name'), {
+    target: { value: 'Unreachable endpoint' },
+  });
+  fireEvent.change(screen.getByLabelText('Base URL'), {
+    target: { value: 'http://127.0.0.1:1299/v1' },
+  });
+  props.review.mockRejectedValueOnce({ code: 'invalid_fields' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  // The refusal is inside the dialog, not behind it.
+  const dialog = screen.getByTestId('shared-dialog-task');
+  expect(
+    await within(dialog).findByText(/Check the fields you filled in/),
+  ).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Endpoint id'), {
+    target: { value: 'unreachable' },
+  });
+  // Saved, then the endpoint doesn't answer its model refresh.
+  props.apply
+    .mockResolvedValueOnce({ configuration_revision: 'b'.repeat(64) })
+    .mockRejectedValueOnce({ code: 'endpoint_unreachable' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(await screen.findByText(/couldn't reach that endpoint/)).toBeVisible();
+  // The list stays, nothing is left "unconfirmed", Add works again.
+  expect(screen.getByText('Synthetic endpoint')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Add custom endpoint' }),
   ).toBeEnabled();
 });

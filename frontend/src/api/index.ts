@@ -4,6 +4,7 @@ import { HttpTransport } from './http';
 export { ClientController, HttpTransport };
 export type * from './types';
 export { clientError } from './errors';
+export type { DraftChannel } from './controller';
 
 /** Fixture recordings are a separate development chunk and never load in production. */
 export async function createClientController(

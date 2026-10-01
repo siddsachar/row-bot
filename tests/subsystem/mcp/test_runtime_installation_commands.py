@@ -1,9 +1,11 @@
 """Managed-install commands use synthetic archives and isolated canonical receipts."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
+from dataclasses import asdict
 import hashlib
 import io
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -18,7 +20,7 @@ from row_bot.application import mcp_runtime_installation as controls
 from row_bot.mcp_client import requirements
 from row_bot.runtime import admissions
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 _DOWNLOAD = requirements._download
 
 
@@ -136,10 +138,11 @@ def test_current_policy_withdrawal_before_download_prevents_bytes(owner):
     install = command(service, "install", resolve["command_id"], policy=lambda _: policy)
     def review(_):
         policy["allowed"] = False
-    execute(service, install, read_policy=lambda _: policy, validate_review=review)
-    result = settled(service, install)
     # The accepted review must not silently capture a different policy after callback.
-    assert result["status"] == "partial" and calls == ["resolve"]
+    with pytest.raises(controls.RuntimeInstallationError, match="runtime_review_changed"):
+        execute(service, install, read_policy=lambda _: policy, validate_review=review)
+    assert calls == ["resolve"]
+    assert admissions.read_command_metadata("owner", install["command_id"]) is None
 
 
 @pytest.mark.parametrize("mode,dead", [("missing", True), ("reused", True), ("same", False), ("same-jitter", False), ("denied", False)])
@@ -263,7 +266,7 @@ def test_post_manifest_fault_recovers_only_exact_publication_after_worker_return
     assert calls == ["resolve", "download"] and "private path" not in json.dumps(result)
 
 
-def test_manifest_checkpoint_fault_preserves_unadvertised_generation_and_never_republishes(owner, monkeypatch):
+def test_manifest_checkpoint_fault_fails_finally_never_republishes_and_a_retry_installs(owner, monkeypatch):
     service, calls, _ = owner
     resolve = command(service)
     execute(service, resolve)
@@ -277,10 +280,20 @@ def test_manifest_checkpoint_fault_preserves_unadvertised_generation_and_never_r
     install = command(service, "install", resolve["command_id"])
     execute(service, install)
     result = settled(service, install)
-    assert result["status"] == "partial" and result["installation"]["quiesced"] is True
-    assert not (requirements.RUNTIMES_DIR / "node/manifest.json").exists()
-    assert (requirements.RUNTIMES_DIR / "node/1.2.3/node.exe").read_bytes() == b"fake runtime never executed"
-    assert execute(service, install)["status"] == "partial" and calls == ["resolve", "download"]
+    assert result["status"] == "partial" and result["installation"]["stage"] == "failed"
+    assert result["installation"]["quiesced"] is True
+    runtime = requirements.RUNTIMES_DIR / "node"
+    # The unpublished generation is never advertised or left to block a retry.
+    assert not (runtime / "manifest.json").exists() and not (runtime / "1.2.3").exists()
+    assert not list(runtime.glob(".install-*"))
+    assert execute(service, install) == result and calls == ["resolve", "download"]
+    monkeypatch.setattr(controls, "_merge", original)
+    again = command(service)
+    execute(service, again)
+    settled(service, again)
+    retry = command(service, "install", again["command_id"])
+    execute(service, retry)
+    assert settled(service, retry)["installation"]["installed"] is True
 
 
 def test_private_completion_merge_never_loses_generation_proof(owner):
@@ -396,3 +409,165 @@ def test_corrupt_durable_identifier_remains_recovery_required_without_path_discl
     snapshot = service.snapshot("node", owner_id="owner", validate=lambda: None)
     assert snapshot.availability == "recovery_required"
     assert snapshot.active_command_id is None and snapshot.quiesced is None
+
+
+def installed_through(service):
+    resolve = command(service)
+    execute(service, resolve)
+    settled(service, resolve)
+    install = command(service, "install", resolve["command_id"])
+    execute(service, install)
+    return settled(service, install)
+
+
+def test_connection_changes_and_nonce_expiry_mid_install_do_not_abort_it(owner, monkeypatch):
+    service, calls, _ = owner
+    resolve = command(service)
+    execute(service, resolve)
+    settled(service, resolve)
+    policy = {"connections": 1}
+    approvals = []
+    def approval(review):
+        approvals.append(review)
+        if len(approvals) > 1:
+            raise PermissionError("approval_expired")
+    download = requirements._download
+    def download_while_a_server_connects(url, destination, progress=None, *, validate=lambda: None):
+        policy["connections"] += 1  # an MCP server connects or its catalog changes meanwhile
+        download(url, destination, progress, validate=validate)
+    monkeypatch.setattr(requirements, "_download", download_while_a_server_connects)
+    install = command(service, "install", resolve["command_id"], policy=lambda _: policy)
+    execute(service, install, read_policy=lambda _: policy, validate_review=approval)
+    result = settled(service, install)
+    assert result["status"] == "completed" and result["installation"]["installed"] is True
+    # The approval was checked once, when the install was accepted.
+    assert len(approvals) == 1 and calls == ["resolve", "download"]
+
+
+def test_a_failed_install_is_final_logged_without_paths_and_a_retry_is_accepted(owner, monkeypatch, caplog):
+    service, calls, root = owner
+    resolve = command(service)
+    execute(service, resolve)
+    settled(service, resolve)
+    digest = requirements._generation_digest
+    def unreadable(*_args, **_kwargs):
+        raise OSError(str(root / "private" / "generation"))
+    monkeypatch.setattr(requirements, "_generation_digest", unreadable)
+    install = command(service, "install", resolve["command_id"])
+    with caplog.at_level(logging.INFO, logger=controls.__name__):
+        execute(service, install)
+        failed = settled(service, install)
+    assert failed["status"] == "partial" and failed["code"] == "runtime_installation_failed"
+    assert failed["installation"]["stage"] == "failed" and failed["installation"]["quiesced"] is True
+    warnings = [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING]
+    assert any("OSError" in message and "stage extracting" in message for message in warnings), warnings
+    assert str(root) not in caplog.text and "private" not in caplog.text
+    # The staging folder is removed and the install lock released.
+    assert not list((requirements.RUNTIMES_DIR / "node").glob(".install-*"))
+    state = service.snapshot("node", owner_id="owner", validate=lambda: None)
+    assert state.availability == "missing" and state.active_command_id is None and state.quiesced is True
+    assert execute(service, install) == failed
+    monkeypatch.setattr(requirements, "_generation_digest", digest)
+    assert installed_through(service)["installation"]["installed"] is True
+    assert calls == ["resolve", "download", "resolve", "download"]
+
+
+def test_an_admitting_install_left_by_a_dead_process_is_recovered_at_start(owner):
+    service, calls, _ = owner
+    identity = str(uuid4())
+    admissions.claim_command("owner", identity, {"command_id": identity, "type": "mcp.runtime.install"},
+                             "settings:mcp-runtime:node", exclusive_target=True)
+    stopped = {"runtime_id": "node", "operation": "install", "stage": "needs_attention", "cancel_requested": False,
+               "quiesced": True, "installed": None, "plan": None}
+    # The saved owner is this PID with another birth time: a process that has since exited.
+    controls._merge("owner", identity, {"command_id": identity, "status": "partial",
+        "code": "runtime_installation_unconfirmed", "installation": stopped},
+        {"runtime_id": "node", "operation": "install", "owner_pid": os.getpid(), "owner_birth": 1.0,
+         "finished_outcome": {**stopped, "quiesced": False}})
+    staging = requirements.RUNTIMES_DIR / "node" / ".install-0123456789abcdef"
+    (staging / "extracted").mkdir(parents=True)
+    (staging / "extracted" / "node.exe").write_bytes(b"partial runtime never executed")
+    assert service.snapshot("node", owner_id="owner", validate=lambda: None).availability == "recovery_required"
+    admissions.recover("next-process")
+    receipt = service.receipt(owner_id="owner", runtime_id="node", command_id=identity, validate=lambda: None)
+    assert receipt["status"] == "partial" and receipt["installation"]["stage"] == "failed"
+    assert not staging.exists()
+    state = service.snapshot("node", owner_id="owner", validate=lambda: None)
+    assert state.availability == "missing" and state.active_command_id is None
+    assert installed_through(service)["installation"]["installed"] is True
+
+
+def test_a_manifest_left_by_an_old_data_folder_is_reported_cleanly_and_replaced(owner, tmp_path):
+    service, _, _ = owner
+    elsewhere = tmp_path / "old-home" / ".thoth" / "runtimes" / "node" / "v20.0.0"
+    runtime = requirements.RUNTIMES_DIR / "node"
+    runtime.mkdir(parents=True)
+    (runtime / "manifest.json").write_text(json.dumps({"installed": True, "version": "v20.0.0",
+        "root": str(elsewhere), "bin_dir": str(elsewhere), "executable_path": str(elsewhere / "node.exe")}),
+        encoding="utf-8")
+    state = service.snapshot("node", owner_id="owner", validate=lambda: None)
+    assert state.availability == "missing" and state.installed is False and state.version is None
+    assert ".thoth" not in json.dumps(asdict(state))
+    assert installed_through(service)["installation"]["installed"] is True
+    manifest = json.loads((runtime / "manifest.json").read_text(encoding="utf-8"))
+    assert "previous_manifest" not in manifest and ".thoth" not in json.dumps(manifest)
+    assert service.snapshot("node", owner_id="owner", validate=lambda: None).version == "1.2.3"
+
+
+def test_snapshot_says_whether_a_system_runtime_is_on_the_path(owner, monkeypatch):
+    service, calls, _ = owner
+    found = set()
+    monkeypatch.setattr(requirements.shutil, "which", lambda name, **_: name if name in found else None)
+    assert service.snapshot("node", validate=lambda: None).system_available is False
+    found.update({"node", "npm"})
+    assert service.snapshot("node", validate=lambda: None).system_available is False
+    found.add("npx")
+    assert service.snapshot("node", validate=lambda: None).system_available is True
+    assert calls == []
+
+
+def _archive(count):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as handle:
+        handle.writestr("bundle/node.exe", b"fake runtime never executed")
+        for index in range(count):
+            handle.writestr(f"bundle/lib/{index % 40}/file{index}.js", b"//")
+    return output.getvalue()
+
+
+def test_the_unpacking_time_budget_grows_with_the_number_of_files(tmp_path):
+    def late():
+        # The first read starts the budget; every later check sees 124 seconds gone.
+        reads = iter([0.0])
+        return lambda: next(reads, 124.0)
+    with requirements._owned_directory(tmp_path / "many", create=True) as root:
+        requirements._extract_into(_archive(60), root, clock=late())
+    with requirements._owned_directory(tmp_path / "few", create=True) as root:
+        with pytest.raises(RuntimeError, match="time budget"):
+            requirements._extract_into(_archive(3), root, clock=late())
+
+
+@pytest.mark.slow
+def test_session_checks_are_throttled_while_a_2000_file_runtime_unpacks(owner, monkeypatch):
+    service, _, _ = owner
+    data = _archive(2000)
+    def resolve(runtime_id, *, validate, cancelled):
+        validate()
+        return requirements.make_archive_runtime_plan(runtime_id, version="1.2.3",
+            url="https://example.invalid/node.zip", sha256=hashlib.sha256(data).hexdigest(),
+            size_bytes=len(data), asset_name="node.zip", executable_candidates=("node.exe",))
+    def download(url, destination, progress=None, *, validate=lambda: None):
+        validate()
+        destination.write_bytes(data)
+    monkeypatch.setattr(requirements, "resolve_managed_runtime_plan", resolve)
+    monkeypatch.setattr(requirements, "_download", download)
+    source = command(service)
+    execute(service, source)
+    settled(service, source)
+    checks = []
+    install = command(service, "install", source["command_id"])
+    execute(service, install, validate=lambda: checks.append(1))
+    controls._OPERATIONS["node"].thread.join(300)
+    assert settled(service, install)["installation"]["installed"] is True
+    # About one session check a second, not one per file or megabyte.
+    assert len(checks) < 100, len(checks)

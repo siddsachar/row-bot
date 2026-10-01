@@ -12,6 +12,8 @@ export default function ConversationVoice(props: {
   scope: DictationScope;
   available: boolean;
   compact?: boolean;
+  /** Render the trigger as a small chevron beside the dictation mic. */
+  chevron?: boolean;
   unavailableReason?: string;
   disabled: boolean;
   running: boolean;
@@ -103,17 +105,26 @@ export default function ConversationVoice(props: {
         <Button
           iconOnly={props.compact}
           variant="ghost"
+          className={props.chevron ? 'conversation-voice-toggle' : undefined}
           aria-label="Talk"
           title={
             props.available
-              ? 'Talk'
+              ? 'Talk: a spoken conversation'
               : props.unavailableReason || 'Talk is unavailable'
           }
           aria-expanded={open}
           onClick={() => setOpen(!open)}
           disabled={busy || !props.available}
         >
-          {props.compact ? <AudioLines size={18} aria-hidden /> : 'Talk'}
+          {/* Beside Dictate, Talk shows its own glyph rather than a small
+              chevron, so it reads as a way in (U28). */}
+          {props.chevron ? (
+            <AudioLines size={17} aria-hidden />
+          ) : props.compact ? (
+            <AudioLines size={18} aria-hidden />
+          ) : (
+            'Talk'
+          )}
         </Button>
       )}
       {open && (
@@ -142,7 +153,9 @@ export default function ConversationVoice(props: {
                   }}
                 >
                   <option value="talk">Talk with this conversation</option>
-                  <option value="realtime">Realtime Talk</option>
+                  <option value="realtime">
+                    Realtime Talk · OpenAI, paid per minute
+                  </option>
                 </Select>
               </Field>
               <p className="voice-intro">

@@ -1,0 +1,103 @@
+import json
+
+import pytest
+
+
+@pytest.fixture
+def data_dir(tmp_path, monkeypatch):
+    path = tmp_path / "data"
+    path.mkdir()
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(path))
+    yield path
+
+
+class _FakeChannel:
+    def __init__(self, name: str, display_name: str, running: bool = True):
+        self.name = name
+        self.display_name = display_name
+        self._running = running
+
+    def is_running(self) -> bool:
+        return self._running
+
+
+def test_workflow_default_channels_default_to_web_app_only(data_dir, monkeypatch):
+    import row_bot.tasks as tasks
+
+    cfg_path = data_dir / "task_config.json"
+    monkeypatch.setattr(tasks, "_TASK_CONFIG_PATH", str(cfg_path))
+
+    assert tasks.get_workflow_default_channels() == []
+
+    tasks.set_workflow_default_channels(["telegram", "slack", "telegram", "", 3])
+
+    assert tasks.get_workflow_default_channels() == ["telegram", "slack"]
+    assert json.loads(cfg_path.read_text())["workflow_default_channels"] == [
+        "telegram",
+        "slack",
+    ]
+
+
+def test_get_task_channels_inherits_defaults_and_respects_overrides(
+    data_dir,
+    monkeypatch,
+):
+    import row_bot.tasks as tasks
+    from row_bot.channels import registry as channel_registry
+
+    cfg_path = data_dir / "task_config.json"
+    monkeypatch.setattr(tasks, "_TASK_CONFIG_PATH", str(cfg_path))
+    tasks.set_workflow_default_channels(["telegram", "slack", "discord"])
+
+    running = [
+        _FakeChannel("telegram", "Telegram"),
+        _FakeChannel("slack", "Slack"),
+        _FakeChannel("discord", "Discord", running=False),
+    ]
+    monkeypatch.setattr(channel_registry, "running_channels", lambda: running[:2])
+
+    inherited = tasks.get_task_channels({"channels": None})
+    assert [ch.name for ch in inherited] == ["telegram", "slack"]
+
+    overridden = tasks.get_task_channels({"channels": ["slack"]})
+    assert [ch.name for ch in overridden] == ["slack"]
+
+    web_app_only = tasks.get_task_channels({"channels": []})
+    assert web_app_only == []
+
+
+def test_legacy_delivery_channel_is_treated_as_specific_override(
+    data_dir,
+    monkeypatch,
+):
+    import row_bot.tasks as tasks
+    from row_bot.channels import registry as channel_registry
+
+    cfg_path = data_dir / "task_config.json"
+    monkeypatch.setattr(tasks, "_TASK_CONFIG_PATH", str(cfg_path))
+    tasks.set_workflow_default_channels(["slack"])
+
+    running = [
+        _FakeChannel("telegram", "Telegram"),
+        _FakeChannel("slack", "Slack"),
+    ]
+    monkeypatch.setattr(channel_registry, "running_channels", lambda: running)
+
+    channels = tasks.get_task_channels({
+        "channels": None,
+        "delivery_channel": "telegram",
+    })
+
+    assert [ch.name for ch in channels] == ["telegram"]
+
+
+def test_create_task_preserves_empty_channel_override(data_dir, monkeypatch):
+    import row_bot.tasks as tasks
+
+    monkeypatch.setattr(tasks, "_DB_PATH", str(data_dir / "tasks.db"))
+    monkeypatch.setattr(tasks, "_scheduler", None)
+    tasks._init_db()
+
+    task_id = tasks.create_task(name="Web only", prompts=["Say hi"], channels=[])
+
+    assert tasks.get_task(task_id)["channels"] == []

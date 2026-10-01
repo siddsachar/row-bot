@@ -207,7 +207,13 @@ def export_webhook_configuration(task_id: str, *, expected_revision: str,
     secret = trigger.get("secret") if isinstance(trigger, dict) and trigger.get("type") == "webhook" else None
     if not isinstance(secret, str) or not secret or len(secret) > 4096 or "\x00" in secret:
         raise TaskSettingsError("task_webhook_unavailable", task_id=task_id)
-    payload = json.dumps({"method": "POST", "relative_url": f"/api/webhook/{quote(task_id, safe='')}?secret={quote(secret, safe='')}",
+    from row_bot.tasks import WEBHOOK_SECRET_HEADER
+    path = f"/api/webhook/{quote(task_id, safe='')}"
+    # The secret goes in a header, out of the address (B132); the older
+    # address form stays for services that can only take an address.
+    payload = json.dumps({"method": "POST", "relative_url": path,
+                          "headers": {WEBHOOK_SECRET_HEADER: secret},
+                          "relative_url_with_secret": f"{path}?secret={quote(secret, safe='')}",
                           "note": "Keep this file private. Use the address of your Row-Bot app; no request has been sent."},
                          ensure_ascii=True, indent=2).encode()
     validate()

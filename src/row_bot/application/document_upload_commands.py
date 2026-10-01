@@ -8,12 +8,15 @@ if TYPE_CHECKING:
 
 from collections.abc import Callable, Sequence
 from copy import deepcopy
+import logging
 from pathlib import Path
 from uuid import UUID, uuid5
 
 from row_bot.application import knowledge_commands as common
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime import admissions
+
+logger = logging.getLogger(__name__)
 
 _EXTENSIONS = {".pdf",".doc",".docx",".txt",".md",".html",".htm",".epub"}
 _MAX_BYTES = 256 * 1024 * 1024
@@ -145,6 +148,8 @@ async def execute_document_upload(command: dict, streams: Sequence, *, service: 
     except Exception:
         if authority_error is not None:
             raise authority_error
+        # The receipt reports the outcome as uncertain; keep the cause.
+        logger.warning("Document upload %s did not finish staging", command_id, exc_info=True)
         return receipt()
     saved = {"command_id":command_id,"status":"completed","batch_id":batch_id,"files":files,
         "processing":"paused","_document_upload":proof}

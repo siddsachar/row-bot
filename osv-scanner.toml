@@ -8,29 +8,21 @@ name = "setuptools"
 version = "81.0.0"
 ecosystem = "PyPI"
 vulnerability.ignore = true
-effectiveUntil = 2026-09-30
-reason = "Torch 2.11 requires setuptools<82; the fixed 83.x line cannot resolve until a matching supported Torch/Torchaudio CPU release is available."
+effectiveUntil = 2026-10-29
+reason = "Fixed in 83.0.0, but Torch 2.11 requires setuptools<82 (re-checked 2026-09-29); it moves with Torch once a matching Torchaudio CPU release exists."
 
 [[PackageOverrides]]
 name = "torch"
 version = "2.11.0"
 ecosystem = "PyPI"
 vulnerability.ignore = true
-effectiveUntil = 2026-09-30
-reason = "Torch 2.13 is fixed, but Torchaudio has no matching 2.13 release for the supported CPU platforms; 2.11 remains the newest matching pair."
+effectiveUntil = 2026-10-29
+reason = "Fixed in 2.13.0, but Torchaudio has no release after 2.11.0 on PyPI or the CPU index (re-checked 2026-09-29), and the two are pinned as a pair; 2.11 is the newest matching pair."
 
 [[PackageOverrides]]
 name = "torch"
 version = "2.11.0+cpu"
 ecosystem = "PyPI"
 vulnerability.ignore = true
-effectiveUntil = 2026-09-30
-reason = "Torch 2.13 is fixed, but Torchaudio has no matching 2.13 release for the supported CPU platforms; 2.11 remains the newest matching pair."
-
-[[PackageOverrides]]
-name = "image-size"
-version = "2.0.2"
-ecosystem = "npm"
-vulnerability.ignore = true
-effectiveUntil = 2026-09-30
-reason = "Docusaurus currently resolves image-size 2.0.2 and OSV lists no fixed release; usage is limited to the documentation build pipeline."
+effectiveUntil = 2026-10-29
+reason = "Fixed in 2.13.0, but Torchaudio has no release after 2.11.0 on PyPI or the CPU index (re-checked 2026-09-29), and the two are pinned as a pair; 2.11 is the newest matching pair."

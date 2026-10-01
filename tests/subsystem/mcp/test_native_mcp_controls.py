@@ -14,7 +14,7 @@ import pytest
 from row_bot import tool_configuration as configuration
 from row_bot.application import native_mcp_controls as controls
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture
@@ -84,28 +84,26 @@ def test_legacy_setters_preserve_format_unknown_fields_and_share_one_publisher(o
     monkeypatch.setattr(configuration, "publish_saved", counted)
     registry.set_enabled("mcp", True)
     registry.set_tool_config("other", "new", "Row-Bot ⚡")
-    registry.set_global_config("new", 4)
     current = configuration.read_saved().document
     assert ("tools" in current) is not flat
     assert configuration.tools_map(current)["mcp"] is True
-    assert current["future"] == original["future"] and current["global"] == {"future": 3, "new": 4}
+    assert current["future"] == original["future"] and current["global"] == {"future": 3}
     assert current["tool_configs"]["other"] == {"private": "synthetic-secret", "new": "Row-Bot ⚡"}
-    assert len(set(publications)) == 3
+    assert len(set(publications)) == 2
     assert "Row-Bot ⚡".encode() in configuration.configuration_path().read_bytes()
 
 
 def test_concurrent_legacy_setters_preserve_independent_fields(owner):
     registry, _ = owner
-    with ThreadPoolExecutor(3) as pool:
+    with ThreadPoolExecutor(2) as pool:
         futures = [pool.submit(registry.set_enabled, "mcp", True),
-            pool.submit(registry.set_tool_config, "other", "new", 2),
-            pool.submit(registry.set_global_config, "new", 3)]
+            pool.submit(registry.set_tool_config, "other", "new", 2)]
         for future in futures:
             future.result()
     current = configuration.read_saved().document
     assert current["tools"]["mcp"] is True and current["tools"]["other"] is True
     assert current["tool_configs"]["other"] == {"private": "synthetic-secret", "new": 2}
-    assert current["global"] == {"future": 3, "new": 3}
+    assert current["global"] == {"future": 3}
 
 
 @pytest.mark.parametrize("raw", ['{"tools":{"mcp":true},"tools":{}}', '{"tools":null}', '{"tools":{"mcp":NaN}}', 'corrupt'])
@@ -122,7 +120,7 @@ def test_corruption_refuses_writes_and_never_advances_cached_authority(owner, ra
 def test_stale_saved_snapshot_and_registration_replacement_refuse_before_effect(owner):
     registry, _ = owner
     first = command()
-    registry.set_global_config("changed", True)
+    registry.set_tool_config("other", "changed", True)
     with pytest.raises(controls.NativeMcpError, match="revision_conflict"):
         execute(first)
     second = command()
@@ -154,7 +152,7 @@ def test_original_retry_confirms_owned_publication_without_resaving(owner, monke
     assert execute(value)["status"] == "partial"
     assert controls.read_native_mcp_state().availability == "recovery_required"
     with pytest.raises(configuration.ToolConfigurationError, match="recovery_required"):
-        owner[0].set_global_config("new", 1)
+        owner[0].set_tool_config("other", "new", 1)
     saved = configuration.read_saved()
     monkeypatch.setattr(admissions, "complete_command", complete)
     monkeypatch.setattr(configuration, "publish_saved", lambda *_a, **_k: pytest.fail("Original replay resaved file"))
@@ -410,3 +408,32 @@ def test_unloaded_registration_read_is_passive_and_write_is_rejected(owner):
     with pytest.raises(controls.NativeMcpError, match="native_mcp_unavailable"):
         execute(command())
     assert configuration.configuration_path().read_bytes() == before
+
+
+def test_enable_in_chat_is_reachable_from_the_settings_api(owner):
+    """B130: the "Enable in chat" switch (McpFacadeControls) had no route, so
+    React never mounted it and external MCP tools could not be turned on for
+    the chat there. It is read, reviewed and saved through the MCP API."""
+    from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
+
+    registry, _document = owner
+    local, _service, _active = client_app()
+    with local:
+        _, headers = bootstrap(local)
+        state = local.get("/api/v1/settings/mcp/chat", headers=headers)
+        assert state.status_code == 200, state.text
+        assert state.json()["saved_enabled"] is False and registry._enabled["mcp"] is False
+        revision = state.json()["resource_revision"]
+        review = local.post("/api/v1/settings/mcp/chat/review", headers=headers,
+                            json={"resource_revision": revision, "enabled": True})
+        assert review.status_code == 200, review.text
+        assert registry._enabled["mcp"] is False  # reviewing changes nothing
+        command_id = str(uuid4())
+        body = {"command_id": command_id, "client_session_id": headers["X-Client-Session"],
+                "type": "mcp.facade.control", "expected_revision": "0",
+                "payload": {"resource_revision": revision, "enabled": True, "nonce": review.json()["nonce"]}}
+        done = local.post("/api/v1/settings/mcp/commands",
+                          headers={**headers, "Idempotency-Key": command_id}, json=body)
+        assert done.status_code == 200, done.text
+        assert done.json()["native_mcp"]["saved_enabled"] is True
+    assert registry._enabled["mcp"] is True

@@ -175,6 +175,16 @@ class KnowledgeGraphNode:
     relation_count: int
     orphan: bool
     is_user: bool
+    status: Literal["active", "needs_review", "superseded", "archived"]
+    tier: Literal["core", "semantic", "episodic", "resource"]
+
+
+@dataclass(frozen=True)
+class KnowledgeStatusCounts:
+    active: int
+    needs_review: int
+    superseded: int
+    archived: int
 
 
 @dataclass(frozen=True)
@@ -201,6 +211,7 @@ class KnowledgeGraphSnapshot:
     center_id: str | None
     entity_types: tuple[str, ...]
     sources: tuple[str, ...]
+    status_counts: KnowledgeStatusCounts
 
 
 _STATUSES = {
@@ -229,6 +240,10 @@ _STAGES = {
 _SQLITE_VALUE_LIMIT = 16 * 1024 * 1024
 _SQLITE_STEP_LIMIT = 10_000_000
 _QUERY_SECONDS = 2.0
+# The graph opens on up to 2,000 best-connected memories; "Show all" asks for up
+# to this many, with at most _GRAPH_EDGE_LIMIT links between them (B251).
+_GRAPH_NODE_LIMIT = 5000
+_GRAPH_EDGE_LIMIT = 15000
 _LEGACY_MARKER_BYTES = 1024 * 1024
 _LEGACY_MARKER_ITEMS = 4096
 _AUDIT_FILE_BYTES = 512 * 1024
@@ -722,6 +737,23 @@ def _source_bucket(source: str, props: dict[str, Any]) -> str:
     return "other"
 
 
+def _status_and_tier(
+    props: dict[str, Any], source: str, entity_type: str
+) -> tuple[str, str]:
+    """A memory's review status and recall tier, as the saved list filters them."""
+    status = str(props.get("status") or "active").lower()
+    if status not in _ENTITY_STATUSES:
+        status = "active"
+    tier = str(props.get("memory_tier") or "").lower()
+    if tier not in _ENTITY_TIERS:
+        tier = (
+            "resource"
+            if source.startswith("document:") or entity_type == "media"
+            else "semantic"
+        )
+    return status, tier
+
+
 def _empty_detail(availability: str) -> EntityDetail:
     return EntityDetail(
         1,
@@ -779,11 +811,13 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
         "updated_at": 128,
     }
 
+    limits = {**columns, "recalled_at": 128}
+
     def build(row):
-        value = {key: row[key] for key in columns}
+        value = {key: row[key] for key in limits}
         if any(
-            not isinstance(value[key], str) or len(value[key]) > columns[key]
-            for key in columns
+            not isinstance(value[key], str) or len(value[key]) > limits[key]
+            for key in limits
         ):
             raise ValueError("Invalid saved detail")
         return _RawValue(json.dumps(value, ensure_ascii=True, separators=(",", ":")))
@@ -791,10 +825,21 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
     selected = ",".join(
         f'substr("{key}",1,{limit + 1}) "{key}"' for key, limit in columns.items()
     )
+
+    def select(_conn, tables):
+        # Recall stamps are kept apart from the saved memory (B257).
+        recalled = (
+            "COALESCE((SELECT substr(recalled_at,1,129) FROM knowledge_recall_stamps"
+            " WHERE entity_id=entities.id),'')"
+            if "knowledge_recall_stamps" in tables
+            else "''"
+        )
+        return f"SELECT {selected},{recalled} recalled_at,1 matched FROM entities WHERE id=?"
+
     page = _read(
         get_memory_db_path(create_parent=False),
         {"entities": " ".join(columns)},
-        f"SELECT {selected},1 matched FROM entities WHERE id=?",
+        select,
         (entity_id,),
         build,
         _RawPage,
@@ -808,18 +853,10 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
     if not page.items:
         return _empty_detail("missing")
     entity = json.loads(page.items[0].value)
+    # A recall is not an edit: the stamp stays out of the detail's revision.
+    recalled_at = entity.pop("recalled_at")
     props = _safe_properties(entity["properties"])
-    status = str(props.get("status") or "active").lower()
-    if status not in _ENTITY_STATUSES:
-        status = "active"
-    tier = str(props.get("memory_tier") or "").lower()
-    if tier not in _ENTITY_TIERS:
-        tier = (
-            "resource"
-            if entity["source"].startswith("document:")
-            or entity["entity_type"] == "media"
-            else "semantic"
-        )
+    status, tier = _status_and_tier(props, entity["source"], entity["entity_type"])
     confidence = props.get("confidence")
     try:
         confidence = (
@@ -948,7 +985,7 @@ def read_saved_entity_detail(entity_id: str) -> EntityDetail:
         entity["updated_at"],
         _bounded_text(props.get("last_user_modified_at"), 128),
         _bounded_text(props.get("last_evolved_at"), 128),
-        _bounded_text(props.get("recalled_at"), 128),
+        _bounded_text(recalled_at, 128),
         recall_count,
         _bounded_text(props.get("review_reason"), 1024),
         _bounded_text(props.get("superseded_by"), 128),
@@ -1263,6 +1300,7 @@ def _empty_graph_snapshot(
         None,
         (),
         (),
+        KnowledgeStatusCounts(0, 0, 0, 0),
     )
 
 
@@ -1273,7 +1311,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
     unbounded provenance. Nodes and their in-scope edges are read in one SQLite
     snapshot so counts, revisions, and topology agree.
     """
-    if type(limit) is not int or not 1 <= limit <= 250:
+    if type(limit) is not int or not 1 <= limit <= _GRAPH_NODE_LIMIT:
         raise KnowledgeViewError("invalid_knowledge_query")
     path = get_memory_db_path(create_parent=False)
     root = get_row_bot_data_dir(create=False).absolute()
@@ -1355,6 +1393,18 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                 "SELECT (SELECT COUNT(*) FROM entities),(SELECT COUNT(*) FROM relations)"
             ).fetchone()
             total_entities, total_relations = int(totals[0]), int(totals[1])
+            # Every memory's status, normalized as the saved list filters it.
+            status_counts = dict.fromkeys(_ENTITY_STATUSES, 0)
+            for status, count in conn.execute(
+                """
+                SELECT CASE WHEN json_valid(properties) THEN
+                  CASE lower(COALESCE(json_extract(properties,'$.status'),'active'))
+                    WHEN 'needs_review' THEN 'needs_review' WHEN 'superseded' THEN 'superseded'
+                    WHEN 'archived' THEN 'archived' ELSE 'active' END
+                  ELSE 'active' END,COUNT(*) FROM entities GROUP BY 1
+                """
+            ):
+                status_counts[status] = int(count)
             rows = conn.execute(
                 """
                 WITH degree AS (
@@ -1404,6 +1454,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                 updated_at = _bounded_text(raw["updated_at"], 128)
                 props = _safe_properties(raw["properties"])
                 source = _source_bucket(raw["source"], props)
+                status, tier = _status_and_tier(props, raw["source"], raw["entity_type"])
                 aliases, _alias_count = _string_items(
                     raw["aliases"], limit=64, item_limit=256
                 )
@@ -1424,6 +1475,8 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                     relation_count,
                     relation_count == 0,
                     "user" in normalized,
+                    status,
+                    tier,
                 )
                 nodes.append(node)
                 node_ids.append(identifier)
@@ -1437,17 +1490,19 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
             edges: list[KnowledgeGraphEdge] = []
             if node_ids:
                 placeholders = ",".join("?" for _ in node_ids)
+                # "+target_id" keeps SQLite from probing its index once per
+                # (source, target) pair, which squares with thousands of memories.
                 edge_rows = conn.execute(
                     f"""SELECT substr(id,1,129) id,substr(source_id,1,129) source_id,
                       substr(target_id,1,129) target_id,substr(relation_type,1,65) relation_type,
                       substr(updated_at,1,129) updated_at FROM relations
-                      WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
-                      ORDER BY updated_at DESC,id LIMIT 2001""",
-                    (*node_ids, *node_ids),
+                      WHERE source_id IN ({placeholders}) AND +target_id IN ({placeholders})
+                      ORDER BY updated_at DESC,id LIMIT ?""",
+                    (*node_ids, *node_ids, _GRAPH_EDGE_LIMIT + 1),
                 ).fetchall()
-                if len(edge_rows) > 2000:
+                if len(edge_rows) > _GRAPH_EDGE_LIMIT:
                     truncated = True
-                    edge_rows = edge_rows[:2000]
+                    edge_rows = edge_rows[:_GRAPH_EDGE_LIMIT]
                 for row in edge_rows:
                     edge = KnowledgeGraphEdge(
                         _identity(row["id"]),
@@ -1482,6 +1537,7 @@ def read_knowledge_graph(*, limit: int = 250) -> KnowledgeGraphSnapshot:
                 center_id,
                 tuple(sorted(entity_types)),
                 tuple(sorted(sources)),
+                KnowledgeStatusCounts(**status_counts),
             )
         finally:
             conn.close()

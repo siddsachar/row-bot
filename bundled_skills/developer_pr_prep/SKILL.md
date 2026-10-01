@@ -2,7 +2,7 @@
 name: developer_pr_prep
 display_name: Developer PR Prep
 icon: "account_tree"
-description: Prepare branches, diffs, tests, and GitHub PR text from Developer Studio.
+description: Prepare branches, diffs, tests, and GitHub PR text from a conversation's code folder.
 enabled_by_default: false
 version: "1.0"
 tools:
@@ -15,7 +15,7 @@ author: Row-Bot
 
 # Developer PR Prep
 
-Use this skill when the user wants to prepare, push, or open a pull request from Developer Studio.
+Use this skill when the user wants to prepare, push, or open a pull request from a conversation's code folder.
 
 Workflow:
 

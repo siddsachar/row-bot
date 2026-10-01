@@ -1,0 +1,503 @@
+/*
+ * The desktop Buddy (380×230). A lean stylesheet: bundled fonts and the
+ * shared non-palette tokens, then overlay rules. Colours come from
+ * theme-model.ts through bootstrapTheme, so the overlay follows the same
+ * appearance (the OS by default) as the main window. Nothing animates out;
+ * reduced motion stops the ring, shimmer and caret.
+ */
+@import '../ui/styles/fonts.css';
+@import '../ui/styles/tokens.css';
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+/* macOS hosts the overlay in a transparent window: round the card. Windows
+   keeps an opaque host (hit-testing), so the card fills it edge to edge. */
+html[data-platform='macos'],
+html[data-platform='macos'] body {
+  background: transparent;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.buddy-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-sans);
+  font-size: var(--text-13);
+  line-height: var(--leading-13);
+}
+html[data-platform='macos'] .buddy-overlay {
+  border-radius: var(--radius-panel);
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
+}
+
+/* Header: avatar · title and context · actions. The header is the drag
+   region; its buttons are not. */
+.buddy-overlay-header {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.buddy-overlay-header[data-draggable='true'] {
+  cursor: grab;
+}
+.buddy-overlay-header[data-draggable='true']:active {
+  cursor: grabbing;
+}
+.buddy-overlay-heading {
+  min-width: 0;
+}
+.buddy-overlay-heading h1,
+.buddy-overlay-heading p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buddy-overlay-heading h1 {
+  font-size: var(--text-13);
+  line-height: 18px;
+  font-weight: var(--weight-semibold);
+}
+.buddy-overlay-heading p {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.buddy-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The avatar sits in an activity ring: quiet at rest, the accent while
+   Row-Bot works, amber while it waits for you, red when a run failed. */
+.buddy-overlay-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+}
+.buddy-overlay-avatar .buddy-avatar-frame {
+  width: 32px;
+  height: 32px;
+  box-shadow: none;
+  border-color: var(--border-subtle);
+}
+.buddy-overlay-avatar .buddy-avatar-frame::after {
+  inset: 2px;
+  box-shadow: none;
+}
+.buddy-overlay-avatar::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  border-radius: 50%;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+.buddy-overlay-avatar:is(
+    [data-activity='thinking'],
+    [data-activity='streaming'],
+    [data-activity='tool']
+  )::before {
+  border-color: var(--accent-solid);
+  animation: buddy-overlay-ring 1.6s ease-in-out infinite;
+}
+.buddy-overlay-avatar:is(
+    [data-activity='approval'],
+    [data-activity='stopping']
+  )::before {
+  border-color: var(--status-warning-border);
+}
+.buddy-overlay-avatar:is(
+    [data-activity='error'],
+    [data-activity='disconnected']
+  )::before {
+  border-color: var(--status-danger-border);
+}
+@keyframes buddy-overlay-ring {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Icon actions: 28px, labelled, with tooltips. */
+.buddy-overlay .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.buddy-overlay .button.icon-action {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+.buddy-overlay .button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.buddy-overlay .button:active:not(:disabled) {
+  background: var(--surface-pressed);
+}
+.buddy-overlay .button:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* The latest response, as plain text. */
+.buddy-overlay-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 4px 2px 2px;
+  border-radius: var(--radius-control);
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+.buddy-overlay-body p {
+  margin: 0;
+}
+.buddy-overlay-response {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.buddy-overlay-response[data-live='true']::after {
+  display: inline-block;
+  width: 6px;
+  height: 13px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  content: '';
+  border-radius: 1px;
+  background: var(--accent-solid);
+  animation: buddy-overlay-caret 1s steps(2, jump-none) infinite;
+}
+@keyframes buddy-overlay-caret {
+  50% {
+    opacity: 0.2;
+  }
+}
+.buddy-overlay-progress,
+.buddy-overlay-empty {
+  color: var(--text-muted);
+}
+.buddy-overlay-response + .buddy-overlay-progress {
+  margin-top: 6px;
+}
+.buddy-overlay-progress {
+  background: linear-gradient(
+      90deg,
+      var(--text-muted) 0%,
+      var(--text-primary) 50%,
+      var(--text-muted) 100%
+    )
+    0 0 / 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: buddy-overlay-shimmer 1.8s linear infinite;
+}
+@keyframes buddy-overlay-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.buddy-overlay-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.buddy-overlay-notice:first-child {
+  margin-top: 0;
+}
+.buddy-overlay-notice[data-tone='neutral'] {
+  color: var(--text-secondary);
+}
+.buddy-overlay-notice[data-tone='warning'] {
+  color: var(--status-warning-text);
+}
+.buddy-overlay-notice[data-tone='danger'] {
+  color: var(--status-danger-text);
+}
+.buddy-overlay-notice svg {
+  flex: 0 0 auto;
+}
+
+/* Text actions: Resume, Deny / Details / Approve. */
+.buddy-overlay-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 16px;
+  cursor: pointer;
+}
+.buddy-overlay-text-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.buddy-overlay-text-action[data-variant='primary'] {
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
+  color: var(--accent-on-solid);
+}
+/* As the shared .button: a disabled action (Approve while the approval's
+   details load) sits on the disabled surface, never a faded accent. */
+.buddy-overlay-text-action:disabled,
+.buddy-overlay-text-action[data-variant='primary']:disabled {
+  border-color: var(--border-subtle);
+  background: var(--surface-disabled);
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* Approval: one line with the question and the three decisions. */
+.buddy-overlay-approval {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid
+    color-mix(in srgb, var(--status-warning-border) 45%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--status-warning-background);
+  font-size: var(--text-12);
+  line-height: 16px;
+  animation: buddy-overlay-enter var(--motion-popover) var(--ease-out);
+}
+.buddy-overlay-approval-icon {
+  flex: 0 0 auto;
+  color: var(--status-warning-text);
+}
+.buddy-overlay-approval-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buddy-overlay-approval-text span {
+  color: var(--text-secondary);
+}
+@keyframes buddy-overlay-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* Composer: one line that grows to three, and Send morphing into Stop. */
+.buddy-overlay-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 3px 3px 3px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-composer);
+  background: var(--surface-raised);
+}
+.buddy-overlay-composer:focus-within {
+  border-color: var(--border-control);
+}
+.buddy-overlay-composer textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 26px;
+  max-height: 64px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  line-height: 18px;
+  resize: none;
+  field-sizing: content;
+  overflow-y: auto;
+  outline: none;
+}
+.buddy-overlay-composer textarea::placeholder {
+  color: var(--text-muted);
+}
+.buddy-overlay-primary {
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  color: var(--accent-on-solid);
+  cursor: pointer;
+  transition:
+    background var(--motion-popover) var(--ease-out),
+    color var(--motion-popover) var(--ease-out);
+}
+.buddy-overlay-primary.is-send:disabled {
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  cursor: default;
+}
+.buddy-overlay-primary.is-stop {
+  background: var(--text-primary);
+  color: var(--surface);
+}
+.buddy-overlay-primary svg {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  transition:
+    opacity var(--motion-popover) var(--ease-out),
+    transform var(--motion-panel) var(--ease-out);
+}
+.buddy-overlay-primary[data-state='send'] .buddy-overlay-primary-stop {
+  opacity: 0;
+  transform: scale(0.3) rotate(-90deg);
+}
+.buddy-overlay-primary[data-state='stop'] .buddy-overlay-primary-send {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.6);
+}
+.buddy-overlay-primary.is-stop .buddy-overlay-primary-stop {
+  fill: currentColor;
+}
+.buddy-overlay-error {
+  flex: 0 0 auto;
+  margin: -2px 4px 0;
+  color: var(--status-danger-text);
+  font-size: var(--text-12);
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buddy-overlay-hint {
+  flex: 0 0 auto;
+  margin: -2px 4px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buddy-overlay-startup-error {
+  margin: 0;
+  padding: 16px;
+  color: var(--text-secondary);
+  font: 13px/18px var(--font-sans);
+}
+
+/* Tooltips (Radix) above the small window. */
+.tooltip-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+.tooltip {
+  z-index: 80;
+  max-width: min(240px, var(--radix-tooltip-content-available-width));
+  padding: 4px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+  font-size: var(--text-12);
+  line-height: var(--leading-12);
+  box-shadow: var(--shadow-overlay);
+  pointer-events: auto;
+}
+.tooltip-kbd {
+  margin-left: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buddy-overlay-avatar::before,
+  .buddy-overlay-response[data-live='true']::after,
+  .buddy-overlay-progress,
+  .buddy-overlay-approval {
+    animation: none !important;
+  }
+  .buddy-overlay-progress {
+    color: var(--text-muted);
+    background: none;
+  }
+  .buddy-overlay-primary,
+  .buddy-overlay-primary svg {
+    transition: none !important;
+  }
+}
+@media (forced-colors: active) {
+  .buddy-overlay {
+    border-color: CanvasText;
+  }
+  .buddy-overlay-progress {
+    color: CanvasText;
+    background: none;
+  }
+}

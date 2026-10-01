@@ -19,6 +19,7 @@ import os
 import pathlib
 import re
 import hashlib
+import copy
 import itertools
 import threading
 from functools import wraps
@@ -609,21 +610,25 @@ def estimate_text_tokens(text: str) -> int:
     return len(text or "") // 4
 
 
-def estimate_skill_tokens(name: str) -> int:
-    """Rough token estimate for one skill's own instructions.
-
-    This intentionally excludes auto-active tool guides and shared prompt
-    wrapper text. Use ``estimate_tokens`` when estimating the complete injected
-    skills prompt for an enabled skill set.
-    """
-    _ensure_skills_loaded()
-    skill = _skills_cache.get(name)
-    if not skill:
-        return 0
-    return estimate_text_tokens(skill.instructions)
-
-
 # ── Skill CRUD ───────────────────────────────────────────────────────────────
+
+
+def _yaml_scalar(value: object) -> object:
+    """Return *value* as YAML that reads back unchanged.
+
+    Plain strings stay plain. Anything YAML would read differently
+    ("[draft] name", "#tag", "a #b", "yes", "null", "{x}", a colon, a
+    newline, surrounding spaces) is written double-quoted; JSON string
+    escapes are valid inside YAML double quotes.
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        if yaml.safe_load(f"k: {value}") == {"k": value}:
+            return value
+    except yaml.YAMLError:
+        pass
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _build_ordered_frontmatter(meta: dict) -> str:
@@ -640,28 +645,25 @@ def _build_ordered_frontmatter(meta: dict) -> str:
         if isinstance(val, list):
             lines.append(f"{key}:")
             for item in val:
-                lines.append(f"  - {item}")
+                lines.append(f"  - {_yaml_scalar(item)}")
         elif isinstance(val, dict):
             lines.append(f"{key}:")
             for subkey, subval in val.items():
                 if isinstance(subval, list):
                     lines.append(f"  {subkey}:")
                     for item in subval:
-                        lines.append(f"    - {item}")
+                        lines.append(f"    - {_yaml_scalar(item)}")
                 else:
-                    lines.append(f"  {subkey}: {subval}")
+                    lines.append(f"  {subkey}: {_yaml_scalar(subval)}")
         elif isinstance(val, bool):
             lines.append(f"{key}: {'true' if val else 'false'}")
-        elif isinstance(val, str) and ('\n' in val or ':' in val or '"' in val):
-            escaped = val.replace('"', '\\"')
-            lines.append(f'{key}: "{escaped}"')
         else:
-            lines.append(f"{key}: {val}")
+            lines.append(f"{key}: {_yaml_scalar(val)}")
     # Include any extra keys not in _FIELD_ORDER
     for key in meta:
         if key not in _FIELD_ORDER:
             val = meta[key]
-            lines.append(f"{key}: {val}")
+            lines.append(f"{key}: {_yaml_scalar(val)}")
     return "\n".join(lines) + "\n"
 
 
@@ -798,53 +800,6 @@ def update_skill(
     return updated
 
 
-@_serialized
-def delete_skill(name: str) -> bool:
-    """Delete a user skill from disk and cache.  Returns True on success."""
-    global _pinned
-    skill = _skills_cache.get(name)
-    if not skill or skill.source != "user" or not skill.path:
-        logger.warning("Cannot delete skill '%s': not a user skill", name)
-        return False
-
-    import shutil
-
-    try:
-        shutil.rmtree(skill.path)
-    except OSError:
-        logger.warning("Failed to delete skill folder %s", skill.path, exc_info=True)
-        return False
-
-    _skills_cache.pop(name, None)
-    _enabled.pop(name, None)
-    _pinned = [pinned_name for pinned_name in _pinned if pinned_name != name]
-    _save_config()
-    logger.info("Deleted skill '%s'", name)
-    return True
-
-
-@_serialized
-def duplicate_skill(name: str, new_name: Optional[str] = None) -> Optional[Skill]:
-    """Duplicate a skill (typically bundled) into the user skills folder."""
-    original = _skills_cache.get(name)
-    if not original:
-        return None
-
-    dup_name = new_name or f"{original.name}_custom"
-    dup_display = f"{original.display_name} (Custom)"
-
-    return create_skill(
-        name=dup_name,
-        display_name=dup_display,
-        icon=original.icon,
-        description=original.description,
-        instructions=original.instructions,
-        tags=list(original.tags),
-        activation=dict(original.activation),
-        enabled=True,
-    )
-
-
 def _client_file(path: pathlib.Path, *, maximum: int = 65536):
     from row_bot.file_ownership import guard_directory, directory_identity
     from row_bot.file_publication import read_bytes
@@ -855,9 +810,47 @@ def _client_file(path: pathlib.Path, *, maximum: int = 65536):
                           unavailable_code='skill_unavailable')
 
 
+_client_snapshot_cache: tuple[tuple, dict] | None = None
+
+
+def _stat_identity(path: pathlib.Path) -> tuple:
+    try:
+        value = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        return (str(path), None)
+    return (str(path), value.st_mode, value.st_dev, value.st_ino, value.st_nlink, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns, getattr(value, 'st_file_attributes', 0))
+
+
+def _client_library_fingerprint() -> tuple:
+    """Cheap lstat identity of the config, each library root, entry and SKILL.md."""
+    parts = [_stat_identity(CONFIG_PATH)]
+    for base in (BUNDLED_SKILLS_DIR, TOOL_GUIDES_DIR, USER_SKILLS_DIR):
+        parts.append(_stat_identity(base))
+        if not base.exists():
+            continue
+        with os.scandir(base) as stream:
+            names = sorted(entry.name for entry in itertools.islice(stream, 4097))
+        for name in names:
+            parts.append(_stat_identity(base / name))
+            parts.append(_stat_identity(base / name / 'SKILL.md'))
+    return tuple(parts)
+
+
 @_serialized
 def read_client_skills() -> dict:
     """Bounded passive snapshot of the canonical library/config; no migrations."""
+    global _client_snapshot_cache
+    fingerprint = _client_library_fingerprint()
+    if _client_snapshot_cache is not None and _client_snapshot_cache[0] == fingerprint:
+        return copy.deepcopy(_client_snapshot_cache[1])
+    result = _read_client_skills_uncached()
+    if _client_library_fingerprint() == fingerprint:
+        _client_snapshot_cache = (fingerprint, copy.deepcopy(result))
+    return result
+
+
+def _read_client_skills_uncached() -> dict:
     config_file = _client_file(CONFIG_PATH, maximum=1024 * 1024)
     config = json.loads(config_file[0]) if config_file[0] is not None else {}
     if (not isinstance(config, dict) or not isinstance(config.get('skills', {}), dict)

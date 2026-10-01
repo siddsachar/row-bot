@@ -82,3 +82,20 @@ def test_probe_server_returns_dependency_missing_when_sdk_unavailable(monkeypatc
     result = runtime.probe_server("missing-sdk", {"transport": "stdio", "command": sys.executable})
 
     assert result == {"ok": False, "error": "Python package 'mcp' is not installed", "tools": []}
+
+
+def test_the_mcp_sdk_never_logs_a_server_session_id(caplog) -> None:
+    import logging
+    from types import SimpleNamespace
+
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    from row_bot.mcp_client import runtime  # noqa: F401 - loading the MCP client sets its SDK logging
+
+    transport = StreamableHTTPTransport("http://127.0.0.1:9/mcp")
+    with caplog.at_level(logging.INFO):
+        transport._maybe_extract_session_id_from_response(
+            SimpleNamespace(headers={"mcp-session-id": "synthetic-session-4f2a"})
+        )
+    assert transport.session_id == "synthetic-session-4f2a"
+    assert "synthetic-session-4f2a" not in caplog.text

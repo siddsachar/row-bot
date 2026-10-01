@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { humanizeToken } from '../../ui/format';
 import type { ClientController } from '../../api/controller';
 import { Button, ErrorState } from '../../ui/primitives';
 
@@ -127,7 +128,7 @@ export function createDocumentProcessingSession(
       if (!disposed)
         emit({
           error:
-            'Processing could not be confirmed. Check the original receipt if an admission was sent.',
+            "Row-Bot couldn't confirm processing started. Check again before starting another batch.",
         });
       throw error;
     } finally {
@@ -265,12 +266,27 @@ export type DocumentProcessingOwner = ReturnType<
   typeof createDocumentProcessingSession
 >;
 
+// Stable ids stay in the review; people read titles, models and places.
+const LOCATION: Record<string, string> = {
+  local: 'on this device',
+  remote: 'cloud',
+};
+function modelName(ref: string) {
+  return ref.replace(/^model:[^:]+:/, '');
+}
+function batchName(id: string) {
+  return id.startsWith('client_') ? `Upload · ${id.slice(7, 15)}` : id;
+}
+
 export function DocumentProcessingPanel({
   owner,
   onAdmitted,
+  conversationTitle,
 }: {
   owner: DocumentProcessingOwner;
   onAdmitted?: () => void;
+  /** The conversation's title, when the caller knows it. */
+  conversationTitle?: (id: string) => string | undefined;
 }) {
   const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
   useEffect(() => {
@@ -281,16 +297,30 @@ export function DocumentProcessingPanel({
     void operation().catch(() => undefined);
   };
   if (state.revoked)
-    return <p role="status">Authenticate again to process documents.</p>;
-  if (!state.selection) return <p>Select a paused batch to process.</p>;
+    return (
+      <p role="status" className="settings-divided document-queue-note">
+        Authenticate again to process documents.
+      </p>
+    );
+  // Shown once a batch's Process is chosen (B258: no idle hint).
+  if (!state.selection) return null;
   return (
-    <section aria-label="Document processing">
+    <section
+      aria-label="Document processing"
+      className="settings-divided document-processing"
+    >
       <h3>Process saved documents</h3>
-      <p>Conversation: {state.selection.conversationId}</p>
-      <p>Batch: {state.selection.batchId}</p>
+      <p title={state.selection.conversationId}>
+        Conversation:{' '}
+        {conversationTitle?.(state.selection.conversationId) ||
+          'Selected conversation'}
+      </p>
+      <p title={state.selection.batchId}>
+        Batch: {batchName(state.selection.batchId)}
+      </p>
       <p>
-        This selection remains attached to its original conversation when you
-        navigate to another chat.
+        Processing follows this conversation's approvals and profile, and reads
+        documents with the model chosen above.
       </p>
       {state.error && (
         <ErrorState title="Processing needs attention">
@@ -307,14 +337,16 @@ export function DocumentProcessingPanel({
       )}
       {state.review && (
         <div>
-          <p>
-            Chat provider: {state.review.chat.provider_id} ·{' '}
-            {state.review.chat.model_ref} ·{' '}
-            {state.review.chat.execution_location}
+          <p title={state.review.chat.model_ref}>
+            Chat model: {modelName(state.review.chat.model_ref)} ·{' '}
+            {humanizeToken(state.review.chat.provider_id)} ·{' '}
+            {LOCATION[state.review.chat.execution_location] ??
+              state.review.chat.execution_location}
           </p>
           <p>
-            Embedding provider: {state.review.embedding.provider} ·{' '}
-            {state.review.embedding.execution_location}
+            Embeddings: {humanizeToken(state.review.embedding.provider)} ·{' '}
+            {LOCATION[state.review.embedding.execution_location] ??
+              state.review.embedding.execution_location}
           </p>
           <p>
             Processing reads the saved document sources and may send their
@@ -325,17 +357,16 @@ export function DocumentProcessingPanel({
       )}
       {state.original && (
         <>
-          <p>Original command: {state.original.command_id}</p>
           <Button disabled={state.busy} onClick={() => invoke(owner.refresh)}>
-            Check original processing receipt
+            Check processing
           </Button>
         </>
       )}
       {(state.pending || state.receipt) && (
         <p role="status">
           {state.receipt?.status === 'completed'
-            ? 'Processing admitted. Documents may still be indexing, extracting, or finalizing. Check the queue for progress.'
-            : 'Admission is unconfirmed. Keep this original command and check its receipt before another action.'}
+            ? 'Processing started. Documents may still be indexing, extracting or finishing; the queue shows progress.'
+            : "Row-Bot couldn't confirm processing started. Check again before another action."}
         </p>
       )}
     </section>

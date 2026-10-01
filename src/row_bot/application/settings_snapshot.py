@@ -1,16 +1,16 @@
 """Passive saved-state snapshot for Settings surfaces without a client owner.
 
 The richer Settings capabilities keep their existing bounded read/review/execute
-owners.  This module only projects local, already-saved state used by the
-NiceGUI Buddy, Voice, System, Tracker, Knowledge, Wiki, Documents, Tools,
-Accounts, Utilities, and Preferences panes.  It never starts a runtime,
+owners.  This module only projects local, already-saved state for the Buddy,
+Voice, System, Tracker, Knowledge, Wiki, Documents, Tools, Accounts, Utilities,
+and Preferences settings.  It never starts a runtime,
 refreshes a token, probes a provider, or imports plugin entrypoints.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+import copy
 import hashlib
 import json
 import os
@@ -20,6 +20,7 @@ import sys
 import time
 from typing import Any
 
+from row_bot.account_token_checks import token_file_state
 from row_bot.data_paths import get_row_bot_data_dir
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -41,6 +42,9 @@ _UTILITY_PRESENTATION = {
     "system_info": ("System Info", "Read bounded host information."),
     "conversation_search": ("Conversation Search", "Search saved conversations."),
     "custom_tool_builder": ("Custom Tool Builder", "Build reviewed local tools."),
+    # Without it a conversation's code folder can be read but never changed,
+    # and no other settings page offers the switch.
+    "developer": ("Developer", "Read, change and run code in a conversation's code folder."),
 }
 _SEARCH_TOOL_PRESENTATION = {
     "web_search": "Web Search",
@@ -278,28 +282,6 @@ def _enabled(
     return value if isinstance(value, bool) else None
 
 
-def _token_state(path: Path) -> str:
-    """Classify an OAuth token from local metadata without refreshing it."""
-
-    if not path.is_file():
-        return "not_authenticated"
-    raw = _read_json(path, default=None)
-    if not isinstance(raw, Mapping):
-        return "unavailable"
-    expiry = raw.get("expiry") or raw.get("expires_at")
-    if isinstance(expiry, str) and expiry:
-        try:
-            normalized = expiry.replace("Z", "+00:00")
-            parsed = datetime.fromisoformat(normalized)
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            if parsed <= datetime.now(timezone.utc):
-                return "expired"
-        except ValueError:
-            return "unavailable"
-    return "saved_unchecked"
-
-
 def _buddy_pack_rows(root: Path, selected_id: str) -> list[dict[str, Any]]:
     """Read value-only Buddy manifests without importing Hatch or media owners."""
 
@@ -430,6 +412,15 @@ def _buddy(root: Path) -> dict[str, Any]:
     }
 
 
+def _whisper_installed(root: Path, size: str) -> bool:
+    cache = Path(os.environ.get("ROW_BOT_WHISPER_CACHE_DIR") or root / "cache" / "whisper")
+    model_dir = cache / f"models--Systran--faster-whisper-{size}"
+    try:
+        return model_dir.is_dir() and any(model_dir.iterdir())
+    except OSError:
+        return False
+
+
 def _voice(root: Path) -> dict[str, Any]:
     runtime = _mapping(_read_json(root / "voice_runtime_settings.json", default={}))
     local = _mapping(_read_json(root / "voice_settings.json", default={}))
@@ -475,6 +466,7 @@ def _voice(root: Path) -> dict[str, Any]:
         },
         "local": {
             "whisper_model": whisper,
+            "whisper_installed": _whisper_installed(root, whisper),
             "sensevoice_path_configured": bool(
                 _text(local.get("sensevoice_model_path"))
             ),
@@ -516,6 +508,7 @@ def _system(
     from row_bot.tunnel import tunnel_manager
 
     main_app_url = tunnel_manager.get_url(get_app_port())
+    tunnel_runtime = tunnel_manager.runtime_state()
     user = _mapping(_read_json(root / "user_config.json", default={}))
     cua = _mapping(_read_json(root / "computer_use_settings.json", default={}))
     from row_bot.computer_use.readiness import DISCLOSURE_TEXT, readiness
@@ -580,8 +573,9 @@ def _system(
         "tunnel": {
             "provider": _text(tunnel.get("provider") or "ngrok", 64),
             "credential": _credential_status("NGROK_AUTHTOKEN"),
-            "runtime_state": "not_checked",
-            "active_count": None,
+            "runtime_state": tunnel_runtime["runtime_state"],
+            "active_count": tunnel_runtime["active_count"],
+            "last_error": _text(tunnel_runtime["last_error"], 500) if tunnel_runtime["last_error"] else None,
             "main_app_enabled": raw_main_app_enabled is True
             or isinstance(raw_main_app_enabled, list)
             and bool(raw_main_app_enabled)
@@ -713,7 +707,7 @@ def _knowledge(
     tools: Mapping[str, Any],
     registered: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Read the NiceGUI memory-graph summary without initializing its owner."""
+    """Read the memory-graph summary without initializing its owner."""
 
     result = {
         "availability": "missing",
@@ -902,7 +896,43 @@ def _wiki(root: Path) -> dict[str, Any]:
         "path_state": path_state,
         "articles": articles,
         "conversations": conversations,
+        "tidy": _wiki_tidy(vault) if vault is not None and path_state == "available" else None,
     }
+
+
+def _wiki_tidy(vault: Path) -> dict[str, Any] | None:
+    """The vault's one-time naming tidy, as its ownership manifest records it."""
+    manifest = _mapping(_read_json(vault / "wiki" / ".row-bot-ownership.json", default={}))
+    report = _mapping(manifest.get("tidy"))
+    moved = report.get("moved") if isinstance(report.get("moved"), list) else []
+    review = report.get("review") if isinstance(report.get("review"), list) else []
+    tidied = report.get("tidied") if type(report.get("tidied")) is int and report["tidied"] >= 0 else 0
+    if not (tidied or moved or review):
+        return None
+    return {
+        "date": _text(report.get("date"), 32),
+        "tidied": tidied,
+        "moved": len(moved),
+        "folder": _text(report.get("folder"), 512),
+        "review": [_text(_mapping(item).get("relative"), 512) for item in review[:50]],
+    }
+
+
+def _processing_model(root: Path) -> str | None:
+    value = _mapping(_read_json(root / "document_processing.json", default={})).get("model")
+    if isinstance(value, str) and len(value) <= 512 and value.startswith("model:"):
+        from row_bot.providers.selection import parse_model_ref
+
+        if parse_model_ref(value) is not None:
+            return value
+    return None
+
+
+def read_document_processing_model() -> str | None:
+    """The model picked for document processing; None follows the conversation (U45)."""
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    return _processing_model(get_row_bot_data_dir(create=False))
 
 
 def _documents(root: Path) -> dict[str, Any]:
@@ -948,6 +978,8 @@ def _documents(root: Path) -> dict[str, Any]:
     memory_index = _memory_index_status(root / "memory.db")
     return {
         "availability": "available",
+        # "" follows the conversation's model (the picker's first choice).
+        "processing_model": _processing_model(root) or "",
         "indexed_documents": indexed_documents,
         "active_embedding": active_embedding,
         "document_vectors": document_vectors,
@@ -1273,6 +1305,7 @@ def _account(
     read_operations: list[str] | None = None,
     post_operations: list[str] | None = None,
     engage_operations: list[str] | None = None,
+    callback_url: str | None = None,
 ) -> dict[str, Any]:
     return {
         "account_id": account_id,
@@ -1284,7 +1317,36 @@ def _account(
         "read_operations": read_operations or [],
         "post_operations": post_operations or [],
         "engage_operations": engage_operations or [],
+        "callback_url": callback_url,
     }
+
+
+# One GitHub status for Accounts and Monitor (B118), in the account states.
+_GITHUB_STATES = {
+    "connected": "connected",
+    "rate_limited": "connected",
+    "secondary_limited": "connected",
+    "invalid_token": "invalid",
+    "configured_unchecked": "configured_unchecked",
+    "offline": "configured_unchecked",
+    "anonymous": "not_configured",
+    "not_configured": "not_configured",
+}
+
+
+# X's fixed OAuth callback (``tools/x_tool.py``), registered in the X
+# developer portal; read here without loading the tool.
+X_OAUTH_CALLBACK_URL = "http://127.0.0.1:17638/callback"
+
+
+def _github_state() -> str:
+    try:
+        from row_bot import github_account
+
+        status = github_account.shared_github_status()
+    except Exception:
+        return "unavailable"
+    return _GITHUB_STATES.get(status.state, "configured_unchecked")
 
 
 def _accounts(
@@ -1294,6 +1356,7 @@ def _accounts(
     registered: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     github_credential = _credential_status("GITHUB_TOKEN")
+    github_state = _github_state()
     gmail = _mapping(tool_configs.get("gmail"))
     calendar = _mapping(tool_configs.get("calendar"))
     x_config = _mapping(tool_configs.get("x"))
@@ -1321,26 +1384,22 @@ def _accounts(
         "github": _account(
             account_id="github",
             enabled=None,
-            configured=github_credential["configured"],
-            authentication_state=(
-                "configured_unchecked"
-                if github_credential["configured"]
-                else "not_configured"
-            ),
+            configured=github_credential["configured"] or github_state != "not_configured",
+            authentication_state=github_state,
             credential=github_credential,
         ),
         "gmail": _account(
             account_id="gmail",
             enabled=_enabled("gmail", tools, registered),
             configured=_local_path_is_file(gmail_path),
-            authentication_state=_token_state(root / "gmail" / "token.json"),
+            authentication_state=token_file_state(root / "gmail" / "token.json"),
             operations=gmail_ops,
         ),
         "calendar": _account(
             account_id="calendar",
             enabled=_enabled("calendar", tools, registered),
             configured=_local_path_is_file(calendar_path),
-            authentication_state=_token_state(root / "calendar" / "token.json"),
+            authentication_state=token_file_state(root / "calendar" / "token.json"),
             operations=calendar_ops,
         ),
         "x": _account(
@@ -1348,7 +1407,7 @@ def _accounts(
             enabled=_enabled("x", tools, registered),
             configured=x_id["configured"] and x_secret["configured"],
             authentication_state=(
-                _token_state(root / "x" / "token.json")
+                token_file_state(root / "x" / "token.json")
                 if x_id["configured"] and x_secret["configured"]
                 else "not_configured"
             ),
@@ -1365,6 +1424,7 @@ def _accounts(
             read_operations=read_ops,
             post_operations=post_ops,
             engage_operations=engage_ops,
+            callback_url=X_OAUTH_CALLBACK_URL,
         ),
     }
 
@@ -1377,11 +1437,11 @@ def _utilities(
         items.append(
             {
                 "utility_id": tool_id,
-                # The NiceGUI owner presents stable friendly display names;
-                # registry labels are internal identifiers on some adapters.
+                # Stable friendly display names; registry labels are internal
+                # identifiers on some adapters.
                 "label": fallback_label,
                 "description": description,
-                # NiceGUI owns this as a fixed bundled Utilities catalogue and
+                # This is a fixed bundled Utilities catalogue that
                 # reports its nine entries as available even when an adapter
                 # has not yet been registered in this process.  Registration
                 # or saved configuration still determines the separately
@@ -1420,7 +1480,6 @@ def _preferences(root: Path) -> dict[str, Any]:
         end = max(0, min(23, int(dream.get("window_end", 5))))
     except (TypeError, ValueError):
         start, end = 1, 5
-    skipped = _strings(updates.get("skipped_versions"))
     return {
         "availability": "available",
         "identity": {
@@ -1442,7 +1501,6 @@ def _preferences(root: Path) -> dict[str, Any]:
             "channel": channel,
             "last_check": _text(updates.get("last_check"), 80) or None,
             "last_success": _text(updates.get("last_success"), 80) or None,
-            "skipped_versions": skipped,
             "runtime_state": "cached",
         },
         "migration": {"available": True, "sources": ["Hermes Agent", "OpenClaw"]},
@@ -1484,6 +1542,58 @@ def _plugins(validate: Callable[[], None]) -> dict[str, Any]:
     }
 
 
+# What a fresh profile reads back for each saved field: the fallbacks the
+# section readers above use. Clients mark a field that differs as modified
+# and offer a one-step reset to this value. A subsystem test keeps these in
+# step with the readers.
+SETTING_DEFAULTS: dict[str, dict[str, Any]] = {
+    "voice": {
+        "runtime.talk_provider": "local",
+        "runtime.talk_model": "local-whisper",
+        "runtime.dictation_provider": "local",
+        "runtime.dictation_model": "local-whisper",
+        "runtime.speech_output_provider": "local",
+        "runtime.speech_output_model": "local-kokoro",
+        "runtime.realtime_voice": "marin",
+        "runtime.captions_enabled": True,
+        "runtime.talk_auto_start": False,
+        "runtime.realtime_fallback_to_local": True,
+        "local.whisper_model": "small",
+        "tts.enabled": False,
+        "tts.voice": "af_heart",
+        "tts.speed": 1.0,
+        "tts.auto_speak": True,
+    },
+    "system": {
+        "remote_access.listen_mode": "local_only",
+        "tunnel.provider": "ngrok",
+        "logging.level": "DEBUG",
+    },
+    "documents": {
+        "processing_model": "",
+        "embedding.provider": "local",
+        "embedding.local_model": "mxbai-large-v1",
+        "embedding.cloud_model": "openai:text-embedding-3-small",
+        "embedding.dimension": None,
+        "embedding.auto_unload": False,
+    },
+    "tools": {
+        "external_loading_mode": "auto",
+        "compression_mode": "off",
+    },
+    "preferences": {
+        "identity.name": "Row-Bot",
+        "identity.personality": "",
+        "identity.self_improvement_enabled": True,
+        "window_mode": "ask",
+        "dream_cycle.enabled": True,
+        "dream_cycle.window_start": 1,
+        "dream_cycle.window_end": 5,
+        "updates.channel": "stable",
+    },
+}
+
+
 def _revision(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -1516,7 +1626,13 @@ def read_settings_snapshot(
         "preferences": _preferences(root),
     }
     validate()
-    return {"schema_version": 1, "revision": _revision(sections), **sections}
+    return {
+        "schema_version": 1,
+        "revision": _revision(sections),
+        **sections,
+        # Defaults never change the revision: they are not saved state.
+        "defaults": copy.deepcopy(SETTING_DEFAULTS),
+    }
 
 
-__all__ = ["read_settings_snapshot"]
+__all__ = ["SETTING_DEFAULTS", "read_settings_snapshot"]

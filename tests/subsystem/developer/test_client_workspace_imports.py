@@ -82,6 +82,7 @@ def test_header_remapping_never_changes_patch_hunk_content(imports):
     assert (d.root / "file.txt").read_bytes() == after.encode()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("metadata_rejects", [False, True])
 def test_attribute_publication_marker_recovery_is_history_only(imports, monkeypatch, metadata_rejects):
     d = imports
@@ -114,6 +115,7 @@ def test_attribute_publication_marker_recovery_is_history_only(imports, monkeypa
     assert len(d.ledger.list_change_sets(workspace_id=d.workspace.id)) == 1
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("change", ["replace_file", "missing_file", "core_config"])
 def test_attribute_recovery_does_not_reapply_incomplete_or_changed_publications(imports, monkeypatch, change):
     d = imports
@@ -190,6 +192,7 @@ def test_directory_candidate_replacement_after_receipt_is_not_published(imports)
     assert not (d.root / "new").exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("tamper", ["command_id", "root_identity", "parent_identity"])
 def test_directory_recovery_requires_exact_original_command_scope(imports, monkeypatch, tamper):
     d = imports
@@ -207,6 +210,7 @@ def test_directory_recovery_requires_exact_original_command_scope(imports, monke
     assert not (d.root / "new/nested/a.txt").exists()
 
 
+@pytest.mark.slow
 def test_nested_non_ascii_receipt_includes_all_directory_proofs_inside_budget(imports):
     import json
     from dataclasses import asdict
@@ -368,6 +372,7 @@ def test_directory_receipt_failure_has_no_public_creation_or_implicit_adoption(i
     assert not d.ledger.list_change_sets(workspace_id=d.workspace.id)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("boundary", ["before_rename", "after_rename", "before_file"])
 def test_new_parent_original_recovery_proves_identity_without_recreating(imports, monkeypatch, boundary):
     d = imports
@@ -524,6 +529,7 @@ def test_unconfirmed_ask_and_stale_preimage_leave_host_unchanged(imports):
     assert stale.code == "file_revision_conflict" and (d.root / "file.txt").read_bytes() == b"external edit\n"
 
 
+@pytest.mark.slow
 def test_mark_failure_recovers_same_command_without_reapplying_host_patch(imports, monkeypatch):
     d = imports
     pending = d.pending({"file.txt": "old\n"}, {"file.txt": "new\n"})
@@ -542,6 +548,7 @@ def test_mark_failure_recovers_same_command_without_reapplying_host_patch(import
     assert len(d.ledger.list_change_sets(workspace_id=d.workspace.id)) == 1
 
 
+@pytest.mark.slow
 def test_partial_multi_file_import_recovers_original_preimages_and_never_replays_host_git(imports, monkeypatch):
     d = imports
     pending = d.pending({"a.txt": "old\n", "b.txt": "delete me\n", "c.txt": None},
@@ -576,6 +583,7 @@ def test_import_receipt_failure_precedes_original_retirement(imports):
     assert not list(d.root.glob(".row-bot-edit-recovery/*/previous"))
 
 
+@pytest.mark.slow
 def test_original_import_receipt_recovery_refuses_external_new_bytes(imports, monkeypatch):
     d = imports
     pending = d.pending({"file.txt": "old\n"}, {"file.txt": "new\n"})
@@ -611,6 +619,7 @@ def test_review_revalidates_full_pending_binding_policy_and_git_before_any_host_
     assert (d.root / "file.txt").read_bytes() == b"old\n" and not d.import_receipts
 
 
+@pytest.mark.slow
 def test_pending_query_complete_pages_and_changed_cursor(imports):
     d = imports
     for index in range(103):
@@ -766,6 +775,7 @@ def test_unsupported_import_formats_preserve_pending_and_original(imports, heade
     assert (d.root / "file.txt").read_bytes() == b"old\n" and not d.import_receipts
 
 
+@pytest.mark.slow
 def test_maximum_file_count_receipt_fits_existing_admission_envelope(imports):
     import json
     from dataclasses import asdict
@@ -869,6 +879,7 @@ def test_git_metadata_failure_does_not_expose_subprocess_or_local_diagnostics(im
         d.imports.review_workspace_import(d.workspace.id, "chat", pending.id)
 
 
+@pytest.mark.slow
 def test_partial_import_recovers_original_owned_lease_without_reacquiring_or_republishing(imports, monkeypatch):
     d = imports
     pending = d.pending({"file.txt": "old\n"}, {"file.txt": "new\n"})

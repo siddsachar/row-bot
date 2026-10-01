@@ -40,7 +40,7 @@ const INITIAL: ClientState = {
   connection: 'none',
   handshake: null,
   conversations: [],
-  conversationGroup: 'all',
+  typedConversations: null,
   hasMoreConversations: false,
   loadingConversations: false,
   conversationListError: null,
@@ -51,6 +51,9 @@ const INITIAL: ClientState = {
   activity: [],
   history: null,
   historyFocus: null,
+  earlier: [],
+  earlierAvailable: false,
+  loadingEarlier: false,
   search: null,
   searching: false,
   draftStatus: 'saved',
@@ -59,7 +62,42 @@ const INITIAL: ClientState = {
   suggestions: [],
   revision: 0,
 };
-const DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+const DELAYS = [1000, 2000, 3000, 5000, 5000, 5000];
+/**
+ * After a server restart or an expired session the client handshakes again
+ * by itself (B110): a lost session gets a few quick tries, and an
+ * unreachable server is probed every few seconds while the window is visible.
+ */
+const RECOVERY_DELAYS = [500, 1500, 3000, 5000];
+const SESSION_RECOVERY_ATTEMPTS = 3;
+/** With no conversation stream open, background notices are read this often. */
+const NOTICE_READ_MS = 30000;
+const NOTICE_POSITION_KEY = 'row-bot.notices.v1';
+
+/**
+ * The last notice this device showed, per start of the server (its epoch).
+ * Kept per device, not per window: a start-up warning (a plugin that did not
+ * load) shows once after each start, not in every window opened since;
+ * Monitor › Start-up keeps listing it.
+ */
+function readNoticePosition(): { after: number; epoch: string } {
+  try {
+    const value = JSON.parse(
+      window.localStorage.getItem(NOTICE_POSITION_KEY) ?? 'null',
+    ) as { after?: unknown; epoch?: unknown } | null;
+    if (
+      value &&
+      typeof value.epoch === 'string' &&
+      value.epoch.length <= 128 &&
+      Number.isSafeInteger(value.after) &&
+      (value.after as number) >= 0
+    )
+      return { after: value.after as number, epoch: value.epoch };
+  } catch {
+    // No storage: this window shows each notice once while it stays open.
+  }
+  return { after: 0, epoch: '' };
+}
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -100,6 +138,12 @@ function intentVerifier(
     );
 }
 
+/** A BroadcastChannel (or a test double) shared by same-origin windows. */
+export type DraftChannel = Pick<
+  BroadcastChannel,
+  'postMessage' | 'addEventListener' | 'removeEventListener' | 'close'
+>;
+
 /** One authenticated connection owner. Presentation stores never receive session proofs. */
 export class ClientController {
   private state: ClientState = { ...INITIAL };
@@ -112,6 +156,26 @@ export class ClientController {
   private reconnectPromise: Promise<void> | null = null;
   private authenticationNumber = 0;
   private visible = true;
+  private recoveryAttempts = 0;
+  // Re-handshakes refused as unauthorized. Kept apart from outage probes so a
+  // long outage does not use up the tries a restarted server needs (B110).
+  private sessionRecoveries = 0;
+  private noticePosition = readNoticePosition();
+  private noticeListeners = new Set<
+    (notice: import('./types').Notice) => void
+  >();
+  // Notices read before the window listens (the first read happens while
+  // the app is still mounting), handed to the first listener.
+  private heldNotices: import('./types').Notice[] = [];
+  private noticeTimer: ReturnType<typeof setInterval> | null = null;
+  /** The conversation to reopen once a lost session is replaced. */
+  private recoverySelection: string | null = null;
+  /** Unsaved drafts kept aside while there is no session. */
+  private unsavedDrafts = new Map<
+    string,
+    { text: string; attachments: import('./types').AttachmentView[] }
+  >();
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private online = true;
   private disposed = false;
   private retiredSubscriptions = new Set<string>();
@@ -121,6 +185,8 @@ export class ClientController {
   private appliedDictation: string | null = null;
   private conversationCursor: string | undefined;
   private conversationListNumber = 0;
+  private typedCursor: string | undefined;
+  private typedListNumber = 0;
   private transcriptCursor: string | undefined;
   private transcriptRequest = false;
   private searchNumber = 0;
@@ -524,6 +590,8 @@ export class ClientController {
     const safe = clientError(error);
     const status = failureStatus(safe);
     if (status === 'unauthorized' || status === 'incompatible') {
+      this.recoverySelection =
+        this.state.selectedConversationId ?? this.recoverySelection;
       this.authenticationNumber += 1;
       this.selectionNumber += 1;
       this.lifetime.abort();
@@ -531,18 +599,36 @@ export class ClientController {
       this.selection.abort();
       this.stopObservation();
       this.transport.clearSession();
+      // Nothing private stays visible without a session. What the person
+      // typed and had not saved yet is kept aside and comes back only when
+      // a new session opens (a restart, an expired session), never for a
+      // device that cannot sign in again.
+      for (const id of this.dirtyDrafts) {
+        const draft = this.drafts.get(id);
+        if (draft) this.unsavedDrafts.set(id, draft);
+      }
       this.drafts.clear();
       this.draftRevisions.clear();
       this.browserCommandAttempts.clear();
       this.update({
         handshake: null,
         conversations: [],
+        typedConversations: this.state.typedConversations && {
+          ...this.state.typedConversations,
+          rows: [],
+          hasMore: true,
+          loading: false,
+          error: null,
+        },
         conversationListError: null,
         conversation: null,
         projection: null,
         workspace: null,
         activity: [],
         history: null,
+        earlier: [],
+        earlierAvailable: false,
+        loadingEarlier: false,
         search: null,
         selectedConversationId: null,
         suggestions: [],
@@ -557,6 +643,153 @@ export class ClientController {
       loadingConversation: false,
       loadingConversations: false,
     });
+    this.scheduleRecovery();
+  }
+  /**
+   * A read of the open conversation failed. One deleted meanwhile (here or
+   * on another client) closes like a deleted stream does; anything else is
+   * a failure of the connection.
+   */
+  private conversationFailed(id: string, error: unknown): void {
+    const code = aborted(error) ? '' : clientError(error).code;
+    if (code === 'not_found' || code === 'conversation_deleting')
+      this.forgetConversation(id);
+    else this.failed(error);
+  }
+  private scheduleRecovery(): void {
+    const status = this.state.status;
+    if (
+      this.disposed ||
+      !this.online ||
+      this.recoveryTimer ||
+      (status !== 'unauthorized' && status !== 'disconnected') ||
+      (status === 'unauthorized' &&
+        this.sessionRecoveries >= SESSION_RECOVERY_ATTEMPTS)
+    )
+      return;
+    const attempt =
+      status === 'unauthorized'
+        ? this.sessionRecoveries
+        : this.recoveryAttempts;
+    const delay =
+      RECOVERY_DELAYS[Math.min(attempt, RECOVERY_DELAYS.length - 1)];
+    if (status === 'unauthorized') this.sessionRecoveries += 1;
+    else this.recoveryAttempts += 1;
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = null;
+      const current = this.state.status;
+      // A hidden window resumes probing when it is shown again.
+      if (
+        this.disposed ||
+        !this.online ||
+        !this.visible ||
+        (current !== 'unauthorized' && current !== 'disconnected')
+      )
+        return;
+      void this.reconnect();
+    }, delay);
+  }
+  /** Background notices, each once per window (see `application/app_notices`). */
+  onNotice = (
+    listener: (notice: import('./types').Notice) => void,
+  ): (() => void) => {
+    this.noticeListeners.add(listener);
+    const held = this.heldNotices;
+    this.heldNotices = [];
+    for (const notice of held) listener(notice);
+    if (held.length) this.rememberShownNotices();
+    return () => {
+      this.noticeListeners.delete(listener);
+    };
+  };
+  private receiveNotices(
+    epoch: string,
+    notices: readonly import('./types').Notice[],
+  ): void {
+    if (!epoch || this.disposed) return;
+    if (epoch !== this.noticePosition.epoch)
+      this.noticePosition = { after: 0, epoch };
+    const fresh = notices
+      .filter((notice) => notice.id > this.noticePosition.after)
+      .sort((a, b) => a.id - b.id);
+    if (!fresh.length) return;
+    this.noticePosition = { epoch, after: fresh.at(-1)!.id };
+    if (!this.noticeListeners.size) {
+      this.heldNotices = [...this.heldNotices, ...fresh].slice(-20);
+      return;
+    }
+    for (const notice of fresh)
+      this.noticeListeners.forEach((listener) => listener(notice));
+    this.rememberShownNotices();
+  }
+  /**
+   * Only notices a window showed count as seen on this device, so a window
+   * that never shows them (the desktop Buddy) cannot swallow them.
+   */
+  private rememberShownNotices(): void {
+    try {
+      window.localStorage.setItem(
+        NOTICE_POSITION_KEY,
+        JSON.stringify(this.noticePosition),
+      );
+    } catch {
+      // Kept in memory for this window.
+    }
+  }
+  /** Read notices while no conversation stream carries them (Home, Settings). */
+  private async readNotices(): Promise<void> {
+    if (
+      this.disposed ||
+      !this.online ||
+      !this.visible ||
+      !this.state.handshake ||
+      this.activeSubscription ||
+      !this.transport.notices
+    )
+      return;
+    try {
+      const page = await this.transport.notices(
+        this.noticePosition,
+        this.lifetime.signal,
+      );
+      this.receiveNotices(page.server_epoch, page.notices);
+    } catch {
+      // The next read, or the next conversation stream, delivers them.
+    }
+  }
+  private startNoticeReads(): void {
+    if (this.noticeTimer || this.disposed || !this.transport.notices) return;
+    this.noticeTimer = setInterval(
+      () => void this.readNotices(),
+      NOTICE_READ_MS,
+    );
+  }
+  /** Background notices and start-up warnings, for Monitor. */
+  notices = (signal?: AbortSignal) =>
+    this.query(() => this.transport.notices?.(undefined, signal));
+  private cancelRecovery(): void {
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
+  }
+  /**
+   * A fresh native attestation for this session. Handshaking again on the
+   * same session issues one to a local owner; the native bridge exchanges it
+   * to renew a long-lived window's lease (B99). Null when unavailable.
+   */
+  async nativeAttestation(signal?: AbortSignal): Promise<string | null> {
+    const current = this.state.handshake;
+    if (this.disposed || !current) return null;
+    const view = validateWire<import('./types').HandshakeView>(
+      'HandshakeView',
+      await this.transport.connect(signal ?? this.lifetime.signal),
+    );
+    if (
+      view.client_session_id !== current.client_session_id ||
+      view.instance_id !== current.instance_id ||
+      !view.native_adapter?.available
+    )
+      return null;
+    return view.native_adapter.attestation ?? null;
   }
   start(): Promise<void> {
     if (this.disposed || !this.online) return Promise.resolve();
@@ -601,6 +834,14 @@ export class ClientController {
       // Publishing readiness can synchronously start route selection. Resume a
       // pre-handshake intent only if no authenticated selection started since.
       const selection = this.selectionNumber;
+      this.recoveryAttempts = 0;
+      this.sessionRecoveries = 0;
+      this.cancelRecovery();
+      for (const [id, draft] of this.unsavedDrafts) {
+        this.drafts.set(id, draft);
+        this.dirtyDrafts.add(id);
+      }
+      this.unsavedDrafts.clear();
       this.update({ handshake, status: 'ready' });
       await this.drainRetiredSubscriptions(authentication, signal);
       if (this.disposed || authentication !== this.authenticationNumber) return;
@@ -608,21 +849,51 @@ export class ClientController {
       // slow sidebar refresh must not delay recovery of the active conversation.
       const library = this.loadMoreConversations(true);
       let opening: Promise<void> | undefined;
+      const reopen =
+        this.state.selectedConversationId ?? this.recoverySelection;
+      this.recoverySelection = null;
       if (
         authentication === this.authenticationNumber &&
         selection === this.selectionNumber &&
         this.state.handshake &&
-        this.state.selectedConversationId
+        reopen
       ) {
-        opening = this.selectConversation(this.state.selectedConversationId);
+        opening = this.selectConversation(reopen);
       }
+      this.startNoticeReads();
+      if (!opening) void this.readNotices();
       await Promise.all([library, opening]);
     } catch (error) {
       if (authentication === this.authenticationNumber) this.failed(error);
     }
   }
 
+  /** A refresh (`reset`) re-reads the sidebar's type listing too (B239). */
   async loadMoreConversations(reset = false): Promise<void> {
+    if (!reset) return this.readConversations(false);
+    await Promise.all([
+      this.readConversations(true),
+      this.loadMoreTypedConversations(true),
+    ]);
+  }
+  /** One listing page, whose cursor must move while more remain. */
+  private async conversationPage(
+    group: import('./types').ConversationListGroup,
+    cursor: string | undefined,
+  ): Promise<import('./types').ConversationPage> {
+    const page = validateWire<import('./types').ConversationPage>(
+      'ConversationPage',
+      await this.transport.listConversations(
+        cursor,
+        this.lifetime.signal,
+        group,
+      ),
+    );
+    if (page.has_more && (!page.next_cursor || page.next_cursor === cursor))
+      throw new Error('protocol_incompatible');
+    return page;
+  }
+  private async readConversations(reset: boolean): Promise<void> {
     const authentication = this.authenticationNumber;
     if (
       !this.online ||
@@ -635,13 +906,9 @@ export class ClientController {
     const ticket = ++this.conversationListNumber;
     this.update({ loadingConversations: true, conversationListError: null });
     try {
-      const page = validateWire<import('./types').ConversationPage>(
-        'ConversationPage',
-        await this.transport.listConversations(
-          reset ? undefined : this.conversationCursor,
-          this.lifetime.signal,
-          this.state.conversationGroup,
-        ),
+      const page = await this.conversationPage(
+        'all',
+        reset ? undefined : this.conversationCursor,
       );
       if (
         this.disposed ||
@@ -649,12 +916,6 @@ export class ClientController {
         ticket !== this.conversationListNumber
       )
         return;
-      if (
-        page.has_more &&
-        (!page.next_cursor ||
-          (!reset && page.next_cursor === this.conversationCursor))
-      )
-        throw new Error('protocol_incompatible');
       this.conversationCursor = page.next_cursor ?? undefined;
       const rows = new Map(
         (reset ? [] : this.state.conversations).map((row) => [row.id, row]),
@@ -681,6 +942,40 @@ export class ClientController {
           });
       }
     }
+  }
+  /** Recheck one visible active row without resetting the sidebar cursor or page. */
+  async refreshListedConversation(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const listTicket = this.conversationListNumber;
+    const typedTicket = this.typedListNumber;
+    const listed = () =>
+      this.state.conversations.find((row) => row.id === id) ??
+      this.state.typedConversations?.rows.find((row) => row.id === id);
+    const original = listed();
+    if (!original) return;
+    const view = validateWire<import('./types').ConversationView>(
+      'ConversationView',
+      await this.query(() => this.transport.getConversation(id, signal)),
+    );
+    if (signal?.aborted || view.id !== id)
+      throw Error('activity_refresh_stale');
+    const current = listed();
+    if (
+      listTicket !== this.conversationListNumber ||
+      typedTicket !== this.typedListNumber ||
+      !current ||
+      current.revision !== original.revision
+    )
+      return;
+    const replace = (row: import('./types').ConversationView) =>
+      row.id === id ? view : row;
+    const typed = this.state.typedConversations;
+    this.update({
+      conversations: this.state.conversations.map(replace),
+      typedConversations: typed && { ...typed, rows: typed.rows.map(replace) },
+    });
   }
   /** An explicit library review reads every page without the sidebar's 1,000-row cache cap. */
   async readConversationLibrary(
@@ -720,19 +1015,137 @@ export class ClientController {
     } while (cursor);
     return rows;
   }
-  async setConversationGroup(
-    group: ClientState['conversationGroup'],
+  /**
+   * The sidebar's type filter (B239): list that type from the server with
+   * its own cursor, so older matches page in; `null` stops listing one.
+   */
+  async setTypedConversations(
+    group: import('./types').TypedConversationList['group'] | null,
   ): Promise<void> {
-    if (this.state.conversationGroup === group) return;
-    this.conversationCursor = undefined;
+    if ((this.state.typedConversations?.group ?? null) === group) return;
+    this.typedCursor = undefined;
+    this.typedListNumber += 1;
     this.update({
-      conversationGroup: group,
-      conversations: [],
-      hasMoreConversations: true,
+      typedConversations: group && {
+        group,
+        rows: [],
+        hasMore: true,
+        loading: false,
+        error: null,
+      },
     });
-    await this.loadMoreConversations(true);
+    await this.loadMoreTypedConversations(true);
+  }
+  async loadMoreTypedConversations(reset = false): Promise<void> {
+    const typed = this.state.typedConversations;
+    const authentication = this.authenticationNumber;
+    if (
+      !typed ||
+      !this.online ||
+      this.disposed ||
+      !this.state.handshake ||
+      (!reset && (typed.loading || !typed.hasMore))
+    )
+      return;
+    const ticket = ++this.typedListNumber;
+    const patch = (value: Partial<import('./types').TypedConversationList>) =>
+      this.update({
+        typedConversations: { ...this.state.typedConversations!, ...value },
+      });
+    patch({ loading: true, error: null });
+    try {
+      const page = await this.conversationPage(
+        typed.group,
+        reset ? undefined : this.typedCursor,
+      );
+      if (
+        this.disposed ||
+        authentication !== this.authenticationNumber ||
+        ticket !== this.typedListNumber
+      )
+        return;
+      this.typedCursor = page.next_cursor ?? undefined;
+      const rows = new Map(
+        (reset ? [] : this.state.typedConversations!.rows).map((row) => [
+          row.id,
+          row,
+        ]),
+      );
+      page.items.forEach((row) => rows.set(row.id, row));
+      patch({
+        rows: [...rows.values()].slice(-1000),
+        hasMore: page.has_more,
+        loading: false,
+      });
+    } catch (error) {
+      if (
+        authentication !== this.authenticationNumber ||
+        ticket !== this.typedListNumber ||
+        aborted(error) ||
+        this.disposed
+      )
+        return;
+      const safe = clientError(error);
+      if (safe.recovery === 'authenticate' || safe.recovery === 'update')
+        this.failed(error);
+      else patch({ error: safe, loading: false });
+    }
   }
 
+  /**
+   * A conversation was deleted (here or on another client). Drop it from
+   * the list and, when it is the open one, stop observing it and close it
+   * without treating its closed stream as a lost connection.
+   */
+  forgetConversation(id: string): void {
+    if (this.disposed) return;
+    const conversations = this.state.conversations.filter(
+      (row) => row.id !== id,
+    );
+    const typed = this.state.typedConversations;
+    const typedConversations = typed && {
+      ...typed,
+      rows: typed.rows.filter((row) => row.id !== id),
+    };
+    if (this.state.selectedConversationId !== id) {
+      if (
+        conversations.length !== this.state.conversations.length ||
+        typedConversations?.rows.length !== typed?.rows.length
+      )
+        this.update({ conversations, typedConversations });
+      return;
+    }
+    this.selectionNumber += 1;
+    this.historyNumber += 1;
+    this.selection.abort();
+    this.selection = new AbortController();
+    this.stopObservation(true);
+    this.transcriptCursor = undefined;
+    this.transcriptRequest = false;
+    this.drafts.delete(id);
+    this.draftRevisions.delete(id);
+    this.draftStates.delete(id);
+    this.dirtyDrafts.delete(id);
+    this.update({
+      conversations,
+      typedConversations,
+      selectedConversationId: null,
+      conversation: null,
+      projection: null,
+      workspace: null,
+      activity: [],
+      history: null,
+      historyFocus: null,
+      earlier: [],
+      earlierAvailable: false,
+      loadingEarlier: false,
+      loadingConversation: false,
+      hasMoreTranscript: false,
+      ...(this.state.handshake
+        ? { status: 'ready' as const, error: null }
+        : {}),
+    });
+  }
   async selectConversation(id: string): Promise<void> {
     if (this.disposed) return;
     if (!this.online) {
@@ -742,6 +1155,8 @@ export class ClientController {
           selectedConversationId: id,
           conversation: null,
           projection: null,
+          earlier: [],
+          earlierAvailable: false,
           hasMoreTranscript: false,
           loadingConversation: false,
         });
@@ -764,6 +1179,9 @@ export class ClientController {
       activity: [],
       history: null,
       historyFocus: null,
+      earlier: [],
+      earlierAvailable: false,
+      loadingEarlier: false,
       loadingConversation: true,
       hasMoreTranscript: false,
       connection: 'none',
@@ -809,17 +1227,24 @@ export class ClientController {
       )
         throw new Error('protocol_incompatible');
       if (draft && !this.dirtyDrafts.has(id)) {
-        this.drafts.set(id, {
-          text: draft.text,
-          attachments: draft.attachments,
-        });
+        this.adoptSavedDraft(id, draft);
         this.draftRevisions.set(id, draft.revision);
         this.draftStates.set(id, 'saved');
       } else if (draft && !this.draftRevisions.has(id)) {
         this.draftRevisions.set(id, draft.revision);
+        const local = this.drafts.get(id);
         // Typing while the initial read is pending must not strand an unsaved
-        // draft. A pre-existing saved draft needs review before replacement.
-        if (draft.text || draft.attachments.length) {
+        // draft. A pre-existing saved draft needs review before replacement,
+        // unless it already holds exactly what was typed.
+        if (
+          local &&
+          local.text === draft.text &&
+          JSON.stringify(local.attachments) ===
+            JSON.stringify(draft.attachments)
+        ) {
+          this.dirtyDrafts.delete(id);
+          this.draftStates.set(id, 'saved');
+        } else if (draft.text || draft.attachments.length) {
           this.draftStates.set(id, 'conflict');
         } else {
           void this.saveDraft(id);
@@ -833,13 +1258,14 @@ export class ClientController {
         draftStatus: this.draftStates.get(id) ?? 'saved',
         projection: this.pageSnapshot(page),
         hasMoreTranscript: page.has_more,
+        earlierAvailable: Boolean(page.previous_cursor),
         loadingConversation: false,
         status: 'ready',
         error: null,
       });
       if (this.visible) this.beginObservation(id, ticket, true);
     } catch (error) {
-      if (ticket === this.selectionNumber) this.failed(error);
+      if (ticket === this.selectionNumber) this.conversationFailed(id, error);
     }
   }
   private pageSnapshot(page: TranscriptPage): Snapshot {
@@ -894,7 +1320,7 @@ export class ClientController {
         hasMoreTranscript: page.has_more,
       });
     } catch (error) {
-      if (ticket === this.selectionNumber) this.failed(error);
+      if (ticket === this.selectionNumber) this.conversationFailed(id, error);
     } finally {
       if (ticket === this.selectionNumber) this.transcriptRequest = false;
     }
@@ -1064,6 +1490,7 @@ export class ClientController {
     this.metrics.maxBatch = Math.max(this.metrics.maxBatch, 1);
     const activity = [
       'tool.activity',
+      'generation.activity',
       'agent.activity',
       'queue.updated',
       'queue.changed',
@@ -1121,6 +1548,20 @@ export class ClientController {
     let failures = 0;
     let streamFailures = 0;
     let resetsWithoutProgress = 0;
+    // A reset the server asks for (a model switch's resource.changed, the
+    // admission checkpoint) arrives with a newer snapshot. Only resets that
+    // leave the projection where it was are a loop (B109).
+    let installedCut: { epoch: string; revision: bigint } | null = null;
+    const noteSnapshot = (snapshot: Snapshot) => {
+      const revision = BigInt(snapshot.projection_revision);
+      if (
+        installedCut &&
+        (snapshot.server_epoch !== installedCut.epoch ||
+          revision > installedCut.revision)
+      )
+        resetsWithoutProgress = 0;
+      installedCut = { epoch: snapshot.server_epoch, revision };
+    };
     let idle = 2000;
     let acknowledgements: Acknowledgements | null = null;
     const retireObserved = async (subscriptionId: string) => {
@@ -1129,7 +1570,9 @@ export class ClientController {
       // Cancel trailing cuts and drain the issued ACK within its bounded grace
       // before retiring. A cancelled observer aborts that ACK immediately.
       await previous?.close();
-      await this.retireSubscription(subscriptionId);
+      // The replacement subscription does not depend on this DELETE; a failed
+      // retirement is queued and drained after the next authentication.
+      void this.retireSubscription(subscriptionId);
     };
     const alive = () =>
       !signal.aborted && !this.disposed && ticket === this.selectionNumber;
@@ -1166,6 +1609,7 @@ export class ClientController {
               signal,
             );
             cursor = subscription.cursor;
+            noteSnapshot(subscription.snapshot);
             const openedCut = this.state.projection;
             const unchangedOpen =
               firstSubscription &&
@@ -1189,8 +1633,15 @@ export class ClientController {
               subscription.subscription_id,
               cursor,
               signal,
+              this.noticePosition,
             )) {
               if (!alive()) return;
+              if ('notice' in record) {
+                this.receiveNotices(record.notice.notices_epoch, [
+                  record.notice.notice,
+                ]);
+                continue;
+              }
               const disposition =
                 'event' in record ? this.apply(record) : 'reset';
               if (disposition === 'reset') {
@@ -1219,9 +1670,12 @@ export class ClientController {
                 subscription.subscription_id,
                 cursor,
                 signal,
+                this.noticePosition,
               ),
             );
             if (!alive()) return;
+            if (page.notices_epoch)
+              this.receiveNotices(page.notices_epoch, page.notices ?? []);
             this.metrics.polls += 1;
             if (page.snapshot_required) {
               if (!page.snapshot) {
@@ -1234,6 +1688,7 @@ export class ClientController {
                 await retireObserved(previous);
                 continue;
               }
+              noteSnapshot(page.snapshot);
               this.install(page.snapshot, page.snapshot.cursor);
             }
             let reset = false;
@@ -1276,6 +1731,14 @@ export class ClientController {
           const safe = clientError(error);
           if (safe.recovery === 'authenticate' || safe.recovery === 'update') {
             this.failed(error);
+            return;
+          }
+          // The open conversation was deleted: close it, stay connected.
+          if (
+            !subscription &&
+            (safe.code === 'not_found' || safe.code === 'conversation_deleting')
+          ) {
+            this.forgetConversation(id);
             return;
           }
           failures += 1;
@@ -1371,6 +1834,7 @@ export class ClientController {
         );
         if (authentication !== this.authenticationNumber) break;
         this.draftRevisions.set(id, result.revision);
+        this.announceDraft(id, result.revision);
         if (this.drafts.get(id) === draft) {
           this.dirtyDrafts.delete(id);
           this.setDraftStatus(id, 'saved');
@@ -1399,11 +1863,25 @@ export class ClientController {
         this.transport.workspace(id, this.selection.signal),
         this.transport.getConversation(id, this.selection.signal),
       ]);
-      if (ticket === this.selectionNumber && !this.selection.signal.aborted)
-        this.update({ workspace, conversation });
+      if (ticket === this.selectionNumber && !this.selection.signal.aborted) {
+        const replace = (row: import('./types').ConversationView) =>
+          row.id === conversation.id ? conversation : row;
+        const typed = this.state.typedConversations;
+        this.update({
+          workspace,
+          conversation,
+          // The sidebar and header read the listed row, so a name the server
+          // gave the conversation meanwhile shows there too (B230).
+          conversations: this.state.conversations.map(replace),
+          typedConversations: typed && {
+            ...typed,
+            rows: typed.rows.map(replace),
+          },
+        });
+      }
     } catch (error) {
       if (!aborted(error) && ticket === this.selectionNumber)
-        this.failed(error);
+        this.conversationFailed(id, error);
     }
   }
   composer = (
@@ -1453,6 +1931,121 @@ export class ClientController {
   }
   retryDraft(id: string): Promise<void> {
     return this.saveDraft(id);
+  }
+  /**
+   * Another window of this app (the desktop Buddy, a second tab) saved a
+   * draft. Adopt the server copy unless this window has unsaved work or an
+   * unresolved conflict of its own; the server revision stays authoritative.
+   */
+  async refreshDraft(id: string): Promise<boolean> {
+    const settled = () =>
+      !this.dirtyDrafts.has(id) &&
+      !this.draftWrites.has(id) &&
+      this.draftStates.get(id) !== 'conflict';
+    if (
+      this.disposed ||
+      !this.state.handshake ||
+      !this.draftRevisions.has(id) ||
+      !settled()
+    )
+      return false;
+    const authentication = this.authenticationNumber;
+    let saved: import('./types').DraftView | null | undefined;
+    try {
+      saved = await this.savedDraft(id, this.lifetime.signal);
+    } catch {
+      return false;
+    }
+    if (
+      !saved ||
+      saved.conversation_id !== id ||
+      this.disposed ||
+      authentication !== this.authenticationNumber ||
+      !this.draftRevisions.has(id) ||
+      saved.revision === this.draftRevisions.get(id) ||
+      // Typing may have started while the read was in flight.
+      !settled()
+    )
+      return false;
+    this.adoptSavedDraft(id, saved);
+    this.draftRevisions.set(id, saved.revision);
+    this.draftStates.set(id, 'saved');
+    if (this.state.selectedConversationId === id)
+      this.update({ draftStatus: 'saved' });
+    return true;
+  }
+  /**
+   * Take the server copy, keeping the current draft object when its content
+   * is the same: composers clear after Send only if the draft is still the
+   * one they sent, and a re-read of that same text (another window's hint,
+   * a reload) is not a change (B103).
+   */
+  private adoptSavedDraft(
+    id: string,
+    saved: { text: string; attachments: import('./types').AttachmentView[] },
+  ): void {
+    const current = this.drafts.get(id);
+    if (
+      current &&
+      current.text === saved.text &&
+      current.attachments.length === saved.attachments.length &&
+      current.attachments.every(
+        (attachment, index) =>
+          attachment.attachment_ref === saved.attachments[index].attachment_ref,
+      )
+    )
+      return;
+    this.drafts.set(id, { text: saved.text, attachments: saved.attachments });
+  }
+  /**
+   * Same-origin windows tell each other which draft changed (ids only, never
+   * text) so each re-reads the server copy. Returns the unbind function.
+   */
+  bindDraftChannel(channel: DraftChannel): () => void {
+    this.draftChannel?.close();
+    this.draftChannel = channel;
+    const listener = (event: MessageEvent) => {
+      const data: unknown = event.data;
+      if (
+        !data ||
+        typeof data !== 'object' ||
+        (data as { type?: unknown }).type !== 'draft'
+      )
+        return;
+      const { conversationId, instance } = data as {
+        conversationId?: unknown;
+        instance?: unknown;
+      };
+      if (
+        typeof conversationId === 'string' &&
+        conversationId.length <= 256 &&
+        instance === this.state.handshake?.instance_id
+      )
+        void this.refreshDraft(conversationId);
+    };
+    channel.addEventListener('message', listener);
+    return () => {
+      channel.removeEventListener('message', listener);
+      if (this.draftChannel === channel) {
+        this.draftChannel = null;
+        channel.close();
+      }
+    };
+  }
+  private draftChannel: DraftChannel | null = null;
+  private announceDraft(id: string, revision: string): void {
+    const instance = this.state.handshake?.instance_id;
+    if (!instance) return;
+    try {
+      this.draftChannel?.postMessage({
+        type: 'draft',
+        conversationId: id,
+        revision,
+        instance,
+      });
+    } catch {
+      /* A closed channel only costs the other window a focus re-read. */
+    }
   }
   hasUnsavedDraft(): boolean {
     return this.dirtyDrafts.size > 0;
@@ -1518,7 +2111,69 @@ export class ClientController {
   }
   showLatest(): void {
     this.historyNumber += 1;
-    this.update({ history: null, historyFocus: null });
+    const trimmed = this.state.earlier.length > 0;
+    this.update({
+      history: null,
+      historyFocus: null,
+      earlier: [],
+      loadingEarlier: false,
+      // Trimmed rows can be loaded again by scrolling up.
+      earlierAvailable: this.state.earlierAvailable || trimmed,
+    });
+  }
+  /**
+   * Load the rows before the first loaded row and keep them above the live
+   * window. History cursors expire with every new checkpoint, so each read
+   * anchors on the stable message ID of the oldest row already shown.
+   */
+  async loadEarlier(): Promise<void> {
+    const id = this.state.selectedConversationId,
+      selection = this.selectionNumber,
+      ticket = this.historyNumber;
+    const loaded = [
+      ...this.state.earlier,
+      ...(this.state.projection?.rows ?? []),
+    ];
+    const anchor = loaded.find((row) => row.message_id)?.message_id;
+    if (
+      !id ||
+      !anchor ||
+      this.state.history ||
+      this.state.loadingEarlier ||
+      !this.state.earlierAvailable ||
+      this.state.loadingConversation ||
+      this.state.conversation?.id !== id
+    )
+      return;
+    this.update({ loadingEarlier: true });
+    try {
+      const page = await this.query(() =>
+        this.transport.history?.(id, anchor, undefined, this.selection.signal),
+      );
+      if (selection !== this.selectionNumber || ticket !== this.historyNumber)
+        return;
+      if (page.conversation_id !== id) throw new Error('protocol_incompatible');
+      const at = page.rows.findIndex((row) => row.message_id === anchor);
+      const known = new Set(
+        [...this.state.earlier, ...(this.state.projection?.rows ?? [])].map(
+          (row) => row.id,
+        ),
+      );
+      const older = (at < 0 ? [] : page.rows.slice(0, at)).filter(
+        (row) => !known.has(row.id),
+      );
+      this.update({
+        earlier: [...older, ...this.state.earlier],
+        earlierAvailable: at > 0 && Boolean(page.previous_cursor),
+        loadingEarlier: false,
+      });
+    } catch (error) {
+      if (selection !== this.selectionNumber || ticket !== this.historyNumber)
+        return;
+      this.update({ loadingEarlier: false });
+      if (aborted(error)) return;
+      throw error;
+    }
   }
   private async query<T>(operation: () => Promise<T> | undefined): Promise<T> {
     const authentication = this.authenticationNumber;
@@ -1587,6 +2242,8 @@ export class ClientController {
     this.query(() =>
       this.transport.queue?.(conversation, generation, cursor, signal),
     );
+  waitingMessages = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.waitingMessages?.(conversation, signal));
   workspaceFor = (conversation: string, signal?: AbortSignal) =>
     this.query(() => this.transport.workspace?.(conversation, signal));
   steering = (
@@ -1634,6 +2291,42 @@ export class ClientController {
         signal,
       ),
     );
+  /** "Enable in chat" for external MCP tools (B130). */
+  mcpChat = (signal?: AbortSignal) =>
+    this.query(() => this.transport.mcpChat?.(signal));
+  reviewMcpChat = (
+    body: import('./types').McpChatReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewMcpChat?.(body, signal));
+  executeMcpChat = async (
+    original: {
+      command_id: string;
+      type: 'mcp.facade.control';
+      payload: { resource_revision: string; enabled: boolean };
+    },
+    review: { nonce?: string },
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake || !review.nonce)
+      throw clientError({ code: 'approval_expired' });
+    const command = {
+      ...original,
+      client_session_id: handshake.client_session_id,
+      expected_revision: '0',
+      payload: { ...original.payload, nonce: review.nonce },
+    };
+    if (!isCommand(command)) throw clientError({ code: 'invalid_command' });
+    const result = await this.authenticatedResult((signal) =>
+      this.transport.command(null, command, original.command_id, signal),
+    );
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return {
+      command_id: result.command_id,
+      status: result.status,
+      native_mcp: result.native_mcp ?? undefined,
+    };
+  };
   reviewMcpPolicy = (body: unknown, signal?: AbortSignal) => {
     const input = validateWire<import('./types').McpPolicyRequest>(
       'McpPolicyRequest',
@@ -1723,10 +2416,25 @@ export class ClientController {
     this.query(() => this.transport.knowledgeGraph?.(limit, signal));
   monitorSnapshot = (signal?: AbortSignal) =>
     this.query(() => this.transport.monitorSnapshot?.(signal));
+  /** The sidebar's one indicator: problems and an update (rows 12, 13). */
+  attention = (signal?: AbortSignal) =>
+    this.query(() => this.transport.attention?.(signal));
+  /** Every approval waiting for the person, wherever it was raised (B255). */
+  pendingApprovals = (signal?: AbortSignal) =>
+    this.query(() => this.transport.pendingApprovals?.(signal));
   monitorLogs = (limit = 200, signal?: AbortSignal) =>
     this.query(() => this.transport.monitorLogs?.(limit, signal));
   systemDiagnosis = (signal?: AbortSignal) =>
     this.query(() => this.transport.systemDiagnosis?.(signal));
+  /** The last result of every Monitor check, kept by the server (B252). */
+  systemHealth = (signal?: AbortSignal) =>
+    this.query(() => this.transport.systemHealth?.(signal));
+  setHourlyConnectionChecks = (enabled: boolean) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.setHourlyConnectionChecks)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.setHourlyConnectionChecks(enabled, signal);
+    });
   updates = (signal?: AbortSignal) =>
     this.query(() => this.transport.updates?.(signal));
   updateCommand = (command: UpdateCommand, signal?: AbortSignal) =>
@@ -1737,6 +2445,8 @@ export class ClientController {
     this.query(() => this.transport.updateInstall?.(commandId, signal));
   cancelUpdateInstall = (commandId: string, signal?: AbortSignal) =>
     this.query(() => this.transport.cancelUpdateInstall?.(commandId, signal));
+  migrationSources = (signal?: AbortSignal) =>
+    this.query(() => this.transport.migrationSources?.(signal));
   scanMigration = (request: MigrationScanRequest, signal?: AbortSignal) =>
     this.query(() => this.transport.scanMigration?.(request, signal));
   searchSkillHub = (request: SkillHubSearchRequest, signal?: AbortSignal) =>
@@ -1803,6 +2513,53 @@ export class ClientController {
     this.query(() => this.transport.onboarding?.(signal));
   onboardingCommand = (command: OnboardingCommand, signal?: AbortSignal) =>
     this.query(() => this.transport.onboardingCommand?.(command, signal));
+  /** Ollama on this computer: running with models, installed, or not installed. */
+  localRuntime = (signal?: AbortSignal) =>
+    this.query(() => this.transport.localRuntime?.(signal));
+  /** One short message to the model just chosen; the result is in words. */
+  testChosenModel = () =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.testChosenModel)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.testChosenModel(signal);
+    });
+  /** Asks the provider whether a key works; nothing is saved. */
+  checkProviderKey = (providerId: string, value: string) =>
+    this.authenticatedResult((signal) => {
+      if (!this.transport.checkProviderKey)
+        throw clientError({ code: 'capability_unavailable' });
+      return this.transport.checkProviderKey(
+        { provider_id: providerId, value },
+        signal,
+      );
+    });
+  /**
+   * Re-read the model list (and capabilities) on this session: a first model,
+   * a new default or a connected provider changes what the pickers offer.
+   */
+  refreshChoices = async (signal?: AbortSignal): Promise<void> => {
+    const current = this.state.handshake;
+    if (this.disposed || !current) return;
+    const view = validateWire<import('./types').HandshakeView>(
+      'HandshakeView',
+      await this.transport.connect(signal ?? this.lifetime.signal),
+    );
+    const latest = this.state.handshake;
+    if (
+      !latest ||
+      view.client_session_id !== latest.client_session_id ||
+      view.instance_id !== latest.instance_id
+    )
+      return;
+    this.update({
+      handshake: {
+        ...latest,
+        models: view.models,
+        capabilities: view.capabilities,
+        catalog_stale: view.catalog_stale,
+      },
+    });
+  };
   browserPreview = (
     conversationId: string,
     revision: string,
@@ -1994,6 +2751,9 @@ export class ClientController {
   ) => this.query(() => this.transport.reviewChannel?.(body, signal));
   channelReceipt = (channel: string, command: string, signal?: AbortSignal) =>
     this.query(() => this.transport.channelReceipt?.(channel, command, signal));
+  /** WhatsApp's link code: the owner on this computer only (B139). */
+  channelLink = (channel: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.channelLink?.(channel, signal));
   executeChannel = async (original: {
     command_id: string;
     type: string;
@@ -2330,6 +3090,47 @@ export class ClientController {
       throw clientError({ code: 'protocol_incompatible' });
     if (result.status !== 'partial')
       this.browserCommandAttempts.delete(original.command_id);
+    return result;
+  };
+  /** The conversation's computer-use card; this computer's owner only. */
+  computerUse = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.computerUse?.(conversation, signal));
+  computerUsePreview = (
+    conversation: string,
+    revision: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.computerUsePreview?.(conversation, revision, signal),
+    );
+  /** Stop, Pause or Resume. Sending the same command id again only reads
+   * what the first one did. */
+  computerUseCommand = async (
+    conversation: string,
+    type: import('./types').ComputerUseCommand['type'],
+    commandId: string = crypto.randomUUID(),
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').ComputerUseCommand>(
+      'ComputerUseCommand',
+      {
+        command_id: commandId,
+        client_session_id: handshake.client_session_id,
+        type,
+      },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.sendComputerUse)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.sendComputerUse(conversation, command, signal);
+    });
+    if (
+      result.command_id !== commandId ||
+      result.action !== type ||
+      result.conversation_id !== conversation
+    )
+      throw clientError({ code: 'protocol_incompatible' });
     return result;
   };
   goals = (
@@ -3389,6 +4190,14 @@ export class ClientController {
         signal,
       ),
     );
+  artifactPublication = (
+    conversation: string,
+    binding: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactPublication?.(conversation, binding, signal),
+    );
   artifactShareChannels = (cursor?: string, signal?: AbortSignal) =>
     this.query(() => this.transport.artifactShareChannels?.(cursor, signal));
   workspaceImports = (
@@ -3412,6 +4221,53 @@ export class ClientController {
     this.query(() =>
       this.transport.customTools?.(conversation, binding, signal),
     );
+  customToolLibrary = (signal?: AbortSignal) =>
+    this.query(() => this.transport.customToolLibrary?.(signal));
+  customToolLibraryReceipt = (command: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.customToolLibraryReceipt?.(command, signal),
+    );
+  executeCustomToolLibrary = async (
+    original: Omit<
+      import('./types').CustomToolLibraryCommand,
+      'client_session_id'
+    >,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').CustomToolLibraryCommand>(
+      'CustomToolLibraryCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeCustomToolLibrary)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeCustomToolLibrary(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  dataBackup = (signal?: AbortSignal) =>
+    this.query(() => this.transport.dataBackup?.(signal));
+  executeDataBackup = async (
+    original: Omit<import('./types').DataBackupCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').DataBackupCommand>(
+      'DataBackupCommand',
+      { ...original, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.executeDataBackup)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.executeDataBackup(command, signal);
+    });
+    if (result.command_id !== original.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
   insights = (signal?: AbortSignal) =>
     this.query(() => this.transport.insights?.(signal));
   insightReceipt = (command: string, signal?: AbortSignal) =>
@@ -3751,6 +4607,50 @@ export class ClientController {
     this.query(() =>
       this.transport.artifactExport?.(conversation, binding, exportId, signal),
     );
+  suggestArtifactBrand = (
+    conversation: string,
+    binding: string,
+    body: import('./types').ArtifactBrandSuggestionRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.suggestArtifactBrand?.(
+        conversation,
+        binding,
+        body,
+        signal,
+      ),
+    );
+  saveArtifactExport = (
+    conversation: string,
+    binding: string,
+    exportId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.saveArtifactExport?.(
+        conversation,
+        binding,
+        exportId,
+        signal,
+      ),
+    );
+  revealArtifactExport = (
+    conversation: string,
+    binding: string,
+    exportId: string,
+    body: import('./types').ArtifactExportReveal,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.revealArtifactExport?.(
+        conversation,
+        binding,
+        exportId,
+        body,
+        signal,
+      ),
+    );
   artifactDownload = (
     conversation: string,
     binding: string,
@@ -3881,6 +4781,9 @@ export class ClientController {
   ) => this.query(() => this.transport.artifactSetup?.(mode, signal));
   pickFolder = (signal?: AbortSignal) =>
     this.query(() => this.transport.pickFolder?.(signal));
+  /** A setting's folder picked in the desktop window, as a session grant (B280). */
+  claimFolder = (reference: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.claimFolder?.(reference, signal));
   artifactPreview = (
     conversation: string,
     binding: string,
@@ -3935,6 +4838,20 @@ export class ClientController {
   ) =>
     this.query(() =>
       this.transport.designControls?.(conversation, binding, options, signal),
+    );
+  designAssetThumbnail = (
+    conversation: string,
+    binding: string,
+    asset: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.designAssetThumbnail?.(
+        conversation,
+        binding,
+        asset,
+        signal,
+      ),
     );
   designReview = (
     conversation: string,
@@ -4133,12 +5050,30 @@ export class ClientController {
     this.query(() =>
       this.transport.content?.(conversation, message, cursor, signal),
     );
-  async intent(
+  intent(
     target: string | null,
     type: Command['type'],
     payload: object,
     revision: string,
     identity: string = crypto.randomUUID(),
+  ): Promise<CommandReceipt> {
+    const run = this.runIntent(target, type, payload, revision, identity);
+    if (type === 'conversation.controls' && target) {
+      this.controlSaves.set(target, run);
+      const forget = () => {
+        if (this.controlSaves.get(target) === run)
+          this.controlSaves.delete(target);
+      };
+      run.then(forget, forget);
+    }
+    return run;
+  }
+  private async runIntent(
+    target: string | null,
+    type: Command['type'],
+    payload: object,
+    revision: string,
+    identity: string,
   ): Promise<CommandReceipt> {
     const session = this.state.handshake?.client_session_id;
     if (!session) throw clientError({ code: 'authentication_required' });
@@ -4155,10 +5090,24 @@ export class ClientController {
     await this.loadMoreConversations(true);
     return receipt;
   }
+  // Model, mode and profile changes still saving, per conversation. A send
+  // waits for them so it carries the new choice and the revision it made
+  // instead of being refused as out of date (B109).
+  private controlSaves = new Map<string, Promise<CommandReceipt>>();
+  /** Resolves once no conversation-controls change is still saving. */
+  async controlsSettled(conversation: string): Promise<void> {
+    let pending = this.controlSaves.get(conversation);
+    while (pending) {
+      await pending.catch(() => undefined);
+      const next = this.controlSaves.get(conversation);
+      pending = next === pending ? undefined : next;
+    }
+  }
 
   setVisible(visible: boolean): void {
     if (visible === this.visible || this.disposed) return;
     this.visible = visible;
+    if (visible) this.scheduleRecovery();
     if (!visible) {
       this.stopObservation();
       this.update({ connection: 'none' });
@@ -4417,9 +5366,14 @@ export class ClientController {
       signal,
     );
   }
-  upload(conversation: string, file: File, signal?: AbortSignal) {
+  upload(
+    conversation: string,
+    file: File,
+    signal?: AbortSignal,
+    progress?: (sent: number) => void,
+  ) {
     return this.authenticatedResult(
-      (current) => this.transport.upload(conversation, file, current),
+      (current) => this.transport.upload(conversation, file, current, progress),
       signal,
     );
   }
@@ -4427,6 +5381,12 @@ export class ClientController {
     return this.authenticatedResult(
       (current) => this.transport.attachmentMetadata(reference, current),
       signal,
+    );
+  }
+  /** The composer's tile picture of an image attachment (B232). */
+  attachmentThumbnail(reference: string, signal?: AbortSignal) {
+    return this.query(() =>
+      this.transport.attachmentThumbnail?.(reference, signal),
     );
   }
   terminalRead(terminal: string, cursor: number, signal?: AbortSignal) {
@@ -4464,9 +5424,21 @@ export class ClientController {
       signal,
     );
   }
+  /** Desktop app: a conversation export saved into Exports by the server (B238). */
+  saveToExports = (reference: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.saveAttachmentExport?.(reference, signal));
+  revealExport = (fileName: string, signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.revealExport?.({ file_name: fileName }, signal),
+    );
   dispose(): void {
     this.stopObservation(true);
     this.disposed = true;
+    this.cancelRecovery();
+    this.unsavedDrafts.clear();
+    if (this.noticeTimer) clearInterval(this.noticeTimer);
+    this.noticeTimer = null;
+    this.noticeListeners.clear();
     this.lifetime.abort();
     this.selection.abort();
     this.transport.clearSession();
@@ -4476,5 +5448,7 @@ export class ClientController {
     this.seen.clear();
     this.sequences.clear();
     this.retiredSubscriptions.clear();
+    this.draftChannel?.close();
+    this.draftChannel = null;
   }
 }

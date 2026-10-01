@@ -1,10 +1,18 @@
 import {
+  cloneElement,
   forwardRef,
+  Fragment,
+  isValidElement,
   useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
   type SelectHTMLAttributes,
@@ -13,7 +21,18 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { ChevronDown, AlertCircle, Info, Check } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  AlertCircle,
+  Info,
+  Check,
+  Copy,
+  MoreHorizontal,
+  Search,
+  type LucideIcon,
+} from 'lucide-react';
+import { ariaKeyShortcut, shortcutKeys, type ShortcutPlatform } from './format';
 export { Brand } from './Brand';
 
 export const Button = forwardRef<
@@ -108,9 +127,6 @@ export const Toggle = forwardRef<
         {...props}
       />
       <span className="toggle-track" aria-hidden="true" />
-      <span className="toggle-state" aria-hidden="true">
-        {checked ? 'On' : 'Off'}
-      </span>
     </span>
   );
 });
@@ -119,18 +135,52 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
     <select {...props} className={`input select ${props.className ?? ''}`} />
   );
 }
+type ControlProps = { id?: string; 'aria-describedby'?: string };
+
 export function Field({
   label,
   children,
   hint,
+  layout = 'stack',
+  labelAddon,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  /** "row": label and help on the left, the control on the right. */
+  layout?: 'stack' | 'row';
+  /** Shown after the label text; keep it aria-hidden (e.g. a "modified" dot). */
+  labelAddon?: ReactNode;
 }) {
+  const id = useId();
+  if (layout === 'row' && isValidElement<ControlProps>(children)) {
+    // Row fields label the control by id and describe it with the hint, so
+    // the hint is a description rather than part of the control's name.
+    const controlId = children.props.id ?? `${id}-control`;
+    const hintId = hint ? `${id}-hint` : undefined;
+    const describedBy =
+      [children.props['aria-describedby'], hintId].filter(Boolean).join(' ') ||
+      undefined;
+    return (
+      <div className="field is-row">
+        <label className="field-label" htmlFor={controlId}>
+          {label}
+          {labelAddon}
+        </label>
+        {cloneElement(children, {
+          id: controlId,
+          'aria-describedby': describedBy,
+        })}
+        {hint && <small id={hintId}>{hint}</small>}
+      </div>
+    );
+  }
   return (
-    <label className="field">
-      <span>{label}</span>
+    <label className={`field ${layout === 'row' ? 'is-row' : ''}`}>
+      <span className="field-label">
+        {label}
+        {labelAddon}
+      </span>
       {children}
       {hint && <small>{hint}</small>}
     </label>
@@ -138,16 +188,23 @@ export function Field({
 }
 export function Hint({
   label,
+  shortcut,
   children,
 }: {
   label: string;
+  /** Optional shortcut such as "Mod+K", shown as keycaps after the label. */
+  shortcut?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // Opened by keyboard focus, the label stays until blur; it must not catch
+  // a click meant for a control it covers (a hover label stays hoverable).
+  const [fromFocus, setFromFocus] = useState(false);
   const focusOwned = useRef(false);
   const pointerDown = useRef(false);
   const dismiss = () => {
     focusOwned.current = false;
+    setFromFocus(false);
     setOpen(false);
   };
   return (
@@ -166,6 +223,7 @@ export function Hint({
           onFocus={() => {
             if (!pointerDown.current) {
               focusOwned.current = true;
+              setFromFocus(true);
               setOpen(true);
             }
           }}
@@ -191,12 +249,14 @@ export function Hint({
           <div className="tooltip-layer">
             <Tooltip.Content
               className="tooltip"
+              data-origin={fromFocus ? 'focus' : 'pointer'}
               sideOffset={6}
               collisionPadding={12}
               onEscapeKeyDown={dismiss}
               onPointerDownOutside={dismiss}
             >
               {label}
+              {shortcut && <Kbd keys={shortcut} className="tooltip-kbd" />}
             </Tooltip.Content>
           </div>
         </Tooltip.Portal>
@@ -208,9 +268,31 @@ export type MenuAction = {
   label: string;
   onSelect: (opener: HTMLButtonElement | null) => void;
   disabled?: boolean;
+  /** Destructive actions render last, in red, after a separator. */
   danger?: boolean;
   selected?: boolean;
+  /** A 16px monochrome glyph shown before the label. */
+  icon?: ReactNode;
+  /** A shortcut such as "Mod+K", shown as keycaps at the end of the row. */
+  shortcut?: string;
+  /** Start a new group: a separator is drawn above this item. */
+  separatorBefore?: boolean;
+  /**
+   * Runs once the menu has closed and released focus, instead of returning
+   * focus to the trigger: for items that move focus themselves (a rename
+   * field). The menu's focus trap would otherwise pull focus back.
+   */
+  afterClose?: () => void;
 };
+
+/** One order for every menu: groups as given, destructive actions last. */
+export function orderMenuActions(actions: MenuAction[]): MenuAction[] {
+  const safe = actions.filter((action) => !action.danger);
+  const danger = actions.filter((action) => action.danger);
+  return safe.length && danger.length
+    ? [...safe, { ...danger[0], separatorBefore: true }, ...danger.slice(1)]
+    : actions;
+}
 export function Menu({
   label,
   actions,
@@ -235,6 +317,7 @@ export function Menu({
   iconOnly?: boolean;
 }) {
   const opener = useRef<HTMLButtonElement>(null);
+  const afterClose = useRef<(() => void) | null>(null);
   const trigger = (
     <Dropdown.Trigger asChild>
       <Button
@@ -262,27 +345,63 @@ export function Menu({
           className="menu surface-effect"
           sideOffset={6}
           collisionPadding={12}
+          ref={(node) => {
+            // Long menus scroll inside the viewport (B3); reveal the current
+            // choice once placement has applied the available-height bound.
+            if (!node) return;
+            requestAnimationFrame(() =>
+              node
+                .querySelector<HTMLElement>('[aria-current="true"]')
+                ?.scrollIntoView?.({ block: 'nearest' }),
+            );
+          }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
+            const next = afterClose.current;
+            afterClose.current = null;
+            if (next) {
+              next();
+              return;
+            }
             const target = focusAfterClose?.() ?? opener.current;
             if (target?.isConnected) target.focus({ preventScroll: true });
           }}
         >
-          {actions.map((action) => (
-            <Dropdown.Item
-              key={action.label}
-              className={`menu-item ${action.danger ? 'danger-text' : ''}`}
-              disabled={action.disabled}
-              aria-current={action.selected ? true : undefined}
-              onSelect={() => {
-                // A modal menu can trap focus until it unmounts. Pass the
-                // connected trigger explicitly to any task opened by an item.
-                action.onSelect(opener.current);
-              }}
-            >
-              {action.label}
-              {action.selected && <Check size={16} aria-hidden />}
-            </Dropdown.Item>
+          {orderMenuActions(actions).map((action, index) => (
+            <Fragment key={action.label}>
+              {action.separatorBefore && index > 0 && (
+                <Dropdown.Separator className="menu-separator" />
+              )}
+              <Dropdown.Item
+                className={`menu-item ${action.icon || action.shortcut ? 'menu-item-rich' : ''} ${action.danger ? 'danger-text' : ''}`}
+                disabled={action.disabled}
+                aria-current={action.selected ? true : undefined}
+                aria-keyshortcuts={
+                  action.shortcut ? ariaKeyShortcut(action.shortcut) : undefined
+                }
+                onSelect={() => {
+                  // A modal menu can trap focus until it unmounts. Pass the
+                  // connected trigger explicitly to any task opened by an item.
+                  afterClose.current = action.afterClose ?? null;
+                  action.onSelect(opener.current);
+                }}
+              >
+                {action.icon && (
+                  <span className="menu-item-icon" aria-hidden>
+                    {action.icon}
+                  </span>
+                )}
+                <span className="menu-item-label">{action.label}</span>
+                {action.shortcut && (
+                  // Announced through aria-keyshortcuts; the keycaps stay
+                  // out of the item's accessible name.
+                  <span className="menu-item-kbd" aria-hidden>
+                    <Kbd keys={action.shortcut} />
+                  </span>
+                )}
+                {action.selected && <Check size={16} aria-hidden />}
+              </Dropdown.Item>
+            </Fragment>
           ))}
         </Dropdown.Content>
       </Dropdown.Portal>
@@ -322,14 +441,21 @@ export function Tabs({
   value,
   onChange,
   items,
+  className,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   items: { id: string; label: ReactNode; content: ReactNode }[];
+  /** Root class, for surfaces that lay the tabs out themselves (Home). */
+  className?: string;
 }) {
   return (
-    <TabsPrimitive.Root value={value} onValueChange={onChange}>
+    <TabsPrimitive.Root
+      className={className}
+      value={value}
+      onValueChange={onChange}
+    >
       <TabsPrimitive.List className="tabs" aria-label={label}>
         {items.map((item) => (
           <TabsPrimitive.Trigger className="tab" key={item.id} value={item.id}>
@@ -431,5 +557,945 @@ export function Surface({
     <section className={`surface ${elevated ? 'surface-effect' : ''}`}>
       {children}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Polish foundation primitives. Quiet by default: icons for verbs with a
+// tooltip and shortcut, status as shape plus text, detail behind disclosure.
+// ---------------------------------------------------------------------------
+
+/** Keycaps for a shortcut such as "Mod+K" (⌘K on macOS, Ctrl K elsewhere). */
+export function Kbd({
+  keys,
+  platform,
+  className = '',
+}: {
+  keys: string;
+  platform?: ShortcutPlatform;
+  className?: string;
+}) {
+  return (
+    <kbd className={`kbd ${className}`}>
+      {shortcutKeys(keys, platform).map((key, index) => (
+        <kbd key={`${index}:${key}`}>{key}</kbd>
+      ))}
+    </kbd>
+  );
+}
+
+export type IconButtonProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'aria-label'
+> & {
+  /** Required accessible name; also the tooltip text. */
+  label: string;
+  shortcut?: string;
+  size?: 'sm' | 'md';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  pressed?: boolean;
+  /** Set false only when a surrounding control already shows the label. */
+  tooltip?: boolean;
+};
+
+/** 28px (sm) or 32px (md) icon action on fine pointers, 44px on touch. */
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
+  function IconButton(
+    {
+      label,
+      shortcut,
+      size = 'md',
+      variant = 'ghost',
+      pressed,
+      tooltip = true,
+      className = '',
+      children,
+      ...props
+    },
+    ref,
+  ) {
+    const button = (
+      <Button
+        ref={ref}
+        iconOnly
+        variant={variant}
+        aria-label={label}
+        aria-keyshortcuts={shortcut ? ariaKeyShortcut(shortcut) : undefined}
+        aria-pressed={pressed}
+        className={`icon-action icon-action-${size} ${className}`}
+        {...props}
+      >
+        {children}
+      </Button>
+    );
+    return tooltip ? (
+      <Hint label={label} shortcut={shortcut}>
+        {button}
+      </Hint>
+    ) : (
+      button
+    );
+  },
+);
+
+export type Tone =
+  'neutral' | 'accent' | 'info' | 'success' | 'warning' | 'danger';
+
+/** Status as shape, then word. The label is always available to assistive tech. */
+/**
+ * A small circular progress for counted work ("4 of 11 areas handled"). The
+ * count sits in the middle; the label names it for assistive technology.
+ */
+export function ProgressRing({
+  value,
+  total,
+  label,
+  size = 48,
+}: {
+  value: number;
+  total: number;
+  /** Spoken as the value text, e.g. "4 of 11 areas handled". */
+  label: string;
+  size?: number;
+}) {
+  const stroke = 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const done = total > 0 ? Math.min(1, Math.max(0, value / total)) : 1;
+  return (
+    <span
+      className="progress-ring"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={Math.min(value, total)}
+      aria-valuetext={label}
+      data-complete={done >= 1 ? 'true' : undefined}
+      style={{ width: size, height: size }}
+    >
+      <svg viewBox={`0 0 ${size} ${size}`} aria-hidden>
+        <circle
+          className="progress-ring-track"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={stroke}
+        />
+        <circle
+          className="progress-ring-value"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={stroke}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - done)}
+        />
+      </svg>
+      <span className="progress-ring-count" aria-hidden>
+        {Math.min(value, total)}
+        <small>/{total}</small>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A copy icon that turns into a check drawn in one stroke after a successful
+ * copy. Reduced motion shows the finished check at once.
+ */
+export function CopyGlyph({
+  copied,
+  size = 15,
+  idle: Idle = Copy,
+}: {
+  copied: boolean;
+  size?: number;
+  /** The resting icon when it is not a plain copy glyph (e.g. a table). */
+  idle?: LucideIcon;
+}) {
+  return copied ? (
+    <Check size={size} className="icon-draw" aria-hidden />
+  ) : (
+    <Idle size={size} aria-hidden />
+  );
+}
+
+/** `copied` stays true for a short moment after `markCopied()`. */
+export function useCopyFeedback(duration = 1600) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), duration);
+    return () => window.clearTimeout(timer);
+  }, [copied, duration]);
+  return [copied, setCopied] as const;
+}
+
+export function StatusDot({
+  tone = 'neutral',
+  label,
+  showLabel = false,
+  pulse = false,
+  className = '',
+}: {
+  tone?: Tone;
+  label: string;
+  showLabel?: boolean;
+  pulse?: boolean;
+  className?: string;
+}) {
+  return (
+    <span className={`status-indicator ${className}`} data-tone={tone}>
+      <span
+        className="status-indicator-dot"
+        data-pulse={pulse ? 'true' : undefined}
+        aria-hidden
+      />
+      <span
+        className={showLabel ? 'status-indicator-label' : 'visually-hidden'}
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
+
+export type SegmentedOption<T extends string> = {
+  value: T;
+  label: string;
+  icon?: ReactNode;
+  /** Icon-only option: the label stays as its accessible name and tooltip. */
+  hideLabel?: boolean;
+  disabled?: boolean;
+};
+
+/** A single-choice radio group styled as a compact segmented control. */
+export function Segmented<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  size = 'md',
+  className = '',
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: SegmentedOption<T>[];
+  size?: 'sm' | 'md';
+  className?: string;
+}) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const checkedIndex = options.findIndex((option) => option.value === value);
+  const tabbable =
+    checkedIndex >= 0 && !options[checkedIndex].disabled
+      ? checkedIndex
+      : options.findIndex((option) => !option.disabled);
+  const move = (from: number, step: number | 'first' | 'last') => {
+    const enabled = options
+      .map((option, index) => (option.disabled ? -1 : index))
+      .filter((index) => index >= 0);
+    if (!enabled.length) return;
+    let target: number;
+    if (step === 'first') target = enabled[0];
+    else if (step === 'last') target = enabled[enabled.length - 1];
+    else {
+      const position = Math.max(0, enabled.indexOf(from));
+      target = enabled[(position + step + enabled.length) % enabled.length];
+    }
+    refs.current[target]?.focus();
+    onChange(options[target].value);
+  };
+  const keyDown = (event: ReactKeyboardEvent, index: number) => {
+    const step =
+      event.key === 'ArrowRight' || event.key === 'ArrowDown'
+        ? 1
+        : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+          ? -1
+          : event.key === 'Home'
+            ? 'first'
+            : event.key === 'End'
+              ? 'last'
+              : null;
+    if (step === null) return;
+    event.preventDefault();
+    move(index, step);
+  };
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={`segmented segmented-${size} ${className}`}
+    >
+      {options.map((option, index) => {
+        const checked = option.value === value;
+        const button = (
+          <button
+            key={option.value}
+            ref={(element) => {
+              refs.current[index] = element;
+            }}
+            type="button"
+            role="radio"
+            className="segmented-option"
+            aria-checked={checked}
+            aria-label={option.hideLabel ? option.label : undefined}
+            tabIndex={index === tabbable ? 0 : -1}
+            disabled={option.disabled}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => keyDown(event, index)}
+          >
+            {option.icon}
+            {!option.hideLabel && <span>{option.label}</span>}
+          </button>
+        );
+        return option.hideLabel ? (
+          <Hint key={option.value} label={option.label}>
+            {button}
+          </Hint>
+        ) : (
+          button
+        );
+      })}
+    </div>
+  );
+}
+
+/** Native details/summary with a rotating chevron; use for "Advanced" sections. */
+export function Disclosure({
+  summary,
+  meta,
+  children,
+  open,
+  defaultOpen,
+  onOpenChange,
+  className = '',
+}: {
+  summary: ReactNode;
+  meta?: ReactNode;
+  children: ReactNode;
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  className?: string;
+}) {
+  // `defaultOpen` opens it (again) when it turns true; it never closes it
+  // under the person, e.g. while a confirmation inside is still showing (B168).
+  const details = useRef<HTMLDetailsElement>(null);
+  useLayoutEffect(() => {
+    if (open === undefined && defaultOpen && details.current)
+      details.current.open = true;
+  }, [open, defaultOpen]);
+  return (
+    <details
+      ref={details}
+      className={`disclosure ${className}`}
+      open={open}
+      onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
+    >
+      <summary className="disclosure-summary">
+        <ChevronRight className="disclosure-chevron" size={14} aria-hidden />
+        {summary}
+        {meta != null && <span className="disclosure-meta">{meta}</span>}
+      </summary>
+      <div className="disclosure-body">{children}</div>
+    </details>
+  );
+}
+
+/** Label and help on the left, one control on the right. */
+export function SettingRow({
+  label,
+  description,
+  htmlFor,
+  control,
+  children,
+  modified = false,
+  className = '',
+}: {
+  label: ReactNode;
+  description?: ReactNode;
+  /** Id of a native control so the visible label also names it. */
+  htmlFor?: string;
+  control?: ReactNode;
+  children?: ReactNode;
+  modified?: boolean;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <div
+      className={`ui-setting-row ${className}`}
+      role="group"
+      aria-labelledby={`${id}-label`}
+      aria-describedby={description ? `${id}-help` : undefined}
+    >
+      <div className="setting-row-text">
+        {htmlFor ? (
+          <label
+            id={`${id}-label`}
+            htmlFor={htmlFor}
+            className="setting-row-label"
+          >
+            {label}
+          </label>
+        ) : (
+          <span id={`${id}-label`} className="setting-row-label">
+            {label}
+          </span>
+        )}
+        {modified && (
+          <StatusDot
+            tone="accent"
+            label="Modified"
+            className="setting-row-modified"
+          />
+        )}
+        {description && (
+          <p id={`${id}-help`} className="setting-row-help">
+            {description}
+          </p>
+        )}
+      </div>
+      <div className="setting-row-control">{control ?? children}</div>
+    </div>
+  );
+}
+
+export function EntityList({
+  label,
+  children,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <ul className={`entity-list ${className}`} aria-label={label}>
+      {children}
+    </ul>
+  );
+}
+
+/** Logo, name, status and meta, one primary action, a ⋯ menu and inline detail. */
+export function EntityRow({
+  title,
+  icon,
+  status,
+  meta,
+  action,
+  menu,
+  menuLabel,
+  details,
+  expanded,
+  defaultExpanded = false,
+  onExpandedChange,
+  className = '',
+}: {
+  title: string;
+  icon?: ReactNode;
+  status?: { tone: Tone; label: string };
+  meta?: ReactNode;
+  action?: ReactNode;
+  menu?: MenuAction[];
+  menuLabel?: string;
+  details?: ReactNode;
+  expanded?: boolean;
+  defaultExpanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  className?: string;
+}) {
+  const id = useId();
+  const [localExpanded, setLocalExpanded] = useState(defaultExpanded);
+  const open = expanded ?? localExpanded;
+  const toggle = () => {
+    setLocalExpanded(!open);
+    onExpandedChange?.(!open);
+  };
+  return (
+    <li
+      className={`entity-row ${className}`}
+      data-expanded={open ? 'true' : undefined}
+    >
+      <div className="entity-row-main">
+        {icon && (
+          <span className="entity-row-icon" aria-hidden>
+            {icon}
+          </span>
+        )}
+        <div className="entity-row-text">
+          <span className="entity-row-title">{title}</span>
+          {(status || meta) && (
+            <span className="entity-row-meta">
+              {status && <StatusDot {...status} showLabel />}
+              {meta && <span>{meta}</span>}
+            </span>
+          )}
+        </div>
+        <div className="entity-row-actions">
+          {action}
+          {!!menu?.length && (
+            <Menu
+              label={menuLabel ?? `More actions for ${title}`}
+              actions={menu}
+              iconOnly
+              variant="ghost"
+              className="icon-action icon-action-sm"
+            >
+              <MoreHorizontal size={16} aria-hidden />
+            </Menu>
+          )}
+          {details && (
+            <IconButton
+              size="sm"
+              label={
+                open ? `Hide details for ${title}` : `Show details for ${title}`
+              }
+              aria-expanded={open}
+              aria-controls={`${id}-details`}
+              onClick={toggle}
+            >
+              <ChevronDown
+                className="entity-row-chevron"
+                size={16}
+                aria-hidden
+              />
+            </IconButton>
+          )}
+        </div>
+      </div>
+      {details && (
+        <div id={`${id}-details`} className="entity-row-details" hidden={!open}>
+          {details}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export function StatGroup({
+  label,
+  children,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <dl className={`stat-group ${className}`} aria-label={label}>
+      {children}
+    </dl>
+  );
+}
+
+/** One metric inside a StatGroup: label, tabular value, optional delta. */
+export function Stat({
+  label,
+  value,
+  unit,
+  delta,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: ReactNode;
+  unit?: string;
+  delta?: string;
+  tone?: Tone;
+}) {
+  return (
+    <div className="stat">
+      <dt className="stat-label">{label}</dt>
+      <dd className="stat-value">
+        {value}
+        {unit && <small>{unit}</small>}
+        {delta && (
+          <span className="stat-delta" data-tone={tone}>
+            {delta}
+          </span>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/** A one-line, muted empty state for sections inside dense surfaces. */
+export function InlineEmpty({
+  icon,
+  children,
+  action,
+  className = '',
+}: {
+  icon?: ReactNode;
+  children: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`inline-empty ${className}`}>
+      {icon && (
+        <span className="inline-empty-icon" aria-hidden>
+          {icon}
+        </span>
+      )}
+      <span>{children}</span>
+      {action}
+    </div>
+  );
+}
+
+const TOOLBAR_ITEMS = [
+  'button:not([disabled]):not([role="radio"])',
+  '[role="radio"][tabindex="0"]',
+  'a[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+].join(', ');
+
+/** Toolbar (floating glass on canvases); arrow keys move between controls. */
+export function Toolbar({
+  label,
+  children,
+  orientation = 'horizontal',
+  floating = false,
+  placement,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  orientation?: 'horizontal' | 'vertical';
+  floating?: boolean;
+  placement?:
+    | 'top-left'
+    | 'top-center'
+    | 'top-right'
+    | 'bottom-left'
+    | 'bottom-center'
+    | 'bottom-right';
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={ref}
+      role="toolbar"
+      aria-label={label}
+      aria-orientation={orientation}
+      data-placement={placement}
+      className={`ui-toolbar ${floating ? 'ui-toolbar-floating' : ''} ${className}`}
+      onKeyDown={(event) => {
+        const forward =
+          orientation === 'horizontal' ? 'ArrowRight' : 'ArrowDown';
+        const backward = orientation === 'horizontal' ? 'ArrowLeft' : 'ArrowUp';
+        const step =
+          event.key === forward
+            ? 1
+            : event.key === backward
+              ? -1
+              : event.key === 'Home'
+                ? 'first'
+                : event.key === 'End'
+                  ? 'last'
+                  : null;
+        const target = event.target as HTMLElement;
+        // Segmented groups and text fields keep their own arrow keys.
+        if (
+          step === null ||
+          !ref.current ||
+          target.closest('[role="radiogroup"]') ||
+          target.matches('input, select, textarea')
+        )
+          return;
+        const items = Array.from(
+          ref.current.querySelectorAll<HTMLElement>(TOOLBAR_ITEMS),
+        );
+        const current = items.indexOf(target);
+        if (current < 0) return;
+        event.preventDefault();
+        const next =
+          step === 'first'
+            ? 0
+            : step === 'last'
+              ? items.length - 1
+              : (current + step + items.length) % items.length;
+        items[next]?.focus();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function ToolbarSeparator() {
+  return <span className="ui-toolbar-separator" aria-hidden />;
+}
+
+export type ComboboxOption = {
+  value: string;
+  label: string;
+  group?: string;
+  description?: string;
+  keywords?: string[];
+  disabled?: boolean;
+  icon?: ReactNode;
+  meta?: ReactNode;
+  /** How the label looks, e.g. a font's name shown in that font. */
+  labelStyle?: CSSProperties;
+};
+
+function comboboxMatches(option: ComboboxOption, query: string) {
+  const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const haystack = [
+    option.label,
+    option.group,
+    option.description,
+    ...(option.keywords ?? []),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLocaleLowerCase();
+  return terms.every((term) => haystack.includes(term));
+}
+
+/**
+ * Searchable single-choice picker for large sets (models, conversations).
+ * Short enums keep the native `Select`.
+ */
+export function Combobox({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+  emptyText = 'No matches',
+  disabled = false,
+  className = '',
+  icon,
+  footer,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (value: string) => void;
+  options: ComboboxOption[];
+  placeholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+  icon?: ReactNode;
+  footer?: ReactNode;
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+  const filtered = useMemo(
+    () => options.filter((option) => comboboxMatches(option, query)),
+    [options, query],
+  );
+  const enabled = filtered.filter((option) => !option.disabled);
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const byGroup = new Map<string, ComboboxOption[]>();
+    for (const option of filtered) {
+      const group = option.group ?? '';
+      if (!byGroup.has(group)) {
+        byGroup.set(group, []);
+        order.push(group);
+      }
+      byGroup.get(group)!.push(option);
+    }
+    return order.map((group) => ({ group, items: byGroup.get(group)! }));
+  }, [filtered]);
+  const indexOf = useMemo(
+    () => new Map(options.map((option, index) => [option.value, index])),
+    [options],
+  );
+  const optionId = (optionValue: string) =>
+    `${id}-option-${indexOf.get(optionValue) ?? 0}`;
+  const activeOption =
+    enabled.find((option) => option.value === active) ?? enabled[0] ?? null;
+  const activeId = activeOption ? optionId(activeOption.value) : undefined;
+  useEffect(() => {
+    if (!open || !activeId) return;
+    list.current
+      ?.querySelector<HTMLElement>(`[id="${activeId}"]`)
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeId]);
+  const choose = (option: ComboboxOption) => {
+    if (option.disabled) return;
+    onChange(option.value);
+    setOpen(false);
+  };
+  const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || !enabled.length) return;
+    const index = activeOption ? enabled.indexOf(activeOption) : -1;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      setActive(
+        enabled[(index + step + enabled.length) % enabled.length].value,
+      );
+    } else if (event.key === 'PageDown' || event.key === 'PageUp') {
+      event.preventDefault();
+      const step = event.key === 'PageDown' ? 8 : -8;
+      setActive(
+        enabled[Math.max(0, Math.min(enabled.length - 1, index + step))].value,
+      );
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      if (activeOption) choose(activeOption);
+    }
+  };
+  const renderOption = (option: ComboboxOption) => (
+    <div
+      key={option.value}
+      id={optionId(option.value)}
+      role="option"
+      className="combobox-option"
+      aria-selected={option.value === activeOption?.value}
+      aria-disabled={option.disabled || undefined}
+      data-current={option.value === value ? 'true' : undefined}
+      onMouseDown={(event) => event.preventDefault()}
+      onMouseMove={() => {
+        if (!option.disabled && active !== option.value)
+          setActive(option.value);
+      }}
+      onClick={() => choose(option)}
+    >
+      {option.icon && (
+        <span className="combobox-option-icon" aria-hidden>
+          {option.icon}
+        </span>
+      )}
+      <span className="combobox-option-text">
+        <span className="combobox-option-label" style={option.labelStyle}>
+          {option.label}
+        </span>
+        {option.description && (
+          <small className="combobox-option-description">
+            {option.description}
+          </small>
+        )}
+      </span>
+      {option.meta && (
+        <span className="combobox-option-meta">{option.meta}</span>
+      )}
+      {option.value === value && (
+        <Check
+          className="combobox-option-check"
+          size={14}
+          role="img"
+          aria-label="Current"
+        />
+      )}
+    </div>
+  );
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setQuery('');
+        setActive(next ? value : null);
+      }}
+    >
+      <Popover.Trigger asChild>
+        <Button
+          variant="ghost"
+          className={`combobox-trigger ${className}`}
+          aria-label={label}
+          aria-haspopup="listbox"
+          aria-describedby={`${id}-value`}
+          disabled={disabled}
+        >
+          {icon}
+          <span
+            id={`${id}-value`}
+            className="combobox-value"
+            style={selected?.labelStyle}
+          >
+            {selected?.label ?? placeholder ?? 'Choose'}
+          </span>
+          <ChevronDown size={14} aria-hidden />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className="combobox-popover surface-effect"
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+          aria-label={label}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            input.current?.focus();
+          }}
+        >
+          <div className="combobox-search">
+            <Search size={14} aria-hidden />
+            <input
+              ref={input}
+              className="combobox-input"
+              role="combobox"
+              aria-label={`Search ${label.toLocaleLowerCase()}`}
+              aria-expanded
+              aria-controls={`${id}-listbox`}
+              aria-autocomplete="list"
+              aria-activedescendant={activeId}
+              placeholder={`Search ${label.toLocaleLowerCase()}`}
+              value={query}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(null);
+              }}
+              onKeyDown={keyDown}
+            />
+          </div>
+          <div
+            ref={list}
+            id={`${id}-listbox`}
+            role="listbox"
+            aria-label={label}
+            className="combobox-list"
+          >
+            {groups.map(({ group, items }, groupIndex) =>
+              group ? (
+                <div
+                  key={group}
+                  role="group"
+                  aria-labelledby={`${id}-group-${groupIndex}`}
+                  className="combobox-group"
+                >
+                  <div
+                    id={`${id}-group-${groupIndex}`}
+                    className="combobox-group-label"
+                    role="presentation"
+                  >
+                    {group}
+                  </div>
+                  {items.map(renderOption)}
+                </div>
+              ) : (
+                items.map(renderOption)
+              ),
+            )}
+          </div>
+          {!filtered.length && (
+            <p className="combobox-empty" role="status">
+              {emptyText}
+            </p>
+          )}
+          {footer && <div className="combobox-footer">{footer}</div>}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from copy import deepcopy
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 from typing import Any
@@ -33,6 +34,7 @@ _CONTEXT_MODES = frozenset({"auto", "focused", "recent", "full", "empty", "resum
 _WORKSPACE_MODES = frozenset({"auto", "read_only", "single_writer", "worktree"})
 _APPROVAL_MODES = frozenset({"inherit", "block", "approve", "allow_all"})
 _MAX_ROWS = 500
+_MAX_GOAL_MINUTES = 60 * 24 * 7
 
 
 class GoalProfileCommandError(ValueError):
@@ -157,6 +159,10 @@ def _goal_public(goal: Mapping[str, Any], conversation_id: str) -> dict[str, Any
         "max_turns": max(0, int(goal.get("max_turns") or 0)),
         "token_budget": max(0, int(goal.get("token_budget") or 0)),
         "tokens_used": max(0, int(goal.get("tokens_used") or 0)),
+        # Time running and the optional time limit (B244).
+        "started_at": str(goal.get("created_at") or "")[:64],
+        "window_started_at": str(goal.get("window_started_at") or goal.get("created_at") or "")[:64],
+        "max_minutes": min(_MAX_GOAL_MINUTES, max(0, int(goal.get("max_minutes") or 0))),
         "last_progress": _public_text(goal.get("last_progress"), 2048),
         "last_reason": _public_text(goal.get("last_reason"), 2048),
         "evidence": [
@@ -188,6 +194,7 @@ def _profile_public(
     context = _policy(profile, "context_policy_json")
     workspace = _policy(profile, "workspace_policy_json")
     approval = _policy(profile, "approval_policy_json")
+    ui = _policy(profile, "ui_json")
     instructions = str(profile.get("instructions") or "")
     value = {
         "id": _public_text(profile.get("id"), 256),
@@ -198,6 +205,8 @@ def _profile_public(
         "scope": str(profile.get("scope") or "user"),
         "surface_scope": "global",
         "source": str(profile.get("source") or ""),
+        "group": _public_text(ui.get("group"), 64),
+        "icon": _public_text(ui.get("icon"), 32),
         "enabled": profile.get("enabled") is not False,
         "editable": str(profile.get("source") or "") != "builtin",
         "revision": str(max(1, int(profile.get("revision") or 1))),
@@ -277,6 +286,8 @@ def read_goals(
         "next_cursor": (
             f"{revision}:{offset + limit}" if offset + limit < len(items) else None
         ),
+        # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
+        "default_max_turns": min(1000, goal_owner.default_goal_max_turns()),
     }
 
 
@@ -369,7 +380,8 @@ def _goal_review(
     goal_owner: Any,
 ) -> dict[str, Any]:
     validate()
-    if not isinstance(payload, dict) or set(payload) != {
+    # ``max_minutes`` (an optional time limit, B244) may be left out.
+    if not isinstance(payload, dict) or set(payload) - {"max_minutes"} != {
         "conversation_id",
         "goal_id",
         "revision",
@@ -390,12 +402,18 @@ def _goal_review(
         raise GoalProfileCommandError("goal_revision_conflict", current_revision)
     objective: str | None = None
     max_turns: int | None = None
+    max_minutes = payload.get("max_minutes")
     reason: str | None = None
     if operation == "start":
         objective = _text(payload["objective"], 4096, required=True)
-        if (
+        # No count means no turn limit (B243), no minutes no time limit (B244).
+        if payload["max_turns"] is not None and (
             type(payload["max_turns"]) is not int
             or not 1 <= payload["max_turns"] <= 1000
+        ):
+            raise GoalProfileCommandError("invalid_fields")
+        if max_minutes is not None and (
+            type(max_minutes) is not int or not 1 <= max_minutes <= _MAX_GOAL_MINUTES
         ):
             raise GoalProfileCommandError("invalid_fields")
         max_turns = payload["max_turns"]
@@ -406,6 +424,7 @@ def _goal_review(
             not current
             or payload["objective"] is not None
             or payload["max_turns"] is not None
+            or max_minutes is not None
         ):
             raise GoalProfileCommandError("invalid_command")
         reason = _text(payload["reason"] or "", 1024)
@@ -424,6 +443,7 @@ def _goal_review(
         "operation": operation,
         "objective": objective,
         "max_turns": max_turns,
+        "max_minutes": max_minutes,
         "reason": reason,
     }
     validate()
@@ -660,14 +680,17 @@ def _execute_goal(
         return goal_owner.start_goal(
             conversation_id,
             review["objective"],
-            max_turns=review["max_turns"],
+            max_turns=review["max_turns"] or 0,
+            max_minutes=review["max_minutes"] or 0,
             replace=True,
         )
     goal_id = review["goal_id"]
     revision = int(review["revision"])
     if operation == "resume" and (current := goal_owner.get_goal(goal_id)):
-        if int(current.get("turns_used") or 0) >= int(current.get("max_turns") or 0):
+        if goal_owner.turn_limit_reached(current):
             goal_owner.extend_goal_budget(goal_id)
+        if goal_owner.time_limit_reached(current):
+            goal_owner.restart_time_window(goal_id)
     status, verdict, default_reason, finish = {
         "pause": ("paused", "paused", "Paused by user.", ""),
         "resume": ("active", "continue", "Goal resumed.", ""),
@@ -922,7 +945,9 @@ def execute_goal_command(
     validate: Callable[[], None],
     validate_review: Callable[[dict[str, Any]], None],
     goal_owner: Any = goals,
+    on_change: Callable[[str, str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    """Review and apply one goal command; ``on_change`` runs the goal's turns."""
     validate()
     if not isinstance(command, dict) or set(command) != {
         "command_id",
@@ -973,6 +998,11 @@ def execute_goal_command(
         validate_review(current)
         changed = _execute_goal(review, goal_owner=goal_owner)
         validate()
+        if on_change is not None:
+            try:
+                on_change(review["operation"], review["conversation_id"], changed)
+            except Exception:
+                logging.getLogger(__name__).exception("Goal turn after %s failed", review["operation"])
         result = {
             "command_id": command["command_id"],
             "status": "completed",

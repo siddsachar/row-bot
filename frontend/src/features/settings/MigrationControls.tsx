@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, FolderSearch, RotateCcw } from 'lucide-react';
+import { ArrowRight, FolderOpen, FolderSearch, RotateCcw } from 'lucide-react';
 import type {
   MigrationApplyCommand,
   MigrationApplyReceipt,
@@ -7,6 +7,7 @@ import type {
   MigrationApplyReviewRequest,
   MigrationPreview,
   MigrationScanRequest,
+  MigrationSources,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
@@ -17,12 +18,17 @@ import {
   Select,
   Toggle,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
 
 type Owner = {
   scan: (body: MigrationScanRequest) => Promise<MigrationPreview>;
   review: (body: MigrationApplyReviewRequest) => Promise<MigrationApplyReview>;
   apply: (body: MigrationApplyCommand) => Promise<MigrationApplyReceipt>;
   receipt: (commandId: string) => Promise<MigrationApplyReceipt>;
+  /** Which old apps are in their usual folders (this computer only). */
+  sources?: () => Promise<MigrationSources>;
+  /** Browse for the old app's folder in the desktop app (a one-use grant). */
+  pick?: () => Promise<string | null>;
 };
 
 const pendingKey = 'row-bot:migration:pending:v1';
@@ -41,7 +47,13 @@ function savedCommand(): MigrationApplyCommand | null {
   }
 }
 
-export function MigrationControls({ owner }: { owner: Owner }) {
+export function MigrationControls({
+  owner,
+  canBrowse = false,
+}: {
+  owner: Owner;
+  canBrowse?: boolean;
+}) {
   const [provider, setProvider] = useState<'hermes' | 'openclaw'>('hermes');
   const [source, setSource] = useState('');
   const [target, setTarget] = useState('');
@@ -57,7 +69,33 @@ export function MigrationControls({ owner }: { owner: Owner }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [missingReceipt, setMissingReceipt] = useState(false);
+  const [detected, setDetected] = useState<MigrationSources['sources']>([]);
   const active = useRef(false);
+  const usual = detected.find((item) => item.provider === provider);
+  // A folder picked with Browse: its one-use grant, then the preview that
+  // spent it (a rescan with other choices reuses that preview's folder).
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosenPlan, setChosenPlan] = useState<string | null>(null);
+  const usingChosen = !source.trim() && Boolean(chosen || chosenPlan);
+  const useUsual = !source.trim() && !usingChosen && Boolean(usual?.found);
+
+  useEffect(() => {
+    if (!owner.sources) return;
+    let cancelled = false;
+    void owner.sources().then(
+      (result) => {
+        if (cancelled) return;
+        setDetected(result.sources);
+        // Start with the app that is actually on this computer.
+        const found = result.sources.filter((item) => item.found);
+        if (found.length === 1) setProvider(found[0].provider);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [owner]);
 
   useEffect(() => {
     const original = savedCommand();
@@ -87,6 +125,20 @@ export function MigrationControls({ owner }: { owner: Owner }) {
     };
   }, [owner]);
 
+  function forgetChosen() {
+    setChosen(null);
+    setChosenPlan(null);
+  }
+
+  async function browse() {
+    const picked = await owner.pick?.();
+    if (!picked) return;
+    setSource('');
+    setChosen(picked);
+    setChosenPlan(null);
+    clearPreview();
+  }
+
   function clearPreview() {
     setPreview(null);
     setSelected([]);
@@ -106,7 +158,16 @@ export function MigrationControls({ owner }: { owner: Owner }) {
         source,
         target,
         include_secrets: includeSecrets,
+        ...(usingChosen
+          ? chosen
+            ? { source_grant: chosen }
+            : { same_source_as: chosenPlan }
+          : {}),
       });
+      if (usingChosen) {
+        setChosen(null);
+        setChosenPlan(result.plan_id);
+      }
       setPreview(result);
       setSelected(
         result.items
@@ -119,6 +180,15 @@ export function MigrationControls({ owner }: { owner: Owner }) {
       active.current = false;
       setBusy(false);
     }
+  }
+
+  const selectable = (preview?.items ?? [])
+    .filter((item) => canSelect(item.status, item.action))
+    .map((item) => item.id);
+
+  function choose(ids: string[]) {
+    setSelected(ids);
+    setReview(null);
   }
 
   function canSelect(status: string, action: string) {
@@ -222,8 +292,8 @@ export function MigrationControls({ owner }: { owner: Owner }) {
   return (
     <div className="stack" aria-label="Migration controls">
       <p>
-        Choose folders, scan without changes, then select what to import. Source
-        files stay in place.
+        Scan without changes, then select what to import. Source files stay in
+        place.
       </p>
       <div className="field-row">
         <label>
@@ -232,6 +302,7 @@ export function MigrationControls({ owner }: { owner: Owner }) {
             value={provider}
             onChange={(event) => {
               setProvider(event.target.value as 'hermes' | 'openclaw');
+              forgetChosen();
               clearPreview();
             }}
           >
@@ -245,11 +316,23 @@ export function MigrationControls({ owner }: { owner: Owner }) {
             value={source}
             onChange={(event) => {
               setSource(event.target.value);
+              forgetChosen();
               clearPreview();
             }}
-            placeholder="Absolute path to the old app folder"
+            placeholder={
+              usingChosen
+                ? 'The folder you chose'
+                : usual?.found
+                  ? `${usual.place} (found)`
+                  : 'Absolute path to the old app folder'
+            }
           />
         </label>
+        {canBrowse && owner.pick && !usual?.found && (
+          <Button disabled={busy || !!pending} onClick={() => void browse()}>
+            <FolderOpen size={16} aria-hidden /> Browse…
+          </Button>
+        )}
         <label>
           Target folder
           <Input
@@ -262,6 +345,21 @@ export function MigrationControls({ owner }: { owner: Owner }) {
           />
         </label>
       </div>
+      {usingChosen ? (
+        <p className="muted" role="status">
+          Using the folder you chose.
+        </p>
+      ) : (
+        usual && (
+          <p className="muted" role="status">
+            {usual.found
+              ? `Found ${usual.label} in ${usual.place}. Leave Source folder empty to use it.`
+              : canBrowse && owner.pick
+                ? `${usual.label} isn't in its usual folder. Browse for it, or enter the folder it uses.`
+                : `${usual.label} isn't in its usual folder. Enter the folder it uses.`}
+          </p>
+        )
+      )}
       <div className="check-field">
         <span>Include API keys and tokens</span>
         <Toggle
@@ -275,7 +373,9 @@ export function MigrationControls({ owner }: { owner: Owner }) {
       </div>
       <div className="actions">
         <Button
-          disabled={!source.trim() || busy || !!pending}
+          disabled={
+            (!source.trim() && !useUsual && !usingChosen) || busy || !!pending
+          }
           onClick={() => void scan()}
         >
           <FolderSearch size={16} aria-hidden /> Scan folders
@@ -330,6 +430,26 @@ export function MigrationControls({ owner }: { owner: Owner }) {
               }}
             />
           </div>
+          <div className="actions">
+            <Button
+              variant="ghost"
+              disabled={
+                busy ||
+                !selectable.length ||
+                selectable.every((id) => selected.includes(id))
+              }
+              onClick={() => choose(selectable)}
+            >
+              Select all
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy || !selected.length}
+              onClick={() => choose([])}
+            >
+              Clear all
+            </Button>
+          </div>
           <div className="stack migration-item-list">
             {preview.items.map((item) => (
               <label key={item.id} className="migration-item">
@@ -349,7 +469,8 @@ export function MigrationControls({ owner }: { owner: Owner }) {
                 <span>
                   <strong>{item.label}</strong>
                   <small>
-                    {item.category} · {item.status}
+                    {humanizeToken(item.category)} ·{' '}
+                    {humanizeToken(item.status).toLowerCase()}
                     {item.target ? ` · ${item.target}` : ''}
                     {item.reason ? ` · ${item.reason}` : ''}
                   </small>
@@ -410,7 +531,7 @@ export function MigrationControls({ owner }: { owner: Owner }) {
           )}
           {receipt.failed_items.map((item) => (
             <p key={item.id}>
-              {item.id}: {item.reason}
+              {humanizeToken(item.id)}: {item.reason}
             </p>
           ))}
           <CompactAction label="Scan again" onClick={() => void scan()}>
@@ -423,12 +544,40 @@ export function MigrationControls({ owner }: { owner: Owner }) {
 }
 
 export default function ConnectedMigrationControls() {
-  const { controller } = useRuntime();
+  const { controller, platform } = useRuntime();
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void platform
+      .discover()
+      .then((value) => {
+        if (live)
+          setDesktop(value.status === 'ok' && value.value.kind === 'pywebview');
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [platform]);
   const owner = useRef<Owner>({
     scan: (body) => controller.scanMigration(body),
     review: (body) => controller.reviewMigration(body),
     apply: (body) => controller.applyMigration(body),
     receipt: (commandId) => controller.migrationReceipt(commandId),
+    sources: () => controller.migrationSources() as Promise<MigrationSources>,
+    pick: async () => {
+      const picked = await platform.selectFolder(undefined, {
+        intentId: crypto.randomUUID(),
+        intent: 'migration_source',
+        conversationId: null,
+        destination: 'migration',
+      });
+      if (picked.status !== 'ok') return null;
+      const value = picked.value as { kind?: string; reference?: string };
+      return value.kind === 'folder' && value.reference
+        ? value.reference
+        : null;
+    },
   });
-  return <MigrationControls owner={owner.current} />;
+  return <MigrationControls owner={owner.current} canBrowse={desktop} />;
 }

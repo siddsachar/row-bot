@@ -294,16 +294,6 @@ export default function BuddyHatch(props: BuddyHatchProps) {
       aria-label="Hatch a Buddy"
       aria-busy={busy}
     >
-      <div className="settings-buddy-section-heading buddy-hatch-heading">
-        <div>
-          <h3>Generate Look</h3>
-          <p>
-            Create a look and six motion clips with your configured image and
-            video providers. Generation may incur provider charges. Your current
-            look stays available until the new pack is ready.
-          </p>
-        </div>
-      </div>
       <Field label="Describe your Buddy">
         <textarea
           aria-label="Describe your Buddy"

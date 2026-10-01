@@ -69,12 +69,6 @@ def get_source(name: str) -> ChannelSource:
     return _channel_sources.get(name, ChannelSource())
 
 
-def allows_custom_ui(name: str) -> bool:
-    """Return True when a channel may render custom settings UI."""
-
-    return get_source(name).kind != "plugin"
-
-
 def all_channels() -> list["Channel"]:
     """Return all registered channels in insertion order."""
 

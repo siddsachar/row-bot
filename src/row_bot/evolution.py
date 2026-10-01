@@ -47,6 +47,9 @@ MUTATING_PROPOSAL_TYPES = {
     "memory_correction",
 }
 SKILL_MUTATION_TYPES = {"create_skill", "patch_skill", "consolidate_skills"}
+# What applying can carry out. The other kinds are review proposals: the
+# person makes the change, so applying one is refused, never marked applied (B124).
+EXECUTABLE_PROPOSAL_TYPES = {"investigate", "create_skill", "patch_skill", "send_feedback"}
 
 MAX_SKILL_PATCH_CHANGED_LINES = 80
 MAX_DIFF_PREVIEW_LINES = 220
@@ -1339,6 +1342,13 @@ def apply_proposal(
     if proposal.get("status") in {"applied", "verified", "rejected"}:
         return {"ok": False, "message": f"Proposal is already {proposal.get('status')}", "action_run": None}
     proposal_type = str(proposal.get("proposal_type") or "")
+    if proposal_type not in EXECUTABLE_PROPOSAL_TYPES:
+        return {
+            "ok": False,
+            "draft_only": True,
+            "message": "Row-Bot can't carry out this kind of proposal. Make the change yourself if you agree, then reject it.",
+            "action_run": None,
+        }
     if proposal_type in SKILL_MUTATION_TYPES:
         insight = _first_insight_for_proposal(proposal)
         if _proposal_is_obsolete_for_insight(proposal, insight):
@@ -1400,20 +1410,8 @@ def apply_proposal(
             result = _apply_create_skill(proposal)
         elif proposal_type == "patch_skill":
             result = _apply_patch_skill(proposal, action["id"])
-        elif proposal_type == "send_feedback":
-            result = _apply_send_feedback(proposal)
-        elif proposal_type == "consolidate_skills":
-            result = {
-                "message": "Consolidation remains proposal-only in this version.",
-                "result_refs": [],
-                "rollback_ref": "",
-            }
         else:
-            result = {
-                "message": f"{proposal_type} proposals are not executable yet.",
-                "result_refs": [],
-                "rollback_ref": "",
-            }
+            result = _apply_send_feedback(proposal)
         action["result"] = "success"
         action["result_refs"] = result.get("result_refs", [])
         action["rollback_ref"] = result.get("rollback_ref", "")

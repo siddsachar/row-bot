@@ -8,6 +8,15 @@
           "title": "Branch",
           "type": "string"
         },
+        "branches": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Branches",
+          "type": "array"
+        },
         "detached": {
           "title": "Detached",
           "type": "boolean"

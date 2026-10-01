@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "file_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "File Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "file_name"
+  ],
+  "title": "ExportRevealRequest",
+  "type": "object"
+}

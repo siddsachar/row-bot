@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import io
 import json
 import logging
 import os
@@ -1669,6 +1668,24 @@ class WhatsAppChannel(Channel):
     def is_running(self) -> bool:
         return is_running()
 
+    def link_status(self) -> dict | None:
+        """The bridge's link state and live QR for the React connect sheet
+        (B139): starting, scan (with the code) or linked."""
+        if not _running:
+            return None
+        if _authenticated:
+            return {"state": "linked", "code": None}
+        if _qr_code:
+            return {"state": "scan", "code": _qr_code}
+        return {"state": "starting", "code": None}
+
+    async def reset_link(self) -> None:
+        """Reset session: unlink this computer, then start again for a new
+        QR code. The phone's WhatsApp lists the old link until removed."""
+        await stop_bot()
+        clear_session()
+        await start_bot()
+
     def get_default_target(self) -> str:
         phone = _get_user_phone()
         if phone:
@@ -1731,84 +1748,6 @@ class WhatsAppChannel(Channel):
                           f"{action} (via {source})" if source else action)
         except Exception:
             pass
-
-    def build_custom_ui(self, container) -> None:
-        """Show live QR code in the settings panel when authenticating."""
-        from nicegui import ui
-        from row_bot.ui.timer_utils import safe_timer
-
-        with container:
-            qr_container = ui.column().classes(
-                "w-full items-center gap-2"
-            ).style("min-height: 40px;")
-
-        _last_qr: list[str | None] = [None]
-        _last_auth: list[bool | None] = [None]
-
-        def _refresh_qr():
-            qr = get_qr_code()
-            running = _running          # bridge process alive (not is_running which requires auth)
-            auth = running and _authenticated
-
-            if _last_auth[0] is not None and qr == _last_qr[0] and auth == _last_auth[0]:
-                return
-            _last_qr[0] = qr
-            _last_auth[0] = auth
-
-            log.debug("QR UI refresh: running=%s auth=%s qr=%s",
-                      running, auth, bool(qr))
-
-            qr_container.clear()
-            with qr_container:
-                if auth:
-                    ui.icon("check_circle").classes(
-                        "text-green-5"
-                    ).style("font-size: 32px;")
-                    ui.label("WhatsApp connected").classes(
-                        "text-sm text-green-5"
-                    )
-                elif qr:
-                    ui.label(
-                        "Scan this QR code with WhatsApp:"
-                    ).classes("text-sm text-grey-4")
-                    try:
-                        import qrcode as _qr_lib
-                        img = _qr_lib.make(qr, box_size=6, border=2)
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        b64 = base64.b64encode(buf.getvalue()).decode()
-                        ui.image(
-                            f"data:image/png;base64,{b64}"
-                        ).style(
-                            "width: 260px; height: 260px;"
-                            " image-rendering: pixelated;"
-                        )
-                    except ImportError:
-                        ui.code(qr).classes("text-xs")
-                    ui.label(
-                        "WhatsApp → Settings → Linked Devices → Link a Device"
-                    ).classes("text-xs text-grey-6")
-                elif running:
-                    ui.spinner("dots", size="lg").classes("text-primary")
-                    ui.label("Waiting for QR code...").classes(
-                        "text-sm text-grey-5"
-                    )
-
-        def _reset_session():
-            """Clear session and restart for a fresh QR."""
-            clear_session()
-            ui.notify("Session cleared — restart WhatsApp to scan a new QR",
-                      type="info")
-
-        ui.button(
-            "Reset Session",
-            on_click=_reset_session,
-            icon="restart_alt",
-        ).props("flat dense size=sm").classes("text-grey-5")
-
-        _refresh_qr()
-        safe_timer(2.0, _refresh_qr)
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Register with channel registry

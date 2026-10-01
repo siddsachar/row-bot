@@ -42,9 +42,14 @@ beforeEach(() => sessionStorage.clear());
 
 it('loads cached status without checking and checks from one explicit click', async () => {
   const { load, send } = show();
-  expect(await screen.findByText(/Current version: 1.0.0/)).toBeVisible();
+  expect(await screen.findByText('Row-Bot 1.0.0')).toBeVisible();
+  expect(screen.getByText('Not checked yet.')).toBeVisible();
   expect(load).toHaveBeenCalledTimes(1);
   expect(send).not.toHaveBeenCalled();
+  // One row: the version, when it was checked, and Check now (B258).
+  expect(
+    screen.getByRole('button', { name: 'Check for updates' }),
+  ).toHaveTextContent('Check now');
   fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
   expect(
     await screen.findByText('No update is available on this channel.'),
@@ -57,7 +62,7 @@ it('loads cached status without checking and checks from one explicit click', as
   );
 });
 
-it('shows a verified release and skips it from one click', async () => {
+it('shows a verified release, skips it from one click and shows it again', async () => {
   const release: UpdateSnapshot = {
     ...snapshot,
     available: {
@@ -70,22 +75,35 @@ it('shows a verified release and skips it from one click', async () => {
       verified_manifest: true,
     },
   };
-  const send = vi.fn(async (command) => ({
+  const send = vi.fn(async (command: UpdateCommand) => ({
     schema_version: 1 as const,
     command_id: command.command_id,
     status: 'completed' as const,
-    snapshot: { ...release, available: null, skipped_versions: ['2.0.0'] },
+    snapshot:
+      command.action === 'skip'
+        ? { ...release, available: null, skipped_versions: ['2.0.0'] }
+        : release,
   }));
   show(
     vi.fn(async () => release),
     send,
   );
   expect(await screen.findByText('Version 2.0.0 is available')).toBeVisible();
+  // The notes wait behind "What's new" (B258).
+  expect(screen.getByText('Synthetic changes')).not.toBeVisible();
+  fireEvent.click(screen.getByText('What’s new'));
   expect(screen.getByText('Synthetic changes')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Skip version 2.0.0' }));
-  expect(await screen.findByText('Skipped: 2.0.0')).toBeVisible();
+  // One line about the skipped release, only while it is held back (B261).
+  expect(await screen.findByText('You skipped 2.0.0')).toBeVisible();
   expect(send).toHaveBeenCalledWith(
     expect.objectContaining({ action: 'skip', version: '2.0.0' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show it again' }));
+  expect(await screen.findByText('Version 2.0.0 is available')).toBeVisible();
+  expect(screen.queryByText('You skipped 2.0.0')).toBeNull();
+  expect(send).toHaveBeenLastCalledWith(
+    expect.objectContaining({ action: 'clear_skipped' }),
   );
 });
 
@@ -329,7 +347,7 @@ it('clears a known stale install rejection so the release can be refreshed', asy
   );
   expect(
     await screen.findByText(
-      'Update state changed. Refresh it before choosing an action.',
+      'Update status changed. Refresh it before choosing an action.',
     ),
   ).toBeVisible();
   expect(sessionStorage.getItem('row-bot:updates:install:v1')).toBeNull();

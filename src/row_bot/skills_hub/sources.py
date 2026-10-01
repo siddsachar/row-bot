@@ -48,11 +48,8 @@ class SkillSource:
         return search_entries(self.browse(limit=max(limit, 50)).entries, query, limit=limit)
 
     def search_result(self, query: str, limit: int = 50) -> SourceResult:
-        try:
-            entries = self.search(query, limit=limit)
-            return SourceResult(entries, self.id, "live" if entries else "empty")
-        except Exception as exc:
-            return SourceResult([], self.id, "error", str(exc))
+        entries = self.search(query, limit=limit)
+        return SourceResult(entries, self.id, "live" if entries else "empty")
 
     def can_resolve(self, value: str) -> bool:
         return False

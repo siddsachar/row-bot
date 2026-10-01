@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { OverlayProvider } from '../../ui/overlays';
 import { ThemeProvider } from '../../ui/theme';
+import AppearanceSettings from './Appearance';
 import Preferences from './Preferences';
 
 beforeEach(() => {
@@ -16,7 +18,7 @@ beforeEach(() => {
   );
 });
 
-it('keeps React-only local controls behind one closed supplemental disclosure', () => {
+it('keeps device-local appearance off the Preferences page', () => {
   render(
     <ThemeProvider>
       <OverlayProvider>
@@ -24,13 +26,37 @@ it('keeps React-only local controls behind one closed supplemental disclosure', 
       </OverlayProvider>
     </ThemeProvider>,
   );
+  expect(screen.getByText('Saved preferences')).toBeVisible();
+  expect(screen.queryByLabelText('Appearance')).toBeNull();
+  expect(screen.queryByText('Local client controls')).toBeNull();
+});
 
-  const summary = screen.getByText('Local client controls');
-  expect(summary.closest('details')).not.toHaveAttribute('open');
-  expect(screen.getByLabelText('Appearance')).not.toBeVisible();
-  expect(screen.getByText('Local client workspace layout')).not.toBeVisible();
-
-  fireEvent.click(summary);
-  expect(screen.getByLabelText('Appearance')).toBeVisible();
-  expect(screen.getByText('Local client workspace layout')).toBeVisible();
+it('applies appearance choices immediately and previews them', () => {
+  const reset = vi.fn();
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <OverlayProvider>
+          <AppearanceSettings onReset={reset} />
+        </OverlayProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
+  );
+  const appearance = screen.getByRole('combobox', { name: /^Appearance/ });
+  fireEvent.change(appearance, { target: { value: 'light' } });
+  expect(document.documentElement.dataset.theme).toBe('light');
+  fireEvent.change(screen.getByRole('combobox', { name: /^Colour theme/ }), {
+    target: { value: 'violet' },
+  });
+  expect(document.documentElement.dataset.accent).toBe('violet');
+  expect(
+    screen.getByRole('figure', { name: /Light appearance, Violet accent/ }),
+  ).toBeVisible();
+  fireEvent.change(appearance, { target: { value: 'system' } });
+  // System previews both looks side by side.
+  expect(document.querySelectorAll('.appearance-mini')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('switch', { name: 'Reduce transparency' }));
+  expect(document.documentElement.dataset.opaque).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Reset layout' }));
+  expect(reset).toHaveBeenCalledOnce();
 });

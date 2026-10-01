@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import sqlite3
-from pathlib import Path
 
 from row_bot.access.models import (
     AccessDevice,
@@ -203,14 +202,3 @@ def test_renewal_persists_across_service_reopen_without_secret_material(
     assert all(claim.session_token not in repr(row) for row in audit_rows)
     assert all(claim.session.token_hash not in repr(row) for row in audit_rows)
     assert all(claim.session.token_salt not in repr(row) for row in audit_rows)
-
-
-def test_authenticated_page_installs_one_bounded_same_origin_refresh_trigger() -> None:
-    source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
-
-    assert "AuthenticationKind.SESSION" in source
-    assert "window.__rowBotSessionRefreshInstalled" in source
-    assert "'/api/access/session/refresh'" in source
-    assert "credentials: 'same-origin'" in source
-    assert "SESSION_REFRESH_POLL_INTERVAL" in source
-    assert "response.status === 401 || response.status === 403" in source

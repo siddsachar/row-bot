@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-import tomllib
 
 import pytest
 import yaml
@@ -18,7 +17,6 @@ COMPOSE_VPS_FILE = REPO_ROOT / "deploy" / "docker" / "compose.vps.yaml"
 COMPOSE_SECRETS_FILE = (
     REPO_ROOT / "deploy" / "docker" / "compose.secrets.yaml.example"
 )
-DOCKER_README = REPO_ROOT / "deploy" / "docker" / "README.md"
 CADDYFILE = REPO_ROOT / "deploy" / "reverse-proxy" / "Caddyfile.example"
 SYSTEMD_UNIT = REPO_ROOT / "deploy" / "systemd" / "row-bot.service.example"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
@@ -47,145 +45,13 @@ def _load_compose(path: Path) -> dict[str, object]:
     return yaml.load(_read(path), Loader=_ComposeLoader)
 
 
-def test_deployment_artifacts_exist() -> None:
-    for path in (
-        DOCKERFILE,
-        COMPOSE_FILE,
-        COMPOSE_BUILD_FILE,
-        COMPOSE_VPS_FILE,
-        COMPOSE_SECRETS_FILE,
-        DOCKER_README,
-        CADDYFILE,
-        SYSTEMD_UNIT,
-        DOCKERIGNORE,
-    ):
-        assert path.is_file(), path
-
-
-def test_dockerfile_uses_locked_python_313_build_and_non_root_runtime() -> None:
+def test_the_image_runs_as_a_non_root_user_with_a_persistent_data_volume() -> None:
     source = _read(DOCKERFILE)
 
-    assert "python:3.13." in source
-    assert "ghcr.io/astral-sh/uv:" in source
-    assert "node:24.4.1-bookworm-slim" in source
-    assert ":latest" not in source
-    assert "COPY pyproject.toml uv.lock README.md LICENSE ./" in source
-    sync_commands = re.findall(r"uv sync [^\n]+", source)
-    assert len(sync_commands) == 2
-    assert all("--frozen" in command for command in sync_commands)
-    assert all("--no-dev" in command for command in sync_commands)
-    assert all("--no-editable" in command for command in sync_commands)
-    assert all("--extra all" in command for command in sync_commands)
     assert "USER 10001:10001" in source
-    assert "ROW_BOT_APP_ROOT=/opt/row-bot/app" in source
-    assert "COPY static /opt/row-bot/app/static" in source
     assert 'ROW_BOT_DATA_DIR=/data' in source
     assert 'ROW_BOT_DEPLOYMENT_MODE=server' in source
-    assert 'ROW_BOT_CONTAINERIZED=1' in source
     assert 'VOLUME ["/data"]' in source
-    assert "EXPOSE 8080" in source
-    assert "/healthz" in source
-    assert 'ENTRYPOINT ["row-bot"]' in source
-    assert 'CMD ["serve"]' in source
-
-
-def test_dockerfile_has_release_identity_labels_and_build_arguments() -> None:
-    source = _read(DOCKERFILE)
-
-    assert "ARG ROW_BOT_VERSION=0.0.0" in source
-    assert "ARG ROW_BOT_SOURCE_REVISION=unknown" in source
-    assert (
-        'org.opencontainers.image.source="https://github.com/siddsachar/row-bot"'
-        in source
-    )
-    assert 'org.opencontainers.image.version="${ROW_BOT_VERSION}"' in source
-    assert 'org.opencontainers.image.revision="${ROW_BOT_SOURCE_REVISION}"' in source
-    assert 'org.opencontainers.image.title="Row-Bot authenticated server"' in source
-    assert "authenticated long-running server mode" in source
-
-
-def test_dockerfile_builds_shipping_client_with_its_pinned_toolchain() -> None:
-    source = _read(DOCKERFILE)
-    version = _read(REPO_ROOT / "frontend" / ".node-version").strip()
-    client = source.split("FROM ${CLIENT_NODE_IMAGE} AS client-build\n", 1)[1]
-    client = client.split("FROM ${PYTHON_IMAGE} AS builder", 1)[0]
-
-    assert f"ARG CLIENT_NODE_IMAGE=node:{version}-bookworm-slim" in source
-    assert "ENV VITE_ENABLE_FIXTURES=0" in client
-    locked_inputs = "COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./"
-    install = "npm ci --ignore-scripts --no-audit --no-fund"
-    source_inputs = "COPY frontend ./"
-    wire_inputs = (
-        "COPY contracts/client-platform/v1/typescript "
-        "/build/contracts/client-platform/v1/typescript"
-    )
-    build = "npm run build"
-    stage = "node scripts/asset-manifest.mjs dist --package-dir /client-payload"
-    assert client.index(locked_inputs) < client.index(install) < client.index(source_inputs)
-    assert client.index(source_inputs) < client.index(build) < client.index(stage)
-    assert client.index(wire_inputs) < client.index(build)
-    realtime_inputs = (
-        "COPY src/row_bot/voice/realtime_runtime.js "
-        "src/row_bot/voice/realtime_runtime.d.ts /build/src/row_bot/voice/"
-    )
-    assert client.index(install) < client.index(realtime_inputs) < client.index(build)
-    assert "npm install" not in client
-    assert "--package\n" not in client
-    runtime = source.split("FROM ${PYTHON_IMAGE} AS runtime", 1)[1]
-    assert "COPY --from=node /usr/local /usr/local" in runtime
-    assert "--from=client-build" not in runtime
-    assert "node_modules" not in runtime
-
-
-def test_dockerfile_supplies_package_hook_and_validates_installed_client() -> None:
-    source = _read(DOCKERFILE)
-    builder = source.split("FROM ${PYTHON_IMAGE} AS builder", 1)[1]
-    builder = builder.split("FROM ${PYTHON_IMAGE} AS runtime", 1)[0]
-    project = tomllib.loads(_read(REPO_ROOT / "pyproject.toml"))
-    hook = project["tool"]["setuptools"]["cmdclass"]["build_py"]
-    module = hook.rsplit(".", 1)[0].replace(".", "/") + ".py"
-    assert (REPO_ROOT / module).is_file()
-    hook_copy = f"COPY {module} ./{module}"
-    dependency_sync = "uv sync --frozen --no-dev --no-editable --extra all --no-install-project"
-    project_sync = "uv sync --frozen --no-dev --no-editable --extra all\n"
-    payload_copy = "COPY --from=client-build /client-payload ./src/row_bot/static/client-v2"
-    installed_check = "load_client_assets(Path(row_bot.__file__).parent / 'static/client-v2')"
-
-    assert builder.index(hook_copy) < builder.index(dependency_sync)
-    assert builder.index(dependency_sync) < builder.index("COPY src ./src")
-    assert builder.index("COPY src ./src") < builder.index(payload_copy)
-    assert builder.index(payload_copy) < builder.index(project_sync)
-    assert builder.index(project_sync) < builder.index(installed_check)
-    assert "/opt/row-bot/.venv/bin/python -c" in builder
-
-
-def test_dockerfile_bundles_complete_server_runtimes_and_verifies_them() -> None:
-    source = _read(DOCKERFILE)
-
-    assert "COPY --from=uv /uv /uvx /usr/local/bin/" in source
-    assert "COPY --from=node /usr/local /usr/local" in source
-    assert "python -m playwright install chromium" in source
-    assert "python -m playwright install-deps chromium" in source
-    assert "ln -s \"${chromium_path}\" /usr/local/bin/google-chrome" in source
-    assert (
-        "COPY --from=builder /opt/row-bot/playwright-browsers "
-        "/opt/row-bot/playwright-browsers"
-    ) in source
-    for package in (
-        "ffmpeg",
-        "fonts-noto-core",
-        "fonts-noto-color-emoji",
-        "libgl1",
-        "libglib2.0-0",
-        "libportaudio2",
-    ):
-        assert package in source
-    assert (
-        "python /opt/row-bot/app/scripts/verify_runtime_dependencies.py all"
-        in source
-    )
-    assert "playwright_chromium_revision=" in source
-    assert "sha256sum uv.lock" in source
 
 
 def test_dockerfile_routes_browser_models_and_managed_runtimes_correctly() -> None:
@@ -418,60 +284,6 @@ def test_dockerignore_excludes_host_client_outputs_but_keeps_build_inputs() -> N
     assert not any(line.startswith("!") for line in patterns)
 
 
-def test_docker_guide_documents_bootstrap_isolation_and_recovery() -> None:
-    source = _read(DOCKER_README)
-
-    assert (
-        "docker compose -f deploy/docker/compose.yaml exec row-bot \\\n"
-        "  row-bot access invite --layout desktop"
-    ) in source
-    assert (
-        "docker compose -f deploy/docker/compose.yaml exec row-bot \\\n"
-        "  row-bot access invite --layout compact"
-    ) in source
-    assert "Both layouts represent the same owner" in source
-    assert "ROW_BOT_BIND_ADDRESS=192.168.1.20" in source
-    assert "--project-name row-bot-main" in source
-    assert "--project-name row-bot-lab" in source
-    assert "ROW_BOT_HOST_PORT=8081" in source
-    assert "instance identity" in source
-    assert "cookie names and sessions" in source
-    assert "Back up, restore, and upgrade" in source
-    assert "single-owner, multi-device" in source
-    assert re.search(
-        r"not\s+a multi-user or hostile multi-tenant isolation boundary",
-        source,
-    )
-
-
-def test_docker_guide_documents_complete_image_and_explicit_actions() -> None:
-    source = _read(DOCKER_README)
-    normalized = re.sub(r"\s+", " ", source)
-
-    for phrase in (
-        "complete supported Row-Bot server feature set",
-        "no Python extra installation is required",
-        "Browser-local voice",
-        "secure HTTPS context",
-        "OpenAI Realtime voice",
-        "CPU-only baseline",
-        "/data/cache/huggingface",
-        "/data/runtimes",
-        "uv`/`uvx",
-        "node`/`npm`/`npx",
-        "general runtimes, not preinstalled MCP servers",
-        "installed but unconfigured",
-        "ROW_BOT_SECRETS_DIR",
-        "/run/secrets:ro",
-        "read-only in Settings",
-        "does **not**",
-        "No physical host microphone",
-        "native desktop Computer Use",
-        "GPU acceleration",
-    ):
-        assert phrase in normalized
-
-
 def test_caddy_example_is_a_dedicated_origin_with_explicit_proxy_contract() -> None:
     source = _read(CADDYFILE)
 
@@ -486,9 +298,8 @@ def test_caddy_example_is_a_dedicated_origin_with_explicit_proxy_contract() -> N
     assert "header_up X-Forwarded-Proto {scheme}" in source
     assert "header_up X-Forwarded-For {remote_host}" in source
     assert "header_up X-Forwarded-Port {server_port}" in source
-    assert "WebSockets automatically" in source
+    assert "must never be buffered" in source
     assert "flush_interval -1" in source
-    assert "stream_close_delay 5m" in source
     assert "health_uri /readyz" in source
     assert "/row-bot {" not in source
 

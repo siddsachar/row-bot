@@ -14,7 +14,7 @@ import pytest
 from row_bot.application import capability_configuration_controls as controls
 from row_bot.mcp_client import config
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture
@@ -115,7 +115,9 @@ def test_saved_disabled_revokes_actual_retained_tool_before_schedule(
             "Synthetic": {
                 "enabled": True,
                 "command": "synthetic-command",
-                "tools": {"enabled": {"read": True}},
+                "tools": {"enabled": {"read": True}, "require_approval": ["read"]},
+                "source": {"catalog_id": "synthetic"},
+                "trust_level": "unverified",
                 "unknown": {"retain": 1},
             }
         }
@@ -156,7 +158,13 @@ def test_saved_disabled_revokes_actual_retained_tool_before_schedule(
     document = config.read_saved_configuration().document
     name = "Renamed" if operation == "rename" else "Synthetic"
     assert document["servers"][name]["unknown"] == {"retain": 1}
-    assert document["servers"][name]["tools"] == {"enabled": {"read": True}}
+    # An edit never drops an approval gate or the server's catalog provenance.
+    assert document["servers"][name]["tools"] == {
+        "enabled": {"read": True},
+        "require_approval": ["read"],
+    }
+    assert document["servers"][name]["source"] == {"catalog_id": "synthetic"}
+    assert document["servers"][name]["trust_level"] == "unverified"
 
 
 def test_import_collision_is_atomic_and_valid_import_preserves_unknowns(owner):
@@ -328,6 +336,29 @@ def test_directory_search_is_explicit_and_returns_disabled_import(owner, monkeyp
     assert not config.CONFIG_PATH.exists()
 
 
+def test_every_curated_entry_imports_against_a_fresh_revision(owner, monkeypatch):
+    from row_bot.application.client_mcp_directory import search_directory
+    from row_bot.mcp_client import marketplace
+
+    catalog = list(marketplace.CURATED_STARTER_CATALOG)
+    monkeypatch.setattr(marketplace, "search_marketplace_with_status",
+        lambda query, *, limit: marketplace.MarketplaceSearchResult(catalog[:limit], "curated", query))
+    items = search_directory("", validate=lambda: None)["items"]
+    assert len(items) == min(len(catalog), 24)
+    for item in items:
+        # Each import reads the revision the previous save produced (B262).
+        value = command({"operation": "import", "import_json": item["import_json"]})
+        controls.review_mcp_configuration_command(
+            value["payload"]["configuration_revision"], value["payload"]["intent"], validate=lambda: None)
+        assert execute(value)["mcp_configuration"]["status"] == "saved", item["id"]
+    assert controls.read_mcp_configuration(limit=50).total == len(items)
+    # Remote servers that sign in through the browser are marked; token-based ones are not.
+    marked = {item["id"] for item in items if item["sign_in_required"]}
+    assert "makenotion-notion-mcp-server" in marked and "slack-mcp" in marked
+    assert not marked & {"xquik-mcp", "github-github-mcp-server", "upstash-context7", "microsoftdocs-mcp",
+                         "microsoft-playwright"}
+
+
 def test_response_loss_reconciles_owned_publication_without_new_write(
     owner, monkeypatch
 ):
@@ -398,7 +429,7 @@ def test_equal_bytes_replacement_never_proves_uncertain_publication(owner, monke
     )
     assert config.CONFIG_PATH.read_bytes() == data
     with pytest.raises(config.McpConfigurationError, match="recovery_required"):
-        config.set_server_enabled("Synthetic", True)
+        config.save_config(config.load_config())
 
 
 def test_failed_publication_retains_durable_proof_and_blocks_missing_recreation(
@@ -419,7 +450,9 @@ def test_failed_publication_retains_durable_proof_and_blocks_missing_recreation(
 
     monkeypatch.setattr(edits, "_rename_edit_no_replace", crash_after_retirement)
     with pytest.raises(edits.FileEditError):
-        config.set_server_enabled("Original", False)
+        cfg = config.load_config()
+        cfg["servers"]["Original"]["enabled"] = False
+        config.save_config(cfg)
     rows = admissions.read_unfinished_target_commands("settings:mcp")
     assert (
         len(rows["items"]) == 1
@@ -433,7 +466,7 @@ def test_failed_publication_retains_durable_proof_and_blocks_missing_recreation(
     assert retained.read_bytes() == before and not config.CONFIG_PATH.exists()
     assert controls.read_mcp_configuration().availability == "recovery_required"
     with pytest.raises(config.McpConfigurationError, match="recovery_required"):
-        config.upsert_server("New", {"command": "new"})
+        config.save_config(config.load_config())
     assert not config.CONFIG_PATH.exists() and retained.read_bytes() == before
 
 
@@ -489,6 +522,13 @@ def test_unknown_pending_overflow_and_query_failure_never_means_safe_empty(
         {"output_limit": 1.5},
         {"unknown_wire_field": "no"},
         {"command": "bad\0command"},
+        {"transport": "streamable_http", "url": "file:///synthetic"},
+        {"transport": "sse", "url": "ftp://example.test/mcp"},
+        {"transport": "sse", "url": "http://"},
+        {"transport": "streamable_http"},
+        {"connect_timeout": 0},
+        {"connect_timeout": 3601},
+        {"env": {"": "value"}},
     ],
 )
 def test_invalid_typed_fields_never_reach_publication(owner, monkeypatch, fields):
@@ -611,7 +651,10 @@ def test_concurrent_legacy_save_forces_new_client_revision_review(owner, monkeyp
 
     monkeypatch.setattr(config, "publish_saved_configuration", delayed)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        legacy = pool.submit(config.set_server_enabled, "Original", False)
+        legacy = pool.submit(
+            config.save_config,
+            {"servers": {"Original": {"command": "synthetic", "enabled": False}}},
+        )
         assert entered.wait(5), "test legacy publication not entered"
         client = pool.submit(execute, value)
         release.set()
@@ -666,7 +709,6 @@ def test_saved_status_redacts_launch_values_and_never_refreshes_runtime(
         "_sync_catalog_from_config",
         "discover_enabled_servers",
         "probe_server",
-        "refresh_server",
     ):
         monkeypatch.setattr(
             runtime, name, lambda *_a, **_k: pytest.fail("No runtime refresh/probe")
@@ -767,27 +809,6 @@ def test_malformed_saved_labels_and_toggles_are_not_authority(owner):
     assert all(
         item.name == "MCP server" and item.enabled is None for item in page.items
     )
-
-
-def test_canonical_legacy_concurrent_setters_preserve_unrelated_unknown_fields(owner):
-    saved(
-        {"Synthetic": {"command": "synthetic", "unknown": {"keep": True}}},
-        legacy={"keep": True},
-    )
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        list(
-            pool.map(
-                lambda pair: config.set_tool_enabled("Synthetic", *pair),
-                [("one", True), ("two", False)],
-            )
-        )
-    result = config.read_saved_configuration().document
-    assert result["legacy"] == {"keep": True}
-    assert result["servers"]["Synthetic"]["unknown"] == {"keep": True}
-    assert result["servers"]["Synthetic"]["tools"]["enabled"] == {
-        "one": True,
-        "two": False,
-    }
 
 
 def test_explicit_large_config_publication_keeps_default_editor_budget(owner):

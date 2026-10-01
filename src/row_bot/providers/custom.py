@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
-from row_bot.providers.auth_store import delete_provider_secret, get_provider_secret
+from row_bot.providers.auth_store import get_provider_secret
 from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 from row_bot.providers.config import (load_provider_config, save_provider_config,
     provider_config_transaction, provider_config_revision, ProviderConfigError)
@@ -492,43 +492,6 @@ def _extra_body_contains_credentials(value: Any) -> bool:
     if isinstance(value, list):
         return any(_extra_body_contains_credentials(item) for item in value)
     return False
-
-
-def delete_custom_endpoint(endpoint_or_provider_id: str) -> int:
-    endpoint_id = endpoint_id_from_provider_id(endpoint_or_provider_id)
-    provider_id = custom_provider_id(endpoint_id)
-    cfg = load_provider_config()
-    removed_model_ids: set[str] = set()
-    for item in cfg.get("custom_endpoints", []):
-        if not isinstance(item, dict) or normalize_custom_endpoint(item).get("id") != endpoint_id:
-            continue
-        models = item.get("models") if isinstance(item.get("models"), list) else []
-        removed_model_ids = {
-            str(model.get("model_id") or model.get("id") or "")
-            for model in models
-            if isinstance(model, dict) and str(model.get("model_id") or model.get("id") or "")
-        }
-        break
-    cfg["custom_endpoints"] = [
-        item for item in cfg.get("custom_endpoints", [])
-        if not isinstance(item, dict) or normalize_custom_endpoint(item).get("id") != endpoint_id
-    ]
-    save_provider_config(cfg)
-    removed_pins = 0
-    try:
-        from row_bot.providers.selection import remove_quick_choices_for_provider
-
-        removed_pins = remove_quick_choices_for_provider(provider_id)
-    except Exception:
-        logger.debug("Failed to remove quick choices for custom provider %s", provider_id, exc_info=True)
-    try:
-        from row_bot.models import reset_current_model_if_removed
-
-        reset_current_model_if_removed(provider_id, removed_model_ids=removed_model_ids)
-    except Exception:
-        logger.debug("Failed to reset current model after deleting %s", provider_id, exc_info=True)
-    delete_provider_secret(provider_id, "api_key")
-    return removed_pins
 
 
 def custom_endpoint_secret(endpoint_or_provider_id: str) -> str:

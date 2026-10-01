@@ -10,33 +10,55 @@ import {
 } from 'react';
 import * as DockTabs from '@radix-ui/react-tabs';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { settingsLeaves } from '../settings/model';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import {
+  Activity,
+  ArrowDownToLine,
+  ArrowRightToLine,
+  Bot,
+  BookOpen,
+  Brain,
   ChevronLeft,
+  Code2,
   Columns3,
+  Compass,
+  Copy,
+  Globe,
+  Home as HomeIcon,
+  Library,
+  Lightbulb,
   MessageSquare,
   Maximize2,
   Minimize2,
+  MoreHorizontal,
   PanelLeft,
+  PanelRight,
+  Palette,
+  PanelRightClose,
+  PencilLine,
+  RotateCcw,
   Search,
-  Settings,
+  Settings as SettingsIcon,
+  SquareTerminal,
+  Workflow,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
-  Brand,
   Button,
   EmptyState,
   ErrorState,
-  Hint,
+  IconButton,
   Menu,
   Skeleton,
+  type MenuAction,
 } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import { useClientSelector, useRuntime } from '../../runtime';
 import {
   closeAllPanels,
   closePanel,
+  closeResourcePanels,
   focusPanel,
   movePanel,
   openPanel,
@@ -47,6 +69,7 @@ import {
   regionBounds,
   resetLayout,
   resizeRegion,
+  widenSide,
   samplePanels,
   toggleRegion,
   type PanelInstance,
@@ -55,21 +78,98 @@ import {
 } from '../panels/model';
 import { PanelSubscriptions } from '../panels/subscriptions';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
-import Commands from './Commands';
-import BuddySurface from '../buddy/BuddySurface';
-import Navigation from './Navigation';
+import CommandPalette, { type PaletteCommand } from './CommandPalette';
+import {
+  SETTINGS_CHANGED,
+  saveSwitch,
+  settingsSwitches,
+  type PaletteSwitch,
+} from './palette-switches';
+import { clientError } from '../../api/errors';
+import Navigation, { NavigationRail } from './Navigation';
+import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
 import useNewChat from './useNewChat';
 import { reconcilePanelPresentation } from '../panels/presentation';
 import Conversation from './Conversation';
 import { canAutoOpenDesign } from './design-auto-open';
-import type { ResourceView } from '../../api/types';
+import type {
+  ClientStatus,
+  ConversationView,
+  PanelDescriptor,
+  ResourceView,
+  SearchHit,
+} from '../../api/types';
 import ResourcePanel from '../panels/ResourcePanel';
+import {
+  onResourcePanelRequest,
+  type ResourcePanelRequest,
+} from '../panels/panel-requests';
+import { designCommandSets } from '../panels/design-commands';
 import BrowserLiveControls from '../browser/BrowserLiveControls';
-import NativeTerminal from '../panels/NativeTerminal';
+import {
+  TERMINAL_MIN_HEIGHT,
+  TerminalSlot,
+  useTerminalDock,
+} from '../panels/terminal-dock';
 import { WorkspaceActionsContext } from './workspace-actions';
+import { openAgentProfiles } from './agent-profiles';
+import { useBackgroundNotices } from './background-notices';
+import { useApprovalNotices } from './InPlaceApproval';
+import type { ProfileSummary } from '../settings/GoalProfileSettings';
 
 const subscriptions = new PanelSubscriptions();
+
+/** A monochrome glyph per panel kind for the right region's tabs. */
+function panelIcon(descriptor: PanelDescriptor): LucideIcon {
+  return descriptor.panel_kind === 'artifact.preview'
+    ? Palette
+    : descriptor.panel_kind === 'workspace.inspector'
+      ? Code2
+      : descriptor.panel_kind === 'browser.live'
+        ? Globe
+        : BookOpen;
+}
+
+/** The sheet header names the kind; the panel itself shows the resource. */
+function panelKindLabel(descriptor: PanelDescriptor): string {
+  return descriptor.panel_kind === 'artifact.preview'
+    ? 'Design'
+    : descriptor.panel_kind === 'workspace.inspector'
+      ? 'Developer'
+      : descriptor.panel_kind === 'browser.live'
+        ? 'Browser'
+        : descriptor.title;
+}
+
+/** Ctrl+` toggles the terminal: Control on every platform, as in VS Code. */
+function terminalShortcut(event: globalThis.KeyboardEvent): boolean {
+  return (
+    !event.isComposing &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !event.repeat &&
+    event.code === 'Backquote'
+  );
+}
+
+/** Keyboard shortcut match: Mod is Command on macOS and Control elsewhere. */
+function shortcut(
+  event: globalThis.KeyboardEvent,
+  key: string,
+  shift = false,
+): boolean {
+  return (
+    !event.isComposing &&
+    !event.altKey &&
+    event.shiftKey === shift &&
+    !event.repeat &&
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === key
+  );
+}
 export const panelMetrics = Object.assign(subscriptions.metrics, {
   renders: 0,
 });
@@ -172,8 +272,6 @@ function PanelContent({
     <ResourcePanel panel={panel} visible={visible} />
   ) : panel.descriptor.panel_kind === 'browser.live' ? (
     <BrowserPanel visible={visible} />
-  ) : panel.descriptor.panel_kind === 'native.terminal' ? (
-    <NativeTerminal visible={visible} />
   ) : import.meta.env.VITE_ENABLE_FIXTURES === '1' ? (
     <SamplePanel panel={panel} visible={visible} />
   ) : (
@@ -181,6 +279,20 @@ function PanelContent({
       Choose a bound resource to open its panel.
     </EmptyState>
   );
+}
+
+/** Connection problems offer Reconnect or Reload, never another app (B110). */
+function connectionTitle(status: ClientStatus) {
+  return status === 'incompatible'
+    ? 'Reload to continue'
+    : status === 'unauthorized'
+      ? 'Connect to continue'
+      : 'Connection interrupted';
+}
+function connectionHint(status: ClientStatus) {
+  return status === 'reconnecting' || status === 'disconnected' ? (
+    <span> Sending and live updates resume when Row-Bot reconnects.</span>
+  ) : null;
 }
 
 export default function Workspace() {
@@ -201,8 +313,10 @@ export default function Workspace() {
       (value) => (value.history ?? value.projection)?.rows,
     ),
   };
-  const { controller } = useRuntime();
+  const { controller, goalProfileOwner } = useRuntime();
   const overlay = useOverlay();
+  const paletteSequence = useRef(0);
+  const agentProfiles = useRef(new Map<string, ProfileSummary>());
   const location = useLocation();
   const navigate = useNavigate();
   const routeConversation = /^\/conversations\/([^/]+)$/.exec(
@@ -219,6 +333,29 @@ export default function Workspace() {
     conversationId ?? 'home',
   );
   const creation = useNewChat();
+  // The desktop terminal (B249): a dock under the conversation, a
+  // full-screen sheet on phones. Closing it keeps the session.
+  const terminal = useTerminalDock();
+  const terminalRef = usePanelRef();
+  const terminalSlot = useRef<HTMLDivElement>(null);
+  const terminalButton = useRef<HTMLButtonElement>(null);
+  const terminalFocusReturn = useRef(false);
+  const terminalAvailable =
+    Boolean(conversationId) &&
+    Boolean(
+      state.handshake?.application_capabilities?.includes('native:terminal'),
+    );
+  useBackgroundNotices();
+  useApprovalNotices(conversationId);
+  const connectionAction =
+    state.error?.recovery === 'update' ? (
+      <Button onClick={() => window.location.reload()}>Reload</Button>
+    ) : (
+      <Button onClick={() => void controller.reconnect()}>Reconnect</Button>
+    );
+  const { host: contextHost, parking: contextParking } = useContextHostOwner();
+  // Mod+. toggles the conversation's Context card; each press bumps this.
+  const [contextToggle, setContextToggle] = useState(0);
   const pendingPanel = useRef<{
     descriptor: (typeof samplePanels)[number];
     selectionVersion: number;
@@ -257,8 +394,45 @@ export default function Workspace() {
     (
       panel: (typeof samplePanels)[number],
       resources: readonly ResourceView[],
-    ) => showPanel(panel, undefined, resources),
+    ) => showPanel(panel, undefined, resources, { wide: true }),
   );
+  // A panel asked for another resource's panel (a design it duplicated).
+  const openRequestedPanel = useEffectEvent((request: ResourcePanelRequest) => {
+    if (request.conversationId !== conversationId) return;
+    void controller
+      .workspaceFor(request.conversationId)
+      .then((fresh) => {
+        const item = fresh.resources.find(
+          (entry) =>
+            entry.resource_ref === request.resourceRef && entry.available,
+        );
+        if (
+          !item ||
+          controller.getSnapshot().selectedConversationId !==
+            request.conversationId
+        )
+          return;
+        showPanel(
+          {
+            panel_kind:
+              item.binding.kind === 'artifact'
+                ? 'artifact.preview'
+                : 'workspace.inspector',
+            title: item.title,
+            resource_ref: item.resource_ref,
+            resource_kind: item.binding.kind,
+            resource_revision: item.resource_revision,
+          },
+          undefined,
+          fresh.resources,
+          { wide: true },
+        );
+      })
+      .catch(() => {
+        // The copy stays listed in Context if the read fails.
+      });
+  });
+  useEffect(() => onResourcePanelRequest(openRequestedPanel), []);
   const presentationScope = useRef({
     conversationId,
     routeKey: location.key,
@@ -266,8 +440,11 @@ export default function Workspace() {
   });
   useEffect(() => {
     if (!maximizedPanelId) return;
+    // An Escape that closed a menu, a presentation or a selection inside
+    // the panel was already handled (marked as such); only a free one leaves.
     const restore = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setMaximizedPanelId(null);
+      if (event.key === 'Escape' && !event.defaultPrevented)
+        setMaximizedPanelId(null);
     };
     document.addEventListener('keydown', restore);
     return () => document.removeEventListener('keydown', restore);
@@ -303,6 +480,16 @@ export default function Workspace() {
   const sideRef = usePanelRef();
   const bottomRef = usePanelRef();
   const desktop = layout.widthClass === 'desktop';
+  // Phones get one 48px conversation header (back, title, ⋯); tablets keep
+  // their icon actions in the same single row.
+  const phone = layout.widthClass === 'phone';
+  const terminalDocked = terminalAvailable && terminal.open && !phone;
+  const terminalSheet = terminalAvailable && terminal.open && phone;
+  // The conversation keeps at least 30% of the height.
+  const terminalMax = Math.max(
+    TERMINAL_MIN_HEIGHT,
+    Math.round(layout.height * 0.7),
+  );
   const sidePanels = layout.panels.filter(
     (panel) =>
       panel.placement === 'side' &&
@@ -455,26 +642,13 @@ export default function Workspace() {
           conversation: conversationId,
           revision: currentDesign?.resource_revision ?? '',
         };
-        const latestRequest =
-          [
-            ...((
-              controller.getSnapshot().history ??
-              controller.getSnapshot().projection
-            )?.rows ?? []),
-          ]
-            .reverse()
-            .find((row) => row.role === 'user')
-            ?.blocks.map((block) => ('text' in block ? block.text : ''))
-            .join('') ?? '';
-        const explicitDesignRequest =
-          /\b(design|deck|presentation|slides?|storyboard|social post|mock[ -]?up)\b/i.test(
-            latestRequest,
-          );
+        // Only a design the turn actually changed opens; the wording of a
+        // message never does (decision 12, B113).
         const updated = fresh.resources.find(
           (item) =>
             item.binding.kind === 'artifact' &&
             item.available &&
-            (item.resource_revision !== baseline || explicitDesignRequest),
+            item.resource_revision !== baseline,
         );
         if (!updated) return;
         handledGeneration.current = generation.generation_id;
@@ -523,97 +697,365 @@ export default function Workspace() {
   const closeCompactSheet = useEffectEvent(() =>
     overlay.dismiss('workspace-panel'),
   );
+  // Anything in the navigation drawer that changes the route (Buddy,
+  // Agents, a destination) leaves the drawer behind. Closing after the
+  // navigation keeps its history step from undoing the new route.
+  const closeNavigationDrawer = useEffectEvent(() =>
+    overlay.dismiss('navigation-drawer'),
+  );
+  useEffect(() => {
+    closeNavigationDrawer();
+  }, [location.pathname]);
   useEffect(() => {
     if (desktop) closeCompactSheet();
   }, [desktop]);
-  function openCommands() {
+  function openSearchHit(hit: SearchHit) {
+    const ticket = ++paletteSequence.current;
+    void controller
+      .selectConversation(hit.conversation_id)
+      .then(async () => {
+        if (
+          ticket !== paletteSequence.current ||
+          controller.getSnapshot().selectedConversationId !==
+            hit.conversation_id ||
+          controller.getSnapshot().conversation?.id !== hit.conversation_id
+        )
+          return;
+        const selection = controller.getSelectionVersion();
+        if (hit.message_id) await controller.showHistory(hit.message_id);
+        if (
+          ticket !== paletteSequence.current ||
+          controller.getSelectionVersion() !== selection
+        )
+          return;
+        navigate(`/conversations/${hit.conversation_id}`, { replace: true });
+        const target = Array.from(
+          document.querySelectorAll<HTMLElement>('[data-message-id]'),
+        ).find((element) => element.dataset.messageId === hit.message_id);
+        overlay.close(target);
+      })
+      .catch(() =>
+        overlay.notify('That result is no longer available. Search again.'),
+      );
+  }
+  /**
+   * A settings switch turned from ⌘K, saved as its Settings page saves it;
+   * the notice offers Undo, and an open Settings page reads it again.
+   */
+  async function applySwitch(target: PaletteSwitch, on: boolean) {
+    const state = on ? 'on' : 'off';
+    try {
+      if ((await saveSwitch(controller, target, on)) === 'partial') {
+        overlay.notify(
+          `Row-Bot couldn't confirm that ${target.label} turned ${state}. Check it in Settings.`,
+          'warning',
+        );
+        return;
+      }
+      window.dispatchEvent(new Event(SETTINGS_CHANGED));
+      overlay.notify(`${target.label} turned ${state}`, undefined, {
+        label: 'Undo',
+        onAction: () => void applySwitch({ ...target, on }, !on),
+      });
+    } catch (cause) {
+      overlay.notify(
+        `Couldn't turn ${state} ${target.label}. ${clientError(cause).message}`,
+        'danger',
+      );
+    }
+  }
+  function openCommands(from?: HTMLElement | null) {
     const opener =
-      document.activeElement instanceof HTMLElement
+      from ??
+      (document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
+    const go = (to: string) => {
+      navigate(to, { replace: true });
+      overlay.close();
+    };
+    const session = goalProfileOwner?.get();
+    const resourcePanels: PanelDescriptor[] = [
+      ...(state.workspace?.conversation_id === conversationId
+        ? (state.workspace?.resources ?? [])
+        : []
+      ).map((resource) => ({
+        panel_kind:
+          resource.binding.kind === 'artifact'
+            ? 'artifact.preview'
+            : 'workspace.inspector',
+        title: resource.title.slice(0, 160),
+        resource_ref: resource.resource_ref,
+        resource_kind: resource.binding.kind,
+        resource_revision: resource.resource_revision,
+      })),
+    ];
+    const commands: PaletteCommand[] = [
+      {
+        id: 'new-chat',
+        label: 'New chat',
+        keywords: 'new conversation start compose',
+        icon: <PencilLine size={16} />,
+        shortcut: 'Mod+Shift+O',
+        run: () => {
+          overlay.close();
+          void creation.newChat();
+        },
+      },
+      {
+        id: 'home',
+        label: 'Home',
+        keywords: 'start overview',
+        icon: <HomeIcon size={16} />,
+        run: () => go('/'),
+      },
+      {
+        id: 'library',
+        label: 'Conversation library',
+        keywords: 'browse conversations history search manage delete',
+        icon: <Library size={16} />,
+        run: () => go('/library'),
+      },
+      {
+        id: 'workflows',
+        label: 'Workflows',
+        keywords: 'tasks reminders schedules automations',
+        icon: <Workflow size={16} />,
+        run: () => go('/?tab=workflows'),
+      },
+      {
+        id: 'knowledge',
+        label: 'Knowledge graph',
+        keywords: 'memory memories wiki',
+        icon: <Brain size={16} />,
+        run: () => go('/?tab=knowledge'),
+      },
+      {
+        id: 'monitor',
+        label: 'Monitor',
+        keywords: 'health logs status diagnosis',
+        icon: <Activity size={16} />,
+        run: () => go('/?tab=monitor'),
+      },
+      {
+        id: 'insights',
+        label: 'Insights',
+        keywords: 'suggestions findings',
+        icon: <Lightbulb size={16} />,
+        run: () => go('/?tab=insights'),
+      },
+      {
+        id: 'setup',
+        label: 'Setup Center',
+        keywords: 'onboarding getting started guide progress',
+        icon: <Compass size={16} />,
+        run: () => go('/setup'),
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        keywords: 'configuration providers models',
+        icon: <SettingsIcon size={16} />,
+        run: () => go('/settings/providers'),
+      },
+      ...(session
+        ? [
+            {
+              id: 'agents',
+              label: 'Agent profiles',
+              keywords: 'agents profiles library',
+              icon: <Bot size={16} />,
+              run: () =>
+                openAgentProfiles({
+                  overlay,
+                  controller,
+                  session,
+                  returnFocusTo: opener,
+                  onStartProfileChat: (profile) =>
+                    void creation.newChat('', profile),
+                }),
+            },
+          ]
+        : []),
+      ...(desktop
+        ? [
+            {
+              id: 'toggle-navigation',
+              label: 'Toggle sidebar',
+              keywords: 'navigation collapse expand',
+              icon: <PanelLeft size={16} />,
+              run: () => {
+                overlay.close();
+                update((previous) => toggleRegion(previous, 'navigation'));
+              },
+            },
+          ]
+        : []),
+      ...(desktop && conversationId
+        ? [
+            {
+              id: 'toggle-context',
+              label: 'Toggle Context',
+              keywords: 'context panel inspector resources agents',
+              icon: <PanelRight size={16} />,
+              shortcut: 'Mod+.',
+              run: () => {
+                overlay.close();
+                setContextToggle((count) => count + 1);
+              },
+            },
+          ]
+        : []),
+      ...(terminalAvailable
+        ? [
+            {
+              id: 'toggle-terminal',
+              label: 'Toggle terminal',
+              keywords:
+                'interactive terminal shell console command line prompt powershell',
+              icon: <SquareTerminal size={16} />,
+              shortcut: 'Ctrl+`',
+              run: () => {
+                const opening = !terminal.open;
+                toggleTerminal();
+                // Closing, the palette gives focus to the terminal instead.
+                overlay.close(opening ? terminalSlot.current : undefined);
+              },
+            },
+          ]
+        : []),
+      ...[
+        ...resourcePanels,
+        ...(import.meta.env.VITE_ENABLE_FIXTURES === '1' ? samplePanels : []),
+      ].map((panel) => {
+        const Icon = panelIcon(panel);
+        return {
+          id: `panel:${panelKey(panel)}`,
+          label: `Open ${panel.title}`,
+          keywords: 'panel',
+          icon: <Icon size={16} />,
+          run: () => {
+            overlay.close();
+            showPanel(panel, opener);
+          },
+        };
+      }),
+      // The shown design's own actions (present, export, share, …).
+      ...designCommandSets().flatMap((set) =>
+        set.commands.map((command) => ({
+          id: `design:${set.resourceId}:${command.id}`,
+          label: command.label,
+          keywords: command.keywords,
+          icon: <Palette size={16} />,
+          run: () => {
+            overlay.close();
+            command.run();
+          },
+        })),
+      ),
+      {
+        id: 'reset-layout',
+        label: 'Reset layout',
+        keywords: 'panels sizes',
+        icon: <RotateCcw size={16} />,
+        run: () => {
+          overlay.close();
+          update(resetLayout);
+        },
+      },
+    ];
     overlay.open({
+      kind: 'palette',
+      className: 'command-palette-dialog',
+      // From the phone header's ⋯ the focused element is a menu item that
+      // is about to unmount; return to the menu's trigger instead.
+      returnFocusTo: opener,
       title: 'Workspace commands',
-      description: 'Find an action. Press Escape to return to your workspace.',
+      description:
+        'Search conversations, commands, settings and agents. Press Escape to return to your workspace.',
       content: (
-        <Commands
-          commands={[
-            {
-              label: 'Home',
-              keywords: 'start library',
-              run: () => {
-                navigate('/', { replace: true });
+        <CommandPalette
+          commands={commands}
+          loadAgents={
+            session
+              ? async (signal) => {
+                  const page = await controller.profiles(
+                    '',
+                    undefined,
+                    undefined,
+                    signal,
+                  );
+                  agentProfiles.current = new Map(
+                    page.items.map((profile) => [profile.id, profile]),
+                  );
+                  return page.items
+                    .filter((profile) => profile.enabled)
+                    .map((profile) => ({
+                      id: profile.id,
+                      label: profile.display_name,
+                      description: profile.description,
+                    }));
+                }
+              : undefined
+          }
+          onStartAgent={(agent) => {
+            const profile = agentProfiles.current.get(agent.id);
+            overlay.close();
+            if (profile) void creation.newChat('', profile);
+          }}
+          onOpenConversation={(row: ConversationView) => {
+            void controller.selectConversation(row.id);
+            go(`/conversations/${row.id}`);
+          }}
+          onOpenSearchHit={openSearchHit}
+          onOpenSetting={go}
+          loadSwitches={async (signal) =>
+            settingsSwitches(
+              await controller.settingsSnapshot(signal),
+              (target, on) => {
                 overlay.close();
+                void applySwitch(target, on);
               },
-            },
-            {
-              label: 'New chat',
-              keywords: 'new conversation',
-              run: () => {
-                overlay.close();
-                void creation.newChat();
-              },
-            },
-            {
-              label: 'Workflows',
-              keywords: 'tasks reminders schedules',
-              run: () => {
-                navigate('/?tab=workflows', { replace: true });
-                overlay.close();
-              },
-            },
-            {
-              label: 'Settings',
-              keywords: 'configuration providers models',
-              run: () => {
-                navigate('/settings/providers', { replace: true });
-                overlay.close();
-              },
-            },
-            ...settingsLeaves.map((leaf) => ({
-              label: `Open ${leaf.label} settings`,
-              keywords: leaf.category,
-              run: () => {
-                navigate(leaf.href, { replace: true });
-                overlay.close();
-              },
-            })),
-            ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
-              ? samplePanels
-              : []
-            ).map((panel) => ({
-              label: `Open ${panel.title}`,
-              run: () => {
-                overlay.close();
-                showPanel(panel, opener);
-              },
-            })),
-            {
-              label: 'Reset layout',
-              run: () => {
-                overlay.close();
-                update(resetLayout);
-              },
-            },
-          ]}
+            )
+          }
+          onClose={() => overlay.close()}
+          loadWorkflows={async (signal) =>
+            (
+              await controller.savedTasks('', undefined, undefined, signal)
+            ).items.map((task) => ({
+              id: task.id,
+              label: task.name,
+              description: task.description ?? undefined,
+            }))
+          }
+          onOpenWorkflow={(workflow) =>
+            go(`/?tab=workflows&workflow=${encodeURIComponent(workflow.id)}`)
+          }
         />
       ),
     });
   }
-  const commandShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
-    if (
-      !event.isComposing &&
-      !event.altKey &&
-      !event.shiftKey &&
-      !event.repeat &&
-      (event.ctrlKey || event.metaKey) &&
-      event.key.toLowerCase() === 'k'
-    ) {
+  const shellShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if (shortcut(event, 'k')) {
       event.preventDefault();
       openCommands();
+    } else if (shortcut(event, 'o', true) || shortcut(event, 'n')) {
+      if (state.status !== 'ready' || creation.creatingChat) return;
+      event.preventDefault();
+      overlay.close();
+      void creation.newChat();
+    } else if (shortcut(event, '.')) {
+      if (!conversationId || !desktop || homeOpen || routeOpen) return;
+      event.preventDefault();
+      setContextToggle((count) => count + 1);
+    } else if (terminalShortcut(event)) {
+      if (!terminalAvailable) return;
+      event.preventDefault();
+      toggleTerminal();
     }
   });
   useEffect(() => {
-    const keydown = (event: globalThis.KeyboardEvent) => commandShortcut(event);
+    const keydown = (event: globalThis.KeyboardEvent) => shellShortcut(event);
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
   }, []);
@@ -643,6 +1085,53 @@ export default function Workspace() {
     sideRef,
     bottomRef,
   ]);
+  useEffect(() => {
+    terminalRef.current?.resize(terminalDocked ? terminal.height : 0);
+  }, [terminalDocked, terminal.height, terminalRef]);
+  // Closed from inside, the terminal gives focus back to its button (the
+  // conversation on phones).
+  useEffect(() => {
+    if (terminal.open || !terminalFocusReturn.current) return;
+    terminalFocusReturn.current = false;
+    (terminalButton.current ?? document.getElementById('conversation'))?.focus({
+      preventScroll: true,
+    });
+  }, [terminal.open]);
+  function closeTerminal(returnFocus?: boolean) {
+    terminalFocusReturn.current =
+      returnFocus ??
+      Boolean(
+        document.activeElement instanceof HTMLElement &&
+        document.activeElement.closest('.terminal-slot'),
+      );
+    terminal.hide();
+  }
+  function toggleTerminal() {
+    if (terminal.open) closeTerminal();
+    else terminal.show();
+  }
+  // Dragged shut, the dock closes; otherwise it keeps its new height.
+  function settleTerminal(pixels: number | undefined) {
+    if (pixels === undefined || !Number.isFinite(pixels)) return;
+    if (pixels < 0.5) closeTerminal();
+    else if (pixels >= TERMINAL_MIN_HEIGHT - 0.5) terminal.resize(pixels);
+  }
+  function terminalKeyResize(event: KeyboardEvent) {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter'].includes(event.key))
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Enter') return closeTerminal(true);
+    const step =
+      (event.shiftKey ? 48 : 16) * (event.key === 'ArrowUp' ? 1 : -1);
+    terminal.resize(
+      event.key === 'Home'
+        ? TERMINAL_MIN_HEIGHT
+        : event.key === 'End'
+          ? terminalMax
+          : Math.min(terminalMax, terminal.height + step),
+    );
+  }
   const update = (action: (previous: PanelLayout) => PanelLayout) =>
     setLayout(action);
   function settleResize(
@@ -664,6 +1153,7 @@ export default function Workspace() {
     panel: (typeof samplePanels)[number],
     opener?: HTMLElement | null,
     resourceSnapshot?: readonly ResourceView[],
+    options: { wide?: boolean } = {},
   ) {
     // Command contents stay mounted while the workspace can change breakpoint.
     // Read the current layout when the action runs, not when it was opened.
@@ -687,7 +1177,10 @@ export default function Workspace() {
         };
       return;
     }
-    const next = target
+    const wasOpen = currentLayout.current.panels.some(
+      (value) => panelKey(value.descriptor) === panelKey(panel),
+    );
+    let next = target
       ? reconcilePanelPresentation(currentLayout.current, {
           conversationId: target,
           activeConversationId: snapshot.selectedConversationId,
@@ -696,6 +1189,13 @@ export default function Workspace() {
           descriptor: panel,
         }).layout
       : openPanel(currentLayout.current, panel);
+    const opened = next.panels.find(
+      (value) => value.instance_id === next.activePanelId,
+    );
+    // A design that was just made opens wide, so it isn't a thumbnail at
+    // "Fit · 21%" beside the chat (U36); people can narrow it again.
+    if (options.wide && !wasOpen && opened?.placement === 'side')
+      next = widenSide(next);
     currentLayout.current = next;
     scope.setLayout(next);
     const instance = next.panels.find(
@@ -788,7 +1288,23 @@ export default function Workspace() {
       </DockTabs.Content>
     );
   }
+  // Exactly one "Close all panels" is on screen: in the side region, else
+  // the bottom region, else the rail that lists hidden panels.
+  const closeAllHost = sideVisible ? 'side' : bottomVisible ? 'bottom' : 'rail';
+  const closeAll = (
+    <IconButton
+      size="sm"
+      label="Close all panels"
+      onClick={() => {
+        openPanelRef.current?.focus({ preventScroll: true });
+        update(closeAllPanels);
+      }}
+    >
+      <X size={16} aria-hidden />
+    </IconButton>
+  );
   function dock(panels: PanelInstance[], placement: PanelPlacement) {
+    const side = placement === 'side';
     const active =
       panels.find((panel) => panel.instance_id === layout.activePanelId) ??
       panels[0];
@@ -799,135 +1315,289 @@ export default function Workspace() {
         onValueChange={(id) => update((previous) => focusPanel(previous, id))}
       >
         <section
-          className={`dock ${maximizedPanelId === active?.instance_id ? 'maximized' : ''}`}
-          aria-label={`${placement === 'side' ? 'Side' : 'Bottom'} panels`}
+          className={`dock ${side ? 'right-region' : 'bottom-region'} ${active && maximizedPanelId === active.instance_id ? 'maximized' : ''}`}
+          aria-label={`${side ? 'Side' : 'Bottom'} panels`}
         >
           <header className="dock-header">
             <DockTabs.List
               className="dock-tabs"
               aria-label={`${placement} panel tabs`}
             >
-              {panels.map((panel) => (
-                <DockTabs.Trigger
-                  asChild
-                  value={panel.instance_id}
-                  key={panel.instance_id}
-                >
-                  <Button>{panel.descriptor.title}</Button>
-                </DockTabs.Trigger>
-              ))}
+              {panels.map((panel) => {
+                const Icon = panelIcon(panel.descriptor);
+                return (
+                  <DockTabs.Trigger
+                    asChild
+                    value={panel.instance_id}
+                    key={panel.instance_id}
+                  >
+                    <Button
+                      variant="ghost"
+                      className="dock-tab"
+                      title={panel.descriptor.title}
+                    >
+                      <Icon size={14} aria-hidden />
+                      <span>{panel.descriptor.title}</span>
+                    </Button>
+                  </DockTabs.Trigger>
+                );
+              })}
             </DockTabs.List>
-            {active && (
-              <Button
-                iconOnly
-                variant="ghost"
-                aria-label={
-                  maximizedPanelId === active.instance_id
-                    ? 'Restore panel size'
-                    : 'Maximize panel'
-                }
-                title={
-                  maximizedPanelId === active.instance_id
-                    ? 'Restore panel size'
-                    : 'Maximize panel'
-                }
-                onClick={() =>
-                  setMaximizedPanelId((current) =>
-                    current === active.instance_id ? null : active.instance_id,
-                  )
-                }
-              >
-                {maximizedPanelId === active.instance_id ? (
-                  <Minimize2 size={16} aria-hidden />
-                ) : (
-                  <Maximize2 size={16} aria-hidden />
-                )}
-              </Button>
-            )}
-            {active && (
-              <Menu
-                label="Panel actions"
-                focusAfterClose={() => {
-                  if (!panelFocusPending.current) return null;
-                  panelFocusPending.current = false;
-                  return (
-                    workspaceRef.current?.querySelector<HTMLElement>(
-                      '[role="tab"][aria-selected="true"]',
-                    ) ?? openPanelRef.current
-                  );
-                }}
-                actions={[
-                  {
-                    label: `Move to ${placement === 'side' ? 'bottom' : 'side'}`,
-                    onSelect: () => {
-                      panelFocusPending.current = true;
-                      update((previous) =>
-                        movePanel(
-                          previous,
-                          active.instance_id,
-                          placement === 'side' ? 'bottom' : 'side',
-                        ),
-                      );
-                    },
-                  },
-                  {
-                    label: 'Make panel smaller',
-                    onSelect: () =>
-                      update((previous) =>
-                        resizeRegion(
-                          previous,
-                          placement,
-                          previous[placement].size - 48,
-                        ),
+            <div className="dock-actions">
+              {active && (
+                <IconButton
+                  size="sm"
+                  label={
+                    maximizedPanelId === active.instance_id
+                      ? 'Exit focus mode'
+                      : 'Focus mode'
+                  }
+                  pressed={maximizedPanelId === active.instance_id}
+                  onClick={() =>
+                    setMaximizedPanelId((current) =>
+                      current === active.instance_id
+                        ? null
+                        : active.instance_id,
+                    )
+                  }
+                >
+                  {maximizedPanelId === active.instance_id ? (
+                    <Minimize2 size={16} aria-hidden />
+                  ) : (
+                    <Maximize2 size={16} aria-hidden />
+                  )}
+                </IconButton>
+              )}
+              {active && (
+                <Menu
+                  label="Panel actions"
+                  iconOnly
+                  variant="ghost"
+                  className="dock-menu"
+                  focusAfterClose={() => {
+                    if (!panelFocusPending.current) return null;
+                    panelFocusPending.current = false;
+                    return (
+                      workspaceRef.current?.querySelector<HTMLElement>(
+                        '[role="tab"][aria-selected="true"]',
+                      ) ?? openPanelRef.current
+                    );
+                  }}
+                  actions={[
+                    {
+                      label: `Move to ${side ? 'bottom' : 'side'}`,
+                      icon: side ? (
+                        <ArrowDownToLine size={16} />
+                      ) : (
+                        <ArrowRightToLine size={16} />
                       ),
-                  },
-                  {
-                    label: 'Make panel larger',
-                    onSelect: () =>
-                      update((previous) =>
-                        resizeRegion(
-                          previous,
-                          placement,
-                          previous[placement].size + 48,
+                      onSelect: () => {
+                        panelFocusPending.current = true;
+                        update((previous) =>
+                          movePanel(
+                            previous,
+                            active.instance_id,
+                            side ? 'bottom' : 'side',
+                          ),
+                        );
+                      },
+                    },
+                    {
+                      label: 'Open another copy',
+                      icon: <Copy size={16} />,
+                      onSelect: () =>
+                        update((previous) =>
+                          openPanel(
+                            previous,
+                            active.descriptor,
+                            placement,
+                            true,
+                          ),
                         ),
-                      ),
-                  },
-                  {
-                    label: 'Collapse panel',
-                    onSelect: () => {
-                      panelFocusPending.current = true;
-                      update((previous) => toggleRegion(previous, placement));
                     },
-                  },
-                  {
-                    label: 'Open another copy',
-                    onSelect: () =>
-                      update((previous) =>
-                        openPanel(previous, active.descriptor, placement, true),
-                      ),
-                  },
-                  {
-                    label: 'Close panel',
-                    onSelect: () => {
-                      panelFocusPending.current = true;
-                      update((previous) =>
-                        closePanel(previous, active.instance_id),
-                      );
+                    {
+                      label: 'Make panel smaller',
+                      separatorBefore: true,
+                      onSelect: () =>
+                        update((previous) =>
+                          resizeRegion(
+                            previous,
+                            placement,
+                            previous[placement].size - 48,
+                          ),
+                        ),
                     },
-                  },
-                ]}
-              />
-            )}
+                    {
+                      label: 'Make panel larger',
+                      onSelect: () =>
+                        update((previous) =>
+                          resizeRegion(
+                            previous,
+                            placement,
+                            previous[placement].size + 48,
+                          ),
+                        ),
+                    },
+                    {
+                      label: 'Collapse panel',
+                      icon: <PanelRightClose size={16} />,
+                      shortcut: side ? 'Mod+.' : undefined,
+                      onSelect: () => {
+                        panelFocusPending.current = true;
+                        update((previous) => toggleRegion(previous, placement));
+                      },
+                    },
+                    {
+                      label: 'Close panel',
+                      icon: <X size={16} />,
+                      separatorBefore: true,
+                      onSelect: () => {
+                        panelFocusPending.current = true;
+                        update((previous) =>
+                          closePanel(previous, active.instance_id),
+                        );
+                      },
+                    },
+                  ]}
+                >
+                  <MoreHorizontal size={16} aria-hidden />
+                </Menu>
+              )}
+              {closeAllHost === placement && closeAll}
+            </div>
           </header>
           {panels.map(pane)}
         </section>
       </DockTabs.Root>
     );
   }
-  const navigation = (
+  const commandsButton = (
+    <IconButton
+      size="sm"
+      label="Workspace commands"
+      shortcut="Mod+K"
+      onClick={() => openCommands()}
+    >
+      <Search size={16} aria-hidden />
+    </IconButton>
+  );
+  const navigationToggle = navigationButton(false);
+  function navigationButton(back: boolean) {
+    return (
+      <IconButton
+        size="sm"
+        label={
+          desktop && layout.navigation.collapsed
+            ? 'Expand navigation'
+            : 'Toggle navigation'
+        }
+        onClick={() =>
+          desktop
+            ? update((previous) => toggleRegion(previous, 'navigation'))
+            : overlay.open({
+                kind: 'drawer',
+                key: 'navigation-drawer',
+                title: 'Conversations',
+                description: 'Choose a conversation',
+                content: navigation(false),
+              })
+        }
+      >
+        {back ? (
+          <ChevronLeft size={20} aria-hidden />
+        ) : (
+          <PanelLeft size={16} aria-hidden />
+        )}
+      </IconButton>
+    );
+  }
+  const panelChoices: PanelDescriptor[] = [
+    ...(state.workspace?.resources ?? []).map((resource) => ({
+      panel_kind:
+        resource.binding.kind === 'artifact'
+          ? 'artifact.preview'
+          : 'workspace.inspector',
+      title: resource.title.slice(0, 160),
+      resource_ref: resource.resource_ref,
+      resource_kind: resource.binding.kind,
+      resource_revision: resource.resource_revision,
+    })),
+    ...(import.meta.env.VITE_ENABLE_FIXTURES === '1' ? samplePanels : []),
+  ];
+  const panelActions = (label: (title: string) => string): MenuAction[] => [
+    ...panelChoices.map((panel) => {
+      const Icon = panelIcon(panel);
+      return {
+        label: label(panel.title),
+        icon: <Icon size={16} />,
+        onSelect: (opener: HTMLButtonElement | null) =>
+          showPanel(panel, opener),
+      };
+    }),
+    // The terminal opens in its own dock, not as a panel (B249).
+    ...(terminalAvailable
+      ? [
+          {
+            label: label('Interactive terminal'),
+            icon: <SquareTerminal size={16} />,
+            shortcut: 'Ctrl+`',
+            onSelect: () => terminal.show(),
+            afterClose: () => terminalSlot.current?.focus(),
+          },
+        ]
+      : []),
+  ];
+  const openPanelMenu = (
+    <Menu
+      label="Open panel"
+      triggerRef={openPanelRef}
+      iconOnly
+      variant="ghost"
+      className="open-panel-menu"
+      hint="Open panel"
+      actions={panelActions((title) => title)}
+    >
+      <Columns3 size={16} aria-hidden />
+    </Menu>
+  );
+  const terminalToggle = terminalAvailable && (
+    <IconButton
+      ref={terminalButton}
+      label="Terminal"
+      shortcut="Ctrl+`"
+      pressed={terminal.open}
+      onClick={toggleTerminal}
+    >
+      <SquareTerminal size={16} aria-hidden />
+    </IconButton>
+  );
+  // The phone header's ⋯: search first, then every panel this thread has.
+  const phoneMenu: MenuAction[] = [
+    {
+      label: 'Workspace commands',
+      icon: <Search size={16} />,
+      shortcut: 'Mod+K',
+      onSelect: (opener) => openCommands(opener),
+    },
+    ...panelActions((title) => `Open ${title}`).map((action, index) =>
+      index === 0 ? { ...action, separatorBefore: true } : action,
+    ),
+  ];
+  const conversationVisible =
+    Boolean(conversationId) && !homeOpen && !routeOpen && !compact;
+  const navigation = (inPane: boolean) => (
     <Navigation
-      showBuddy={desktop && !layout.navigation.collapsed}
+      showBuddy={!layout.navigation.collapsed}
+      headerActions={
+        inPane ? (
+          <>
+            {commandsButton}
+            {navigationToggle}
+          </>
+        ) : undefined
+      }
       onNewChat={() => void creation.newChat()}
+      onStartProfileChat={(profile) => void creation.newChat('', profile)}
       creatingChat={creation.creatingChat}
       onOpenConversation={() =>
         update((previous) =>
@@ -938,418 +1608,475 @@ export default function Workspace() {
       }
     />
   );
+  // Panels whose region is hidden stay one click away on the rail.
+  const railPanels = desktop
+    ? layout.panels.filter(
+        (panel) =>
+          (panel.placement === 'side' && !sideVisible) ||
+          (panel.placement === 'bottom' && !bottomVisible),
+      )
+    : layout.panels;
   return (
-    <div
-      className={`workspace ${layout.navigation.collapsed ? 'navigation-collapsed' : ''} ${layout.panels.length > 0 ? 'has-resource-panels' : ''}`}
-      ref={workspaceRef}
-    >
-      <a className="skip-link" href="#conversation">
-        Skip to conversation
-      </a>
-      <header className="app-header">
-        <Brand compact />
-        {(!desktop || layout.navigation.collapsed) && (
-          <div className="shell-buddy-presence">
-            <BuddySurface />
+    <ContextHostContext.Provider value={contextHost}>
+      <div
+        className={`workspace ${layout.navigation.collapsed ? 'navigation-collapsed' : ''} ${layout.panels.length > 0 ? 'has-resource-panels' : ''}`}
+        ref={workspaceRef}
+      >
+        <a className="skip-link" href="#conversation">
+          Skip to conversation
+        </a>
+        <div className="context-parking" ref={contextParking} hidden />
+        {!desktop && !conversationVisible && !compact && !settingsOpen && (
+          // Home and routed views: one 48px bar. A conversation and Settings
+          // carry these controls in their own header (B119); a panel sheet
+          // covers the whole height.
+          <div className="compact-controls">
+            <div
+              className="workspace-controls"
+              role="group"
+              aria-label="Workspace controls"
+            >
+              {navigationToggle}
+              {homeOpen && <span className="compact-controls-title">Home</span>}
+              {commandsButton}
+            </div>
           </div>
         )}
-        <div className="header-actions">
-          <Button
-            className="command-trigger"
-            aria-label="Workspace commands"
-            onClick={openCommands}
-          >
-            <Search className="compact-command-icon" size={20} aria-hidden />
-            <span className="wide-label">Commands</span>
-            <span className="shortcut-label" aria-hidden>
-              ⌘/Ctrl K
-            </span>
-          </Button>
-          <Hint label="Toggle navigation">
-            <Button
-              iconOnly
-              aria-label="Toggle navigation"
-              variant="ghost"
-              onClick={() =>
-                desktop
-                  ? update((previous) => toggleRegion(previous, 'navigation'))
-                  : overlay.open({
-                      kind: 'drawer',
-                      title: 'Conversations',
-                      description: 'Choose a conversation',
-                      content: navigation,
-                    })
-              }
-            >
-              <PanelLeft size={20} aria-hidden />
-            </Button>
-          </Hint>
-          <Menu
-            label="Open panel"
-            triggerRef={openPanelRef}
-            actions={[
-              ...(state.workspace?.resources ?? []).map((resource) => ({
-                panel_kind:
-                  resource.binding.kind === 'artifact'
-                    ? 'artifact.preview'
-                    : 'workspace.inspector',
-                title: resource.title.slice(0, 160),
-                resource_ref: resource.resource_ref,
-                resource_kind: resource.binding.kind,
-                resource_revision: resource.resource_revision,
-              })),
-              ...(state.handshake?.application_capabilities?.includes(
-                'native:terminal',
-              )
-                ? [
-                    {
-                      panel_kind: 'native.terminal',
-                      title: 'Interactive terminal',
-                    },
-                  ]
-                : []),
-              ...(import.meta.env.VITE_ENABLE_FIXTURES === '1'
-                ? samplePanels
-                : []),
-            ].map((panel) => ({
-              label: panel.title,
-              onSelect: (opener) => showPanel(panel, opener),
-            }))}
-          >
-            <Columns3 size={18} aria-hidden />
-            <span className="wide-label">Open panel</span>
-          </Menu>
-          {!desktop && (
-            <Hint label="Settings">
+        {creation.error && (
+          <aside className="shell-recovery" role="alert">
+            <span>{creation.error}</span>
+            {creation.pending && (
               <Button
-                iconOnly
-                aria-label="Settings"
-                variant="ghost"
-                onClick={() => navigate('/settings/providers')}
+                disabled={creation.creatingChat}
+                onClick={() => void creation.newChat()}
               >
-                <Settings size={20} aria-hidden />
+                Check new chat
               </Button>
-            </Hint>
-          )}
-        </div>
-      </header>
-      {creation.error && (
-        <aside className="shell-recovery" role="alert">
-          <span>{creation.error}</span>
-          {creation.pending && (
-            <Button
-              disabled={creation.creatingChat}
-              onClick={() => void creation.newChat()}
-            >
-              Check new chat
-            </Button>
-          )}
-          {creation.canReview && (
-            <Button onClick={creation.reviewMissingReceipt}>
-              Check pending receipt
-            </Button>
-          )}
-        </aside>
-      )}
-      {homeOpen && state.error && (
-        <ErrorState
-          title={
-            state.status === 'incompatible'
-              ? 'Client update needed'
-              : 'Connect to continue'
-          }
-          action={
-            state.error.recovery === 'retry' ? (
-              <Button onClick={() => void controller.reconnect()}>
-                Reconnect
-              </Button>
-            ) : (
-              <a className="button" href="/">
-                Open current application
-              </a>
-            )
-          }
-        >
-          {state.error.message}
-        </ErrorState>
-      )}
-      <Group
-        id="workspace-columns"
-        className="workspace-columns"
-        orientation="horizontal"
-        resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
-        onLayoutChanged={(_, meta) => {
-          if (meta.isUserInteraction && desktop) {
-            const size = navRef.current?.getSize().inPixels;
-            const side = sideRef.current?.getSize().inPixels;
-            if (sideVisible && side !== undefined && side < 0.5)
-              openPanelRef.current?.focus({ preventScroll: true });
-            update((previous) => {
-              let next = settleResize(previous, 'navigation', size);
-              if (sideVisible) next = settleResize(next, 'side', side);
-              return next;
-            });
-          }
-        }}
-      >
-        <Panel
-          id="navigation-pane"
-          panelRef={navRef}
-          minSize={desktop ? 200 : 0}
-          maxSize={desktop ? 320 : 0}
-          defaultSize={desktop ? layout.navigation.size : 0}
-          collapsible
-          collapsedSize={desktop ? 48 : 0}
-          className={
-            layout.navigation.collapsed
-              ? 'navigation-pane collapsed'
-              : 'navigation-pane'
-          }
-        >
-          {desktop &&
-            (layout.navigation.collapsed ? (
-              <Button
-                iconOnly
-                aria-label="Expand navigation"
-                onClick={() =>
-                  update((previous) => toggleRegion(previous, 'navigation'))
-                }
-              >
-                <PanelLeft size={18} aria-hidden />
-              </Button>
-            ) : (
-              navigation
-            ))}
-        </Panel>
-        {desktop && (
-          <Separator
-            className="resize-handle"
-            aria-label="Resize navigation"
-            onKeyDownCapture={(event) => keyboardResize(event, 'navigation')}
-          />
-        )}
-        <Panel id="conversation-area" minSize={desktop ? 400 : 0}>
-          <Group
-            id="workspace-rows"
-            orientation="vertical"
-            resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
-            onLayoutChanged={(_, meta) => {
-              if (meta.isUserInteraction && bottomVisible) {
-                const size = bottomRef.current?.getSize().inPixels;
-                if (size !== undefined && size < 0.5)
-                  openPanelRef.current?.focus({ preventScroll: true });
-                update((previous) => settleResize(previous, 'bottom', size));
-              }
-            }}
-          >
-            <Panel id="conversation-pane" minSize={desktop ? 240 : 0}>
-              <main className="conversation-area">
-                <section
-                  id="conversation"
-                  tabIndex={-1}
-                  data-testid="conversation-workspace"
-                  className="conversation"
-                  aria-label="Conversation"
-                  hidden={homeOpen || routeOpen || Boolean(compact)}
-                >
-                  <div className="conversation-heading">
-                    <span
-                      className={`connection-status ${state.status === 'ready' ? 'connected' : ''}`}
-                      role="status"
-                    >
-                      {state.status === 'ready' ? 'Connected' : state.status}
-                    </span>
-                  </div>
-                  {state.status === 'loading' || state.loadingConversation ? (
-                    <Skeleton label="Opening conversation" />
-                  ) : state.error ? (
-                    <ErrorState
-                      title={
-                        state.status === 'incompatible'
-                          ? 'Client update needed'
-                          : state.status === 'unauthorized'
-                            ? 'Connect to continue'
-                            : 'Connection interrupted'
-                      }
-                      action={
-                        state.error.recovery === 'retry' ? (
-                          <Button
-                            onClick={() => {
-                              void controller.reconnect();
-                            }}
-                          >
-                            Reconnect
-                          </Button>
-                        ) : (
-                          <a className="button" href="/">
-                            Open current application
-                          </a>
-                        )
-                      }
-                    >
-                      {state.error.message}
-                      {state.status === 'reconnecting'
-                        ? ' Row-Bot is trying to reconnect. Sending and live updates are unavailable in the meantime.'
-                        : state.status === 'disconnected'
-                          ? ' Sending and live updates are unavailable until you reconnect.'
-                          : ''}
-                    </ErrorState>
-                  ) : null}
-                  <Conversation
-                    onPanel={showPanel}
-                    completedDesignId={
-                      completedDesign?.conversation === conversationId
-                        ? completedDesign.binding
-                        : undefined
-                    }
-                    onResourceOpened={(binding) => {
-                      if (completedDesign?.binding === binding)
-                        setCompletedDesign(null);
-                    }}
-                    onNewChat={() => void creation.newChat()}
-                    focusConversationId={creation.focusConversationId}
-                    onComposerFocused={creation.onComposerFocused}
-                    firstPrompt={creation.firstPrompt}
-                    onFirstPromptConsumed={creation.onFirstPromptConsumed}
-                    compactContext={!desktop}
-                  />
-                </section>
-                {homeOpen && (
-                  <Home
-                    onExamplePrompt={(prompt) => void creation.newChat(prompt)}
-                    exampleBusy={creation.creatingChat || !!creation.pending}
-                  />
-                )}
-                {compact && !routeOpen && (
-                  <section className="compact-tab" aria-label="Compact panel">
-                    <Button
-                      onClick={() => {
-                        openPanelRef.current?.focus({ preventScroll: true });
-                        update((previous) => focusPanel(previous, null));
-                      }}
-                    >
-                      <ChevronLeft size={18} aria-hidden />
-                      Back to conversation
-                    </Button>
-                    <PanelContent panel={compact} visible />
-                    <Button
-                      onClick={() => {
-                        openPanelRef.current?.focus({ preventScroll: true });
-                        update((previous) =>
-                          closePanel(previous, compact.instance_id),
-                        );
-                        update((previous) => focusPanel(previous, null));
-                      }}
-                    >
-                      Close panel
-                    </Button>
-                  </section>
-                )}
-                {routeOpen && (
-                  <div
-                    className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
-                  >
-                    {!settingsOpen && (
-                      <Link className="button ghost" to="/">
-                        <ChevronLeft size={18} aria-hidden />
-                        Home
-                      </Link>
-                    )}
-                    <Suspense fallback={<Skeleton label="Opening view" />}>
-                      <WorkspaceActionsContext.Provider
-                        value={{ resetLayout: () => update(resetLayout) }}
-                      >
-                        <Outlet />
-                      </WorkspaceActionsContext.Provider>
-                    </Suspense>
-                  </div>
-                )}
-              </main>
-            </Panel>
-            {bottomVisible && (
-              <Separator
-                className="resize-handle horizontal"
-                aria-label="Resize bottom panel"
-                onKeyDownCapture={(event) => keyboardResize(event, 'bottom')}
-              />
             )}
-            <Panel
-              id="bottom-pane"
-              panelRef={bottomRef}
-              minSize={desktop ? 160 : 0}
-              maxSize={desktop ? regionBounds(layout, 'bottom').max : 0}
-              defaultSize={0}
-              collapsible
-              collapsedSize={0}
-            >
-              {bottomVisible && dock(bottomPanels, 'bottom')}
-            </Panel>
-          </Group>
-        </Panel>
-        {sideVisible && (
-          <Separator
-            className="resize-handle"
-            aria-label="Resize side panel"
-            onKeyDownCapture={(event) => keyboardResize(event, 'side')}
-          />
+            {creation.canReview && (
+              <Button onClick={creation.reviewMissingReceipt}>
+                Stop checking
+              </Button>
+            )}
+          </aside>
         )}
-        <Panel
-          id="side-pane"
-          panelRef={sideRef}
-          minSize={desktop ? 320 : 0}
-          maxSize={desktop ? regionBounds(layout, 'side').max : 0}
-          defaultSize={0}
-          collapsible
-          collapsedSize={0}
+        {homeOpen && state.error && (
+          <ErrorState
+            title={connectionTitle(state.status)}
+            action={connectionAction}
+          >
+            <span>{state.error.message}</span>
+            {connectionHint(state.status)}
+          </ErrorState>
+        )}
+        <Group
+          id="workspace-columns"
+          className="workspace-columns"
+          orientation="horizontal"
+          resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
+          onLayoutChanged={(_, meta) => {
+            if (meta.isUserInteraction && desktop) {
+              const size = navRef.current?.getSize().inPixels;
+              const side = sideRef.current?.getSize().inPixels;
+              if (sideVisible && side !== undefined && side < 0.5)
+                openPanelRef.current?.focus({ preventScroll: true });
+              update((previous) => {
+                let next = settleResize(previous, 'navigation', size);
+                if (sideVisible) next = settleResize(next, 'side', side);
+                return next;
+              });
+            }
+          }}
         >
-          {sideVisible && dock(sidePanels, 'side')}
-        </Panel>
-      </Group>
-      {conversationId && layout.panels.length > 0 && (
-        <aside className="panel-rail" aria-label="Panel rail">
-          {layout.panels.map((panel) => (
-            <Button
-              key={panel.instance_id}
-              variant="ghost"
-              onClick={() => {
-                if (!desktop) {
-                  if (panelPresentation(layout, panel) === 'sheet')
-                    overlay.open({
-                      kind: 'sheet',
-                      key: 'workspace-panel',
-                      title: panel.descriptor.title,
-                      description:
-                        panelRegistry[
-                          panel.descriptor
-                            .panel_kind as keyof typeof panelRegistry
-                        ]?.title ?? 'Resource panel',
-                      content: <PanelContent panel={panel} visible />,
-                    });
-                  else
-                    update((previous) =>
-                      focusPanel(previous, panel.instance_id),
-                    );
-                } else
-                  update((previous) =>
-                    openPanel(previous, panel.descriptor, panel.placement),
-                  );
+          <Panel
+            id="navigation-pane"
+            panelRef={navRef}
+            minSize={desktop ? 200 : 0}
+            maxSize={desktop ? 320 : 0}
+            defaultSize={desktop ? layout.navigation.size : 0}
+            collapsible
+            collapsedSize={desktop ? 48 : 0}
+            className={
+              layout.navigation.collapsed
+                ? 'navigation-pane collapsed'
+                : 'navigation-pane'
+            }
+          >
+            {desktop &&
+              (layout.navigation.collapsed ? (
+                <NavigationRail
+                  railActions={
+                    <>
+                      {navigationToggle}
+                      {commandsButton}
+                    </>
+                  }
+                  onNewChat={() => void creation.newChat()}
+                  onStartProfileChat={(profile) =>
+                    void creation.newChat('', profile)
+                  }
+                  creatingChat={creation.creatingChat}
+                />
+              ) : (
+                navigation(true)
+              ))}
+          </Panel>
+          {desktop && (
+            <Separator
+              className="resize-handle"
+              aria-label="Resize navigation"
+              onKeyDownCapture={(event) => keyboardResize(event, 'navigation')}
+            />
+          )}
+          <Panel id="conversation-area" minSize={desktop ? 400 : 0}>
+            {/* The terminal docks under the conversation and its bottom dock,
+                in a group of its own: a panel resized in code takes room from
+                the one after it, so each dock is the last of its group (B249). */}
+            <Group
+              id="workspace-terminal-rows"
+              orientation="vertical"
+              resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
+              onLayoutChanged={(_, meta) => {
+                if (meta.isUserInteraction && terminalDocked)
+                  settleTerminal(terminalRef.current?.getSize().inPixels);
               }}
             >
-              {panel.descriptor.title}
-            </Button>
-          ))}
-          <Button
-            iconOnly
-            aria-label="Close all panels"
-            onClick={() => {
-              openPanelRef.current?.focus({ preventScroll: true });
-              update(closeAllPanels);
-            }}
+              <Panel id="workspace-rows-pane" minSize={desktop ? 240 : 0}>
+                <Group
+                  id="workspace-rows"
+                  orientation="vertical"
+                  resizeTargetMinimumSize={{ fine: 12, coarse: 44 }}
+                  onLayoutChanged={(_, meta) => {
+                    if (meta.isUserInteraction && bottomVisible) {
+                      const size = bottomRef.current?.getSize().inPixels;
+                      if (size !== undefined && size < 0.5)
+                        openPanelRef.current?.focus({ preventScroll: true });
+                      update((previous) =>
+                        settleResize(previous, 'bottom', size),
+                      );
+                    }
+                  }}
+                >
+                  <Panel id="conversation-pane" minSize={desktop ? 240 : 0}>
+                    <main className="conversation-area">
+                      <section
+                        id="conversation"
+                        tabIndex={-1}
+                        data-testid="conversation-workspace"
+                        className="conversation"
+                        aria-label="Conversation"
+                        hidden={
+                          homeOpen ||
+                          routeOpen ||
+                          Boolean(compact) ||
+                          terminalSheet
+                        }
+                      >
+                        <div className="conversation-heading">
+                          {/* Announced, not drawn: the sidebar footer shows a
+                          status dot and a disconnection shows the banner
+                          below (B7). */}
+                          <span
+                            className={`connection-status visually-hidden ${state.status === 'ready' ? 'connected' : ''}`}
+                            role="status"
+                          >
+                            {state.status === 'ready'
+                              ? 'Connected'
+                              : state.status}
+                          </span>
+                        </div>
+                        {state.status === 'loading' ||
+                        state.loadingConversation ? (
+                          <Skeleton label="Opening conversation" />
+                        ) : state.error ? (
+                          <ErrorState
+                            title={connectionTitle(state.status)}
+                            action={connectionAction}
+                          >
+                            <span>{state.error.message}</span>
+                            {connectionHint(state.status)}
+                          </ErrorState>
+                        ) : null}
+                        <Conversation
+                          onPanel={(panel, options) =>
+                            showPanel(panel, undefined, undefined, options)
+                          }
+                          completedDesignId={
+                            completedDesign?.conversation === conversationId
+                              ? completedDesign.binding
+                              : undefined
+                          }
+                          onResourceOpened={(binding) => {
+                            if (completedDesign?.binding === binding)
+                              setCompletedDesign(null);
+                          }}
+                          onResourceRemoved={(reference) =>
+                            update((previous) =>
+                              closeResourcePanels(previous, reference),
+                            )
+                          }
+                          onNewChat={() => void creation.newChat()}
+                          onStartProfileChat={(profile) =>
+                            void creation.newChat('', profile)
+                          }
+                          focusConversationId={creation.focusConversationId}
+                          onComposerFocused={creation.onComposerFocused}
+                          firstPrompt={creation.firstPrompt}
+                          onFirstPromptConsumed={creation.onFirstPromptConsumed}
+                          contextPlacement={desktop ? 'inline' : 'compact'}
+                          contextToggle={contextToggle}
+                          headerActions={
+                            desktop ? (
+                              <>
+                                {terminalToggle}
+                                {openPanelMenu}
+                              </>
+                            ) : phone ? undefined : (
+                              <>
+                                {commandsButton}
+                                {terminalToggle}
+                                {openPanelMenu}
+                              </>
+                            )
+                          }
+                          headerLeading={
+                            desktop ? undefined : navigationButton(phone)
+                          }
+                          headerMenu={phone ? phoneMenu : undefined}
+                        />
+                      </section>
+                      {homeOpen && (
+                        <Home
+                          onAsk={(text, options) =>
+                            void creation.newChat(text, undefined, options)
+                          }
+                          asking={creation.creatingChat}
+                          onPanel={(panel, options) =>
+                            showPanel(panel, undefined, undefined, options)
+                          }
+                        />
+                      )}
+                      {compact && !routeOpen && !terminalSheet && (
+                        <section
+                          className="compact-tab panel-sheet"
+                          aria-label="Compact panel"
+                        >
+                          <header className="panel-sheet-header">
+                            <IconButton
+                              label="Back to conversation"
+                              onClick={() => {
+                                openPanelRef.current?.focus({
+                                  preventScroll: true,
+                                });
+                                update((previous) =>
+                                  focusPanel(previous, null),
+                                );
+                              }}
+                            >
+                              <ChevronLeft size={18} aria-hidden />
+                            </IconButton>
+                            <span className="panel-sheet-title">
+                              {(() => {
+                                const Icon = panelIcon(compact.descriptor);
+                                return <Icon size={15} aria-hidden />;
+                              })()}
+                              <span title={compact.descriptor.title}>
+                                {panelKindLabel(compact.descriptor)}
+                              </span>
+                            </span>
+                            <IconButton
+                              label="Close panel"
+                              onClick={() => {
+                                openPanelRef.current?.focus({
+                                  preventScroll: true,
+                                });
+                                update((previous) =>
+                                  closePanel(previous, compact.instance_id),
+                                );
+                                update((previous) =>
+                                  focusPanel(previous, null),
+                                );
+                              }}
+                            >
+                              <X size={18} aria-hidden />
+                            </IconButton>
+                          </header>
+                          <div className="panel-sheet-body">
+                            <PanelContent panel={compact} visible />
+                          </div>
+                        </section>
+                      )}
+                      {terminalSheet && (
+                        <div className="compact-tab panel-sheet">
+                          <TerminalSlot
+                            open
+                            focusKey={terminal.focusKey}
+                            onClose={() => closeTerminal()}
+                          />
+                        </div>
+                      )}
+                      {routeOpen && (
+                        <div
+                          className={`routed-view${settingsOpen ? ' settings-route' : ''}`}
+                        >
+                          {!settingsOpen && (
+                            <Link className="button ghost routed-home" to="/">
+                              <ChevronLeft size={18} aria-hidden />
+                              Home
+                            </Link>
+                          )}
+                          <Suspense
+                            fallback={<Skeleton label="Opening view" />}
+                          >
+                            <WorkspaceActionsContext.Provider
+                              value={{
+                                resetLayout: () => update(resetLayout),
+                                startProfileChat: (profile) =>
+                                  void creation.newChat('', profile),
+                                newChat: (draft) =>
+                                  void creation.newChat(draft, undefined, {
+                                    send: false,
+                                  }),
+                                openAgentProfiles: (returnFocusTo) => {
+                                  const session = goalProfileOwner?.get();
+                                  if (session)
+                                    openAgentProfiles({
+                                      overlay,
+                                      controller,
+                                      session,
+                                      returnFocusTo,
+                                      onStartProfileChat: (profile) =>
+                                        void creation.newChat('', profile),
+                                    });
+                                },
+                                compactControls: desktop
+                                  ? undefined
+                                  : {
+                                      navigation: navigationToggle,
+                                      commands: commandsButton,
+                                    },
+                              }}
+                            >
+                              <Outlet />
+                            </WorkspaceActionsContext.Provider>
+                          </Suspense>
+                        </div>
+                      )}
+                    </main>
+                  </Panel>
+                  {bottomVisible && (
+                    <Separator
+                      className="resize-handle horizontal"
+                      aria-label="Resize bottom panel"
+                      onKeyDownCapture={(event) =>
+                        keyboardResize(event, 'bottom')
+                      }
+                    />
+                  )}
+                  <Panel
+                    id="bottom-pane"
+                    panelRef={bottomRef}
+                    minSize={desktop ? 160 : 0}
+                    maxSize={desktop ? regionBounds(layout, 'bottom').max : 0}
+                    defaultSize={0}
+                    collapsible
+                    collapsedSize={0}
+                  >
+                    {bottomVisible && dock(bottomPanels, 'bottom')}
+                  </Panel>
+                </Group>
+              </Panel>
+              {terminalDocked && (
+                <Separator
+                  className="resize-handle horizontal"
+                  aria-label="Resize terminal"
+                  onKeyDownCapture={terminalKeyResize}
+                />
+              )}
+              <Panel
+                id="terminal-pane"
+                panelRef={terminalRef}
+                minSize={phone ? 0 : TERMINAL_MIN_HEIGHT}
+                maxSize={phone ? 0 : terminalMax}
+                defaultSize={0}
+                collapsible
+                collapsedSize={0}
+                groupResizeBehavior="preserve-pixel-size"
+              >
+                <TerminalSlot
+                  ref={terminalSlot}
+                  open={terminalDocked}
+                  focusKey={terminal.focusKey}
+                  onClose={() => closeTerminal()}
+                />
+              </Panel>
+            </Group>
+          </Panel>
+          {sideVisible && (
+            <Separator
+              className="resize-handle"
+              aria-label="Resize side panel"
+              onKeyDownCapture={(event) => keyboardResize(event, 'side')}
+            />
+          )}
+          <Panel
+            id="side-pane"
+            panelRef={sideRef}
+            minSize={desktop ? 320 : 0}
+            maxSize={desktop ? regionBounds(layout, 'side').max : 0}
+            defaultSize={0}
+            collapsible
+            collapsedSize={0}
           >
-            <X size={18} aria-hidden />
-          </Button>
-        </aside>
-      )}
-    </div>
+            {sideVisible && dock(sidePanels, 'side')}
+          </Panel>
+        </Group>
+        {conversationId && railPanels.length > 0 && (
+          <aside
+            className={`panel-rail ${desktop ? 'panel-rail-docked' : ''}`}
+            aria-label="Panel rail"
+          >
+            {railPanels.map((panel) => {
+              const Icon = panelIcon(panel.descriptor);
+              return (
+                <Button
+                  key={panel.instance_id}
+                  variant="ghost"
+                  className="panel-rail-item"
+                  title={panel.descriptor.title}
+                  onClick={() => {
+                    if (!desktop) {
+                      if (panelPresentation(layout, panel) === 'sheet')
+                        overlay.open({
+                          kind: 'sheet',
+                          key: 'workspace-panel',
+                          title: panel.descriptor.title,
+                          description:
+                            panelRegistry[
+                              panel.descriptor
+                                .panel_kind as keyof typeof panelRegistry
+                            ]?.title ?? 'Resource panel',
+                          content: <PanelContent panel={panel} visible />,
+                        });
+                      else
+                        update((previous) =>
+                          focusPanel(previous, panel.instance_id),
+                        );
+                    } else
+                      update((previous) =>
+                        openPanel(previous, panel.descriptor, panel.placement),
+                      );
+                  }}
+                >
+                  <Icon size={16} aria-hidden />
+                  <span>{panel.descriptor.title}</span>
+                </Button>
+              );
+            })}
+            {(!desktop || closeAllHost === 'rail') && closeAll}
+          </aside>
+        )}
+      </div>
+    </ContextHostContext.Provider>
   );
 }

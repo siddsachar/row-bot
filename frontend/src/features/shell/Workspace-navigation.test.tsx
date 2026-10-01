@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -56,7 +57,7 @@ it.each([1440, 900, 390])(
     clients.push(controller);
     await controller.start();
     await controller.selectConversation('conversation-a');
-    render(
+    const rendered = render(
       <MemoryRouter initialEntries={['/conversations/conversation-a']}>
         <HistoryControls />
         <RuntimeContext.Provider
@@ -68,6 +69,20 @@ it.each([1440, 900, 390])(
         </RuntimeContext.Provider>
       </MemoryRouter>,
     );
+    expect(rendered.container.querySelector('.app-header')).toBeNull();
+    // A conversation carries the workspace controls in its own single header
+    // row; phones fold them into the header's ⋯.
+    expect(rendered.container.querySelector('.compact-controls')).toBeNull();
+    if (width >= 768) {
+      expect(
+        screen.getByRole('button', { name: 'Workspace commands' }),
+      ).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Open panel' })).toBeVisible();
+    } else {
+      expect(
+        screen.getByRole('button', { name: 'Conversation menu' }),
+      ).toBeVisible();
+    }
     const composer = screen.getByRole('textbox', {
       name: 'Message',
     });
@@ -83,6 +98,7 @@ it.each([1440, 900, 390])(
       fireEvent.click(
         screen.getByRole('button', { name: 'Toggle navigation' }),
       );
+    expect(screen.getByRole('button', { name: 'New chat' })).toBeVisible();
     await act(async () =>
       fireEvent.click(screen.getByRole('link', { name: 'Home' })),
     );
@@ -160,7 +176,7 @@ it('explains disconnected conversation state, preserves the local draft, and res
     .getByText('Connection interrupted', { exact: true })
     .closest('[role="alert"]');
   expect(connectionAlert).toHaveTextContent(
-    'Disconnected. Your last confirmed view is preserved. Sending and live updates are unavailable until you reconnect.',
+    'Disconnected. What you last saw is kept. Sending and live updates resume when Row-Bot reconnects.',
   );
   expect(screen.getByRole('button', { name: 'Reconnect' })).toBeEnabled();
   const composerReason = screen.getByText(
@@ -182,4 +198,86 @@ it('explains disconnected conversation state, preserves the local draft, and res
   expect(composer).toHaveValue('Local reconnect draft');
   expect(send).toBeEnabled();
   expect(send).not.toHaveAttribute('aria-describedby');
+});
+
+function GoToSettings() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => navigate('/settings/buddy')}>Route elsewhere</button>
+  );
+}
+
+it('closes the phone navigation drawer when something in it changes the route', async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <HistoryControls />
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+          <GoToSettings />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle navigation' }));
+  expect(
+    await screen.findByRole('dialog', { name: 'Conversations' }),
+  ).toBeVisible();
+  // Like Buddy settings in the drawer's footer: a route change from inside.
+  await act(async () => {
+    fireEvent.click(screen.getByText('Route elsewhere'));
+  });
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Conversations' })).toBeNull(),
+  );
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(
+    '/settings/buddy',
+  );
+});
+
+it('returns focus to the phone header menu after Workspace commands opened from it', async () => {
+  vi.stubGlobal('innerWidth', 390);
+  vi.stubGlobal('innerHeight', 844);
+  const user = userEvent.setup();
+  const transport = new FixtureTransport({ conversationCount: 2 });
+  const controller = new ClientController(transport, () => 1);
+  clients.push(controller);
+  await controller.start();
+  await controller.selectConversation('conversation-a');
+  render(
+    <MemoryRouter initialEntries={['/conversations/conversation-a']}>
+      <RuntimeContext.Provider
+        value={{ controller, platform: createFakePlatform() }}
+      >
+        <OverlayProvider>
+          <Workspace />
+        </OverlayProvider>
+      </RuntimeContext.Provider>
+    </MemoryRouter>,
+  );
+  const menu = screen.getByRole('button', { name: 'Conversation menu' });
+  await user.click(menu);
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Workspace commands' }),
+  );
+  expect(
+    await screen.findByRole('dialog', { name: 'Workspace commands' }),
+  ).toBeVisible();
+  await user.keyboard('{Escape}');
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('dialog', { name: 'Workspace commands' }),
+    ).toBeNull(),
+  );
+  // The menu item that opened it is gone; its trigger takes focus back.
+  await waitFor(() => expect(menu).toHaveFocus());
 });

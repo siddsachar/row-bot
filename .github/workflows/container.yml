@@ -64,6 +64,10 @@ jobs:
           push: false
           provenance: false
           sbom: false
+          # Verification builds reuse layers (the locked dependency layer above
+          # all); release images below always build from scratch.
+          cache-from: type=gha,scope=verify-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=verify-${{ matrix.architecture }}
           build-args: |
             ROW_BOT_VERSION=0.0.0
             ROW_BOT_SOURCE_REVISION=${{ github.sha }}

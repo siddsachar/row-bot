@@ -35,6 +35,8 @@ class AccessDevice:
     paired_from: str | None
     access_route: str | None
     legacy_source_id: str | None
+    # The client address the device was last seen from (owner-only data).
+    last_address: str | None = None
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +48,7 @@ class AccessDevice:
             "user_agent": self.user_agent,
             "paired_from": self.paired_from,
             "access_route": self.access_route,
+            "last_address": self.last_address,
         }
 
 

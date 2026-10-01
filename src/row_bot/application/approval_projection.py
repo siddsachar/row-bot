@@ -23,7 +23,7 @@ def _text(value: Any, maximum: int) -> str:
     )
 
 
-def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[str, str]:
+def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[str, Any]:
     """Expose only reviewed, size-bounded interrupt metadata."""
 
     items = value if isinstance(value, list) else [value]
@@ -54,7 +54,7 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
         or item.get("__interrupt_id"),
         256,
     )
-    return {
+    projected: dict[str, Any] = {
         "action_label": action_label,
         "reason": reason,
         "risk_class": risk,
@@ -62,3 +62,36 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
         "safe_argument_summary": safe_tool_input(item.get("args")),
         "requesting_trace_id": requesting_trace_id,
     }
+    # Turning on a tool the work needs reads as a setup card ("Turn on …"),
+    # and a code folder to use or a repository to clone as a folder card
+    # where the person picks the folder (B277).
+    setup = item.get("setup")
+    if isinstance(setup, Mapping) and len(items) == 1:
+        projected_setup = _setup_card(setup)
+        if projected_setup:
+            projected["setup"] = projected_setup
+    return projected
+
+
+def _setup_card(setup: Mapping[str, Any]) -> dict[str, Any] | None:
+    kind = setup.get("kind")
+    label = _text(setup.get("label"), 120)
+    if not label or kind not in {"tool", "folder", "clone"}:
+        return None
+    if kind == "tool":
+        return {"kind": "tool", "label": label}
+    if kind == "clone":
+        repo_url = _text(setup.get("repo_url"), 2048)
+        return {"kind": "clone", "label": label, "repo_url": repo_url} if repo_url else None
+    raw = setup.get("folders")
+    folders = []
+    for entry in raw if isinstance(raw, list) else []:
+        if len(folders) == 8:
+            break
+        if not isinstance(entry, Mapping):
+            continue
+        folder = {"resource_id": _text(entry.get("resource_id"), 256), "name": _text(entry.get("name"), 120),
+                  "revision": _text(entry.get("revision"), 128)}
+        if folder["resource_id"] and folder["name"]:
+            folders.append(folder)
+    return {"kind": "folder", "label": label, "folders": folders}

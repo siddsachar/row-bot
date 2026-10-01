@@ -1,5 +1,5 @@
 ; =============================================================================
-; Row-Bot v4.9.1 - Inno Setup Script
+; Row-Bot v5.0.0 - Inno Setup Script
 ; Self-contained installer: bundles embedded Python with all pip packages
 ; pre-installed.  No internet downloads at install time.
 ; =============================================================================
@@ -81,7 +81,7 @@
 #endif
 
 #define MyAppName      "Row-Bot"
-#define MyAppVersion   "4.9.1"
+#define MyAppVersion   "5.0.0"
 #define MyAppPublisher "Row-Bot"
 #define MyAppURL       "https://row-bot.ai"
 #define MyAppExeName   "launch_row_bot.vbs"
@@ -116,6 +116,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; The Windows build is self-contained. Replace the embedded Python on repair
 ; and upgrade so user-installed or broken optional packages cannot survive.
 Type: filesandordirs; Name: "{app}\python"
+; Replace the app source and shared static assets too: a module or asset a
+; release no longer ships (the NiceGUI ui package, the old Buddy runtime script)
+; must not stay behind after an upgrade. User data lives in the profile folder,
+; never under {app}.
+Type: filesandordirs; Name: "{app}\app\src"
+Type: filesandordirs; Name: "{app}\app\static"
 
 [Files]
 ; App payload copied from scripts/app_payload_manifest.py
@@ -154,7 +160,4 @@ Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; Description: "
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\app\__pycache__"
-Type: filesandordirs; Name: "{app}\app\tools\__pycache__"
-Type: filesandordirs; Name: "{app}\app\channels\__pycache__"
-Type: filesandordirs; Name: "{app}\app\ui\__pycache__"
-Type: filesandordirs; Name: "{app}\app\plugins\__pycache__"
+Type: filesandordirs; Name: "{app}\app\src"

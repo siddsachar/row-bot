@@ -33,19 +33,18 @@ def install_bundle(
         append_audit("install_blocked", source=bundle.source, install_ref=bundle.install_ref, scan=scan.as_dict())
         return InstallResult(
             success=False,
-            message="Install blocked by public skill scanner.",
+            message="The safety scan blocked this skill, so it wasn't installed.",
             skill_name="",
             warnings=scan.warnings,
         )
 
-    local_name = _bundle_local_name(bundle)
-    existing = skills.get_skill(local_name)
+    local_name, taken = install_name(bundle)
     dest = skills.USER_SKILLS_DIR / local_name
-    if existing is not None or dest.exists():
+    if taken:
         if conflict_policy == "keep_existing":
             return InstallResult(
                 success=False,
-                message=f"Skill already exists: {local_name}",
+                message=f"A skill named {local_name} is already installed.",
                 skill_name=local_name,
                 warnings=scan.warnings,
             )
@@ -93,7 +92,11 @@ def install_bundle(
     append_audit("install", local_name=local_name, source=bundle.source, enabled=bool(enabled))
     return InstallResult(
         success=True,
-        message=f"Skill '{local_name}' installed {'and made available' if enabled else 'disabled'}.",
+        message=(
+            f"Installed {local_name}. It's available in your chats."
+            if enabled
+            else f"Installed {local_name}. It stays off until you turn it on under Installed."
+        ),
         skill_name=local_name,
         record=record,
         warnings=scan.warnings,
@@ -215,6 +218,15 @@ def fetch_bundle_for_record(record: SkillInstallRecord) -> SkillBundle:
     if source is None:
         raise ValueError(f"No source adapter registered for {record.source}")
     return source.fetch(record.install_ref)
+
+
+def install_name(bundle: SkillBundle) -> tuple[str, bool]:
+    """The skill name a bundle installs as, and whether a skill already has it."""
+    import row_bot.skills as skills
+
+    local_name = _bundle_local_name(bundle)
+    taken = skills.get_skill(local_name) is not None or (skills.USER_SKILLS_DIR / local_name).exists()
+    return local_name, taken
 
 
 def _bundle_local_name(bundle: SkillBundle) -> str:

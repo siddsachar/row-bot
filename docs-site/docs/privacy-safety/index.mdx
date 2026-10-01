@@ -3,23 +3,25 @@ title: "Privacy And Safety"
 description: "Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing."
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # Privacy And Safety
 
 Row-Bot is local-first: the app and its data live on your machine. Local-first does not mean every feature is offline. Hosted models, web search, browser actions, account tools, channels, MCP servers, plugins, realtime voice, and media providers can send data outside the app when you configure and use them.
 
 ## Local Data
 
-Conversations, memories, documents, workflows, logs, Designer projects, Developer workspaces, skills, plugins, Buddy assets, and settings are stored in the active local Row-Bot data directory. Buddy's native overlay reuses the selected conversation and does not create a second transcript store.
+Conversations, memories, documents, workflows, logs, designs, code folder records, skills, plugins, Buddy assets, and settings are stored in the active local Row-Bot data directory. Buddy's native overlay reuses the selected conversation and does not create a second transcript store.
 
 ## External Calls
 
-External calls happen when you choose or enable something that needs them: hosted models, subscription providers, API providers, web search, browser automation, account tools, messaging channels, MCP servers, plugin tools, realtime voice, and media generation.
+External calls happen when you choose or enable something that needs them: hosted models, subscription providers, API providers, web search, browser automation, account tools, messaging channels, MCP servers, plugin tools, realtime voice, and media generation. OpenRouter requests identify Row-Bot as the app making them (its website address and name, in the headers OpenRouter asks apps to send), which lets OpenRouter show Row-Bot in its public app rankings; these headers add no user, prompt or account data.
 
 Computer Use is a distinct opt-in boundary. Row-Bot downloads the pinned Cua Driver only after an explicit Install or Repair action, verifies the selected archive, and requires the current telemetry disclosure before any executable invocation. The reviewed 0.20.0 upstream telemetry includes pseudonymous identifiers and bounded product, platform, client, tool/outcome, duration/output, aggregate usage, permission, and lifecycle categories; its tagged event builders exclude prompts, tool arguments/results, typed text, screenshots, accessibility trees, app/window names, URLs, paths, raw values, and raw errors. See [Computer Use](/docs/computer-use/) for the full boundary.
 
 ## Credentials
 
-Enter credentials only in the relevant Settings tab or provider sign-in flow. Row-Bot stores secrets in the operating system key store when available and keeps local metadata for status and diagnostics. An explicitly configured server deployment can use a read-only external master-key file to encrypt owner-entered secrets in its persistent data directory; see [Docker And VPS Operations](/docs/operations/docker#read-only-secret-files).
+Enter credentials only on the relevant Settings page or in the provider sign-in flow. Row-Bot stores secrets in the operating system key store when available and keeps local metadata for status and diagnostics. An explicitly configured server deployment can use a read-only external master-key file to encrypt owner-entered secrets in its persistent data directory; see [Docker And VPS Operations](/docs/operations/docker#read-only-secret-files).
 
 ## Remote Access
 
@@ -35,7 +37,11 @@ See [Remote Access And Server Mode](/docs/operations/remote-access) for layouts,
 
 ## Approvals
 
-Use approvals to review file writes, command execution, browser actions, account actions, channel sends, MCP calls, plugin tools, Developer changes, and other sensitive actions. Reject anything that does not match your request.
+<Screenshot id="chat-approval" alt="Row-Bot approval card for a file change with Approve and Deny." caption="An approval card names the action and what it affects; Approve and Deny decide it in place." />
+
+Use approvals to review file writes, command execution, browser actions, account actions, channel sends, MCP calls, plugin tools, code folder changes, and other sensitive actions. Deny anything that does not match your request.
+
+Approvals wait until you answer; they no longer expire on their own, unless a workflow step sets its own time limit. Every waiting approval shows in its conversation, in the sidebar's attention indicator and on Overview, with **Approve** and **Deny** in place, so background work can't slip past you. Each tool result records whether approval was needed, given or denied, and a denied action never runs.
 
 Approval mode is policy, not a model choice: blocked actions stay blocked, ask-mode actions wait for you, and auto-approved actions follow the configured policy. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled.
 

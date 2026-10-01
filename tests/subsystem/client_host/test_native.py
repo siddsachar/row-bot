@@ -18,6 +18,9 @@ from row_bot.native_client import (
 )
 
 
+pytestmark = pytest.mark.platform
+
+
 def _picker_payload(**changes):
     payload = {"intentId": "intent_1", "intent": "open_existing",
                "conversationId": "conversation_1", "destination": "workspace"}
@@ -185,6 +188,43 @@ def test_all_narrow_operations_and_platform_discovery(native) -> None:
     assert len(driver.calls) == 5
 
 
+def test_buddy_placement_requires_capability_proof_and_closed_payload(native) -> None:
+    bridge, proof, driver, _, _ = native
+    calls = []
+    driver.capabilities = lambda: ["buddy_placement"]
+    driver.buddy_placement = lambda action, x, y: (
+        calls.append((action, x, y)) or {"placement": "desktop" if action == "tear_off" else "docked", "visible": True}
+    )
+    assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "tear_off", "x": 500, "y": -200}) == {
+        "status": "ok", "value": {"placement": "desktop", "visible": True}}
+    assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "dock"})["status"] == "ok"
+    # Actions are a closed set of shapes; which actions a window may use is its
+    # role's decision (tests/subsystem/buddy/test_native_host.py).
+    for payload in ({"action": "tear_off", "x": "500", "y": 1},
+                    {"action": "tear_off", "x": 1, "y": 1, "port": 80},
+                    {"action": "hide", "x": 1}, {"action": "minimize"},
+                    {"action": "status", "path": "/private"}):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "unavailable"
+    assert calls == [("tear_off", 500, -200), ("dock", None, None)]
+    bridge._invalidate()
+    assert bridge.native_client_dispatch(proof, "buddy_placement", {"action": "status"})["status"] == "unavailable"
+    assert len(calls) == 2
+
+
+def test_pywebview_driver_advertises_only_injected_buddy_lifecycle() -> None:
+    calls = []
+    driver = PyWebViewDriver(
+        SimpleNamespace(),
+        buddy_placement=lambda action, x, y: (
+            calls.append((action, x, y)) or {"placement": "desktop", "visible": True}
+        ),
+    )
+    assert "buddy_placement" in driver.capabilities()
+    assert driver.buddy_placement("tear_off", 320, -120) == {"placement": "desktop", "visible": True}
+    assert calls == [("tear_off", 320, -120)]
+    assert "buddy_placement" not in PyWebViewDriver(SimpleNamespace()).capabilities()
+
+
 def test_no_backend_registrar_means_no_native_picker(native) -> None:
     _, _, driver, _, _ = native
     bridge = NativeClientBridge(
@@ -207,22 +247,82 @@ def test_native_exception_never_exposes_private_paths(native) -> None:
     assert bridge.native_client_dispatch(proof, "select_file", _picker_payload()) == {"status": "unavailable", "reason": "operation_failed"}
 
 
-def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pywebview_driver_uses_exact_supplied_window_and_backend_save_guard(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import sys
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(OPEN_DIALOG="file", FOLDER_DIALOG="folder", SAVE_DIALOG="save"))
     calls = []
-    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: calls.append((kind, kwargs)) or ["/synthetic/file"])
+    chosen = str(tmp_path / "file")
+    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: calls.append((kind, kwargs)) or [chosen])
     saved = []
     driver = PyWebViewDriver(window, save_reference=lambda reference, path: saved.append((reference, path)) or True,
                              open_external=lambda url: calls.append(url) or True)
-    assert driver.select("file") == "/synthetic/file"
-    assert driver.select("folder") == "/synthetic/file"
+    assert driver.select("file") == chosen
+    assert driver.select("folder") == chosen
     assert not driver.save("fixture", "fixture.txt", lambda: False)
     assert saved == []
     assert driver.save("fixture", "fixture.txt", lambda: True)
-    assert saved == [("fixture", Path("/synthetic/file"))]
+    assert saved == [("fixture", Path(chosen))]
     assert driver.clipboard_read() is None
     assert not driver.managed_window("/app-v2/")
+
+
+def test_a_save_dialog_answering_one_path_saves_exactly_there(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """pywebview's Windows and macOS save dialogs answer a plain string, not a
+    tuple: the export was written to a file named after the drive letter in
+    the app's working folder, and the app said it was saved (B238)."""
+    import sys
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(OPEN_DIALOG=10, FOLDER_DIALOG=20, SAVE_DIALOG=30))
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: tmp_path))
+    (tmp_path / "Downloads").mkdir()
+    chosen = str(tmp_path / "Downloads" / "conversation-export.pdf")
+    answer: dict[str, object] = {"value": chosen}
+    dialogs: list[tuple[int, dict]] = []
+    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: dialogs.append((kind, kwargs)) or answer["value"])
+    saved: list[tuple[str, Path]] = []
+    driver = PyWebViewDriver(window, save_reference=lambda reference, path: saved.append((reference, path)) or True)
+
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert saved == [("fixture", Path(chosen))]
+    # The dialog opens in Downloads with the suggested name (pywebview's own
+    # Windows default folder has no drive).
+    assert dialogs[0] == (30, {"save_filename": "conversation-export.pdf", "directory": str(tmp_path / "Downloads")})
+    # A one-item tuple (GTK, Qt) is the same choice.
+    answer["value"] = (chosen,)
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is True
+    assert saved[-1] == ("fixture", Path(chosen))
+    # A cancelled dialog writes nothing and says so.
+    answer["value"] = None
+    assert driver.save("fixture", "conversation-export.pdf", lambda: True) is None
+    # A relative answer is refused, never resolved against the working folder.
+    for relative in ("C", ("C",), "export.pdf"):
+        answer["value"] = relative
+        assert driver.save("fixture", "conversation-export.pdf", lambda: True) is False
+    assert len(saved) == 2
+
+
+def test_a_picker_answering_one_path_or_a_relative_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import sys
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(OPEN_DIALOG=10, FOLDER_DIALOG=20, SAVE_DIALOG=30))
+    answer: dict[str, object] = {"value": str(tmp_path)}
+    window = SimpleNamespace(create_file_dialog=lambda _kind, **_kwargs: answer["value"])
+    driver = PyWebViewDriver(window)
+    assert driver.select("folder") == str(tmp_path)
+    answer["value"] = (str(tmp_path),)
+    assert driver.select("folder") == str(tmp_path)
+    answer["value"] = ()
+    assert driver.select("file") is None
+    for relative in ("C", ("C",)):
+        answer["value"] = relative
+        with pytest.raises(ValueError):
+            driver.select("file")
+
+
+def test_a_save_the_host_could_not_write_is_reported_not_saved(native) -> None:
+    bridge, proof, driver, _, _ = native
+    driver.save = lambda _reference, _name, _authorized: False
+    assert bridge.native_client_dispatch(proof, "save", {"reference": "fixture", "name": "fixture.txt"}) == {
+        "status": "unavailable", "reason": "save_failed"}
 
 
 def test_trusted_attach_installs_document_scoped_hook_and_revokes_on_events() -> None:
@@ -239,15 +339,49 @@ def test_trusted_attach_installs_document_scoped_hook_and_revokes_on_events() ->
     exposed = []
     window = SimpleNamespace(uid="window", get_current_url=lambda: "http://localhost:8080/app-v2/",
                              events=SimpleNamespace(before_load=Event(), closed=Event(), loaded=Event()),
-                             expose=lambda callback: exposed.append(callback), evaluate_js=scripts.append)
+                             expose=lambda *callbacks: exposed.extend(callbacks), evaluate_js=scripts.append)
     bridge = attach_native_client(window, instance_id="i", origin="http://localhost:8080", driver=Driver())
     window.events.loaded.fire()
-    assert len(exposed) == 1 and exposed[0].__name__ == "native_client_dispatch"
+    assert sorted(callback.__name__ for callback in exposed) == ["native_client_dispatch", "native_client_rebind"]
     assert "__ROW_BOT_NATIVE_CLIENT__" in scripts[0] and "localStorage" not in scripts[0]
+    assert "row-bot-native-ready" in scripts[0]
     assert bridge._token
     window.events.before_load.fire()
     assert not bridge._token
 
+
+
+def test_the_endpoint_reaches_a_page_whose_policy_refuses_eval() -> None:
+    """On macOS, pywebview's evaluate_js wraps a script in eval(), which the
+    shell's Content Security Policy refuses: the page never got its endpoint
+    and said "Desktop features are reconnecting" for good. The host runs the
+    script as is instead."""
+    class Event:
+        def __init__(self):
+            self.handlers = []
+        def __iadd__(self, handler):
+            self.handlers.append(handler)
+            return self
+        def fire(self):
+            for handler in self.handlers:
+                handler()
+
+    def refuse_eval(_script):
+        raise RuntimeError("EvalError: Refused to evaluate a string as JavaScript because 'unsafe-eval' is not allowed")
+
+    scripts = []
+    exposed = []
+    window = SimpleNamespace(uid="window", get_current_url=lambda: "http://localhost:8080/app-v2/",
+                             events=SimpleNamespace(before_load=Event(), closed=Event(), loaded=Event()),
+                             expose=lambda *callbacks: exposed.extend(callbacks),
+                             evaluate_js=refuse_eval, run_js=scripts.append)
+    bridge = attach_native_client(window, instance_id="i", origin="http://localhost:8080", driver=Driver())
+    window.events.loaded.fire()
+    assert "__ROW_BOT_NATIVE_CLIENT__" in scripts[0]
+    assert bridge._token
+    rebind = next(callback for callback in exposed if callback.__name__ == "native_client_rebind")
+    assert rebind() == {"status": "ok"}
+    assert len(scripts) == 2
 
 @pytest.mark.parametrize("value", ["file:///secret", "//example.invalid", "https://example.invalid:bad", "https://example.invalid/\n", "https://a\\b", "data:text/html,test"])
 def test_external_url_schemes_and_malformed_values(value: str) -> None:
@@ -317,8 +451,9 @@ def test_native_capabilities_require_current_authenticated_attestation() -> None
     assert bridge.native_client_dispatch(
         proof, "discover", {"attestation": "one_time_attestation"})["status"] == "ok"
     state["authorized"] = False
+    # The document is still bound; only its grant was refused (B102).
     assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
-        "status": "unavailable", "reason": "native_proof_required"}
+        "status": "unavailable", "reason": "native_authentication_required"}
     state["authorized"] = True
     assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
     assert bridge.native_client_dispatch(
@@ -445,3 +580,356 @@ def test_terminal_open_rejects_unscoped_or_malformed_payload(payload) -> None:
     )["status"] == "ok"
     assert bridge.native_client_dispatch(proof, "terminal_open", payload)["status"] == "unavailable"
     assert opened == []
+
+
+def _external_terminal_bridge(open_external_terminal=None, state=None):
+    state = state if state is not None else {"url": "http://localhost:8080/app-v2/"}
+    bridge = NativeClientBridge(
+        instance_id="instance",
+        window_id="window",
+        origin="http://localhost:8080",
+        current_url=lambda: state["url"],
+        driver=Driver(),
+        authenticate_document=lambda _token, _context: NativeDocumentAuthority(
+            "session", "policy", "grant"
+        ),
+        authorize_document=lambda _authority, _context: True,
+        open_external_terminal=open_external_terminal,
+    )
+    proof = bridge._bind_loaded_document()
+    assert proof
+    discovery = bridge.native_client_dispatch(
+        proof, "discover", {"attestation": "server_attestation"}
+    )
+    assert discovery["status"] == "ok"
+    return bridge, proof, discovery["value"]["capabilities"]
+
+
+def test_terminal_external_passes_exact_authority_and_only_a_conversation_id() -> None:
+    opened = []
+    bridge, proof, capabilities = _external_terminal_bridge(
+        lambda authority, conversation: opened.append((authority, conversation)) or True
+    )
+    assert "terminal_external" in capabilities
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": "conversation_1"}
+    ) == {"status": "ok", "value": None}
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None}
+    ) == {"status": "ok", "value": None}
+    assert opened == [
+        (NativeSelectionAuthority("instance", "session", "window", proof["epoch"], "policy", "grant"),
+         "conversation_1"),
+        (NativeSelectionAuthority("instance", "session", "window", proof["epoch"], "policy", "grant"), None),
+    ]
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"conversationId": "bad/path"}, {"conversationId": 7},
+    {"conversationId": None, "path": "C:\\Users"}, {"folder": "/home/person"},
+])
+def test_terminal_external_never_takes_a_path_or_extra_fields(payload) -> None:
+    opened = []
+    bridge, proof, _ = _external_terminal_bridge(
+        lambda authority, conversation: opened.append(conversation) or True
+    )
+    assert bridge.native_client_dispatch(proof, "terminal_external", payload) == {
+        "status": "unavailable", "reason": "invalid_request"}
+    assert opened == []
+
+
+def test_terminal_external_is_absent_without_its_host_callback_and_reports_failure() -> None:
+    bridge, proof, capabilities = _external_terminal_bridge()
+    assert "terminal_external" not in capabilities
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None})["status"] == "unavailable"
+    bridge, proof, _ = _external_terminal_bridge(lambda _authority, _conversation: False)
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None}) == {"status": "unavailable", "reason": "unsupported"}
+
+
+def test_terminal_external_after_navigation_returns_no_success() -> None:
+    state = {"url": "http://localhost:8080/app-v2/"}
+
+    def navigate_away(_authority, _conversation):
+        state["url"] = "https://elsewhere.invalid/"
+        return True
+
+    bridge, proof, _ = _external_terminal_bridge(navigate_away, state)
+    assert bridge.native_client_dispatch(
+        proof, "terminal_external", {"conversationId": None}
+    ) == {"status": "unavailable", "reason": "native_proof_required"}
+
+
+def _buddy_bridge(url: str, driver: PyWebViewDriver) -> tuple[NativeClientBridge, dict]:
+    state = {"url": url}
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: state["url"], driver=driver,
+        authenticate_document=lambda _token, _context: NativeDocumentAuthority("session", "policy", "grant"),
+        authorize_document=lambda _authority, _context: True,
+        shell_path="/app-v2/buddy-overlay",
+    )
+    return bridge, state
+
+
+def test_desktop_buddy_bridge_is_bound_to_its_document_and_its_operations() -> None:
+    calls: list[tuple] = []
+    driver = PyWebViewDriver(
+        SimpleNamespace(),
+        read_clipboard=lambda: calls.append(("clipboard",)) or "secret",
+        buddy_placement=lambda action, x, y: calls.append(("placement", action)) or {
+            "placement": "desktop", "visible": True},
+        read_buddy_target=lambda: {"conversationId": "conversation-1", "revision": 4},
+        show_main_window=lambda conversation: calls.append(("main", conversation)) or True,
+        allowed=frozenset({"buddy_placement", "buddy_follow", "main_window"}),
+    )
+    bridge, state = _buddy_bridge("http://localhost:8080/app-v2/buddy-overlay", driver)
+    proof = bridge._bind_loaded_document()
+    discovered = bridge.native_client_dispatch(proof, "discover", {"attestation": "server_attestation"})
+    assert sorted(discovered["value"]["capabilities"]) == ["buddy_follow", "buddy_placement", "main_window"]
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "open_external", {"url": "https://fixture.invalid/"})[
+        "status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "buddy_follow", {}) == {
+        "status": "ok", "value": {"conversationId": "conversation-1", "revision": 4}}
+    # This window only follows: publishing is refused before the driver acts.
+    assert bridge.native_client_dispatch(proof, "buddy_follow", {"conversationId": "conversation-2"})[
+        "status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "main_window", {"conversationId": None})["status"] == "ok"
+    for payload in ({"conversationId": "a b"}, {"conversationId": 1}, {}, {"conversationId": None, "x": 1}):
+        assert bridge.native_client_dispatch(proof, "main_window", payload)["status"] == "unavailable"
+    for payload in ({"action": "ready"}, {"action": "hide"}):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "ok"
+    for payload in ({"action": "ready", "x": 1}, {"action": "collapse"}, {"action": "tear_off", "x": True, "y": 1}):
+        assert bridge.native_client_dispatch(proof, "buddy_placement", payload)["status"] == "unavailable"
+    assert calls == [("main", None), ("placement", "ready"), ("placement", "hide")]
+    # Any other /app-v2 document in this window has no bridge at all.
+    state["url"] = "http://localhost:8080/app-v2/"
+    assert bridge.native_client_dispatch(proof, "buddy_follow", {})["status"] == "unavailable"
+    assert bridge._bind_loaded_document() is None
+
+
+def test_buddy_follow_answers_and_roles_are_validated() -> None:
+    with pytest.raises(ValueError):
+        PyWebViewDriver(SimpleNamespace(), publish_buddy_target=lambda _c: None,
+                        read_buddy_target=lambda: None)
+    with pytest.raises(ValueError):
+        NativeClientBridge(instance_id="i", window_id="w", origin="http://localhost:8080",
+                           current_url=lambda: None, driver=Driver(), shell_path="/elsewhere")
+    answers = iter([{"conversationId": "bad id", "revision": 1}, {"conversationId": "c", "revision": -1},
+                    {"conversationId": "c", "revision": True}, {"conversationId": None, "revision": 0}])
+    driver = PyWebViewDriver(SimpleNamespace(), read_buddy_target=lambda: next(answers))
+    bridge, _ = _buddy_bridge("http://localhost:8080/app-v2/buddy-overlay", driver)
+    proof = bridge._bind_loaded_document()
+    bridge.native_client_dispatch(proof, "discover", {"attestation": "server_attestation"})
+    results = [bridge.native_client_dispatch(proof, "buddy_follow", {})["status"] for _ in range(4)]
+    assert results == ["unavailable", "unavailable", "unavailable", "ok"]
+
+
+def test_a_fresh_attestation_renews_the_document_lease_before_it_lapses() -> None:
+    """Long-lived windows (the main window, the desktop Buddy) kept their
+    bridge for only 30 minutes; a fresh attestation renews it (B99)."""
+    state = {"clock": 100.0}
+    exchanged: list[str] = []
+
+    def authenticate(attestation, _context):
+        if not attestation.startswith("attest-") or attestation in exchanged:
+            return None  # one-shot and unknown attestations are refused
+        exchanged.append(attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/", driver=Driver(),
+        authenticate_document=authenticate, authorize_document=lambda _a, _c: True,
+        clock=lambda: state["clock"])
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    # Re-sending the exchanged attestation is only a discovery.
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    assert exchanged == ["attest-1"]
+    state["clock"] += 1700
+    # A refused renewal keeps the current lease, and says it was refused: it
+    # used to answer "ok", so the window believed it renewed (B231).
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "bogus"}) == {
+        "status": "unavailable", "reason": "native_renewal_refused"}
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    state["clock"] += 1700  # past the first lease, inside the renewed one
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+    state["clock"] += 200  # the renewed lease lapses too
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    # A lapsed document cannot renew itself; only a new binding (a reload,
+    # or the host binding the document again) gives it a new proof.
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"})["status"] == "unavailable"
+    assert "attest-3" not in exchanged
+
+
+class _Event:
+    def __init__(self) -> None:
+        self.handlers: list[Callable[..., object]] = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self) -> None:
+        for handler in self.handlers:
+            handler()
+
+
+class _ShellWindow:
+    """A pywebview window: its URL, events, exposed functions and injected scripts."""
+
+    def __init__(self, url: str) -> None:
+        self.uid = "window"
+        self.url = url
+        self.events = SimpleNamespace(before_load=_Event(), closed=_Event(), loaded=_Event())
+        self.exposed: dict[str, Callable[..., dict]] = {}
+        self.scripts: list[str] = []
+
+    def get_current_url(self) -> str:
+        return self.url
+
+    def expose(self, *functions) -> None:
+        for function in functions:
+            self.exposed[function.__name__] = function
+
+    def evaluate_js(self, script: str) -> None:
+        self.scripts.append(script)
+
+    def proof(self) -> dict:
+        import json
+        return json.loads(self.scripts[-1].split("const proof = ", 1)[1].split("; ", 1)[0])
+
+
+def test_a_window_whose_lease_lapsed_is_bound_again_only_at_the_shell() -> None:
+    """A main window whose lease lapsed (the computer slept past it) stayed
+    without desktop features until Row-Bot restarted (B231). It asks the host to
+    bind it again: exactly what loading the page does (a new epoch and token,
+    only while it shows the app), so no more than a reload, and without a fresh
+    attestation it still has no authority."""
+    exchanged: list[str] = []
+
+    def authenticate(attestation, _context):
+        if attestation in exchanged:
+            return None
+        exchanged.append(attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    window = _ShellWindow("http://localhost:8080/app-v2/conversations/c-1")
+    driver = Driver()
+    bridge = attach_native_client(window, instance_id="instance", origin="http://localhost:8080", driver=driver,
+                                  authenticate_document=authenticate, authorize_document=lambda _a, _c: True)
+    rebind = window.exposed["native_client_rebind"]
+    window.events.loaded.fire()
+    first = window.proof()
+    dispatch = window.exposed["native_client_dispatch"]
+    assert dispatch(first, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    bridge._invalidate()  # the lease lapsed
+    assert dispatch(first, "clipboard_read", {}) == {"status": "unavailable", "reason": "native_proof_required"}
+
+    # Away from the app there is nothing to bind.
+    window.url = "http://localhost:8080/legacy"
+    assert rebind() == {"status": "unavailable", "reason": "native_proof_required"}
+    assert len(window.scripts) == 1
+
+    window.url = "http://localhost:8080/app-v2/conversations/c-1"
+    assert rebind() == {"status": "ok"}
+    second = window.proof()
+    assert second["epoch"] > first["epoch"] and second["token"] != first["token"]
+    assert "row-bot-native-ready" in window.scripts[-1]
+    assert dispatch(first, "clipboard_read", {}) == {"status": "unavailable", "reason": "native_proof_required"}
+    # A new binding has no authority until it exchanges a fresh attestation.
+    assert dispatch(second, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert dispatch(second, "discover", {"attestation": "attest-1"}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert dispatch(second, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    assert dispatch(second, "clipboard_read", {})["status"] == "ok"
+    # Binding a live document again retires its current proof.
+    assert rebind() == {"status": "ok"}
+    assert dispatch(second, "clipboard_read", {}) == {"status": "unavailable", "reason": "native_proof_required"}
+    assert driver.calls == ["clipboard_read"]
+
+
+def test_the_desktop_buddy_is_bound_again_only_at_its_own_document() -> None:
+    window = _ShellWindow("http://localhost:8080/app-v2/")
+    attach_native_client(window, instance_id="instance", origin="http://localhost:8080", driver=Driver(),
+                         authenticate_document=lambda _a, _c: None, authorize_document=lambda _a, _c: False,
+                         shell_path="/app-v2/buddy-overlay")
+    assert window.exposed["native_client_rebind"]() == {"status": "unavailable", "reason": "native_proof_required"}
+    assert window.scripts == []
+    window.url = "http://localhost:8080/app-v2/buddy-overlay"
+    assert window.exposed["native_client_rebind"]() == {"status": "ok"}
+    assert "__ROW_BOT_NATIVE_CLIENT__" in window.scripts[-1]
+
+
+def test_a_lapsed_server_grant_is_replaced_by_a_fresh_attestation() -> None:
+    state = {"clock": 100.0, "granted": set()}
+
+    def authenticate(attestation, _context):
+        state["granted"].add("grant-" + attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: "http://localhost:8080/app-v2/", driver=Driver(),
+        authenticate_document=authenticate,
+        authorize_document=lambda authority, _c: authority.authority_grant in state["granted"],
+        clock=lambda: state["clock"])
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    state["granted"].clear()  # the server grant expired (e.g. the machine slept)
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+
+
+def test_a_refused_grant_asks_for_a_fresh_attestation_only_before_any_effect() -> None:
+    """A policy change (an MCP server connecting after start-up) refused every
+    grant, and the window could not tell that from a lost document (B102)."""
+    state = {"granted": set(), "url": "http://localhost:8080/app-v2/"}
+
+    def authenticate(attestation, _context):
+        state["granted"].add("grant-" + attestation)
+        return NativeDocumentAuthority("session", "policy", "grant-" + attestation)
+
+    driver = Driver()
+    bridge = NativeClientBridge(
+        instance_id="instance", window_id="window", origin="http://localhost:8080",
+        current_url=lambda: state["url"], driver=driver,
+        authenticate_document=authenticate,
+        authorize_document=lambda authority, _c: authority.authority_grant in state["granted"])
+    proof = bridge._bind_loaded_document()
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-1"})["status"] == "ok"
+    state["granted"].clear()
+    for operation, payload in [("clipboard_read", {}), ("clipboard_write", {"text": "fixture"}),
+                               ("select_file", _picker_payload()), ("open_external", {"url": "https://example.com/"})]:
+        assert bridge.native_client_dispatch(proof, operation, payload) == {
+            "status": "unavailable", "reason": "native_authentication_required"}
+    assert driver.calls == []
+    # Without a fresh attestation nothing is granted.
+    assert bridge.native_client_dispatch(proof, "discover", {}) == {
+        "status": "unavailable", "reason": "native_authentication_required"}
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-2"})["status"] == "ok"
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "ok"
+
+    # A grant refused after the effect ran is not a retry signal.
+    def revoke_during(text):
+        state["granted"].clear()
+        return True
+    driver.clipboard_write = revoke_during
+    assert bridge.native_client_dispatch(proof, "clipboard_write", {"text": "fixture"}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+
+    # A document that navigated away cannot re-attest.
+    state["url"] = "http://localhost:8080/legacy"
+    assert bridge.native_client_dispatch(proof, "clipboard_read", {}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    state["url"] = "http://localhost:8080/app-v2/"
+    assert bridge.native_client_dispatch(proof, "discover", {"attestation": "attest-3"}) == {
+        "status": "unavailable", "reason": "native_proof_required"}
+    assert "grant-attest-3" not in state["granted"]

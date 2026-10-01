@@ -276,7 +276,7 @@ def test_strict_partial_pdf_merge_and_pptx_item_failures_never_claim_ready(proje
         with pytest.raises(client_service.ArtifactError, match='export_incomplete'):
             create(project, format='pdf')
         # Compatibility behavior belongs to the retained owner; strict policy
-        # does not leak after failure into existing NiceGUI callers.
+        # does not leak after failure into its other callers.
         assert export.export_pdf(project, directory=tmp_path)
     def fail_item(*_args):
         raise ValueError('synthetic item conversion failure')
@@ -391,3 +391,70 @@ def test_application_validator_exception_is_preserved_after_partial_render(proje
     directory = client._directory(identity)
     assert list(directory.glob('*.html'))
     assert json.loads((directory / 'manifest.json').read_text())['status'] == 'incomplete'
+
+
+@pytest.fixture
+def exports_folder(tmp_path, monkeypatch):
+    from row_bot.application import conversation_creation
+
+    root = tmp_path / 'Row-Bot'
+    root.mkdir()
+    monkeypatch.setattr(conversation_creation, 'configured_workspace_root', lambda: root.resolve())
+    return root / 'Exports'
+
+
+def test_saving_an_export_writes_one_copy_into_the_exports_folder(project, renderer, exports_folder):
+    identity = str(uuid4())
+    made = create(project, export_id=identity, format='pdf')
+    saved = client.save_export_copy(project.id, identity, binding_id='binding-a', validate=lambda: None)
+    path = exports_folder / saved.filename
+    assert saved.filename == made.filename and saved.folder == 'Row-Bot › Exports'
+    assert path.read_bytes() == client.read_export_payload(
+        project.id, identity, binding_id='binding-a', validate=lambda: None)[1]
+    # Saving the same export again keeps the one copy.
+    assert client.save_export_copy(project.id, identity, binding_id='binding-a', validate=lambda: None) == saved
+    assert len(list(exports_folder.iterdir())) == 1
+    # Another export never replaces it: it gets its own name.
+    other = str(uuid4())
+    create(project, export_id=other, format='pdf', pages='1')
+    second = client.save_export_copy(project.id, other, binding_id='binding-a', validate=lambda: None)
+    assert second.filename != saved.filename and path.read_bytes()
+    assert sorted(item.name for item in exports_folder.iterdir()) == sorted([saved.filename, second.filename])
+
+
+def test_open_and_show_act_only_on_the_saved_copy(project, renderer, exports_folder):
+    identity = str(uuid4())
+    create(project, export_id=identity, format='pdf')
+    opened = []
+    opener = lambda action, path: opened.append((action, path)) or True  # noqa: E731
+    assert client.reveal_export_copy(project.id, identity, binding_id='binding-a', action='open',
+                                     validate=lambda: None, opener=opener) == {'status': 'not_found'}
+    saved = client.save_export_copy(project.id, identity, binding_id='binding-a', validate=lambda: None)
+    for action in ('open', 'show'):
+        assert client.reveal_export_copy(project.id, identity, binding_id='binding-a', action=action,
+                                         validate=lambda: None, opener=opener) == {'status': 'opened'}
+    assert opened == [('open', exports_folder / saved.filename), ('show', exports_folder / saved.filename)]
+    with pytest.raises(client_service.ArtifactError, match='export_unavailable'):
+        client.reveal_export_copy(project.id, identity, binding_id='binding-b', action='open',
+                                  validate=lambda: None, opener=opener)
+    with pytest.raises(client_service.ArtifactError, match='invalid_export'):
+        client.reveal_export_copy(project.id, identity, binding_id='binding-a', action='run',
+                                  validate=lambda: None, opener=opener)
+    (exports_folder / saved.filename).unlink()
+    assert client.reveal_export_copy(project.id, identity, binding_id='binding-a', action='open',
+                                     validate=lambda: None, opener=opener) == {'status': 'not_found'}
+    assert len(opened) == 2
+
+
+def test_the_opener_never_uses_a_shell(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    calls = []
+    monkeypatch.setattr(subprocess, 'Popen', lambda args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(sys, 'platform', 'darwin')
+    target = tmp_path / 'Deck.pdf'
+    client._open_path('open', target)
+    client._open_path('show', target)
+    assert calls[0][0] == ['open', str(target)] and calls[1][0] == ['open', '-R', str(target)]
+    assert all(not kwargs.get('shell') for _args, kwargs in calls)

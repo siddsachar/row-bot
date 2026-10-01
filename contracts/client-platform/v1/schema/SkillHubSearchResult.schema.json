@@ -93,7 +93,7 @@
       "items": {
         "$ref": "#/$defs/SkillHubEntryView"
       },
-      "maxItems": 24,
+      "maxItems": 96,
       "title": "Entries",
       "type": "array"
     },
@@ -101,6 +101,10 @@
       "maxLength": 500,
       "title": "Error",
       "type": "string"
+    },
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
     },
     "mode": {
       "maxLength": 40,
@@ -137,6 +141,7 @@
     "mode",
     "query",
     "entries",
+    "has_more",
     "source_statuses",
     "error"
   ],

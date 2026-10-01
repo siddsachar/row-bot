@@ -70,6 +70,7 @@ def test_curated_block_catalog_and_exact_insert_command(artifact_service):
         assert storage.load_project(project.id).pages[0].html.count(f'data-row-bot-component="{component}"') == 1
 
 
+@pytest.mark.slow
 def test_asset_staging_matches_session_conversation_name_hash_and_command(artifact_service):
     with _client(artifact_service) as client:
         _, headers = bootstrap(client)

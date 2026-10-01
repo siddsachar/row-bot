@@ -180,7 +180,7 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The original outcome is unconfirmed. Check its receipt; this request will not be sent again.',
+        "Row-Bot couldn't confirm the change. Check again; it won't be sent twice.",
       );
     } finally {
       setBusy('');
@@ -195,9 +195,7 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
       const value = await props.receipt(pending.commandId, abort.signal);
       if (abort.signal.aborted || !session.active) return;
       if (value.status === 'uncertain')
-        setNotice(
-          'The original outcome remains unconfirmed. No request was replayed.',
-        );
+        setNotice('Still unconfirmed. Nothing was sent twice.');
       else {
         setPending(null);
         session.resolved();
@@ -301,7 +299,7 @@ export default function DefaultModelSettings(props: DefaultModelSettingsProps) {
             disabled={!!busy || !session.active}
             onClick={() => void receipt()}
           >
-            Check original default receipt
+            Check default model
           </Button>
         )}
         {dirty && (

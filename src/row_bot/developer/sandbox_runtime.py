@@ -787,27 +787,6 @@ def start_docker_sandbox_process(
     )
 
 
-def stop_docker_sandbox_processes(workspace: DeveloperWorkspace) -> int:
-    probe = detect_container_runtime()
-    if not probe.available:
-        return 0
-    container_name = sandbox_container_name(workspace.id)
-    stopped = 0
-    for process in list_sandbox_processes(workspace.id):
-        if process.pid <= 0:
-            continue
-        subprocess.run(
-            [probe.binary, "exec", container_name, "/bin/sh", "-lc", f"kill {int(process.pid)} 2>/dev/null || true"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        stopped += 1
-    _clear_sandbox_processes(workspace.id)
-    return stopped
-
-
 def list_sandbox_processes(workspace_id: str) -> list[SandboxProcessInfo]:
     payload = _load_sessions_payload()
     raw = payload.get("processes", {}).get(workspace_id, [])

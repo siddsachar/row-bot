@@ -756,3 +756,156 @@ def test_stop_active_provider_retains_exact_scope_until_it_returns(runtime, monk
         release.set()
         assert handles[0].producer_done.wait(timeout=10)
     assert execution.get_task_run(runtime[3], result.run.id).status == "stopped"
+
+
+_INTERRUPTS = [{"tool": "filesystem", "description": "Synthetic write"}]
+_INTERRUPT = {"type": "interrupt", "interrupts": _INTERRUPTS}
+
+
+def _fake_graph(monkeypatch, *, invoke, resume) -> None:
+    import sys
+    fake = sys.modules["row_bot.agent"]
+    monkeypatch.setattr(fake, "invoke_agent", invoke)
+    monkeypatch.setattr(fake, "resume_invoke_agent", resume)
+
+
+@pytest.mark.parametrize("mode,interrupts,approved", [
+    ("block", _INTERRUPTS, False),
+    ("allow_all", _INTERRUPTS, True),
+    ("approve", [], True),
+])
+def test_a_graph_interrupt_outside_approve_mode_never_waits_for_a_person(runtime, monkeypatch, mode, interrupts,
+                                                                          approved):
+    invoked, resumed = [], []
+
+    def invoke(prompt, tools, config, stop_event=None):
+        invoked.append({key: config["configurable"][key] for key in ("runtime_surface", "runtime_mode")})
+        return {"type": "interrupt", "interrupts": interrupts}
+
+    def resume(tools, config, approved=True, stop_event=None):
+        resumed.append((approved, config["configurable"]["approval_mode"]))
+        return "resumed output"
+
+    _fake_graph(monkeypatch, invoke=invoke, resume=resume)
+    runtime[0].update_task(runtime[3], prompts=["Graph prompt"], safety_mode=mode)
+    start(runtime)
+    assert invoked == [{"runtime_surface": "workflow", "runtime_mode": "agent"}]
+    assert resumed == [(approved, mode)]
+    assert runtime[0].get_pending_approvals() == []
+    assert execution.get_task_run(runtime[3], "reviewed-run").status == "completed"
+
+
+def test_an_interrupt_after_stop_creates_no_approval(runtime, monkeypatch):
+    def invoke(prompt, tools, config, stop_event=None):
+        stop_event.set()
+        return _INTERRUPT
+
+    _fake_graph(monkeypatch, invoke=invoke, resume=lambda *a, **k: pytest.fail("a stopped run never resumes the graph"))
+    runtime[0].update_task(runtime[3], prompts=["Graph prompt"], safety_mode="approve")
+    start(runtime)
+    assert runtime[0].get_pending_approvals() == []
+    assert execution.get_task_run(runtime[3], "reviewed-run").status == "stopped"
+
+
+def test_a_chained_interrupt_after_approval_asks_again(runtime, monkeypatch):
+    resumed = []
+    _fake_graph(monkeypatch,
+                invoke=lambda prompt, tools, config, stop_event=None: _INTERRUPT,
+                resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or _INTERRUPT)
+    runtime[0].update_task(runtime[3], prompts=["Graph prompt"], safety_mode="approve")
+    assert start(runtime).run.status == "paused"
+    first = execution.list_task_approvals(runtime[3], "reviewed-run").items[0]
+    execution.respond_task_approval(runtime[3], "reviewed-run", first.id,
+                                    expected_revision=first.revision, approved=True, validate=lambda: None)
+    assert resumed == [True]  # the second tool is not resumed without its own approval
+    [pending] = runtime[0].get_pending_approvals()
+    assert pending["id"] != first.id
+
+
+def _approve_pending(runtime) -> None:
+    card = next(item for item in execution.list_task_approvals(runtime[3], "reviewed-run").items
+                if item.response_available)
+    execution.respond_task_approval(runtime[3], "reviewed-run", card.id,
+                                    expected_revision=card.revision, approved=True, validate=lambda: None)
+
+
+def test_a_later_approval_step_after_a_graph_resume_is_a_pipeline_approval(runtime, monkeypatch):
+    invoked, resumed = [], []
+
+    def invoke(prompt, tools, config, stop_event=None):
+        invoked.append(prompt)
+        return _INTERRUPT if prompt == "First" else "Last output"
+
+    _fake_graph(monkeypatch, invoke=invoke,
+                resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or "First output")
+    runtime[0].update_task(runtime[3], safety_mode="approve", steps=[
+        {"type": "prompt", "id": "first", "prompt": "First"},
+        {"type": "approval", "id": "gate", "message": "Continue?"},
+        {"type": "prompt", "id": "last", "prompt": "Last"},
+    ])
+    assert start(runtime).run.status == "paused"
+    _approve_pending(runtime)  # the tool interrupt: resumes the graph
+    _approve_pending(runtime)  # the approval step: continues the pipeline, never a second graph resume
+    assert resumed == [True]
+    assert invoked == ["First", "Last"]
+    assert execution.get_task_run(runtime[3], "reviewed-run").status == "completed"
+
+
+def test_a_lost_graph_checkpoint_fails_the_run_with_a_clear_message(runtime, monkeypatch):
+    def resume(tools, config, approved=True, stop_event=None):
+        raise RuntimeError("checkpoint not found")
+
+    _fake_graph(monkeypatch, invoke=lambda prompt, tools, config, stop_event=None: _INTERRUPT, resume=resume)
+    runtime[0].update_task(runtime[3], prompts=["Graph prompt"], safety_mode="approve")
+    assert start(runtime).run.status == "paused"
+    _approve_pending(runtime)
+    assert execution.get_task_run(runtime[3], "reviewed-run").status == "failed"
+    row = runtime[0]._get_conn().execute("SELECT status_message FROM task_runs WHERE id=?", ("reviewed-run",)).fetchone()
+    assert row[0] == "Graph checkpoint was lost — cannot resume (task may need to re-run)"
+
+
+@pytest.mark.parametrize("mode,approved", [("approve", False), ("block", False), ("allow_all", True)])
+def test_a_subtask_interrupt_is_denied_unless_the_child_allows_all(delivery_runtime, monkeypatch, mode, approved):
+    tasks, _, _, _, thread_id, _ = delivery_runtime
+    child_id = tasks.create_task("Synthetic subtask", prompts=["Write"], enabled=False, channels=[], safety_mode=mode)
+    resumed = []
+    _fake_graph(monkeypatch,
+                invoke=lambda *a, **k: _INTERRUPT,
+                resume=lambda tools, config, approved=True, stop_event=None: resumed.append(approved) or "")
+    output = tasks._run_subtask_sync(tasks.get_task(child_id), thread_id, [], {"configurable": {}},
+                                     threading.Event(), validate=lambda: None)
+    assert resumed == [approved]
+    assert tasks.get_pending_approvals() == []
+    if not approved:
+        assert "cannot surface approval requests" in output
+
+
+@pytest.mark.parametrize("mode_at_approval,second", [("approve", None), ("block", False), ("allow_all", True)])
+def test_a_chained_interrupt_on_a_scheduled_run_follows_the_current_mode(tmp_path, monkeypatch, mode_at_approval,
+                                                                          second):
+    tasks, threads, *_ = _fresh_modules(tmp_path, monkeypatch)
+    _install_fake_agent(monkeypatch, [])
+    _run_workflow_synchronously(monkeypatch, tasks)
+    from row_bot import notifications
+    monkeypatch.setattr(notifications, "notify", lambda **kwargs: None)
+    monkeypatch.setattr(tasks, "_deliver_to_channels", lambda *a, **k: ("", ""))
+    resumed = []
+
+    def resume(tools, config, approved=True, stop_event=None):
+        resumed.append(approved)
+        return _INTERRUPT if len(resumed) == 1 else "finished"
+
+    _fake_graph(monkeypatch, invoke=lambda prompt, tools, config, stop_event=None: _INTERRUPT, resume=resume)
+    task_id = tasks.create_task("Scheduled", prompts=["Write"], channels=[], enabled=False, safety_mode="approve")
+    thread_id = threads.create_thread("Scheduled", thread_id="scheduled-thread", seed_default_skills=False)
+    tasks.run_task_background(task_id, thread_id, ["filesystem"])
+    [first] = tasks.get_pending_approvals()
+    tasks.update_task(task_id, safety_mode=mode_at_approval)
+    assert tasks.respond_to_approval(first["resume_token"], True, source="test") is True
+    pending = tasks.get_pending_approvals()
+    if second is None:  # Approve asks again and never runs the second tool unapproved
+        assert resumed == [True]
+        assert len(pending) == 1 and pending[0]["id"] != first["id"]
+    else:  # Block refuses and Allow-all approves; neither asks
+        assert resumed == [True, second]
+        assert pending == []

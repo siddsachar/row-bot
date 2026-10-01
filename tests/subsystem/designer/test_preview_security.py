@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
 
 from row_bot.designer.html_ops import sanitize_agent_html
-from row_bot.designer.interaction import inject_bridge_js, validate_bridge_event
+from row_bot.designer.interaction import bridge_script_csp_sources, inject_bridge_js, validate_bridge_event
 from row_bot.designer.preview import isolate_preview_html, preview_fingerprint, render_multi_route_html
 from row_bot.designer.runtime.loader import build_routes_payload
 from row_bot.designer.state import BrandConfig, DesignerAsset, DesignerPage, DesignerProject
@@ -66,8 +65,33 @@ def test_interactive_runtime_matches_the_only_added_shell_script_hash():
     assert actual == runtime_script_csp_source()
     policy = _shell_headers(b"<html></html>")["Content-Security-Policy"]
     script_policy = next(part.strip() for part in policy.split(";") if part.strip().startswith("script-src"))
-    assert script_policy.split() == ["script-src", "'self'", actual]
+    assert script_policy.split() == ["script-src", "'self'", actual, *bridge_script_csp_sources().split()]
     assert "parent.unsafe=true" not in executable[0]
+
+
+def test_edit_bridge_is_static_allowed_by_digest_and_carries_identity_as_data():
+    import base64
+    import hashlib
+    from row_bot.client_assets import _shell_headers
+
+    page = isolate_preview_html('<body><script>parent.unsafe=true</script><h1>Safe</h1></body>', scripts=True)
+    hostile = 'frame</script><script>parent.unsafe=true</script>'
+    html = inject_bridge_js(page, preview_id=hostile, revision="rev-a", capability="token-a", plain_text=True)
+    soup = BeautifulSoup(html, "html.parser")
+    bridge = soup.find_all("script", attrs={"data-row-bot-bridge": "1"})
+    assert [tag.get("type") for tag in bridge] == ["application/json", None]
+    assert json.loads(bridge[0].string) == {"previewId": hostile, "revision": "rev-a", "capability": "token-a"}
+    assert "</script><script>" not in bridge[0].decode_contents()
+    executable = bridge[1].get_text()
+    # The executable text never varies with the preview: the policy allows it by digest.
+    digest = "'sha256-" + base64.b64encode(hashlib.sha256(executable.encode()).digest()).decode() + "'"
+    assert digest in bridge_script_csp_sources().split()
+    assert "token-a" not in executable and "rev-a" not in executable
+    policy = _shell_headers(b"<html></html>")["Content-Security-Policy"]
+    assert digest in policy
+    other = inject_bridge_js(page, preview_id="frame-b", revision="rev-b", capability="token-b", plain_text=True)
+    assert BeautifulSoup(other, "html.parser").find_all(
+        "script", attrs={"data-row-bot-bridge": "1"})[1].get_text() == executable
 
 
 def test_preview_policy_denies_network_and_non_fragment_navigation():
@@ -89,22 +113,6 @@ def test_preview_retains_embedded_assets_without_network_references():
     assert "/api/v1/secret" not in rendered
     assert "url('data:image/png;base64,AAAA')" in rendered
     assert 'src="data:image/png;base64,AAAA"' in rendered
-
-
-def test_render_module_has_no_nicegui_import(monkeypatch):
-    import builtins
-    import importlib
-    from row_bot.designer import preview
-
-    original = builtins.__import__
-    def guarded(name, *args, **kwargs):
-        if name == "nicegui" or name.startswith("nicegui."):
-            pytest.fail("Headless preview imported NiceGUI")
-        return original(name, *args, **kwargs)
-    monkeypatch.setattr(builtins, "__import__", guarded)
-    importlib.reload(preview)
-    project = DesignerProject(pages=[DesignerPage(html="<p>Headless</p>")])
-    assert "Headless" in preview.render_page_html(project, project.pages[0].html)
 
 
 def _event():
@@ -137,6 +145,15 @@ def test_bridge_requires_bounded_typed_edit_detail():
     assert not validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
     event = _event()
     event["detail"]["newText"] = {"execute": True}
+    assert not validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
+
+
+def test_element_click_may_carry_its_current_look_as_plain_strings():
+    event = {"previewId": "frame-a", "revision": "rev-a", "capability": "token-a", "msgType": "element-click",
+             "detail": {"tag": "h1", "xpath": "/html/body/h1[1]", "elementId": "a" * 64,
+                        "rect": {"x": 1, "y": 2, "w": 3, "h": 4}, "style": {"font-size": "40px"}}}
+    assert validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
+    event["detail"]["style"] = {"font-size": {"execute": True}}
     assert not validate_bridge_event(event, preview_id="frame-a", revision="rev-a", capability="token-a")
 
 
@@ -176,37 +193,3 @@ def test_each_render_input_invalidates_before_html_construction(tmp_path, monkey
     previous = preview_fingerprint(project)
     asset.write_bytes(b"replacement content")
     assert preview_fingerprint(project) != previous
-
-
-def test_legacy_idle_ticks_skip_renderer_and_allow_undo_refresh(monkeypatch):
-    import nicegui
-    from row_bot.designer import preview
-
-    class Element:
-        id = 1
-        def __enter__(self):
-            return self
-        def __exit__(self, *_):
-            return False
-        def __getattr__(self, _):
-            return lambda *a, **kw: self
-
-    scripts = []
-    fake = Element()
-    fake.context = SimpleNamespace(client=SimpleNamespace(on_disconnect=lambda *_: None))
-    fake.run_javascript = scripts.append
-    monkeypatch.setattr(nicegui, "ui", fake)
-    calls = []
-    render = preview.render_page_html
-    monkeypatch.setattr(preview, "render_page_html", lambda *a, **kw: (calls.append(1), render(*a, **kw))[1])
-    project = DesignerProject(pages=[DesignerPage(html="<p>A</p>")])
-    panel = preview.build_preview(project)
-    assert len(calls) == 1
-    for _ in range(120):
-        panel["refresh"]()
-    assert len(calls) == 1
-    project.pages[0].html = "<p>B</p>"
-    panel["refresh"]()
-    assert len(calls) == 2
-    panel["force_refresh"]()
-    assert len(calls) == 3

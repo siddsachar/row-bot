@@ -36,6 +36,17 @@ it('renders useful Markdown structure without interpreting raw HTML', () => {
   expect(container.querySelector('script')).toBeNull();
 });
 
+it('keeps snake_case names literal while underscores still emphasise words', () => {
+  const { container } = render(
+    <SafeMarkdown text="Call workspace_file_delete or __init__ now; _this_ is emphasised." />,
+  );
+  expect(container).toHaveTextContent(
+    'Call workspace_file_delete or init now; this is emphasised.',
+  );
+  expect(container.querySelectorAll('em')).toHaveLength(1);
+  expect(container.querySelector('em')).toHaveTextContent('this');
+});
+
 it('allows ordinary web links and leaves dangerous protocols as visible text', () => {
   const { container } = render(
     <SafeMarkdown text="[Docs](https://example.test/docs) [Bad](javascript:alert(1))" />,
@@ -50,6 +61,35 @@ it('allows ordinary web links and leaves dangerous protocols as visible text', (
   );
   expect(screen.queryByRole('link', { name: 'Bad' })).toBeNull();
   expect(container).toHaveTextContent('[Bad](javascript:alert(1))');
+});
+
+it('starts a pipe table immediately after prose and handles GFM forms safely', () => {
+  const { container } = render(
+    <SafeMarkdown
+      text={[
+        'Build results follow:',
+        'Item | State',
+        ':--- | ---:',
+        'Build | Ready',
+        'Escaped \\| name | **Done**',
+        '',
+        '| Name | Link |',
+        '| --- | --- |',
+        '| <img src=x onerror=alert(1)> | [safe](https://example.test) |',
+      ].join('\n')}
+    />,
+  );
+  expect(screen.getByText('Build results follow:').tagName).toBe('P');
+  const tables = screen.getAllByRole('table');
+  expect(tables).toHaveLength(2);
+  expect(within(tables[0]).getByText('Escaped | name')).toBeVisible();
+  expect(within(tables[0]).getByText('Done').tagName).toBe('STRONG');
+  expect(within(tables[1]).getByRole('link', { name: 'safe' })).toHaveAttribute(
+    'href',
+    'https://example.test',
+  );
+  expect(container.querySelector('img')).toBeNull();
+  expect(tables[0].parentElement).toHaveClass('markdown-table-scroll');
 });
 
 it('labels fenced code and provides truthful copy and local download actions', async () => {
@@ -68,7 +108,7 @@ it('labels fenced code and provides truthful copy and local download actions', a
     />,
   );
 
-  expect(screen.getByText('ts')).toBeVisible();
+  expect(screen.getByText('TypeScript')).toBeVisible();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: 'Copy code' })),
   );
@@ -80,4 +120,66 @@ it('labels fenced code and provides truthful copy and local download actions', a
   expect(click).toHaveBeenCalledOnce();
   expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:code');
   expect(screen.getByRole('status')).toHaveTextContent('download prepared');
+});
+
+it('turns numbered links into source chips with the domain and autolinks bare URLs', () => {
+  render(
+    <SafeMarkdown text="Retrieval scores lead [1](https://www.example.test/leaderboard) and [2](https://docs.example.org/a). See https://example.test/notes." />,
+  );
+  const first = screen.getByRole('link', {
+    name: 'Source 1: example.test',
+  });
+  expect(first).toHaveAttribute('href', 'https://www.example.test/leaderboard');
+  expect(first).toHaveAttribute('rel', 'noreferrer noopener');
+  expect(first).toHaveClass('citation-chip');
+  expect(
+    screen.getByRole('link', { name: 'Source 2: docs.example.org' }),
+  ).toBeVisible();
+  // A bare URL becomes a compact chip; trailing punctuation stays prose.
+  expect(
+    screen.getByRole('link', { name: 'example.test/notes' }),
+  ).toHaveAttribute('href', 'https://example.test/notes');
+});
+
+it('copies a table as CSV with markup removed and fields quoted', async () => {
+  const copyText = vi.fn().mockResolvedValue(true);
+  render(
+    <SafeMarkdown
+      copyText={copyText}
+      text={[
+        '| Model | Note |',
+        '| --- | --- |',
+        '| **Mixedbread** | fast, small |',
+        '| `bge-m3` | "multilingual" |',
+      ].join('\n')}
+    />,
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as CSV' })),
+  );
+  expect(copyText).toHaveBeenCalledExactlyOnceWith(
+    'Model,Note\r\nMixedbread,"fast, small"\r\nbge-m3,"""multilingual"""',
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Table copied as CSV.');
+});
+
+it('keeps numbering when a paragraph splits an ordered list', () => {
+  render(
+    <SafeMarkdown
+      text={[
+        '1. First source',
+        'https://example.test/one',
+        '2. Second source',
+        'https://example.test/two',
+      ].join('\n')}
+    />,
+  );
+  const lists = screen.getAllByRole('list') as HTMLOListElement[];
+  expect(lists.map((list) => list.start)).toEqual([1, 2]);
+  expect(lists[1]).toHaveTextContent('Second source');
+});
+
+it('numbers a list from the number it starts with', () => {
+  render(<SafeMarkdown text={'3. Third\n4. Fourth'} />);
+  expect((screen.getByRole('list') as HTMLOListElement).start).toBe(3);
 });

@@ -23,7 +23,7 @@ Delegation capacity is bounded. Each new run snapshots the application-wide work
 
 ## Status And Hand-Offs
 
-An active goal can accumulate progress across turns. Completion should mean the finish condition and required checks are satisfied. A block should identify a real impasse, not merely unfinished work. Stopping an agent ends that run without deleting the parent thread, goal history, or already-recorded evidence.
+An active goal can accumulate progress across turns, with no turn limit unless you set one. After each turn Row-Bot judges whether the goal made progress, is done, or is blocked; two turns without progress, or the same step failing three times, pause it with the reason so you can decide. Completion should mean the finish condition and required checks are satisfied. A block should identify a real impasse, not merely unfinished work. Stopping an agent ends that run without deleting the parent thread, goal history, or already-recorded evidence.
 
 The work-round budget is checked at model, tool, and resume boundaries so a restart cannot reset it. Repeated no-progress states are blocked and then terminated cleanly, and every terminal path writes one durable final status and reason.
 
@@ -31,7 +31,7 @@ A useful child-agent hand-off says what was checked, what changed, what evidence
 
 ## Configure And Use It
 
-- Create and select roles with [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
+- Create and select roles, set goals and follow delegated agents with [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
 - Choose a profile in a workflow with [Workflows](/docs/guides/workflows).
 - Control the models behind runs in [Models And Providers](/docs/configuration/models-and-providers).
-- Review waiting work and failures in [Mobile And Native Surfaces](/docs/mobile-native/) or [Monitor](/docs/monitor/).
+- Review waiting work and failures in [Home: Overview](/docs/home/overview) or [Monitor](/docs/monitor/).

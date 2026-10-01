@@ -34,7 +34,9 @@ test('conversation and Home keep their primary actions readable at every target 
   page,
 }, info) => {
   await newConversation(page);
-  await expect(page.locator('.transcript .empty-state')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'What would you like to work on?' }),
+  ).toBeVisible();
   const notice = page.getByRole('button', { name: 'Dismiss', exact: true });
   if (await notice.isVisible()) await notice.click();
   for (const viewport of viewports) {
@@ -53,11 +55,21 @@ test('conversation and Home keep their primary actions readable at every target 
     await page.setViewportSize(viewport);
     for (const theme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-      for (const tab of ['Workflows', 'Knowledge', 'Monitor', 'Insights']) {
+      for (const tab of [
+        'Overview',
+        'Workflows',
+        'Knowledge',
+        'Monitor',
+        'Insights',
+      ]) {
         await page.getByRole('tab', { name: tab }).click();
         await page.locator('.home-view').evaluate((element) => {
           element.scrollTop = 0;
         });
+        // A knowledge graph is pictured once its layout has settled.
+        await expect(
+          page.locator('.knowledge-network-shell[data-layout="settling"]'),
+        ).toHaveCount(0);
         await assertNoOverflow(page);
         await screenshot(
           page,
@@ -80,19 +92,18 @@ test('workflow editor and Settings reflow at narrow and zoom-equivalent widths',
   });
   expect(seed.ok(), await seed.text()).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/app-v2/');
+  await page.goto('/app-v2/?tab=workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   const editor = page.getByRole('form', { name: 'Create task', exact: true });
   await expect(editor).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'New workflow' }),
-  ).toBeVisible();
+  // Creation opens in the full-page editor, as editing does (B253).
+  const view = page.getByRole('region', { name: 'Workflow editor' });
+  const heading = view.getByRole('heading', { level: 1, name: 'New workflow' });
+  await expect(heading).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-phone');
   await page.setViewportSize({ width: 720, height: 900 });
-  await page
-    .getByRole('heading', { name: 'New workflow' })
-    .scrollIntoViewIfNeeded();
+  await heading.scrollIntoViewIfNeeded();
   await assertNoOverflow(page);
   await screenshot(page, info, 'workflow-editor-200-percent-reflow');
   await page.goto('/app-v2/settings/providers');
@@ -116,24 +127,30 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
 }, info) => {
   test.setTimeout(180_000);
   const leaves = [
+    'preferences',
+    'appearance',
+    'buddy',
     'providers',
     'models',
-    'knowledge',
-    'buddy',
-    'goals',
     'voice',
-    'system',
-    'tracker',
+    'knowledge',
     'documents',
+    'tracker',
     'tools',
     'skills',
+    'plugins',
+    'mcp',
     'accounts',
     'channels',
-    'utilities',
-    'mcp',
-    'plugins',
-    'preferences',
+    'system',
+    'access',
+    'updates',
+    'data',
   ];
+  const headings: Record<string, string> = {
+    knowledge: 'Memory',
+    access: 'Devices & remote access',
+  };
   for (const viewport of [viewports[0], viewports[3]]) {
     await page.setViewportSize(viewport);
     for (const theme of ['light', 'dark'] as const) {
@@ -143,7 +160,10 @@ test('all Settings leaves remain routed and reflow at desktop and phone sizes', 
         await expect(
           page
             .getByRole('heading', {
-              name: leaf === 'mcp' ? 'MCP' : new RegExp(`^${leaf}$`, 'i'),
+              name:
+                leaf === 'mcp'
+                  ? 'MCP'
+                  : new RegExp(`^${headings[leaf] ?? leaf}$`, 'i'),
             })
             .last(),
         ).toBeVisible();

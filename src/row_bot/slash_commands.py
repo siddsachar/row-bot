@@ -2,7 +2,7 @@
 
 This module is intentionally UI-light. It owns command metadata, generated
 manual-skill commands, collision rules, text filtering, and send-path command
-dispatch that can run without NiceGUI widgets.
+dispatch that can run without UI widgets.
 """
 
 from __future__ import annotations
@@ -227,24 +227,6 @@ def resolve_command_token(token: str, *, include_skills: bool = True) -> SlashCo
     return build_lookup(include_skills=include_skills).get(normalize_slash(token))
 
 
-def resolve_command_text(text: str, *, include_skills: bool = True) -> tuple[SlashCommandSpec, str] | None:
-    stripped = str(text or "").strip()
-    if not stripped.startswith("/"):
-        return None
-    lookup = build_lookup(include_skills=include_skills)
-    normalized_text = normalize_slash(stripped)
-    for alias, spec in sorted(lookup.items(), key=lambda item: len(item[0]), reverse=True):
-        if normalized_text == alias:
-            return spec, ""
-        if " " in alias and normalized_text.startswith(alias + " "):
-            return spec, stripped[len(alias):].strip()
-    parts = stripped.split(maxsplit=1)
-    spec = lookup.get(normalize_slash(parts[0]))
-    if spec is None:
-        return None
-    return spec, parts[1].strip() if len(parts) > 1 else ""
-
-
 def filter_command_specs(
     specs: Iterable[SlashCommandSpec],
     query: str,
@@ -315,46 +297,6 @@ def argument_hint(spec: SlashCommandSpec) -> str:
     }.get(spec.argument_behavior, "")
 
 
-def find_current_slash_token(text: str, cursor: int | None = None) -> tuple[int, int, str] | None:
-    value = str(text or "")
-    if cursor is None:
-        cursor = len(value)
-    cursor = max(0, min(int(cursor), len(value)))
-    start = cursor
-    while start > 0 and not value[start - 1].isspace():
-        start -= 1
-    end = cursor
-    while end < len(value) and not value[end].isspace():
-        end += 1
-    token = value[start:end]
-    if not token.startswith("/"):
-        return None
-    return start, end, token[1:]
-
-
-def replace_current_slash_token(
-    text: str,
-    cursor: int | None = None,
-    replacement: str = "",
-) -> tuple[str, int]:
-    value = str(text or "")
-    found = find_current_slash_token(value, cursor)
-    if found is None:
-        return value, len(value)
-    start, end, _query = found
-    before = value[:start]
-    after = value[end:]
-    inserted = str(replacement or "")
-    new_value = before + inserted + after
-    return new_value, len(before) + len(inserted)
-
-
-def remove_current_slash_token(text: str, cursor: int | None = None) -> tuple[str, int]:
-    value, next_cursor = replace_current_slash_token(text, cursor, "")
-    value = re.sub(r" {2,}", " ", value)
-    return value.strip() if not value.strip() else value, min(next_cursor, len(value))
-
-
 def help_text(*, include_skills: bool = True) -> str:
     grouped: dict[str, list[SlashCommandSpec]] = {}
     for spec in get_command_specs(include_skills=include_skills):
@@ -375,116 +317,6 @@ def help_text(*, include_skills: bool = True) -> str:
             label = spec.title if spec.skill_name else spec.description
             lines.append(f"- `{spec.slash}` - {label}")
     return "\n".join(lines)
-
-
-def dispatch_text_command(
-    thread_id: str,
-    text: str,
-    *,
-    enabled_tool_names: Iterable[str] | None = None,
-) -> str | None:
-    """Execute a slash command in a non-UI send path.
-
-    UI-only commands return a short response instead of opening dialogs. The
-    composer palette handles those commands with richer UI actions.
-    """
-    resolved = resolve_command_text(text, include_skills=True)
-    if resolved is None:
-        return None
-    spec, arg = resolved
-    if spec.handler_key == "activate_skill":
-        from row_bot.skills_activation import pin_skill, record_accept, resolve_skill_name
-
-        name, error = resolve_skill_name(spec.skill_name)
-        if error:
-            return error
-        assert name is not None
-        pin_skill(thread_id, name)
-        record_accept(thread_id, name, source="slash")
-        return f"Skill active for this chat: {name}"
-
-    if spec.id in {"skills", "noskill"} or spec.slash in {"/skill", "/skills", "/noskill"}:
-        from row_bot.skills_activation import apply_skill_command
-
-        return apply_skill_command(
-            thread_id,
-            text,
-            enabled_tool_names=enabled_tool_names,
-        )
-    if spec.id == "skill-reset":
-        from row_bot.skills_activation import apply_skill_command
-
-        return apply_skill_command(
-            thread_id,
-            "/skill reset",
-            enabled_tool_names=enabled_tool_names,
-        )
-    if spec.id == "status":
-        from row_bot.tools.row_bot_status_tool import _row_bot_status
-
-        return _row_bot_status("overview")
-    if spec.id == "tools":
-        from row_bot.tools.row_bot_status_tool import _row_bot_status
-
-        return _row_bot_status("tools")
-    if spec.id == "profiles":
-        from row_bot.agent_commands import format_agent_profiles
-
-        return format_agent_profiles(arg)
-    if spec.id == "profile":
-        from row_bot.agent_commands import handle_thread_profile_command
-
-        return handle_thread_profile_command(thread_id, arg)
-    if spec.id == "agents":
-        from row_bot.agent_commands import format_agents_status
-
-        include_all = arg.strip().lower() in {"all", "global"}
-        return format_agents_status(parent_thread_id=thread_id, include_all=include_all)
-    if spec.id == "agent":
-        from row_bot.agent_commands import (
-            format_agent_spawn_started,
-            format_agent_spawn_usage,
-            parse_agent_spawn_text,
-            spawn_agent_from_request,
-        )
-
-        request = parse_agent_spawn_text(text)
-        if request is None:
-            return format_agent_spawn_usage()
-        try:
-            run = spawn_agent_from_request(
-                thread_id,
-                request,
-                enabled_tool_names=enabled_tool_names,
-            )
-        except Exception as exc:
-            return f"Could not start Agent: {exc}"
-        return format_agent_spawn_started(run, request)
-    if spec.id == "goal":
-        from row_bot.goals import handle_goal_command
-
-        return handle_goal_command(thread_id, arg)
-    if spec.id == "reasoning":
-        from row_bot.models import get_current_model
-        from row_bot.providers.reasoning import apply_reasoning_command
-        from row_bot.providers.resolution import resolve_provider_config
-        from row_bot.threads import _get_thread_model_override
-
-        selected = _get_thread_model_override(thread_id) or get_current_model()
-        try:
-            resolved_model = resolve_provider_config(selected, allow_legacy_local=True)
-        except Exception as exc:
-            return f"Could not resolve the active model for reasoning: {exc}"
-        return apply_reasoning_command(thread_id, resolved_model.selection_ref, arg)
-    if spec.id == "help":
-        return help_text(include_skills=True)
-    if spec.id == "new":
-        return "Use the command palette or New button to start a new chat in the app."
-    if spec.id == "stop":
-        return "Use the command palette or Stop button to stop the current generation in the app."
-    if spec.id == "export":
-        return "Use the command palette to export the current thread."
-    return None
 
 
 def with_skill_name(spec: SlashCommandSpec, skill_name: str) -> SlashCommandSpec:

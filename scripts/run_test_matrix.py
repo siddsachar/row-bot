@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import configparser
 import json
 import os
 import subprocess
@@ -43,63 +42,91 @@ TEST_ENV = {
     ),
     "ROW_BOT_TEST_MODE": "1",
 }
+COVERAGE_ENV = {**TEST_ENV, "COVERAGE_FILE": str(REPO_ROOT / ".tmp" / "coverage" / ".coverage")}
 
-COVERAGE_ENV = {
-    **TEST_ENV,
-    "COVERAGE_FILE": str(REPO_ROOT / ".tmp" / "coverage" / ".coverage.migrated-subsystems"),
-}
+DETERMINISTIC = "not live_provider and not e2e"
+# docs.yml owns the docs and marketing tooling tests; they read docs sources, not app code.
+APP_LANES = ("tests", "--ignore=tests/docs", "--ignore=tests/marketing")
 
-MIGRATED_COVERAGE_MODULES = (
-    "row_bot.channels.base",
-    "row_bot.channels.registry",
-    "row_bot.mcp_client.runtime",
-    "row_bot.mcp_client.safety",
-    "row_bot.knowledge_graph",
-    "row_bot.memory",
-    "row_bot.memory_extraction",
-    "row_bot.dream_cycle",
-    "row_bot.developer.runtime",
-    "row_bot.developer.sandbox",
-    "row_bot.designer.export",
-    "row_bot.providers.runtime",
-    "row_bot.providers.selection",
-    "row_bot.providers.catalog",
-    "row_bot.tools.memory_tool",
-    "row_bot.updater",
-    "row_bot.plugins.api",
-    "row_bot.plugins.loader",
-    "row_bot.plugins.registry",
-    "row_bot.plugins.installer",
-    "row_bot.plugins.marketplace",
+# One PR browser pass: boot, first run, shell, overlays, a turn's lifecycle, chat,
+# providers, restart recovery, the desktop Buddy window and the UI primitives.
+BROWSER_SMOKE_SPECS = (
+    "bootstrap",
+    "setup-first-run",
+    "shell",
+    "overlays",
+    "unified-lifecycle",
+    "conversation-first",
+    "settings-providers",
+    "unified-restart",
+    "buddy-overlay",
+    "polish-foundation",
 )
+# Nightly at desktop width, in three fixture runs (each run starts a fresh backend).
+BROWSER_NIGHTLY_SPECS = (
+    "capability-surfaces", "conversation-layout", "media", "message-content",
+    "navigation", "panels", "persistence", "polish-visual", "resources",
+    "settings-models", "settings-routes", "settings", "sidebar", "suggestions",
+    "terminal", "theme", "visual-alignment", "voice", "workflows",
+)
+BROWSER_UNIFIED_SPECS = (
+    "unified-history", "unified-panels", "unified-quality", "unified-recovery",
+    "unified-resources", "unified-waiting",
+)
+# Specs that run only in their own windows (auth states, compact sizes, offline, PWA, remote).
+BROWSER_DEDICATED_PROJECTS = tuple(f"--project=chromium-{name}" for name in (
+    "auth-expired", "auth-revoked", "auth-unauthorized", "compact-phone", "compact-tablet", "compact-narrow",
+    "offline-reconnect", "pwa-update", "remote-resource",
+))
+# Nightly at phone width: the shell, settings and conversation surfaces.
+BROWSER_PHONE_SPECS = (
+    "capability-surfaces", "conversation-layout", "message-content", "overlays",
+    "polish-foundation", "polish-visual", "settings-models", "settings-providers",
+    "settings-routes", "settings", "shell", "sidebar", "terminal", "theme",
+    "unified-panels", "unified-quality", "visual-alignment",
+)
+# Performance budgets and pixel baselines (recorded on Windows): a quiet local machine only.
+BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")
 
-COVERAGE_SOURCE_DIR = Path("src/row_bot")
-COVERAGE_CONFIG_PATH = Path(".tmp/coverage/migrated-subsystems.coveragerc")
+
+def _specs(*names: str) -> tuple[str, ...]:
+    # Playwright matches file filters as regular expressions against the path;
+    # "/name\.spec\.ts" selects exactly that file (not "unified-<name>.spec.ts").
+    return tuple(rf"/{name}\.spec\.ts" for name in names)
 
 
-def _write_migrated_coverage_config() -> Path:
-    # Package-name discovery can import then evict dependency modules while
-    # retaining their parent attributes. Directory discovery avoids that split;
-    # the report still includes exactly the migrated inventory, including files
-    # with no executed lines.
-    config = configparser.ConfigParser()
-    config["run"] = {"source": COVERAGE_SOURCE_DIR.as_posix()}
-    config["report"] = {
-        "include": "\n" + "\n".join(
-            (Path("src") / Path(*module.split("."))).with_suffix(".py").as_posix()
-            for module in MIGRATED_COVERAGE_MODULES
-        ),
-    }
-    path = REPO_ROOT / COVERAGE_CONFIG_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        config.write(handle)
-    return path
+def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> CommandSpec:
+    # Needs a local browser: Playwright's own (CI) or, for Chromium, an installed
+    # channel named by ROW_BOT_BROWSER_CHANNEL (msedge on the maintainer's machine).
+    return _cmd(name, "uv", "run", "python", "tests/browser/client_workspace/run_browser.py", "--engine", engine,
+                "--timeout", "7200", "--", *playwright_args, env=TEST_ENV)
+
+
+# pytest-xdist: one worker per CPU; a file's tests stay on one worker (module
+# fixtures, and tests that rely on their file's order).
+PARALLEL = ("-n", "auto", "--dist", "loadfile")
+
+
+def _pytest(name: str, *args: str, marker: str = DETERMINISTIC, env: dict[str, str] = TEST_ENV) -> CommandSpec:
+    return _cmd(name, "uv", "run", "python", "-m", "pytest", *args, "-m", marker, "-q", env=env)
 
 
 COMMANDS: dict[str, CommandSpec] = {
-    "client-foundation": _cmd("client-foundation", "python", "scripts/run_client_checks.py", env=TEST_ENV),
-    "dependency-requirements": _cmd("dependency-requirements", "uv", "run", "python", "scripts/dependency_requirements.py", env=TEST_ENV),
+    "lock-check": _cmd("lock-check", "uv", "lock", "--check"),
+    "requirements-check": _cmd("requirements-check", "python", "scripts/export_locked_requirements.py", "--check"),
+    "sync-test": _cmd("sync-test", "uv", "sync", "--locked", "--all-extras", "--group", "test"),
+    "ruff-safety": _cmd(
+        "ruff-safety", "uv", "run", "--group", "lint", "ruff", "check", ".",
+        "--select", "E9,F63,F7,F82", "--output-format=github",
+    ),
+    # Product code never deserializes with pickle or an unsafe yaml loader.
+    "ruff-deserialization": _cmd(
+        "ruff-deserialization", "uv", "run", "--group", "lint", "ruff", "check", "src", "app.py", "launcher.py",
+        "--select", "S301,S506", "--output-format=github",
+    ),
+    "dependency-requirements": _cmd(
+        "dependency-requirements", "uv", "run", "python", "scripts/dependency_requirements.py", env=TEST_ENV,
+    ),
     "client-platform-boundaries": _cmd(
         "client-platform-boundaries", "uv", "run", "python", "scripts/check_client_platform_boundaries.py",
         env=TEST_ENV,
@@ -108,217 +135,92 @@ COMMANDS: dict[str, CommandSpec] = {
         "client-platform-contracts", "uv", "run", "python", "scripts/generate_client_platform_contracts.py", "--check",
         env=TEST_ENV,
     ),
-    "lock-check": _cmd("lock-check", "uv", "lock", "--check"),
-    "requirements-check": _cmd("requirements-check", "python", "scripts/export_locked_requirements.py", "--check"),
-    "sync-test": _cmd("sync-test", "uv", "sync", "--locked", "--all-extras", "--group", "test"),
     "runtime-deps": _cmd(
-        "runtime-deps",
-        "uv",
-        "run",
-        "python",
-        "scripts/verify_runtime_dependencies.py",
-        "all",
-        env=TEST_ENV,
+        "runtime-deps", "uv", "run", "python", "scripts/verify_runtime_dependencies.py", "all", env=TEST_ENV,
     ),
-    "compileall": _cmd(
-        "compileall",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "compileall",
-        "-q",
-        "-x",
-        r"(\.git|\.venv|dist|build|__pycache__)",
-        "src",
-        "tests",
-        "scripts",
-        "app.py",
-        "debug_tools.py",
-        "launcher.py",
-        env=TEST_ENV,
+    "client-foundation": _cmd("client-foundation", "python", "scripts/run_client_checks.py", env=TEST_ENV),
+    # The PR pass: every deterministic app test once, coverage recorded but not
+    # gated. CI splits it by file with ROW_BOT_TEST_SHARD=k/N (tests/conftest.py).
+    "python": _pytest(
+        "python", *APP_LANES, *PARALLEL, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python.xml",
+        marker=f"not slow and {DETERMINISTIC}", env=COVERAGE_ENV,
     ),
-    "ruff-safety": _cmd(
-        "ruff-safety",
-        "uv",
-        "run",
-        "--group",
-        "lint",
-        "ruff",
-        "check",
-        ".",
-        "--select",
-        "E9,F63,F7,F82",
-        "--output-format=github",
-    ),
-    "contracts": _cmd(
-        "contracts",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/contracts",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
-    ),
-    "subsystem": _cmd(
-        "subsystem",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/subsystem",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
-    ),
-    "coverage-migrated": _cmd(
-        "coverage-migrated",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/contracts",
-        "tests/subsystem",
-        "-m",
-        "not live_provider and not e2e",
-        f"--cov={COVERAGE_SOURCE_DIR.as_posix()}",
-        f"--cov-config={COVERAGE_CONFIG_PATH.as_posix()}",
-        "--cov-report=term-missing:skip-covered",
-        "--cov-report=xml:.tmp/coverage/migrated-subsystems.xml",
-        "--cov-fail-under=55",
-        "-q",
+    # The nightly pass: the same lanes with the slow tests.
+    "python-full": _pytest(
+        "python-full", *APP_LANES, *PARALLEL, "--cov=src/row_bot", "--cov-report=xml:.tmp/coverage/python-full.xml",
         env=COVERAGE_ENV,
     ),
-    "deterministic": _cmd(
-        "deterministic",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
-    ),
+    # The nightly pass without coverage (Windows and macOS nightly jobs).
+    "deterministic": _pytest("deterministic", *APP_LANES, *PARALLEL),
+    # OS-sensitive tests; CI runs them on Windows (the shipped Python 3.13) and macOS.
+    "platform": _pytest("platform", "tests", *PARALLEL, marker=f"platform and not slow and {DETERMINISTIC}"),
     "app-smoke": _cmd(
-        "app-smoke",
-        "uv",
-        "run",
-        "python",
-        "scripts/smoke_app.py",
-        "--port",
-        "8090",
-        "--timeout",
-        "120",
+        "app-smoke", "uv", "run", "python", "scripts/smoke_app.py", "--port", "8090", "--timeout", "120",
         env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
     ),
-    "installer-contracts": _cmd(
-        "installer-contracts",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/subsystem/installer",
-        "tests/contracts/installers",
-        "-m",
-        "not live_provider and not e2e",
-        "-q",
-        env=TEST_ENV,
+    # The launcher owns its launch secret, so the smoke uses the public probes (B203).
+    "launcher-smoke": _cmd(
+        "launcher-smoke", "uv", "run", "python", "scripts/smoke_app.py", "--port", "8092", "--timeout", "180",
+        "--public-probes", "--", "python", "launcher.py", "--server", "--no-open", "--no-splash", "--no-ollama",
+        "--port", "8092",
+        env={**TEST_ENV, "ROW_BOT_AUTO_START_OLLAMA": "0"},
     ),
-    "legacy-inventory": _cmd(
-        "legacy-inventory",
-        "uv",
-        "run",
-        "python",
-        "-m",
-        "pytest",
-        "tests/subsystem/test_legacy_inventory.py",
-        "tests/subsystem/test_source_test_map.py",
-        "-q",
-        env=TEST_ENV,
+    "contracts": _pytest("contracts", "tests/contracts"),
+    "subsystem": _pytest("subsystem", "tests/subsystem", *PARALLEL),
+    "installer-contracts": _pytest("installer-contracts", "tests/subsystem/installer", "tests/contracts/installers"),
+    "docs": _pytest("docs", "tests/docs", "tests/marketing"),
+    "browser-smoke": _browser(
+        "browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*BROWSER_SMOKE_SPECS),
     ),
+    "browser-nightly-desktop": _browser("browser-nightly-desktop", "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
+    "browser-nightly-unified": _browser("browser-nightly-unified", "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
+    "browser-nightly-dedicated": _browser("browser-nightly-dedicated", *BROWSER_DEDICATED_PROJECTS),
+    "browser-nightly-phone": _browser("browser-nightly-phone", "--project=chromium-phone", *_specs(*BROWSER_PHONE_SPECS)),
+    "browser-firefox": _browser(
+        "browser-firefox", "--project=firefox-desktop", *_specs(*(s for s in BROWSER_SMOKE_SPECS if s != "buddy-overlay")),
+        engine="firefox",
+    ),
+    "browser-webkit": _browser(
+        "browser-webkit", "--project=webkit-desktop", *_specs(*(s for s in BROWSER_SMOKE_SPECS if s != "buddy-overlay")),
+        engine="webkit",
+    ),
+    "browser-budgets": _browser("browser-budgets", "--project=chromium-desktop", *_specs(*BROWSER_BUDGET_SPECS)),
 }
 
 
+QUALITY = (
+    "lock-check",
+    "requirements-check",
+    "ruff-safety",
+    "ruff-deserialization",
+    "dependency-requirements",
+    "client-platform-boundaries",
+    "client-platform-contracts",
+)
+
 TIER_COMMANDS: dict[str, tuple[str, ...]] = {
-    "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
+    "quality": QUALITY,
     "client-foundation": ("client-foundation",),
-    "contract-subsystem": ("contracts", "subsystem"),
+    "python": ("python",),
+    "platform": ("runtime-deps", "platform", "launcher-smoke"),
+    "browser-smoke": ("browser-smoke",),
+    "browser-nightly": (
+        "browser-nightly-desktop", "browser-nightly-unified", "browser-nightly-dedicated", "browser-nightly-phone",
+    ),
+    "browser-firefox": ("browser-firefox",),
+    "browser-webkit": ("browser-webkit",),
+    "browser-budgets": ("browser-budgets",),
+    "app-smoke": ("app-smoke",),
+    # What the Linux PR lane runs, in one local command.
+    "pr": (*QUALITY, "client-foundation", "runtime-deps", "python", "app-smoke"),
+    "nightly": (*QUALITY, "client-foundation", "runtime-deps", "python-full", "app-smoke"),
+    "deterministic": ("deterministic",),
+    "fast": ("ruff-safety", "ruff-deserialization", "client-platform-boundaries", "client-platform-contracts", "contracts"),
+    "dependency-integrity": ("lock-check", "requirements-check", "sync-test", "dependency-requirements", "runtime-deps"),
     "contracts": ("contracts",),
     "subsystem": ("subsystem",),
-    "coverage": ("coverage-migrated",),
-    "deterministic": ("deterministic",),
-    "app-smoke": ("app-smoke",),
     "installer-contracts": ("installer-contracts",),
-    "legacy-inventory": ("legacy-inventory",),
-    "fast": ("ruff-safety", "client-platform-boundaries", "client-platform-contracts", "contracts", "subsystem", "legacy-inventory"),
-    "pr": (
-        "lock-check",
-        "requirements-check",
-        "sync-test",
-        "runtime-deps",
-        "dependency-requirements",
-        "client-foundation",
-        "compileall",
-        "ruff-safety",
-        "client-platform-boundaries",
-        "client-platform-contracts",
-        "contracts",
-        "subsystem",
-        "coverage-migrated",
-        "deterministic",
-        "installer-contracts",
-        "app-smoke",
-        "legacy-inventory",
-    ),
-    "release": (
-        "lock-check",
-        "requirements-check",
-        "sync-test",
-        "runtime-deps",
-        "dependency-requirements",
-        "client-foundation",
-        "compileall",
-        "ruff-safety",
-        "client-platform-boundaries",
-        "client-platform-contracts",
-        "contracts",
-        "subsystem",
-        "coverage-migrated",
-        "deterministic",
-        "installer-contracts",
-        "app-smoke",
-        "legacy-inventory",
-    ),
-    "all": (
-        "lock-check",
-        "requirements-check",
-        "sync-test",
-        "runtime-deps",
-        "dependency-requirements",
-        "client-foundation",
-        "compileall",
-        "ruff-safety",
-        "client-platform-boundaries",
-        "client-platform-contracts",
-        "contracts",
-        "subsystem",
-        "coverage-migrated",
-        "deterministic",
-        "installer-contracts",
-        "app-smoke",
-        "legacy-inventory",
-    ),
+    "docs": ("docs",),
 }
 
 
@@ -359,10 +261,30 @@ def changed_files_from_git(base: str) -> list[str]:
     return changed
 
 
-def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
-    from tests.helpers.source_test_map import select_tests_for_changes
+def changed_test_paths(changed_files: list[str], root: Path = REPO_ROOT) -> list[str]:
+    """The tests for changed files, by convention: changed test files themselves;
+    for `src/row_bot/<package>/...` the `tests/<lane>/<package>` folders; for
+    `src/row_bot/<module>.py` the `test_<module>*.py` files. A local shortcut:
+    the PR lane runs everything."""
+    selected: list[str] = []
+    for name in (path.replace("\\", "/") for path in changed_files):
+        parts = name.split("/")
+        if parts[0] == "tests" and parts[-1].startswith("test_") and name.endswith(".py"):
+            candidates = [root / name]
+        elif name.startswith("src/row_bot/") and len(parts) > 3:
+            candidates = [root / "tests" / lane / parts[2] for lane in ("contracts", "subsystem", "integration")]
+        elif name.startswith("src/row_bot/") and name.endswith(".py"):
+            candidates = sorted((root / "tests").rglob(f"test_{Path(name).stem}*.py"))
+        else:
+            candidates = []
+        for candidate in candidates:
+            relative = candidate.relative_to(root).as_posix()
+            if candidate.exists() and relative not in selected:
+                selected.append(relative)
+    return selected
 
-    selection = select_tests_for_changes(changed_files)
+
+def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
     commands: list[CommandSpec] = []
     if any(path.replace("\\", "/").startswith(("frontend/", "contracts/client-platform/"))
            or path == "scripts/run_client_checks.py" for path in changed_files):
@@ -370,23 +292,8 @@ def changed_commands(changed_files: list[str]) -> list[CommandSpec]:
     if any(path in {"pyproject.toml", "uv.lock", "requirements.txt", "scripts/dependency_requirements.py"}
            for path in changed_files):
         commands.append(COMMANDS["dependency-requirements"])
-    if selection.test_paths:
-        commands.append(
-            _cmd(
-                "changed-tests",
-                "uv",
-                "run",
-                "python",
-                "-m",
-                "pytest",
-                *selection.test_paths,
-                "-m",
-                "not live_provider and not e2e",
-                "-q",
-                env=TEST_ENV,
-            )
-        )
-    commands.append(COMMANDS["legacy-inventory"])
+    if paths := changed_test_paths(changed_files):
+        commands.append(_pytest("changed-tests", *paths))
     return commands
 
 
@@ -402,8 +309,6 @@ def run_commands(commands: list[CommandSpec], *, continue_on_failure: bool) -> i
     exit_code = 0
     for spec in commands:
         print(f":: {spec.name}: {spec.display()}", flush=True)
-        if spec.name == "coverage-migrated":
-            _write_migrated_coverage_config()
         env = {**os.environ, **spec.env}
         result = subprocess.run(spec.argv, cwd=REPO_ROOT, env=env, check=False)
         if result.returncode != 0:

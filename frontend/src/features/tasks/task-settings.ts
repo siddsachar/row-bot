@@ -76,7 +76,15 @@ export function taskSettings(
         'workflow-webhook.json',
         signal,
       );
-      if (result.status !== 'ok') throw clientError({ code: 'action_denied' });
+      if (result.status !== 'ok')
+        throw clientError({
+          // The desktop window can't download files (B275).
+          code:
+            result.status === 'unavailable' &&
+            result.reason === 'desktop_download_unavailable'
+              ? 'capability_unavailable'
+              : 'action_denied',
+        });
     },
   };
 }

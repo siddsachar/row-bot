@@ -1,7 +1,10 @@
 """Collect public-docs inventory from Row-Bot source files.
 
-The inventory intentionally avoids importing the NiceGUI app. It scans stable
-source locations and emits deterministic JSON that generated docs can consume.
+The inventory intentionally avoids importing the application or running the
+React client. It reads stable source locations (Python modules, the React
+settings and Home models, and docs metadata) and emits deterministic JSON that
+generated docs can consume. Sources are recorded as repository paths, with a
+symbol or anchor where useful, never as line numbers.
 """
 
 from __future__ import annotations
@@ -122,6 +125,200 @@ def _assigned_dict(path: Path, name: str) -> dict[str, Any]:
     return {}
 
 
+class _TsLiteral:
+    """Read one plain TypeScript literal starting at ``pos``.
+
+    Objects, arrays, quoted strings, numbers, ``true``, ``false`` and ``null``
+    are accepted. Anything else (spreads, calls, identifiers, template strings)
+    raises ``ValueError`` so a model that stops being plain data fails loudly
+    instead of producing a partial inventory.
+    """
+
+    _SPACE = re.compile(r"(?:\s+|//[^\n]*|/\*.*?\*/)+", re.DOTALL)
+    _IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+    _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+    _ESCAPES = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", "v": "\v", "0": "\0"}
+
+    def __init__(self, text: str, pos: int) -> None:
+        self.text = text
+        self.pos = pos
+
+    def _peek(self) -> str:
+        match = self._SPACE.match(self.text, self.pos)
+        if match:
+            self.pos = match.end()
+        return self.text[self.pos : self.pos + 1]
+
+    def _fail(self, expected: str) -> ValueError:
+        line = self.text.count("\n", 0, self.pos) + 1
+        found = self.text[self.pos : self.pos + 24].split("\n", 1)[0]
+        return ValueError(f"expected {expected} on line {line}, found {found!r}")
+
+    def value(self) -> Any:
+        char = self._peek()
+        if char == "{":
+            return self._object()
+        if char == "[":
+            return self._array()
+        if char in {"'", '"'}:
+            return self._string()
+        number = self._NUMBER.match(self.text, self.pos)
+        if number:
+            self.pos = number.end()
+            return float(number.group()) if "." in number.group() else int(number.group())
+        word = self._IDENT.match(self.text, self.pos)
+        if word and word.group() in {"true", "false", "null"}:
+            self.pos = word.end()
+            return {"true": True, "false": False, "null": None}[word.group()]
+        raise self._fail("a plain literal")
+
+    def _string(self) -> str:
+        quote = self.text[self.pos]
+        chars: list[str] = []
+        index = self.pos + 1
+        while index < len(self.text):
+            char = self.text[index]
+            if char == quote:
+                self.pos = index + 1
+                return "".join(chars)
+            if char == "\n":
+                break
+            if char == "\\":
+                escaped = self.text[index + 1 : index + 2]
+                if escaped == "u":
+                    chars.append(chr(int(self.text[index + 2 : index + 6], 16)))
+                    index += 6
+                    continue
+                chars.append(self._ESCAPES.get(escaped, escaped))
+                index += 2
+                continue
+            chars.append(char)
+            index += 1
+        raise self._fail("a closing quote")
+
+    def _array(self) -> list[Any]:
+        self.pos += 1
+        items: list[Any] = []
+        while self._peek() != "]":
+            items.append(self.value())
+            if self._peek() == ",":
+                self.pos += 1
+            elif self._peek() != "]":
+                raise self._fail("',' or ']'")
+        self.pos += 1
+        return items
+
+    def _object(self) -> dict[str, Any]:
+        self.pos += 1
+        data: dict[str, Any] = {}
+        while self._peek() != "}":
+            if self._peek() in {"'", '"'}:
+                key = self._string()
+            else:
+                word = self._IDENT.match(self.text, self.pos)
+                if word is None:
+                    raise self._fail("a property name")
+                key = word.group()
+                self.pos = word.end()
+            if self._peek() != ":":
+                raise self._fail(f"':' after {key!r}")
+            self.pos += 1
+            data[key] = self.value()
+            if self._peek() == ",":
+                self.pos += 1
+            elif self._peek() != "}":
+                raise self._fail("',' or '}'")
+        self.pos += 1
+        return data
+
+
+def _ts_const(path: Path, name: str) -> Any:
+    """Return the literal assigned to ``const <name>`` in a TypeScript file."""
+
+    rel = repo_path(ROOT, path)
+    text = _read_text(path)
+    match = re.search(rf"\bconst\s+{re.escape(name)}\b[^=;]*=\s*", text)
+    if match is None:
+        raise ValueError(f"{rel}: `const {name}` not found")
+    try:
+        return _TsLiteral(text, match.end()).value()
+    except ValueError as exc:
+        raise ValueError(f"{rel}: `const {name}` is not a plain literal: {exc}") from exc
+
+
+def _require_same_ids(what: str, expected: list[str], documented: dict[str, Any]) -> None:
+    missing = [item for item in expected if item not in documented]
+    unknown = sorted(set(documented) - set(expected))
+    problems = []
+    if missing:
+        problems.append("missing " + ", ".join(missing))
+    if unknown:
+        problems.append("unknown " + ", ".join(unknown))
+    if problems:
+        raise ValueError(f"{what} does not match the React client: " + "; ".join(problems))
+
+
+REACT_BASE = "/app-v2"
+
+
+def _settings_model_path() -> Path:
+    return ROOT / "frontend" / "src" / "features" / "settings" / "model.ts"
+
+
+def _home_view_path() -> Path:
+    return ROOT / "frontend" / "src" / "features" / "shell" / "Home.tsx"
+
+
+def _settings_model() -> dict[str, Any]:
+    """Read the React settings navigation: groups, page labels, keywords and rows."""
+
+    path = _settings_model_path()
+    rel = repo_path(ROOT, path)
+    groups = _ts_const(path, "settingsGroups")
+    labels = _ts_const(path, "leafLabels")
+    keywords = _ts_const(path, "settingsKeywords")
+    rows = _ts_const(path, "settingsRows")
+    if not isinstance(groups, list) or not groups:
+        raise ValueError(f"{rel}: settingsGroups is empty")
+    leaves: list[tuple[dict[str, Any], str]] = []
+    for group in groups:
+        if not (
+            isinstance(group, dict)
+            and isinstance(group.get("id"), str)
+            and isinstance(group.get("label"), str)
+            and isinstance(group.get("leaves"), list)
+            and group["leaves"]
+        ):
+            raise ValueError(f"{rel}: settings group {group!r} needs an id, a label and pages")
+        leaves.extend((group, str(leaf)) for leaf in group["leaves"])
+    leaf_ids = [leaf for _group, leaf in leaves]
+    if len(set(leaf_ids)) != len(leaf_ids):
+        raise ValueError(f"{rel}: a settings page belongs to more than one group")
+    if not isinstance(labels, dict):
+        raise ValueError(f"{rel}: leafLabels is not an object")
+    _require_same_ids(f"{rel} leafLabels", leaf_ids, labels)
+    if not isinstance(keywords, dict):
+        raise ValueError(f"{rel}: settingsKeywords is not an object")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"{rel}: settingsRows is empty")
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        if not (
+            isinstance(row, dict)
+            and row.get("leaf") in labels
+            and isinstance(row.get("anchor"), str)
+            and row["anchor"]
+            and isinstance(row.get("label"), str)
+            and row["label"]
+        ):
+            raise ValueError(f"{rel}: settings row {row!r} needs a known page, an anchor and a label")
+        key = (row["leaf"], row["anchor"])
+        if key in seen:
+            raise ValueError(f"{rel}: settings row {key[0]}#{key[1]} is listed twice")
+        seen.add(key)
+    return {"source": rel, "leaves": leaves, "labels": labels, "keywords": keywords, "rows": rows}
+
+
 def _class_names(path: Path) -> list[str]:
     tree = _parse_ast(path)
     if tree is None:
@@ -236,43 +433,36 @@ def _provider_description(provider_id: str, data: dict[str, Any]) -> str:
 
 
 def collect_settings() -> list[dict[str, Any]]:
-    settings = _load_yaml(ROOT / "docs-content" / "metadata" / "settings.yml").get("tabs", {})
+    """One row per React settings page, in navigation order."""
+
+    model = _settings_model()
+    pages = _load_yaml(ROOT / "docs-content" / "metadata" / "settings.yml").get("pages", {})
+    if not isinstance(pages, dict):
+        raise ValueError("docs-content/metadata/settings.yml pages must be a mapping")
+    _require_same_ids(
+        "docs-content/metadata/settings.yml pages",
+        [leaf for _group, leaf in model["leaves"]],
+        pages,
+    )
     rows: list[dict[str, Any]] = []
-    if isinstance(settings, dict):
-        for name, meta in settings.items():
-            meta = meta if isinstance(meta, dict) else {}
-            rows.append(
-                {
-                    "id": slugify(name),
-                    "title": name,
-                    "description": str(meta.get("description") or ""),
-                    "docs_route": str(meta.get("docs_route") or ""),
-                    "screenshot_id": str(meta.get("screenshot_id") or ""),
-                    "source": "docs-content/metadata/settings.yml",
-                }
-            )
+    for group, leaf in model["leaves"]:
+        meta = pages.get(leaf) if isinstance(pages.get(leaf), dict) else {}
+        rows.append(
+            {
+                "id": leaf,
+                "title": str(model["labels"][leaf]),
+                "category": str(group["label"]),
+                "description": str(meta.get("description") or ""),
+                "keywords": str(model["keywords"].get(leaf) or ""),
+                "app_route": f"{REACT_BASE}/settings/{leaf}",
+                "docs_route": str(meta.get("docs_route") or ""),
+                "screenshot_id": str(meta.get("screenshot_id") or ""),
+                "dependencies": str(meta.get("dependencies") or ""),
+                "security": str(meta.get("security") or ""),
+                "source": f"{model['source']}#{leaf}",
+            }
+        )
     return rows
-
-
-_SETTING_CONTROL_TYPES = {
-    "button",
-    "checkbox",
-    "input",
-    "number",
-    "radio",
-    "select",
-    "slider",
-    "switch",
-    "textarea",
-    "toggle",
-}
-
-
-def _call_name(node: ast.Call) -> tuple[str, str]:
-    func = node.func
-    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-        return func.value.id, func.attr
-    return "", ""
 
 
 def _call_keyword(node: ast.Call, name: str) -> ast.AST | None:
@@ -280,23 +470,6 @@ def _call_keyword(node: ast.Call, name: str) -> ast.AST | None:
         if keyword.arg == name:
             return keyword.value
     return None
-
-
-def _control_label(node: ast.Call, control_type: str) -> str:
-    label_node = _call_keyword(node, "label")
-    if label_node is None and node.args and control_type != "slider":
-        label_node = node.args[0]
-    value = (
-        _literal_value(label_node)
-        if isinstance(label_node, (ast.Constant, ast.JoinedStr))
-        else None
-    )
-    if isinstance(value, str) and value.strip():
-        return " ".join(value.split())
-    placeholder = _literal_value(_call_keyword(node, "placeholder"))
-    if isinstance(placeholder, str) and placeholder.strip():
-        return " ".join(placeholder.split())
-    return ""
 
 
 def _control_value(node: ast.Call, keyword: str) -> Any:
@@ -312,155 +485,32 @@ def _control_value(node: ast.Call, keyword: str) -> Any:
 
 
 def collect_settings_controls() -> list[dict[str, Any]]:
-    tabs = _load_yaml(ROOT / "docs-content" / "metadata" / "settings_tabs.yml").get("tabs", {})
-    builder_to_tab = {
-        str(meta.get("builder")): str(tab)
-        for tab, meta in (tabs.items() if isinstance(tabs, dict) else [])
-        if isinstance(meta, dict) and meta.get("builder")
-    }
-    docs_routes = {
-        row["title"]: row["docs_route"] for row in collect_settings()
-    }
-    files = [
-        (ROOT / "src" / "row_bot" / "ui" / "settings.py", ""),
-        (ROOT / "src" / "row_bot" / "ui" / "provider_settings.py", "Providers"),
-        (ROOT / "src" / "row_bot" / "ui" / "buddy.py", "Buddy"),
-        (ROOT / "src" / "row_bot" / "ui" / "mcp_settings.py", "MCP"),
-        (ROOT / "src" / "row_bot" / "plugins" / "ui_settings.py", "Plugins"),
-        (ROOT / "src" / "row_bot" / "ui" / "remote_access_settings.py", "System"),
-        (ROOT / "src" / "row_bot" / "ui" / "computer_use.py", "System"),
-        (ROOT / "src" / "row_bot" / "ui" / "update_dialog.py", "Preferences"),
-    ]
-    raw_rows: list[dict[str, Any]] = []
+    """One row per searchable React settings row (``settingsRows``)."""
 
-    class Visitor(ast.NodeVisitor):
-        def __init__(self, path: Path, fixed_tab: str) -> None:
-            self.path = path
-            self.fixed_tab = fixed_tab
-            self.functions: list[str] = []
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            self.functions.append(node.name)
-            self.generic_visit(node)
-            self.functions.pop()
-
-        visit_AsyncFunctionDef = visit_FunctionDef
-
-        def visit_Call(self, node: ast.Call) -> None:
-            owner, control_type = _call_name(node)
-            if owner == "ui" and control_type in _SETTING_CONTROL_TYPES:
-                tab = self.fixed_tab or next(
-                    (builder_to_tab[name] for name in reversed(self.functions) if name in builder_to_tab),
-                    "",
-                )
-                if not tab and any(
-                    name in {
-                        "_build_github_account_panel",
-                        "_build_google_account_panel",
-                        "_build_x_account_panel",
-                    }
-                    for name in self.functions
-                ):
-                    tab = "Accounts"
-                label = _control_label(node, control_type)
-                if tab and label:
-                    raw_rows.append(
-                        {
-                            "tab": tab,
-                            "label": label,
-                            "control": control_type,
-                            "default": _control_value(node, "value"),
-                            "allowed_values": _control_value(node, "options"),
-                            "source": f"{repo_path(ROOT, self.path)}:{node.lineno}",
-                            "line": node.lineno,
-                        }
-                    )
-            self.generic_visit(node)
-
-    for path, fixed_tab in files:
-        tree = _parse_ast(path)
-        if tree is not None:
-            Visitor(path, fixed_tab).visit(tree)
-
-    dynamic_controls = {
-        "Models": ["Default chat model", "Quick Choices", "Refresh model catalog"],
-        "Tools": [
-            "Auto-select external tools (recommended)",
-            "Load all external tools",
-            "Web search",
-            "DuckDuckGo",
-            "Wolfram Alpha",
-            "arXiv",
-            "Wikipedia",
-            "YouTube",
-        ],
-        "Accounts": [
-            "Reconnect GitHub CLI",
-            "Refresh GitHub CLI authorisation",
-            "Use anonymous GitHub access for public sources",
-            "Clear saved GitHub token",
-            "Connect Google account",
-            "Enable X tool",
-        ],
-        "Utilities": [
-            "Tasks",
-            "Timer",
-            "URL reader",
-            "Calculator",
-            "Weather",
-            "Charts",
-            "System information",
-            "Conversation search",
-            "Custom Tool builder",
-        ],
-    }
-    for channel in collect_channels():
-        for field in channel.get("configured_by", []):
-            dynamic_controls.setdefault("Channels", []).append(f"{channel['title']}: {field}")
-        dynamic_controls.setdefault("Channels", []).extend(
-            [f"{channel['title']}: Start or stop", f"{channel['title']}: Test connection"]
-        )
-    for tab, labels in dynamic_controls.items():
-        for index, label in enumerate(labels, start=1):
-            raw_rows.append(
-                {
-                    "tab": tab,
-                    "label": label,
-                    "control": "dynamic",
-                    "default": "Configured locally",
-                    "allowed_values": "Shown inline",
-                    "source": "runtime registry",
-                    "line": index,
-                }
-            )
-
-    security_by_tab = {
-        "Providers": "Credentials are stored through the configured secret store; values are not shown in this reference.",
-        "Accounts": "Connecting an account opens an external authorisation flow.",
-        "Channels": "Starting an adapter can receive or deliver real messages; review targets first.",
-        "MCP": "External servers can expose consequential tools; keep new servers disabled until tested.",
-        "Plugins": "Review source, permissions, and provided capabilities before enabling.",
-        "System": "Filesystem, shell, browser, network, and mobile-access controls can widen local access.",
-    }
-    dependency_by_tab = {
-        "Voice": "Voice extras, provider credentials, and OS audio permissions may be required.",
-        "Buddy": "Desktop overlay behaviour depends on native-window support.",
-        "Channels": "The matching channel extra and third-party account configuration are required.",
-        "MCP": "The MCP extra and a compatible external server are required.",
-        "Plugins": "Plugin-provided dependencies remain disabled until reviewed and installed.",
-    }
-    counts: dict[str, int] = {}
+    model = _settings_model()
+    pages = {page["id"]: page for page in collect_settings()}
     rows: list[dict[str, Any]] = []
-    for row in sorted(raw_rows, key=lambda item: (item["tab"], item["source"], item["line"])):
-        base = f"{slugify(row['tab'])}-{slugify(row['label'])}-{row['control']}"
-        counts[base] = counts.get(base, 0) + 1
-        row["id"] = base if counts[base] == 1 else f"{base}-{counts[base]}"
-        row["effect"] = f"Changes {row['label']} in {row['tab']} settings."
-        row["dependencies"] = dependency_by_tab.get(row["tab"], "No optional dependency is indicated by the control itself.")
-        row["restart"] = "Follow any inline restart or reconnect prompt shown after changing the value."
-        row["security"] = security_by_tab.get(row["tab"], "Stored locally unless the surrounding feature explicitly uses an external service.")
-        row["docs_route"] = docs_routes.get(row["tab"], "")
-        rows.append(row)
+    for row in model["rows"]:
+        page = pages[row["leaf"]]
+        anchor = str(row["anchor"])
+        rows.append(
+            {
+                "id": f"{page['id']}-{slugify(anchor)}",
+                "page_id": page["id"],
+                "page": page["title"],
+                "category": page["category"],
+                "label": str(row["label"]),
+                "anchor": anchor,
+                "keywords": str(row.get("keywords") or ""),
+                "app_route": f"{page['app_route']}#{anchor}",
+                "docs_route": page["docs_route"],
+                "source": f"{model['source']}#{anchor}",
+            }
+        )
+    ids = [row["id"] for row in rows]
+    duplicates = sorted({item for item in ids if ids.count(item) > 1})
+    if duplicates:
+        raise ValueError("settings rows share an id: " + ", ".join(duplicates))
     return rows
 
 
@@ -500,7 +550,7 @@ def _cli_rows_for_path(
                 options = [value for value in (_literal_value(arg) for arg in candidate.args) if isinstance(value, str)]
                 if not options:
                     continue
-                description = str(_control_value(candidate, "help") or "").replace("NiceGUI server", "Row-Bot local server")
+                description = str(_control_value(candidate, "help") or "")
                 if description == "SUPPRESS":
                     continue
                 rows.append(
@@ -517,7 +567,7 @@ def _cli_rows_for_path(
                         "option": ", ".join(options),
                         "description": description,
                         "default": _control_value(candidate, "default"),
-                        "source": f"{repo_path(ROOT, path)}:{candidate.lineno}",
+                        "source": repo_path(ROOT, path),
                     }
                 )
     return rows
@@ -618,21 +668,32 @@ def collect_environment() -> list[dict[str, Any]]:
 
 
 def collect_home_tabs() -> list[dict[str, Any]]:
+    """One row per React Home tab (``homeTabs``), in the order Home shows them."""
+
+    path = _home_view_path()
+    rel = repo_path(ROOT, path)
+    tab_ids = _ts_const(path, "homeTabs")
+    if not isinstance(tab_ids, list) or not tab_ids or not all(
+        isinstance(tab, str) and tab for tab in tab_ids
+    ):
+        raise ValueError(f"{rel}: homeTabs must be a non-empty list of tab ids")
     tabs = _load_yaml(ROOT / "docs-content" / "metadata" / "home_tabs.yml").get("tabs", {})
+    if not isinstance(tabs, dict):
+        raise ValueError("docs-content/metadata/home_tabs.yml tabs must be a mapping")
+    _require_same_ids("docs-content/metadata/home_tabs.yml tabs", tab_ids, tabs)
     rows: list[dict[str, Any]] = []
-    if isinstance(tabs, dict):
-        for name, meta in tabs.items():
-            meta = meta if isinstance(meta, dict) else {}
-            rows.append(
-                {
-                    "id": slugify(name),
-                    "title": name,
-                    "docs_route": str(meta.get("docs_route") or ""),
-                    "screenshot_id": str(meta.get("screenshot_id") or ""),
-                    "source": str(meta.get("source") or "src/row_bot/ui/home.py"),
-                    "builder": str(meta.get("builder") or "build_home"),
-                }
-            )
+    for tab in tab_ids:
+        meta = tabs[tab] if isinstance(tabs[tab], dict) else {}
+        rows.append(
+            {
+                "id": tab,
+                "title": str(meta.get("title") or ""),
+                "app_route": f"{REACT_BASE}/?tab={tab}",
+                "docs_route": str(meta.get("docs_route") or ""),
+                "screenshot_id": str(meta.get("screenshot_id") or ""),
+                "source": str(meta.get("source") or ""),
+            }
+        )
     return rows
 
 
@@ -767,7 +828,7 @@ def collect_plugins() -> list[dict[str, Any]]:
             "id": "custom-tools",
             "title": "Custom Tools",
             "description": "Reviewed Developer Studio tools can be promoted into the plugin-style tool surface.",
-            "source": "src/row_bot/plugins/ui_settings.py",
+            "source": "src/row_bot/developer/tool_capsules.py",
             "required_fields": [],
             "fields": ["name", "description", "tools", "source_url", "installed_path"],
         },
@@ -865,7 +926,6 @@ def collect_metadata() -> dict[str, Any]:
     return {
         "ui_surfaces": _load_yaml(ROOT / "docs-content" / "metadata" / "ui_surfaces.yml"),
         "settings": _load_yaml(ROOT / "docs-content" / "metadata" / "settings.yml"),
-        "settings_tabs": _load_yaml(ROOT / "docs-content" / "metadata" / "settings_tabs.yml"),
         "home_tabs": _load_yaml(ROOT / "docs-content" / "metadata" / "home_tabs.yml"),
         "dialogs": _load_yaml(ROOT / "docs-content" / "metadata" / "dialogs.yml"),
         "screenshots": _load_yaml(ROOT / "docs-content" / "metadata" / "screenshots.yml"),

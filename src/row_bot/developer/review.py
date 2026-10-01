@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 import os
 import stat
@@ -104,17 +105,12 @@ def _diff_base_revision(root: pathlib.Path) -> str:
     return hashlib.sha256(index.encode() + b"\0" + (head if code == 0 else b"unborn")).hexdigest()
 
 
-def workspace_has_custom_read_hooks(workspace_path: str) -> bool:
-    """Detect Git filters/fsmonitor without invoking configured executable hooks."""
-    if shutil.which("git") is None:
-        return False
-    # Repository discovery observes metadata only. A plain folder never reaches
-    # status/diff, so inherited global filters do not restrict its file reads.
-    code, inside = _git_read_metadata(workspace_path, ["rev-parse", "--is-inside-work-tree"])
-    if code == 128 or (code == 0 and inside.strip() == b"false"):
-        return False
-    if code != 0 or inside.strip() != b"true":
-        raise ValueError("workspace_read_hooks_unavailable")
+_FILTER_ATTRIBUTE = re.compile(rb"(?:^|\s)filter=([^\s]+)")
+_MAX_ATTRIBUTE_FILE = 1024 * 1024
+
+
+def _configured_read_hooks(workspace_path: str) -> tuple[bool, set[str]]:
+    """Return (fsmonitor configured, filter drivers with clean/process commands)."""
     environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
     with subprocess.Popen(["git", "-C", workspace_path, "config", "--name-only", "--get-regexp",
                            r"^(filter\..*\.(clean|process)|core\.fsmonitor)$"], stdout=subprocess.PIPE,
@@ -127,15 +123,101 @@ def workspace_has_custom_read_hooks(workspace_path: str) -> bool:
             configured = config.stdout.read(65537)
             if len(configured) > 65536:
                 config.kill()
+                raise ValueError("workspace_read_hooks_unavailable")
             config.wait(timeout=2)
             if config.returncode not in {0, 1}:
                 raise ValueError("workspace_read_hooks_unavailable")
-            return bool(configured)
         finally:
             timer.cancel()
             if config.poll() is None:
                 config.kill()
                 config.wait(timeout=2)
+    fsmonitor = False
+    drivers: set[str] = set()
+    for line in configured.decode("utf-8", "replace").splitlines():
+        name = line.strip().lower()
+        if name == "core.fsmonitor":
+            fsmonitor = True
+        elif name.startswith("filter.") and name.count(".") >= 2:
+            drivers.add(name[len("filter."):].rsplit(".", 1)[0])
+    return fsmonitor, drivers
+
+
+def _attribute_sources(workspace_path: str) -> list[pathlib.Path] | None:
+    """Files whose attributes apply to this checkout, or None when unknown."""
+    root = pathlib.Path(workspace_path)
+    code, listed = _git_read_metadata(workspace_path, [
+        "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+        ":(glob)**/.gitattributes",
+    ], max_bytes=64 * 1024)
+    if code:
+        return None
+    sources: list[pathlib.Path] = []
+    for raw in listed.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            sources.append(scoped_workspace_path(root, raw.decode("utf-8")))
+        except (ValueError, UnicodeDecodeError, OSError):
+            return None
+    code, info = _git_read_metadata(workspace_path, ["rev-parse", "--git-path", "info/attributes"])
+    if code:
+        return None
+    info_path = pathlib.Path(info.decode("utf-8", "replace").rstrip("\r\n"))
+    sources.append(info_path if info_path.is_absolute() else root / info_path)
+    code, configured = _git_read_metadata(workspace_path, ["config", "--path", "--get", "core.attributesFile"])
+    if code == 0 and configured.strip():
+        sources.append(pathlib.Path(configured.decode("utf-8", "replace").strip()))
+    elif code in {0, 1}:
+        base = os.environ.get("XDG_CONFIG_HOME") or str(pathlib.Path.home() / ".config")
+        sources.append(pathlib.Path(base) / "git" / "attributes")
+    else:
+        return None
+    return sources
+
+
+def _attributes_select_driver(workspace_path: str, drivers: set[str]) -> bool:
+    """True when any attributes file assigns one of the configured drivers."""
+    sources = _attribute_sources(workspace_path)
+    if sources is None:
+        return True
+    names = {driver.encode("utf-8") for driver in drivers}
+    for source in sources:
+        try:
+            if not source.is_file():
+                continue
+            if source.stat().st_size > _MAX_ATTRIBUTE_FILE:
+                return True
+            data = source.read_bytes()
+        except OSError:
+            return True
+        for match in _FILTER_ATTRIBUTE.finditer(data):
+            if match.group(1).lower() in names:
+                return True
+    return False
+
+
+def workspace_has_custom_read_hooks(workspace_path: str) -> bool:
+    """Detect Git filters/fsmonitor that a status or diff would run, without running them.
+
+    A filter driver defined in any Git config (Git for Windows installs Git LFS
+    globally) runs only for paths whose attributes select it, so a driver
+    counts only when an attributes file of this checkout names it. Unreadable
+    or oversized attribute sources count as selecting one.
+    """
+    if shutil.which("git") is None:
+        return False
+    # Repository discovery observes metadata only. A plain folder never reaches
+    # status/diff, so inherited global filters do not restrict its file reads.
+    code, inside = _git_read_metadata(workspace_path, ["rev-parse", "--is-inside-work-tree"])
+    if code == 128 or (code == 0 and inside.strip() == b"false"):
+        return False
+    if code != 0 or inside.strip() != b"true":
+        raise ValueError("workspace_read_hooks_unavailable")
+    fsmonitor, drivers = _configured_read_hooks(workspace_path)
+    if fsmonitor:
+        return True
+    return bool(drivers) and _attributes_select_driver(workspace_path, drivers)
 
 
 def read_bounded_diff(workspace_path: str, relative_path: str, *, offset: int = 0,
@@ -459,43 +541,6 @@ def get_workspace_diff_stats(workspace_path: str) -> DiffStats:
         additions=sum(item.additions for item in changed),
         deletions=sum(item.deletions for item in changed),
     )
-
-
-def list_workspace_files(workspace_path: str, *, limit: int = 120) -> list[str]:
-    folder = pathlib.Path(workspace_path).expanduser().resolve()
-    skip = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
-    rows: list[str] = []
-    if not folder.is_dir():
-        return rows
-    for path in sorted(folder.rglob("*"), key=lambda item: item.relative_to(folder).as_posix().lower()):
-        rel_parts = set(path.relative_to(folder).parts)
-        if rel_parts & skip:
-            continue
-        if path.is_file():
-            rows.append(path.relative_to(folder).as_posix())
-            if len(rows) >= limit:
-                break
-    return rows
-
-
-def read_file_preview(workspace_path: str, file_path: str, *, max_chars: int = 20_000) -> str:
-    folder = pathlib.Path(workspace_path).expanduser().resolve()
-    clean = str(file_path or "").strip().replace("\\", "/")
-    if not clean:
-        return ""
-    target = (folder / clean).resolve()
-    try:
-        target.relative_to(folder)
-    except ValueError as exc:
-        raise ValueError(f"Path escapes workspace: {file_path}") from exc
-    if not target.is_file():
-        return "File not found."
-    if not _looks_text(target):
-        return "Binary or unsupported file preview."
-    text = target.read_text(encoding="utf-8", errors="replace")
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[file truncated]"
-    return text
 
 
 def _workspace_numstat(folder: pathlib.Path) -> dict[str, tuple[int, int]]:

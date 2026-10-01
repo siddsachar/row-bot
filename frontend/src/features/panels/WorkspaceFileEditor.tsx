@@ -71,7 +71,7 @@ export default function WorkspaceFileEditor(props: WorkspaceFileEditorProps) {
         <p role="status">
           The workspace revision changed. Your draft is retained.{' '}
           {uncertain
-            ? 'Check the original save receipt before refreshing.'
+            ? 'Check the save before refreshing.'
             : 'Refresh the file revision before saving.'}
         </p>
       )}

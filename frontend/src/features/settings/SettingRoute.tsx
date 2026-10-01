@@ -1,56 +1,114 @@
 import BuddySurface from '../buddy/BuddySurface';
-import { Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
-import { resolveSetting } from './model';
+import {
+  AGENT_PROFILE_SETTINGS,
+  resolveSetting,
+  settingsHref,
+  THREAD_SETTINGS,
+} from './model';
 import Preferences from './Preferences';
+import AppearanceSettings from './Appearance';
 import ProviderStatus from './ProviderStatus';
 import ToolCatalog from './ToolCatalog';
-import KnowledgeCatalog from './KnowledgeCatalog';
+import CustomToolsSettings from './CustomToolsSettings';
+import MemorySettings from './MemorySettings';
 import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
-import CapabilitySettings from './CapabilitySettings';
+import CapabilitySettings, {
+  type CapabilitySettingsSession,
+} from './CapabilitySettings';
+import McpFacadeControls, { type McpFacadeSession } from './McpFacadeControls';
+import { McpGlobalSwitch } from './McpPolicyControls';
+import {
+  addAndConnect,
+  turnOnServer,
+  type AddConnectApi,
+  type TurnOnApi,
+} from './mcp-add-connect';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
-import McpConnectionsPanel from './McpConnections';
+import McpConnectionsPanel, { type McpConnections } from './McpConnections';
 import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
-import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
 import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
 import ChannelSettings from './ChannelSettings';
+import { SETTINGS_CHANGED } from '../shell/palette-switches';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
-import GoalProfileSettings from './GoalProfileSettings';
-import SettingsConversationPicker, {
-  resolveSettingsConversation,
-} from './SettingsConversationPicker';
+import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
+import { SettingsDangerZone, DangerAction, SettingsGroup } from './anatomy';
+import { useWorkspaceActions } from '../shell/workspace-actions';
 import SettingsShell from './SettingsShell';
-import AccessSessions from './AccessSessions';
-import AccessInvitations from './AccessInvitations';
+import AccessConnect from './AccessConnect';
+import AccessDevices from './AccessDevices';
+import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
+import { pickSettingsFolder } from './settings-folder';
 import {
   DocumentEmbeddingSnapshot,
+  DocumentModelSetting,
+  StartPublicLink,
   ToolConfigurationSnapshot,
+  TrackerDangerAction,
+  UtilitiesSnapshotPanel,
   type SettingsMutationIO,
   type SettingsPage,
   SettingsDraftOwner,
 } from './SettingsSnapshotPanels';
 
+/** Saved defaults for one page, when the server reports them. */
+function settingsDefaults(snapshot: SettingsSnapshot, page: SettingsPage) {
+  return snapshot.defaults?.[page];
+}
+
+/** Which saved-settings page each leaf reads and writes. */
+const snapshotPages: Partial<Record<string, SettingsPage>> = {
+  voice: 'voice',
+  system: 'system',
+  access: 'system',
+  tracker: 'tracker',
+  documents: 'documents',
+  tools: 'tools',
+  accounts: 'accounts',
+  preferences: 'preferences',
+  updates: 'preferences',
+  data: 'preferences',
+  knowledge: 'knowledge',
+};
+
+/**
+ * Settings › Agent profiles became the sidebar's Agents dialog (B260): an
+ * old link opens that dialog over the workspace.
+ */
+function AgentProfilesMoved() {
+  const open = useWorkspaceActions()?.openAgentProfiles;
+  const openDialog = useEffectEvent(() => open?.(null));
+  useEffect(() => openDialog(), []);
+  return <Navigate to="/" replace />;
+}
+
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
-  const [search, setSearch] = useSearchParams();
+  const [search] = useSearchParams();
   const leaf = resolveSetting(setting);
   const {
     controller,
@@ -59,6 +117,7 @@ export default function SettingRoute() {
     providerConfigurationOwner,
     defaultModelOwner,
     capabilitySettingsOwner,
+    mcpChatOwner,
     subscriptionAccountsOwner,
     subscriptionOptionsOwner,
     mcpConnectionsOwner,
@@ -70,7 +129,6 @@ export default function SettingRoute() {
     channelOwner,
     pluginOwner,
     skillsOwner,
-    goalProfileOwner,
     knowledgeOwner,
   } = useRuntime();
   const state = useClientState();
@@ -107,7 +165,18 @@ export default function SettingRoute() {
   const [settingsSnapshotLoading, setSettingsSnapshotLoading] = useState(true);
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
+  // A switch turned from ⌘K: show it as saved.
+  useEffect(() => {
+    const changed = () => setSettingsSnapshotReload((value) => value + 1);
+    window.addEventListener(SETTINGS_CHANGED, changed);
+    return () => window.removeEventListener(SETTINGS_CHANGED, changed);
+  }, []);
   const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
+  const [devicesReload, setDevicesReload] = useState(0);
+  // A removal in progress (retained by its owner) keeps its Danger zone open.
+  const [documentDangerOpen, setDocumentDangerOpen] = useState(() =>
+    Boolean(documentRemovalsOwner?.get()?.getSnapshot().selected),
+  );
   const requestedConversationId = search.get('conversation');
   const settingsConversationId = resolveSettingsConversation(
     state.conversations,
@@ -140,51 +209,54 @@ export default function SettingRoute() {
     settingsSnapshotReload,
     state.handshake?.server_epoch,
   ]);
-  useEffect(() => {
-    if (
-      !leaf ||
-      !['buddy', 'goals'].includes(leaf.id) ||
-      !settingsConversationId ||
-      requestedConversationId === settingsConversationId
-    )
-      return;
-    const next = new URLSearchParams(search);
-    next.set('conversation', settingsConversationId);
-    setSearch(next, { replace: true });
-  }, [
-    leaf,
-    requestedConversationId,
-    search,
-    setSearch,
-    settingsConversationId,
-  ]);
-  if (!leaf) return <Navigate to="/settings/providers" replace />;
-  if (leaf.id !== setting.toLowerCase())
+  // Settings › Memory's "Delete all" is reviewed against this catalog (B264).
+  const loadKnowledgeCatalog = useCallback(
+    (signal?: AbortSignal) =>
+      controller.savedEntities('', undefined, undefined, signal),
+    [controller],
+  );
+  if (THREAD_SETTINGS.has(setting.toLowerCase())) {
+    // Goals belong to one conversation: open it, where Context shows them.
+    const conversation =
+      resolveSettingsConversation(
+        state.conversations,
+        requestedConversationId,
+        state.selectedConversationId,
+      ) ?? '';
     return (
       <Navigate
-        to={`${leaf.href}${search.size ? `?${search.toString()}` : ''}`}
+        to={
+          conversation
+            ? `/conversations/${encodeURIComponent(conversation)}`
+            : '/'
+        }
         replace
       />
     );
-  const settingsPages: SettingsPage[] = [
-    'voice',
-    'system',
-    'tracker',
-    'documents',
-    'tools',
-    'accounts',
-    'utilities',
-    'preferences',
-    'knowledge',
-  ];
-  const snapshotPage = settingsPages.includes(leaf.id as SettingsPage)
-    ? (leaf.id as SettingsPage)
-    : null;
-  const mutation: SettingsMutationIO | null =
-    settingsSnapshot && snapshotPage
-      ? {
+  }
+  if (AGENT_PROFILE_SETTINGS.has(setting.toLowerCase()))
+    return <AgentProfilesMoved />;
+  if (!leaf) return <Navigate to="/settings/providers" replace />;
+  if (leaf.id !== setting.toLowerCase()) {
+    // Legacy ids and moved pages land on their new home (and row).
+    const target = settingsHref(setting) ?? leaf.href;
+    const [path, hash] = target.split('#');
+    return (
+      <Navigate
+        to={{
+          pathname: path,
+          search: search.size ? `?${search.toString()}` : '',
+          hash: hash ? `#${hash}` : '',
+        }}
+        replace
+      />
+    );
+  }
+  const mutationFor = (page: SettingsPage | undefined) =>
+    settingsSnapshot && page
+      ? ({
           revision: settingsSnapshot.revision,
-          page: snapshotPage,
+          page,
           sessionId: session,
           review: controller.reviewSettingsMutation,
           execute: controller.executeSettingsMutation,
@@ -193,8 +265,12 @@ export default function SettingRoute() {
           drafts: settingsDrafts.current.owner,
           onSnapshot: (snapshot) =>
             setLoadedSettingsSnapshot({ session, snapshot }),
-        }
+          defaults: settingsDefaults(settingsSnapshot, page),
+        } satisfies SettingsMutationIO)
       : null;
+  const mutation: SettingsMutationIO | null = mutationFor(
+    snapshotPages[leaf.id],
+  );
   const snapshotState = !settingsSnapshot ? (
     settingsSnapshotLoading || loadedSettingsSnapshot?.session !== session ? (
       <Skeleton label="Loading saved Settings" />
@@ -220,36 +296,39 @@ export default function SettingRoute() {
         className="route-surface stack capability-page"
         aria-label={leaf.label}
       >
-        {leaf?.id === 'buddy' ? (
+        {leaf.id === 'buddy' ? (
           settingsConversationId ? (
-            <>
-              <SettingsConversationPicker
-                conversations={state.conversations}
-                conversationId={settingsConversationId}
-                onChange={(conversationId) => {
-                  const next = new URLSearchParams(search);
-                  next.set('conversation', conversationId);
-                  setSearch(next, { replace: true });
-                }}
-              />
-              <BuddySurface
-                key={settingsConversationId}
-                settings
-                initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
-              />
-            </>
+            <BuddySurface
+              key={settingsConversationId}
+              settings
+              conversationId={settingsConversationId}
+              initialPrompt={settingsSnapshot?.buddy.hatch_prompt}
+            />
           ) : (
             <EmptyState title="Open a conversation for Buddy">
               Buddy uses that conversation’s current profile and approvals.
             </EmptyState>
           )
-        ) : leaf?.id === 'preferences' ? (
-          <Preferences
-            snapshot={settingsSnapshot?.preferences}
-            mutation={mutation}
-            snapshotState={snapshotState}
-            showUpdateControls
-          />
+        ) : leaf.id === 'appearance' ? (
+          <AppearanceSettings />
+        ) : leaf.id === 'preferences' ||
+          leaf.id === 'updates' ||
+          leaf.id === 'data' ? (
+          <>
+            <Preferences
+              snapshot={settingsSnapshot?.preferences}
+              mutation={mutation}
+              snapshotState={snapshotState}
+              showUpdateControls
+              part={leaf.id}
+            />
+            {leaf.id === 'data' && settingsSnapshot && (
+              <DataDangerZone
+                snapshot={settingsSnapshot}
+                mutation={mutationFor('tracker')}
+              />
+            )}
+          </>
         ) : leaf.id === 'providers' ? (
           <>
             <ProviderStatus
@@ -263,6 +342,7 @@ export default function SettingRoute() {
                 setSelectedSubscription({ provider, action })
               }
               onSubscriptionOption={setSelectedSubscriptionOption}
+              hideCustom={Boolean(providerConfigurationOwner?.get())}
             />
             {selectedSubscription && subscriptionAccountsOwner?.get() && (
               <ModalTask
@@ -327,6 +407,7 @@ export default function SettingRoute() {
             {providerConfigurationOwner?.get() && (
               <ProviderConfiguration
                 compact
+                autoAdd={search.get('add') === 'custom-endpoint'}
                 credentialRefreshRequest={
                   endpointCredentialRefresh?.session === session
                     ? endpointCredentialRefresh
@@ -403,138 +484,80 @@ export default function SettingRoute() {
             controller={controller}
             session={defaultModelOwner.get()!}
             initialProvider={search.get('provider') ?? ''}
+            openExternal={(url) => void platform.openExternal(url)}
           />
         ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
-          <>
-            <CapabilitySettings
-              session={capabilitySettingsOwner.get()!}
-              load={({ query, cursor }, signal) =>
-                controller.mcpConfiguration(query, cursor, signal)
-              }
-              review={controller.reviewMcpConfiguration}
-              execute={controller.executeMcpConfiguration}
-              searchDirectory={controller.searchMcpDirectory}
-              onConnection={(id, name) =>
-                mcpConnectionsOwner?.get()?.select(id, name)
-              }
-            />
-            {mcpConnectionsOwner?.get() && (
-              <McpConnectionsPanel
-                catalog={{
-                  load: controller.mcpTestedCatalog,
-                  review: controller.reviewMcpCatalog,
-                  execute: controller.executeMcpConfiguration,
-                }}
-                owner={mcpConnectionsOwner.get()!}
-                load={controller.mcpRuntime}
-                review={controller.reviewMcpRuntime}
-                execute={controller.executeMcpRuntime}
-                policy={{
-                  load: controller.mcpPolicy,
-                  review: controller.reviewMcpPolicy,
-                  execute: controller.executeMcpConfiguration,
-                }}
-              />
-            )}
-            <RuntimeInstallations />
-          </>
+          // B262: the switches and runtimes first, then the servers (their
+          // details open in a drawer).
+          <McpSettings
+            capability={capabilitySettingsOwner.get()!}
+            chat={mcpChatOwner?.get() ?? null}
+            connections={mcpConnectionsOwner?.get() ?? null}
+          />
         ) : leaf.id === 'tools' ? (
           <>
             {settingsSnapshot && mutation ? (
-              <ToolConfigurationSnapshot
-                snapshot={settingsSnapshot.tools}
-                mutation={mutation}
-              />
+              <>
+                <ToolConfigurationSnapshot
+                  snapshot={settingsSnapshot.tools}
+                  mutation={mutation}
+                />
+                <UtilitiesSnapshotPanel
+                  snapshot={settingsSnapshot.utilities}
+                  mutation={mutationFor('utilities')!}
+                />
+              </>
             ) : (
               snapshotState
             )}
-            <ToolCatalog key={session} load={controller.cachedTools} />
+            {/* Siblings need distinct keys, or React keeps one of them
+                on the next page (B183). */}
+            <CustomToolsSettings key={`custom-tools:${session}`} />
+            <ToolCatalog
+              key={`tool-catalog:${session}`}
+              load={controller.cachedTools}
+            />
           </>
         ) : leaf.id === 'knowledge' ? (
-          <>
-            <KnowledgeCatalog
-              key={session}
-              loadFiltered={(filters, cursor, signal) =>
-                controller.knowledgeEntities(
-                  filters.query,
-                  filters.entityType || undefined,
-                  filters.status || undefined,
-                  filters.source || undefined,
-                  filters.tier || undefined,
-                  cursor,
+          // B264: settings only; memories are browsed and edited in Knowledge.
+          <MemorySettings
+            key={session}
+            loadCatalog={loadKnowledgeCatalog}
+            maintenance={{
+              review: (action, catalogRevision, targets, signal) =>
+                controller.reviewKnowledgeMaintenance(
+                  {
+                    action,
+                    catalog_revision: catalogRevision,
+                    targets,
+                  },
                   signal,
-                )
-              }
-              loadDetail={controller.knowledgeEntityDetail}
-              loadRecalls={controller.knowledgeRecalls}
-              loadChangeLog={controller.knowledgeChangeLog}
-              maintenance={{
-                review: (action, catalogRevision, targets, signal) =>
-                  controller.reviewKnowledgeMaintenance(
-                    {
-                      action,
-                      catalog_revision: catalogRevision,
-                      targets,
-                    },
-                    signal,
-                  ),
-                execute: (review, commandId) =>
-                  controller.executeKnowledgeMaintenance({
-                    command_id: commandId,
-                    type: review.action,
-                    payload: {
-                      catalog_revision: review.catalog_revision,
-                      targets: review.targets,
-                      action_digest: review.action_digest,
-                      review_id: review.review_id,
-                    },
-                  }),
-                receipt: controller.knowledgeMaintenanceReceipt,
-              }}
-              settingsMutation={mutation}
-              wikiSession={wikiOwner?.get()}
-              wikiSnapshot={settingsSnapshot?.wiki}
-              onOpen={(id) => knowledgeOwner?.get()?.open(id)}
-              onLifecycle={async (id, revision, action) => {
-                const review = await controller.reviewKnowledge(action, {
-                  entity_id: id,
-                  revision,
-                });
-                const receipt = await controller.executeKnowledge({
-                  command_id: crypto.randomUUID(),
-                  type: action,
+                ),
+              execute: (review, commandId) =>
+                controller.executeKnowledgeMaintenance({
+                  command_id: commandId,
+                  type: review.action,
                   payload: {
-                    entity_id: id,
-                    revision: review.revision,
+                    catalog_revision: review.catalog_revision,
+                    targets: review.targets,
+                    action_digest: review.action_digest,
                     review_id: review.review_id,
                   },
-                });
-                if (receipt.status !== 'completed')
-                  throw { code: receipt.code ?? 'knowledge_outcome_uncertain' };
-                setKnowledgeRefresh((value) => value + 1);
-                setSettingsSnapshotReload((value) => value + 1);
-                void wikiOwner?.get()?.load();
-              }}
-              onMutation={() => {
-                knowledgeOwner?.get()?.close();
-                setKnowledgeRefresh((value) => value + 1);
-                setSettingsSnapshotReload((value) => value + 1);
-                void wikiOwner?.get()?.load();
-              }}
-              snapshot={settingsSnapshot?.knowledge}
-              refreshToken={knowledgeRefresh}
-            />
-            {knowledgeOwner?.get() && (
-              <KnowledgeEditorDialog
-                owner={knowledgeOwner.get()!}
-                onMutation={() => {
-                  setKnowledgeRefresh((value) => value + 1);
-                  setSettingsSnapshotReload((value) => value + 1);
-                  void wikiOwner?.get()?.load();
-                }}
-              />
-            )}
-          </>
+                }),
+              receipt: controller.knowledgeMaintenanceReceipt,
+            }}
+            settingsMutation={mutation}
+            wikiSession={wikiOwner?.get()}
+            wikiSnapshot={settingsSnapshot?.wiki}
+            onMutation={() => {
+              knowledgeOwner?.get()?.close();
+              setKnowledgeRefresh((value) => value + 1);
+              setSettingsSnapshotReload((value) => value + 1);
+              void wikiOwner?.get()?.load();
+            }}
+            snapshot={settingsSnapshot?.knowledge}
+            refreshToken={knowledgeRefresh}
+          />
         ) : leaf.id === 'channels' && channelOwner?.get() ? (
           <ChannelSettings
             session={channelOwner.get()!}
@@ -546,6 +569,7 @@ export default function SettingRoute() {
                 payload: { ...command.payload, review_id: review.review_id },
               })
             }
+            loadLink={controller.channelLink}
           />
         ) : leaf.id === 'plugins' && pluginOwner?.get() ? (
           <PluginSettings
@@ -600,62 +624,99 @@ export default function SettingRoute() {
               receipt: controller.skillReceipt,
             }}
           />
-        ) : leaf.id === 'goals' && goalProfileOwner?.get() ? (
-          settingsConversationId ? (
-            <>
-              <SettingsConversationPicker
-                conversations={state.conversations}
-                conversationId={settingsConversationId}
-                onChange={(conversationId) => {
-                  const next = new URLSearchParams(search);
-                  next.set('conversation', conversationId);
-                  setSearch(next, { replace: true });
+        ) : leaf.id === 'documents' ? (
+          <div className="stack settings-snapshot-page settings-documents-flow">
+            <SettingsGroup title="Add documents" surface={false}>
+              {documentUploadOwner?.get() && (
+                <DocumentUploadPanel
+                  owner={documentUploadOwner.get()!}
+                  onStaged={() => {
+                    const queue = documentQueueOwner?.get();
+                    if (queue && !queue.hasRetained())
+                      void queue.session.load().catch(() => undefined);
+                  }}
+                />
+              )}
+              {settingsSnapshot && mutation && (
+                <div className="settings-group-surface">
+                  <DocumentModelSetting
+                    snapshot={settingsSnapshot.documents}
+                    mutation={mutation}
+                    models={state.handshake?.models ?? []}
+                  />
+                </div>
+              )}
+            </SettingsGroup>
+            <SettingsGroup title="Your documents">
+              {documentQueueOwner?.get() && (
+                <DocumentQueuePanel
+                  owner={documentQueueOwner.get()!}
+                  onProcess={
+                    documentProcessingOwner?.get()
+                      ? (batch) => {
+                          if (!state.selectedConversationId) {
+                            setProcessingSelectionError(
+                              'Open or create a conversation first, then return here to review its document processing policy.',
+                            );
+                            return;
+                          }
+                          try {
+                            documentProcessingOwner
+                              .get()!
+                              .select(
+                                state.selectedConversationId,
+                                batch.id,
+                                batch.revision,
+                              );
+                            setProcessingSelectionError('');
+                          } catch {
+                            setProcessingSelectionError(
+                              'Check processing before choosing another batch.',
+                            );
+                          }
+                        }
+                      : undefined
+                  }
+                />
+              )}
+              {processingSelectionError && (
+                <p
+                  role="alert"
+                  className="settings-divided document-queue-note"
+                >
+                  {processingSelectionError}
+                </p>
+              )}
+              {documentProcessingOwner?.get() && (
+                <DocumentProcessingPanel
+                  owner={documentProcessingOwner.get()!}
+                  conversationTitle={(id) =>
+                    state.conversations
+                      .find((conversation) => conversation.id === id)
+                      ?.title.trim() || undefined
+                  }
+                  onAdmitted={() => {
+                    const queue = documentQueueOwner?.get();
+                    if (queue && !queue.hasRetained())
+                      void queue.session.load().catch(() => undefined);
+                  }}
+                />
+              )}
+              <DocumentsCatalog
+                key={session}
+                load={controller.savedDocuments}
+                onRemove={(id, label) => {
+                  documentRemovalsOwner?.get()?.select(id, label);
+                  // The removal review lives in the Danger zone: show it.
+                  setDocumentDangerOpen(true);
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector('.settings-document-danger')
+                      ?.scrollIntoView?.({ block: 'nearest' }),
+                  );
                 }}
               />
-              <GoalProfileSettings
-                key={settingsConversationId}
-                conversationId={settingsConversationId}
-                session={goalProfileOwner.get()!}
-                loadGoals={({ conversation_id, query, cursor }, signal) =>
-                  controller.goals(conversation_id, query, cursor, signal)
-                }
-                loadProfiles={({ query, scope, cursor }, signal) =>
-                  controller.profiles(query, scope, cursor, signal)
-                }
-                loadProfile={controller.profile}
-                reviewGoal={(payload, signal) =>
-                  controller.reviewGoal(settingsConversationId, payload, signal)
-                }
-                executeGoal={(command, review) =>
-                  controller.executeGoal(settingsConversationId, {
-                    ...command,
-                    payload: {
-                      ...command.payload,
-                      review_id: review.review_id,
-                    },
-                  })
-                }
-                reviewProfile={controller.reviewProfile}
-                executeProfile={(command, review) =>
-                  controller.executeProfile({
-                    ...command,
-                    payload: {
-                      ...command.payload,
-                      review_id: review.review_id,
-                    },
-                  })
-                }
-              />
-            </>
-          ) : (
-            <EmptyState title="Open a conversation">
-              Goals belong to one conversation. Open or create a conversation,
-              then return here. Agent Profiles remain available from the Goals
-              view.
-            </EmptyState>
-          )
-        ) : leaf.id === 'documents' ? (
-          <div className="stack settings-documents-flow">
+            </SettingsGroup>
             {settingsSnapshot && mutation ? (
               <DocumentEmbeddingSnapshot
                 snapshot={settingsSnapshot.documents}
@@ -664,126 +725,225 @@ export default function SettingRoute() {
             ) : (
               snapshotState
             )}
-            {documentUploadOwner?.get() && (
-              <DocumentUploadPanel
-                owner={documentUploadOwner.get()!}
-                onStaged={() => {
-                  const queue = documentQueueOwner?.get();
-                  if (queue && !queue.hasRetained())
-                    void queue.session.load().catch(() => undefined);
-                }}
-              />
-            )}
-            {documentQueueOwner?.get() && (
-              <DocumentQueuePanel
-                owner={documentQueueOwner.get()!}
-                onProcess={
-                  documentProcessingOwner?.get()
-                    ? (batch) => {
-                        if (!state.selectedConversationId) {
-                          setProcessingSelectionError(
-                            'Open or create a conversation first, then return here to review its document processing policy.',
-                          );
-                          return;
-                        }
-                        try {
-                          documentProcessingOwner
-                            .get()!
-                            .select(
-                              state.selectedConversationId,
-                              batch.id,
-                              batch.revision,
-                            );
-                          setProcessingSelectionError('');
-                        } catch {
-                          setProcessingSelectionError(
-                            'Check the original processing receipt before selecting another batch.',
-                          );
-                        }
-                      }
-                    : undefined
-                }
-              />
-            )}
-            {processingSelectionError && (
-              <p role="alert">{processingSelectionError}</p>
-            )}
-            {documentProcessingOwner?.get() && (
-              <DocumentProcessingPanel
-                owner={documentProcessingOwner.get()!}
-                onAdmitted={() => {
-                  const queue = documentQueueOwner?.get();
-                  if (queue && !queue.hasRetained())
-                    void queue.session.load().catch(() => undefined);
-                }}
-              />
-            )}
-            <DocumentsCatalog
-              key={session}
-              load={controller.savedDocuments}
-              onRemove={(id, label) =>
-                documentRemovalsOwner?.get()?.select(id, label)
-              }
-            />
             {documentRemovalsOwner?.get() && (
-              <section
-                className="settings-snapshot-section stack is-danger settings-document-danger"
-                aria-labelledby="settings-document-danger"
+              <SettingsDangerZone
+                meta="Remove documents"
+                open={documentDangerOpen}
+                onOpenChange={setDocumentDangerOpen}
               >
-                <header className="settings-snapshot-heading">
-                  <Trash2 size={18} aria-hidden />
-                  <div>
-                    <h3 id="settings-document-danger">Danger Zone</h3>
-                    <p>
-                      Remove indexed source material through reviewed,
-                      receipt-backed commands.
-                    </p>
-                  </div>
-                </header>
-                <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
-              </section>
+                <div className="settings-document-danger">
+                  <p className="settings-help">
+                    Remove indexed source material through reviewed,
+                    receipt-backed commands.
+                  </p>
+                  <DocumentRemovalsPanel owner={documentRemovalsOwner.get()!} />
+                </div>
+              </SettingsDangerZone>
             )}
           </div>
-        ) : ['voice', 'accounts', 'tracker', 'utilities', 'system'].includes(
+        ) : ['voice', 'accounts', 'tracker', 'system', 'access'].includes(
             leaf.id,
           ) ? (
           settingsSnapshot && mutation ? (
             <>
+              {leaf.id === 'access' ? (
+                // Devices & remote access: connect, your devices, then
+                // Advanced (from the retained panel below).
+                <>
+                  <AccessConnect
+                    tunnel={settingsSnapshot.system.tunnel}
+                    startPublic={
+                      <StartPublicLink
+                        mutation={mutation}
+                        description="Opens Row-Bot to the internet through your saved ngrok setup until you stop it."
+                      />
+                    }
+                    writeClipboard={platform.writeClipboard}
+                    onConnected={() => setDevicesReload((value) => value + 1)}
+                  />
+                  <AccessDevices reloadKey={devicesReload} />
+                </>
+              ) : null}
               <Phase4RetainedSettings
                 setting={leaf.id as Phase4RetainedSetting}
                 snapshot={settingsSnapshot}
                 mutation={mutation}
                 selectedConversationId={state.selectedConversationId}
-                pickFolder={controller.pickFolder}
+                pickFolder={(signal) =>
+                  pickSettingsFolder(platform, controller, signal)
+                }
                 showAccountActions
                 writeClipboard={platform.writeClipboard}
+                accessNetwork={
+                  leaf.id === 'access' ? (
+                    <>
+                      <AccessNetwork />
+                      <AccessTailscale
+                        variant="line"
+                        writeClipboard={platform.writeClipboard}
+                      />
+                    </>
+                  ) : undefined
+                }
               />
-              {leaf.id === 'system' ? (
-                <>
-                  <AccessInvitations writeClipboard={platform.writeClipboard} />
-                  <AccessTailscale />
-                  <AccessSessions
-                    currentSessionId={state.handshake?.client_session_id}
-                  />
-                </>
-              ) : null}
             </>
           ) : (
             snapshotState
           )
+        ) : state.handshake ? (
+          <Skeleton label={`Loading ${leaf.label}`} />
+        ) : state.status === 'loading' || state.status === 'reconnecting' ? (
+          <Skeleton label="Connecting to Row-Bot" />
         ) : (
-          <EmptyState
-            title={leaf?.label ?? 'Setting not found'}
+          // B110: a lost connection is a retry state, never another app.
+          <ErrorState
+            title="Row-Bot isn't connected"
             action={
-              <a className="button" href="/">
-                Open current application
-              </a>
+              <Button onClick={() => void controller.reconnect()}>
+                Reconnect
+              </Button>
             }
           >
-            This setting is available in the current application.
-          </EmptyState>
+            {leaf.label} loads once Row-Bot is connected again.
+          </ErrorState>
         )}
       </section>
     </SettingsShell>
+  );
+}
+
+/** Data › Danger zone: every irreversible clean-up in one place. */
+function DataDangerZone({
+  snapshot,
+  mutation,
+}: {
+  snapshot: SettingsSnapshot;
+  mutation: SettingsMutationIO | null;
+}) {
+  return (
+    <SettingsDangerZone meta="Irreversible clean-up">
+      <DangerAction
+        title="Remove documents"
+        description="Removing indexed documents is reviewed per document on the Documents page."
+      >
+        <Link className="button danger" to="/settings/documents#danger-zone">
+          Open Documents
+        </Link>
+      </DangerAction>
+      {mutation && snapshot.tracker.items.length > 0 ? (
+        <TrackerDangerAction mutation={mutation} />
+      ) : null}
+    </SettingsDangerZone>
+  );
+}
+
+/**
+ * Settings › MCP (B262): "Use MCP servers", "Offer MCP tools in chats" and
+ * the runtimes in one group, then the saved servers; a server's details
+ * (connection, tools, permissions) open in a drawer. Each control runs the
+ * same reviewed command as before.
+ */
+function McpSettings({
+  capability,
+  chat,
+  connections,
+}: {
+  capability: CapabilitySettingsSession;
+  chat: McpFacadeSession | null;
+  connections: McpConnections | null;
+}) {
+  const { controller } = useRuntime();
+  const turnOn = (serverId: string) =>
+    turnOnServer(
+      {
+        policy: (query) => controller.mcpPolicy(query),
+        reviewPolicy: (body) => controller.reviewMcpPolicy(body),
+        executeConfiguration: (command, review) =>
+          controller.executeMcpConfiguration(command, review),
+      } as TurnOnApi,
+      serverId,
+    );
+  const policy = {
+    load: controller.mcpPolicy,
+    review: controller.reviewMcpPolicy,
+    execute: controller.executeMcpConfiguration,
+  };
+  return (
+    <>
+      <SettingsGroup label="MCP" className="settings-mcp-switches">
+        {connections && (
+          <McpGlobalSwitch {...policy} session={connections.globalPolicy} />
+        )}
+        {chat && (
+          <McpFacadeControls
+            session={chat}
+            load={(signal) => controller.mcpChat(signal)}
+            review={(payload, signal) =>
+              controller.reviewMcpChat(payload, signal)
+            }
+            execute={(command, review) =>
+              controller.executeMcpChat(command, review)
+            }
+          />
+        )}
+        <RuntimeInstallations />
+      </SettingsGroup>
+      <CapabilitySettings
+        session={capability}
+        load={({ query, cursor }, signal) =>
+          controller.mcpConfiguration(query, cursor, signal)
+        }
+        review={controller.reviewMcpConfiguration}
+        execute={controller.executeMcpConfiguration}
+        searchDirectory={controller.searchMcpDirectory}
+        onConnection={(id, name) => connections?.select(id, name)}
+        onRemoved={() => connections?.close()}
+        runtime={
+          connections
+            ? {
+                owner: connections,
+                load: controller.mcpRuntime,
+                review: controller.reviewMcpRuntime,
+                execute: controller.executeMcpRuntime,
+                turnOn,
+              }
+            : undefined
+        }
+        addAndConnect={(serverId, onStep) =>
+          addAndConnect(
+            {
+              runtime: (id) => controller.mcpRuntime(id),
+              reviewRuntime: (payload) => controller.reviewMcpRuntime(payload),
+              executeRuntime: (command, review) =>
+                controller.executeMcpRuntime(command, review),
+              catalog: (query) => controller.mcpTestedCatalog(query),
+              reviewCatalog: (body) => controller.reviewMcpCatalog(body),
+              policy: (query) => controller.mcpPolicy(query),
+              reviewPolicy: (body) => controller.reviewMcpPolicy(body),
+              executeConfiguration: (command, review) =>
+                controller.executeMcpConfiguration(command, review),
+            } as AddConnectApi,
+            serverId,
+            onStep,
+          )
+        }
+      />
+      {connections && (
+        <McpConnectionsPanel
+          catalog={{
+            load: controller.mcpTestedCatalog,
+            review: controller.reviewMcpCatalog,
+            execute: controller.executeMcpConfiguration,
+          }}
+          owner={connections}
+          load={controller.mcpRuntime}
+          review={controller.reviewMcpRuntime}
+          execute={controller.executeMcpRuntime}
+          policy={policy}
+          turnOn={turnOn}
+          onRemove={(id, name) => capability.confirmRemove(id, name)}
+        />
+      )}
+    </>
   );
 }

@@ -13,6 +13,7 @@ from tests.subsystem.developer.test_client_workspace import domain, register  # 
 pytestmark = pytest.mark.subsystem
 
 
+@pytest.mark.slow
 def test_complete_large_directory_expands_one_level_only(tmp_path, monkeypatch):
     nested = tmp_path / "nested"
     nested.mkdir()
@@ -179,13 +180,20 @@ def test_custom_git_clean_filter_never_runs_from_diff(tmp_path, monkeypatch):
     import io
     from row_bot.developer import review
     (tmp_path / "file.txt").write_text("fixture")
+    # The configured driver is selected by an attribute, so a diff would run it.
+    (tmp_path / ".gitattributes").write_text("*.txt filter=fixture\n")
     calls = []
     class Process:
-        returncode = 0
         def __init__(self, command, **kwargs):
             calls.append(command)
-            assert "config" in command or "--is-inside-work-tree" in command
-            self.stdout = io.BytesIO(b"true\n" if "--is-inside-work-tree" in command else b"filter.fixture.clean\n")
+            assert "diff" not in command and "status" not in command
+            self.returncode = 1 if "core.attributesFile" in command else 0
+            self.stdout = io.BytesIO(
+                b"true\n" if "--is-inside-work-tree" in command
+                else b".gitattributes\0" if "ls-files" in command
+                else b".git/info/attributes\n" if "--git-path" in command
+                else b"" if "core.attributesFile" in command
+                else b"filter.fixture.clean\n")
         def __enter__(self):
             return self
         def __exit__(self, *args):
@@ -198,7 +206,8 @@ def test_custom_git_clean_filter_never_runs_from_diff(tmp_path, monkeypatch):
             return 0
     monkeypatch.setattr(review.subprocess, "Popen", Process)
     assert review.read_bounded_diff(str(tmp_path), "file.txt").status == "unavailable"
-    assert len(calls) == 2
+    # Only metadata reads ran (discovery, config, attribute sources); no diff.
+    assert len(calls) == 5
 
 
 def test_plain_folder_ignores_global_filters_but_actual_repository_remains_guarded(domain, tmp_path, monkeypatch):
@@ -302,3 +311,33 @@ def test_diff_continuation_rejects_index_only_revision_change(tmp_path, monkeypa
     monkeypatch.setattr(review, "_diff_base_revision", lambda _: "new-index")
     result = review.read_bounded_diff(str(tmp_path), "file.txt", offset=10, expected_revision=previous)
     assert result.status == "stale" and result.text == ""
+
+
+def test_inspector_reports_each_detected_check_command_for_a_reviewed_run(domain, tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from row_bot import conversation_resources
+    from row_bot.developer import client_workspace, inspector_snapshot, review
+    from row_bot.developer.runtime import CommandSpec
+
+    service, storage, _ = domain
+    choice = register(domain, tmp_path).workspace
+    conversation_resources.bind("chat-a", "workspace", choice.resource_id, expected_revision=0)
+    monkeypatch.setattr(client_workspace, "workspace_has_custom_read_hooks", lambda _path: False)
+    monkeypatch.setattr(inspector_snapshot, "get_snapshot", lambda *_: None)
+    monkeypatch.setattr(inspector_snapshot, "get_snapshot_refresh_error", lambda *_: "")
+    monkeypatch.setattr(inspector_snapshot, "request_snapshot_refresh", lambda *args, **kwargs: None)
+
+    async def snapshot(*_):
+        return SimpleNamespace(version=1, error="", git_summary={"is_git": False},
+            diff_stats=review.DiffStats(0, 0, 0), changed_files=[], todos=[],
+            command_specs=[CommandSpec("pytest", "python -m pytest"),
+                           CommandSpec("Django tests", "python manage.py test")])
+
+    monkeypatch.setattr(inspector_snapshot, "wait_for_snapshot_refresh", snapshot)
+    result = asyncio.run(service.get_workspace_inspector(choice.resource_id, "chat-a"))
+    assert [(item.label, item.command) for item in result.commands] == [
+        ("pytest", "python -m pytest"),
+        ("Django tests", "python manage.py test"),
+    ]
+    assert all(item.status == "not_run" for item in result.commands)

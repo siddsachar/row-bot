@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import urllib.error
 
 import pytest
 from uuid import uuid4
 
 from row_bot.application import client_skill_hub as hub
+from row_bot.skills_hub import source_registry
 from row_bot.skills_hub.models import (
     CatalogSearchResult,
     InstallResult,
@@ -220,6 +222,139 @@ def test_v1_hub_search_preview_install_and_receipt_use_session_proof(
             f"/api/v1/settings/skills/hub/install/{command_id}", headers=headers
         )
         assert original.json() == installed.json()
+
+
+def _unreachable_source(entry: SkillHubEntry) -> SkillBundle:
+    raise urllib.error.HTTPError("https://example.test/SKILL.md", 404, "Not Found", None, None)
+
+
+def _slow_source(entry: SkillHubEntry) -> SkillBundle:
+    raise source_registry.SkillSourceTimeout("Fixture")
+
+
+@pytest.mark.parametrize(
+    ("inspect", "code"),
+    [(_unreachable_source, "skill_preview_unavailable"), (_slow_source, "skill_source_timeout")],
+)
+def test_preview_failures_map_to_their_own_codes(monkeypatch, inspect, code) -> None:
+    _fake_catalog(monkeypatch)
+    monkeypatch.setattr(hub.catalog, "inspect_entry", inspect)
+    search = hub.search_public_skills(owner_id="preview-failure", query="sample")
+
+    with pytest.raises(hub.SkillHubCommandError, match=code):
+        hub.preview_public_skill(
+            owner_id="preview-failure",
+            revision=search["revision"],
+            entry_id="fixture:sample",
+        )
+
+
+def test_v1_preview_failure_answers_with_its_code(monkeypatch) -> None:
+    _fake_catalog(monkeypatch)
+    monkeypatch.setattr(hub.catalog, "inspect_entry", _unreachable_source)
+    client, _service, _active = client_app()
+    with client:
+        _view, headers = bootstrap(client)
+        found = client.post(
+            "/api/v1/settings/skills/hub/search",
+            headers=headers,
+            json={"query": "sample"},
+        ).json()
+        previewed = client.post(
+            "/api/v1/settings/skills/hub/preview",
+            headers=headers,
+            json={"revision": found["revision"], "entry_id": "fixture:sample"},
+        )
+    assert previewed.status_code == 503
+    assert previewed.json()["code"] == "skill_preview_unavailable"
+
+
+def test_load_more_extends_results_and_earlier_pages_stay_previewable(
+    monkeypatch,
+) -> None:
+    _fake_catalog(monkeypatch)
+    entries = [
+        SkillHubEntry(
+            id=f"fixture:{index}",
+            name=f"Sample {index}",
+            description="Synthetic skill",
+            source="fixture",
+            source_id="fixture",
+            install_ref=f"fixture:{index}",
+        )
+        for index in range(3)
+    ]
+    monkeypatch.setattr(
+        hub.catalog,
+        "search_skills",
+        lambda query, *, limit, **kwargs: CatalogSearchResult(
+            entries=entries[:limit], mode="cache", query=query
+        ),
+    )
+
+    first = hub.search_public_skills(owner_id="pages", query="sample", limit=2)
+    more = hub.search_public_skills(owner_id="pages", query="sample", limit=4)
+
+    assert [entry["id"] for entry in first["entries"]] == ["fixture:0", "fixture:1"]
+    assert first["has_more"] is True
+    assert [entry["id"] for entry in more["entries"]] == [
+        "fixture:0",
+        "fixture:1",
+        "fixture:2",
+    ]
+    assert more["has_more"] is False
+    # A skill opened from the list shown before "Load more" still opens.
+    preview = hub.preview_public_skill(
+        owner_id="pages", revision=first["revision"], entry_id="fixture:1"
+    )
+    assert preview["entry"]["name"] == "Sample 1"
+
+
+def test_preview_says_when_a_skill_with_its_name_is_installed(
+    tmp_path, monkeypatch
+) -> None:
+    import row_bot.skills as skills
+
+    _fake_catalog(monkeypatch)
+    monkeypatch.setattr(skills, "USER_SKILLS_DIR", tmp_path / "skills")
+    search = hub.search_public_skills(owner_id="installed", query="sample")
+    fresh = hub.preview_public_skill(
+        owner_id="installed", revision=search["revision"], entry_id="fixture:sample"
+    )
+    (tmp_path / "skills" / "sample").mkdir(parents=True)
+    again = hub.preview_public_skill(
+        owner_id="installed", revision=search["revision"], entry_id="fixture:sample"
+    )
+
+    assert fresh["entry"]["installed"] is False
+    assert again["entry"]["installed"] is True
+    assert again["skill_name"] == "sample"
+
+
+def test_install_records_the_listing_it_came_from(monkeypatch) -> None:
+    _fake_catalog(monkeypatch)
+    installed: list[SkillBundle] = []
+    monkeypatch.setattr(
+        hub.installer,
+        "install_bundle",
+        lambda bundle, *, enabled: (
+            installed.append(bundle)
+            or InstallResult(True, "Installed.", skill_name="sample")
+        ),
+    )
+    search = hub.search_public_skills(owner_id="listing", query="sample")
+    preview = hub.preview_public_skill(
+        owner_id="listing", revision=search["revision"], entry_id="fixture:sample"
+    )
+    hub.install_previewed_skill(
+        owner_id="listing",
+        command_id="command-listing",
+        preview_id=preview["preview_id"],
+        content_hash=preview["content_hash"],
+        make_available=True,
+    )
+
+    assert installed[0].metadata["hub_entry_ref"] == "fixture:sample"
 
 
 def test_v1_hub_remote_session_revocation_blocks_delivery(monkeypatch) -> None:

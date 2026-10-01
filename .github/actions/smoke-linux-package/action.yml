@@ -1,0 +1,49 @@
+name: Smoke the Linux package
+description: >-
+  Install dist/Row-Bot-*-Linux-*.tar.gz into a temporary HOME and XDG data folder (never
+  a real profile), verify the installed client assets, and start the installed
+  launcher and its `serve` mode. Shared by release.yml and installer-verify.yml.
+inputs:
+  port:
+    description: Loopback port for the launcher smoke; `serve` uses the next one
+    required: false
+    default: "8095"
+runs:
+  using: composite
+  steps:
+    - name: Install and smoke the Linux package
+      shell: bash
+      env:
+        SMOKE_PORT: ${{ inputs.port }}
+      run: |
+        set -euo pipefail
+        SERVE_PORT="$((SMOKE_PORT + 1))"
+        mkdir -p "$RUNNER_TEMP/row-bot-linux-smoke"
+        tar -xzf dist/Row-Bot-*-Linux-*.tar.gz -C "$RUNNER_TEMP/row-bot-linux-smoke"
+        PACKAGE_ROOT="$(find "$RUNNER_TEMP/row-bot-linux-smoke" -maxdepth 1 -type d -name 'Row-Bot-*-Linux-*' | head -n 1)"
+        if [ -z "$PACKAGE_ROOT" ]; then
+          echo "::error::Linux package root not found after extraction"
+          exit 1
+        fi
+        chmod +x "$PACKAGE_ROOT/bin/row-bot"
+        export HOME="$RUNNER_TEMP/row-bot-linux-home"
+        export XDG_DATA_HOME="$RUNNER_TEMP/row-bot-linux-xdg"
+        mkdir -p "$HOME" "$XDG_DATA_HOME"
+        bash "$PACKAGE_ROOT/install.sh"
+        PYTHONNOUSERSITE=1 "$XDG_DATA_HOME/row-bot/current/python/bin/python3" \
+          "$GITHUB_WORKSPACE/scripts/verify_client_assets.py" \
+          --root "$XDG_DATA_HOME/row-bot/current/app/src/row_bot/static/client-v2" \
+          --compare "$GITHUB_WORKSPACE/frontend/dist" --strict
+        # The launcher issues its own launch secret, so the smokes use the public probes (B203).
+        python3 scripts/smoke_app.py \
+          --port "$SMOKE_PORT" \
+          --timeout 180 \
+          --public-probes \
+          --cwd "$XDG_DATA_HOME/row-bot/current/app" \
+          -- "$HOME/.local/bin/row-bot" --no-open --no-ollama --port "$SMOKE_PORT"
+        python3 scripts/smoke_app.py \
+          --port "$SERVE_PORT" \
+          --timeout 120 \
+          --public-probes \
+          --cwd "$XDG_DATA_HOME/row-bot/current/app" \
+          -- "$HOME/.local/bin/row-bot" --no-ollama serve --port "$SERVE_PORT"

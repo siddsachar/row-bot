@@ -9,8 +9,8 @@ Reasoning controls let you change how much supported models reason before answer
 
 ## Where To Find The Control
 
-- In desktop Chat, Designer Studio, and Developer Studio, the **Thinking** control sits beside the model picker in the composer. On narrow desktop windows, the composer progressively compacts labels while keeping each icon paired with its own menu.
-- In the compact mobile layout, open **Chat controls**. Reasoning appears below Model when the selected model supports it.
+- In every conversation, including those working on a design or code folder, the **Thinking** control sits beside the model picker in the composer. In narrow windows, the composer progressively compacts labels while keeping each icon paired with its own menu.
+- On a phone, the composer's controls fold into a smaller set of buttons; Thinking still appears next to Model when the selected model supports it.
 - In Chat or a connected messaging channel, use `/reasoning` to inspect the current choice and the valid choices for the active model.
 
 The control is intentionally absent when Row-Bot does not have exact, actionable reasoning capability data for the selected model. A generic model name or a provider-wide assumption is not enough.
@@ -30,7 +30,7 @@ More reasoning can increase latency and provider token usage. It can help with p
 
 A selection is saved locally for one thread and one exact provider-qualified model. Switching models does not apply an incompatible value to the new model. If you return to a model in the same thread, Row-Bot can restore that model's valid saved choice.
 
-Changing the global default model does not rewrite existing thread choices. Designer Studio and Developer Studio use the same thread-scoped behavior as normal Chat.
+Changing the global default model does not rewrite existing thread choices. Conversations working on designs and code folders use the same thread-scoped behavior as any other conversation.
 
 ## Slash And Channel Commands
 

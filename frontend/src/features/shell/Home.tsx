@@ -1,67 +1,107 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AttentionProblem, PanelDescriptor } from '../../api/types';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   Brain,
   GitBranch,
+  LayoutGrid,
   Lightbulb,
-  MessageSquare,
-  X,
 } from 'lucide-react';
 import { clientError } from '../../api/errors';
 import type {
   KnowledgeGraphSnapshot,
-  MonitorLogEntry,
   MonitorSnapshot,
   OnboardingSnapshot,
+  TaskSummaryPage,
 } from '../../api/types';
 import { useClientState, useRuntime } from '../../runtime';
-import { Button, CompactAction, Tabs } from '../../ui/primitives';
+import { Tabs } from '../../ui/primitives';
 import { useOverlay } from '../../ui/overlays';
 import TaskLibrary from '../tasks/TaskLibrary';
-import KnowledgeHome, { type KnowledgeDreamState } from '../home/KnowledgeHome';
+import KnowledgeHome, {
+  type KnowledgeDreamState,
+  type KnowledgeMemoryQuery,
+} from '../home/KnowledgeHome';
+import type { KnowledgeLifecycleAction } from '../home/KnowledgeReview';
 import MonitorHome from '../home/MonitorHome';
 import InsightsHome from '../home/InsightsHome';
+import OverviewHome from '../home/OverviewHome';
+import { BuddyPortrait } from '../buddy/BuddySurface';
+import ResourceSetup from './ResourceSetup';
+import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
-import { EXAMPLE_LABELS, EXAMPLE_PROMPTS } from './welcome-prompts';
 
-const homeTabs = ['workflows', 'knowledge', 'monitor', 'insights'];
+const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
+/** Snapshots read in the last few seconds are reused when switching tabs. */
+const REUSE_MS = 20_000;
+// The knowledge graph opens with every memory up to 2,000 (a phone draws that
+// in well under a second) and "Show all" reads up to the server's 5,000 (B251).
+const GRAPH_DEFAULT_LIMIT = 2000;
+const GRAPH_ALL_LIMIT = 5000;
+/** Overview's Memory card pictures the few most connected memories. */
+const OVERVIEW_GRAPH_LIMIT = 8;
+
+/** One read shared by every reader for a short while; a failed one is dropped. */
+function useSharedRead<T>(read: () => Promise<T>, key: string) {
+  const cache = useRef<{ at: number; key: string; value: Promise<T> } | null>(
+    null,
+  );
+  return useCallback(() => {
+    const cached = cache.current;
+    if (cached && cached.key === key && Date.now() - cached.at < REUSE_MS)
+      return cached.value;
+    const value = read();
+    cache.current = { at: Date.now(), key, value };
+    value.catch(() => {
+      if (cache.current?.value === value) cache.current = null;
+    });
+    return value;
+  }, [read, key]);
+}
 
 export default function Home({
-  onExamplePrompt,
-  exampleBusy = false,
+  onAsk,
+  asking = false,
+  onPanel,
 }: {
-  onExamplePrompt?: (prompt: string) => void;
-  exampleBusy?: boolean;
-}) {
+  /** Start a new chat from Overview's Ask box (the shell's New chat owner). */
+  onAsk?: (text: string, options?: { send: false }) => void;
+  /** A new chat is being made. */
+  asking?: boolean;
+  /** Show a resource's panel: a new design or code folder opens there. */
+  onPanel?: (panel: PanelDescriptor, options?: { wide?: boolean }) => void;
+} = {}) {
   const state = useClientState();
-  const { controller, knowledgeOwner, platform } = useRuntime();
+  const { controller, knowledgeOwner, platform, taskEditSessions } =
+    useRuntime();
   const overlay = useOverlay();
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
   const requestedTab = search.get('tab')?.toLowerCase() ?? '';
-  const [tab, setTab] = useState(
-    homeTabs.includes(requestedTab) ? requestedTab : 'workflows',
-  );
-  useEffect(() => {
-    setTab(homeTabs.includes(requestedTab) ? requestedTab : 'workflows');
-  }, [requestedTab]);
+  const tab = homeTabs.includes(requestedTab) ? requestedTab : 'overview';
   const [knowledge, setKnowledge] = useState<KnowledgeGraphSnapshot | null>(
     null,
   );
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState('');
   const [knowledgeReload, setKnowledgeReload] = useState(0);
+  const [graphLimit, setGraphLimit] = useState(GRAPH_DEFAULT_LIMIT);
+  const knowledgeRead = useRef({ at: 0, key: '' });
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [monitorLoading, setMonitorLoading] = useState(false);
   const [monitorError, setMonitorError] = useState('');
   const [monitorReload, setMonitorReload] = useState(0);
+  const [startupWarnings, setStartupWarnings] = useState<string[]>([]);
+  const [attention, setAttention] = useState<AttentionProblem[]>([]);
+  const monitorRead = useRef({ at: 0, key: '' });
   const [setup, setSetup] = useState<OnboardingSnapshot | null>(null);
+  // Until a default model exists, opening Row-Bot opens Setup (decision 10).
+  // Only the plain Home address does: a deep link, a Home tab or "Set up
+  // later" always lands where it points, on phones and remote devices too.
+  const gated = !requestedTab && !setupDeferred();
+  const [gateChecked, setGateChecked] = useState(!gated);
   const [setupDismissError, setSetupDismissError] = useState('');
-  const [fullLogsOpen, setFullLogsOpen] = useState(false);
-  const [fullLogsLoading, setFullLogsLoading] = useState(false);
-  const [fullLogsError, setFullLogsError] = useState('');
-  const [fullLogs, setFullLogs] = useState<MonitorLogEntry[]>([]);
   const [dreamState, setDreamState] = useState<KnowledgeDreamState>({
     available: false,
     enabled: false,
@@ -72,10 +112,8 @@ export default function Home({
     state.status === 'ready' && state.handshake
       ? `${state.handshake.instance_id}:${state.handshake.client_session_id}`
       : null;
-  const chooseTab = (next: string) => {
-    setTab(next);
-    setSearch({ tab: next });
-  };
+  const chooseTab = (next: string, extra: Record<string, string> = {}) =>
+    setSearch({ tab: next, ...extra });
   async function dismissSetupReminder() {
     if (!setup?.setup_complete) return;
     try {
@@ -98,18 +136,33 @@ export default function Home({
     if (!identity) return;
     const abort = new AbortController();
     controller.onboarding(abort.signal).then(
-      (value) => setSetup(value),
-      () => {},
+      (value) => {
+        if (value) setSetup(value);
+        if (value?.needs_model && gated) navigate('/setup', { replace: true });
+        else setGateChecked(true);
+      },
+      () => {
+        if (!abort.signal.aborted) setGateChecked(true);
+      },
     );
     return () => abort.abort();
+    // The gate is decided once per connection, from the address it opened on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller, identity]);
   useEffect(() => {
     if (tab !== 'knowledge' || !identity) return;
+    const key = `${identity}:${knowledgeReload}:${graphLimit}`;
+    if (
+      knowledgeRead.current.key === key &&
+      Date.now() - knowledgeRead.current.at < REUSE_MS
+    )
+      return;
     const abort = new AbortController();
     setKnowledgeLoading(true);
     setKnowledgeError('');
-    controller.knowledgeGraph(250, abort.signal).then(
+    controller.knowledgeGraph(graphLimit, abort.signal).then(
       (value) => {
+        knowledgeRead.current = { at: Date.now(), key };
         setKnowledge(value);
         setKnowledgeLoading(false);
       },
@@ -120,21 +173,44 @@ export default function Home({
       },
     );
     return () => abort.abort();
-  }, [controller, identity, knowledgeReload, tab]);
+  }, [controller, graphLimit, identity, knowledgeReload, tab]);
   useEffect(() => {
-    if ((tab !== 'monitor' && tab !== 'knowledge') || !identity) return;
+    if (!['overview', 'monitor', 'knowledge'].includes(tab) || !identity)
+      return;
+    const key = `${identity}:${monitorReload}`;
+    if (
+      monitorRead.current.key === key &&
+      Date.now() - monitorRead.current.at < REUSE_MS
+    )
+      return;
     const abort = new AbortController();
     setMonitorLoading(true);
     setMonitorError('');
+    // Start-up warnings are listed in Monitor as well as shown once.
+    controller.notices(abort.signal).then(
+      (page) => {
+        if (!abort.signal.aborted) setStartupWarnings(page.startup_warnings);
+      },
+      () => undefined,
+    );
+    // What the sidebar's indicator counts is listed first (rows 12, 13).
+    controller.attention(abort.signal).then(
+      (value) => {
+        if (!abort.signal.aborted) setAttention(value.problems);
+      },
+      () => undefined,
+    );
     controller.monitorSnapshot(abort.signal).then(
       (value) => {
+        monitorRead.current = { at: Date.now(), key };
         setMonitor(value);
-        setDreamState({
+        // A refresh updates availability; the outcome of a run started
+        // here stays until the next run.
+        setDreamState((current) => ({
+          ...current,
           available: value.dream.availability === 'available',
           enabled: value.dream.enabled,
-          state: 'idle',
-          message: '',
-        });
+        }));
         setMonitorLoading(false);
       },
       (cause: unknown) => {
@@ -150,6 +226,82 @@ export default function Home({
     (id: string) => controller.knowledgeEntityDetail(id),
     [controller],
   );
+  // The whole saved library (search, the review queue), not only the map.
+  const listMemories = useCallback(
+    (query: KnowledgeMemoryQuery, cursor?: string, signal?: AbortSignal) =>
+      controller.knowledgeEntities(
+        query.query ?? '',
+        undefined,
+        query.status,
+        undefined,
+        undefined,
+        cursor,
+        signal,
+      ),
+    [controller],
+  );
+  const loadLogs = useCallback(
+    (signal?: AbortSignal) => controller.monitorLogs(200, signal),
+    [controller],
+  );
+  // The last result of every Monitor check, kept by the server (B252).
+  const loadHealth = useCallback(
+    (signal?: AbortSignal) => controller.systemHealth(signal),
+    [controller],
+  );
+  const refreshConversation = useCallback(
+    (id: string, signal: AbortSignal) =>
+      controller.refreshListedConversation(id, signal),
+    [controller],
+  );
+  // One workflow read shared by Overview and Monitor for a short while.
+  const tasksRead = useRef<{
+    at: number;
+    key: string;
+    value: Promise<TaskSummaryPage>;
+  } | null>(null);
+  const loadTasks = useCallback(
+    // Shared by several readers, so one leaving never aborts the read.
+    () => {
+      const key = identity ?? '';
+      const cached = tasksRead.current;
+      if (cached && cached.key === key && Date.now() - cached.at < REUSE_MS)
+        return cached.value;
+      const value = controller.savedTasks();
+      tasksRead.current = { at: Date.now(), key, value };
+      value.catch(() => {
+        if (tasksRead.current?.value === value) tasksRead.current = null;
+      });
+      return value;
+    },
+    [controller, identity],
+  );
+  // Overview's Memory card, read again after a change in Knowledge.
+  const loadMemory = useSharedRead(
+    useCallback(
+      () => controller.knowledgeGraph(OVERVIEW_GRAPH_LIMIT),
+      [controller],
+    ),
+    `${identity}:${knowledgeReload}`,
+  );
+  const loadInsights = useSharedRead(
+    useCallback(() => controller.insights(), [controller]),
+    identity ?? '',
+  );
+  /** A new design or code folder: set up in a new chat, like its + menu. */
+  const newResource = (kind: 'artifact' | 'workspace') =>
+    onPanel &&
+    overlay.open({
+      title: kind === 'artifact' ? 'New design' : 'New code folder',
+      description: 'Row-Bot opens it in a new chat.',
+      content: (
+        <ResourceSetup
+          conversationId={null}
+          onPanel={onPanel}
+          initialEntry={{ kind, mode: 'create' }}
+        />
+      ),
+    });
 
   async function dream() {
     if (!monitor) return;
@@ -222,147 +374,235 @@ export default function Home({
     setDreamState((value) => ({ ...value, state: 'idle', message: '' }));
   }
 
-  async function loadFullLogs() {
-    setFullLogsOpen(true);
-    setFullLogsLoading(true);
-    setFullLogsError('');
+  const openConversation = (id: string) => {
+    void controller.selectConversation(id);
+    navigate(`/conversations/${encodeURIComponent(id)}`);
+  };
+  /** Open the memory in the editor, then its relations and replacement. */
+  const mergeMemory = (id: string) => {
+    const owner = knowledgeOwner?.get();
+    if (!owner) return;
+    owner.open(id);
+    let tries = 0;
+    const attempt = () => {
+      try {
+        owner.openRelations();
+      } catch {
+        return;
+      }
+      if (!owner.relations() && tries++ < 25) window.setTimeout(attempt, 200);
+    };
+    attempt();
+  };
+  /**
+   * Review the deletion of one memory or up to 100 at their current
+   * revisions, confirm it, then delete them.
+   */
+  const deleteMemories = async (
+    memories: { id: string; subject: string }[],
+  ) => {
+    const one = memories.length === 1 ? memories[0] : null;
+    let review;
     try {
-      const value = await controller.monitorLogs(200);
-      setFullLogs(value.entries);
+      const [catalog, ...details] = await Promise.all([
+        controller.savedEntities(),
+        ...memories.map((memory) =>
+          controller.knowledgeEntityDetail(memory.id),
+        ),
+      ]);
+      review = await controller.reviewKnowledgeMaintenance({
+        action: one ? 'knowledge.delete' : 'knowledge.delete.bulk',
+        catalog_revision: catalog.revision,
+        targets: memories.map((memory, index) => ({
+          entity_id: memory.id,
+          revision: details[index].revision,
+        })),
+      });
     } catch (cause) {
-      setFullLogsError(clientError(cause).message);
-    } finally {
-      setFullLogsLoading(false);
+      overlay.notify(
+        `Could not prepare the deletion: ${clientError(cause).message}`,
+      );
+      return false;
     }
-  }
+    return new Promise<boolean>((resolve) => {
+      overlay.open({
+        kind: 'alert',
+        title: one
+          ? `Delete '${one.subject}'?`
+          : `Delete ${memories.length} memories?`,
+        description: one
+          ? 'This permanently removes the memory, its connections and its search entries. It cannot be undone.'
+          : 'This permanently removes these memories, their connections and their search entries. It cannot be undone.',
+        confirmLabel: one
+          ? 'Delete memory'
+          : `Delete ${memories.length} memories`,
+        onConfirm: () => {
+          void controller
+            .executeKnowledgeMaintenance({
+              command_id: crypto.randomUUID(),
+              type: review.action,
+              payload: {
+                catalog_revision: review.catalog_revision,
+                targets: review.targets,
+                action_digest: review.action_digest,
+                review_id: review.review_id,
+              },
+            })
+            .then(
+              (receipt) => {
+                const done = receipt.status === 'completed';
+                overlay.notify(
+                  !done
+                    ? 'The deletion did not complete. Nothing else changed.'
+                    : one
+                      ? `${one.subject} deleted.`
+                      : `${memories.length} memories deleted.`,
+                );
+                if (done) setKnowledgeReload((value) => value + 1);
+                resolve(done);
+              },
+              (cause: unknown) => {
+                overlay.notify(clientError(cause).message);
+                resolve(false);
+              },
+            );
+        },
+      });
+    });
+  };
+  /** Archive, restore or mark reviewed, reviewed at the revision shown. */
+  const changeMemory = async (
+    id: string,
+    revision: string,
+    action: KnowledgeLifecycleAction,
+    subject: string,
+  ) => {
+    try {
+      const review = await controller.reviewKnowledge(action, {
+        entity_id: id,
+        revision,
+      });
+      const receipt = await controller.executeKnowledge({
+        command_id: crypto.randomUUID(),
+        type: action,
+        payload: {
+          entity_id: id,
+          revision: review.revision,
+          review_id: review.review_id,
+        },
+      });
+      if (receipt.status !== 'completed')
+        throw { code: receipt.code ?? 'knowledge_outcome_uncertain' };
+    } catch (cause) {
+      overlay.notify(clientError(cause).message, 'danger');
+      return false;
+    }
+    overlay.notify(
+      action === 'knowledge.archive'
+        ? `${subject} archived.`
+        : action === 'knowledge.restore'
+          ? `${subject} restored.`
+          : `${subject} marked as reviewed.`,
+    );
+    setKnowledgeReload((value) => value + 1);
+    return true;
+  };
+  // Wait for the one onboarding read only while connected; a disconnected
+  // Home still shows its connection state.
+  if (identity && !gateChecked)
+    return <div className="home-gate" aria-busy="true" />;
   return (
-    <div className="home-view">
+    <div className="home-view" data-home-tab={tab}>
       <h1 className="visually-hidden">Home</h1>
-      {identity ? (
-        <p role="status" className="home-connection-status">
-          Connected · local workspace
-        </p>
-      ) : (
+      {!identity && (
         <p role="status" className="home-connection-status">
           {state.status === 'loading' || state.status === 'reconnecting'
             ? 'Connecting to your workspace…'
             : 'Connect to open your workflows.'}
         </p>
       )}
-      {identity && onExamplePrompt && (
-        <section className="home-start" aria-label="Start working">
-          <div>
-            <span className="eyebrow">Your workspace</span>
-            <h2>What would you like to work on?</h2>
-            <p>
-              Start with a message. You can add a code folder or design when you
-              need one.
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            disabled={exampleBusy}
-            onClick={() => onExamplePrompt('')}
-          >
-            Start a chat
-          </Button>
-        </section>
-      )}
-      {identity && state.conversations.length > 0 && (
-        <section className="home-recent" aria-label="Recent conversations">
-          <h2>Pick up where you left off</h2>
-          <div className="home-recent-list">
-            {state.conversations.slice(0, 3).map((conversation) => (
-              <Button
-                key={conversation.id}
-                variant="ghost"
-                onClick={() => {
-                  void controller.selectConversation(conversation.id);
-                  navigate(`/conversations/${conversation.id}`);
-                }}
-              >
-                <MessageSquare size={16} aria-hidden />
-                <span>{conversation.title || 'Untitled conversation'}</span>
-              </Button>
-            ))}
-          </div>
-        </section>
-      )}
-      {setup &&
-        (!setup.setup_complete ||
-          (!setup.dismissed_home_card &&
-            new Set([...setup.completed_steps, ...setup.skipped_steps]).size <
-              setup.steps.length)) &&
-        (setup.setup_complete ? (
-          <section className="home-setup-reminder" aria-label="Continue setup">
-            <strong>Setup</strong>
-            <span>
-              {new Set([...setup.completed_steps, ...setup.skipped_steps]).size}{' '}
-              of {setup.steps.length} areas complete
-            </span>
-            <Link className="button primary" to="/setup">
-              Continue setup
-            </Link>
-            <CompactAction
-              label="Hide setup reminder"
-              onClick={() => void dismissSetupReminder()}
-            >
-              <X size={17} aria-hidden />
-            </CompactAction>
-            {setupDismissError && <p role="status">{setupDismissError}</p>}
-          </section>
-        ) : (
-          <section
-            className="capability-section stack"
-            aria-label="Continue setup"
-          >
-            <h2>Welcome to Row-Bot</h2>
-            <p>Connect one working model first. Your other choices can wait.</p>
-            <Link className="button primary" to="/setup">
-              Open Setup Center
-            </Link>
-          </section>
-        ))}
-      {identity && setup?.setup_complete && onExamplePrompt && (
-        <section className="home-examples" aria-label="Start with an example">
-          <h2>Try an example</h2>
-          <div className="actions">
-            {EXAMPLE_PROMPTS.slice(0, 3).map((prompt, index) => (
-              <Button
-                key={prompt}
-                disabled={exampleBusy}
-                onClick={() => onExamplePrompt(prompt)}
-              >
-                {EXAMPLE_LABELS[index]}
-              </Button>
-            ))}
-          </div>
-          <details>
-            <summary>More ideas</summary>
-            <div className="actions">
-              {EXAMPLE_PROMPTS.slice(3).map((prompt, index) => (
-                <Button
-                  key={prompt}
-                  disabled={exampleBusy}
-                  onClick={() => onExamplePrompt(prompt)}
-                >
-                  {EXAMPLE_LABELS[index + 3]}
-                </Button>
-              ))}
-            </div>
-          </details>
-        </section>
-      )}
       <Tabs
+        className="home-tabs"
         label="Home capabilities"
         value={tab}
-        onChange={chooseTab}
+        onChange={(next) => chooseTab(next)}
         items={[
+          {
+            id: 'overview',
+            label: (
+              <>
+                <LayoutGrid size={16} aria-hidden />
+                Overview
+              </>
+            ),
+            content: (
+              <OverviewHome
+                conversations={state.conversations}
+                setup={setup}
+                monitor={monitor}
+                loadTasks={identity ? loadTasks : undefined}
+                loadHealth={identity ? loadHealth : undefined}
+                // Running every check is the local owner's.
+                onRunDiagnosis={
+                  state.handshake?.authentication_kind === 'local_owner'
+                    ? () => controller.systemDiagnosis()
+                    : undefined
+                }
+                loadApprovals={
+                  identity ? controller.pendingApprovals : undefined
+                }
+                loadMemory={identity ? loadMemory : undefined}
+                // Insights are the owner's on this computer.
+                loadInsights={
+                  state.handshake?.authentication_kind === 'local_owner'
+                    ? loadInsights
+                    : undefined
+                }
+                buddy={<BuddyPortrait />}
+                onAsk={onAsk}
+                asking={asking}
+                onNewResource={onPanel && newResource}
+                onNewWorkflow={
+                  taskEditSessions
+                    ? () => {
+                        taskEditSessions.open('task');
+                        chooseTab('workflows');
+                      }
+                    : undefined
+                }
+                refreshKey={identity ?? ''}
+                onOpenConversation={openConversation}
+                onOpenWorkflows={(taskId) =>
+                  chooseTab('workflows', taskId ? { workflow: taskId } : {})
+                }
+                onOpenTab={(next) => chooseTab(next)}
+                refreshConversation={refreshConversation}
+                onResumeAgentWork={async (row) => {
+                  await controller.intent(
+                    row.id,
+                    'agent.resume',
+                    {},
+                    row.revision,
+                  );
+                }}
+                onDismissAgentWork={async (row) => {
+                  await controller.intent(
+                    row.id,
+                    'agent.dismiss',
+                    {},
+                    row.revision,
+                  );
+                }}
+                onHideSetup={() => void dismissSetupReminder()}
+                setupError={setupDismissError}
+              />
+            ),
+          },
           {
             id: 'workflows',
             label: (
               <>
-                <GitBranch size={17} aria-hidden />
+                <GitBranch size={16} aria-hidden />
                 Workflows
               </>
             ),
@@ -376,7 +616,7 @@ export default function Home({
             id: 'knowledge',
             label: (
               <>
-                <Brain size={17} aria-hidden />
+                <Brain size={16} aria-hidden />
                 Knowledge
               </>
             ),
@@ -386,9 +626,25 @@ export default function Home({
                 loading={knowledgeLoading}
                 error={knowledgeError}
                 reload={() => setKnowledgeReload((value) => value + 1)}
+                showingAll={graphLimit > GRAPH_DEFAULT_LIMIT}
+                onShowAll={() => setGraphLimit(GRAPH_ALL_LIMIT)}
                 loadDetail={loadKnowledgeDetail}
                 onEdit={(id) => knowledgeOwner?.get()?.open(id)}
+                onAdd={
+                  knowledgeOwner?.get()
+                    ? () => knowledgeOwner.get()?.open(null)
+                    : undefined
+                }
+                onMerge={mergeMemory}
+                onDelete={(id, subject) => deleteMemories([{ id, subject }])}
+                onDeleteMany={deleteMemories}
+                onLifecycle={changeMemory}
+                listMemories={listMemories}
+                loadRecalls={controller.knowledgeRecalls}
+                loadChangeLog={controller.knowledgeChangeLog}
+                onOpenConversation={openConversation}
                 dream={dreamState}
+                dreamLastRun={monitor?.dream.last_run ?? null}
                 onDream={dream}
               />
             ),
@@ -397,7 +653,7 @@ export default function Home({
             id: 'monitor',
             label: (
               <>
-                <Activity size={17} aria-hidden />
+                <Activity size={16} aria-hidden />
                 Monitor
               </>
             ),
@@ -408,13 +664,16 @@ export default function Home({
                 loading={monitorLoading}
                 error={monitorError}
                 onRefresh={() => setMonitorReload((value) => value + 1)}
+                loadHealth={identity ? loadHealth : undefined}
                 onRunDiagnosis={() => controller.systemDiagnosis()}
-                onLoadFullLogs={() => void loadFullLogs()}
-                fullLogsOpen={fullLogsOpen}
-                fullLogsLoading={fullLogsLoading}
-                fullLogsError={fullLogsError}
-                fullLogEntries={fullLogs}
-                onCloseFullLogs={() => setFullLogsOpen(false)}
+                onSetHourlyChecks={(enabled) =>
+                  controller.setHourlyConnectionChecks(enabled)
+                }
+                startupWarnings={startupWarnings}
+                attention={attention}
+                onFixed={() => setMonitorReload((value) => value + 1)}
+                loadLogs={loadLogs}
+                loadTasks={identity ? loadTasks : undefined}
               />
             ),
           },
@@ -422,7 +681,7 @@ export default function Home({
             id: 'insights',
             label: (
               <>
-                <Lightbulb size={17} aria-hidden />
+                <Lightbulb size={16} aria-hidden />
                 Insights
               </>
             ),
@@ -430,10 +689,7 @@ export default function Home({
               <InsightsHome
                 controller={controller}
                 writeClipboard={platform.writeClipboard}
-                openConversation={(id) => {
-                  void controller.selectConversation(id);
-                  navigate(`/conversations/${id}`);
-                }}
+                openConversation={openConversation}
               />
             ),
           },

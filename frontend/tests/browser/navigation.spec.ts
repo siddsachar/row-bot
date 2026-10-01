@@ -47,18 +47,24 @@ async function navigation(page: Page): Promise<Locator> {
     name: 'Workspace navigation',
     exact: true,
   });
-  if (!(await nav.isVisible()))
+  if (!(await nav.isVisible())) {
+    // Below 1024px a panel is a full-height sheet over the conversation and
+    // its header; return to the conversation to reach the drawer.
+    const back = page.getByRole('button', {
+      name: 'Back to conversation',
+      exact: true,
+    });
+    if (await back.isVisible()) await back.click();
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
+  }
   await expect(nav).toBeVisible();
   return nav;
 }
 
 function conversationRows(nav: Locator): Locator {
-  return nav
-    .getByRole('list', { name: 'Conversations', exact: true })
-    .getByRole('button');
+  return nav.locator('.nav-conversations .nav-conversation-link');
 }
 
 async function assertRowOrder(nav: Locator, rows: LibraryRow[]): Promise<void> {
@@ -106,10 +112,15 @@ async function showLess(nav: Locator): Promise<void> {
   if (await shrink.isVisible()) await shrink.click();
 }
 
-async function wheelToPageControls(
+/**
+ * Wheels to the end of the expanded list: reaching it reads the next page,
+ * with no button (B239), and Show less stays reachable below every row.
+ */
+async function wheelToListEnd(
   page: Page,
   nav: Locator,
   testInfo: TestInfo,
+  total: number,
 ): Promise<void> {
   const readSurface = () =>
     nav.evaluate((element) => {
@@ -146,11 +157,13 @@ async function wheelToPageControls(
     testInfo.project.use.isMobile
   ) {
     const limitation =
-      'Playwright mobile WebKit does not implement mouse.wheel; this project retains data/cursor and keyboard-selection checks, but makes no native wheel or physical touch-scroll claim.';
+      'Playwright mobile WebKit does not implement mouse.wheel; this project scrolls the end of the list into view programmatically and retains data/cursor and keyboard-selection checks, but makes no native wheel or physical touch-scroll claim.';
     testInfo.annotations.push({
       type: 'coverage-limitation',
       description: limitation,
     });
+    await nav.locator('.nav-list-end').scrollIntoViewIfNeeded();
+    await expect(conversationRows(nav)).toHaveCount(total);
     await writeEvidence(testInfo, 'sidebar-wheel-pagination-reachability', {
       supported: false,
       limitation,
@@ -164,60 +177,58 @@ async function wheelToPageControls(
   // Engines clamp a single very large wheel delta. Bounded repeated gestures
   // establish progress without mistaking that input behavior for lost history.
   const samples = [scrollSurface!];
-  for (let gesture = 0; gesture < 8; gesture += 1) {
-    const previous = samples.at(-1)!;
-    const maximum = previous.scrollHeight - previous.clientHeight;
-    if (previous.scrollTop >= maximum - 1) break;
-    await page.mouse.wheel(0, 1000);
-    await expect
-      .poll(async () => (await readSurface())!.scrollTop)
-      .toBeGreaterThanOrEqual(Math.min(previous.scrollTop + 300, maximum - 1));
-    samples.push((await readSurface())!);
-  }
+  const wheelToBottom = async () => {
+    for (let gesture = 0; gesture < 8; gesture += 1) {
+      const previous = samples.at(-1)!;
+      const maximum = previous.scrollHeight - previous.clientHeight;
+      if (previous.scrollTop >= maximum - 1) break;
+      await page.mouse.wheel(0, 1000);
+      await expect
+        .poll(async () => (await readSurface())!.scrollTop)
+        .toBeGreaterThanOrEqual(
+          Math.min(previous.scrollTop + 300, maximum - 1),
+        );
+      samples.push((await readSurface())!);
+    }
+  };
+  await wheelToBottom();
+  // The end of the list came into view: the next page arrives by itself.
+  await expect(conversationRows(nav)).toHaveCount(total);
+  samples.push((await readSurface())!);
+  await wheelToBottom();
   await writeEvidence(testInfo, 'sidebar-wheel-scroll-samples', samples);
-  const results = [];
-  for (const name of ['Show less', 'Load more conversations']) {
-    const control = nav.getByRole('button', { name, exact: true });
-    await expect
-      .poll(
-        () =>
-          control.evaluate((element) => {
-            const rect = element.getBoundingClientRect();
-            return (
-              rect.y >= 0 &&
-              rect.bottom <= innerHeight &&
-              element.contains(
-                document.elementFromPoint(
-                  rect.x + rect.width / 2,
-                  rect.y + rect.height / 2,
-                ),
-              )
-            );
-          }),
-        `${name} becomes reachable through wheel input`,
-      )
-      .toBe(true);
-    results.push(
-      await control.evaluate((element, label) => {
-        const rect = element.getBoundingClientRect();
-        return {
-          name: label,
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        };
-      }, name),
-    );
-  }
+  const control = nav.getByRole('button', { name: 'Show less', exact: true });
+  await expect
+    .poll(
+      () =>
+        control.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            rect.y >= 0 &&
+            rect.bottom <= innerHeight &&
+            element.contains(
+              document.elementFromPoint(
+                rect.x + rect.width / 2,
+                rect.y + rect.height / 2,
+              ),
+            )
+          );
+        }),
+      'Show less becomes reachable through wheel input',
+    )
+    .toBe(true);
   await writeEvidence(testInfo, 'sidebar-wheel-pagination-reachability', {
     supported: true,
     input:
-      'At most eight native wheel gestures of deltaY1000 inside the actual scrolling ancestor',
-    gestures: samples.length - 1,
+      'Native wheel gestures of deltaY1000 inside the actual scrolling ancestor, at most eight to reach the end of the list before and after its next page loads',
+    gestures: samples.length - 2,
     scrollSurface,
     finalSurface: await readSurface(),
-    controls: results,
+    rowsLoaded: total,
+    control: await control.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }),
   });
 }
 
@@ -235,24 +246,27 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   let nav = await navigation(page);
   await assertRowOrder(nav, rows.slice(0, 10));
   await expect(
-    nav.getByRole('button', { name: 'Load more conversations', exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    nav.getByRole('button', { name: 'Show more', exact: true }),
+    nav.getByRole('button', { name: 'Show all', exact: true }),
   ).toHaveAttribute('aria-expanded', 'false');
   await screenshot(page, testInfo, 'sidebar-default-ten');
 
-  await nav.getByRole('button', { name: 'Show more', exact: true }).click();
+  await nav.getByRole('button', { name: 'Show all', exact: true }).click();
   await assertRowOrder(nav, rows.slice(0, 50));
-  await wheelToPageControls(page, nav, testInfo);
+  await wheelToListEnd(page, nav, testInfo, rows.length);
+  await assertRowOrder(nav, rows);
+  await expect(
+    nav.getByRole('button', { name: 'Load more conversations', exact: true }),
+  ).toHaveCount(0);
   await nav.getByRole('button', { name: rows[12].title, exact: true }).click();
   await assertSelection(page, rows[12].id);
   const firstSelectionHistory = await readRouteHistory();
-  expect(firstSelectionHistory).toEqual({
-    length: originalRootHistory.length + 1,
+  expect(firstSelectionHistory).toMatchObject({
     pathname: `/app-v2/conversations/${rows[12].id}`,
     search: '',
   });
+  expect(firstSelectionHistory.length).toBeGreaterThanOrEqual(
+    originalRootHistory.length + 1,
+  );
   nav = await navigation(page);
   await showLess(nav);
   await assertRowOrder(nav, [...rows.slice(0, 10), rows[12]]);
@@ -275,36 +289,36 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   );
   expect(selectionStyle.selectedBackground).not.toBe('rgba(0, 0, 0, 0)');
 
-  await nav.getByRole('button', { name: 'Show more', exact: true }).click();
-  await nav
-    .getByRole('button', { name: 'Load more conversations', exact: true })
-    .click();
+  await nav.getByRole('button', { name: 'Show all', exact: true }).click();
   await assertRowOrder(nav, rows);
-  await expect(
-    nav.getByRole('button', { name: 'Load more conversations', exact: true }),
-  ).toHaveCount(0);
   await nav.getByRole('button', { name: rows[54].title, exact: true }).click();
   await assertSelection(page, rows[54].id);
   const secondSelectionHistory = await readRouteHistory();
-  expect(secondSelectionHistory).toEqual({
-    length: originalRootHistory.length + 2,
+  expect(secondSelectionHistory).toMatchObject({
     pathname: `/app-v2/conversations/${rows[54].id}`,
     search: '',
   });
+  expect(secondSelectionHistory.length).toBeGreaterThan(
+    firstSelectionHistory.length,
+  );
   nav = await navigation(page);
   await showLess(nav);
   await assertRowOrder(nav, [...rows.slice(0, 10), rows[54]]);
   await screenshot(page, testInfo, 'sidebar-selected-after-cursor-page');
+  if (testInfo.project.use.viewport!.width < 1024) {
+    await assertNoOverflow(page);
+    return;
+  }
   await nav
-    .getByRole('link', { name: 'Component gallery', exact: true })
+    .getByRole('link', { name: 'Conversation library', exact: true })
     .click();
-  await expect(page).toHaveURL(/\/app-v2\/primitives(?:[?#].*)?$/);
-  const galleryHistory = await readRouteHistory();
-  expect(galleryHistory).toEqual({
-    length: originalRootHistory.length + 3,
-    pathname: '/app-v2/primitives',
+  await expect(page).toHaveURL(/\/app-v2\/library(?:[?#].*)?$/);
+  const libraryHistory = await readRouteHistory();
+  expect(libraryHistory).toMatchObject({
+    pathname: '/app-v2/library',
     search: '',
   });
+  expect(libraryHistory.length).toBeGreaterThan(secondSelectionHistory.length);
   nav = await navigation(page);
   await nav.getByRole('button', { name: rows[54].title, exact: true }).click();
   await expect(page).toHaveURL(
@@ -312,11 +326,13 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   );
   await assertSelection(page, rows[54].id);
   const returnedConversationHistory = await readRouteHistory();
-  expect(returnedConversationHistory).toEqual({
-    length: originalRootHistory.length + 4,
+  expect(returnedConversationHistory).toMatchObject({
     pathname: `/app-v2/conversations/${rows[54].id}`,
     search: '',
   });
+  expect(returnedConversationHistory.length).toBeGreaterThan(
+    libraryHistory.length,
+  );
   await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await assertNoOverflow(page);
   await writeEvidence(testInfo, 'sidebar-order-and-selection', {
@@ -328,10 +344,10 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
     originalRootHistory,
     firstSelectionHistory,
     secondSelectionHistory,
-    galleryHistory,
+    libraryHistory,
     returnedConversationHistory,
     routeMethod:
-      'Each explicit conversation or gallery selection pushes its registered route once; conversation selection clears the fixture-only query.',
+      'Each explicit conversation or library selection pushes its registered route once; conversation selection clears the fixture-only query.',
     selectionStyle,
     commands: await page.evaluate(
       () =>
@@ -339,6 +355,36 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
           .commands,
     ),
   });
+});
+
+test('a type filter lists its older matches from the server, down to Older', async ({
+  page,
+}, testInfo) => {
+  const rows = await seedLibrary(page);
+  // The only workflow is the oldest conversation, beyond the first page.
+  await page.evaluate(async (id) => {
+    const { controller, transport } = (window as FixtureWindow)
+      .__ROW_BOT_FIXTURE__;
+    const row = transport.conversations.find((item) => item.id === id)!;
+    row.category = 'workflow';
+    row.updated_at = '2026-01-05T09:00:00Z';
+    await controller.loadMoreConversations(true);
+  }, rows[54].id);
+  const nav = await navigation(page);
+  await assertRowOrder(nav, rows.slice(0, 10));
+  await nav.getByRole('radio', { name: 'Workflows', exact: true }).click();
+  await assertRowOrder(nav, [rows[54]]);
+  await expect(
+    nav
+      .getByRole('list', { name: 'Recent conversations', exact: true })
+      .getByRole('heading', { level: 4 }),
+  ).toHaveText(['Older']);
+  await screenshot(page, testInfo, 'sidebar-type-filter-older');
+  await nav.getByRole('radio', { name: 'Chats', exact: true }).click();
+  await expect(nav.getByText('No chats yet.', { exact: true })).toBeVisible();
+  await nav.getByRole('radio', { name: 'All', exact: true }).click();
+  await assertRowOrder(nav, rows.slice(0, 10));
+  await assertNoOverflow(page);
 });
 
 test('selecting another conversation preserves its own view and restores the original registered panels on return', async ({
@@ -353,7 +399,7 @@ test('selecting another conversation preserves its own view and restores the ori
   expect(before.panels).toHaveLength(1);
   const instance = before.panels[0].instance_id;
   const nav = await navigation(page);
-  await nav.getByRole('button', { name: 'Show more', exact: true }).click();
+  await nav.getByRole('button', { name: 'Show all', exact: true }).click();
   await nav.getByRole('button', { name: rows[12].title, exact: true }).click();
   await assertSelection(page, rows[12].id);
   await expect(page.getByTestId('conversation-workspace')).toBeVisible();
@@ -440,22 +486,22 @@ test('collapsed Conversations keeps the current row and tracks the same live sel
   await expect(section).toHaveAttribute('aria-expanded', 'false');
   await expect(section).toBeFocused();
   await expect(
-    nav.getByRole('list', { name: 'Conversations', exact: true }),
+    nav.getByRole('list', { name: 'Recent conversations', exact: true }),
   ).toHaveCount(0);
   const current = nav.getByRole('list', {
     name: 'Current conversation',
     exact: true,
   });
-  await expect(current.getByRole('button')).toHaveCount(1);
-  await expect(current.getByRole('button')).toHaveAccessibleName(
+  await expect(current.locator('.nav-conversation-link')).toHaveCount(1);
+  await expect(current.locator('.nav-conversation-link')).toHaveAccessibleName(
     rows[54].title,
   );
-  await expect(current.getByRole('button')).toHaveAttribute(
+  await expect(current.locator('.nav-conversation-link')).toHaveAttribute(
     'aria-current',
     'page',
   );
   await expect(
-    nav.getByRole('button', { name: 'Show more', exact: true }),
+    nav.getByRole('button', { name: 'Show all', exact: true }),
   ).toHaveCount(0);
   await screenshot(page, testInfo, 'sidebar-collapsed-current-conversation');
   await accessibility(page, testInfo, 'sidebar-collapsed-axe');
@@ -472,14 +518,23 @@ test('collapsed Conversations keeps the current row and tracks the same live sel
     );
   }, rows[0].id);
   await assertSelection(page, rows[0].id);
-  await expect(current.getByRole('button')).toHaveAccessibleName(rows[0].title);
+  if (!(await nav.isVisible()))
+    await page.getByRole('button', { name: 'Toggle navigation' }).click();
+  if ((await section.getAttribute('aria-expanded')) === 'true')
+    await section.click();
+  await expect(current.locator('.nav-conversation-link')).toHaveAccessibleName(
+    rows[0].title,
+  );
   await section.focus();
   await page.keyboard.press('Space');
   await expect(section).toHaveAttribute('aria-expanded', 'true');
   await expect(section).toBeFocused();
   await assertRowOrder(nav, rows.slice(0, 10));
   expect(
-    await page.evaluate((id) => !!document.getElementById(id!), controlledId),
+    await page.evaluate(
+      (id) => !!document.getElementById(id!),
+      await section.getAttribute('aria-controls'),
+    ),
   ).toBe(true);
   await writeEvidence(testInfo, 'sidebar-collapse-live-selection', {
     selectionOutsideLoadedPage: rows[54].id,

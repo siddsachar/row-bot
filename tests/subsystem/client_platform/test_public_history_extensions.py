@@ -72,6 +72,30 @@ def test_public_text_cursor_pins_message_and_checkpoint_and_api_does_not_expose_
         read_text(service, conversation, "first", cursor=first["next_cursor"])
 
 
+
+def test_search_excerpt_is_cut_between_words_with_an_ellipsis(service):
+    from langchain_core.messages import HumanMessage
+    from row_bot import threads
+    from row_bot.application.conversation_search import search
+
+    conversation = threads.create_thread("Release notes", seed_default_skills=False)
+    before = "A self-hosted server operations background with plenty of words " * 3
+    after = " stacked inside a dark modern setting, with more words after it" * 6
+    assert threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="notes", content=before + "hardened container modules" + after),
+    ])
+    hit = next(item for item in search(service, "hardened container")["items"] if item["message_id"] == "notes")
+    excerpt = hit["excerpt"]
+    assert excerpt.startswith("…") and excerpt.endswith("…")
+    assert "hardened container modules" in excerpt
+    first, last = excerpt[1:].split(" ")[0], excerpt[:-1].split(" ")[-1]
+    assert first in before.split(" ") and last in after.split(" ")
+    short = threads.create_thread("Short", seed_default_skills=False)
+    assert threads.append_checkpoint_messages(short, [HumanMessage(id="short", content="Only a hardened container here")])
+    hit = next(item for item in search(service, "hardened container")["items"] if item["message_id"] == "short")
+    assert hit["excerpt"] == "Only a hardened container here"
+
+@pytest.mark.slow
 def test_server_pin_and_resource_groups_find_old_conversations_beyond_first_thousand(resource_service, tmp_path):
     from row_bot import threads
     from row_bot.application.client_platform import ClientPlatformError
@@ -125,6 +149,107 @@ def test_server_pin_and_resource_groups_find_old_conversations_beyond_first_thou
     cursor = service.list_conversations(limit=1, group="workspace")["next_cursor"]
     with pytest.raises(ClientPlatformError, match="cursor_expired"):
         service.list_conversations(limit=1, cursor=cursor, group="artifact")
+
+
+def test_conversation_list_projects_canonical_parent_and_activity_date(service):
+    from row_bot import agent_runs, threads
+
+    parent = threads.create_thread("Parent", thread_id="parent-conversation", seed_default_skills=False)
+    child = threads.create_thread("Delegated", thread_id="child-conversation", thread_type="agent_child", seed_default_skills=False)
+    agent_runs.create_agent_run(run_id="child-run", parent_thread_id=parent,
+                                thread_id=child, display_name="Delegated")
+
+    page = service.list_conversations(limit=1)
+    assert page["has_more"] and page["next_cursor"]
+    following = service.list_conversations(limit=1, cursor=page["next_cursor"])
+    rows = {row["id"]: row for row in [*page["items"], *following["items"]]}
+    assert rows[child]["parent_conversation_id"] == parent
+    assert rows[parent]["parent_conversation_id"] is None
+    assert rows[parent]["updated_at"] and rows[child]["updated_at"]
+    assert service.get_conversation(child)["parent_conversation_id"] == parent
+
+
+def test_conversation_list_projects_canonical_orchestration_activity(service, monkeypatch):
+    from row_bot import agent_orchestrator, threads
+
+    parent = threads.create_thread("Active parent", seed_default_skills=False)
+    activity = {"state": "active", "phase": "background"}
+    monkeypatch.setattr(agent_orchestrator, "get_thread_orchestration_activity",
+                        lambda ids: {parent: dict(activity)} if parent in ids else {})
+    assert service.list_conversations()["items"][0]["activity_state"] == "active"
+    assert service.get_conversation(parent)["activity_phase"] == "background"
+    activity.update(state="attention", phase="resume_required")
+    assert service.list_conversations()["items"][0]["activity_state"] == "attention"
+    activity.update(state="terminal", phase="failed")
+    assert service.get_conversation(parent)["activity_state"] == "terminal"
+
+
+def test_conversation_waiting_on_its_own_approval_needs_attention(service):
+    from row_bot import tasks, threads
+
+    waiting = threads.create_thread("Waiting for approval", seed_default_skills=False)
+    quiet = threads.create_thread("Quiet", seed_default_skills=False)
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO approval_requests (id, run_id, task_id, step_id, resume_token, "
+            "resume_kind, source_thread_id, status) VALUES "
+            "('approval-a', 'run-a', '', 'step-a', 'token-a', 'conversation', ?, 'pending')",
+            (waiting,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = {row["id"]: row for row in service.list_conversations()["items"]}
+    assert rows[waiting]["activity_state"] == "attention"
+    assert rows[waiting]["activity_phase"] == "waiting_approval"
+    assert rows[quiet]["activity_state"] is None
+    assert service.get_conversation(waiting)["activity_state"] == "attention"
+
+    conn = tasks._get_conn()
+    try:
+        conn.execute("UPDATE approval_requests SET status='approved' WHERE id='approval-a'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert service.get_conversation(waiting)["activity_state"] is None
+
+
+def test_snapshot_restores_a_pending_approval_after_restart(service):
+    import json
+    from row_bot import tasks, threads
+
+    conversation = threads.create_thread("Paused turn", seed_default_skills=False)
+    assert service.snapshot(conversation)["generation"] is None
+    conn = tasks._get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO approval_requests (id, run_id, task_id, step_id, resume_token, "
+            "resume_kind, source_thread_id, status, approval_payload_json) VALUES "
+            "('approval-b', 'run-b', '', 'step-b', 'token-b', 'conversation', ?, 'pending', ?)",
+            (conversation, json.dumps({"pass_id": "pass-b"})),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Nothing in memory knows about the paused turn (as after a restart).
+    generation = service.snapshot(conversation)["generation"]
+    assert generation["status"] == "waiting_approval"
+    assert generation["approval_id"] == "approval-b"
+    assert generation["pass_id"] == "pass-b"
+    assert generation["quiesced"] and not generation["can_stop"]
+    from row_bot.api.v1 import schemas
+    schemas.GenerationState.model_validate(generation)
+
+    conn = tasks._get_conn()
+    try:
+        conn.execute("UPDATE approval_requests SET status='denied' WHERE id='approval-b'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert service.snapshot(conversation)["generation"] is None
 
 
 @pytest.mark.parametrize("phase", ["before", "during"])

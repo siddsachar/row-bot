@@ -1,0 +1,89 @@
+{
+  "additionalProperties": false,
+  "description": "One approval waiting for the person: what it is, since when, and the\nids to answer it (``/approvals/{id}``) or open where it was raised.",
+  "properties": {
+    "conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Conversation Id"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "maxLength": 80,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expires At"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Id",
+      "type": "string"
+    },
+    "requested_at": {
+      "maxLength": 80,
+      "title": "Requested At",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "workflow",
+        "conversation",
+        "agent"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Task Id"
+    },
+    "title": {
+      "maxLength": 160,
+      "title": "Title",
+      "type": "string"
+    },
+    "what": {
+      "maxLength": 512,
+      "title": "What",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source",
+    "title",
+    "what",
+    "requested_at",
+    "expires_at",
+    "conversation_id",
+    "task_id"
+  ],
+  "title": "PendingApproval",
+  "type": "object"
+}

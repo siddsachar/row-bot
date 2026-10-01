@@ -7,6 +7,11 @@ import {
   writeEvidence,
 } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
+import {
+  captureSurface,
+  openSeedConversation,
+  publicHandshake,
+} from './surface-helpers';
 
 for (const appearance of ['light', 'dark'] as const) {
   test(`shell bootstrap, accessible hierarchy and blue ${appearance}`, async ({
@@ -30,9 +35,22 @@ for (const appearance of ['light', 'dark'] as const) {
       appearance,
     );
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'blue');
-    await expect(
-      page.getByRole('button', { name: 'Preferences', exact: true }),
-    ).toBeVisible();
+    // The shell's preferences entry point is the Settings link (appearance
+    // included): in the sidebar or its collapsed rail on desktop, and in the
+    // navigation drawer below the desktop width.
+    const compact = testInfo.project.use.viewport!.width < 1024;
+    const drawer = page.getByRole('dialog', { name: 'Conversations' });
+    if (compact)
+      await page
+        .getByRole('button', { name: 'Toggle navigation', exact: true })
+        .click();
+    const settings = page.getByRole('link', { name: 'Settings', exact: true });
+    await expect(settings).toBeVisible();
+    await expect(settings).toHaveAttribute('href', /\/settings\/providers$/);
+    if (compact) {
+      await page.keyboard.press('Escape');
+      await expect(drawer).toHaveCount(0);
+    }
     const proof = await page.evaluate(() => {
       const fixture = (window as FixtureWindow).__ROW_BOT_FIXTURE__;
       return {
@@ -88,13 +106,15 @@ test('forged pywebview or native global cannot enable native authority', async (
       managedWindow: await platform.managedWindow('/app-v2/'),
     };
   });
-  expect(result.discovery).toMatchObject({
-    status: 'ok',
-    value: { kind: 'browser', platform: 'browser' },
+  // Taken for a desktop window, it never binds: nothing native runs, and it
+  // says it is reconnecting instead of posing as either platform (B238).
+  expect(result.discovery).toEqual({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
   });
   expect(result.managedWindow).toEqual({
     status: 'unavailable',
-    reason: 'managed_windows_require_native',
+    reason: 'native_reconnecting',
   });
   await writeEvidence(testInfo, 'forged-native-proof', result);
 });
@@ -218,6 +238,18 @@ test('real host recovers after browser offline without replaying producer comman
   expect(await page.evaluate(() => '__ROW_BOT_FIXTURE__' in window)).toBe(
     false,
   );
+  // A read the page happens to make during the outage (the composer, the
+  // queue) fails as any request would offline.
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature: 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED',
+      count: 4,
+      upTo: true,
+      owner: 'Real host offline recovery',
+      fixture: 'context.setOffline(true) for the outage window',
+    }),
+  });
   await context.setOffline(true);
   try {
     await expect(page.locator('.connection-status')).toHaveText(
@@ -269,4 +301,82 @@ test('real host recovers after browser offline without replaying producer comman
       'Real API subscription and acknowledgement responses plus initiated SSE requests before and after browser offline; idle SSE response reporting can wait for the first heartbeat.',
   });
   await screenshot(page, testInfo, 'real-host-recovered');
+});
+
+test('localhost desktop uses the unified shell with separate authority and presentation capabilities', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop',
+    'The desktop presentation window is 1440x900 Chromium.',
+  );
+  await openSeedConversation(page);
+  const handshake = await publicHandshake(page);
+  expect(handshake.authenticationKind).toBe('local_owner');
+  expect(handshake.compatibility).toBe('current');
+  expect(handshake.applicationCapabilities.length).toBeGreaterThan(0);
+  expect(handshake.presentationCapabilities).toEqual(['panels', 'responsive']);
+  expect(handshake.nativeProofRequired).toBe(true);
+  expect(
+    handshake.applicationCapabilities.some((capability) =>
+      capability.startsWith('viewport.'),
+    ),
+  ).toBe(false);
+  expect(
+    handshake.presentationCapabilities.some((capability) =>
+      capability.startsWith('native:'),
+    ),
+  ).toBe(false);
+  await expect(
+    page.getByRole('textbox', { name: 'Message', exact: true }),
+  ).toBeVisible();
+  await writeEvidence(testInfo, 'public-capability-separation', handshake);
+  await captureSurface(page, testInfo, 'localhost-desktop-conversation');
+});
+
+test('authenticated browser presentation has no ambient native authority', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop',
+    'The desktop presentation window is 1440x900 Chromium.',
+  );
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      pywebview: { api: { native_client_dispatch: () => 'forged' } },
+      native_available: true,
+    });
+  });
+  await openFixture(page);
+  const result = await page.evaluate(async () => {
+    const fixture = (window as FixtureWindow).__ROW_BOT_FIXTURE__;
+    const snapshot = fixture.controller.getSnapshot();
+    return {
+      status: snapshot.status,
+      authenticationKind: snapshot.handshake?.authentication_kind,
+      platform: await fixture.platform.discover(),
+      managedWindow: await fixture.platform.managedWindow('/app-v2/'),
+      commandCount: fixture.transport.counters.commands,
+      ambientNativeGlobal: '__ROW_BOT_NATIVE_CLIENT__' in window,
+    };
+  });
+  expect(result.status).toBe('ready');
+  // A forged pywebview global makes it wait for a desktop bridge that never
+  // comes: nothing native runs, and it says it is reconnecting (B238).
+  expect(result.platform).toEqual({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
+  });
+  expect(result.managedWindow).toEqual({
+    status: 'unavailable',
+    reason: 'native_reconnecting',
+  });
+  expect(result.commandCount).toBe(0);
+  expect(result.ambientNativeGlobal).toBe(false);
+  await writeEvidence(testInfo, 'remote-browser-presentation', {
+    ...result,
+    scope:
+      'Deterministic browser presentation fixture. Paired-cookie issuance, exact-origin authentication and revocation are covered by the access/API subsystem tests because this loopback desktop runner is deliberately local-owner authenticated.',
+  });
+  await captureSurface(page, testInfo, 'remote-desktop-browser-surface');
 });

@@ -119,7 +119,7 @@ describe('retained knowledge relations', () => {
     await screen.findByRole('button', { name: 'Search targets' });
     fireEvent.click(screen.getByRole('button', { name: 'Search targets' }));
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Second subject · fact' }),
+      await screen.findByRole('button', { name: 'Second subject · Fact' }),
     );
     await screen.findByRole('textbox', { name: 'Relation type' });
     fireEvent.change(screen.getByRole('textbox', { name: 'Relation type' }), {
@@ -136,6 +136,20 @@ describe('retained knowledge relations', () => {
         review_id: 'review-one',
       },
     );
+  });
+  it('explains a vague relation type and never sends it', async () => {
+    const context = setup();
+    await select(context);
+    render(<KnowledgeRelations session={context.session} />);
+    const type = await screen.findByRole('textbox', { name: 'Relation type' });
+    fireEvent.change(type, { target: { value: 'Related to' } });
+    expect(type).toHaveAttribute('aria-invalid', 'true');
+    expect(type).toHaveAccessibleDescription(/Too vague to be useful/);
+    expect(screen.getByRole('button', { name: 'Add relation' })).toBeDisabled();
+    fireEvent.change(type, { target: { value: 'part of' } });
+    expect(screen.queryByText(/Too vague/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add relation' })).toBeEnabled();
+    expect(context.transport.review).not.toHaveBeenCalled();
   });
   it('keeps original command through response loss and remount without replay', async () => {
     const context = setup();

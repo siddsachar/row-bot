@@ -13,7 +13,7 @@ const uuid = (value: unknown): value is string =>
 export class ReceiptStorageError extends Error {
   constructor() {
     super(
-      'Receipt storage is unavailable. Restore browser storage before sending another action.',
+      "This browser can't store what Row-Bot needs to avoid doing things twice. Allow site storage, then try again.",
     );
   }
 }

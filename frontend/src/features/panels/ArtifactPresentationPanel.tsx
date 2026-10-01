@@ -19,6 +19,11 @@ export type ArtifactPresentationPanelProps = {
     signal: AbortSignal,
   ) => Promise<DesignPresentationState>;
   preview: (pageId: string, signal: AbortSignal) => Promise<ArtifactPreview>;
+  autoStart?: boolean;
+  /** The owner already shows the presentation full screen. */
+  fullscreen?: boolean;
+  startIndex?: number;
+  onEnded?: () => void;
 };
 
 export function StaticDesignPage({
@@ -128,6 +133,7 @@ export function StaticDesignPage({
       ) : (
         <iframe
           title={`${thumbnail ? 'Thumbnail' : 'Presentation'}: ${current.page_title}`}
+          tabIndex={thumbnail ? -1 : undefined}
           sandbox=""
           referrerPolicy="no-referrer"
           srcDoc={current.html ?? undefined}

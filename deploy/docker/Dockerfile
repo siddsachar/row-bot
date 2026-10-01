@@ -8,7 +8,7 @@ ARG CLIENT_NODE_IMAGE=node:24.15.0-bookworm-slim
 FROM ${UV_IMAGE} AS uv
 FROM ${NODE_IMAGE} AS node
 
-# The opt-in client has a separate build toolchain; preserve the existing Node
+# The React client has a separate build toolchain; preserve the existing Node
 # runtime used by server capabilities. Only generated assets leave this stage.
 FROM ${CLIENT_NODE_IMAGE} AS client-build
 

@@ -1,7 +1,63 @@
 {
   "$defs": {
+    "ProblemFix": {
+      "additionalProperties": false,
+      "description": "The one fix offered with a problem (Phase 18). The client words it and\nruns it through the owner that does it in Settings: a channel restart or\nan account sign-in reviewed as there, or opening the exact setting.",
+      "properties": {
+        "href": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "pattern": "^/[A-Za-z0-9/?=&#._:-]{0,159}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Href"
+        },
+        "kind": {
+          "enum": [
+            "restart_channel",
+            "reconnect_account",
+            "choose_model",
+            "open",
+            "check_again"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target"
+        }
+      },
+      "required": [
+        "kind",
+        "href",
+        "target",
+        "name"
+      ],
+      "title": "ProblemFix",
+      "type": "object"
+    },
     "SystemDiagnosisCheck": {
       "additionalProperties": false,
+      "description": "One check's last result, kept by the server with its time (B252).",
       "properties": {
         "checked_at": {
           "title": "Checked At",
@@ -12,15 +68,39 @@
           "title": "Detail",
           "type": "string"
         },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProblemFix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9:-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
         "name": {
           "maxLength": 128,
           "title": "Name",
           "type": "string"
         },
+        "network": {
+          "title": "Network",
+          "type": "boolean"
+        },
         "settings_tab": {
           "maxLength": 64,
           "title": "Settings Tab",
           "type": "string"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
         },
         "status": {
           "enum": [
@@ -34,11 +114,14 @@
         }
       },
       "required": [
+        "id",
         "name",
         "status",
         "detail",
         "checked_at",
-        "settings_tab"
+        "settings_tab",
+        "network",
+        "stale"
       ],
       "title": "SystemDiagnosisCheck",
       "type": "object"
@@ -54,6 +137,10 @@
       "title": "Checks",
       "type": "array"
     },
+    "hourly_network_checks": {
+      "title": "Hourly Network Checks",
+      "type": "boolean"
+    },
     "schema_version": {
       "const": 1,
       "title": "Schema Version",
@@ -62,6 +149,7 @@
   },
   "required": [
     "schema_version",
+    "hourly_network_checks",
     "checks"
   ],
   "title": "SystemDiagnosis",

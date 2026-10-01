@@ -344,6 +344,35 @@ def _execute(
     )
 
 
+def test_snapshot_reports_the_wiki_vault_tidy_once_it_ran(api):
+    client, headers, data, _ = api
+    snapshot = SettingsSnapshot.model_validate(client.get(BASE, headers=headers).json())
+    assert snapshot.wiki.tidy is None
+    folder = "raw/.row-bot-retired/hashed-names-2026-09-30"
+    _write(
+        data / "saved-vault" / "wiki" / ".row-bot-ownership.json",
+        {
+            "version": 1,
+            "files": {},
+            "naming": 2,
+            "tidy": {
+                "date": "2026-09-30",
+                "folder": folder,
+                "tidied": 2,
+                "adopted": 1,
+                "moved": [
+                    {"from": f"wiki/person/entity-{n}.md", "to": f"{folder}/person/entity-{n}.md"}
+                    for n in "ab"
+                ],
+                "review": [{"relative": "wiki/person/Erin.md", "reason": "edited"}],
+            },
+        },
+    )
+    tidy = SettingsSnapshot.model_validate(client.get(BASE, headers=headers).json()).wiki.tidy
+    assert (tidy.date, tidy.tidied, tidy.moved, tidy.folder) == ("2026-09-30", 2, 2, folder)
+    assert tidy.review == ["wiki/person/Erin.md"]
+
+
 def test_snapshot_is_closed_masked_and_does_not_write(api):
     client, headers, data, _ = api
     before = _tree(data)
@@ -380,7 +409,7 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
     assert snapshot.documents.memory_index.state == "pending"
     assert snapshot.preferences.identity.name == "Ada"
     assert snapshot.plugins.items[0].name == "Sample Plugin"
-    assert len(snapshot.utilities.items) == 9
+    assert len(snapshot.utilities.items) == 10
     assert all(item.available for item in snapshot.utilities.items)
     assert [item.label for item in snapshot.utilities.items] == [
         "Tasks",
@@ -392,6 +421,7 @@ def test_snapshot_is_closed_masked_and_does_not_write(api):
         "System Info",
         "Conversation Search",
         "Custom Tool Builder",
+        "Developer",
     ]
     assert "PRIVATE_SENTINEL" not in response.text
     assert "PRIVATE_PATH_SENTINEL" not in response.text
@@ -1010,6 +1040,26 @@ def test_reviewed_main_tunnel_persists_restart_choice_and_reports_webhook_url(
     assert len(closed) == 1
 
 
+def test_snapshot_reports_the_tunnel_failure_instead_of_not_checked(api, monkeypatch):
+    from row_bot.tunnel import tunnel_manager
+
+    client, headers, data, _ = api
+    failure = "ngrok refused a new tunnel: your ngrok account already has as many agents running as it allows."
+    monkeypatch.setattr(
+        tunnel_manager,
+        "runtime_state",
+        lambda: {"runtime_state": "failed", "active_count": 0, "last_error": failure},
+    )
+    before = _tree(data)
+
+    tunnel = client.get(BASE, headers=headers).json()["system"]["tunnel"]
+
+    assert tunnel["runtime_state"] == "failed"
+    assert tunnel["active_count"] == 0
+    assert tunnel["last_error"] == failure
+    assert _tree(data) == before
+
+
 def test_failed_main_tunnel_start_does_not_save_restart_choice(api, monkeypatch):
     from row_bot.tunnel import tunnel_manager
 
@@ -1348,6 +1398,13 @@ def test_tracker_delete_all_uncertain_outcome_is_not_replayed(api, monkeypatch):
             ("tools", "calculator"),
         ),
         (
+            "utilities",
+            "developer.enabled",
+            True,
+            "tools_config.json",
+            ("tools", "developer"),
+        ),
+        (
             "preferences",
             "identity.personality",
             "Concise and curious",
@@ -1393,3 +1450,67 @@ def test_memory_switch_refreshes_the_existing_tool_registry(api, monkeypatch):
     response = _execute(client, headers, request, _review(client, headers, request))
     assert response.status_code == 200 and response.json()["status"] == "completed"
     assert calls == [True]
+
+
+def test_fresh_profile_reads_back_every_reported_default(tmp_path, monkeypatch):
+    """The defaults a client resets to are exactly what a new profile reads."""
+
+    from row_bot.application.settings_snapshot import (
+        SETTING_DEFAULTS,
+        read_settings_snapshot,
+    )
+
+    data = tmp_path / "fresh"
+    data.mkdir()
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data))
+    snapshot = read_settings_snapshot()
+    assert snapshot["defaults"] == SETTING_DEFAULTS
+    SettingsSnapshot.model_validate(snapshot)
+    for page, fields in SETTING_DEFAULTS.items():
+        for field, default in fields.items():
+            value = snapshot[page]
+            for part in field.split("."):
+                value = value[part]
+            assert value == default, f"{page}.{field}"
+    # Defaults are not saved state, so they never move the revision.
+    from row_bot.application import settings_snapshot as module
+
+    monkeypatch.setitem(module.SETTING_DEFAULTS, "tools", {})
+    assert read_settings_snapshot()["revision"] == snapshot["revision"]
+
+
+def test_documents_pick_their_own_model_and_can_go_back_to_the_conversations(api):
+    """U45: document processing uses the model chosen in the queue, not the last conversation's."""
+    from row_bot.application.settings_snapshot import read_document_processing_model
+
+    client, headers, data, _ = api
+    before = client.get(BASE, headers=headers).json()
+    assert before["documents"]["processing_model"] == ""
+    assert before["defaults"]["documents"]["processing_model"] == ""
+    request = {"settings_revision": before["revision"], "page": "documents",
+               "field": "processing_model", "value": "model:ollama:qwen3.8:27b"}
+    response = _execute(client, headers, request, _review(client, headers, request))
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["documents"]["processing_model"] == "model:ollama:qwen3.8:27b"
+    assert json.loads((data / "document_processing.json").read_text()) == {"model": "model:ollama:qwen3.8:27b"}
+    assert read_document_processing_model() == "model:ollama:qwen3.8:27b"
+    current = response.json()["snapshot"]["revision"]
+    back = {"settings_revision": current, "page": "documents", "field": "processing_model", "value": ""}
+    response = _execute(client, headers, back, _review(client, headers, back))
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshot"]["documents"]["processing_model"] == ""
+    assert read_document_processing_model() is None
+    latest = response.json()["snapshot"]["revision"]
+    for bad in ("gpt-4o", "model:", "model:x", 7):
+        refused = client.post(BASE + "/review", headers=headers, json={
+            "settings_revision": latest, "page": "documents", "field": "processing_model", "value": bad})
+        assert refused.status_code == 422, bad
+
+
+def test_the_x_callback_shown_in_settings_is_the_one_x_calls():
+    """Parity row 45: the X connect sheet shows the callback address to
+    register in the developer portal, with Copy; it must be the tool's own."""
+    from row_bot.application import settings_snapshot
+    from row_bot.tools import x_tool
+
+    assert settings_snapshot.X_OAUTH_CALLBACK_URL == x_tool._OAUTH_REDIRECT_URI

@@ -19,6 +19,20 @@
       ],
       "title": "Goal Id"
     },
+    "max_minutes": {
+      "anyOf": [
+        {
+          "maximum": 10080,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Minutes"
+    },
     "max_turns": {
       "anyOf": [
         {

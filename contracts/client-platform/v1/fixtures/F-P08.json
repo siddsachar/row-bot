@@ -325,6 +325,10 @@
         "revision": "1",
         "title": "conversation-a",
         "pinned": false,
+        "updated_at": "",
+        "parent_conversation_id": null,
+        "activity_state": null,
+        "activity_phase": "",
         "category": "code",
         "generation_state": [],
         "resource_bindings": [

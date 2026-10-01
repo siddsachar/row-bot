@@ -50,7 +50,7 @@ jobs:
 
       - name: Run selected live MCP checks
         if: ${{ inputs.run_real_mcp }}
-        run: uv run python -m pytest tests/test_mcp_real_world_e2e.py -q
+        run: uv run python -m pytest tests/e2e/test_mcp_real_world_e2e.py -q
 
       - name: Run all marked live/e2e tests
         if: ${{ inputs.run_marked_live_tests }}

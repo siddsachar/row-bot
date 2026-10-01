@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "AttentionUpdate",
+  "type": "object"
+}

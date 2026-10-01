@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import importlib
 import json
 import os
 from pathlib import Path
@@ -372,14 +373,19 @@ def test_start_transport_loss_is_uncertain_and_original_never_replays(
 
 
 def test_successful_start_and_stop_delegate_once_and_update_autostart(
-    environment,
+    environment, monkeypatch,
 ) -> None:
+    # Monitor's kept channel checks follow each start and stop (Phase 18).
+    rechecks: list[str] = []
+    monkeypatch.setattr(importlib.import_module("row_bot.application.client_diagnosis"),
+                        "recheck_channels", lambda: rechecks.append("channels"))
     channel, owners = environment
     start, start_review = command(environment, "start")
     started = asyncio.run(execute(environment, start, start_review))
     assert started["status"] == "completed" and started["channel"]["running"] is True
     assert channel.start_calls == 1
     assert owners["config_owner"].writes == [("slack", "auto_start", True)]
+    assert rechecks == ["channels"]
 
     stop, stop_review = command(environment, "stop")
     stopped = asyncio.run(execute(environment, stop, stop_review))
@@ -387,6 +393,7 @@ def test_successful_start_and_stop_delegate_once_and_update_autostart(
     assert channel.stop_calls == 1
     assert owners["config_owner"].writes[-1] == ("slack", "auto_start", False)
     assert owners["registry_owner"].deliver_calls == 0
+    assert rechecks == ["channels", "channels"]
 
 
 def test_pair_and_revoke_use_canonical_auth_without_exposing_raw_identity(
@@ -460,3 +467,70 @@ def test_pages_and_owner_enumeration_fail_closed_when_oversized(environment) -> 
     owners["registry_owner"].all_channels = lambda: [channel]
     with pytest.raises(controls.ChannelControlError, match="invalid_limit"):
         controls.read_channels(limit=51, validate=lambda: None, **owners)
+
+
+def test_a_test_message_goes_only_on_its_own_explicit_action(environment) -> None:
+    """Connect sheet (Phase 15): "Send a test message to me" sends one message
+    to the person's own account, only on that action, never while stopped."""
+    channel, owners = environment
+    assert snapshot(environment)["can_test"] is False
+    with pytest.raises(controls.ChannelControlError, match="channel_not_running"):
+        command(environment, "test")
+    start, start_review = command(environment, "start")
+    asyncio.run(execute(environment, start, start_review))
+    assert snapshot(environment)["can_test"] is True and channel.messages == []
+    test, review = command(environment, "test")
+    assert channel.messages == []  # reviewing sends nothing
+    sent = asyncio.run(execute(environment, test, review))
+    assert sent["status"] == "completed" and sent["operation"] == "test"
+    assert [message.target for message in channel.messages] == ["fake-user"]
+    assert "Row-Bot" in channel.messages[0].text
+    # The same command is never sent twice.
+    asyncio.run(execute(environment, test, review))
+    assert len(channel.messages) == 1
+    assert owners["registry_owner"].deliver_calls == 0
+
+
+class LinkedChannel(SlackChannel):
+    """A channel linked by scanning a code (WhatsApp) with a public address."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.link = {"state": "scan", "code": "synthetic-link-code"}
+        self.resets = 0
+
+    def link_status(self):
+        return dict(self.link)
+
+    async def reset_link(self) -> None:
+        self.resets += 1
+        self.link = {"state": "starting", "code": None}
+
+    def public_address(self):
+        return "https://public.example.invalid/sms"
+
+
+def test_a_linked_channel_shows_its_code_only_to_the_owner_and_resets_on_request(
+    environment,
+) -> None:
+    """B139: WhatsApp's live QR and Reset session existed only in NiceGUI, so
+    React showed "Stopped" with Start enabled while the bridge waited."""
+    _channel, owners = environment
+    linked = LinkedChannel()
+    owners["registry_owner"].channel = linked
+    status = snapshot((linked, owners))
+    assert status["link_state"] == "scan"
+    assert status["public_address"] == "https://public.example.invalid/sms"
+    # The code itself is never in the page every device reads.
+    assert "synthetic-link-code" not in json.dumps(status)
+    link = controls.read_channel_link("slack", validate=lambda: None, **owners)
+    assert link == {"state": "scan", "code": "synthetic-link-code"}
+    reset, review = command((linked, owners), "reset")
+    assert linked.resets == 0
+    done = asyncio.run(execute((linked, owners), reset, review))
+    assert done["status"] == "completed" and linked.resets == 1
+    assert controls.read_channel_link("slack", validate=lambda: None, **owners)["state"] == "starting"
+    # A channel that isn't linked by a code has nothing to reset.
+    owners["registry_owner"].channel = SlackChannel()
+    with pytest.raises(controls.ChannelControlError, match="action_unavailable"):
+        command(environment, "reset")

@@ -1,4 +1,4 @@
-"""Row-Bot launcher: system-tray process that manages the NiceGUI server.
+"""Row-Bot launcher: system-tray process that manages the Row-Bot server.
 
 Responsibilities:
     • Splash screen while the server starts (tkinter — no extra deps)
@@ -41,6 +41,8 @@ from row_bot.app_port import (
 from row_bot.access.launcher_control import (
     LAUNCH_SECRET_ENV,
     LauncherControlServer,
+    LauncherControlStatus,
+    request_open_window,
 )
 from row_bot.access.access_routes import (
     AccessRouteConfigStore,
@@ -80,7 +82,7 @@ _EARLY_SPLASH_PROC: subprocess.Popen | None = None
 # ── Constants ────────────────────────────────────────────────────────────────
 _PORT = DEFAULT_APP_PORT
 _OLLAMA_PORT = 11434  # Ollama default API port
-_STARTUP_GRACE = 15  # seconds to wait for NiceGUI before opening browser
+_STARTUP_GRACE = 15  # seconds to wait for the server before opening browser
 _STARTUP_TIMEOUT_ENV = APP_STARTUP_TIMEOUT_ENV
 _ICON_SIZE = 64  # px for generated tray icons
 _APP_ICON_PATH = app_icon_path()
@@ -92,6 +94,11 @@ _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
 _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
 _QUIT_WATCHDOG_TIMEOUT = 75.0
 _LAUNCHER_STATE_FILENAME = "launcher_state.json"
+_INSTANCE_LOCK_FILENAME = "launcher.lock"
+# How long a second start waits for the running launcher to answer or to finish
+# quitting (an update relaunch starts the new launcher before the old one exits).
+_INSTANCE_WAIT_SECONDS = 30.0
+_held_instance_locks: dict[Path, "_InstanceLock"] = {}
 _LEGACY_RUNTIME_ENV_VARS = frozenset(
     {
         "THOTH_AUTO_START_OLLAMA",
@@ -191,6 +198,128 @@ def _launcher_state_path() -> Path:
     return _row_bot_data_dir() / _LAUNCHER_STATE_FILENAME
 
 
+class _InstanceLock:
+    """One launcher per data folder: an OS file lock the system drops when the process ends."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.handle = None
+
+    def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self.path.open("a+b")
+        try:
+            handle.seek(0)
+            if handle.read(1) == b"":
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return False
+        self.handle = handle
+        return True
+
+    def release(self) -> None:
+        handle, self.handle = self.handle, None
+        if handle is None:
+            return
+        try:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        handle.close()
+
+
+def _claim_instance() -> bool:
+    """Hold this data folder's launcher lock; True when this process holds it."""
+    path = _row_bot_data_dir() / _INSTANCE_LOCK_FILENAME
+    if path in _held_instance_locks:
+        return True
+    lock = _InstanceLock(path)
+    if not lock.acquire():
+        return False
+    _held_instance_locks[path] = lock
+    return True
+
+
+def _hand_off_to_running_instance(args: argparse.Namespace) -> int | None:
+    """Another launcher holds this data folder: show it, or wait for it to quit.
+
+    Returns the exit code for this start, or None once the other launcher has
+    quit and this one holds the lock. Never starts a second server.
+    """
+    wants_server = bool(args.server or args.no_open)
+    changes_data = bool(args.reset_tasks_db or args.reset_db or args.restore_data is not None)
+    if changes_data:
+        logger.error("%s is running on this data folder; quit it before resetting or restoring data.",
+                     APP_DISPLAY_NAME)
+        return 1
+    _launch_event("instance_already_running", mode="server" if wants_server else "desktop")
+    deadline = time.monotonic() + _INSTANCE_WAIT_SECONDS
+    while True:
+        state = _read_json_file(_launcher_state_path()) or {}
+        try:
+            alive = int(state.get("pid") or 0) > 0 and _pid_alive(int(state["pid"]))
+        except (TypeError, ValueError):
+            alive = False
+        phase = str(state.get("phase") or "")
+        if alive and wants_server and phase in {"starting", "running"}:
+            break
+        if alive and not wants_server and phase == "starting":
+            logger.info("%s is starting; its window opens when it is ready.", APP_DISPLAY_NAME)
+            return 0
+        if alive and not wants_server and phase == "running":
+            try:
+                answer = request_open_window(int(state["control_port"]), str(state["open_token"]))
+                port = int(state.get("port") or _PORT)
+            except (KeyError, TypeError, ValueError):
+                answer, port = LauncherControlStatus.ERROR, _PORT
+            if answer is LauncherControlStatus.ACCEPTED:
+                logger.info("%s is already running; showing it.", APP_DISPLAY_NAME)
+                return 0
+            if answer is LauncherControlStatus.UNAVAILABLE:
+                _open_in_browser(port)
+                return 0
+        if _claim_instance():
+            return None
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.25)
+    if wants_server:
+        logger.error("%s is already running on this data folder; quit it before starting a server.",
+                     APP_DISPLAY_NAME)
+    else:
+        logger.error("%s is already running on this data folder but did not answer; quit it and try again.",
+                     APP_DISPLAY_NAME)
+    return 1
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        import psutil
+
+        return psutil.pid_exists(pid)
+    except Exception:
+        return True
+
+
 def _write_launcher_state(
     *,
     port: int,
@@ -203,6 +332,8 @@ def _write_launcher_state(
     opened_mode: str | None = None,
     window_authorized: bool | None = None,
     fallback_reason: str | None = None,
+    phase: str = "running",
+    launcher_control: LauncherControlServer | None = None,
 ) -> None:
     path = _launcher_state_path()
     payload = {
@@ -210,6 +341,7 @@ def _write_launcher_state(
         "pid": os.getpid(),
         "port": int(port),
         "mode": mode,
+        "phase": phase,
         "owns_server": bool(owns_server),
         "session": _LAUNCH_SESSION_ID,
         "updated_at": time.time(),
@@ -223,6 +355,10 @@ def _write_launcher_state(
         payload["window_control_port"] = int(window_control_port)
     if window_pid:
         payload["window_pid"] = int(window_pid)
+    if launcher_control is not None and launcher_control.port:
+        # How a second start of Row-Bot asks this launcher to show itself.
+        payload["control_port"] = int(launcher_control.port)
+        payload["open_token"] = launcher_control.open_token
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -906,21 +1042,19 @@ def _url_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def _client_url_for_port(port: int, *, client_v2: bool = True) -> str:
-    return _url_for_port(port) + ("/app-v2/" if client_v2 else "")
+def _client_url_for_port(port: int) -> str:
+    return _url_for_port(port) + "/app-v2/"
 
 
-def _resolve_client_v2(args: object) -> bool:
-    """Return the selected shell; ``--client-v2`` is a deprecated no-op."""
-
-    if bool(getattr(args, "client_v2", False)) and bool(
-        getattr(args, "legacy_ui", False)
-    ):
-        raise ValueError(
-            "--client-v2 now names the default client and cannot be combined "
-            "with --legacy-ui"
-        )
-    return not bool(getattr(args, "legacy_ui", False))
+def _warn_deprecated_client_flags(args: object) -> None:
+    """``--legacy-ui`` and ``--client-v2`` only keep old scripts working."""
+    for flag, name in (("--legacy-ui", "legacy_ui"), ("--client-v2", "client_v2")):
+        if getattr(args, name, False):
+            logger.warning(
+                "%s is deprecated and does nothing: %s opens its React app.",
+                flag,
+                APP_DISPLAY_NAME,
+            )
 
 
 def _resolve_launch_host(cli_host: object) -> str:
@@ -1129,7 +1263,18 @@ def _select_app_port(preferred: int = _PORT, max_tries: int = 50) -> tuple[int, 
     )
 
 
-# ── NiceGUI subprocess management ───────────────────────────────────────────
+# ── Server subprocess management ───────────────────────────────────────────
+
+
+def _process_tree(pid: int) -> set[int]:
+    """A process and its descendants, as far as they can be read."""
+    try:
+        import psutil
+
+        root = psutil.Process(pid)
+        return {pid, *(child.pid for child in root.children(recursive=True))}
+    except Exception:
+        return {pid}
 
 
 def _set_process_launch_environment(
@@ -1142,7 +1287,7 @@ def _set_process_launch_environment(
 
 
 class _RowBotProcess:
-    """Wraps the NiceGUI app subprocess."""
+    """Wraps the Row-Bot server subprocess."""
 
     def __init__(self, port: int = _PORT, host: str | None = None) -> None:
         self._proc: subprocess.Popen | None = None
@@ -1311,11 +1456,14 @@ class _RowBotProcess:
             logger.debug("%s kill fallback failed", label, exc_info=True)
 
     def stop(self) -> None:
-        """Terminate the NiceGUI process."""
+        """Terminate the server process."""
         if self._proc is None:
             self._close_log_handle()
             return
         proc = self._proc
+        # The server and its children (a venv python.exe runs the real
+        # interpreter as a child), named before anything is stopped.
+        server_tree = _process_tree(proc.pid)
         stopped_gracefully = False
         shutdown_started = time.monotonic()
         try:
@@ -1350,6 +1498,15 @@ class _RowBotProcess:
                 )
         finally:
             self._close_log_handle()
+            if not stopped_gracefully:
+                # A forced stop skips the server's own cleanup: stop the
+                # ngrok agent it recorded, and only that one (B104).
+                try:
+                    from row_bot.tunnel import cleanup_owned_agents
+
+                    cleanup_owned_agents(dead_owner=server_tree)
+                except Exception:
+                    logger.debug("Owned tunnel cleanup after a forced stop failed", exc_info=True)
         logger.info(
             "%s stopped%s",
             APP_DISPLAY_NAME,
@@ -1689,31 +1846,30 @@ if sys.platform == "darwin":
         pass
 
 import webview
-import webbrowser
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from row_bot.webview_csp import install_csp_safe_bridge
+# macOS's WebKit holds pywebview's bridge to the shell's policy (no eval).
+install_csp_safe_bridge()
 from urllib.parse import parse_qs, quote, urlparse
 from row_bot.buddy.config import get_buddy_config, save_buddy_config
+from row_bot.buddy.native_host import (
+    OVERLAY_ROUTE,
+    BuddyWindowHost,
+    buddy_overlay_url,
+    placement_callback,
+)
 from row_bot.buddy.overlay import (
-    OVERLAY_HEIGHT,
-    OVERLAY_WIDTH,
-    BuddyPlacement,
-    ForegroundAppTracker,
     apply_placement_state,
     enable_windows_per_monitor_dpi,
-    finite_coordinate,
-    native_overlay_transparency,
     placement_state_from_config,
     placement_state_for_app_startup,
-    platform_foreground_backend,
-    position_for_drop,
     screen_areas_from_native,
-    should_defer_native_show,
 )
 
 _NAMED_WINDOWS = {}
-_BUDDY_WINDOW_READY = False
-_FOREGROUND_TRACKER = ForegroundAppTracker(platform_foreground_backend())
+# Operations the desktop Buddy's document may use: nothing else.
+_BUDDY_CAPABILITIES = frozenset({"buddy_placement", "buddy_follow", "main_window"})
 
 def _save_buddy_state(state, *, x=None, y=None):
     config = apply_placement_state(get_buddy_config(), state)
@@ -1741,13 +1897,15 @@ def _screen_areas():
     except Exception:
         return []
 
-def _track_foreground_apps():
-    while True:
-        try:
-            _FOREGROUND_TRACKER.observe()
-        except Exception:
-            pass
-        time.sleep(0.25)
+def _screen_scale():
+    # The factor pywebview itself applies when it creates or moves a window.
+    if sys.platform != "win32":
+        return 1.0
+    try:
+        import ctypes
+        return max(1.0, ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100)
+    except Exception:
+        return 1.0
 
 def _install_windows_app_icon():
     if sys.platform != "win32" or not (_ICON_PATH and os.path.isfile(_ICON_PATH)):
@@ -1789,11 +1947,9 @@ def _port_from_url(url):
     except Exception:
         return 8080
 
-def _buddy_overlay_url(port, cache_bust=False):
-    url = f"http://127.0.0.1:{int(port)}/buddy-overlay"
-    if cache_bust:
-        return f"{url}?buddy_refresh={int(time.time() * 1000)}"
-    return url
+def _buddy_overlay_url(port):
+    # The React overlay (its own small Vite entry).
+    return buddy_overlay_url(port)
 
 def _buddy_window_log(message):
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [buddy.window] {message}"
@@ -1810,423 +1966,11 @@ def _buddy_window_log(message):
     except Exception:
         pass
 
-class _JsApi:
-    """Expose Python helpers to JavaScript via window.pywebview.api."""
-    def tear_off_buddy(self, screen_x=0, screen_y=0, port=None):
-        try:
-            buddy_port = int(port or _APP_PORT)
-            drop_x = finite_coordinate(screen_x)
-            drop_y = finite_coordinate(screen_y)
-            x, y = position_for_drop(drop_x, drop_y, _screen_areas())
-        except Exception:
-            return False
-        state = placement_state_from_config(get_buddy_config()).tear_off()
-        _save_buddy_state(state, x=x, y=y)
-        _buddy_window_log(f"tear-off drop={drop_x:.0f},{drop_y:.0f} position={x},{y}")
-        opened = self.open_buddy_window(buddy_port, OVERLAY_WIDTH, OVERLAY_HEIGHT, x, y)
-        if not opened:
-            _save_buddy_state(state.dock())
-        return opened
-
-    def dock_buddy(self):
-        state = placement_state_from_config(get_buddy_config()).dock()
-        _save_buddy_state(state)
-        _buddy_window_log("docked")
-        return self.close_buddy_window(False)
-
-    def buddy_placement(self):
-        state = placement_state_from_config(get_buddy_config())
-        return {
-            "placement": state.placement.value,
-            "visible": state.visible,
-            "collapsed": state.collapsed,
-        }
-
-    def set_buddy_collapsed(self, collapsed=False):
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP:
-            return False
-        _save_buddy_state(state.collapse() if bool(collapsed) else state.expand())
-        return True
-
-    def show_main_window(self):
-        window = _NAMED_WINDOWS.get("main")
-        if window is None:
-            return False
-        try:
-            try:
-                window.restore()
-            except Exception:
-                pass
-            window.show()
-            return True
-        except Exception:
-            return False
-
-    def get_foreground_target(self):
-        target = _FOREGROUND_TRACKER.last_external
-        return {
-            "available": target is not None,
-            "app_name": _FOREGROUND_TRACKER.app_name,
-        }
-
-    def restore_foreground_target(self):
-        return _FOREGROUND_TRACKER.restore_once()
-
-    def open_url(self, url):
-        if isinstance(url, str) and url.lower().startswith(("https://", "http://")):
-            webbrowser.open(url)
-
-    def _dialog_window(self):
-        try:
-            windows = list(getattr(webview, "windows", []) or [])
-            return windows[0] if windows else None
-        except Exception:
-            return None
-
-    def _dialog_directory(self, initial_dir):
-        path = str(initial_dir or "")
-        return path if path and os.path.isdir(path) else ""
-
-    def _dialog_file_types(self, file_types):
-        filters = []
-        if isinstance(file_types, (list, tuple)):
-            for item in file_types:
-                if isinstance(item, (list, tuple)) and len(item) >= 2:
-                    label = str(item[0] or "Files")
-                    pattern = str(item[1] or "*.*")
-                    filters.append(label if "(" in label else f"{label} ({pattern})")
-                elif isinstance(item, str) and item.strip():
-                    filters.append(item.strip())
-        return tuple(filters)
-
-    def choose_file(self, title="Select file", initial_dir="", file_types=None):
-        window = self._dialog_window()
-        if window is None:
-            return None
-        try:
-            result = window.create_file_dialog(
-                webview.OPEN_DIALOG,
-                directory=self._dialog_directory(initial_dir),
-                allow_multiple=False,
-                file_types=self._dialog_file_types(file_types),
-            )
-        except Exception:
-            return None
-        if isinstance(result, (list, tuple)):
-            return result[0] if result else None
-        return result
-
-    def choose_folder(self, title="Select folder", initial_dir="", file_types=None):
-        window = self._dialog_window()
-        if window is None:
-            return None
-        try:
-            result = window.create_file_dialog(
-                webview.FOLDER_DIALOG,
-                directory=self._dialog_directory(initial_dir),
-                allow_multiple=False,
-            )
-        except Exception:
-            return None
-        if isinstance(result, (list, tuple)):
-            return result[0] if result else None
-        return result
-
-    def open_window(self, name, url, title=None, width=1600, height=900):
-        if not isinstance(url, str) or not url.lower().startswith(("https://", "http://")):
-            return False
-
-        try:
-            width = int(width or 1600)
-            height = int(height or 900)
-        except Exception:
-            width, height = 1600, 900
-
-        key = name if isinstance(name, str) else ""
-        if key:
-            existing = _NAMED_WINDOWS.get(key)
-            if existing is not None:
-                try:
-                    existing.load_url(url)
-                    try:
-                        existing.restore()
-                    except Exception:
-                        pass
-                    try:
-                        existing.show()
-                    except Exception:
-                        pass
-                    return True
-                except Exception:
-                    _NAMED_WINDOWS.pop(key, None)
-
-        window = webview.create_window(
-            title or "Row-Bot",
-            url,
-            width=width,
-            height=height,
-            js_api=_JS_API,
-        )
-        if key:
-            _NAMED_WINDOWS[key] = window
-
-            def _forget(*_args):
-                _NAMED_WINDOWS.pop(key, None)
-
-            try:
-                window.events.closed += _forget
-            except Exception:
-                pass
-        return True
-
-    def close_window(self, name):
-        key = name if isinstance(name, str) else ""
-        if not key:
-            return False
-        window = _NAMED_WINDOWS.get(key)
-        if window is None:
-            return False
-        try:
-            window.destroy()
-            _NAMED_WINDOWS.pop(key, None)
-            return True
-        except Exception:
-            return False
-
-    def open_buddy_window(self, port=None, width=OVERLAY_WIDTH, height=OVERLAY_HEIGHT, x=None, y=None):
-        global _BUDDY_WINDOW_READY
-        try:
-            buddy_port = int(port or _APP_PORT)
-            width = int(width or OVERLAY_WIDTH)
-            height = int(height or OVERLAY_HEIGHT)
-        except Exception:
-            return False
-
-        config = get_buddy_config()
-        placement = placement_state_from_config(config)
-        if placement.placement is not BuddyPlacement.DESKTOP:
-            return False
-        overlay_config = dict(config.get("overlay") or {})
-        requested_x = overlay_config.get("x") if x is None else x
-        requested_y = overlay_config.get("y") if y is None else y
-        if requested_x is not None and requested_y is not None:
-            x, y = position_for_drop(
-                finite_coordinate(requested_x) + width / 2,
-                finite_coordinate(requested_y) + min(height / 3, 76),
-                _screen_areas(),
-                width=width,
-                height=height,
-            )
-            _save_buddy_state(placement, x=x, y=y)
-        else:
-            x = y = None
-        key = "buddy"
-        url = _buddy_overlay_url(buddy_port)
-        existing = _NAMED_WINDOWS.get(key)
-        if existing is not None:
-            try:
-                if x is not None and y is not None:
-                    existing.move(int(x), int(y))
-                try:
-                    existing.restore()
-                except Exception:
-                    pass
-                if placement.visible and _BUDDY_WINDOW_READY:
-                    existing.show()
-                return True
-            except Exception:
-                _NAMED_WINDOWS.pop(key, None)
-
-        kwargs = {
-            "title": "Buddy",
-            "url": url,
-            "width": width,
-            "height": height,
-            "x": int(x) if x is not None else None,
-            "y": int(y) if y is not None else None,
-            "js_api": _JS_API,
-            "resizable": False,
-            "frameless": True,
-            "shadow": False,
-            "focus": True,
-            "on_top": True,
-            "easy_drag": False,
-            "hidden": True,
-            "background_color": "#0B1119",
-            "transparent": native_overlay_transparency(sys.platform),
-        }
-        window = None
-        fallback_kwargs = dict(kwargs)
-        fallback_kwargs.pop("background_color", None)
-        minimal_kwargs = dict(fallback_kwargs)
-        for optional_key in ("transparent", "shadow", "on_top", "hidden"):
-            minimal_kwargs.pop(optional_key, None)
-        plain_kwargs = {
-            "title": "Buddy",
-            "url": url,
-            "width": width,
-            "height": height,
-            "js_api": _JS_API,
-        }
-        for candidate in (kwargs, fallback_kwargs, minimal_kwargs, plain_kwargs):
-            try:
-                window = webview.create_window(**candidate)
-                break
-            except Exception as exc:
-                try:
-                    print(f"Buddy overlay create_window failed with keys {sorted(candidate.keys())}: {exc}", file=sys.stderr, flush=True)
-                except Exception:
-                    pass
-                continue
-        if window is None:
-            try:
-                window = webview.create_window("Buddy", url, width=width, height=height, js_api=_JS_API)
-            except Exception as exc:
-                try:
-                    print(f"Buddy overlay plain create_window failed: {exc}", file=sys.stderr, flush=True)
-                except Exception:
-                    pass
-        if window is None:
-            return False
-        _BUDDY_WINDOW_READY = False
-        _NAMED_WINDOWS[key] = window
-
-        def _forget_buddy(*_args):
-            global _BUDDY_WINDOW_READY
-            _NAMED_WINDOWS.pop(key, None)
-            _BUDDY_WINDOW_READY = False
-
-        def _persist_move(moved_x, moved_y):
-            try:
-                state = placement_state_from_config(get_buddy_config())
-                _save_buddy_state(state, x=int(moved_x), y=int(moved_y))
-            except Exception:
-                pass
-
-        try:
-            window.events.closed += _forget_buddy
-            window.events.moved += _persist_move
-        except Exception:
-            pass
-
-        def _ready_timeout_show():
-            time.sleep(2.0)
-            if _NAMED_WINDOWS.get(key) is not window or _BUDDY_WINDOW_READY:
-                return
-            state = placement_state_from_config(get_buddy_config())
-            if state.placement is not BuddyPlacement.DESKTOP or not state.visible:
-                return
-            try:
-                window.show()
-                _buddy_window_log("page-ready handshake timed out; forced native show")
-            except Exception as exc:
-                _buddy_window_log(f"page-ready timeout show failed: {exc}")
-
-        threading.Thread(
-            target=_ready_timeout_show,
-            daemon=True,
-            name="buddy-ready-timeout",
-        ).start()
-        return True
-
-    def mark_buddy_window_ready(self):
-        global _BUDDY_WINDOW_READY
-        _BUDDY_WINDOW_READY = True
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return False
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP or not state.visible:
-            return True
-        try:
-            try:
-                window.restore()
-            except Exception:
-                pass
-            window.show()
-            _buddy_window_log("page ready; native window shown")
-            return True
-        except Exception as exc:
-            _buddy_window_log(f"page ready show failed: {exc}")
-            return False
-
-    def show_buddy_window(self, manual=True, port=None, width=OVERLAY_WIDTH, height=OVERLAY_HEIGHT):
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP:
-            return False
-        if bool(manual):
-            _save_buddy_state(state.show())
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return self.open_buddy_window(port, width, height)
-        if should_defer_native_show(ready=_BUDDY_WINDOW_READY, manual=bool(manual)):
-            return True
-        try:
-            try:
-                window.restore()
-            except Exception:
-                pass
-            window.show()
-            if bool(manual) and not _BUDDY_WINDOW_READY:
-                _buddy_window_log("manual recovery forced native show before page-ready handshake")
-            return True
-        except Exception as exc:
-            _buddy_window_log(f"native show failed: {exc}")
-            return False
-
-    def hide_buddy_window(self, manual=True):
-        state = placement_state_from_config(get_buddy_config())
-        if state.placement is not BuddyPlacement.DESKTOP:
-            return False
-        if bool(manual):
-            _save_buddy_state(state.hide())
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return False
-        try:
-            window.hide()
-            return True
-        except Exception:
-            return False
-
-    def close_buddy_window(self, manual=True):
-        global _BUDDY_WINDOW_READY
-        window = _NAMED_WINDOWS.get("buddy")
-        if window is None:
-            return True
-        try:
-            window.destroy()
-            _NAMED_WINDOWS.pop("buddy", None)
-            _BUDDY_WINDOW_READY = False
-            return True
-        except Exception:
-            return False
-
-    def get_clipboard(self):
-        import subprocess as _sp, sys as _sys
-        try:
-            if _sys.platform == "darwin":
-                return _sp.check_output(["pbpaste"], timeout=2).decode("utf-8", errors="replace")
-            elif _sys.platform == "win32":
-                r = _sp.check_output(
-                    ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
-                    timeout=2,
-                )
-                return r.decode("utf-8", errors="replace").rstrip("\r\n")
-            else:
-                for cmd in (["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"]):
-                    try:
-                        return _sp.check_output(cmd, timeout=2).decode("utf-8", errors="replace")
-                    except Exception:
-                        pass
-                return None
-        except Exception:
-            return None
-
 def _on_loaded(window):
     try:
-        window.evaluate_js("""
+        # run_js, not evaluate_js: macOS's WebKit refuses evaluate_js's eval()
+        # under the shell's Content Security Policy.
+        (getattr(window, "run_js", None) or window.evaluate_js)("""
             (function() {
                 var retries = 0;
                 function check() {
@@ -2243,21 +1987,8 @@ def _on_loaded(window):
     except Exception:
         pass
 
-_JS_API = _JsApi()
-
 def _on_main_window_closing():
-    state = placement_state_from_config(get_buddy_config())
-    if state.placement is not BuddyPlacement.DESKTOP:
-        return True
-    window = _NAMED_WINDOWS.get("main")
-    try:
-        if window is not None:
-            window.hide()
-        _buddy_window_log("main-window close cancelled; hidden while Buddy is desktop")
-        return False
-    except Exception as exc:
-        _buddy_window_log(f"main-window hide-on-close failed: {exc}")
-        return True
+    return _BUDDY.main_closing()
 
 def _install_main_window_buddy_events(window):
     try:
@@ -2292,13 +2023,13 @@ def _start_control_server(control_port):
             qs = parse_qs(parsed.query or "")
             manual = str((qs.get("manual") or ["1"])[0]).lower() not in {"0", "false", "no"}
             if parsed.path.startswith("/buddy/show"):
-                self._send(_JS_API.show_buddy_window(manual, _APP_PORT, OVERLAY_WIDTH, OVERLAY_HEIGHT))
+                self._send(_BUDDY.show(manual))
             elif parsed.path.startswith("/buddy/hide"):
-                self._send(_JS_API.hide_buddy_window(manual))
+                self._send(_BUDDY.hide(manual))
             elif parsed.path.startswith("/buddy/close"):
-                self._send(_JS_API.close_buddy_window(manual))
+                self._send(_BUDDY.close())
             elif parsed.path.startswith("/main/show"):
-                self._send(_JS_API.show_main_window())
+                self._send(_BUDDY.show_main(None))
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -2314,12 +2045,29 @@ _APP_PORT = _port_from_url(url)
 w, h = int(sys.argv[3]), int(sys.argv[4])
 _ICON_PATH = sys.argv[5] if len(sys.argv) > 5 else ""
 _CONTROL_PORT = int(sys.argv[6]) if len(sys.argv) > 6 else 0
-_CLIENT_V2 = len(sys.argv) > 7 and sys.argv[7] == "1"
+_NATIVE_INSTANCE = {}
+
+def _native_instance_id():
+    # Every window's bridge binds to the server's process identity.
+    if "id" not in _NATIVE_INSTANCE:
+        _NATIVE_INSTANCE["id"] = str(_native_json("/api/v1/native/bootstrap")["instance_id"])
+    return _NATIVE_INSTANCE["id"]
+
+_BUDDY = BuddyWindowHost(
+    create_window=webview.create_window,
+    load_config=get_buddy_config,
+    save_config=save_buddy_config,
+    screens=_screen_areas,
+    main_window=lambda: _NAMED_WINDOWS.get("main"),
+    attach=lambda window: _attach_client_v2(window, _native_instance_id(), role="buddy"),
+    port=_APP_PORT,
+    log=_buddy_window_log,
+    scale=_screen_scale,
+)
 enable_windows_per_monitor_dpi(sys.platform)
 _install_windows_app_icon()
 _reset_buddy_placement_for_startup()
 _start_control_server(_CONTROL_PORT)
-threading.Thread(target=_track_foreground_apps, daemon=True, name="buddy-foreground-tracker").start()
 
 _NATIVE_ORIGIN = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
 _NATIVE_AUTHORITIES = {}
@@ -2345,22 +2093,65 @@ def _native_json(path, payload=None):
         raise ValueError("invalid_native_response")
     return value
 
+# PowerShell reads and writes the Windows clipboard as UTF-8 here, so text
+# with accents, symbols or other scripts survives Copy and Paste (the console
+# code page would not carry it, and clip.exe reads its input in that code page).
+_WINDOWS_CLIPBOARD_READ = [
+    "powershell", "-NoProfile", "-NonInteractive", "-Command",
+    "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; "
+    "$text = Get-Clipboard -Raw; if ($text) { [Console]::Out.Write($text) }",
+]
+_WINDOWS_CLIPBOARD_WRITE = [
+    "powershell", "-NoProfile", "-NonInteractive", "-Command",
+    "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; "
+    "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+]
+
+
+def _windows_clipboard_text(output: bytes) -> str:
+    return output.decode("utf-8", errors="replace").lstrip("\ufeff")
+
+
+def _native_clipboard_read():
+    import subprocess as _sp
+    try:
+        if sys.platform == "darwin":
+            return _sp.check_output(["pbpaste"], timeout=2).decode("utf-8", errors="replace")
+        if sys.platform == "win32":
+            output = _sp.check_output(_WINDOWS_CLIPBOARD_READ, timeout=3,
+                                      creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
+            return _windows_clipboard_text(output)
+        for command in (["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"]):
+            try:
+                return _sp.check_output(command, timeout=2).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        return None
+    except Exception:
+        return None
+
+
 def _native_clipboard_write(text):
     if not isinstance(text, str) or len(text.encode("utf-8")) > 65536:
         return False
     import subprocess as _sp
     try:
+        flags = 0
         if sys.platform == "darwin":
             command = ["pbcopy"]
         elif sys.platform == "win32":
-            command = ["clip.exe"]
+            command = _WINDOWS_CLIPBOARD_WRITE
+            flags = getattr(_sp, "CREATE_NO_WINDOW", 0)
         else:
             command = ["wl-copy"]
-        return _sp.run(command, input=text.encode("utf-8"), timeout=2, check=False).returncode == 0
+        return _sp.run(command, input=text.encode("utf-8"), timeout=3, check=False,
+                       creationflags=flags).returncode == 0
     except Exception:
         return False
 
-def _attach_client_v2(window, instance_id):
+def _attach_client_v2(window, instance_id, role="main"):
+    # Roles: "main" (the workspace and managed shell windows) and "buddy"
+    # (the desktop Buddy, bound to exactly its own document).
     from row_bot.native_client import (
         NativeDocumentAuthority,
         PyWebViewDriver,
@@ -2372,7 +2163,7 @@ def _attach_client_v2(window, instance_id):
             "attestation": attestation,
             "instance_id": context.instance_id,
             "window_id": context.window_id,
-            "window_epoch": context.window_epoch,
+            "window_epoch": context.epoch,
         })
         authority = NativeDocumentAuthority(
             str(value["session_id"]),
@@ -2391,7 +2182,7 @@ def _attach_client_v2(window, instance_id):
                 "authority_grant": authority.authority_grant,
                 "instance_id": context.instance_id,
                 "window_id": context.window_id,
-                "window_epoch": context.window_epoch,
+                "window_epoch": context.epoch,
             })
             return value.get("ok") is True
         except Exception:
@@ -2424,7 +2215,7 @@ def _attach_client_v2(window, instance_id):
                 "authority_grant": authority.authority_grant,
                 "instance_id": context.instance_id,
                 "window_id": context.window_id,
-                "window_epoch": context.window_epoch,
+                "window_epoch": context.epoch,
             })
         except Exception:
             pass
@@ -2494,8 +2285,27 @@ def _attach_client_v2(window, instance_id):
         })
         return str(value["terminal_id"])
 
+    def open_external_terminal(authority, conversation_id):
+        # The server resolves the folder and starts the person's terminal app.
+        try:
+            value = _native_json("/api/v1/native/terminal/external", {
+                "session_id": authority.session_id,
+                "policy_revision": authority.policy_revision,
+                "authority_grant": authority.authority_grant,
+                "instance_id": authority.instance_id,
+                "window_id": authority.window_id,
+                "window_epoch": authority.window_epoch,
+                "conversation_id": conversation_id,
+            })
+        except Exception:
+            return False
+        return value.get("ok") is True
+
     def open_managed(route):
         if not isinstance(route, str) or not route.startswith("/app-v2/"):
+            return False
+        if route.rstrip("/") == OVERLAY_ROUTE:
+            # Only the host opens the desktop Buddy, with its own role.
             return False
         key = "client-v2:" + route
         existing = _NAMED_WINDOWS.get(key)
@@ -2505,17 +2315,41 @@ def _attach_client_v2(window, instance_id):
                 return True
             except Exception:
                 _NAMED_WINDOWS.pop(key, None)
-        child = webview.create_window("Row-Bot", _NATIVE_ORIGIN + route, width=1280, height=900)
+        child = webview.create_window("Row-Bot", _NATIVE_ORIGIN + route, width=1280, height=900,
+                                      text_select=True)
         _NAMED_WINDOWS[key] = child
         _attach_client_v2(child, instance_id)
         return True
 
+    if role == "buddy":
+        # The desktop Buddy may only place itself, read the conversation to
+        # follow and bring the main window forward: no pickers, clipboard,
+        # saves, external links, managed windows or terminals.
+        driver = PyWebViewDriver(
+            window,
+            buddy_placement=placement_callback(_BUDDY, "buddy"),
+            read_buddy_target=_BUDDY.target,
+            show_main_window=_BUDDY.show_main,
+            allowed=_BUDDY_CAPABILITIES,
+        )
+        return attach_native_client(
+            window,
+            instance_id=instance_id,
+            origin=_NATIVE_ORIGIN,
+            driver=driver,
+            authenticate_document=authenticate,
+            authorize_document=authorize,
+            revoke_document=revoke,
+            shell_path=OVERLAY_ROUTE,
+        )
     driver = PyWebViewDriver(
         window,
         open_window=open_managed,
-        read_clipboard=_JS_API.get_clipboard,
+        read_clipboard=_native_clipboard_read,
         write_clipboard=_native_clipboard_write,
         save_reference=save_reference,
+        buddy_placement=placement_callback(_BUDDY, "main"),
+        publish_buddy_target=_BUDDY.publish_target,
     )
     return attach_native_client(
         window,
@@ -2527,23 +2361,19 @@ def _attach_client_v2(window, instance_id):
         register_selection=register_selection,
         revoke_document=revoke,
         open_terminal=open_terminal,
+        open_external_terminal=open_external_terminal,
     )
 
-main_window = webview.create_window(
-    title,
-    url,
-    width=w,
-    height=h,
-    **({} if _CLIENT_V2 else {"js_api": _JS_API}),
-)
+# pywebview blocks text selection unless asked (body { user-select: none }),
+# so messages could not be selected or copied; the app window works like the
+# browser app instead (parity row 14).
+main_window = webview.create_window(title, url, width=w, height=h, text_select=True)
 _NAMED_WINDOWS["main"] = main_window
-if _CLIENT_V2:
-    try:
-        _bootstrap = _native_json("/api/v1/native/bootstrap")
-        _attach_client_v2(main_window, str(_bootstrap["instance_id"]))
-        _buddy_window_log("client-v2 native bridge ready; terminal capability registered")
-    except Exception as exc:
-        _buddy_window_log(f"client-v2 native bridge unavailable: {exc}")
+try:
+    _attach_client_v2(main_window, _native_instance_id())
+    _buddy_window_log("client-v2 native bridge ready; terminal capability registered")
+except Exception as exc:
+    _buddy_window_log(f"client-v2 native bridge unavailable: {exc}")
 _install_main_window_buddy_events(main_window)
 _DATA_DIR = os.environ.get("ROW_BOT_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".row-bot")
 _WEBVIEW_STORAGE_PATH = os.environ.get("ROW_BOT_WEBVIEW_STORAGE_PATH") or os.path.join(
@@ -2556,7 +2386,7 @@ try:
 except Exception:
     pass
 webview.start(
-    func=_on_loaded,
+    func=lambda: _on_loaded(main_window),
     private_mode=False,
     storage_path=_WEBVIEW_STORAGE_PATH,
     icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None,
@@ -2826,17 +2656,15 @@ def _ask_window_mode() -> str:
     return "native"
 
 
-def _open_in_browser(port: int = _PORT, *, client_v2: bool = True) -> None:
+def _open_in_browser(port: int = _PORT) -> None:
     """Open the Row-Bot UI in the default system browser."""
-    webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
+    webbrowser.open(_client_url_for_port(port))
     logger.info("Opened %s in system browser on port %s", APP_DISPLAY_NAME, port)
 
 
 def _open_window(
     port: int = _PORT,
     control_port: int | None = None,
-    *,
-    client_v2: bool = True,
 ) -> subprocess.Popen | None:
     """Open a pywebview native window pointing at the running server.
 
@@ -2848,14 +2676,14 @@ def _open_window(
         logger.warning(
             "No display server detected; opening browser instead of native window"
         )
-        webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
+        webbrowser.open(_client_url_for_port(port))
         return None
     proc = None
     try:
         args = [
             sys.executable,
             "-",
-            _client_url_for_port(port, client_v2=client_v2),
+            _client_url_for_port(port),
             APP_DISPLAY_NAME,
             "1280",
             "900",
@@ -2865,11 +2693,20 @@ def _open_window(
             args.append(str(int(control_port)))
         else:
             args.append("0")
-        args.append("1" if client_v2 else "0")
+        # The window imports Row-Bot's Buddy modules. The macOS app's bundled
+        # interpreter has no path file for them (Windows' has), so the window
+        # gets the package's folder itself.
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            path
+            for path in (str(Path(__file__).resolve().parents[1]), env.get("PYTHONPATH", ""))
+            if path
+        )
         proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
             text=True,
+            env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if proc.stdin is None:
@@ -2881,7 +2718,7 @@ def _open_window(
             logger.warning(
                 "Native window exited during startup; falling back to browser"
             )
-            webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
+            webbrowser.open(_client_url_for_port(port))
             return None
         logger.info("Native window opened (PID %s, port %s)", proc.pid, port)
         return proc
@@ -2894,7 +2731,7 @@ def _open_window(
         logger.warning(
             "Could not open native window: %s — falling back to browser", exc
         )
-        webbrowser.open(_client_url_for_port(port, client_v2=client_v2))
+        webbrowser.open(_client_url_for_port(port))
         return None
 
 
@@ -2903,7 +2740,7 @@ def _wait_for_server(
     timeout: float | None = None,
     server: _RowBotProcess | None = None,
 ) -> bool:
-    """Block until the NiceGUI server is reachable, or *timeout* expires."""
+    """Block until the server is reachable, or *timeout* expires."""
     deadline = time.monotonic() + (
         timeout if timeout is not None else _startup_timeout()
     )
@@ -2933,7 +2770,6 @@ class RowBotTray:
         preferred_port: int = _PORT,
         host: str | None = None,
         preferred_mode: str | None = None,
-        client_v2: bool = True,
         no_splash: bool = False,
         no_ollama: bool = False,
     ) -> None:
@@ -2942,7 +2778,6 @@ class RowBotTray:
         self._explicit_host = host
         self._host = _resolve_launch_host(host)
         self._preferred_mode = preferred_mode
-        self._client_v2 = client_v2
         self._no_splash = no_splash
         self._no_ollama = no_ollama
         self._server = _RowBotProcess(self._port, host=self._host)
@@ -2972,12 +2807,7 @@ class RowBotTray:
         return self._window_control_port
 
     def _launch_window(self) -> subprocess.Popen | None:
-        options = {} if self._client_v2 else {"client_v2": False}
-        return _open_window(
-            self._port,
-            self._ensure_window_control_port(),
-            **options,
-        )
+        return _open_window(self._port, self._ensure_window_control_port())
 
     def _ensure_launcher_control(self) -> None:
         if self._launcher_control is not None:
@@ -2985,6 +2815,7 @@ class RowBotTray:
         control = LauncherControlServer(
             self._restart_child_from_control,
             shutdown_launcher=self._on_quit,
+            open_window=self._open_for_second_start,
         )
         control.start()
         self._launcher_control = control
@@ -2993,6 +2824,13 @@ class RowBotTray:
             control.child_environment(),
         )
         atexit.register(control.stop)
+
+    def _open_for_second_start(self) -> bool:
+        """Show Row-Bot for a second start (a shortcut); refuse while quitting."""
+        if self._quitting:
+            return False
+        threading.Thread(target=self._on_open, daemon=True, name="row-bot-open-window").start()
+        return True
 
     def _restart_child_from_control(self) -> None:
         """Restart only the child owned by this launcher."""
@@ -3060,7 +2898,7 @@ class RowBotTray:
                 return
             # Window is running but may be behind other apps.  Try to bring
             # it to the foreground WITHOUT killing it — killing drops the
-            # WebSocket connection and makes in-flight streams appear failed.
+            # event stream and makes in-flight turns appear failed.
             _brought = False
             if sys.platform == "darwin":
                 try:
@@ -3106,7 +2944,7 @@ class RowBotTray:
                 logger.info(
                     "Brought existing window to front (pid %s)", self._window_proc.pid
                 )
-                return  # keep existing WebSocket connection alive
+                return  # keep the existing event stream alive
 
             # Platform trick failed — kill and spawn fresh window.
             _RowBotProcess._terminate_process(
@@ -3132,7 +2970,7 @@ class RowBotTray:
             # External server died — just open browser and hope
             _launch_event("server_ready_timeout", port=self._port, duration_ms=0.0)
             webbrowser.open(
-                _client_url_for_port(self._port, client_v2=self._client_v2)
+                _client_url_for_port(self._port)
             )
             return
 
@@ -3142,7 +2980,7 @@ class RowBotTray:
     def _on_open_browser(self, icon=None, item=None) -> None:  # noqa: ARG002
         """Open the Row-Bot UI in the default system browser."""
         if _is_row_bot_server(self._port):
-            _open_in_browser(self._port, client_v2=self._client_v2)
+            _open_in_browser(self._port)
         elif self._owns_server:
             logger.info("Server not running — restarting before opening browser")
             self._server.stop()
@@ -3152,12 +2990,12 @@ class RowBotTray:
                 time.sleep(0.5)
             self._server.start(self._port)
             if _wait_for_server(self._port, server=self._server):
-                _open_in_browser(self._port, client_v2=self._client_v2)
+                _open_in_browser(self._port)
                 _launch_event("browser_opened", port=self._port, mode="browser")
             else:
                 logger.warning("Server did not restart — cannot open browser")
         else:
-            _open_in_browser(self._port, client_v2=self._client_v2)
+            _open_in_browser(self._port)
 
     def _on_show_buddy(self, icon=None, item=None) -> None:  # noqa: ARG002
         """Show the desktop Buddy overlay from the system tray."""
@@ -3328,7 +3166,7 @@ class RowBotTray:
             if mode == "ask":
                 mode = _ask_window_mode() if _has_display_server() else "browser"
             if mode == "browser":
-                _open_in_browser(self._port, client_v2=self._client_v2)
+                _open_in_browser(self._port)
                 _write_launcher_state(
                     port=self._port,
                     mode="browser",
@@ -3336,6 +3174,7 @@ class RowBotTray:
                     requested_mode=requested_mode,
                     selected_mode="browser",
                     opened_mode="browser",
+                    launcher_control=self._launcher_control,
                 )
             else:
                 self._window_proc = self._launch_window()
@@ -3368,17 +3207,18 @@ class RowBotTray:
                         self._window_proc and self._window_control_port
                     ),
                     fallback_reason=fallback_reason,
+                    launcher_control=self._launcher_control,
                 )
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
             webbrowser.open(
-                _client_url_for_port(self._port, client_v2=self._client_v2)
+                _client_url_for_port(self._port)
             )
 
         logger.info("%s tray startup complete", APP_DISPLAY_NAME)
 
     def run(self) -> None:
-        """Start the tray icon, the NiceGUI server, and a native window."""
+        """Start the tray icon, the server, and a native window."""
         _launch_event(
             "tray_run_start",
             port=self._preferred_port,
@@ -3476,6 +3316,12 @@ def _run_direct(args: argparse.Namespace) -> None:
     launcher_control: LauncherControlServer | None = None
     splash_proc: subprocess.Popen | None = _claim_early_splash()
 
+    def _show_again() -> bool:
+        # Direct modes have no window of their own to raise: open the client.
+        threading.Thread(target=_open_in_browser, args=(port,), daemon=True,
+                         name="row-bot-open-again").start()
+        return True
+
     def _restart_direct_child() -> None:
         if not owns_server or not restart_lock.acquire(blocking=False):
             return
@@ -3500,7 +3346,10 @@ def _run_direct(args: argparse.Namespace) -> None:
         _launch_event("server_already_running", port=port)
     else:
         server_started = time.perf_counter()
-        launcher_control = LauncherControlServer(_restart_direct_child)
+        launcher_control = LauncherControlServer(
+            _restart_direct_child,
+            open_window=None if (args.server or args.no_open) else _show_again,
+        )
         launcher_control.start()
         _set_process_launch_environment(server, launcher_control.child_environment())
         server.start(port, resolved_host)
@@ -3586,11 +3435,7 @@ def _run_direct(args: argparse.Namespace) -> None:
     if not args.no_open:
         if selected_mode == "native" and _has_display_server():
             window_control_port = _find_free_port(port + 10000, max_tries=50)
-            window_proc = _open_window(
-                port,
-                window_control_port,
-                client_v2=bool(getattr(args, "client_v2", True)),
-            )
+            window_proc = _open_window(port, window_control_port)
             if window_proc is None:
                 window_control_port = None
                 mode_for_state = "browser"
@@ -3612,9 +3457,7 @@ def _run_direct(args: argparse.Namespace) -> None:
             mode_for_state = "browser"
             opened_mode = "browser"
             fallback_reason = "display_server_unavailable"
-            _open_in_browser(
-                port, client_v2=bool(getattr(args, "client_v2", True))
-            )
+            _open_in_browser(port)
             _launch_event(
                 "native_window_fallback",
                 port=port,
@@ -3626,9 +3469,7 @@ def _run_direct(args: argparse.Namespace) -> None:
         elif _has_display_server() or not args.server:
             mode_for_state = "browser"
             opened_mode = "browser"
-            _open_in_browser(
-                port, client_v2=bool(getattr(args, "client_v2", True))
-            )
+            _open_in_browser(port)
             _launch_event("browser_opened", port=port, mode="browser")
         else:
             logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
@@ -3646,6 +3487,7 @@ def _run_direct(args: argparse.Namespace) -> None:
         opened_mode=opened_mode,
         window_authorized=bool(window_proc and window_control_port),
         fallback_reason=fallback_reason,
+        launcher_control=launcher_control,
     )
 
     if owns_server:
@@ -3847,12 +3689,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--client-v2",
         action="store_true",
-        help="Deprecated no-op alias for the default React client at /app-v2/",
+        help="Deprecated; does nothing (Row-Bot always opens its React app)",
     )
     parser.add_argument(
         "--legacy-ui",
         action="store_true",
-        help="Open the retained legacy local UI at /",
+        help="Deprecated; does nothing (Row-Bot always opens its React app)",
     )
     parser.add_argument(
         "--no-splash", action="store_true", help="Skip the launcher splash screen"
@@ -3881,7 +3723,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=_PORT, help=f"Preferred app port (default: {_PORT})"
     )
     parser.add_argument(
-        "--host", default=None, help="Host/interface for the NiceGUI server"
+        "--host", default=None, help="Host/interface for the server"
     )
     return parser
 
@@ -3921,10 +3763,7 @@ def main(argv: list[str] | None = None) -> None:
         from row_bot.plugins import devtools as plugin_devtools
 
         raise SystemExit(plugin_devtools.run_cli(args))
-    try:
-        selected_client_v2 = _resolve_client_v2(args)
-    except ValueError as exc:
-        raise SystemExit(f"row-bot: {exc}") from exc
+    _warn_deprecated_client_flags(args)
     if getattr(args, "command", "") == "serve":
         from row_bot.access.access_routes import AccessRouteConfigStore
         from row_bot.access.cli import resolve_serve_options, serve_startup_lines
@@ -3954,7 +3793,10 @@ def main(argv: list[str] | None = None) -> None:
         args.reset_tasks_db = False
         args.reset_db = False
         args.restore_data = None
-    args.client_v2 = selected_client_v2
+    if not _claim_instance():
+        handed_off = _hand_off_to_running_instance(args)
+        if handed_off is not None:
+            raise SystemExit(handed_off)
     args._dynamic_host_input = args.host
     args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None
@@ -3985,6 +3827,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.restore_data is not None:
         raise SystemExit(_restore_data(args.restore_data))
 
+    # Until the app is up, a second start leaves opening the window to this one.
+    _write_launcher_state(
+        port=parse_app_port(args.port, default=_PORT),
+        mode="starting",
+        owns_server=False,
+        phase="starting",
+    )
     try:
         if direct:
             if sys.platform.startswith("linux") and preferred_mode is None:
@@ -3995,7 +3844,6 @@ def main(argv: list[str] | None = None) -> None:
             preferred_port=parse_app_port(args.port, default=_PORT),
             host=args.host,
             preferred_mode=preferred_mode,
-            client_v2=bool(args.client_v2),
             no_splash=args.no_splash,
             no_ollama=args.no_ollama,
         )

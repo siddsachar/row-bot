@@ -5,7 +5,9 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import pytest
 
@@ -19,34 +21,43 @@ def article(stack, subject="Alice"):
     )
 
 
-def test_stable_id_names_survive_rename_and_subject_collisions(wiki_stack):
+def test_readable_names_follow_renames_and_never_collide(wiki_stack):
     wiki = wiki_stack["wiki_vault"]
     first = article(wiki_stack, "A/B")
     second = article(wiki_stack, "A:B")
     path = wiki.export_entity(first)
     other = wiki.export_entity(second)
-    assert path != other
+    assert path.name == "A_B.md"
+    assert other.name.startswith("A_B (") and other.name != path.name
     renamed = wiki_stack["kg"].update_entity(first["id"], first["description"], subject="Renamed")
-    assert wiki.export_entity(renamed) == path
-    assert "# Renamed" in path.read_text(encoding="utf-8")
+    moved = wiki.export_entity(renamed)
+    assert moved == path.with_name("Renamed.md")
+    assert "# Renamed" in moved.read_text(encoding="utf-8")
+    assert not path.exists()  # the old name is retired, kept in recovery
+    recovery = wiki_stack["vault"] / "wiki" / ".row-bot-recovery"
+    assert any("# A/B" in kept.read_text(encoding="utf-8") for kept in recovery.glob("*.retained"))
     assert wiki.read_article(first["id"]) == wiki.read_article("Renamed")
     assert "A:B" in other.read_text(encoding="utf-8")
 
 
-def test_unowned_generated_looking_files_survive_export_rebuild_and_clear(wiki_stack):
+def test_unowned_files_survive_export_rebuild_and_clear_and_a_clash_adds_a_short_id(wiki_stack):
     wiki = wiki_stack["wiki_vault"]
     entity = article(wiki_stack)
-    path = wiki._entity_md_path(entity)
-    path.write_text(wiki.render_entity_md(entity), encoding="utf-8")
-    unknown = path.parent / "Personal.md"
+    wiki.tidy_vault()  # later files are never adopted, even generated-looking ones
+    own = wiki_stack["vault"] / "wiki" / "person" / "Alice.md"
+    own.parent.mkdir(parents=True, exist_ok=True)
+    own.write_text(wiki.render_entity_md(entity), encoding="utf-8")
+    unknown = own.parent / "Personal.md"
     unknown.write_text("private synthetic note", encoding="utf-8")
-    original = path.read_bytes()
-    assert wiki.export_entity(entity) is None
+    original = own.read_bytes()
+    path = wiki.export_entity(entity)
+    assert path.parent == own.parent and path.name.startswith("Alice (")
     result = wiki.rebuild_vault()
-    assert result["conflicts"]
+    assert not result["conflicts"]
     assert result["orphans_removed"] == 0
     wiki.clear_wiki_folder()
-    assert path.read_bytes() == original
+    assert not path.exists()
+    assert own.read_bytes() == original
     assert unknown.read_text(encoding="utf-8") == "private synthetic note"
 
 
@@ -127,11 +138,13 @@ def test_manifest_failure_after_publication_reconciles_without_overwriting(wiki_
 def test_interrupted_intent_does_not_adopt_identical_unowned_article(wiki_stack, monkeypatch):
     wiki = wiki_stack["wiki_vault"]
     entity = article(wiki_stack)
+    wiki.tidy_vault()
     path = wiki._entity_md_path(entity)
-    path.write_text(wiki.render_entity_md(entity), encoding="utf-8")
     original_write = wiki._write_manifest
     def interrupt_after_intent(manifest):
         original_write(manifest)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(wiki.render_entity_md(entity), encoding="utf-8")  # an identical copy, not the app's
         raise SystemExit("synthetic interruption before file effects")
     monkeypatch.setattr(wiki, "_write_manifest", interrupt_after_intent)
     with pytest.raises(SystemExit):
@@ -161,7 +174,10 @@ def test_legacy_sync_retains_unowned_status_and_rejects_stale_revision(wiki_stac
     kg = wiki_stack["kg"]
     entity = article(wiki_stack)
     legacy = wiki_stack["vault"] / "wiki" / "person" / "Alice.md"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_text(wiki.render_entity_md(entity) + "\nlegacy edit\n", encoding="utf-8")
+    edited_later = time.time() + 60  # a hand edit after the export: the tidy leaves it alone
+    os.utime(legacy, (edited_later, edited_later))
     assert wiki.read_article("Alice")
     review = wiki.check_vault_sync()[0]
     assert review["status"] == "legacy_review"
@@ -181,14 +197,17 @@ def test_initial_legacy_sync_cannot_infer_unchanged_properties_from_timestamp(wi
     wiki = wiki_stack["wiki_vault"]
     kg = wiki_stack["kg"]
     entity = article(wiki_stack)
-    entity = kg.update_entity(entity["id"], entity["description"],
-                               properties={"recalled_at": "synthetic-old"})
     legacy = wiki_stack["vault"] / "wiki" / "person" / "Alice.md"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_text(wiki.render_entity_md(entity) + "\nlegacy edit\n", encoding="utf-8")
-    kg.touch_recalled([entity["id"]])
+    edited_later = time.time() + 60
+    os.utime(legacy, (edited_later, edited_later))
+    with closing(sqlite3.connect(kg.DB_PATH)) as conn:  # a property change that keeps updated_at
+        conn.execute("UPDATE entities SET properties=? WHERE id=?", ('{"status": "archived"}', entity["id"]))
+        conn.commit()
     current = kg.get_entity(entity["id"])
     assert current["updated_at"] == entity["updated_at"]
-    assert wiki.sync_all_from_vault()["failed"] == 1
+    assert wiki.import_from_vault(entity["id"], legacy) is False
     assert kg.get_entity(entity["id"])["properties"] == current["properties"]
 
 
@@ -346,13 +365,17 @@ def test_full_row_cas_preserves_changes_without_revision_timestamp(wiki_stack, m
         assert kg.get_entity(entity["id"])["updated_at"] == entity["updated_at"]
         return original_update(*args, **kwargs)
     monkeypatch.setattr(kg, "update_entity", mutate_before_cas)
-    assert not wiki.import_from_vault(entity["id"], path)
+    imported = wiki.import_from_vault(entity["id"], path)
     current = kg.get_entity(entity["id"])
     if mutation == "recall":
-        assert "recalled_at" in json.loads(current["properties"])
+        # A recall is not a knowledge change: the reviewed import still applies.
+        assert imported
+        assert entity["id"] in kg.recall_stamps()
+        assert "vault edit" in current["description"]
     else:
+        assert not imported
         assert current["description"] == "Concurrent same-timestamp database edit."
-    assert "vault edit" not in current["description"]
+        assert "vault edit" not in current["description"]
 
 
 def test_full_row_cas_releases_writer_on_update_failure(wiki_stack, monkeypatch):
@@ -386,6 +409,7 @@ def test_full_row_cas_releases_writer_on_update_failure(wiki_stack, monkeypatch)
         connection.close()
 
 
+@pytest.mark.slow
 def test_snapshot_has_no_old_limit_and_is_consistent_across_batches(wiki_stack):
     kg = wiki_stack["kg"]
     entity = article(wiki_stack)

@@ -40,14 +40,12 @@ The installed entry point is `row-bot serve`. The older
 compatibility path; new scripts and service definitions should use the
 subcommand. Server mode requires an authenticated browser even over loopback.
 
-The normal launcher opens React at `/app-v2/`; use the explicit fallback when
-diagnosing the retained NiceGUI client:
+The launcher opens the React client at `/app-v2/`. The old `--legacy-ui` and
+`--client-v2` options are deprecated no-ops.
 
-```powershell
-uv run python launcher.py --legacy-ui
-```
-
-Direct NiceGUI launch also remains supported through the root wrapper:
+To run the server without the launcher's tray or window, use the root wrapper
+(`http://localhost:8080`, which redirects to `/app-v2/`; `ROW_BOT_PORT` changes
+the port):
 
 ```powershell
 python app.py
@@ -66,14 +64,14 @@ Remote-access implementation is intentionally separated by responsibility:
   origin/Host/proxy checks, invitations, devices, sessions, cookies,
   capabilities, diagnostics, Tailscale Serve control, CLI helpers, and access
   routes.
-- `src/row_bot/ui/remote_access_settings.py` owns the owner-facing Remote
-  Access settings surface. `src/row_bot/ui/access_context.py` exposes the
-  request-scoped capability boundary used by UI handlers.
-- `src/row_bot/mobile/` keeps the companion UI and compatibility imports. The
-  versioned access policy and durable store live under `row_bot.access`; do not
-  reintroduce a second mobile-only authorization policy.
-- `src/row_bot/app.py`, `src/row_bot/app_port.py`, and
-  `src/row_bot/launcher.py` are shared integration points for deployment mode,
+- The React client owns the owner-facing Remote Access settings
+  (`frontend/src/features/settings/Access*.tsx`).
+- `src/row_bot/mobile/` keeps pairing routes, PWA endpoints, and compatibility
+  imports. The versioned access policy and durable store live under
+  `row_bot.access`; do not reintroduce a second mobile-only authorization
+  policy.
+- `src/row_bot/server.py`, `src/row_bot/app.py`, `src/row_bot/app_port.py`,
+  and `src/row_bot/launcher.py` are shared integration points for deployment mode,
   middleware, child-process restart, and CLI dispatch.
 - `deploy/docker/` contains the hardened image, loopback-published Compose
   example, and operator runbook. `deploy/reverse-proxy/` and `deploy/systemd/`
@@ -90,10 +88,9 @@ disable only an unchanged owned route. All three files are private local state
 under `ROW_BOT_DATA_DIR`; none belongs in source control, images, or test
 fixtures containing real user data.
 
-Source-to-test ownership for these paths lives in
-`tests/helpers/source_test_map.py`. Focused coverage belongs in
-`tests/subsystem/access/`, `tests/integration/access/`, and the deployment
-contracts under `tests/contracts/installers/`.
+Focused coverage belongs in `tests/subsystem/access/`,
+`tests/integration/access/`, and the deployment contracts under
+`tests/contracts/installers/`.
 
 ## Packaging Payloads
 
@@ -113,20 +110,17 @@ coverage. The manifest currently separates the package into:
 Windows packaging uses `installer/row_bot_setup.iss` to recursively include
 `src/row_bot`. macOS and Linux builders call `scripts/app_payload_manifest.py`
 for root files, runtime scripts, payload directories, and asset directories.
-Packaging tests in `tests/test_linux_support.py`, `tests/test_dependency_metadata.py`,
-and focused `tests/subsystem/installer/` contracts assert those boundaries.
+Packaging tests in `tests/subsystem/installer/` assert those boundaries.
 
 Because `src/row_bot` is recursive, the shared Browser runtime, native Computer
 Use, the Buddy desktop overlay, coordinated conversation cleanup, live provider
 media catalogs, context accounting and compaction, progressive capability and
 skill discovery, durable skill activation, access/runtime policy, provider
-transports, channel streaming, the Remote Access UI, and the mobile companion
+transports, channel streaming, the staged React client, and the mobile routes
 require no per-file installer entries. Deployment examples under `deploy/` are
 source-distribution/operator artifacts rather than runtime Python packages.
-`tests/test_linux_support.py` keeps required runtime packages in the
-cross-platform payload inventory, while
-`tests/subsystem/installer/test_computer_use_package_data.py` verifies that the
-Computer Use JSON manifest survives both wheel and installer packaging.
+`tests/subsystem/installer/test_linux_support.py` keeps required runtime
+packages in the cross-platform payload inventory.
 
 ## Local Cleanup Candidates
 

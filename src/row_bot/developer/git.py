@@ -72,6 +72,16 @@ def get_git_status(path: str) -> GitStatus:
         return GitStatus(path=str(folder), error=str(exc))
 
 
+def list_branches(path: str, *, limit: int = 50) -> list[str]:
+    """Local branch names, most recently committed first, at most ``limit``."""
+    folder = pathlib.Path(path).expanduser()
+    output = _run_git(folder, [
+        "for-each-ref", "--sort=-committerdate", f"--count={max(1, limit)}",
+        "--format=%(refname:short)", "refs/heads",
+    ])
+    return [line.strip() for line in output.splitlines() if line.strip()][:limit]
+
+
 def sanitize_branch_name(name: str) -> str:
     text = str(name or "").strip().replace("\\", "/")
     text = re.sub(r"\s+", "-", text)
@@ -82,10 +92,6 @@ def sanitize_branch_name(name: str) -> str:
     if text.endswith(".lock"):
         text = text[:-5]
     return text[:120]
-
-
-def suggest_feature_branch(base: str = "developer") -> str:
-    return f"feat/{sanitize_branch_name(base)}"
 
 
 def create_branch(path: str, branch_name: str) -> GitStatus:

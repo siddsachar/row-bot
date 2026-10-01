@@ -16,6 +16,16 @@ from .conftest import manifest_payload, write_plugin
 pytestmark = pytest.mark.subsystem
 
 
+def _saved(state: Any, plugin_id: str) -> dict[str, Any]:
+    """The persisted plugin_state.json record the client reads."""
+    return json.loads(state._STATE_PATH.read_text(encoding="utf-8")).get(plugin_id, {})
+
+
+def _installed_version(installer: Any, plugin_id: str) -> str:
+    """The version in the installed plugin.json the client reads."""
+    return json.loads((installer.PLUGINS_DIR / plugin_id / "plugin.json").read_text(encoding="utf-8"))["version"]
+
+
 def test_state_persists_enable_config_and_keyring_secret_metadata(
     plugin_modules: dict[str, Any],
 ) -> None:
@@ -34,7 +44,7 @@ def test_state_persists_enable_config_and_keyring_secret_metadata(
     assert state.is_plugin_enabled("state-plugin") is False
     assert state.get_plugin_config("state-plugin", "limit") == 7
     assert state.get_plugin_secret("state-plugin", "API_KEY") == "secret-value"
-    assert state.get_plugin_health_result("state-plugin")["ok"] is True
+    assert _saved(state, "state-plugin").get("health", {})["ok"] is True
 
     secrets_text = (state.DATA_DIR / "plugin_secrets.json").read_text(encoding="utf-8")
     secrets_doc = json.loads(secrets_text)
@@ -45,7 +55,7 @@ def test_state_persists_enable_config_and_keyring_secret_metadata(
     assert state.is_plugin_enabled("state-plugin") is False
     assert state.get_plugin_config("state-plugin", "limit") is None
     assert state.get_plugin_secret("state-plugin", "API_KEY") is None
-    assert state.get_plugin_health_result("state-plugin") == {}
+    assert _saved(state, "state-plugin").get("health", {}) == {}
 
 
 def test_state_records_installed_plugins_disabled_by_default(
@@ -61,7 +71,7 @@ def test_state_records_installed_plugins_disabled_by_default(
     )
 
     assert state.is_plugin_enabled("installed-plugin") is False
-    assert state.get_plugin_install_info("installed-plugin")["version"] == "1.2.3"
+    assert _saved(state, "installed-plugin").get("installed", {})["version"] == "1.2.3"
 
 
 def test_state_clears_plugin_health_when_setup_changes(
@@ -74,10 +84,10 @@ def test_state_clears_plugin_health_when_setup_changes(
         ok=True,
         checks=[{"label": "Required local setup", "status": "ok"}],
     )
-    assert state.get_plugin_health_result("health-plugin")["ok"] is True
+    assert _saved(state, "health-plugin").get("health", {})["ok"] is True
 
     state.set_plugin_config("health-plugin", "workspace", "D:/new")
-    assert state.get_plugin_health_result("health-plugin") == {}
+    assert _saved(state, "health-plugin").get("health", {}) == {}
 
     state.set_plugin_health_result(
         "health-plugin",
@@ -86,7 +96,7 @@ def test_state_clears_plugin_health_when_setup_changes(
     )
     state.set_plugin_secret("health-plugin", "TOKEN", "secret-value")
 
-    assert state.get_plugin_health_result("health-plugin") == {}
+    assert _saved(state, "health-plugin").get("health", {}) == {}
 
 
 def test_installer_local_install_update_uninstall_and_rollback(
@@ -105,7 +115,7 @@ def test_installer_local_install_update_uninstall_and_rollback(
     assert "kept it off" in result.message
     assert "Configure, test, then enable" in result.message
     assert installer.is_installed("install-plugin") is True
-    assert installer.get_installed_version("install-plugin") == "1.0.0"
+    assert _installed_version(installer, "install-plugin") == "1.0.0"
     assert plugin_modules["state"].is_plugin_enabled("install-plugin") is False
 
     duplicate = installer.install_plugin("install-plugin", source_dir=source_v1)
@@ -135,12 +145,12 @@ def test_installer_local_install_update_uninstall_and_rollback(
     )
     assert update.success is True
     assert (prior_backup / "user-note.txt").read_text(encoding="utf-8") == "preserve"
-    assert installer.get_installed_version("install-plugin") == "2.0.0"
-    install_info = plugin_modules["state"].get_plugin_install_info("install-plugin")
+    assert _installed_version(installer, "install-plugin") == "2.0.0"
+    install_info = _saved(plugin_modules["state"], "install-plugin").get("installed", {})
     assert install_info["source"] == "marketplace"
     assert install_info["source_ref"] == "plugins/install-plugin"
     assert plugin_modules["state"].is_plugin_enabled("install-plugin") is False
-    assert plugin_modules["state"].get_plugin_health_result("install-plugin") == {}
+    assert _saved(plugin_modules["state"], "install-plugin").get("health", {}) == {}
 
     unsafe_source = write_plugin(
         tmp_path / "sources_bad",
@@ -150,7 +160,7 @@ def test_installer_local_install_update_uninstall_and_rollback(
     )
     failed_update = installer.update_plugin("install-plugin", source_dir=unsafe_source)
     assert failed_update.success is False
-    assert installer.get_installed_version("install-plugin") == "2.0.0"
+    assert _installed_version(installer, "install-plugin") == "2.0.0"
 
     uninstall = installer.uninstall_plugin("install-plugin")
     assert uninstall.success is True
@@ -226,11 +236,47 @@ def test_installer_installs_plugin_from_local_zip_archive(
     )
 
     assert result.success is True
-    assert installer.get_installed_version("archive-plugin") == "1.0.0"
+    assert _installed_version(installer, "archive-plugin") == "1.0.0"
     assert plugin_modules["state"].is_plugin_enabled("archive-plugin") is False
-    assert plugin_modules["state"].get_plugin_install_info("archive-plugin")["source_ref"] == (
+    assert _saved(plugin_modules["state"], "archive-plugin").get("installed", {})["source_ref"] == (
         "archives/archive-plugin.zip"
     )
+
+
+def test_installer_downloads_only_with_a_checksum_and_only_inside_the_archive(
+    plugin_modules: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    installer = plugin_modules["installer"]
+    devtools = plugin_modules["devtools"]
+    installer.PLUGINS_DIR = tmp_path / "installed_plugins"
+    tree = tmp_path / "repository"
+    source = write_plugin(tree / "plugins", "archive-plugin")
+    archive = tmp_path / "repository.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for path in source.rglob("*"):
+            zf.write(path, Path("row-bot-plugins-main") / path.relative_to(tree))
+    downloads: list[str] = []
+    monkeypatch.setattr(installer, "_download_to_file", lambda ref, dest: downloads.append(ref))
+
+    unpinned = installer.install_plugin(
+        "archive-plugin", archive_url="https://example.test/repository.zip",
+        archive_path="plugins/archive-plugin",
+    )
+    assert unpinned.success is False and unpinned.code == "plugin_checksum_unavailable"
+    assert downloads == []
+
+    monkeypatch.setattr(installer, "_download_to_file", lambda ref, dest: dest.write_bytes(archive.read_bytes()))
+    # A folder above the archive's own is never copied (it would hold the
+    # download itself), whatever the checksum says.
+    escaped = installer.install_plugin(
+        "archive-plugin", archive_url="https://example.test/repository.zip",
+        archive_path="../..", expected_checksum=devtools.compute_plugin_checksum(source),
+    )
+    assert escaped.success is False and escaped.code == "plugin_install_failed"
+    assert "has no folder" in escaped.message
+    assert not installer.is_installed("archive-plugin")
 
 
 def test_marketplace_parse_search_tags_entry_and_update_detection(
@@ -274,12 +320,6 @@ def test_marketplace_parse_search_tags_entry_and_update_detection(
     index = marketplace._parse_index(raw)
 
     assert index.schema_version == 2
-    assert [p.id for p in marketplace.search_plugins(query="alpha", index=index)] == ["alpha-plugin"]
-    assert [p.id for p in marketplace.search_plugins(tag="demo", index=index)] == [
-        "alpha-plugin",
-        "beta-plugin",
-    ]
-    assert marketplace.get_all_tags(index) == ["alpha", "demo"]
     entry = marketplace.get_entry("alpha-plugin", index)
     assert entry.native_tool_count == 2
     assert entry.mcp_server_count == 1
@@ -452,68 +492,3 @@ def test_marketplace_fetch_falls_back_to_stale_disk_cache_on_refresh_failure(
     index = marketplace.fetch_index(force_refresh=True)
 
     assert [entry.id for entry in index.plugins] == ["stale-plugin"]
-
-
-def test_marketplace_entry_install_kwargs_resolve_local_index_source(
-    plugin_modules: dict[str, Any],
-    tmp_path: Path,
-) -> None:
-    marketplace = plugin_modules["marketplace"]
-    from row_bot.plugins.ui_marketplace import _marketplace_install_kwargs
-
-    plugin_dir = write_plugin(tmp_path / "repo" / "plugins", "local-market-plugin")
-    checksum = plugin_modules["devtools"].compute_plugin_checksum(plugin_dir)
-    index = marketplace._parse_index(
-        {
-            "source": str(tmp_path / "repo"),
-            "plugins": [
-                {
-                    "id": "local-market-plugin",
-                    "name": "Local Market Plugin",
-                    "version": "1.0.0",
-                    "description": "Local index install test",
-                    "path": "plugins/local-market-plugin",
-                    "checksum": checksum,
-                }
-            ],
-        }
-    )
-
-    kwargs = _marketplace_install_kwargs(index.plugins[0])
-
-    assert kwargs == {
-        "source_dir": plugin_dir,
-        "source": "marketplace",
-        "source_ref": "plugins/local-market-plugin",
-        "archive_url": "",
-        "expected_checksum": checksum,
-    }
-
-
-def test_marketplace_entry_install_kwargs_include_archive_url(
-    plugin_modules: dict[str, Any],
-) -> None:
-    marketplace = plugin_modules["marketplace"]
-    from row_bot.plugins.ui_marketplace import _marketplace_install_kwargs
-
-    index = marketplace._parse_index(
-        {
-            "plugins": [
-                {
-                    "id": "archive-market-plugin",
-                    "name": "Archive Market Plugin",
-                    "version": "1.0.0",
-                    "description": "Archive install test",
-                    "archive_url": "file:///tmp/archive-market-plugin.zip",
-                    "checksum": "sha256:" + "1" * 64,
-                }
-            ],
-        }
-    )
-
-    kwargs = _marketplace_install_kwargs(index.plugins[0])
-
-    assert kwargs["source_dir"] is None
-    assert kwargs["source_ref"] == "file:///tmp/archive-market-plugin.zip"
-    assert kwargs["archive_url"] == "file:///tmp/archive-market-plugin.zip"
-    assert kwargs["expected_checksum"] == "sha256:" + "1" * 64

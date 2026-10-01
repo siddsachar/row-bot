@@ -183,11 +183,20 @@ def test_self_target_rejected_before_claim(client,kind):
         command(client,kind,first,first)
 
 
-@pytest.mark.parametrize('label',['related_to','associated_with','has_relation'])
-def test_vague_normalized_relations_do_not_mutate(client,label):
+@pytest.mark.parametrize('label',['related_to','Associated with','has_relation'])
+def test_vague_normalized_relations_are_refused_by_name_before_claim(client,label):
+    from row_bot.application import knowledge_relations as api
     first,second = pair(client)
-    result = execute(client,command(client,'knowledge.relation.add',first,second,relation_type=label))
-    assert result['status'] == 'rejected' and client[1].count_relations() == 0
+    with pytest.raises(ValueError,match='relation_type_too_vague'):
+        command(client,'knowledge.relation.add',first,second,relation_type=label)
+    base = client[0]
+    payload = {'source_id':first['id'],'target_id':second['id'],'source_revision':base._digest(first),
+               'target_revision':base._digest(second),'relation_type':label,'review_id':'reviewed-test'}
+    value = {'command_id':str(uuid4()),'type':'knowledge.relation.add','payload':payload}
+    with pytest.raises(ValueError,match='relation_type_too_vague'):
+        execute(client,value)
+    assert client[1].count_relations() == 0
+    assert api.admissions.read_command_metadata(client[2]['owner_id'],value['command_id']) is None
 
 
 def test_pagination_complete_and_revision_bound(client):

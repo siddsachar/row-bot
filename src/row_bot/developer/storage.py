@@ -162,6 +162,23 @@ def remove_workspace(workspace_id: str) -> DeveloperWorkspace:
 
 
 @_registry_mutation
+def set_workspace_hidden(workspace_id: str, hidden: bool) -> DeveloperWorkspace:
+    """Hide or show a saved workspace in lists, keeping its revision.
+
+    Unlike ``remove_workspace`` this leaves ``updated_at`` alone: the
+    revision is what conversations using the folder hold, and a list entry
+    is not a change to the folder.
+    """
+    workspace = get_workspace(workspace_id)
+    if workspace is None:
+        raise ValueError(f"Developer workspace not found: {workspace_id}")
+    if workspace.hidden != hidden:
+        workspace.hidden = hidden
+        save_workspace(workspace)
+    return workspace
+
+
+@_registry_mutation
 def delete_workspace_record(workspace_id: str) -> bool:
     """Delete only a Row-Bot workspace registry row; never touch its files."""
 
@@ -299,12 +316,6 @@ def add_or_update_local_workspace(path: str, *, repo_url: str = "") -> Developer
     return save_workspace(workspace)
 
 
-def list_clone_parent_folders() -> list[str]:
-    payload = _load_payload()
-    rows = [str(p) for p in payload.get("clone_parent_folders", []) if p]
-    return rows[:8]
-
-
 @_registry_mutation
 def remember_clone_parent_folder(path: str) -> None:
     resolved = str(pathlib.Path(path).expanduser().resolve())
@@ -377,85 +388,6 @@ def latest_workspace_thread(workspace_id: str) -> str | None:
 
 
 @_registry_mutation
-def create_workspace_thread(
-    workspace_id: str,
-    *,
-    name: str | None = None,
-    name_source: str = "auto",
-    use_worktree: bool | None = None,
-    seed_mode: str = "current_changes",
-) -> str:
-    """Create a new empty Developer thread for a project workspace."""
-    workspace = get_workspace(workspace_id)
-    if workspace is None:
-        raise ValueError(f"Developer workspace not found: {workspace_id}")
-    from row_bot.threads import create_thread
-
-    thread_name = str(name or "").strip()
-    if not thread_name:
-        thread_name = f"Thread {datetime.now().strftime('%b %d, %H:%M')}"
-    thread_id = create_thread(
-        thread_name,
-        thread_type="code",
-        developer_workspace_id=workspace.id,
-        project_workspace_id=workspace.id,
-        approval_mode=workspace.approval_mode,
-        name_source=name_source,
-    )
-    if use_worktree is None:
-        use_worktree = is_git_repository_root(workspace.path)
-    if use_worktree:
-        from row_bot.developer.worktrees import allocate_thread_worktree, switch_thread_to_worktree
-
-        allocated = allocate_thread_worktree(
-            thread_id,
-            workspace.id,
-            objective=thread_name,
-            seed_mode=seed_mode,
-        )
-        if str(allocated.get("status") or "") != "active":
-            raise ValueError(str(allocated.get("error") or "Failed to create Worktree."))
-        switch_thread_to_worktree(thread_id, str(allocated.get("worktree_workspace_id") or ""))
-    _seed_developer_thread_skills(thread_id)
-    workspace.touch()
-    save_workspace(workspace)
-    return thread_id
-
-
-def create_thread_worktree(
-    thread_id: str,
-    project_workspace_id: str,
-    *,
-    objective: str = "",
-    seed_mode: str = "current_changes",
-) -> dict:
-    """Create a Worktree for an existing current-folder Developer thread."""
-    project = get_workspace(project_workspace_id)
-    if project is None:
-        raise ValueError(f"Developer workspace not found: {project_workspace_id}")
-    from row_bot.developer.worktrees import allocate_thread_worktree, switch_thread_to_worktree
-
-    allocated = allocate_thread_worktree(
-        thread_id,
-        project.id,
-        objective=objective or f"Developer thread {thread_id}",
-        seed_mode=seed_mode,
-    )
-    if str(allocated.get("status") or "") != "active":
-        raise ValueError(str(allocated.get("error") or "Failed to create Worktree."))
-    switch_thread_to_worktree(thread_id, str(allocated.get("worktree_workspace_id") or ""))
-    return allocated
-
-
-def ensure_latest_workspace_thread(workspace_id: str) -> str:
-    """Return the latest workspace thread, falling back to the legacy default."""
-    latest = latest_workspace_thread(workspace_id)
-    if latest:
-        return latest
-    return create_workspace_thread(workspace_id)
-
-
-@_registry_mutation
 def ensure_workspace_thread(workspace_id: str) -> str:
     workspace = get_workspace(workspace_id)
     if workspace is None:
@@ -525,10 +457,3 @@ def is_git_repository_root(path: str) -> bool:
         return False
     return bool(status.get("is_repo_root"))
 
-
-def workspace_updated_label(workspace: DeveloperWorkspace) -> str:
-    try:
-        dt = datetime.fromisoformat(workspace.updated_at)
-        return dt.strftime("%b %d, %H:%M")
-    except Exception:
-        return workspace.updated_at[:16] if workspace.updated_at else ""

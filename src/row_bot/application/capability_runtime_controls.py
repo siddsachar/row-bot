@@ -32,6 +32,7 @@ class McpRuntimeState:
     runtime_id: str | None
     state: str
     session_quiesced: bool | None
+    enabled: bool | None
 
 
 def _identity(value: str, *, uuid: bool = False) -> None:
@@ -68,21 +69,26 @@ def read_mcp_runtime_state(server_id: str, *, expected_runtime_id: str | None = 
     _identity(server_id)
     if expected_runtime_id is not None:
         _identity(expected_runtime_id, uuid=True)
+    enabled = None
     try:
         saved = config.read_saved_configuration()
         revision = configuration._revision(saved)
         availability = "recovery_required" if config.configuration_recovery_required() else "available" if saved.exists else "missing"
+        server = next((value for name, value in saved.document.get("servers", {}).items()
+                       if configuration._server_id(name) == server_id), None)
+        if type(server) is dict:
+            enabled = saved.document.get("enabled") is True and server.get("enabled") is True
     except config.McpConfigurationError:
         revision, availability = None, "unavailable"
     owner = _owned(server_id, expected_runtime_id)
     validate()
     if owner is None:
-        return McpRuntimeState(1, server_id, revision, None, availability, None, "missing", None)
+        return McpRuntimeState(1, server_id, revision, None, availability, None, "missing", None, enabled)
     state = owner.state if owner.state in {"not_started", "connecting", "connected", "stopping", "stopped", "failed", "dependency_missing", "cleanup_incomplete"} else "unknown"
     if owner.cleanup_complete and not owner._release_confirmed:
         state = "cleanup_incomplete"
     return McpRuntimeState(1, server_id, revision, _cleanup_revision(server_id, owner.runtime_id), availability, owner.runtime_id, state,
-                           owner.cleanup_complete and owner._finished.is_set())
+                           owner.cleanup_complete and owner._finished.is_set(), enabled)
 
 
 def _review(revision: str, server_id: str, operation: str, runtime_id: str | None,

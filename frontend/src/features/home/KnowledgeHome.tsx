@@ -1,16 +1,98 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
+import * as Popover from '@radix-ui/react-popover';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  ArrowRight,
+  GitMerge,
+  History,
+  ListChecks,
+  ListFilter,
+  Maximize2,
+  Moon,
+  Network,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Rows3,
+  Search,
+  Trash2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
+import type {
+  EntitySummary,
+  EntitySummaryPage,
+  KnowledgeMemoryChangePage,
+  KnowledgeRecallPage,
+} from '../../api/types';
 import {
   Button,
-  CompactAction,
-  Field,
-  Input,
+  Disclosure,
+  IconButton,
+  Segmented,
   Select,
   Toggle,
+  Toolbar,
+  ToolbarSeparator,
+  type SegmentedOption,
 } from '../../ui/primitives';
+import { Drawer } from '../../ui/overlays';
 import KnowledgeGraphCanvas, {
   type KnowledgeGraphHandle,
 } from './KnowledgeGraphCanvas';
+import KnowledgeList, { sourceWords } from './KnowledgeList';
+import KnowledgeReview, {
+  type KnowledgeLifecycleAction,
+} from './KnowledgeReview';
+import KnowledgeActivity from './KnowledgeActivity';
+import { typeSlot } from './knowledge-palette';
+import { When, plural } from './home-format';
+import { humanizeToken, relativeTime } from '../../ui/format';
+
+/** Recall tiers from memory_policy.py, in words people use (B8). */
+const MEMORY_TIERS: Record<string, string> = {
+  core: 'Core · always recalled',
+  semantic: 'Long-term knowledge',
+  episodic: 'From a conversation',
+  resource: 'From a document or media',
+};
+
+function memoryTierLabel(tier: string) {
+  return MEMORY_TIERS[tier.trim().toLowerCase()] ?? humanizeToken(tier);
+}
+
+function memorySourceLabel(source: string) {
+  const value = source.trim();
+  if (!value) return 'Unknown';
+  if (value.startsWith('document:'))
+    return `Document · ${value.slice('document:'.length) || 'unnamed'}`;
+  if (value.startsWith('dream_')) return 'Dream Cycle';
+  return humanizeToken(value);
+}
+
+export type KnowledgeStatus =
+  'active' | 'needs_review' | 'superseded' | 'archived';
+export type KnowledgeTier = 'core' | 'semantic' | 'episodic' | 'resource';
+
+const STATUSES: KnowledgeStatus[] = [
+  'active',
+  'needs_review',
+  'superseded',
+  'archived',
+];
+/** Most memories bulk actions take at once (the reviewed command's limit). */
+const BULK_LIMIT = 100;
 
 export type KnowledgeGraphNode = {
   id: string;
@@ -23,6 +105,8 @@ export type KnowledgeGraphNode = {
   relation_count: number;
   orphan: boolean;
   is_user: boolean;
+  status: KnowledgeStatus;
+  tier: KnowledgeTier;
 };
 
 export type KnowledgeGraphEdge = {
@@ -47,6 +131,8 @@ export type KnowledgeGraphSnapshot = {
   center_id: string | null;
   entity_types: string[];
   sources: string[];
+  /** Every saved memory's status, not only the shown ones. */
+  status_counts: Partial<Record<KnowledgeStatus, number>>;
 };
 
 export type KnowledgeNodeRelation = {
@@ -71,7 +157,24 @@ export type KnowledgeNodeDetail = {
   aliases?: string[];
   tags?: string[];
   relations?: KnowledgeNodeRelation[];
+  source_context?: string[];
+  source_bucket?: string;
+  created_at?: string;
+  last_user_modified_at?: string;
+  last_evolved_at?: string;
+  last_recalled_at?: string;
+  recall_count?: number | null;
+  review_reason?: string;
+  superseded_by?: string;
+  evidence?: string[];
+  evidence_count?: number;
+  can_archive?: boolean;
+  can_restore?: boolean;
+  can_resolve?: boolean;
 };
+
+/** A whole-library read of saved memories (search, the review queue). */
+export type KnowledgeMemoryQuery = { query?: string; status?: KnowledgeStatus };
 
 export type KnowledgeDreamState = {
   available: boolean;
@@ -87,7 +190,37 @@ export type KnowledgeHomeProps = {
   reload: () => void;
   loadDetail: (id: string) => Promise<KnowledgeNodeDetail>;
   onEdit: (id: string) => void;
+  /** Add memory: opens a blank knowledge editor. */
+  onAdd?: () => void;
+  /** Open the editor's relations and replacement for this memory. */
+  onMerge?: (id: string) => void;
+  /** Review, confirm and delete one memory; resolves once it is gone. */
+  onDelete?: (id: string, subject: string) => Promise<boolean>;
+  /** Review, confirm and delete up to 100 memories at once. */
+  onDeleteMany?: (
+    memories: { id: string; subject: string }[],
+  ) => Promise<boolean>;
+  /** Archive, restore or mark reviewed at the revision shown; true once done. */
+  onLifecycle?: (
+    id: string,
+    revision: string,
+    action: KnowledgeLifecycleAction,
+    subject: string,
+  ) => Promise<boolean>;
+  /** Search and review the whole saved library, not only what is loaded. */
+  listMemories?: (
+    query: KnowledgeMemoryQuery,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => Promise<EntitySummaryPage>;
+  loadRecalls?: (signal?: AbortSignal) => Promise<KnowledgeRecallPage>;
+  loadChangeLog?: (signal?: AbortSignal) => Promise<KnowledgeMemoryChangePage>;
+  onOpenConversation?: (id: string) => void;
+  /** True once every memory up to the server limit is loaded. */
+  showingAll?: boolean;
+  onShowAll?: () => void;
   dream: KnowledgeDreamState;
+  dreamLastRun?: string | null;
   onDream: () => void | Promise<void>;
 };
 
@@ -97,10 +230,21 @@ type DetailRecord = {
   error?: string;
 };
 
+type SourceFilter =
+  '' | 'manual' | 'extraction' | 'document' | 'wiki' | 'other';
+
+type KnowledgeView = 'graph' | 'list' | 'review' | 'activity';
+
+/** What is known of a memory opened from outside the loaded map. */
+type MemorySummary = Pick<
+  EntitySummary,
+  'id' | 'subject' | 'entity_type' | 'description' | 'updated_at'
+>;
+
 function errorMessage(cause: unknown) {
   return cause instanceof Error
     ? cause.message
-    : 'The entity detail could not be loaded.';
+    : 'The memory detail could not be loaded.';
 }
 
 function availabilityCopy(
@@ -123,6 +267,235 @@ function dreamLabel(dream: KnowledgeDreamState) {
   return 'Run Dream Cycle';
 }
 
+/** "thread id: abc" lines from the detail's source context. */
+function contextValue(lines: readonly string[] | undefined, key: string) {
+  const line = lines?.find((item) => item.startsWith(`${key}: `));
+  return line ? line.slice(key.length + 2).trim() : '';
+}
+
+function TypeDot({ type }: { type: string }) {
+  return (
+    <span
+      className="knowledge-type-dot"
+      data-slot={typeSlot(type)}
+      aria-hidden
+    />
+  );
+}
+
+/** A search suggestion: a loaded memory, or one only the library search found. */
+type SearchMatch =
+  | { kind: 'node'; node: KnowledgeGraphNode }
+  | { kind: 'saved'; memory: MemorySummary };
+
+/**
+ * Typeahead over memory names: choosing one focuses it and its neighbours.
+ * With `searchAll`, the saved library is searched too (names, descriptions,
+ * aliases and tags), so memories the map does not show are found as well.
+ */
+function KnowledgeSearch({
+  nodes,
+  onChoose,
+  total,
+  onSearchAll,
+  searchAll,
+  onOpenSaved,
+}: {
+  nodes: readonly KnowledgeGraphNode[];
+  onChoose: (node: KnowledgeGraphNode) => void;
+  /** Every saved memory, when only some of them are loaded. */
+  total?: number;
+  /** Load every memory so the search covers them all. */
+  onSearchAll?: () => void;
+  searchAll?: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<EntitySummaryPage>;
+  onOpenSaved?: (memory: MemorySummary) => void;
+}) {
+  const id = useId();
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [saved, setSaved] = useState<{
+    query: string;
+    items: EntitySummary[];
+  } | null>(null);
+  const needle = query.trim();
+  const library = Boolean(searchAll && onOpenSaved);
+  useEffect(() => {
+    if (!searchAll || !library || needle.length < 2) return;
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      searchAll(needle, abort.signal).then(
+        (page) => {
+          if (!abort.signal.aborted)
+            setSaved({
+              query: needle,
+              items: page.availability === 'available' ? page.items : [],
+            });
+        },
+        () => {
+          if (!abort.signal.aborted) setSaved({ query: needle, items: [] });
+        },
+      );
+    }, 250);
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+  }, [library, needle, searchAll]);
+  const searching = library && needle.length >= 2 && saved?.query !== needle;
+  const matches = useMemo<SearchMatch[]>(() => {
+    const lowered = needle.toLocaleLowerCase();
+    if (!lowered) return [];
+    const scored: { node: KnowledgeGraphNode; score: number }[] = [];
+    for (const node of nodes) {
+      const subject = node.subject.toLocaleLowerCase();
+      const score = subject.startsWith(lowered)
+        ? 0
+        : subject.includes(lowered)
+          ? 1
+          : `${node.description} ${node.entity_type}`
+                .toLocaleLowerCase()
+                .includes(lowered)
+            ? 2
+            : -1;
+      if (score >= 0) scored.push({ node, score });
+    }
+    const local = scored
+      .sort(
+        (left, right) =>
+          left.score - right.score ||
+          right.node.relation_count - left.node.relation_count,
+      )
+      .slice(0, 8)
+      .map((item) => item.node);
+    const found: SearchMatch[] = local.map((node) => ({ kind: 'node', node }));
+    if (saved?.query !== needle) return found;
+    // The library also matches aliases and tags, and memories not loaded.
+    const shown = new Set(local.map((node) => node.id));
+    const loaded = new Map(nodes.map((node) => [node.id, node]));
+    for (const item of saved.items) {
+      if (shown.has(item.id)) continue;
+      const node = loaded.get(item.id);
+      found.push(
+        node ? { kind: 'node', node } : { kind: 'saved', memory: item },
+      );
+    }
+    return found.slice(0, 10);
+  }, [needle, nodes, saved]);
+  const choose = (match: SearchMatch) => {
+    if (match.kind === 'node') {
+      onChoose(match.node);
+      setQuery(match.node.subject);
+    } else {
+      onOpenSaved?.(match.memory);
+      setQuery(match.memory.subject);
+    }
+    setOpen(false);
+  };
+  const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      setOpen(true);
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      setActive((value) =>
+        matches.length ? (value + step + matches.length) % matches.length : 0,
+      );
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const match = matches[active] ?? matches[0];
+      if (match) choose(match);
+    } else if (event.key === 'Escape') {
+      if (open) {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+      } else setQuery('');
+    }
+  };
+  const expanded = open && matches.length > 0;
+  return (
+    <div className="knowledge-search">
+      <Search size={14} aria-hidden className="knowledge-search-icon" />
+      <input
+        type="search"
+        className="knowledge-search-input"
+        role="combobox"
+        aria-label="Search memories"
+        aria-autocomplete="list"
+        aria-expanded={expanded}
+        aria-controls={`${id}-results`}
+        aria-activedescendant={expanded ? `${id}-option-${active}` : undefined}
+        placeholder="Search memories"
+        value={query}
+        maxLength={200}
+        onChange={(event) => {
+          setQuery(event.currentTarget.value);
+          setActive(0);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onKeyDown={keyDown}
+      />
+      {query && matches.length === 0 && open && (
+        <p className="knowledge-search-empty" role="status">
+          {searching ? (
+            <>Searching every memory…</>
+          ) : !library && onSearchAll && total ? (
+            <>
+              No match in the {nodes.length} shown.{' '}
+              <button
+                type="button"
+                className="knowledge-caption-action"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onSearchAll}
+              >
+                Search all {total} memories
+              </button>
+            </>
+          ) : (
+            <>No memory matches “{needle}”.</>
+          )}
+        </p>
+      )}
+      <ul
+        id={`${id}-results`}
+        role="listbox"
+        aria-label="Matching memories"
+        className="knowledge-search-results"
+        hidden={!expanded}
+      >
+        {matches.map((match, index) => {
+          const memory = match.kind === 'node' ? match.node : match.memory;
+          return (
+            <li
+              key={memory.id}
+              id={`${id}-option-${index}`}
+              role="option"
+              aria-selected={index === active}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActive(index)}
+              onClick={() => choose(match)}
+            >
+              <TypeDot type={memory.entity_type} />
+              <span className="knowledge-search-subject">{memory.subject}</span>
+              <span className="knowledge-search-meta">
+                {humanizeToken(memory.entity_type)}
+                {match.kind === 'node'
+                  ? ` · ${match.node.relation_count}`
+                  : ' · not in the map'}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export default function KnowledgeHome({
   snapshot,
   loading,
@@ -130,77 +503,60 @@ export default function KnowledgeHome({
   reload,
   loadDetail,
   onEdit,
+  onAdd,
+  onMerge,
+  onDelete,
+  onDeleteMany,
+  onLifecycle,
+  listMemories,
+  loadRecalls,
+  loadChangeLog,
+  onOpenConversation,
+  showingAll = false,
+  onShowAll,
   dream,
+  dreamLastRun,
   onDream,
 }: KnowledgeHomeProps) {
-  const [query, setQuery] = useState('');
-  const [entityType, setEntityType] = useState('');
-  const [source, setSource] = useState('');
+  const [view, setView] = useState<KnowledgeView>('graph');
+  const [hiddenTypes, setHiddenTypes] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [source, setSource] = useState<SourceFilter>('');
+  const [status, setStatus] = useState<'' | KnowledgeStatus>('');
+  const [tier, setTier] = useState<'' | KnowledgeTier>('');
   const [showUserHub, setShowUserHub] = useState(true);
   const [hideOrphans, setHideOrphans] = useState(false);
-  const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+  const [changing, setChanging] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // A memory opened from the library search or the review queue that the
+  // loaded map does not include.
+  const [outside, setOutside] = useState<MemorySummary | null>(null);
   const [details, setDetails] = useState<Record<string, DetailRecord>>({});
-  const [fitAnnouncement, setFitAnnouncement] = useState('');
+  const [announcement, setAnnouncement] = useState('');
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [dreamError, setDreamError] = useState('');
+  const [graphStatus, setGraphStatus] = useState<
+    'loading' | 'ready' | 'failed'
+  >('loading');
+  const [stage, setStage] = useState<HTMLDivElement | null>(null);
   const requestTicket = useRef(0);
   const graphRef = useRef<KnowledgeGraphHandle>(null);
-
+  const selectedRef = useRef<string | null>(null);
+  const outsideRef = useRef<string | null>(null);
+  const loadDetailRef = useRef(loadDetail);
   useEffect(() => {
-    setSelectedId(null);
-    setDetails({});
-    requestTicket.current += 1;
-  }, [snapshot?.revision]);
+    selectedRef.current = selectedId;
+    outsideRef.current = outside?.id ?? null;
+    loadDetailRef.current = loadDetail;
+  });
 
-  const allNodes = useMemo(
-    () =>
-      [...(snapshot?.nodes ?? [])]
-        .sort((left, right) => left.id.localeCompare(right.id))
-        .slice(0, 250),
-    [snapshot?.nodes],
-  );
-
-  const visibleNodes = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    return allNodes.filter((node) => {
-      if (!showUserHub && node.is_user) return false;
-      if (hideOrphans && node.orphan) return false;
-      if (entityType && node.entity_type !== entityType) return false;
-      if (source && node.source !== source) return false;
-      if (
-        needle &&
-        !`${node.subject} ${node.description} ${node.entity_type} ${node.source}`
-          .toLocaleLowerCase()
-          .includes(needle)
-      )
-        return false;
-      return true;
-    });
-  }, [allNodes, entityType, hideOrphans, query, showUserHub, source]);
-
-  const visibleIds = useMemo(
-    () => new Set(visibleNodes.map((node) => node.id)),
-    [visibleNodes],
-  );
-  const visibleEdges = useMemo(
-    () =>
-      (snapshot?.edges ?? []).filter(
-        (edge) =>
-          visibleIds.has(edge.source_id) && visibleIds.has(edge.target_id),
-      ),
-    [snapshot?.edges, visibleIds],
-  );
-  const selectedNode =
-    snapshot?.nodes.find((node) => node.id === selectedId) ?? null;
-  const selectedDetail = selectedId ? details[selectedId] : undefined;
-
-  async function selectNode(id: string, force = false) {
-    setSelectedId(id);
-    if (!force && details[id]?.state === 'ready') return;
+  const readDetail = useCallback(async (id: string) => {
     const ticket = ++requestTicket.current;
     setDetails((current) => ({ ...current, [id]: { state: 'loading' } }));
     try {
-      const value = await loadDetail(id);
+      const value = await loadDetailRef.current(id);
       if (requestTicket.current !== ticket) return;
       setDetails((current) => ({
         ...current,
@@ -213,22 +569,214 @@ export default function KnowledgeHome({
         [id]: { state: 'error', error: errorMessage(cause) },
       }));
     }
+  }, []);
+
+  // A new snapshot drops loaded details. A selection that is still in the
+  // graph (or was opened from outside it) stays open and is read again.
+  // Ticks on memories that are gone are dropped.
+  useEffect(() => {
+    setDetails({});
+    requestTicket.current += 1;
+    const current = selectedRef.current;
+    const kept =
+      current &&
+      (current === outsideRef.current ||
+        snapshot?.nodes.some((node) => node.id === current))
+        ? current
+        : null;
+    setSelectedId(kept);
+    if (kept) void readDetail(kept);
+    const present = new Set(snapshot?.nodes.map((node) => node.id));
+    setChecked((value) => new Set([...value].filter((id) => present.has(id))));
+  }, [readDetail, snapshot?.revision, snapshot?.nodes]);
+
+  const allNodes = useMemo(() => snapshot?.nodes ?? [], [snapshot?.nodes]);
+  const allEdges = useMemo(() => snapshot?.edges ?? [], [snapshot?.edges]);
+  const typeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of allNodes)
+      counts.set(node.entity_type, (counts.get(node.entity_type) ?? 0) + 1);
+    return [...counts].sort(
+      (left, right) =>
+        (typeSlot(left[0]) || 99) - (typeSlot(right[0]) || 99) ||
+        right[1] - left[1] ||
+        left[0].localeCompare(right[0]),
+    );
+  }, [allNodes]);
+  const loadedCounts = useMemo(() => {
+    const statuses = new Map<string, number>();
+    const tiers = new Map<string, number>();
+    for (const node of allNodes) {
+      statuses.set(node.status, (statuses.get(node.status) ?? 0) + 1);
+      tiers.set(node.tier, (tiers.get(node.tier) ?? 0) + 1);
+    }
+    return { statuses, tiers };
+  }, [allNodes]);
+  const visibleNodes = useMemo(
+    () =>
+      allNodes.filter((node) => {
+        if (hiddenTypes.has(node.entity_type)) return false;
+        if (!showUserHub && node.is_user) return false;
+        if (hideOrphans && node.orphan) return false;
+        if (source && node.source !== source) return false;
+        if (status && node.status !== status) return false;
+        if (tier && node.tier !== tier) return false;
+        return true;
+      }),
+    [allNodes, hiddenTypes, hideOrphans, showUserHub, source, status, tier],
+  );
+  const visibleIds = useMemo(
+    () => new Set(visibleNodes.map((node) => node.id)),
+    [visibleNodes],
+  );
+  const visibleLinks = useMemo(
+    () =>
+      allEdges.filter(
+        (edge) =>
+          visibleIds.has(edge.source_id) && visibleIds.has(edge.target_id),
+      ).length,
+    [allEdges, visibleIds],
+  );
+  const filtered =
+    hiddenTypes.size > 0 ||
+    Boolean(source || status || tier) ||
+    !showUserHub ||
+    hideOrphans;
+  const selectedNode: KnowledgeGraphNode | null =
+    allNodes.find((node) => node.id === selectedId) ??
+    (outside && outside.id === selectedId
+      ? {
+          ...outside,
+          revision: '',
+          source: 'other',
+          relation_count: 0,
+          orphan: false,
+          is_user: false,
+          status: 'active',
+          tier: 'semantic',
+        }
+      : null);
+  const selectedDetail = selectedId ? details[selectedId] : undefined;
+  const selectedValue =
+    selectedDetail?.state === 'ready' ? selectedDetail.value : undefined;
+  const needsReview = snapshot?.status_counts?.needs_review ?? 0;
+  const views: SegmentedOption<KnowledgeView>[] = [
+    { value: 'graph', label: 'Graph', icon: <Network size={14} aria-hidden /> },
+    { value: 'list', label: 'List', icon: <Rows3 size={14} aria-hidden /> },
+  ];
+  if (listMemories && onLifecycle)
+    views.push({
+      value: 'review',
+      label: 'Review',
+      icon: <ListChecks size={14} aria-hidden />,
+    });
+  if (loadRecalls || loadChangeLog)
+    views.push({
+      value: 'activity',
+      label: 'Activity',
+      icon: <History size={14} aria-hidden />,
+    });
+  // Graph and List browse the loaded map; Review and Activity read the library.
+  const browsing = view === 'graph' || view === 'list';
+  const checkable = view === 'list' && Boolean(onDeleteMany);
+  const searchAll = useMemo(
+    () =>
+      listMemories &&
+      ((query: string, signal: AbortSignal) =>
+        listMemories({ query }, undefined, signal)),
+    [listMemories],
+  );
+  const loadReview = useMemo(
+    () =>
+      listMemories &&
+      ((cursor?: string, signal?: AbortSignal) =>
+        listMemories({ status: 'needs_review' }, cursor, signal)),
+    [listMemories],
+  );
+
+  async function select(id: string | null, force = false) {
+    setSelectedId(id);
+    setSummaryOpen(false);
+    if (!id) return;
+    if (!force && details[id]?.state === 'ready') return;
+    await readDetail(id);
   }
 
-  function showAll() {
-    setQuery('');
-    setEntityType('');
+  function clearFilters() {
+    setHiddenTypes(new Set());
     setSource('');
+    setStatus('');
+    setTier('');
     setShowUserHub(true);
     setHideOrphans(false);
-    setFitAnnouncement('All memories and connections are shown.');
+    setAnnouncement('All memories and connections are shown.');
   }
 
-  function fitGraph() {
-    setFitAnnouncement(
-      `Graph fitted to ${visibleNodes.length} ${visibleNodes.length === 1 ? 'memory' : 'memories'}.`,
-    );
-    graphRef.current?.fit();
+  function focusMemory(id: string) {
+    const node = allNodes.find((item) => item.id === id);
+    if (!node) return;
+    if (!visibleIds.has(id)) clearFilters();
+    void select(id);
+    setAnnouncement(`${node.subject} and its connections are highlighted.`);
+    // Wait a frame so newly shown memories are placed before the camera moves.
+    requestAnimationFrame(() => graphRef.current?.focus(id));
+  }
+
+  /** Open any saved memory: in the map when it is loaded, else on its own. */
+  function openMemory(memory: MemorySummary) {
+    if (allNodes.some((node) => node.id === memory.id)) {
+      focusMemory(memory.id);
+      return;
+    }
+    setOutside(memory);
+    void select(memory.id);
+  }
+
+  async function changeLifecycle(action: KnowledgeLifecycleAction) {
+    if (!onLifecycle || !selectedNode || !selectedValue?.revision) return;
+    const id = selectedNode.id;
+    setChanging(true);
+    try {
+      if (
+        await onLifecycle(
+          id,
+          selectedValue.revision,
+          action,
+          selectedValue.subject || selectedNode.subject,
+        )
+      )
+        await readDetail(id);
+    } finally {
+      setChanging(false);
+    }
+  }
+
+  function toggleChecked(id: string) {
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < BULK_LIMIT) next.add(id);
+      return next;
+    });
+  }
+
+  function deleteChecked() {
+    if (!onDeleteMany) return;
+    const memories = allNodes
+      .filter((node) => checked.has(node.id))
+      .map((node) => ({ id: node.id, subject: node.subject }));
+    void onDeleteMany(memories).then((deleted) => {
+      if (deleted) setChecked(new Set());
+    });
+  }
+
+  function toggleType(type: string) {
+    setHiddenTypes((current) => {
+      const next = new Set(current);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
   }
 
   async function runDream() {
@@ -245,384 +793,892 @@ export default function KnowledgeHome({
     !dream.enabled ||
     dream.state === 'reviewing' ||
     dream.state === 'running';
+  const dreamTone =
+    dream.state === 'running' || dream.state === 'reviewing'
+      ? 'accent'
+      : dream.state === 'error'
+        ? 'danger'
+        : dream.state === 'success'
+          ? 'success'
+          : !dream.available || !dream.enabled
+            ? 'neutral'
+            : 'idle';
+  const hasGraph =
+    snapshot?.availability === 'available' && snapshot.total_entities > 0;
 
   return (
-    <section className="knowledge-home" aria-labelledby="knowledge-home-title">
-      <header className="capability-header knowledge-home-header">
-        <div>
-          <h2 id="knowledge-home-title">Knowledge</h2>
-          <p>
-            Explore the memories and connections Row-Bot can use in
-            conversation.
-          </p>
-        </div>
-        <div className="action-cluster knowledge-home-actions">
-          <Button
-            className="knowledge-dream-action"
-            disabled={dreamDisabled}
-            onClick={() => void runDream()}
-          >
-            {dreamLabel(dream)}
-          </Button>
-          <Button onClick={reload} disabled={loading}>
-            Refresh
-          </Button>
-        </div>
-      </header>
-
-      {(dream.message || dreamError) && (
-        <p
-          className={`knowledge-dream-status status-chip ${dream.state === 'error' || dreamError ? 'danger' : dream.state === 'success' ? 'success' : dream.state === 'reviewing' ? 'warning' : ''}`}
-          role={dream.state === 'error' || dreamError ? 'alert' : 'status'}
-        >
-          {dreamError || dream.message}
-        </p>
-      )}
-      {error && (
-        <div className="state-message knowledge-home-error" role="alert">
-          <div>
+    <section
+      className="knowledge-home"
+      aria-labelledby="knowledge-home-title"
+      data-view={view}
+    >
+      <h2 id="knowledge-home-title" className="visually-hidden">
+        Knowledge
+      </h2>
+      <div className="knowledge-stage" ref={setStage}>
+        {error && (
+          <div className="knowledge-stage-message" role="alert">
             <strong>Knowledge could not be refreshed</strong>
             <p>{error}</p>
-            <Button onClick={reload}>Try again</Button>
-          </div>
-        </div>
-      )}
-      {loading && !snapshot && <p role="status">Loading knowledge graph…</p>}
-
-      {snapshot && snapshot.availability !== 'available' && (
-        <div className="empty-state knowledge-home-unavailable">
-          <h3>Knowledge unavailable</h3>
-          <p>{availabilityCopy(snapshot.availability)}</p>
-          <Button onClick={reload}>Try again</Button>
-        </div>
-      )}
-
-      {snapshot?.availability === 'available' &&
-        snapshot.total_entities === 0 && (
-          <div className="empty-state knowledge-home-empty">
-            <span aria-hidden className="knowledge-home-empty-icon">
-              ◎
-            </span>
-            <h3>Your memory map is empty</h3>
-            <p>
-              Memories and their connections will appear here as Row-Bot learns
-              about you.
-            </p>
+            <Button className="small" onClick={reload}>
+              Try again
+            </Button>
           </div>
         )}
-
-      {snapshot?.availability === 'available' &&
-        snapshot.total_entities > 0 && (
+        {loading && !snapshot && !error && (
+          <p className="knowledge-stage-message" role="status">
+            Loading knowledge graph…
+          </p>
+        )}
+        {snapshot && snapshot.availability !== 'available' && (
+          <div className="knowledge-stage-message">
+            <strong>Knowledge unavailable</strong>
+            <p>{availabilityCopy(snapshot.availability)}</p>
+            <Button className="small" onClick={reload}>
+              Try again
+            </Button>
+          </div>
+        )}
+        {snapshot?.availability === 'available' &&
+          snapshot.total_entities === 0 && (
+            <div className="knowledge-stage-message">
+              <Network size={22} aria-hidden />
+              <strong>Your memory map is empty</strong>
+              <p>
+                Memories and their connections appear here as Row-Bot learns
+                about you.
+              </p>
+              {onAdd && (
+                <Button className="small" onClick={onAdd}>
+                  Add memory
+                </Button>
+              )}
+            </div>
+          )}
+        {hasGraph && view === 'review' && loadReview && onLifecycle && (
+          <div className="knowledge-view-frame">
+            <KnowledgeReview
+              load={loadReview}
+              loadRevision={async (id) => (await loadDetail(id)).revision ?? ''}
+              refreshKey={snapshot.revision}
+              onOpen={openMemory}
+              onEdit={onEdit}
+              onLifecycle={onLifecycle}
+            />
+          </div>
+        )}
+        {hasGraph && view === 'activity' && (
+          <div className="knowledge-view-frame">
+            <KnowledgeActivity
+              loadChanges={loadChangeLog}
+              loadRecalls={loadRecalls}
+              refreshKey={snapshot.revision}
+            />
+          </div>
+        )}
+        {hasGraph && browsing && (
           <>
-            <div
-              className="capability-summary knowledge-home-summary"
-              aria-label="Knowledge statistics"
-            >
-              <p>
-                <strong>{snapshot.total_entities}</strong> memories
-              </p>
-              <p>
-                <strong>{snapshot.total_relations}</strong> connections
-              </p>
-              <p>
-                <strong>{visibleNodes.length}</strong> visible memories
-              </p>
-              <p>
-                <strong>{visibleEdges.length}</strong> visible connections
-              </p>
-            </div>
-            {snapshot.truncated && (
-              <p
-                className="status-chip warning knowledge-home-truncated"
-                role="status"
-              >
-                Showing a bounded view of {snapshot.shown_entities} of{' '}
-                {snapshot.total_entities} memories.
-              </p>
+            {view === 'graph' && graphStatus !== 'failed' ? (
+              <KnowledgeGraphCanvas
+                ref={graphRef}
+                nodes={allNodes}
+                edges={allEdges}
+                visible={visibleIds}
+                selectedId={selectedId}
+                onSelect={(id) => void select(id)}
+                onStatus={setGraphStatus}
+              />
+            ) : (
+              <div className="knowledge-list-frame">
+                {view === 'graph' && (
+                  <p className="knowledge-list-note" role="status">
+                    The interactive graph needs WebGL, which is unavailable
+                    here. Every memory is listed instead.
+                  </p>
+                )}
+                <KnowledgeList
+                  nodes={visibleNodes}
+                  selectedId={selectedId}
+                  onSelect={(id) => void select(id)}
+                  checked={checkable ? checked : undefined}
+                  onCheck={checkable ? toggleChecked : undefined}
+                  checkFull={checked.size >= BULK_LIMIT}
+                />
+              </div>
             )}
-
-            <div
-              className="panel-toolbar knowledge-graph-toolbar"
-              aria-label="Knowledge graph controls"
-            >
-              <Field label="Search entities">
-                <Input
-                  type="search"
-                  value={query}
-                  placeholder="Search entities…"
-                  onChange={(event) => setQuery(event.currentTarget.value)}
-                />
-              </Field>
-              <Field label="Entity type">
-                <Select
-                  value={entityType}
-                  onChange={(event) => setEntityType(event.currentTarget.value)}
-                >
-                  <option value="">All types</option>
-                  {snapshot.entity_types.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Source">
-                <Select
-                  value={source}
-                  onChange={(event) => setSource(event.currentTarget.value)}
-                >
-                  <option value="">All sources</option>
-                  {snapshot.sources.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="knowledge-graph-toggle">
-                <span>User hub</span>
-                <Toggle
-                  label="User hub"
-                  checked={showUserHub}
-                  onChange={(event) =>
-                    setShowUserHub(event.currentTarget.checked)
-                  }
-                />
+            {visibleNodes.length === 0 && (
+              <div className="knowledge-stage-message">
+                <strong>No memories match these filters</strong>
+                <Button className="small" onClick={clearFilters}>
+                  Show everything
+                </Button>
               </div>
-              <div className="knowledge-graph-toggle">
-                <span>Hide orphans</span>
-                <Toggle
-                  label="Hide orphans"
-                  checked={hideOrphans}
-                  onChange={(event) =>
-                    setHideOrphans(event.currentTarget.checked)
-                  }
-                />
-              </div>
-              <div
-                className="knowledge-graph-navigation"
-                aria-label="Graph navigation"
-              >
-                <CompactAction
-                  label="Zoom in"
-                  onClick={() => graphRef.current?.zoom(0.2)}
-                >
-                  <ZoomIn aria-hidden="true" />
-                </CompactAction>
-                <CompactAction
-                  label="Zoom out"
-                  onClick={() => graphRef.current?.zoom(-0.2)}
-                >
-                  <ZoomOut aria-hidden="true" />
-                </CompactAction>
-                <CompactAction
-                  className="knowledge-graph-fit"
-                  label="Fit"
-                  onClick={fitGraph}
-                >
-                  <Maximize2 aria-hidden="true" />
-                </CompactAction>
-              </div>
-              <Button className="knowledge-graph-show-all" onClick={showAll}>
-                Show All
-              </Button>
-            </div>
-
-            <div className="knowledge-view-toggle" aria-label="Knowledge view">
-              <Button
-                aria-pressed={view === 'graph'}
-                onClick={() => setView('graph')}
-              >
-                Graph
-              </Button>
-              <Button
-                aria-pressed={view === 'list'}
-                onClick={() => setView('list')}
-              >
-                Accessible list
-              </Button>
-            </div>
-            <p className="visually-hidden" aria-live="polite">
-              {fitAnnouncement}
-            </p>
-
-            <div className="knowledge-explorer-layout">
-              <div className="knowledge-explorer-surface">
-                {visibleNodes.length === 0 ? (
-                  <div className="empty-state knowledge-filter-empty">
-                    <h3>No matching memories</h3>
-                    <p>
-                      Change the search or filters, or show the complete graph.
-                    </p>
-                    <Button onClick={showAll}>Show All</Button>
-                  </div>
-                ) : view === 'graph' ? (
-                  <KnowledgeGraphCanvas
-                    ref={graphRef}
-                    nodes={visibleNodes}
-                    edges={visibleEdges}
-                    centerId={snapshot.center_id}
-                    selectedId={selectedId}
-                    onSelect={(nodeId) => void selectNode(nodeId)}
-                  />
-                ) : (
-                  <ul
-                    className="knowledge-entity-list"
-                    aria-label="Knowledge entities"
-                  >
-                    {visibleNodes.map((node) => (
-                      <li
-                        key={node.id}
-                        className="list-row knowledge-entity-list-item"
-                      >
-                        <button
-                          type="button"
-                          className="knowledge-entity-list-button"
-                          aria-current={
-                            node.id === selectedId ? 'true' : undefined
-                          }
-                          onClick={() => void selectNode(node.id)}
-                        >
-                          <strong>{node.subject}</strong>
-                          <span>
-                            {node.entity_type} · {node.source} ·{' '}
-                            {node.relation_count} connections
-                          </span>
-                          {node.description && <span>{node.description}</span>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <aside
-                className="card knowledge-node-detail"
-                aria-label="Selected memory detail"
-              >
-                {!selectedNode ? (
-                  <p>Select a memory to inspect its details and connections.</p>
-                ) : (
-                  <>
-                    <header className="section-heading">
-                      <div>
-                        <h3>
-                          {selectedDetail?.value?.subject ??
-                            selectedNode.subject}
-                        </h3>
-                        <p>
-                          {selectedDetail?.value?.entity_type ??
-                            selectedNode.entity_type}
-                        </p>
-                      </div>
-                      <Button onClick={() => onEdit(selectedNode.id)}>
-                        Edit
-                      </Button>
-                    </header>
-                    {selectedDetail?.state === 'loading' && (
-                      <p role="status">Loading memory detail…</p>
-                    )}
-                    {selectedDetail?.state === 'error' && (
-                      <div
-                        className="state-message knowledge-detail-error"
-                        role="alert"
-                      >
-                        <div>
-                          <strong>Memory detail unavailable</strong>
-                          <p>{selectedDetail.error}</p>
-                          <Button
-                            onClick={() =>
-                              void selectNode(selectedNode.id, true)
-                            }
-                          >
-                            Try again
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {selectedDetail?.state === 'ready' &&
-                      selectedDetail.value && (
-                        <div className="knowledge-detail-content">
-                          <p>
-                            {selectedDetail.value.description ||
-                              'No description.'}
-                          </p>
-                          <dl>
-                            <dt>Source</dt>
-                            <dd>
-                              {selectedDetail.value.source ??
-                                selectedNode.source}
-                            </dd>
-                            <dt>Updated</dt>
-                            <dd>
-                              {(selectedDetail.value.updated_at ??
-                                selectedNode.updated_at) ||
-                                'Unknown'}
-                            </dd>
-                            <dt>Connections</dt>
-                            <dd>
-                              {selectedDetail.value.relation_count ??
-                                selectedNode.relation_count}
-                            </dd>
-                            {selectedDetail.value.status && (
-                              <>
-                                <dt>Status</dt>
-                                <dd>{selectedDetail.value.status}</dd>
-                              </>
-                            )}
-                            {selectedDetail.value.tier && (
-                              <>
-                                <dt>Tier</dt>
-                                <dd>{selectedDetail.value.tier}</dd>
-                              </>
-                            )}
-                            {selectedDetail.value.confidence != null && (
-                              <>
-                                <dt>Confidence</dt>
-                                <dd>
-                                  {Math.round(
-                                    selectedDetail.value.confidence * 100,
-                                  )}
-                                  %
-                                </dd>
-                              </>
-                            )}
-                          </dl>
-                          {!!selectedDetail.value.aliases?.length && (
-                            <p>
-                              Aliases: {selectedDetail.value.aliases.join(', ')}
-                            </p>
-                          )}
-                          {!!selectedDetail.value.tags?.length && (
-                            <p>Tags: {selectedDetail.value.tags.join(', ')}</p>
-                          )}
-                          {!!selectedDetail.value.relations?.length && (
-                            <div>
-                              <h4>Connections</h4>
-                              <ul>
-                                {selectedDetail.value.relations.map(
-                                  (relation, index) => (
-                                    <li
-                                      key={`${relation.peer_id ?? relation.peer_subject ?? 'relation'}-${index}`}
-                                    >
-                                      {relation.relation_type}:{' '}
-                                      {relation.peer_subject ??
-                                        relation.peer_id ??
-                                        'Related memory'}
-                                    </li>
-                                  ),
-                                )}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                  </>
-                )}
-              </aside>
-            </div>
+            )}
           </>
         )}
+        {snapshot && (
+          <Toolbar
+            floating
+            placement="top-left"
+            label="Knowledge controls"
+            className="knowledge-controls"
+          >
+            {hasGraph && (
+              <>
+                <KnowledgeSearch
+                  nodes={allNodes}
+                  onChoose={(node) => focusMemory(node.id)}
+                  total={snapshot.total_entities}
+                  onSearchAll={
+                    snapshot.truncated && !showingAll ? onShowAll : undefined
+                  }
+                  searchAll={searchAll}
+                  onOpenSaved={openMemory}
+                />
+                <ToolbarSeparator />
+                <Segmented
+                  label="Knowledge view"
+                  size="sm"
+                  value={view}
+                  onChange={setView}
+                  options={views}
+                />
+                <ToolbarSeparator />
+                <Popover.Root>
+                  <Popover.Trigger asChild>
+                    <IconButton
+                      size="sm"
+                      label="Filters"
+                      pressed={filtered}
+                      className="knowledge-filter-trigger"
+                    >
+                      <ListFilter size={15} aria-hidden />
+                    </IconButton>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      className="popover knowledge-filter-popover"
+                      aria-label="Memory filters"
+                      align="start"
+                      sideOffset={8}
+                      collisionPadding={12}
+                    >
+                      <label className="knowledge-filter-row">
+                        <span>Show you</span>
+                        <Toggle
+                          label="User hub"
+                          checked={showUserHub}
+                          onChange={(event) =>
+                            setShowUserHub(event.currentTarget.checked)
+                          }
+                        />
+                      </label>
+                      <label className="knowledge-filter-row">
+                        <span>Hide unconnected memories</span>
+                        <Toggle
+                          label="Hide orphans"
+                          checked={hideOrphans}
+                          onChange={(event) =>
+                            setHideOrphans(event.currentTarget.checked)
+                          }
+                        />
+                      </label>
+                      <label className="knowledge-filter-row">
+                        <span>Source</span>
+                        <Select
+                          aria-label="Source"
+                          value={source}
+                          onChange={(event) =>
+                            setSource(event.currentTarget.value as SourceFilter)
+                          }
+                        >
+                          <option value="">All sources</option>
+                          {snapshot.sources.map((item) => (
+                            <option key={item} value={item}>
+                              {sourceWords(item)}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <label className="knowledge-filter-row">
+                        <span>Status</span>
+                        <Select
+                          aria-label="Status"
+                          value={status}
+                          onChange={(event) =>
+                            setStatus(
+                              event.currentTarget.value as '' | KnowledgeStatus,
+                            )
+                          }
+                        >
+                          <option value="">All statuses</option>
+                          {STATUSES.map((item) => (
+                            <option key={item} value={item}>
+                              {`${humanizeToken(item)} · ${(loadedCounts.statuses.get(item) ?? 0).toLocaleString()}`}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <label className="knowledge-filter-row">
+                        <span>Memory type</span>
+                        <Select
+                          aria-label="Memory type"
+                          value={tier}
+                          onChange={(event) =>
+                            setTier(
+                              event.currentTarget.value as '' | KnowledgeTier,
+                            )
+                          }
+                        >
+                          <option value="">All memory types</option>
+                          {Object.entries(MEMORY_TIERS).map(([item, words]) => (
+                            <option key={item} value={item}>
+                              {`${words} · ${(loadedCounts.tiers.get(item) ?? 0).toLocaleString()}`}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      {filtered && (
+                        <Button className="small" onClick={clearFilters}>
+                          Show everything
+                        </Button>
+                      )}
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              </>
+            )}
+            {onAdd && (
+              <IconButton size="sm" label="Add memory" onClick={onAdd}>
+                <Plus size={15} aria-hidden />
+              </IconButton>
+            )}
+            <IconButton
+              size="sm"
+              label={dreamLabel(dream)}
+              disabled={dreamDisabled}
+              className="knowledge-dream-action"
+              data-state={dreamTone}
+              aria-describedby="knowledge-dream-last"
+              onClick={() => void runDream()}
+            >
+              <Moon size={15} aria-hidden />
+              <span className="knowledge-dream-dot" aria-hidden />
+            </IconButton>
+            <span id="knowledge-dream-last" className="visually-hidden">
+              {!dream.available
+                ? 'Dream Cycle is unavailable.'
+                : !dream.enabled
+                  ? 'Dream Cycle is off in Settings.'
+                  : dreamLastRun
+                    ? `Dream Cycle last ran ${relativeTime(dreamLastRun)}.`
+                    : 'Dream Cycle has not run yet.'}
+            </span>
+            <IconButton
+              size="sm"
+              label="Refresh knowledge"
+              disabled={loading}
+              onClick={reload}
+            >
+              <RefreshCw size={15} aria-hidden />
+            </IconButton>
+          </Toolbar>
+        )}
+        {(dream.message || dreamError) && (
+          <p
+            className="knowledge-dream-status"
+            data-tone={
+              dream.state === 'error' || dreamError
+                ? 'danger'
+                : dream.state === 'success'
+                  ? 'success'
+                  : 'accent'
+            }
+            role={dream.state === 'error' || dreamError ? 'alert' : 'status'}
+          >
+            {dreamError || dream.message}
+          </p>
+        )}
+        {hasGraph && browsing && typeCounts.length > 0 && (
+          <div
+            className="knowledge-legend"
+            role="group"
+            aria-label="Memory types"
+          >
+            {typeCounts.map(([type, count]) => {
+              const shown = !hiddenTypes.has(type);
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  className="knowledge-legend-item"
+                  aria-pressed={shown}
+                  aria-label={`${humanizeToken(type)}, ${plural(count, 'memory', 'memories')}`}
+                  title={shown ? 'Hide this type' : 'Show this type'}
+                  onClick={() => toggleType(type)}
+                >
+                  <TypeDot type={type} />
+                  <span className="knowledge-legend-name">
+                    {humanizeToken(type)}
+                  </span>
+                  <span className="knowledge-legend-count">{count}</span>
+                </button>
+              );
+            })}
+            {hiddenTypes.size > 0 && (
+              <button
+                type="button"
+                className="knowledge-legend-reset"
+                onClick={() => setHiddenTypes(new Set())}
+              >
+                Show all types
+              </button>
+            )}
+          </div>
+        )}
+        {hasGraph && view === 'graph' && graphStatus === 'ready' && (
+          <Toolbar
+            floating
+            placement="bottom-right"
+            orientation="vertical"
+            label="Graph navigation"
+            className="knowledge-navigation"
+          >
+            <IconButton
+              size="sm"
+              label="Zoom in"
+              onClick={() => graphRef.current?.zoom(0.25)}
+            >
+              <ZoomIn size={15} aria-hidden />
+            </IconButton>
+            <IconButton
+              size="sm"
+              label="Zoom out"
+              onClick={() => graphRef.current?.zoom(-0.2)}
+            >
+              <ZoomOut size={15} aria-hidden />
+            </IconButton>
+            <IconButton
+              size="sm"
+              label="Fit"
+              className="knowledge-graph-fit"
+              onClick={() => {
+                graphRef.current?.fit();
+                setAnnouncement(
+                  `Graph fitted to ${plural(visibleNodes.length, 'memory', 'memories')}.`,
+                );
+              }}
+            >
+              <Maximize2 size={14} aria-hidden />
+            </IconButton>
+          </Toolbar>
+        )}
+        {hasGraph && checkable && checked.size > 0 && (
+          <Toolbar
+            floating
+            placement="bottom-left"
+            label="Selected memories"
+            className="knowledge-selection"
+          >
+            <span className="knowledge-selection-count" aria-live="polite">
+              {checked.size.toLocaleString()} selected
+              {checked.size >= BULK_LIMIT ? ` · ${BULK_LIMIT} at most` : ''}
+            </span>
+            <ToolbarSeparator />
+            <IconButton
+              size="sm"
+              label="Delete selected memories"
+              variant="danger"
+              onClick={deleteChecked}
+            >
+              <Trash2 size={15} aria-hidden />
+            </IconButton>
+            <IconButton
+              size="sm"
+              label="Clear selection"
+              onClick={() => setChecked(new Set())}
+            >
+              <X size={15} aria-hidden />
+            </IconButton>
+          </Toolbar>
+        )}
+        {hasGraph && browsing && !(checkable && checked.size > 0) && (
+          <p className="knowledge-caption" aria-label="Knowledge statistics">
+            <span>{plural(snapshot.total_entities, 'memory', 'memories')}</span>
+            <span aria-hidden>·</span>
+            <span>{plural(snapshot.total_relations, 'link')}</span>
+            {needsReview > 0 &&
+              views.some((item) => item.value === 'review') && (
+                <>
+                  <span aria-hidden>·</span>
+                  <button
+                    type="button"
+                    className="knowledge-caption-action"
+                    onClick={() => setView('review')}
+                  >
+                    {plural(needsReview, 'needs review', 'need review')}
+                  </button>
+                </>
+              )}
+            {(snapshot.truncated || filtered) && (
+              <>
+                <span aria-hidden>·</span>
+                <span>
+                  showing {visibleNodes.length.toLocaleString()}
+                  {filtered ? ` of ${allNodes.length.toLocaleString()}` : ''}
+                </span>
+              </>
+            )}
+            {snapshot.truncated && !showingAll && onShowAll && (
+              <button
+                type="button"
+                className="knowledge-caption-action"
+                aria-label="Show all memories"
+                onClick={onShowAll}
+              >
+                Show all
+              </button>
+            )}
+            {filtered && (
+              <button
+                type="button"
+                className="knowledge-caption-action"
+                onClick={clearFilters}
+              >
+                Clear filters
+              </button>
+            )}
+            {view === 'graph' && visibleLinks !== allEdges.length && (
+              <span className="visually-hidden">
+                {plural(visibleLinks, 'link')} visible.
+              </span>
+            )}
+          </p>
+        )}
+        <p className="visually-hidden" aria-live="polite">
+          {announcement}
+        </p>
+        {stage && (
+          <Drawer
+            open={Boolean(selectedNode)}
+            onOpenChange={(open) => {
+              if (!open) setSelectedId(null);
+            }}
+            container={stage}
+            title={
+              selectedDetail?.value?.subject ?? selectedNode?.subject ?? ''
+            }
+            description={
+              selectedNode
+                ? `${humanizeToken(selectedDetail?.value?.entity_type ?? selectedNode.entity_type)} · ${sourceWords(selectedValue?.source_bucket ?? selectedNode.source)}`
+                : undefined
+            }
+            closeLabel="Close memory detail"
+            className="knowledge-inspector"
+            actions={
+              selectedNode && (
+                <>
+                  <IconButton
+                    size="sm"
+                    label="Edit memory"
+                    onClick={() => onEdit(selectedNode.id)}
+                  >
+                    <Pencil size={14} aria-hidden />
+                  </IconButton>
+                  {onMerge && (
+                    <IconButton
+                      size="sm"
+                      label="Merge or replace"
+                      onClick={() => onMerge(selectedNode.id)}
+                    >
+                      <GitMerge size={14} aria-hidden />
+                    </IconButton>
+                  )}
+                  {onLifecycle && selectedValue?.can_archive && (
+                    <IconButton
+                      size="sm"
+                      label="Archive memory"
+                      disabled={changing}
+                      onClick={() => void changeLifecycle('knowledge.archive')}
+                    >
+                      <Archive size={14} aria-hidden />
+                    </IconButton>
+                  )}
+                  {onLifecycle && selectedValue?.can_restore && (
+                    <IconButton
+                      size="sm"
+                      label="Restore memory"
+                      disabled={changing}
+                      onClick={() => void changeLifecycle('knowledge.restore')}
+                    >
+                      <ArchiveRestore size={14} aria-hidden />
+                    </IconButton>
+                  )}
+                  {onDelete && (
+                    <IconButton
+                      size="sm"
+                      label="Delete memory"
+                      variant="danger"
+                      onClick={() =>
+                        void onDelete(
+                          selectedNode.id,
+                          selectedNode.subject,
+                        ).then((deleted) => {
+                          if (deleted) setSelectedId(null);
+                        })
+                      }
+                    >
+                      <Trash2 size={14} aria-hidden />
+                    </IconButton>
+                  )}
+                </>
+              )
+            }
+          >
+            {selectedNode && (
+              <div
+                className="knowledge-detail"
+                aria-label="Selected memory detail"
+                role="region"
+              >
+                {selectedDetail?.state === 'loading' && (
+                  <p className="home-caption" role="status">
+                    Loading memory detail…
+                  </p>
+                )}
+                {selectedDetail?.state === 'error' && (
+                  <div className="task-builder-alert" role="alert">
+                    <strong>Memory detail unavailable</strong>
+                    <p>{selectedDetail.error}</p>
+                    <Button
+                      className="small"
+                      onClick={() => void select(selectedNode.id, true)}
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                )}
+                <p
+                  className="knowledge-detail-summary"
+                  data-clamped={summaryOpen ? undefined : 'true'}
+                >
+                  {(selectedDetail?.value?.description ??
+                    selectedNode.description) ||
+                    'No description.'}
+                </p>
+                {(
+                  selectedDetail?.value?.description ?? selectedNode.description
+                ).length > 420 && (
+                  <button
+                    type="button"
+                    className="knowledge-detail-more"
+                    aria-expanded={summaryOpen}
+                    onClick={() => setSummaryOpen((value) => !value)}
+                  >
+                    {summaryOpen ? 'Show less' : 'Show more'}
+                  </button>
+                )}
+                {selectedValue?.status === 'needs_review' && (
+                  <div
+                    className="knowledge-review-note"
+                    role="note"
+                    aria-label="Needs review"
+                  >
+                    <strong>Needs review</strong>
+                    {selectedValue.review_reason && (
+                      <p>{selectedValue.review_reason}</p>
+                    )}
+                    {onLifecycle && selectedValue.can_resolve && (
+                      <Button
+                        className="small"
+                        disabled={changing}
+                        onClick={() =>
+                          void changeLifecycle('knowledge.resolve')
+                        }
+                      >
+                        Mark as reviewed
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {selectedValue?.status === 'superseded' &&
+                  selectedValue.superseded_by && (
+                    <p className="home-caption">
+                      A newer memory replaces this one.{' '}
+                      <button
+                        type="button"
+                        className="knowledge-caption-action"
+                        onClick={() =>
+                          openMemory({
+                            id: selectedValue.superseded_by ?? '',
+                            subject: '',
+                            entity_type: '',
+                            description: '',
+                            updated_at: '',
+                          })
+                        }
+                      >
+                        Open the newer memory
+                      </button>
+                    </p>
+                  )}
+                <dl className="knowledge-detail-facts">
+                  <div>
+                    <dt>Updated</dt>
+                    <dd>
+                      <When
+                        value={
+                          selectedDetail?.value?.updated_at ??
+                          selectedNode.updated_at
+                        }
+                      />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Source</dt>
+                    <dd
+                      title={
+                        selectedDetail?.value?.source ?? selectedNode.source
+                      }
+                    >
+                      {memorySourceLabel(
+                        selectedDetail?.value?.source ?? selectedNode.source,
+                      )}
+                    </dd>
+                  </div>
+                  {selectedDetail?.value?.tier && (
+                    <div>
+                      <dt>Memory type</dt>
+                      <dd>{memoryTierLabel(selectedDetail.value.tier)}</dd>
+                    </div>
+                  )}
+                  {selectedDetail?.value?.status &&
+                    selectedDetail.value.status !== 'active' && (
+                      <div>
+                        <dt>Status</dt>
+                        <dd>{humanizeToken(selectedDetail.value.status)}</dd>
+                      </div>
+                    )}
+                  {selectedDetail?.value?.confidence != null && (
+                    <div>
+                      <dt>Confidence</dt>
+                      <dd>
+                        {Math.round(selectedDetail.value.confidence * 100)}%
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {(() => {
+                  const thread = contextValue(
+                    selectedDetail?.value?.source_context,
+                    'thread id',
+                  );
+                  const name = contextValue(
+                    selectedDetail?.value?.source_context,
+                    'thread name',
+                  );
+                  const document = contextValue(
+                    selectedDetail?.value?.source_context,
+                    'document title',
+                  );
+                  if (thread && onOpenConversation)
+                    return (
+                      <Button
+                        variant="ghost"
+                        className="small knowledge-source-link"
+                        onClick={() => onOpenConversation(thread)}
+                      >
+                        Open source conversation{name ? `: ${name}` : ''}
+                      </Button>
+                    );
+                  if (document)
+                    return (
+                      <p className="home-caption">From document “{document}”</p>
+                    );
+                  return null;
+                })()}
+                {(!!selectedDetail?.value?.aliases?.length ||
+                  !!selectedDetail?.value?.tags?.length) && (
+                  <p className="knowledge-detail-chips">
+                    {selectedDetail?.value?.aliases?.map((alias) => (
+                      <span key={`alias-${alias}`} className="knowledge-chip">
+                        {alias}
+                      </span>
+                    ))}
+                    {selectedDetail?.value?.tags?.map((tag) => (
+                      <span
+                        key={`tag-${tag}`}
+                        className="knowledge-chip"
+                        data-kind="tag"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </p>
+                )}
+                <Connections
+                  relations={selectedDetail?.value?.relations ?? []}
+                  total={
+                    selectedDetail?.value?.relation_count ??
+                    selectedNode.relation_count
+                  }
+                  onOpen={(id, subject) =>
+                    openMemory({
+                      id,
+                      subject,
+                      entity_type: '',
+                      description: '',
+                      updated_at: '',
+                    })
+                  }
+                  onShowAll={
+                    onMerge ? () => onMerge(selectedNode.id) : undefined
+                  }
+                />
+                {selectedValue && <MemoryRecord detail={selectedValue} />}
+              </div>
+            )}
+          </Drawer>
+        )}
+      </div>
     </section>
+  );
+}
+
+function Connections({
+  relations,
+  total,
+  onOpen,
+  onShowAll,
+}: {
+  relations: readonly KnowledgeNodeRelation[];
+  total: number;
+  onOpen: (id: string, subject: string) => void;
+  /** Every connection, in the editor's relations. */
+  onShowAll?: () => void;
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, KnowledgeNodeRelation[]>();
+    for (const relation of relations) {
+      const key = humanizeToken(relation.relation_type) || 'Related';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(relation);
+    }
+    return [...map].sort((left, right) => right[1].length - left[1].length);
+  }, [relations]);
+  if (!total) return <p className="home-caption">No connections yet.</p>;
+  return (
+    <section className="knowledge-connections" aria-label="Connections">
+      <h3>
+        Connections <span className="overview-count">{total}</span>
+      </h3>
+      {groups.map(([label, items]) => (
+        <div key={label} className="knowledge-connection-group">
+          <h4>{label}</h4>
+          <ul>
+            {items.map((relation, index) => (
+              <li key={`${relation.peer_id ?? relation.peer_subject}-${index}`}>
+                <button
+                  type="button"
+                  className="knowledge-connection"
+                  disabled={!relation.peer_id}
+                  onClick={() =>
+                    relation.peer_id &&
+                    onOpen(relation.peer_id, relation.peer_subject ?? '')
+                  }
+                >
+                  {relation.direction === 'incoming' ? (
+                    <ArrowLeft size={12} aria-hidden />
+                  ) : (
+                    <ArrowRight size={12} aria-hidden />
+                  )}
+                  <span className="visually-hidden">
+                    {relation.direction === 'incoming' ? 'from ' : 'to '}
+                  </span>
+                  <span>{relation.peer_subject ?? 'Related memory'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {relations.length < total && (
+        <p className="home-caption">
+          {plural(total - relations.length, 'more connection')}.{' '}
+          {onShowAll && (
+            <button
+              type="button"
+              className="knowledge-caption-action"
+              aria-label="Show all connections"
+              onClick={onShowAll}
+            >
+              Show all
+            </button>
+          )}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** The memory's record: when it changed, where it came from, its evidence. */
+function MemoryRecord({ detail }: { detail: KnowledgeNodeDetail }) {
+  const times: [string, string | undefined][] = [
+    ['Created', detail.created_at],
+    ['Edited by you', detail.last_user_modified_at],
+    ['Refined by Row-Bot', detail.last_evolved_at],
+    ['Last recalled', detail.last_recalled_at],
+  ];
+  const evidence = detail.evidence ?? [];
+  const context = detail.source_context ?? [];
+  return (
+    <Disclosure summary="Details" className="knowledge-record">
+      <dl className="knowledge-detail-facts">
+        <div>
+          <dt>ID</dt>
+          <dd title={detail.id}>{detail.id}</dd>
+        </div>
+        {times
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>
+                <When value={value} />
+              </dd>
+            </div>
+          ))}
+      </dl>
+      {context.length > 0 && (
+        <div className="knowledge-record-list">
+          <h4>Where it came from</h4>
+          <ul>
+            {context.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {evidence.length > 0 && (
+        <div className="knowledge-record-list">
+          <h4>Evidence</h4>
+          <ul>
+            {evidence.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {(detail.evidence_count ?? 0) > evidence.length && (
+            <p className="home-caption">
+              {plural(
+                (detail.evidence_count ?? 0) - evidence.length,
+                'more piece',
+                'more pieces',
+              )}{' '}
+              of evidence
+            </p>
+          )}
+        </div>
+      )}
+    </Disclosure>
   );
 }

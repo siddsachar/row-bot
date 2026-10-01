@@ -59,9 +59,8 @@ def _media_state(surface: str, context: dict) -> tuple[str, dict]:
         raise ClientPlatformError("buddy_tool_unavailable")
     selection = registry.get_tool_config(parent, "model", None)
     if not selection:
-        # The actual existing media owner is the sole default-selection owner.
-        owner = sys.modules.get("row_bot.tools." + parent + "_tool")
-        selection = getattr(owner, "DEFAULT_MODEL", None) if owner is not None else None
+        # Nothing is preset (decision 9): Hatch asks for an image/video model.
+        raise ClientPlatformError("buddy_media_capability_unavailable")
     if (
         not isinstance(selection, str)
         or not 1 <= len(selection) <= 256

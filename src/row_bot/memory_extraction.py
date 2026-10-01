@@ -32,13 +32,23 @@ _JOURNAL_MAX_ENTRIES = 100
 _INTERVAL_S = 2 * 3600  # 2 hours
 _IDLE_DELAY_S = 5 * 60
 
-# Thread IDs to exclude from background extraction (e.g. currently active
-# conversations).  Updated by the UI layer via ``set_active_thread``.
+# Thread IDs to exclude from background extraction: the conversation a client
+# opened last (``mark_conversation_open``).
 _active_threads: set[str] = set()
 _active_lock = threading.Lock()
 _activity_lock = threading.Lock()
 _last_activity_ts = time.monotonic()
 _idle_once_thread: threading.Thread | None = None
+_open_thread: str | None = None
+
+
+def mark_conversation_open(thread_id: str) -> None:
+    """A client opened *thread_id*: it replaces the conversation opened before
+    it as the one kept out of extraction."""
+    global _open_thread
+    with _active_lock:
+        previous, _open_thread = _open_thread, thread_id
+    set_active_thread(thread_id, previous_id=previous)
 
 
 def set_active_thread(thread_id: str | None, previous_id: str | None = None) -> None:
@@ -73,12 +83,10 @@ def is_app_idle(min_idle_s: float = _IDLE_DELAY_S) -> bool:
     """Return True when heavyweight background memory work may run."""
     if idle_seconds() < min_idle_s:
         return False
-    try:
-        from row_bot.ui.state import _active_generations
-        if _active_generations:
-            return False
-    except Exception:
-        pass
+    from row_bot.runtime import executions
+
+    if executions.generation_registry.active():
+        return False
     try:
         from row_bot.document_extraction import get_extraction_status
         status = get_extraction_status()
@@ -141,12 +149,6 @@ def _append_extraction_journal(entry: dict) -> None:
     if len(journal) > _JOURNAL_MAX_ENTRIES:
         journal = journal[-_JOURNAL_MAX_ENTRIES:]
     _save_extraction_journal(journal)
-
-
-def get_extraction_journal(limit: int = 10) -> list[dict]:
-    """Return the most recent extraction journal entries."""
-    journal = _load_extraction_journal()
-    return journal[-limit:] if limit else journal
 
 
 # ── Core extraction logic ────────────────────────────────────────────────────
@@ -687,7 +689,15 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
     int
         Number of new/updated memories saved.
     """
+    from row_bot.models import get_current_model
     from row_bot.threads import _list_threads
+
+    if not str(get_current_model() or "").strip():
+        # Nothing is preset (decision 9). Leave the bookmark where it is so the
+        # conversations are read once a model is chosen, instead of skipped.
+        if on_status:
+            on_status("Waiting for a model: memories are read once one is chosen")
+        return 0
 
     state = _load_state()
     last_run = state.get("last_extraction", "2000-01-01T00:00:00")

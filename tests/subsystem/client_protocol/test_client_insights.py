@@ -128,6 +128,26 @@ def test_failed_proposal_application_has_a_failed_receipt(isolated_insights, mon
     assert result["summary"] == "Proposal failed; inspect its status."
 
 
+@pytest.mark.parametrize(("count", "words"), [(1, "1 proposal"), (2, "2 proposals")])
+def test_prepared_proposals_are_counted_in_words(isolated_insights, monkeypatch, count, words):
+    monkeypatch.setattr(evolution, "review_skill_library_dry_run",
+                        lambda **_kwargs: {"summary": {"proposal_count": count}})
+    monkeypatch.setattr(evolution, "ensure_proposals_for_insight",
+                        lambda _insight: [{"id": f"p-{index}"} for index in range(count)])
+    results = []
+    for action in ("review_skills", "generate"):
+        snapshot = owner.read_insights(validate=lambda: None)
+        results.append(owner.execute_insight(
+            {
+                "command_id": str(uuid4()), "revision": snapshot["revision"],
+                "action": action, "insight_id": "ins-test", "proposal_id": "",
+                "reason": "",
+            },
+            owner_id="owner", validate=lambda: None,
+        )["summary"])
+    assert results == [f"Skill review prepared {words}.", f"Prepared {words}."]
+
+
 def test_feedback_and_investigation_views_are_bounded(isolated_insights, monkeypatch):
     _current, proposal, _calls = isolated_insights
     proposal.update(
@@ -188,3 +208,95 @@ def test_insight_api_checks_session_and_idempotency_key(workspace_api, monkeypat
     )
     assert accepted.status_code == 200, accepted.text
     assert len(calls) == 1
+
+
+def test_a_dismissed_insight_can_be_restored_once(isolated_insights):
+    """Undo after Dismiss (decision 19): restore brings a dismissed insight back."""
+    current, _proposal, _calls = isolated_insights
+
+    def act(action):
+        snapshot = owner.read_insights(validate=lambda: None)
+        return owner.execute_insight(
+            {"command_id": str(uuid4()), "revision": snapshot["revision"], "action": action,
+             "insight_id": "ins-test", "proposal_id": "", "reason": ""},
+            owner_id="owner", validate=lambda: None,
+        )
+
+    assert act("dismiss")["status"] == "completed"
+    assert current["status"] == "dismissed"
+    assert owner.read_insights(validate=lambda: None)["items"] == []
+    assert act("restore")["status"] == "completed"
+    assert current["status"] == "new"
+    assert [item["id"] for item in owner.read_insights(validate=lambda: None)["items"]] == ["ins-test"]
+    # Only a dismissed insight is restored; a shown one is left alone.
+    with pytest.raises(ClientPlatformError, match="insight_unavailable"):
+        act("restore")
+
+
+def _apply(proposal_id="proposal-test"):
+    snapshot = owner.read_insights(validate=lambda: None)
+    return owner.execute_insight(
+        {"command_id": str(uuid4()), "revision": snapshot["revision"], "action": "apply",
+         "insight_id": "ins-test", "proposal_id": proposal_id, "reason": ""},
+        owner_id="owner", validate=lambda: None,
+    )
+
+
+@pytest.mark.parametrize("kind", ["consolidate_skills", "settings_change", "memory_correction"])
+def test_a_review_only_proposal_offers_no_apply_and_is_never_reported_applied(isolated_insights, kind):
+    """B124: Row-Bot can't carry out these kinds, so applying one is refused
+    in words instead of saying "Proposal applied." for a change that never happened."""
+    _current, proposal, calls = isolated_insights
+    assert owner.read_insights(validate=lambda: None)["items"][0]["proposals"][0]["executable"] is True
+    proposal.update(proposal_type=kind)
+    view = owner.read_insights(validate=lambda: None)["items"][0]["proposals"][0]
+    assert view["executable"] is False
+    with pytest.raises(ClientPlatformError, match="insight_proposal_draft_only"):
+        _apply()
+    assert calls == []
+
+
+@pytest.mark.parametrize(("kind", "message", "summary"), [
+    ("create_skill", "Skill created: Weekly digest", "Skill created: Weekly digest."),
+    ("patch_skill", "Skill patched: Weekly digest", "Skill patched: Weekly digest."),
+    ("investigate", "Investigation thread created: fixture-thread", "Investigation draft ready to open."),
+    ("send_feedback", "Feedback report prepared: C:\\Users\\Fixture\\report.md\nSubmit here: https://example.test",
+     "Feedback report saved on this computer. Nothing was sent; copy it to send it yourself."),
+])
+def test_applying_says_what_happened_for_its_kind(isolated_insights, monkeypatch, kind, message, summary):
+    """B124: the receipt names what the proposal did (a feedback report is
+    saved, never sent), not a generic "Proposal applied."; no private path."""
+    _current, proposal, _calls = isolated_insights
+    proposal.update(proposal_type=kind)
+    monkeypatch.setattr(evolution, "apply_proposal", lambda *_args, **_kwargs: {"ok": True, "message": message})
+    result = _apply()
+    assert result["status"] == "completed"
+    assert result["summary"] == summary
+    assert "Fixture" not in result["summary"]
+
+
+def test_an_insight_says_when_it_may_no_longer_apply(isolated_insights, monkeypatch):
+    """B124: an insight found while another model was in use, or a new one
+    found more than two weeks ago, says it may be out of date."""
+    from datetime import datetime, timedelta, timezone
+    import importlib
+
+    current, _proposal, _calls = isolated_insights
+    models = importlib.import_module("row_bot.models")
+    monkeypatch.setattr(models, "get_current_model", lambda: "gpt-5.6-sol")
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    old = (datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+
+    def item():
+        return owner.read_insights(validate=lambda: None)["items"][0]
+
+    current.update(created=recent, found_with_model="gpt-5.6-sol")
+    assert item()["found_at"] == recent
+    assert item()["out_of_date"] == ""
+    current.update(found_with_model="qwen3.8:27b")
+    assert item()["out_of_date"] == "Found while another model was in use, so it may no longer apply."
+    current.update(created=old, found_with_model="gpt-5.6-sol")
+    assert item()["out_of_date"] == "Found more than two weeks ago, so it may no longer apply."
+    # Pinned is the person's choice to keep it: age alone doesn't flag it.
+    current.update(status="pinned")
+    assert item()["out_of_date"] == ""

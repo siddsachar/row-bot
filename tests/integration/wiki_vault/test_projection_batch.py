@@ -15,6 +15,7 @@ def sparse_rows(stack, count=3):
 def test_fifty_sparse_entities_scan_each_type_once_per_operation(wiki_stack, monkeypatch):
     rows = sparse_rows(wiki_stack, 50)
     wiki, kg = wiki_stack["wiki_vault"], wiki_stack["kg"]
+    wiki.tidy_vault()  # the vault's one-time naming tidy has run
     original = kg.iter_entities_snapshot
     scans, visited = [], []
 

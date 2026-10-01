@@ -83,9 +83,21 @@ def test_unpaired_browser_navigation_and_api_are_classified_separately() -> None
     ).status_code == 401
 
 
-def test_websocket_requires_authentication_and_origin() -> None:
+def test_the_event_stream_requires_authentication() -> None:
     policy = AccessPolicy()
-    route = policy.classify(_scope("/_nicegui_ws/socket.io", scope_type="websocket"))
+    route = policy.classify(_scope("/api/v1/events"))
+
+    assert route.kind is RouteKind.AUTHENTICATED
+    assert route.browser_navigation is False  # a JSON 401, never a redirect
+    assert policy.authorize(
+        _context(kind=AuthenticationKind.UNAUTHENTICATED), route
+    ).status_code == 401
+
+
+def test_any_websocket_requires_authentication_and_origin() -> None:
+    # The app serves no WebSocket; one reaching the gate is still refused.
+    policy = AccessPolicy()
+    route = policy.classify(_scope("/api/v1/events", scope_type="websocket"))
 
     assert route.kind is RouteKind.AUTHENTICATED
     assert route.require_same_origin is True
@@ -142,6 +154,40 @@ def test_webhook_preserves_route_owned_secret_semantics() -> None:
     assert policy.authorize(
         _context(kind=AuthenticationKind.UNAUTHENTICATED), route
     ).allowed
+
+
+@pytest.mark.parametrize(
+    ("path", "method"),
+    [
+        ("/sms", "POST"),
+        ("/plugin-webhooks/teams-channel/messages", "POST"),
+        ("/plugin-webhooks/teams-channel/messages", "GET"),
+    ],
+)
+def test_twilio_and_plugin_webhooks_authenticate_at_their_route(path: str, method: str) -> None:
+    """B212: Twilio and plugin services have no Row-Bot session; their route checks them."""
+    policy = AccessPolicy()
+    route = policy.classify(_scope(path, method=method))
+
+    assert route.kind is RouteKind.DELEGATED
+    assert policy.authorize(_context(kind=AuthenticationKind.UNAUTHENTICATED), route).allowed
+
+
+@pytest.mark.parametrize(
+    ("path", "method"),
+    [
+        ("/sms", "GET"),
+        ("/sms/extra", "POST"),
+        ("/plugin-webhooks", "POST"),
+        ("/plugin-webhooks/teams-channel", "POST"),
+        ("/plugin-webhooks/teams-channel/messages/extra", "POST"),
+        ("/plugin-webhooks-other/teams-channel/messages", "POST"),
+    ],
+)
+def test_only_the_exact_webhook_routes_skip_the_session_gate(path: str, method: str) -> None:
+    route = AccessPolicy().classify(_scope(path, method=method))
+
+    assert route.kind is not RouteKind.DELEGATED
 
 
 def test_require_authenticated_owner_guards_server_side_handlers() -> None:

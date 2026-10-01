@@ -188,11 +188,16 @@ def test_insights_phase_stores_added_and_merged_insights(tmp_path, monkeypatch) 
         },
     ]
 
+    stored: list[dict] = []
+
     def fake_add_insight(**kwargs):
+        stored.append(kwargs)
         if kwargs["title"] == "Duplicate task":
             return {**kwargs, "_merged": True}
         return kwargs
 
+    # Each insight remembers the model in use when it was found (B124).
+    monkeypatch.setattr(importlib.import_module("row_bot.models"), "get_current_model", lambda: "fixture-model")
     monkeypatch.setattr(dream_cycle, "_collect_system_snapshot", lambda: "snapshot")
     monkeypatch.setattr(dream_cycle, "_llm_call", lambda _prompt: json.dumps(added_items))
     monkeypatch.setattr(insights, "add_insight", fake_add_insight)
@@ -203,5 +208,6 @@ def test_insights_phase_stores_added_and_merged_insights(tmp_path, monkeypatch) 
 
     assert result["insights_added"] == 1
     assert result["insights_merged"] == 1
+    assert [item["found_with_model"] for item in stored] == ["fixture-model", "fixture-model"]
     assert "Auto-pruned 1 stale insight(s)" in statuses
     assert statuses[-1] == "Insights phase: 1 new, 1 merged"

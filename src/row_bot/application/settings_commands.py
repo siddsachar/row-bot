@@ -55,6 +55,7 @@ _UTILITY_IDS = {
     "system_info",
     "conversation_search",
     "custom_tool_builder",
+    "developer",
 }
 _SECRET_FIELDS = {
     ("voice", "openai_realtime_credential"): "OPENAI_API_KEY",
@@ -136,6 +137,7 @@ _BOOL_FIELDS = {
 }
 _ACTION_FIELDS = {
     ("voice", "tts.install"),
+    ("voice", "whisper.install"),
     ("voice", "tts.test"),
     ("voice", "sensevoice.install"),
     ("system", "browser.install"),
@@ -307,6 +309,15 @@ def _normal_value(page: Any, field: Any, value: Any) -> tuple[str, str, Any, boo
         ):
             raise SettingsCommandError("invalid_settings_command")
         value = float(value)
+    elif key == ("documents", "processing_model"):
+        # "" or None: follow the conversation's model (U45).
+        if value in ("", None):
+            value = None
+        else:
+            from row_bot.providers.selection import parse_model_ref
+
+            if type(value) is not str or len(value) > 512 or parse_model_ref(value) is None:
+                raise SettingsCommandError("invalid_settings_command")
     elif key == ("documents", "embedding.dimension"):
         if value is not None and (type(value) is not int or not 1 <= value <= 100000):
             raise SettingsCommandError("invalid_settings_command")
@@ -402,6 +413,8 @@ def review_settings_update(
         summary = "Download and install Kokoro speech output locally"
     elif (page, field) == ("voice", "sensevoice.install"):
         summary = "Download and install SenseVoice Small locally"
+    elif (page, field) == ("voice", "whisper.install"):
+        summary = "Download the selected Whisper speech recognition model from Hugging Face and keep it on this computer"
     elif (page, field) == ("voice", "tts.test"):
         summary = "Play one local test phrase through the selected output device"
     elif (page, field) == ("system", "browser.install"):
@@ -517,6 +530,8 @@ def _write_json_setting(root: Path, page: str, field: str, value: Any) -> None:
         path, keys = root / "tts_settings.json", (field.split(".", 1)[1],)
     elif page == "documents" and field.startswith("embedding."):
         path, keys = root / "embedding_config.json", (field.split(".", 1)[1],)
+    elif page == "documents" and field == "processing_model":
+        path, keys = root / "document_processing.json", ("model",)
     elif page == "system" and field in {"tunnel.provider", "tunnel.main_app_enabled"}:
         key = "provider" if field == "tunnel.provider" else "tunnel_main_app"
         path, keys = root / "channels_config.json", ("tunnel", key)
@@ -656,6 +671,17 @@ def _clear_tracker_data(
 
 
 def _run_voice_action(field: str) -> None:
+    if field == "whisper.install":
+        # The running service loads the size saved in Voice settings, so
+        # Dictate can use it at once (B140).
+        from row_bot.voice import _load_voice_settings, get_voice_service
+
+        service = get_voice_service()
+        size = str(_load_voice_settings().get("whisper_model") or service.whisper_size)
+        if size != service.whisper_size:
+            service.whisper_size = size
+        service.install_whisper_model()
+        return
     if field == "tts.install":
         from row_bot.tts import TTSService
 
@@ -738,7 +764,21 @@ def _run_system_action(field: str) -> dict[str, str] | None:
         from row_bot.tunnel import tunnel_manager
 
         if field == "tunnel.check":
-            tunnel_manager.status()
+            code, detail = tunnel_manager.status()
+            state = tunnel_manager.runtime_state()
+            if state["runtime_state"] == "active":
+                message = f"The tunnel is running ({state['active_count']} active)."
+                remediation = ""
+            elif state["runtime_state"] == "failed":
+                message = "The tunnel isn't running."
+                remediation = state["last_error"] or detail
+            elif state["runtime_state"] == "not_configured":
+                message = "No ngrok authtoken is saved."
+                remediation = "Add one in Tunnel credential, then check again."
+            else:
+                message = "The tunnel is set up and not running."
+                remediation = "Start app tunnel opens it."
+            return {"code": code[:64], "message": message[:256], "remediation": remediation[:256]}
         elif field == "tunnel.start_main":
             port = get_app_port()
             existing_url = tunnel_manager.get_url(port)

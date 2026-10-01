@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from types import SimpleNamespace
 import shutil
 import subprocess
 import sys
@@ -1294,6 +1295,7 @@ def test_custom_tool_draft_command(
     command_name: str = "",
     approval_mode: ApprovalMode = DEFAULT_APPROVAL_MODE,
     query: str = "",
+    approved_once: bool = False,
 ) -> CommandResult:
     draft = get_custom_tool_draft(draft_id)
     command = _command_from_draft(draft, command_name)
@@ -1303,7 +1305,18 @@ def test_custom_tool_draft_command(
         default_query=DEFAULT_CUSTOM_TOOL_TEST_QUERY,
     )
     root = Path(draft.installed_path).expanduser().resolve()
-    result = _row_bot_env_guard_result(command_text, root) or run_workspace_command(str(root), command_text, approval_mode)
+    result = _row_bot_env_guard_result(command_text, root)
+    if result is None:
+        action = classify_command_action(command_text)
+        decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
+        if approved_once and decision.requires_approval:
+            # The person approved exactly this command once (the standard
+            # approval card): the same run a created tool's approved test gets.
+            subject = SimpleNamespace(id=f"draft-{draft.id}", name=draft.name,
+                                      installed_path=str(root), source_url=draft.source_url)
+            result = _run_approved_custom_tool_test(subject, command_text, action, decision, approval_mode)
+        else:
+            result = run_workspace_command(str(root), command_text, approval_mode)
     setup_hint = _dependency_setup_hint(draft, result)
     draft.test_results[str(command.get("name", "Command"))] = {
         "command": result.command,
@@ -1640,8 +1653,14 @@ def run_custom_tool_test_command(
             stderr=decision.reason,
             decision=decision,
         )
+    if approved_once:
+        return _run_approved_custom_tool_test(tool, command, action, decision, approval_mode)
+    return run_workspace_command(tool.installed_path, command, approval_mode)
 
-    if approved_once and action in {"run_network", "run_install", "start_server"}:
+
+def _run_approved_custom_tool_test(tool, command: str, action: str, decision, approval_mode: ApprovalMode) -> CommandResult:
+    """One explicitly approved test run (a created tool or a draft's folder)."""
+    if action in {"run_network", "run_install", "start_server"}:
         if is_containerized_runtime():
             decision = ApprovalDecision(
                 "allow",
@@ -1672,7 +1691,7 @@ def run_custom_tool_test_command(
                     sandbox_pending_change_id=outcome.pending_change_id,
                 )
 
-    if approved_once and decision.requires_approval:
+    if decision.requires_approval:
         decision = ApprovalDecision("allow", "User approved this Custom Tool test run once.")
         return _run_custom_tool_local_direct(tool, command, decision)
     return run_workspace_command(tool.installed_path, command, approval_mode)

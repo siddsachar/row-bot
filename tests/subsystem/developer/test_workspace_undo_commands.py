@@ -44,6 +44,7 @@ def command(undo):
     return d
 
 
+@pytest.mark.slow
 def test_real_restore_and_completed_replay_are_passive_and_scoped(command, monkeypatch):
     d = command
     result = d.execute()
@@ -103,6 +104,7 @@ def test_preclaim_rejection_has_no_admission_or_restore(command, failure):
     assert (d.root / 'file.txt').read_bytes() == b'after\r\n'
 
 
+@pytest.mark.slow
 def test_postclaim_expiry_retains_original_review_atomically(command, monkeypatch):
     d = command
     claim = admissions.claim_command
@@ -120,6 +122,7 @@ def test_postclaim_expiry_retains_original_review_atomically(command, monkeypatc
     assert d.execute()['status'] == 'undone'
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize('after_commit', [False, True])
 def test_final_receipt_failure_is_readonly_and_same_command_recovers(command, monkeypatch, after_commit):
     d = command
@@ -140,6 +143,7 @@ def test_final_receipt_failure_is_readonly_and_same_command_recovers(command, mo
     assert (d.root / 'file.txt').stat().st_ino == inode
 
 
+@pytest.mark.slow
 def test_ledger_failure_keeps_original_review_and_recovers_with_new_nonce(command, monkeypatch):
     d = command
     marker = d.ledger.mark_reverted
@@ -159,6 +163,7 @@ def test_ledger_failure_keeps_original_review_and_recovers_with_new_nonce(comman
     assert (d.root / 'file.txt').stat().st_ino == inode
 
 
+@pytest.mark.slow
 def test_revocation_at_actual_file_publication_prevents_restore_and_retains_proof(command, monkeypatch):
     d = command
     publish = d.edits.publish_text_revision
@@ -176,6 +181,7 @@ def test_revocation_at_actual_file_publication_prevents_restore_and_retains_proo
     assert d.execute()['status'] == 'undone'
 
 
+@pytest.mark.slow
 def test_same_command_changed_intent_cannot_retarget_completed_undo(command):
     d = command
     assert d.execute()['status'] == 'undone'
@@ -184,6 +190,7 @@ def test_same_command_changed_intent_cannot_retarget_completed_undo(command):
         d.execute()
 
 
+@pytest.mark.slow
 def test_passive_receipt_never_returns_private_result_fields(command):
     d = command
     expected = d.execute()
@@ -198,6 +205,7 @@ def test_passive_receipt_never_returns_private_result_fields(command):
     assert d.renew()['files'] == ['file.txt']
 
 
+@pytest.mark.slow
 def test_completed_receipt_revocation_is_not_bypassed(command):
     d = command
     d.execute()
@@ -207,6 +215,7 @@ def test_completed_receipt_revocation_is_not_bypassed(command):
             operation()
 
 
+@pytest.mark.slow
 def test_simultaneous_duplicate_waits_and_reuses_completed_receipt(command, monkeypatch):
     d = command
     entered, release = threading.Event(), threading.Event()

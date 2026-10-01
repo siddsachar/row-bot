@@ -126,16 +126,10 @@ def test_timeline_event_is_idempotent_bounded_and_excluded_from_messages(isolate
     )
 
     assert duplicate["id"] == event["id"]
-    assert len(threads.list_thread_events("thread-1")) == 1
     encoded = json.dumps(event["payload"])
     assert "transcript" not in encoded
     assert "tool_calls" not in encoded
     assert "summary" not in encoded
-    merged = threads.merge_thread_events(
-        [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "world"}],
-        [event],
-    )
-    assert [message["role"] for message in merged] == ["user", "context_event", "assistant"]
 
 
 def test_terminal_failure_event_is_persistent_actionable_and_distinct(isolated_thread_db):
@@ -180,7 +174,12 @@ def test_channel_delivery_claim_is_atomic_and_durable(isolated_thread_db):
     first = threads.claim_thread_event_delivery(event["id"], "telegram")
     second = threads.claim_thread_event_delivery(event["id"], "telegram")
     threads.complete_thread_event_delivery(event["id"], platform_refs=["platform-1"])
-    delivered = threads.list_thread_events("thread-1")[0]["payload"]["channel_delivery"]
+    delivered = threads.append_thread_event(
+        "thread-1",
+        "context_compacted",
+        "delivery-key",
+        source_revision="rev-1",
+    )["payload"]["channel_delivery"]
 
     assert first is not None
     assert second is None
@@ -298,22 +297,6 @@ def test_settled_snapshot_cas_rejects_detached_older_message_state(
 
     assert not threads.save_context_usage_cas("thread-1", usage)
     assert threads.load_context_usage("thread-1") is None
-
-
-def test_global_policy_change_clears_all_display_snapshots(isolated_thread_db):
-    with sqlite3.connect(isolated_thread_db) as conn:
-        conn.execute(
-            "INSERT INTO thread_meta (thread_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            ("thread-2", "Two", "now", "now"),
-        )
-        conn.commit()
-    threads.save_context_usage("thread-1", {"schema_version": 1, "model_ref": "model:openai:one"})
-    threads.save_context_usage("thread-2", {"schema_version": 1, "model_ref": "model:openai:two"})
-
-    threads.clear_all_context_usage()
-
-    assert threads.load_context_usage("thread-1") is None
-    assert threads.load_context_usage("thread-2") is None
 
 
 def test_designer_style_copy_keeps_validated_summary_but_invalidates_usage(

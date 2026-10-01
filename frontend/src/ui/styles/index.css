@@ -1,0 +1,19 @@
+/*
+ * Stylesheet entry. Order is the cascade: bundled fonts, non-palette tokens,
+ * the legacy per-surface rules (split into per-surface layers as surfaces are
+ * reworked), then shared primitives, which may refine legacy rules, then the
+ * reworked surfaces (chat, the shell, settings, Home, the per-thread
+ * Design and Developer panels, the Setup Center), then the phone and tablet
+ * layer, which adapts all of them.
+ */
+@import './fonts.css';
+@import './tokens.css';
+@import '../styles.css';
+@import './primitives.css';
+@import './chat.css';
+@import './shell.css';
+@import './settings.css';
+@import './home.css';
+@import './panels.css';
+@import './setup.css';
+@import './responsive.css';

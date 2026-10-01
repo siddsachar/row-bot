@@ -1,11 +1,36 @@
-import { useEffect, useSyncExternalStore } from 'react';
-import { Button, Field, Input, Skeleton } from '../../ui/primitives';
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
+import { FileDown, FileText, Trash2 } from 'lucide-react';
+import type { ConversationView } from '../../api/types';
+import type { CapabilityResult, SavedFile } from '../../platform';
+import { parseTimestamp, relativeTime } from '../../ui/format';
+import { useOverlay } from '../../ui/overlays';
+import {
+  Button,
+  Input,
+  SettingRow,
+  Skeleton,
+  Toggle,
+} from '../../ui/primitives';
+import {
+  conversationKinds,
+  type ConversationKind,
+} from '../shell/conversation-groups';
 
 export type ConversationAction =
   | 'conversation.rename'
   | 'conversation.pin'
   | 'conversation.archive'
   | 'conversation.export';
+/** A conversation export: Markdown (the default) or PDF. */
+export type ExportFormat = 'markdown' | 'pdf';
 export type ConversationActionCapability = {
   available: boolean;
   code: string | null;
@@ -135,9 +160,7 @@ export function createConversationActionsSession(conversationId: string) {
 export type ConversationActionsSession = ReturnType<
   typeof createConversationActionsSession
 >;
-export type ConversationActionsProps = {
-  conversationId: string;
-  session: ConversationActionsSession;
+export type ConversationActionsApi = {
   load: (
     conversationId: string,
     signal: AbortSignal,
@@ -154,10 +177,26 @@ export type ConversationActionsProps = {
     command: ConversationActionCommand,
     review: ConversationActionReview,
   ) => Promise<ConversationActionReceipt>;
-  download: (reference: string, fileName: string) => Promise<void>;
+};
+export type ConversationActionsProps = ConversationActionsApi & {
+  conversationId: string;
+  session: ConversationActionsSession;
+  /** The platform's save: the Save dialog, Exports or a browser download. */
+  save: (
+    reference: string,
+    fileName: string,
+  ) => Promise<CapabilityResult<SavedFile>>;
   onChanged?: (
     conversation: NonNullable<ConversationActionReceipt['conversation']>,
   ) => void;
+  /**
+   * Opens the existing delete confirmation over this dialog. Its confirm
+   * calls `closeActions`, so this dialog closes with it.
+   */
+  onDelete?: (closeActions: () => void) => void;
+  initialPin?: boolean;
+  /** Start this export as soon as the dialog opens (true means Markdown). */
+  initialExport?: boolean | ExportFormat;
 };
 
 function checkedSnapshot(
@@ -173,31 +212,212 @@ function checkedSnapshot(
   return value;
 }
 
+/** A review answers exactly what was asked, at the revision asked about. */
+function checkedReview(
+  result: ConversationActionReview,
+  conversationId: string,
+  action: ConversationAction,
+  snapshot: ConversationActionSnapshot,
+) {
+  if (
+    result.schema_version !== 1 ||
+    result.conversation_id !== conversationId ||
+    result.action !== action ||
+    result.revision !== snapshot.revision ||
+    result.checkpoint_revision !== snapshot.checkpoint_revision
+  )
+    throw Error();
+  return result;
+}
+
+/** The one command a review allows: its fields, digest and revisions. */
+function reviewedCommand(
+  action: ConversationAction,
+  fields: Record<string, unknown>,
+  result: ConversationActionReview,
+): ConversationActionCommand {
+  return {
+    command_id: crypto.randomUUID(),
+    type: action,
+    expected_revision: result.revision,
+    payload: {
+      ...(action === 'conversation.export' ? {} : fields),
+      checkpoint_revision: result.checkpoint_revision,
+      action_digest: result.action_digest,
+      ...(action === 'conversation.export'
+        ? {
+            export_title: result.fields.title,
+            ...(fields.format === 'pdf' ? { export_format: 'pdf' } : {}),
+          }
+        : {}),
+    },
+  };
+}
+
+export type ConversationActionOutcome =
+  | { status: 'completed'; receipt: ConversationActionReceipt }
+  /** Unavailable, changed or rejected: nothing was done. */
+  | { status: 'failed' }
+  /** Sent, but without a clear receipt. */
+  | { status: 'uncertain' };
+
+/**
+ * One reviewed action without the dialog, for the Library's bulk Pin and
+ * Export: the same read, review, revision checks and command.
+ */
+export async function runConversationAction(
+  api: ConversationActionsApi,
+  conversationId: string,
+  action: 'conversation.pin' | 'conversation.export',
+  fields: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<ConversationActionOutcome> {
+  let attempt: Attempt;
+  try {
+    const snapshot = checkedSnapshot(
+      await api.load(conversationId, signal),
+      conversationId,
+    );
+    const capability = action === 'conversation.pin' ? 'pin' : 'export';
+    if (!snapshot.capabilities[capability].available)
+      return { status: 'failed' };
+    const review = checkedReview(
+      await api.review(
+        conversationId,
+        action,
+        snapshot.revision,
+        fields,
+        signal,
+      ),
+      conversationId,
+      action,
+      snapshot,
+    );
+    attempt = { command: reviewedCommand(action, fields, review), review };
+  } catch {
+    return { status: 'failed' };
+  }
+  if (signal.aborted) return { status: 'failed' };
+  try {
+    const receipt = await api.execute(
+      conversationId,
+      attempt.command,
+      attempt.review,
+    );
+    if (
+      receipt.command_id !== attempt.command.command_id ||
+      receipt.action !== action
+    )
+      return { status: 'uncertain' };
+    if (receipt.status === 'completed') return { status: 'completed', receipt };
+    return { status: receipt.status === 'rejected' ? 'failed' : 'uncertain' };
+  } catch {
+    return { status: 'uncertain' };
+  }
+}
+
+const KIND_NAMES: Record<ConversationKind, string> = {
+  designer: 'Design',
+  code: 'Code',
+  workflow: 'Workflow',
+};
+
+/** The dialog title: the saved name, following a rename made in it. */
+function ActionsTitle({
+  session,
+  fallback,
+}: {
+  session: ConversationActionsSession;
+  fallback: string;
+}) {
+  const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  return <>{state.snapshot?.title || fallback}</>;
+}
+
+/**
+ * The overlay around ConversationActions (B237): titled with the
+ * conversation's name, a quiet "Chat · updated 5 minutes ago" line, and the
+ * header's × as the one way to close.
+ */
+export function conversationActionsDialog(
+  conversation: Pick<
+    ConversationView,
+    'title' | 'updated_at' | 'category' | 'resource_bindings'
+  >,
+  session: ConversationActionsSession,
+  content: ReactNode,
+) {
+  const kinds = conversationKinds(conversation);
+  const type = kinds.length
+    ? kinds.map((kind) => KIND_NAMES[kind]).join(' · ')
+    : 'Chat';
+  return {
+    className: 'conversation-actions-dialog',
+    title: (
+      <ActionsTitle
+        session={session}
+        fallback={conversation.title || 'Untitled conversation'}
+      />
+    ),
+    description: parseTimestamp(conversation.updated_at)
+      ? `${type} · updated ${relativeTime(conversation.updated_at)}`
+      : type,
+    content,
+  };
+}
+
 export default function ConversationActions({
   conversationId,
   session,
   load,
   review,
   execute,
-  download,
+  save,
   onChanged,
+  onDelete,
+  initialPin,
+  initialExport,
 }: ConversationActionsProps) {
+  const { notify, close } = useOverlay();
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const wrongOwner = state.conversationId !== conversationId;
   const locked =
     wrongOwner || !state.active || Boolean(state.busy || state.pending);
+  const initialPinRequested = useRef(false);
+  const mounted = useRef(false);
+  const [closeRequested, setCloseRequested] = useState(false);
+  // The switch shows where it was moved while that pin is reviewed and
+  // saved, then the saved state (the old one if it did not go through).
+  const [pinTarget, setPinTarget] = useState<boolean | null>(null);
+  if (pinTarget !== null && !state.busy) setPinTarget(null);
+  const id = useId();
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // Closing waits for the render that closed the confirmation on top of
+  // this dialog; closing earlier would close the confirmation again.
+  const closeDialog = useEffectEvent(() => close());
+  useEffect(() => {
+    if (closeRequested) closeDialog();
+  }, [closeRequested]);
+
+  // Every opening reads the conversation afresh (it may have been renamed or
+  // continued since), unless a reviewed action from before still needs it.
   useEffect(() => {
     const current = session.getSnapshot();
     if (
       current.conversationId !== conversationId ||
       !current.active ||
-      current.snapshot ||
-      current.busy
+      current.busy ||
+      session.hasRetained()
     )
       return;
     const abort = session.beginRead();
-    session.update({ busy: 'load', message: '' });
+    session.update({ snapshot: null, busy: 'load', message: '' });
     void load(conversationId, abort.signal)
       .then((snapshot) => {
         const checked = checkedSnapshot(snapshot, conversationId);
@@ -225,36 +445,23 @@ export default function ConversationActions({
     const abort = session.beginRead();
     session.update({ busy: 'review', reviewed: null, message: '' });
     try {
-      const result = await review(
+      const result = checkedReview(
+        await review(
+          conversationId,
+          action,
+          snapshot.revision,
+          fields,
+          abort.signal,
+        ),
         conversationId,
         action,
-        snapshot.revision,
-        fields,
-        abort.signal,
+        snapshot,
       );
-      if (
-        result.schema_version !== 1 ||
-        result.conversation_id !== conversationId ||
-        result.action !== action ||
-        result.revision !== snapshot.revision ||
-        result.checkpoint_revision !== snapshot.checkpoint_revision
-      )
-        throw Error();
-      const command: ConversationActionCommand = {
-        command_id: crypto.randomUUID(),
-        type: action,
-        expected_revision: result.revision,
-        payload: {
-          ...fields,
-          checkpoint_revision: result.checkpoint_revision,
-          action_digest: result.action_digest,
-          ...(action === 'conversation.export'
-            ? { export_title: result.fields.title }
-            : {}),
-        },
-      };
       if (!abort.signal.aborted) {
-        const attempt = { command, review: result };
+        const attempt = {
+          command: reviewedCommand(action, fields, result),
+          review: result,
+        };
         session.update({
           reviewed: attempt,
           busy: '',
@@ -300,7 +507,6 @@ export default function ConversationActions({
             busy: '',
             pending: null,
             exported: receipt.export,
-            message: 'Conversation export is ready to download.',
           });
           void saveExport();
         } else {
@@ -322,7 +528,12 @@ export default function ConversationActions({
             busy: '',
             pending: null,
             exported: null,
-            message: 'Conversation action completed.',
+            message:
+              receipt.action === 'conversation.rename'
+                ? 'Name saved.'
+                : snapshot.pinned
+                  ? 'Pinned.'
+                  : 'Unpinned.',
           });
           onChanged?.(receipt.conversation);
         }
@@ -349,23 +560,88 @@ export default function ConversationActions({
     }
   };
 
+  // One click saves: the Save dialog, Exports while the desktop reconnects,
+  // or a browser download (B238). A saved export closes the dialog, so the
+  // floating notice (hidden while a dialog is open) confirms it at once.
   const saveExport = async () => {
     const current = session.getSnapshot();
     if (!current.exported || locked) return;
     session.update({ busy: 'download', message: '' });
-    try {
-      await download(
-        current.exported.attachment_ref,
-        current.exported.file_name,
-      );
-      session.update({ busy: '', message: 'Conversation export downloaded.' });
-    } catch {
+    const result = await save(
+      current.exported.attachment_ref,
+      current.exported.file_name,
+    ).catch((): CapabilityResult<SavedFile> => ({
+      status: 'unavailable',
+      reason: 'operation_failed',
+    }));
+    if (result.status !== 'ok') {
       session.update({
         busy: '',
-        message: 'The saved export could not be downloaded. Try again.',
+        exported: result.status === 'cancelled' ? null : current.exported,
+        message:
+          result.status === 'cancelled'
+            ? ''
+            : result.reason === 'save_failed'
+              ? 'Row-Bot couldn’t write the file there. Choose another folder and try again.'
+              : result.reason === 'user_gesture_required'
+                ? 'The export is ready. Choose Save export to save it.'
+                : 'The export couldn’t be saved. Try again.',
       });
+      return;
     }
+    session.update({ busy: '', exported: null, message: '' });
+    if (mounted.current) close();
+    const saved = result.value;
+    if (saved.kind === 'exports')
+      notify(`Saved to ${saved.folder}`, undefined, {
+        label: 'Show in folder',
+        onAction: () =>
+          void saved.reveal().then((shown) => {
+            if (!shown)
+              notify('Row-Bot couldn’t open the Exports folder.', 'warning');
+          }),
+      });
+    else
+      notify(
+        saved.kind === 'file'
+          ? 'Conversation export saved.'
+          : 'Download started.',
+      );
   };
+
+  const requestInitialPin = useEffectEvent((pinned: boolean) => {
+    void requestReview('conversation.pin', { pinned });
+  });
+  useEffect(() => {
+    if (
+      initialPin === undefined ||
+      initialPinRequested.current ||
+      !state.snapshot ||
+      locked ||
+      !state.snapshot.capabilities.pin.available ||
+      state.snapshot.pinned === initialPin
+    )
+      return;
+    initialPinRequested.current = true;
+    requestInitialPin(initialPin);
+  }, [initialPin, locked, state.snapshot]);
+  const exportAs = (format: ExportFormat) =>
+    requestReview('conversation.export', format === 'pdf' ? { format } : {});
+  const requestInitialExport = useEffectEvent(() => {
+    void exportAs(initialExport === 'pdf' ? 'pdf' : 'markdown');
+  });
+  useEffect(() => {
+    if (
+      !initialExport ||
+      initialPinRequested.current ||
+      !state.snapshot ||
+      locked ||
+      !state.snapshot.capabilities.export.available
+    )
+      return;
+    initialPinRequested.current = true;
+    requestInitialExport();
+  }, [initialExport, locked, state.snapshot]);
 
   if (wrongOwner)
     return (
@@ -374,83 +650,142 @@ export default function ConversationActions({
         to finish or check it.
       </p>
     );
-  if (!state.snapshot && state.busy === 'load')
-    return <Skeleton label="Loading conversation actions" />;
 
+  const snapshot = state.snapshot;
+  const name = state.title.trim();
+  const renamable = Boolean(
+    snapshot &&
+    snapshot.capabilities.rename.available &&
+    name &&
+    name !== snapshot.title,
+  );
   return (
-    <section aria-label="Conversation actions" className="settings-section">
-      <h2>Conversation actions</h2>
-      <p>
-        Rename, pin, or export this saved conversation. History and bound
-        resources stay in place.
-      </p>
-      {state.snapshot && (
-        <>
-          <Field label="Conversation name">
-            <Input
-              value={state.title}
-              maxLength={120}
-              disabled={locked || !state.snapshot.capabilities.rename.available}
-              onChange={(event) =>
-                session.update({
-                  title: event.target.value,
-                  reviewed: null,
-                  message: '',
-                })
+    <div className="conversation-actions-panel">
+      <div className="conversation-actions-rows">
+        {!snapshot && state.busy === 'load' && (
+          <Skeleton label="Loading conversation actions" />
+        )}
+        {snapshot && (
+          <>
+            {/* Enter or Save renames; leaving the field does not. */}
+            <form
+              className="conversation-actions-name"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (renamable)
+                  void requestReview('conversation.rename', { title: name });
+              }}
+            >
+              <label
+                className="conversation-actions-label"
+                htmlFor={`${id}-name`}
+              >
+                Name
+              </label>
+              <div className="conversation-actions-name-row">
+                <Input
+                  id={`${id}-name`}
+                  value={state.title}
+                  maxLength={120}
+                  aria-describedby={`${id}-name-help`}
+                  readOnly={locked}
+                  disabled={!snapshot.capabilities.rename.available}
+                  onChange={(event) =>
+                    session.update({
+                      title: event.target.value,
+                      reviewed: null,
+                      message: '',
+                    })
+                  }
+                />
+                <Button type="submit" disabled={locked || !renamable}>
+                  Save
+                </Button>
+              </div>
+              <p id={`${id}-name-help`} className="conversation-actions-help">
+                Enter saves the new name.
+              </p>
+            </form>
+            <SettingRow
+              label="Pin"
+              htmlFor={`${id}-pin`}
+              description="Keep it at the top of the sidebar."
+              control={
+                <Toggle
+                  id={`${id}-pin`}
+                  label="Pin"
+                  checked={pinTarget ?? snapshot.pinned}
+                  disabled={
+                    !snapshot.capabilities.pin.available ||
+                    Boolean(state.pending)
+                  }
+                  // Stays enabled while busy so keyboard focus is kept;
+                  // changes are ignored until the last one ends.
+                  onChange={(event) => {
+                    if (locked) return;
+                    setPinTarget(event.target.checked);
+                    void requestReview('conversation.pin', {
+                      pinned: event.target.checked,
+                    });
+                  }}
+                />
               }
             />
-          </Field>
-          <div className="button-row">
-            <Button
-              disabled={locked || !state.title.trim()}
-              onClick={() =>
-                void requestReview('conversation.rename', {
-                  title: state.title.trim(),
-                })
+            <SettingRow
+              className="conversation-actions-export"
+              label="Export"
+              description="Saves a copy as a file."
+              control={
+                <>
+                  <Button
+                    disabled={locked || !snapshot.capabilities.export.available}
+                    onClick={() => void exportAs('markdown')}
+                  >
+                    <FileText size={16} aria-hidden />
+                    Markdown
+                  </Button>
+                  <Button
+                    disabled={locked || !snapshot.capabilities.export.available}
+                    onClick={() => void exportAs('pdf')}
+                  >
+                    <FileDown size={16} aria-hidden />
+                    PDF
+                  </Button>
+                </>
               }
-            >
-              Rename
-            </Button>
-            <Button
-              disabled={locked || !state.snapshot.capabilities.pin.available}
-              onClick={() =>
-                void requestReview('conversation.pin', {
-                  pinned: !state.snapshot!.pinned,
-                })
-              }
-            >
-              {state.snapshot.pinned ? 'Unpin' : 'Pin'}
-            </Button>
-            <Button
-              disabled={locked || !state.snapshot.capabilities.export.available}
-              onClick={() => void requestReview('conversation.export', {})}
-            >
-              Export
-            </Button>
-          </div>
-          {!state.snapshot.capabilities.archive.available && (
-            <p role="status">
-              Archive is unavailable because saved conversations do not yet have
-              a reversible archive owner. Deletion remains a separate confirmed
-              action.
-            </p>
-          )}
-        </>
+            />
+          </>
+        )}
+        {state.pending && (
+          <Button
+            disabled={!state.active || Boolean(state.busy)}
+            onClick={() => void apply(state.pending)}
+          >
+            Check original action
+          </Button>
+        )}
+        {state.exported && !state.busy && (
+          <Button onClick={() => void saveExport()}>Save export</Button>
+        )}
+        {state.message && (
+          <p className="conversation-actions-status" role="status">
+            {state.message}
+          </p>
+        )}
+      </div>
+      {onDelete && (
+        <div className="conversation-actions-footer">
+          <Button
+            variant="ghost"
+            className="conversation-actions-delete"
+            disabled={locked}
+            onClick={() => onDelete(() => setCloseRequested(true))}
+          >
+            <Trash2 size={16} aria-hidden />
+            Delete conversation…
+          </Button>
+        </div>
       )}
-      {state.pending && (
-        <Button
-          disabled={!state.active || Boolean(state.busy)}
-          onClick={() => void apply(state.pending)}
-        >
-          Check original action
-        </Button>
-      )}
-      {state.exported && (
-        <Button disabled={locked} onClick={() => void saveExport()}>
-          Download conversation export
-        </Button>
-      )}
-      {state.message && <p role="status">{state.message}</p>}
-    </section>
+    </div>
   );
 }

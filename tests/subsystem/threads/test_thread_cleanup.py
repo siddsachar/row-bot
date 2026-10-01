@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import importlib
+import json
 import os
 import sqlite3
-import sys
 import threading
-import queue
 
 import pytest
 
@@ -14,35 +13,30 @@ import pytest
 pytestmark = pytest.mark.subsystem
 
 
-def _fresh_stack(tmp_path, monkeypatch):
+def _fresh_stack(tmp_path, reload_for_data_dir):
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
-    previous_threads = sys.modules.get("row_bot.threads")
-    if previous_threads is not None:
-        try:
-            previous_threads.conn.close()
-        except Exception:
-            pass
-    tasks = importlib.reload(importlib.import_module("row_bot.tasks"))
-    threads = importlib.reload(importlib.import_module("row_bot.threads"))
-    cleanup = importlib.reload(importlib.import_module("row_bot.thread_cleanup"))
-    importlib.reload(importlib.import_module("row_bot.agent_runs"))
-    designer_storage = importlib.reload(importlib.import_module("row_bot.designer.storage"))
-    designer_history = importlib.reload(importlib.import_module("row_bot.designer.history"))
-    designer_publish = importlib.reload(importlib.import_module("row_bot.designer.publish"))
-    designer_session = importlib.reload(importlib.import_module("row_bot.designer.session"))
-    for name in (
-        "row_bot.developer.storage",
-        "row_bot.developer.todos",
-        "row_bot.developer.change_ledger",
-        "row_bot.developer.sandbox_runtime",
-        "row_bot.developer.worktrees",
-        "row_bot.developer.inspector_snapshot",
-        "row_bot.tools.shell_tool",
-        "row_bot.tools.browser_tool",
-    ):
-        importlib.reload(importlib.import_module(name))
+    tasks, threads, cleanup, _agent_runs, designer_storage, designer_history, designer_publish, designer_session = (
+        reload_for_data_dir(
+            data_dir,
+            "row_bot.tasks",
+            "row_bot.threads",
+            "row_bot.thread_cleanup",
+            "row_bot.agent_runs",
+            "row_bot.designer.storage",
+            "row_bot.designer.history",
+            "row_bot.designer.publish",
+            "row_bot.designer.session",
+            "row_bot.developer.storage",
+            "row_bot.developer.todos",
+            "row_bot.developer.change_ledger",
+            "row_bot.developer.sandbox_runtime",
+            "row_bot.developer.worktrees",
+            "row_bot.developer.inspector_snapshot",
+            "row_bot.tools.shell_tool",
+            "row_bot.tools.browser_tool",
+        )[:8]
+    )
 
     return {
         "data_dir": data_dir,
@@ -114,8 +108,9 @@ def _insert_thread_checkpoint(threads, thread_id: str, checkpoint_id: str) -> No
         conn.commit()
 
 
-def test_normal_thread_deletion_removes_owned_state_and_persistent_media(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_normal_thread_deletion_removes_owned_state_and_persistent_media(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     tasks = stack["tasks"]
     cleanup = stack["cleanup"]
@@ -143,9 +138,9 @@ def test_normal_thread_deletion_removes_owned_state_and_persistent_media(tmp_pat
     threads.save_thread_draft(thread_id, "unfinished secret")
     persistent = threads.save_media_file(thread_id, "keep.png", b"persistent bytes")
     transient = threads.save_media_file(thread_id, "drop.png", b"transient bytes")
-    threads.save_thread_media(
-        thread_id,
-        {"entries": [{"media": [{"path": persistent.name, "persist": True}]}]},
+    threads._thread_ui_media_path(thread_id).write_text(
+        json.dumps({"entries": [{"media": [{"path": persistent.name, "persist": True}]}]}),
+        encoding="utf-8",
     )
     (threads._THREAD_UI_DIR / f"{thread_id}.images.json").write_text("{}", encoding="utf-8")
     _insert_thread_task_state(tasks, thread_id)
@@ -186,8 +181,8 @@ def test_normal_thread_deletion_removes_owned_state_and_persistent_media(tmp_pat
     assert export.read_text(encoding="utf-8") == "explicit export"
 
 
-def test_workflow_audits_survive_with_deleted_thread_links_scrubbed(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+def test_workflow_audits_survive_with_deleted_thread_links_scrubbed(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     tasks = stack["tasks"]
     cleanup = stack["cleanup"]
@@ -265,11 +260,9 @@ def test_workflow_audits_survive_with_deleted_thread_links_scrubbed(tmp_path, mo
         conn.close()
 
 
-def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     tasks = stack["tasks"]
     cleanup = stack["cleanup"]
@@ -384,7 +377,7 @@ def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(
         _insert_thread_checkpoint(threads, thread_id, f"checkpoint-{index}")
         threads.save_thread_draft(thread_id, f"draft-{index}")
         threads.save_media_file(thread_id, f"media-{index}.bin", b"owned")
-        threads.save_thread_media(thread_id, {"entries": []})
+        threads._thread_ui_media_path(thread_id).write_text(json.dumps({"entries": []}), encoding="utf-8")
         (threads._THREAD_UI_DIR / f"{thread_id}.images.json").write_text(
             "{}",
             encoding="utf-8",
@@ -435,15 +428,12 @@ def test_parent_delete_recursively_removes_direct_and_nested_agent_child_state(
     assert set((parent_id, child_id, nested_id)) <= set(killed_browser)
 
 
-def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     agent_runs = importlib.import_module("row_bot.agent_runs")
-    state_module = importlib.import_module("row_bot.ui.state")
 
     parent_id = threads.create_thread("Parent", thread_id="active-agent-parent")
     child_id = threads.create_thread(
@@ -467,18 +457,11 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
         return original_stop(run_id)
 
     monkeypatch.setattr(agent_runs, "stop_agent_run", _record_stop)
-    generation = state_module.GenerationState(
-        thread_id=child_id,
-        q=queue.Queue(),
-        stop_event=threading.Event(),
-        config={"configurable": {"thread_id": child_id}},
-        enabled_tools=[],
-    )
-    state_module._active_generations[child_id] = generation
+    stop_event = threading.Event()
     from row_bot.runtime import executions
     registry = executions.GenerationRuntimeRegistry()
     monkeypatch.setattr(executions, "generation_registry", registry)
-    handle = registry.register(child_id, stop_event=generation.stop_event, domain="agent", domain_id=child_run["id"])
+    handle = registry.register(child_id, stop_event=stop_event, domain="agent", domain_id=child_run["id"])
     entered, release = threading.Event(), threading.Event()
     def producer():
         entered.set()
@@ -491,20 +474,19 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
 
         assert result.deleted is False
         assert stop_order == [(child_run["id"], True)]
-        assert generation.stop_event.is_set()
+        assert stop_event.is_set()
         assert not handle.producer_done.is_set()
         assert agent_runs.get_agent_run(child_run["id"])["status"] == "stopping"
         assert cleanup.is_thread_deleting(parent_id) is True
         assert cleanup.is_thread_deleting(child_id) is True
         threads._save_thread_meta(child_id, "Late child resurrection")
         assert threads._thread_exists(child_id) is True
-        assert threads.get_thread_name(child_id) == "Active child"
+        assert next(row for row in threads._list_threads() if row[0] == child_id)[1] == "Active child"
         with pytest.raises((ValueError, RuntimeError), match="delet"):
             threads._save_thread_meta(child_id, "Premature explicit recreation", allow_recreate=True)
     finally:
         release.set()
         worker.join(timeout=3)
-        state_module._active_generations.pop(child_id, None)
 
     assert handle.producer_done.is_set()
     assert cleanup.delete_thread(parent_id).deleted is True
@@ -515,8 +497,8 @@ def test_parent_delete_cancels_active_child_and_blocks_late_child_writes(
     assert agent_runs.get_agent_run(child_run["id"]) is None
 
 
-def test_repeated_deletion_cleans_late_sidecars_and_write_guard_blocks_active_thread(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+def test_repeated_deletion_cleans_late_sidecars_and_write_guard_blocks_active_thread(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     thread_id = threads.create_thread("Active", thread_id="active-delete")
@@ -536,8 +518,9 @@ def test_repeated_deletion_cleans_late_sidecars_and_write_guard_blocks_active_th
     assert cleanup.delete_thread(thread_id).deleted is False
 
 
-def test_explicit_channel_recreation_can_reuse_a_deleted_thread_id(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_explicit_channel_recreation_can_reuse_a_deleted_thread_id(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     thread_id = threads.create_thread("Channel", thread_id="stable-channel-id")
@@ -553,8 +536,9 @@ def test_explicit_channel_recreation_can_reuse_a_deleted_thread_id(tmp_path, mon
     assert threads._thread_exists(thread_id) is True
 
 
-def test_deletion_resumes_after_metadata_purge_before_durable_completion(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_deletion_resumes_after_metadata_purge_before_durable_completion(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads, cleanup = stack["threads"], stack["cleanup"]
     from row_bot.runtime import admissions
     thread_id = threads.create_thread("Crash cut", thread_id="delete-after-row-purge")
@@ -574,8 +558,9 @@ def test_deletion_resumes_after_metadata_purge_before_durable_completion(tmp_pat
     assert not threads._thread_exists(thread_id)
 
 
-def test_deletion_guard_stays_until_an_active_producer_finalizes(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_deletion_guard_stays_until_an_active_producer_finalizes(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     thread_id = threads.create_thread("Active", thread_id="producer-active")
@@ -608,8 +593,9 @@ def test_deletion_guard_stays_until_an_active_producer_finalizes(tmp_path, monke
     assert cleanup.is_thread_deleting(thread_id) is False
 
 
-def test_designer_conversation_detaches_but_project_artifacts_survive(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_designer_conversation_detaches_but_project_artifacts_survive(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     storage = stack["designer_storage"]
@@ -640,8 +626,9 @@ def test_designer_conversation_detaches_but_project_artifacts_survive(tmp_path, 
     assert published.exists()
 
 
-def test_design_deletion_removes_history_publish_cache_and_all_linked_threads(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_design_deletion_removes_history_publish_cache_and_all_linked_threads(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     storage = stack["designer_storage"]
     history = stack["designer_history"]
@@ -673,8 +660,8 @@ def test_design_deletion_removes_history_publish_cache_and_all_linked_threads(tm
     assert session.get_ui_active_project() is None
 
 
-def test_managed_path_rejects_escape_and_root_deletion(tmp_path, monkeypatch) -> None:
-    cleanup = _fresh_stack(tmp_path, monkeypatch)["cleanup"]
+def test_managed_path_rejects_escape_and_root_deletion(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    cleanup = _fresh_stack(tmp_path, reload_for_data_dir)["cleanup"]
     root = tmp_path / "managed"
     root.mkdir()
 
@@ -685,8 +672,8 @@ def test_managed_path_rejects_escape_and_root_deletion(tmp_path, monkeypatch) ->
         cleanup.resolve_managed_path(root, root)
 
 
-def test_developer_current_folder_and_unimported_sandbox_are_preserved(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+def test_developer_current_folder_and_unimported_sandbox_are_preserved(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     storage = importlib.import_module("row_bot.developer.storage")
@@ -757,8 +744,9 @@ def test_developer_current_folder_and_unimported_sandbox_are_preserved(tmp_path,
     assert [item.id for item in pending] == ["unimported"]
 
 
-def test_idle_orphan_sweep_removes_only_unowned_managed_artifacts(tmp_path, monkeypatch) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_idle_orphan_sweep_removes_only_unowned_managed_artifacts(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     storage = stack["designer_storage"]
@@ -820,11 +808,9 @@ def test_idle_orphan_sweep_removes_only_unowned_managed_artifacts(tmp_path, monk
     assert not orphan_publish.exists()
 
 
-def test_idle_repair_deletes_only_provable_historical_agent_child_orphans(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+@pytest.mark.slow
+def test_idle_repair_deletes_only_provable_historical_agent_child_orphans(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     tasks = stack["tasks"]
     cleanup = stack["cleanup"]
@@ -918,11 +904,8 @@ def test_idle_repair_deletes_only_provable_historical_agent_child_orphans(
     assert threads._thread_exists(orphan_id) is False
 
 
-def test_idle_agent_child_repair_retains_everything_when_ownership_is_unavailable(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    stack = _fresh_stack(tmp_path, monkeypatch)
+def test_idle_agent_child_repair_retains_everything_when_ownership_is_unavailable(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    stack = _fresh_stack(tmp_path, reload_for_data_dir)
     threads = stack["threads"]
     cleanup = stack["cleanup"]
     child_id = threads.create_thread(
@@ -946,8 +929,8 @@ def test_idle_agent_child_repair_retains_everything_when_ownership_is_unavailabl
     assert threads._thread_exists(child_id) is True
 
 
-def test_sqlite_compaction_is_thresholded_and_reclaims_file_space(tmp_path, monkeypatch) -> None:
-    cleanup = _fresh_stack(tmp_path, monkeypatch)["cleanup"]
+def test_sqlite_compaction_is_thresholded_and_reclaims_file_space(tmp_path, monkeypatch, reload_for_data_dir) -> None:
+    cleanup = _fresh_stack(tmp_path, reload_for_data_dir)["cleanup"]
     db_path = tmp_path / "compact.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute("CREATE TABLE payloads (value BLOB)")
@@ -971,3 +954,49 @@ def test_sqlite_compaction_is_thresholded_and_reclaims_file_space(tmp_path, monk
     )
     assert compacted["compacted"] is True
     assert db_path.stat().st_size < before
+
+
+def test_start_up_removes_only_row_bots_own_temp_and_splash_leftovers(tmp_path) -> None:
+    """B126: ~370 splash markers, ~100 skills-activation temp files and ~60
+    tmp* files had piled up in the data folder. Only those exact patterns,
+    old enough not to be in use, are removed; nothing else is touched."""
+    from row_bot import thread_cleanup
+
+    data = tmp_path / "data"
+    (data / "sub").mkdir(parents=True)
+    old = (datetime.now() - timedelta(days=3)).timestamp()
+    current = "c" * 32
+    leftovers = [
+        f"launcher-{'a' * 32}-splash.ready",
+        f"launcher-{'b' * 32}-window-mode-chooser.ready",
+        f"launcher-{'b' * 32}-window-mode-chooser.result",
+        ".skills_activation.05jn1nzq.json",
+        "tmp0iqsg4ot",
+    ]
+    kept = [
+        f"launcher-{current}-splash.ready",  # this launch's splash
+        "splash.log",
+        "skills_activation.json",
+        ".skills_activation.json",
+        "tmpnotes.txt",
+        "mytmp0iqsg4ot",
+        "tmp0iqsg4ot.json",
+        "providers.json",
+        "sub/tmp1apja8e8",
+    ]
+    for name in leftovers + kept:
+        path = data / name
+        path.write_text("{}", encoding="utf-8")
+        os.utime(path, (old, old))
+    (data / "tmpabcdefgh").mkdir()  # a folder, never removed
+    fresh = data / "tmp28taqdyh"  # may still be in use
+    fresh.write_text("{}", encoding="utf-8")
+
+    removed = thread_cleanup.sweep_data_dir_leftovers(data, keep_launch=current)
+
+    assert removed == len(leftovers)
+    for name in leftovers:
+        assert not (data / name).exists(), name
+    for name in kept:
+        assert (data / name).exists(), name
+    assert (data / "tmpabcdefgh").is_dir() and fresh.exists()

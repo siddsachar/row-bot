@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import McpRuntimeControls, {
@@ -24,6 +25,7 @@ const saved: McpRuntimeState = {
   runtime_id: null,
   state: 'missing',
   session_quiesced: null,
+  enabled: true,
 };
 const connected: McpRuntimeState = {
   ...saved,
@@ -101,7 +103,9 @@ it('executes once on click and does not replay on reopen', async () => {
   const props = options();
   const first = render(<McpRuntimeControls {...props} />);
   await trigger();
-  await screen.findByText(/Connect command completed/);
+  await screen.findByText(
+    /Connected\. Tools that change things still ask first/,
+  );
   const original = props.execute.mock.calls[0];
   first.unmount();
   render(<McpRuntimeControls {...props} />);
@@ -126,9 +130,69 @@ it('reconciles only the original uncertain intent after remount and revision cha
   fireEvent.click(
     screen.getByRole('button', { name: 'Check original launch' }),
   );
-  await screen.findByText(/Connect command completed/);
+  await screen.findByText(
+    /Connected\. Tools that change things still ask first/,
+  );
   expect(props.execute.mock.calls[1]).toEqual(original);
   expect(props.review).toHaveBeenCalledTimes(1);
+});
+
+it('turns a turned-off server on and connects it in one click', async () => {
+  const props = options();
+  props.load.mockResolvedValue({ ...saved, enabled: false });
+  const turnOn = vi.fn(async () => {
+    props.load.mockResolvedValue({
+      ...saved,
+      configuration_revision: 'e'.repeat(64),
+    });
+  });
+  render(<McpRuntimeControls {...props} turnOn={turnOn} />);
+  expect(await screen.findByText(/turned off/)).toBeVisible();
+  await trigger('Turn on & connect');
+  await screen.findByText(
+    /Connected\. Tools that change things still ask first/,
+  );
+  expect(turnOn).toHaveBeenCalledOnce();
+  expect(props.review).toHaveBeenCalledOnce();
+  expect(props.review.mock.calls[0][0]).toMatchObject({
+    operation: 'connect',
+    resource_revision: 'e'.repeat(64),
+  });
+  expect(props.execute).toHaveBeenCalledOnce();
+});
+
+it('says in plain words when turning the server on fails, next to the button', async () => {
+  const props = options();
+  props.load.mockResolvedValue({ ...saved, enabled: false });
+  const turnOn = vi.fn(async () => {
+    throw Error('Row-Bot couldn’t turn it on.');
+  });
+  render(<McpRuntimeControls {...props} turnOn={turnOn} />);
+  await trigger('Turn on & connect');
+  const section = screen.getByRole('region', { name: 'Connection' });
+  expect(await within(section).findByText(/couldn’t turn it on/)).toBeVisible();
+  expect(props.review).not.toHaveBeenCalled();
+});
+
+it('reads a changed revision again and retries the review once', async () => {
+  const props = options();
+  props.review.mockRejectedValueOnce({
+    code: 'revision_conflict',
+    status: 409,
+  });
+  render(<McpRuntimeControls {...props} />);
+  await waitFor(() => expect(props.load).toHaveBeenCalled());
+  props.load.mockResolvedValue({
+    ...saved,
+    configuration_revision: 'e'.repeat(64),
+  });
+  await trigger();
+  await screen.findByText(
+    /Connected\. Tools that change things still ask first/,
+  );
+  expect(props.review).toHaveBeenCalledTimes(2);
+  expect(props.review.mock.calls[1][0].resource_revision).toBe('e'.repeat(64));
+  expect(props.execute).toHaveBeenCalledOnce();
 });
 
 it('keeps Disconnect independent while Connect response is pending', async () => {
@@ -144,7 +208,7 @@ it('keeps Disconnect independent while Connect response is pending', async () =>
   props.load.mockResolvedValue(connected);
   fireEvent.click(screen.getByRole('button', { name: 'Refresh connection' }));
   await trigger('Disconnect');
-  await screen.findByText('Connection cleanup completed.');
+  await screen.findByText('Disconnected.');
   expect(props.execute.mock.calls[1][0].payload).toEqual({
     resource_revision: connected.cleanup_revision,
     server_id: serverId,
@@ -167,8 +231,9 @@ it('uses cleanup revision to Disconnect with unavailable saved configuration', a
   });
   render(<McpRuntimeControls {...props} />);
   await trigger('Disconnect');
-  expect(screen.getByRole('button', { name: 'Connect' })).toBeDisabled();
-  await screen.findByText('Connection cleanup completed.');
+  await screen.findByText('Disconnected.');
+  // A running connection offers Disconnect, not Connect.
+  expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
   expect(props.review.mock.calls[0][0].resource_revision).toBe(
     connected.cleanup_revision,
   );
@@ -187,7 +252,7 @@ it('does not equate quiescent snapshot or a partial receipt with completed clean
   }));
   render(<McpRuntimeControls {...props} />);
   await trigger('Disconnect');
-  expect(screen.getByText(/saved receipt still needs recovery/)).toBeVisible();
+  expect(screen.getByText(/record still needs checking/)).toBeVisible();
   await screen.findByText(/outcome is not confirmed/);
   expect(
     screen.getByRole('button', { name: 'Check original disconnect' }),
@@ -201,6 +266,7 @@ it('tombstones late effect settlement and aborts reads on authentication loss', 
   props.execute.mockReturnValue(pending.promise);
   render(<McpRuntimeControls {...props} />);
   await trigger();
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   act(() => props.session.dispose());
   await act(async () =>
     pending.resolve(receipt(props.execute.mock.calls[0][0])),

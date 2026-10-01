@@ -2,7 +2,7 @@
 
 Existing application startup still owns unrelated optional subsystems. This
 composition owns admission recovery, execution shutdown and Inspector scheduling
-for both the headless host and the NiceGUI compatibility host.
+for the server.
 """
 
 from __future__ import annotations

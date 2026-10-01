@@ -96,6 +96,44 @@ def test_local_owner_can_open_only_the_configured_folder_through_typed_result(ap
     assert calls == [True]
 
 
+def test_a_vault_picked_in_the_desktop_window_is_claimed_once_as_a_folder_grant(tmp_path):
+    """The desktop server runs apart from its window, so Browse picks there (B280)."""
+    from tests.subsystem.client_protocol.test_protocol_security import _native_proof
+
+    vault = tmp_path / "Private Vault"
+    vault.mkdir()
+    local, _service, _active = client_app()
+    remote, _remote_service, _remote_active = client_app(remote=True)
+    with local, remote:
+        _handshake, remote_headers = bootstrap(remote)
+        denied = remote.post("/api/v1/resources/folder-selection/claim", headers=remote_headers,
+                             json={"reference": "x" * 43})
+        assert denied.status_code == 403
+        proof, headers = _native_proof(local)
+
+        def pick(intent: str, destination: str) -> str:
+            picked = local.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                                json={**proof, "selection_kind": "folder", "intent_id": str(uuid4()),
+                                      "intent": intent, "conversation_id": None,
+                                      "destination": destination, "path": str(vault)})
+            assert picked.status_code == 200, picked.text
+            return picked.json()["reference"]
+
+        reference = pick("settings_folder", "settings")
+        claimed = local.post("/api/v1/resources/folder-selection/claim", headers=headers,
+                             json={"reference": reference})
+        assert claimed.status_code == 200, claimed.text
+        assert claimed.json()["status"] == "selected" and claimed.json()["name"] == "Private Vault"
+        assert str(vault) not in claimed.text
+        again = local.post("/api/v1/resources/folder-selection/claim", headers=headers,
+                           json={"reference": reference})
+        assert again.status_code == 409
+        # A pick made for something else is never a setting's folder.
+        other = local.post("/api/v1/resources/folder-selection/claim", headers=headers,
+                           json={"reference": pick("migration_source", "migration")})
+        assert other.status_code != 200
+
+
 def test_remote_authenticated_owner_cannot_open_a_desktop_folder():
     client, _service, _active = client_app(remote=True)
     with client:
@@ -125,6 +163,32 @@ def test_articles_open_without_import_or_path_disclosure(api, monkeypatch):
     assert opened.status_code == 200, opened.text
     assert opened.json()["entity_id"] == entity["id"]
     assert str(stack["vault"]) not in page.text + opened.text
+
+
+@pytest.mark.slow
+def test_a_vault_of_many_articles_reads_within_its_bound_when_memory_reads_are_slow(api, monkeypatch):
+    """A 660-article vault took ~4 s with one memory read per article, past the 2 s bound (B280)."""
+    import types
+    from row_bot import knowledge_views
+    from row_bot.application import wiki_commands
+
+    stack, client, headers, _clock, _picked = api
+    entities = [stack["kg"].save_entity("concept", f"Many articles {index}", "A saved memory long enough.")
+                for index in range(22)]
+    stack["wiki_vault"].export_entities_projection(entities)
+    now = [0.0]
+    monkeypatch.setattr(wiki_commands, "time", types.SimpleNamespace(monotonic=lambda: now[0]))
+    read = knowledge_views._read
+
+    def slow_read(*args, **kwargs):
+        now[0] += 0.1  # each memory read costs a tenth of a second
+        return read(*args, **kwargs)
+
+    monkeypatch.setattr(knowledge_views, "_read", slow_read)
+    status = client.get("/api/v1/settings/wiki", headers=headers, params={"folder_grant": grant(api)})
+    assert status.status_code == 200, status.text
+    assert status.json()["availability"] == "available"
+    assert status.json()["articles"] >= 22
 
 
 def test_reviewed_rebuild_replays_original_receipt_without_republication(api, monkeypatch):

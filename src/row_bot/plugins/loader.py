@@ -34,8 +34,10 @@ PLUGIN_LOGS_DIR = DATA_DIR / "plugin_logs"
 STALE_PLUGINS_DIR = DATA_DIR / "stale_plugins"
 STALE_PLUGIN_REPORT = "stale_plugins.json"
 
-# Timeout for plugin register() calls (seconds)
-REGISTER_TIMEOUT = 5.0
+# Timeout for plugin register() calls (seconds). It covers starting the
+# plugin's own interpreter as well, which a cold Windows start (a virus scan
+# of the new python.exe) can stretch well past 5 s.
+REGISTER_TIMEOUT = 15.0
 
 # Plugin code may import this public API and ordinary third-party/local modules.
 # Row-Bot internals stay behind PluginAPI so plugins cannot bypass lifecycle,
@@ -95,29 +97,6 @@ def _install_plugin_api_compat_aliases() -> None:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
-def load_plugin_manifests_readonly() -> list[LoadResult]:
-    """Publish installed manifest metadata without importing plugin code.
-
-    This is the Settings capture owner: it performs no directory creation,
-    quarantine, registration callback, health check, or runtime refresh.
-    """
-    global _load_results
-    results: list[LoadResult] = []
-    if PLUGINS_DIR.is_dir():
-        for entry in sorted(PLUGINS_DIR.iterdir()):
-            if not entry.is_dir() or entry.name.startswith((".", "_")):
-                continue
-            try:
-                manifest = parse_manifest(entry)
-            except (ManifestError, OSError, ValueError) as exc:
-                results.append(LoadResult(plugin_id=entry.name, success=False, error=str(exc)))
-                continue
-            plugin_registry.register_plugin(manifest, tools=[], skills=[])
-            results.append(LoadResult(plugin_id=manifest.id, success=True, manifest=manifest))
-    _load_results = results
-    return list(results)
-
-
 def load_plugins() -> list[LoadResult]:
     """Discover and load all installed plugins. Safe to call multiple times.
 
@@ -329,26 +308,6 @@ def _unregister_plugin_contributions(plugin_id: str) -> None:
         unregister_plugin_webhooks(plugin_id)
     except Exception:
         logger.debug("Plugin webhook unregister skipped for %s", plugin_id, exc_info=True)
-
-
-def read_plugin_logs(plugin_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
-    """Read recent persisted load log entries for the Plugin Center."""
-    path = get_plugin_log_path(plugin_id)
-    if not path.exists():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    entries: list[dict[str, Any]] = []
-    for line in lines[-limit:]:
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(entry, dict):
-            entries.append(entry)
-    return entries
 
 
 def _append_plugin_log(result: LoadResult) -> None:

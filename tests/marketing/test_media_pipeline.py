@@ -30,7 +30,7 @@ def _create_run(run_dir: Path) -> None:
         story_id=MANIFEST.story.id,
         prompt_version=MANIFEST.story.prompt_version,
         git_commit="46d88892",
-        client="nicegui",
+        client="react",
         models={"local": MANIFEST.models.local, "frontier": MANIFEST.models.frontier},
         max_generation_attempts=6,
         status="captured",

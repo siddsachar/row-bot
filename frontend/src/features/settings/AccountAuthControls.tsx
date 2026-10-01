@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, LogIn, LogOut, RotateCcw } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type {
   AccountAuthCommand,
   AccountAuthReceipt,
@@ -7,7 +12,7 @@ import type {
 } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
-import { Button, CompactAction } from '../../ui/primitives';
+import { Button } from '../../ui/primitives';
 
 type Account = 'google' | 'x';
 type Owner = {
@@ -27,14 +32,39 @@ function saved(account: Account): string {
   const value = sessionStorage.getItem(pendingKey(account)) ?? '';
   return /^[0-9a-f-]{36}$/.test(value) ? value : '';
 }
+const NAMES: Record<Account, string> = { google: 'Google', x: 'X' };
 
-export function AccountAuthControls({
-  account,
-  owner,
-}: {
-  account: Account;
-  owner: Owner;
-}) {
+/** A Google or X account's actions, for its row on the Accounts page (B263). */
+export type AccountAuth = {
+  snapshot: AccountAuthSnapshot | null;
+  /** Sign-in actions only run on the local owner device. */
+  localOnly: boolean;
+  /** An action is running or its outcome is still being checked. */
+  locked: boolean;
+  check: () => void;
+  /** Sign in (again) in the browser. */
+  start: () => void;
+  /** Asks to remove the local tokens (confirmed in `feedback`). */
+  disconnect: () => void;
+  importFile: (file: File | undefined) => void;
+  /** Confirmations, progress and outcomes, for under the row. */
+  feedback: ReactNode;
+};
+
+/**
+ * A Google or X account's reviewed sign-in actions: Check, sign in,
+ * disconnect and the Google sign-in file. Nothing is refreshed or contacted
+ * until one is chosen; a sign-in still running survives a reload.
+ */
+export function useAccountAuth(
+  account: Account,
+  owner: Owner,
+  onChanged?: () => void,
+): AccountAuth {
+  const changed = useRef(onChanged);
+  useEffect(() => {
+    changed.current = onChanged;
+  });
   const [snapshot, setSnapshot] = useState<AccountAuthSnapshot | null>(null);
   const initialPending = useRef(saved(account));
   const [pending, setPending] = useState(initialPending.current);
@@ -81,6 +111,7 @@ export function AccountAuthControls({
         } else {
           sessionStorage.removeItem(pendingKey(account));
           setPending('');
+          changed.current?.();
         }
       } catch (cause) {
         if (!stopped) {
@@ -129,6 +160,7 @@ export function AccountAuthControls({
       if (result.phase !== 'running' && result.phase !== 'cancel_requested') {
         sessionStorage.removeItem(pendingKey(account));
         setPending('');
+        changed.current?.();
       }
     } catch (cause) {
       const issue = clientError(cause);
@@ -154,7 +186,7 @@ export function AccountAuthControls({
   async function importFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 65536) {
-      setError('Choose a Google OAuth client JSON file smaller than 64 KiB.');
+      setError('Choose a Google sign-in file smaller than 64 KiB.');
       return;
     }
     try {
@@ -178,83 +210,28 @@ export function AccountAuthControls({
     }
   }
 
-  if (localOnly)
-    return (
-      <p className="muted">
-        Account sign-in is available on the local owner device.
-      </p>
-    );
-  return (
-    <div
-      className="stack"
-      aria-label={`${account === 'google' ? 'Google' : 'X'} authentication`}
-    >
-      {snapshot && (
-        <>
-          <p role="status">
-            {snapshot.state.replaceAll('_', ' ')} · {snapshot.token_files} local
-            token {snapshot.token_files === 1 ? 'file' : 'files'}
-          </p>
-          {account === 'google' && (
-            <label className="stack">
-              Google OAuth client JSON
-              <input
-                type="file"
-                accept=".json,application/json"
-                disabled={busy || !!pending}
-                onChange={(event) => {
-                  void importFile(event.target.files?.[0]);
-                  event.target.value = '';
-                }}
-              />
-            </label>
-          )}
-          <div className="actions">
-            <CompactAction
-              label={`Check ${account === 'google' ? 'Google' : 'X'} account token`}
-              disabled={busy || !!pending}
-              onClick={() => void send('check')}
-            >
-              <CheckCircle2 size={17} aria-hidden />
-            </CompactAction>
-            <CompactAction
-              label={`${snapshot.token_files ? 'Reauthenticate' : 'Authenticate'} ${account === 'google' ? 'Google' : 'X'}`}
-              disabled={!snapshot.configured || busy || !!pending}
-              onClick={() => void send('start')}
-            >
-              <LogIn size={17} aria-hidden />
-            </CompactAction>
-            {!!snapshot.token_files && (
-              <CompactAction
-                label={`Disconnect ${account === 'google' ? 'Google' : 'X'} locally`}
-                disabled={busy || !!pending}
-                onClick={() => setConfirmDisconnect(true)}
-              >
-                <LogOut size={17} aria-hidden />
-              </CompactAction>
-            )}
-            <CompactAction
-              label="Refresh saved account state"
-              disabled={busy}
-              onClick={() => void load()}
-            >
-              <RotateCcw size={17} aria-hidden />
-            </CompactAction>
-          </div>
-        </>
-      )}
+  const name = NAMES[account];
+  const quiet = !confirmDisconnect && !pending && !error && !notice;
+  const feedback = localOnly ? (
+    <p className="muted">
+      Account sign-in is available on the local owner device.
+    </p>
+  ) : quiet ? null : (
+    <>
       {confirmDisconnect && (
         <div
           role="alertdialog"
           aria-label="Confirm local account disconnect"
-          className="surface stack"
+          className="settings-account-confirm"
         >
           <p>
-            Remove this account’s local tokens? You will need to authenticate
-            again. This does not revoke authorization at the provider.
+            Remove {name}’s sign-in from this computer? You’ll need to sign in
+            again. This doesn’t revoke access at {name}.
           </p>
-          <div className="actions">
+          <div className="action-cluster">
             <Button
+              variant="danger"
+              className="small"
               onClick={() => {
                 setConfirmDisconnect(false);
                 void send('disconnect');
@@ -262,17 +239,28 @@ export function AccountAuthControls({
             >
               Remove local tokens
             </Button>
-            <Button variant="ghost" onClick={() => setConfirmDisconnect(false)}>
+            <Button
+              variant="ghost"
+              className="small"
+              onClick={() => setConfirmDisconnect(false)}
+            >
               Cancel
             </Button>
           </div>
         </div>
       )}
       {pending && (
-        <div role="status" className="actions">
-          <span>Account action {phase || 'pending'}.</span>
+        <div role="status" className="action-cluster">
+          <span>
+            {phase === 'running'
+              ? `Finish signing in to ${name} in your browser.`
+              : phase === 'cancel_requested'
+                ? 'Stopping the sign-in…'
+                : 'Checking what happened to the last action…'}
+          </span>
           {(phase === 'running' || phase === 'cancel_requested') && (
             <Button
+              className="small"
               disabled={busy || phase === 'cancel_requested'}
               onClick={() => void cancel()}
             >
@@ -281,6 +269,7 @@ export function AccountAuthControls({
           )}
           <Button
             variant="ghost"
+            className="small"
             disabled={busy}
             onClick={() =>
               void owner.receipt(account, pending).then(
@@ -292,6 +281,7 @@ export function AccountAuthControls({
                   if (!['running', 'cancel_requested'].includes(result.phase)) {
                     sessionStorage.removeItem(pendingKey(account));
                     setPending('');
+                    changed.current?.();
                   }
                 },
                 (cause) => {
@@ -307,6 +297,7 @@ export function AccountAuthControls({
           {missingReceipt && (
             <Button
               variant="ghost"
+              className="small"
               onClick={() => {
                 sessionStorage.removeItem(pendingKey(account));
                 setPending('');
@@ -321,15 +312,30 @@ export function AccountAuthControls({
       )}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
-      {!snapshot && !error && <p role="status">Loading saved account state…</p>}
-    </div>
+    </>
   );
+  return {
+    snapshot,
+    localOnly,
+    locked: busy || Boolean(pending),
+    check: () => void send('check'),
+    start: () => void send('start'),
+    disconnect: () => setConfirmDisconnect(true),
+    importFile: (file) => void importFile(file),
+    feedback,
+  };
 }
 
-export default function ConnectedAccountAuthControls({
+/** The account's actions through this app's controller, for its row. */
+export default function ConnectedAccountAuth({
   account,
+  onChanged,
+  children,
 }: {
   account: Account;
+  /** An action finished: the page reloads what it shows (B263). */
+  onChanged?: () => void;
+  children: (auth: AccountAuth) => ReactNode;
 }) {
   const { controller } = useRuntime();
   const owner = useRef<Owner>({
@@ -340,5 +346,6 @@ export default function ConnectedAccountAuthControls({
     cancel: (which, commandId) =>
       controller.cancelAccountAuth(which, commandId),
   });
-  return <AccountAuthControls account={account} owner={owner.current} />;
+  const auth = useAccountAuth(account, owner.current, onChanged);
+  return children(auth);
 }

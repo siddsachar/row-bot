@@ -1,0 +1,62 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "backup",
+        "inspect_restore",
+        "restore",
+        "cancel_restore",
+        "dismiss_result",
+        "reveal"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "client_session_id": {
+      "format": "uuid",
+      "title": "Client Session Id",
+      "type": "string"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "file_grant": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "File Grant"
+    },
+    "review_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Review Id"
+    }
+  },
+  "required": [
+    "command_id",
+    "client_session_id",
+    "action"
+  ],
+  "title": "DataBackupCommand",
+  "type": "object"
+}

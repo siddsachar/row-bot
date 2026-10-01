@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_copied_environment_creation_is_link_free(plugin_modules, monkeypatch):

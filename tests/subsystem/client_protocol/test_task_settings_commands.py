@@ -49,7 +49,8 @@ def test_review_save_private_download_rotation_and_no_execution(task_api, fields
         assert downloaded.status_code == 200, downloaded.text
         assert downloaded.headers['Cache-Control'] == 'no-store'
         assert downloaded.headers['Content-Disposition'].startswith('attachment;')
-        assert secret in downloaded.json()['relative_url']
+        assert downloaded.json()['headers'] == {tasks.WEBHOOK_SECRET_HEADER: secret}
+        assert secret not in downloaded.json()['relative_url']
         rotate = {'command_id': str(uuid4()), 'client_session_id': headers['X-Client-Session'],
                   'type': 'task.webhook.rotate', 'expected_revision': '0',
                   'payload': {'task_id': task_id, 'task_revision': settings['revision']}}

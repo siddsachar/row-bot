@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { Button } from '../../ui/primitives';
+import { clientError } from '../../api/errors';
+import { Button, StatusDot, type Tone } from '../../ui/primitives';
 
 export type RuntimeArchive = {
   version: string;
@@ -18,6 +19,8 @@ export type RuntimeInstallationSnapshot = {
   installed: boolean | null;
   active_command_id: string | null;
   quiesced: boolean | null;
+  version: string | null;
+  system_available: boolean | null;
 };
 export type RuntimeInstallationReview = {
   schema_version: 1;
@@ -87,14 +90,23 @@ type State = {
   cancel: RuntimeInstallationCommand | null;
   cancelResult: RuntimeInstallationReceipt | null;
   sourceCommandId: string | null;
+  /** One Install: the install follows its metadata resolution on its own. */
+  chain: boolean;
   busy: boolean;
   cancelling: boolean;
   reading: boolean;
   message: string;
   refresh: number;
 };
+const FAILED =
+  'The install didn’t finish. Nothing was changed; Retry starts it again.';
+/** A final failure is "partial" with stage "failed"; the runtime is free again. */
+const failed = (value: RuntimeInstallationReceipt | null) =>
+  value?.installation.stage === 'failed';
 const terminal = (value: RuntimeInstallationReceipt | null) =>
-  value?.status === 'completed' || value?.status === 'rejected';
+  value?.status === 'completed' ||
+  value?.status === 'rejected' ||
+  failed(value);
 
 /** Inject from the authenticated runtime lifetime; one current intent per runtime. */
 export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
@@ -108,6 +120,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
     cancel: null,
     cancelResult: null,
     sourceCommandId: null,
+    chain: false,
     busy: false,
     cancelling: false,
     reading: false,
@@ -139,12 +152,15 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
         receipt.installation.stage === 'resolved'
           ? receipt.command_id
           : state.sourceCommandId,
-      message: terminal(receipt)
-        ? receipt.installation.stage
-        : 'Original operation retained. Refresh its receipt; do not start another installation.',
+      chain: state.chain && !failed(receipt),
+      message: failed(receipt)
+        ? FAILED
+        : receipt.code === 'runtime_installation_owner_unavailable'
+          ? 'Another window is running this install. Row-Bot keeps checking.'
+          : '',
     });
   };
-  return {
+  const session = {
     getSnapshot: () => state,
     subscribe: (notify: () => void) => {
       listeners.add(notify);
@@ -156,6 +172,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
       state.active &&
       (state.busy ||
         state.cancelling ||
+        state.chain ||
         !!state.review ||
         (!!(state.original || state.snapshot?.active_command_id) &&
           !terminal(state.result)) ||
@@ -173,6 +190,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
         cancelResult: null,
         sourceCommandId: null,
         snapshot: null,
+        chain: false,
         busy: false,
         cancelling: false,
         reading: false,
@@ -227,10 +245,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
         }
       } catch {
         if (!abort.signal.aborted)
-          update({
-            message:
-              'Status unavailable. The original operation remains retained.',
-          });
+          update({ message: 'Status unavailable. Check again in a moment.' });
       } finally {
         external?.removeEventListener('abort', stop);
         aborters.delete(abort);
@@ -268,10 +283,11 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
           review.source_command_id === source
         )
           update({ review });
-      } catch {
+      } catch (cause) {
         if (!abort.signal.aborted)
           update({
-            message: 'Review unavailable. No installation was started.',
+            chain: false,
+            message: `Couldn’t start the install. ${clientError(cause).message}`,
           });
       } finally {
         aborters.delete(abort);
@@ -311,7 +327,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
         if (!abort.signal.aborted)
           update({
             message:
-              'Response unavailable. Recover the original receipt; do not repeat the action.',
+              'No answer arrived. Row-Bot checks the install instead of starting another.',
           });
       } finally {
         aborters.delete(abort);
@@ -322,9 +338,32 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
       operation: 'resolve' | 'install',
       callbacks: RuntimeInstallationCallbacks,
     ) {
-      await this.review(operation, callbacks);
+      await session.review(operation, callbacks);
       if (state.active && state.review?.operation === operation)
-        await this.run(callbacks);
+        await session.run(callbacks);
+    },
+    /** The single Install (or Retry): resolve the exact version, then install it. */
+    async install(callbacks: RuntimeInstallationCallbacks) {
+      if (!state.active || state.chain) return;
+      const before = state.original;
+      update({ chain: true });
+      await session.start('resolve', callbacks);
+      // Nothing started (the review was refused): there is nothing to follow.
+      if (state.original === before) update({ chain: false });
+      await session.advance(callbacks);
+    },
+    /** Once the chained resolution has finished, start its install. */
+    async advance(callbacks: RuntimeInstallationCallbacks) {
+      const result = state.result;
+      if (!state.active || !state.chain || state.busy || !terminal(result))
+        return;
+      update({ chain: false });
+      if (
+        state.original?.type === 'mcp.runtime.resolve' &&
+        result?.status === 'completed' &&
+        result.installation.stage === 'resolved'
+      )
+        await session.start('install', callbacks);
     },
     async cancel(callbacks: RuntimeInstallationCallbacks) {
       if (!state.active || state.cancelling || state.cancel) return;
@@ -336,7 +375,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
         type: 'mcp.runtime.install.cancel',
         payload: { runtime_id: state.runtimeId, source_command_id: source },
       };
-      update({ cancel: command, cancelling: true });
+      update({ cancel: command, cancelling: true, chain: false });
       const abort = begin();
       try {
         const receipt = await callbacks.execute(command, null, abort.signal);
@@ -349,8 +388,7 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
       } catch {
         if (!abort.signal.aborted)
           update({
-            message:
-              'Cancellation response unavailable. Refresh the original receipts.',
+            message: 'No answer arrived for Cancel. Check again in a moment.',
           });
       } finally {
         aborters.delete(abort);
@@ -358,11 +396,140 @@ export function createMcpRuntimeInstallationSession(runtimeId: 'node' | 'uv') {
       }
     },
   };
+  return session;
 }
 export type McpRuntimeInstallationSession = ReturnType<
   typeof createMcpRuntimeInstallationSession
 >;
+export type RuntimeInstallationState = State;
 
+const NAMES: Record<string, string> = { node: 'Node.js', uv: 'uv' };
+const STAGES: Record<string, string> = {
+  admitted: 'Starting',
+  resolving: 'Checking the latest version',
+  resolved: 'Starting',
+  downloading: 'Downloading',
+  extracting: 'Unpacking',
+  generation_prepared: 'Finishing',
+  manifest_prepared: 'Finishing',
+  cancellation_requested: 'Stopping',
+};
+
+/** Work that is still running and worth checking on again. */
+function working(state: State) {
+  return (
+    state.chain ||
+    (!!state.original && !terminal(state.result)) ||
+    (!!state.cancel && !terminal(state.cancelResult)) ||
+    state.snapshot?.quiesced === false ||
+    state.snapshot?.availability === 'recovery_required'
+  );
+}
+
+/**
+ * What the runtime's chip says: status as a dot and plain words, and its one
+ * action. A system copy is used first (`requirements.py` looks on PATH before
+ * Row-Bot's own copy), so when one is found nothing is offered here; Row-Bot's
+ * own copy is only on request, from the Runtimes row's ⋯ (B262).
+ */
+export function describeRuntime(state: RuntimeInstallationState): {
+  tone: Tone;
+  label: string;
+  action: 'install' | 'retry' | null;
+  installing: boolean;
+  /** A system copy is in use and Row-Bot's own copy can be installed. */
+  ownCopy: boolean;
+} {
+  const snapshot = state.snapshot;
+  const running = state.chain || (!!state.original && !terminal(state.result));
+  const idle = { installing: false, ownCopy: false };
+  if (running || (snapshot?.active_command_id && !terminal(state.result))) {
+    const stage = state.cancel
+      ? 'Stopping'
+      : (STAGES[state.result?.installation.stage ?? ''] ?? 'Starting');
+    return {
+      ...idle,
+      tone: 'info',
+      label: `Installing · ${stage}`,
+      action: null,
+      installing: true,
+    };
+  }
+  if (!snapshot)
+    return { ...idle, tone: 'neutral', label: 'Checking…', action: null };
+  if (snapshot.availability === 'recovery_required')
+    return {
+      ...idle,
+      tone: 'info',
+      label: 'Installing in another window',
+      action: null,
+    };
+  if (snapshot.installed)
+    return {
+      ...idle,
+      tone: 'success',
+      label: snapshot.version
+        ? `Installed v${snapshot.version.replace(/^v/, '')}`
+        : 'Installed',
+      action: null,
+    };
+  const system = snapshot.system_available === true;
+  if (failed(state.result))
+    return {
+      ...idle,
+      tone: 'danger',
+      label: 'Install failed',
+      action: 'retry',
+    };
+  if (system)
+    return {
+      ...idle,
+      tone: 'success',
+      label: 'System copy',
+      action: null,
+      ownCopy: true,
+    };
+  if (snapshot.availability === 'unavailable')
+    return {
+      ...idle,
+      tone: 'warning',
+      label: 'Needs reinstalling',
+      action: 'install',
+    };
+  return {
+    ...idle,
+    tone: 'neutral',
+    label: 'Not installed',
+    action: 'install',
+  };
+}
+
+export function runtimeName(runtimeId: string) {
+  return NAMES[runtimeId] ?? runtimeId;
+}
+
+/** The line under the Runtimes row for one runtime: a problem or the system copy. */
+export function RuntimeInstallationNote({
+  session,
+}: {
+  session: McpRuntimeInstallationSession;
+}) {
+  const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const name = runtimeName(state.runtimeId);
+  const view = describeRuntime(state);
+  const text = state.message
+    ? `${name}: ${state.message}`
+    : view.ownCopy
+      ? `System ${name} found; servers use it.`
+      : '';
+  return text ? (
+    <span className="settings-row-status-line" role="status">
+      {text}
+    </span>
+  ) : null;
+}
+
+/** One runtime as a compact chip: name, status and its one action. */
 export function McpRuntimeInstallation({
   session,
   callbacks,
@@ -371,23 +538,23 @@ export function McpRuntimeInstallation({
   callbacks: RuntimeInstallationCallbacks;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  // Checks again every second while an install runs, however long it takes
+  // (B262); pauses while the window is hidden and never overlaps reads.
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let reads = 0;
     const visible = () => document.visibilityState !== 'hidden';
     const read = async () => {
-      if (abort.signal.aborted || !visible() || reads >= 30) return;
-      reads += 1;
+      if (abort.signal.aborted || !visible()) return;
       await session.read(callbacks, abort.signal);
+      if (abort.signal.aborted) return;
+      await session.advance(callbacks);
       const current = session.getSnapshot();
       if (
         !abort.signal.aborted &&
         visible() &&
-        reads < 30 &&
         current.active &&
-        ((!!current.original && !terminal(current.result)) ||
-          current.snapshot?.quiesced === false)
+        working(current)
       )
         timer = setTimeout(() => {
           void read();
@@ -405,85 +572,61 @@ export function McpRuntimeInstallation({
       document.removeEventListener('visibilitychange', changed);
     };
   }, [session, callbacks, state.refresh]);
-  if (!state.active) return <p>Runtime installation access is unavailable.</p>;
-  const unresolved =
-    (!!state.original && !terminal(state.result)) ||
-    (!!state.cancel && !terminal(state.cancelResult));
+  const name = runtimeName(state.runtimeId);
+  if (!state.active)
+    return (
+      <span className="settings-mcp-runtime-chip">
+        Sign in again to manage {name}.
+      </span>
+    );
+  const view = describeRuntime(state);
   const canCancel =
+    view.installing &&
     !!(state.original?.command_id ?? state.snapshot?.active_command_id) &&
     state.result?.installation.quiesced !== true &&
     !state.cancel;
   return (
-    <section
-      className="settings-section capability-section stack"
-      aria-label={`${state.runtimeId} managed runtime installation`}
+    <span
+      className="settings-mcp-runtime-chip"
+      role="group"
+      aria-label={`${name} runtime`}
     >
-      <header className="capability-header">
-        <div>
-          <h3>
-            {state.runtimeId === 'node' ? 'Node.js' : 'uv'} managed runtime
-          </h3>
-          <p>
-            Resolve publisher metadata first, then install the pinned archive.
-            No server is connected.
-          </p>
-        </div>
-      </header>
-      <p role="status">
-        {state.message ||
-          state.snapshot?.availability ||
-          'Reading saved runtime status…'}
-      </p>
-      <div className="button-row action-cluster">
-        <Button disabled={state.reading} onClick={() => session.refresh()}>
-          Refresh installation status
-        </Button>
+      <strong>{name}</strong>
+      <StatusDot
+        tone={view.tone}
+        label={view.label}
+        pulse={view.installing}
+        showLabel
+      />
+      {view.action && (
         <Button
-          disabled={
-            state.busy ||
-            unresolved ||
-            !state.snapshot?.resource_revision ||
-            state.snapshot.availability === 'recovery_required'
-          }
-          onClick={() => void session.start('resolve', callbacks)}
+          className="settings-link"
+          aria-label={`${view.action === 'retry' ? 'Retry' : 'Install'} ${name}`}
+          disabled={runtimeBlocked(state)}
+          onClick={() => void session.install(callbacks)}
         >
-          Resolve metadata
+          {view.action === 'retry' ? 'Retry' : 'Install'}
         </Button>
+      )}
+      {canCancel && (
         <Button
-          disabled={
-            state.busy ||
-            unresolved ||
-            !state.sourceCommandId ||
-            state.snapshot?.availability === 'recovery_required'
-          }
-          onClick={() => void session.start('install', callbacks)}
-        >
-          Install pinned runtime
-        </Button>
-        <Button
-          disabled={!canCancel || state.cancelling}
+          className="settings-link"
+          aria-label={`Cancel ${name} install`}
+          disabled={state.cancelling}
           onClick={() => void session.cancel(callbacks)}
         >
-          Cancel original operation
+          Cancel
         </Button>
-      </div>
-      {state.result && (
-        <p>
-          Original operation: {state.result.installation.stage}. Worker cleanup:{' '}
-          {state.result.installation.quiesced === true
-            ? 'confirmed'
-            : state.result.installation.quiesced === false
-              ? 'still owned'
-              : 'unconfirmed'}
-          .
-        </p>
       )}
-      {state.cancel && (
-        <p>
-          Cancellation requested. Ownership remains until the original worker is
-          confirmed stopped.
-        </p>
-      )}
-    </section>
+    </span>
+  );
+}
+
+/** A new install can't start: one is being checked, or recovered elsewhere. */
+export function runtimeBlocked(state: RuntimeInstallationState) {
+  return (
+    state.busy ||
+    !state.snapshot?.resource_revision ||
+    state.snapshot.availability === 'recovery_required'
   );
 }

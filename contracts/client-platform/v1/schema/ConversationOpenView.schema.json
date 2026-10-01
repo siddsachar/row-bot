@@ -614,9 +614,91 @@
       "title": "ConversationControls",
       "type": "object"
     },
+    "ConversationModelStatus": {
+      "additionalProperties": false,
+      "description": "What the composer's model pill says about the conversation's model.",
+      "properties": {
+        "fix": {
+          "anyOf": [
+            {
+              "enum": [
+                "reconnect",
+                "choose"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix"
+        },
+        "local": {
+          "default": false,
+          "title": "Local",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Reason",
+          "type": "string"
+        },
+        "sees_images": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sees Images"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "unavailable",
+            "missing"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "ConversationModelStatus",
+      "type": "object"
+    },
     "ConversationView": {
       "additionalProperties": false,
       "properties": {
+        "activity_phase": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Activity Phase",
+          "type": "string"
+        },
+        "activity_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "active",
+                "attention",
+                "terminal"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activity State"
+        },
         "category": {
           "default": "chat",
           "enum": [
@@ -643,6 +725,21 @@
           "title": "Id",
           "type": "string"
         },
+        "parent_conversation_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Conversation Id"
+        },
         "pinned": {
           "title": "Pinned",
           "type": "boolean"
@@ -663,6 +760,12 @@
         "title": {
           "maxLength": 256,
           "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "",
+          "maxLength": 80,
+          "title": "Updated At",
           "type": "string"
         }
       },
@@ -725,6 +828,17 @@
           "maxItems": 20,
           "title": "Generated Outputs",
           "type": "array"
+        },
+        "model_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversationModelStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "profiles": {
           "items": {
@@ -1484,6 +1598,12 @@
           "title": "Display Name",
           "type": "string"
         },
+        "profile_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Profile Id",
+          "type": "string"
+        },
         "run_id": {
           "maxLength": 256,
           "minLength": 1,
@@ -1538,6 +1658,12 @@
           "title": "Agent Runs",
           "type": "array"
         },
+        "binding_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Binding Id",
+          "type": "string"
+        },
         "display_name": {
           "default": "",
           "maxLength": 180,
@@ -1560,7 +1686,10 @@
           "enum": [
             "skill_load",
             "delegated_agent",
-            "media"
+            "media",
+            "resource_created",
+            "resource_bound",
+            "setup_needed"
           ],
           "title": "Kind",
           "type": "string"
@@ -1590,6 +1719,38 @@
           ],
           "default": null,
           "title": "Newly Active"
+        },
+        "resource_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "",
+          "enum": [
+            "",
+            "design",
+            "code"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "settings_page": {
+          "default": "",
+          "enum": [
+            "",
+            "accounts",
+            "channels"
+          ],
+          "title": "Settings Page",
+          "type": "string"
+        },
+        "setup_target": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Setup Target",
+          "type": "string"
         },
         "skill_id": {
           "default": "",
@@ -1707,6 +1868,19 @@
     "TranscriptRow": {
       "additionalProperties": false,
       "properties": {
+        "approval_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Id"
+        },
         "blocks": {
           "items": {
             "discriminator": {
@@ -1793,6 +1967,23 @@
           ],
           "default": null,
           "title": "Message Id"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "enum": [
+                "continuation",
+                "agent_task",
+                "agent_guidance"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         },
         "render_revision": {
           "anyOf": [

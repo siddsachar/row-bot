@@ -302,3 +302,45 @@ def test_posix_parent_swap_during_retirement_never_writes_substituted_directory(
     assert list(foreign.iterdir()) == []
     preserved = list(retained.iterdir()) + list((storage.DESIGNER_DIR / 'publish_recovery').glob('*/previous'))
     assert any(item.read_bytes() == original for item in preserved)
+
+
+def test_publication_reads_the_saved_link_only_while_the_copy_exists(project, channels):
+    before = client.read_publication(project.id)
+    assert (before.published, before.url, before.link_kind) == (False, None, None)
+    result = execute(project, {'action': 'publish'})
+    now = client.read_publication(project.id)
+    assert now.published and now.url == result.url and now.link_kind == 'local'
+    assert now.resource_revision == client_service.read_artifact(project.id).updated_at
+    publish.PUBLISHED_DIR.joinpath(project.id + '.html').unlink()
+    assert client.read_publication(project.id).published is False
+
+
+def test_remote_links_read_as_remote_access(project, channels):
+    execute(project, {'action': 'publish', 'remote': True})
+    assert client.read_publication(project.id).link_kind == 'remote_access'
+
+
+def test_unpublish_removes_the_published_copy_and_the_saved_link(project, channels):
+    execute(project, {'action': 'publish'})
+    current = client_service.read_artifact(project.id)
+    review = client.prepare_share(project.id, action='unpublish')
+    assert review.action == 'unpublish'
+    outcome = client.execute_share(project.id, review_id=review.review_id, command_id=str(uuid4()),
+                                   validate=lambda: None, checkpoint=lambda _: None, action='unpublish')
+    assert outcome.status == 'unpublished' and outcome.url is None
+    assert not publish.PUBLISHED_DIR.joinpath(project.id + '.html').exists()
+    saved = client_service.read_artifact(project.id)
+    assert saved.publish_url == '' and saved.published_at == ''
+    assert saved.pages[0].html == current.pages[0].html
+    assert client.read_publication(project.id).published is False
+    assert not channels['calls']
+
+
+def test_unpublish_refuses_a_changed_publication(project, channels):
+    execute(project, {'action': 'publish'})
+    review = client.prepare_share(project.id, action='unpublish')
+    execute(client_service.read_artifact(project.id), {'action': 'publish', 'pages': '1'})
+    with pytest.raises(client_service.ArtifactError, match='share_review_changed'):
+        client.execute_share(project.id, review_id=review.review_id, command_id=str(uuid4()),
+                             validate=lambda: None, checkpoint=lambda _: None, action='unpublish')
+    assert publish.PUBLISHED_DIR.joinpath(project.id + '.html').exists()

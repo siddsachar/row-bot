@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import { expect, it, vi } from 'vitest';
 import type { ConversationComposer } from '../../api/types';
-import ComposerSkills, { ComposerSkillChips } from './ComposerSkills';
+import ComposerSkills, {
+  ComposerSkillChips,
+  SkillsAnchor,
+} from './ComposerSkills';
 
 const composer: ConversationComposer = {
   schema_version: 1,
@@ -50,12 +54,11 @@ const composer: ConversationComposer = {
   commands_truncated: false,
 };
 
-it('shows skill provenance and performs activate, dismiss, and remove actions', async () => {
+it('performs activate, dismiss, and remove actions', async () => {
   const action = vi.fn().mockResolvedValue(undefined);
   render(
     <ComposerSkillChips composer={composer} disabled={false} action={action} />,
   );
-  expect(screen.getByText('auto')).toBeVisible();
   await act(async () =>
     fireEvent.click(screen.getByRole('button', { name: /Use Clear writing/ })),
   );
@@ -76,14 +79,82 @@ it('shows skill provenance and performs activate, dismiss, and remove actions', 
   expect(action).toHaveBeenCalledWith('remove', 'review');
 });
 
-it('filters the picker and mutates only the current conversation', async () => {
+it('gives a default skill a chip with only its name, whose × removes it from this chat (B236)', async () => {
   const action = vi.fn().mockResolvedValue(undefined);
+  const seeded = {
+    ...composer,
+    suggestions: [],
+    active_skills: composer.active_skills.map((skill) => ({
+      ...skill,
+      source: 'default' as const,
+    })),
+  };
   render(
-    <ComposerSkills composer={composer} disabled={false} action={action} />,
+    <ComposerSkillChips composer={seeded} disabled={false} action={action} />,
+  );
+  const chips = screen.getByLabelText('Smart Skills');
+  expect(chips).toHaveTextContent('Careful review');
+  expect(chips).not.toHaveTextContent('default');
+  expect(screen.getByTitle('Review carefully.')).toHaveTextContent(
+    'Careful review',
   );
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Skills: 1 active' })),
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove Careful review from this chat',
+      }),
+    ),
   );
+  expect(action).toHaveBeenCalledExactlyOnceWith('remove', 'review');
+});
+
+it("shows no remove button on a skill the chat can't drop (an agent profile's)", () => {
+  const profiled = {
+    ...composer,
+    suggestions: [],
+    active_skills: composer.active_skills.map((skill) => ({
+      ...skill,
+      source: 'thread' as const,
+      removable: false,
+    })),
+  };
+  render(
+    <ComposerSkillChips
+      composer={profiled}
+      disabled={false}
+      action={vi.fn()}
+    />,
+  );
+  expect(screen.getByLabelText('Smart Skills')).toHaveTextContent(
+    'Careful review',
+  );
+  expect(screen.queryByRole('button', { name: /Remove/ })).toBeNull();
+});
+
+function Anchored(
+  props: Omit<Parameters<typeof ComposerSkills>[0], 'children'>,
+) {
+  const [open, setOpen] = useState(false);
+  return (
+    <ComposerSkills {...props} open={open} onOpenChange={setOpen}>
+      <SkillsAnchor asChild>
+        <button type="button" onClick={() => setOpen(true)}>
+          Add files and more
+        </button>
+      </SkillsAnchor>
+    </ComposerSkills>
+  );
+}
+
+it('filters the picker and mutates only the current conversation', async () => {
+  const action = vi.fn().mockResolvedValue(undefined);
+  render(<Anchored composer={composer} disabled={false} action={action} />);
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Add files and more' })),
+  );
+  expect(
+    screen.getByRole('dialog', { name: 'Smart Skills' }),
+  ).toHaveTextContent('1 active');
   const menu = within(screen.getByRole('dialog', { name: 'Smart Skills' }));
   fireEvent.change(
     menu.getByRole('textbox', { name: 'Search available skills' }),
@@ -97,7 +168,7 @@ it('filters the picker and mutates only the current conversation', async () => {
   expect(action).toHaveBeenCalledWith('activate', 'write');
 
   await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Skills: 1 active' })),
+    fireEvent.click(screen.getByRole('button', { name: 'Add files and more' })),
   );
   await act(async () =>
     fireEvent.click(
@@ -117,7 +188,11 @@ it('reports unavailable libraries truthfully', async () => {
       disabled={false}
       action={vi.fn()}
       open
-    />,
+    >
+      <SkillsAnchor asChild>
+        <button type="button">Add files and more</button>
+      </SkillsAnchor>
+    </ComposerSkills>,
   );
   expect(screen.getByRole('status')).toHaveTextContent(
     'The Skills library is unavailable.',

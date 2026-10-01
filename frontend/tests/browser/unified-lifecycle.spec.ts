@@ -15,6 +15,7 @@ import {
   openConversation,
   reloadDocument,
   releaseProducer,
+  revealContext,
 } from './unified-helpers';
 
 function summarizeFixtureFailure(error: unknown) {
@@ -33,6 +34,8 @@ async function assertQueuedControlsReachable(
   testInfo: TestInfo,
   sample: string,
 ): Promise<void> {
+  // Queue appears only while there is text to queue: probe with a draft.
+  await composer(page).fill('Queue reachability probe');
   for (const name of ['Queue message', 'Stop']) {
     const control = page.getByRole('button', { name, exact: true });
     await control.scrollIntoViewIfNeeded();
@@ -110,6 +113,7 @@ async function assertQueuedControlsReachable(
   }
   if (sample.endsWith('-1'))
     await screenshot(page, testInfo, `${sample}-notification-actions`);
+  await composer(page).fill('');
 }
 
 // Screen-only synthetic evidence; raw protocol traces remain disabled because
@@ -142,41 +146,40 @@ test('ordinary queued messages support edit and removal before one accepted disp
         `ordinary-${++queuedSamples}`,
       );
     }
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Steering queue$/ })
-      .click();
+    // One list, read from the server: no paging, no jargon (U21).
     const queue = page.getByRole('region', {
-      name: 'Queued messages',
+      name: 'Waiting messages',
       exact: true,
     });
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(2);
+    await expect(queue).toContainText(
+      '2 messages waiting · sends when Row-Bot finishes',
+    );
+    await expect(queue.getByRole('listitem')).toHaveCount(2);
+    // While Row-Bot answers, waiting messages go by themselves.
+    await expect(
+      queue.getByRole('button', { name: 'Send now', exact: true }),
+    ).toHaveCount(0);
     const retained = queue
       .getByRole('listitem')
       .filter({ hasText: 'Retained queue input' });
-    await retained
-      .getByRole('button', { name: 'Edit message', exact: true })
-      .click();
-    await retained
-      .getByRole('textbox', { name: 'Edit queued message', exact: true })
+    await retained.getByRole('button', { name: 'Edit', exact: true }).click();
+    // One message is edited at a time, in place.
+    await queue
+      .getByRole('textbox', { name: 'Edit waiting message', exact: true })
       .fill('Edited queue input');
-    await retained
-      .getByRole('button', { name: 'Save queued edit', exact: true })
-      .click();
+    await queue.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(
       queue.getByText('Edited queue input', { exact: true }),
     ).toBeVisible();
     const removed = queue
       .getByRole('listitem')
       .filter({ hasText: 'Remove this queued input' });
-    await removed
-      .getByRole('button', { name: 'Remove message', exact: true })
-      .click();
+    await removed.getByRole('button', { name: 'Discard', exact: true }).click();
     await page
-      .getByRole('button', { name: 'Remove queued message', exact: true })
+      .getByRole('button', { name: 'Discard message', exact: true })
       .click();
-    await expect(queue.getByText('Cancelled', { exact: true })).toHaveCount(1);
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(1);
+    await expect(queue.getByRole('listitem')).toHaveCount(1);
+    await expect(queue).toContainText('1 message waiting');
     await composer(page).fill('Unsent draft during queued dispatch');
     await releaseProducer(page, first);
     await expect
@@ -191,7 +194,8 @@ test('ordinary queued messages support edit and removal before one accepted disp
       .filter((item) => item.conversation_id === conversation)
       .at(-1)!;
     expect(second.submission_id).not.toBe(first.submission_id);
-    await expect(queue.getByText('Consumed', { exact: true })).toHaveCount(1);
+    // Sent: it leaves the list, which then goes away.
+    await expect(queue).toHaveCount(0);
     await expect(
       page
         .getByRole('log', { name: 'Conversation', exact: true })
@@ -275,15 +279,14 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
         `steering-${++queuedSamples}`,
       );
     }
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Steering queue$/ })
-      .click();
     const queue = page.getByRole('region', {
-      name: 'Steering queue',
+      name: 'Waiting messages',
       exact: true,
     });
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(5);
+    const forAgents = queue
+      .getByRole('listitem')
+      .filter({ hasText: 'For the running agents' });
+    await expect(forAgents).toHaveCount(5);
     await advanceOrchestration(page, conversation, 'begin-pass');
     await expect
       .poll(
@@ -303,7 +306,7 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
         `steering-${++queuedSamples}`,
       );
     }
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(7);
+    await expect(forAgents).toHaveCount(7);
     const queued = await advanceOrchestration(page, conversation, 'state');
     expect(queued.steering.items.map((item) => item.text)).toEqual(texts);
     expect(new Set(queued.steering.items.map((item) => item.id)).size).toBe(7);
@@ -314,24 +317,16 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       'release-pass',
     );
     expect(first.batches).toEqual([texts.slice(0, 5)]);
-    await expect(queue.getByText('Consumed', { exact: true })).toHaveCount(5);
-    await expect(queue.getByText('Queued', { exact: true })).toHaveCount(2);
+    await expect(forAgents).toHaveCount(2);
     const second = await advanceOrchestration(page, conversation, 'pass');
     expect(second.batches).toEqual([texts.slice(0, 5), texts.slice(5)]);
-    await expect(queue.getByText('Consumed', { exact: true })).toHaveCount(7);
+    await expect(queue).toHaveCount(0);
     const completed = await advanceOrchestration(
       page,
       conversation,
       'finish-child',
     );
     expect(completed.child_status).toBe('completed');
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Activity \(/ })
-      .click();
-    await expect(
-      page.getByText('Delegated task: completed', { exact: true }),
-    ).toBeVisible();
     await releaseProducer(page, call);
     await expect(
       page.getByText(
@@ -340,19 +335,31 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       ),
     ).toHaveCount(1);
     await expect(composer(page)).toHaveValue('Never consumed unsent draft');
-    await page
-      .getByRole('button', { name: 'Synthetic child', exact: true })
-      .click();
-    const childDetail = page.getByRole('dialog', {
-      name: 'Synthetic child',
+    // Delegated agents are listed under Conversation details › Agents (a
+    // sheet on tablets and phones); a finished one folds into "1 done".
+    const agents = (await revealContext(page))
+      .locator('details', {
+        has: page.locator('summary', { hasText: 'Agents' }),
+      })
+      .first();
+    if (
+      !(await agents.evaluate(
+        (element) => (element as HTMLDetailsElement).open,
+      ))
+    )
+      await agents.locator('summary').first().click();
+    await agents.getByRole('button', { name: '1 done', exact: true }).click();
+    // Its status is in words, and a finished agent offers no Stop or Message.
+    const child = agents.getByRole('button', {
+      name: 'Synthetic child, Done',
       exact: true,
     });
+    await expect(child).toBeVisible();
     await expect(
-      childDetail.getByText('Synthetic child result', { exact: true }),
-    ).toBeVisible();
-    await childDetail
-      .getByRole('button', { name: 'Open child conversation', exact: true })
-      .click();
+      agents.getByRole('button', { name: 'Stop Synthetic child', exact: true }),
+    ).toHaveCount(0);
+    // Its row opens its conversation (B240).
+    await child.click();
     await expect(page).toHaveURL(
       new RegExp(`/conversations/${completed.child_conversation_id}$`),
     );
@@ -360,9 +367,8 @@ test('seven steering messages retain duplicate order and acknowledge actual pare
       page.getByText('Synthetic delegated objective', { exact: true }),
     ).toBeVisible();
     await composer(page).fill('Independent child draft');
-    await page
-      .getByRole('button', { name: 'Back to parent conversation', exact: true })
-      .click();
+    // The way back is the header's breadcrumb, on phones too (B242).
+    await page.getByRole('link', { name: /^Back to / }).click();
     await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
     await expect(composer(page)).toHaveValue('Never consumed unsent draft');
     expect(
@@ -618,10 +624,10 @@ test('current approval is reviewed once and resumes its original conversation', 
     name: 'Approval required for fixture_action',
     exact: true,
   });
-  await expect(approval.getByRole('button', { name: 'Reject' })).toBeEnabled();
+  await expect(approval.getByRole('button', { name: 'Deny' })).toBeEnabled();
   await approval.getByRole('button', { name: 'Details' }).click();
   const dialog = page.getByRole('dialog', {
-    name: 'Approval details · fixture_action',
+    name: 'Allow Fixture action?',
     exact: true,
   });
   await expect(dialog).toBeVisible();
@@ -680,14 +686,13 @@ test('tool media appears through the real opaque attachment owner and preserves 
   ).toBeVisible();
   const call = (await fixtureState(page)).calls.at(-1)!;
   try {
-    await page
-      .locator('summary')
-      .filter({ hasText: /^Activity \(/ })
-      .click();
-    const result = page.getByRole('img', {
-      name: 'Generated result',
-      exact: true,
-    });
+    // The fixture creates its media once released; it renders inline with
+    // the answer, once (B22).
+    await releaseProducer(page, call);
+    const result = page
+      .getByRole('log', { name: 'Conversation', exact: true })
+      .getByRole('img', { name: 'Generated result', exact: true });
+    await expect(result).toHaveCount(1);
     await expect(result).toBeVisible();
     await expect
       .poll(() =>
@@ -700,7 +705,6 @@ test('tool media appears through the real opaque attachment owner and preserves 
       )
       .toBe(true);
     await screenshot(page, testInfo, 'real-tools-and-media');
-    await releaseProducer(page, call);
     await expect
       .poll(async () => (await fixtureState(page)).calls.at(-1)?.quiesced)
       .toBe(true);

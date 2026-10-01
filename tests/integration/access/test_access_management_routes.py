@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
@@ -119,6 +120,50 @@ def test_route_selection_is_revalidated_before_invitation_creation(
     assert len(service.list_invitations()) == 1
 
 
+def test_same_wifi_is_offered_only_while_row_bot_listens_on_the_network(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """B184: a launch bound to this computer never offers a Same Wi-Fi code.
+
+    The saved listen mode can say "network" while an explicit host (the
+    launcher's ROW_BOT_HOST, ``--host``) binds loopback only; a code for the
+    Wi-Fi address would then never reach the server.
+    """
+    from row_bot.access.access_routes import AccessRouteConfigStore
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr(
+        access_routes, "discover_private_lan_addresses", lambda: ("192.168.1.23",)
+    )
+    AccessRouteConfigStore().set_listen_mode("local_network")
+    client, _service, _registration = _application(tmp_path, mode="desktop")
+
+    def lan_state() -> tuple[list[bool], bool]:
+        listed = client.get("/api/access/routes").json()
+        return (
+            [row["available"] for row in listed["routes"] if row["kind"] == "lan"],
+            listed["listening_on_network"],
+        )
+
+    monkeypatch.setenv("ROW_BOT_HOST", "127.0.0.1")
+    assert lan_state() == ([False], False)
+    lan_id = next(
+        row["id"]
+        for row in client.get("/api/access/routes").json()["routes"]
+        if row["kind"] == "lan"
+    )
+    refused = client.post(
+        "/api/access/invitations",
+        json={"route_id": lan_id},
+        headers={"origin": "http://localhost:8080"},
+    )
+    assert refused.status_code == 409
+
+    monkeypatch.setenv("ROW_BOT_HOST", "0.0.0.0")
+    assert lan_state() == ([True], True)
+
+
 def test_routes_require_owner(tmp_path) -> None:
     client, _service, _registration = _application(tmp_path)
     response = client.get("/api/access/routes")
@@ -192,6 +237,94 @@ def test_trusted_origin_requires_live_policy_and_exact_revision(
     )
     assert removed.status_code == 200
     assert AccessRouteConfigStore().load_or_default().configured_origins == ()
+
+
+def test_deployment_managed_hosts_refuse_trusted_origin_changes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from row_bot.access.access_routes import AccessRouteConfigStore
+    from row_bot.access.runtime_policy import RuntimeAccessPolicy
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    client, _service, registration = _application(tmp_path, mode="desktop")
+    policy = RuntimeAccessPolicy(registration.config)
+    client.app.state.row_bot_access_runtime_policy = policy
+    before = policy.snapshot()
+    monkeypatch.setenv("ROW_BOT_ALLOWED_HOSTS", "localhost")
+    headers = {"origin": "http://localhost:8080"}
+
+    for action, expected in (("add", []), ("remove", ["https://example.test"])):
+        refused = client.post(
+            "/api/access/routes/origins",
+            json={
+                "action": action,
+                "origin": "https://example.test",
+                "expected_origins": expected,
+            },
+            headers=headers,
+        )
+        assert refused.status_code == 409
+        assert refused.json()["error"] == "externally_managed"
+
+    assert AccessRouteConfigStore().load_or_default().configured_origins == ()
+    assert policy.snapshot() == before
+    assert client.get("/api/access/routes").json()["managed_externally"] is True
+
+
+def test_failed_origin_save_leaves_the_live_host_policy_alone(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import os
+
+    from row_bot.access import access_routes
+    from row_bot.access.access_routes import AccessRouteConfigStore
+    from row_bot.access.runtime_policy import RuntimeAccessPolicy
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.delenv("ROW_BOT_ALLOWED_HOSTS", raising=False)
+    _client, _service, registration = _application(tmp_path, mode="desktop")
+    client = TestClient(
+        _client.app,
+        base_url="http://localhost:8080",
+        client=("127.0.0.1", 51000),
+        follow_redirects=False,
+        raise_server_exceptions=False,
+    )
+    policy = RuntimeAccessPolicy(registration.config)
+    client.app.state.row_bot_access_runtime_policy = policy
+    headers = {"origin": "http://localhost:8080"}
+    saved = client.post(
+        "/api/access/routes/origins",
+        json={"action": "add", "origin": "https://one.example.test", "expected_origins": []},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    store_path = AccessRouteConfigStore().path
+    replace = os.replace
+
+    def fail_config_replace(source, destination, *args, **kwargs):
+        if os.fspath(destination) == os.fspath(store_path):
+            raise OSError("synthetic disk full")
+        return replace(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(access_routes.os, "replace", fail_config_replace)
+    failed = client.post(
+        "/api/access/routes/origins",
+        json={
+            "action": "add",
+            "origin": "https://two.example.test",
+            "expected_origins": ["https://one.example.test"],
+        },
+        headers=headers,
+    )
+
+    assert failed.status_code >= 500
+    assert policy.snapshot().configured_origins == ("https://one.example.test",)
+    assert AccessRouteConfigStore().load_or_default().configured_origins == (
+        "https://one.example.test",
+    )
 
 
 def test_remote_owner_cannot_change_route_settings(tmp_path, monkeypatch) -> None:
@@ -308,6 +441,69 @@ def test_tailscale_is_passive_until_explicit_check_and_deduplicates_apply(
         headers=headers,
     )
     assert denied.status_code == 409
+
+
+@pytest.mark.parametrize("outcome", ["applied", "apply_failed", "plan_refused"])
+def test_tailscale_change_restarts_the_app_only_after_it_succeeds(
+    tmp_path,
+    monkeypatch,
+    outcome,
+) -> None:
+    from row_bot.access import launcher_control
+    from row_bot.access.tailscale import (
+        TailscaleOperationResult,
+        TailscalePlanAction,
+        TailscaleServePlan,
+        TailscaleState,
+        TailscaleStatus,
+    )
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    restarts = []
+    monkeypatch.setattr(
+        launcher_control,
+        "request_launcher_restart",
+        lambda: restarts.append(1) or type("Result", (), {"accepted": True})(),
+    )
+    ready = TailscaleStatus(state=TailscaleState.READY, detail="Ready")
+    active = TailscaleStatus(state=TailscaleState.ACTIVE_OWNED, detail="Active")
+
+    class FakeTailscale:
+        applied = 0
+
+        def plan(self, *, port):
+            refused = outcome == "plan_refused"
+            return TailscaleServePlan(
+                action=TailscalePlanAction.SIGN_IN_REQUIRED if refused else TailscalePlanAction.ENABLE,
+                status=ready,
+                port=port,
+                target="http://127.0.0.1:8080",
+                command=() if refused else ("fake",),
+                description="Sign in to Tailscale" if refused else "Enable private route",
+            )
+
+        def apply(self, plan):
+            self.applied += 1
+            if outcome == "apply_failed":
+                return TailscaleOperationResult(success=False, status=ready, error="Serve refused")
+            return TailscaleOperationResult(success=True, status=active)
+
+    fake = FakeTailscale()
+    client, _service, _registration = _application(
+        tmp_path, mode="desktop", tailscale_controller=fake
+    )
+    response = client.post(
+        "/api/access/tailscale/actions",
+        json={"action": "enable", "command_id": f"command-{outcome}"},
+        headers={"origin": "http://localhost:8080"},
+    )
+
+    assert response.status_code == 200
+    receipt = response.json()
+    assert receipt["success"] is (outcome == "applied")
+    assert receipt["restart_required"] is False
+    assert restarts == ([1] if outcome == "applied" else [])
+    assert fake.applied == (0 if outcome == "plan_refused" else 1)
 
 
 def test_remote_owner_cannot_probe_or_change_tailscale(tmp_path, monkeypatch) -> None:
@@ -662,3 +858,159 @@ def test_invalid_invitation_options_fail_without_creating_records(tmp_path) -> N
     assert "choose a layout" in legacy_profile.json()["detail"]
     assert origin.status_code == 400
     assert len(service.list_invitations()) == before
+
+
+def _current_marks(devices: list[dict]) -> tuple[set[str], set[str]]:
+    return (
+        {device["id"] for device in devices if device["current"]},
+        {
+            session["id"]
+            for device in devices
+            for session in device["sessions"]
+            if session["current"]
+        },
+    )
+
+
+def test_devices_mark_the_device_making_the_request_as_this_device(
+    tmp_path,
+) -> None:
+    """B141: "This device" is the device whose session made the request."""
+    client, service, registration = _application(tmp_path)
+    phone_cookie, phone_id, phone_session = _session_cookie(
+        service, registration, name="Phone"
+    )
+    laptop_cookie, laptop_id, laptop_session = _session_cookie(
+        service, registration, name="Laptop"
+    )
+
+    from_phone = client.get("/api/access/devices", headers={"cookie": phone_cookie})
+    from_laptop = client.get(
+        "/api/access/devices", headers={"cookie": laptop_cookie}
+    )
+
+    assert _current_marks(from_phone.json()["devices"]) == (
+        {phone_id},
+        {phone_session},
+    )
+    assert _current_marks(from_laptop.json()["devices"]) == (
+        {laptop_id},
+        {laptop_session},
+    )
+
+
+def test_the_owner_on_this_computer_is_not_a_listed_device(tmp_path) -> None:
+    client, service, registration = _application(tmp_path, mode="desktop")
+    _session_cookie(service, registration, name="Phone")
+
+    devices = client.get("/api/access/devices").json()["devices"]
+
+    assert _current_marks(devices) == (set(), set())
+
+
+def test_devices_report_the_address_they_were_last_seen_from(tmp_path) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_id, _owner_session = _session_cookie(
+        service, registration, name="Owner"
+    )
+    phone_cookie, phone_id, phone_session = _session_cookie(
+        service, registration, name="Phone"
+    )
+
+    def phone_row() -> dict:
+        devices = client.get(
+            "/api/access/devices", headers={"cookie": owner_cookie}
+        ).json()["devices"]
+        return next(device for device in devices if device["id"] == phone_id)
+
+    def from_address(address: str) -> TestClient:
+        return TestClient(
+            client.app,
+            base_url="http://localhost:8080",
+            client=(address, 51000),
+            follow_redirects=False,
+        )
+
+    assert phone_row()["last_address"] is None
+    seen = from_address("192.168.1.23").get(
+        "/api/access/session", headers={"cookie": phone_cookie}
+    )
+    assert seen.json()["authenticated"] is True
+    assert phone_row()["last_address"] == "192.168.1.23"
+    assert phone_row()["last_seen_at"]
+
+    # A revoked session never moves the device's last address again.
+    service.revoke_session(phone_session)
+    refused = from_address("10.0.0.9").get(
+        "/api/access/session", headers={"cookie": phone_cookie}
+    )
+    assert refused.json()["authenticated"] is False
+    assert phone_row()["last_address"] == "192.168.1.23"
+
+
+def test_owner_renames_a_device_with_exact_origin_and_a_bounded_name(
+    tmp_path,
+) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_id, _owner_session = _session_cookie(
+        service, registration, name="Owner"
+    )
+    _phone_cookie, phone_id, _phone_session = _session_cookie(
+        service, registration, name="Connected browser"
+    )
+    headers = {"cookie": owner_cookie, "origin": "http://localhost:8080"}
+
+    def rename(device_id: str, name: object, **extra):
+        return client.post(
+            f"/api/access/devices/{device_id}/rename",
+            json={"display_name": name},
+            headers={**headers, **extra},
+        )
+
+    renamed = rename(phone_id, "  Kitchen tablet  ")
+    assert renamed.status_code == 200
+    assert renamed.json()["device"]["display_name"] == "Kitchen tablet"
+    assert service.store.get_device(phone_id).display_name == "Kitchen tablet"
+
+    assert rename(phone_id, "Evil", origin="https://attacker.example").status_code == (
+        403
+    )
+    for bad in ("", "   ", "x" * 81, "Line" + chr(10) + "break", 42):
+        refused = rename(phone_id, bad)
+        assert refused.status_code == 400
+        assert refused.json()["error"] == "invalid_device_name"
+    assert rename("missing-device", "Nobody").status_code == 404
+    service.revoke_device(phone_id)
+    assert rename(phone_id, "Signed out").status_code == 404
+    assert service.store.get_device(phone_id).display_name == "Kitchen tablet"
+
+
+def test_a_claimed_invitation_names_the_device_it_connected(tmp_path) -> None:
+    client, service, registration = _application(tmp_path)
+    owner_cookie, _owner_id, _owner_session = _session_cookie(
+        service, registration, name="Owner"
+    )
+    headers = {"cookie": owner_cookie, "origin": "http://localhost:8080"}
+    created = client.post(
+        "/api/access/invitations", json={"layout": "compact"}, headers=headers
+    )
+    token = parse_qs(urlsplit(created.json()["invitation_url"]).query)[
+        "invitation"
+    ][0]
+    waiting = client.get("/api/access/invitations", headers=headers).json()
+    assert waiting["invitations"][0]["claimed_device_id"] is None
+
+    claimed = service.claim_invitation(
+        token,
+        intended_origin="http://localhost:8080",
+        display_name="Phone",
+    )
+    listed = client.get("/api/access/invitations", headers=headers).json()
+    row = next(
+        item
+        for item in listed["invitations"]
+        if item["id"] == created.json()["invitation"]["id"]
+    )
+
+    assert row["claimed_device_id"] == claimed.device.id
+    assert token not in str(listed)

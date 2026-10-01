@@ -52,9 +52,10 @@ describe('document upload retained staging', () => {
     render(<DocumentUploads session={session} />);
     expect(transport.review).not.toHaveBeenCalled();
     expect(transport.upload).not.toHaveBeenCalled();
+    // Nothing to upload yet, so no Upload button (B258).
     expect(
-      screen.getByRole('button', { name: 'Upload selected' }),
-    ).toBeDisabled();
+      screen.queryByRole('button', { name: 'Upload selected' }),
+    ).toBeNull();
     fireEvent.change(screen.getByLabelText('Choose documents'), {
       target: { files: [source()] },
     });
@@ -62,6 +63,26 @@ describe('document upload retained staging', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Upload selected' }));
     });
     expect(screen.getByRole('status')).toHaveTextContent('The batch is paused');
+  });
+
+  it('accepts files dropped on the drop zone like chosen files', async () => {
+    const { transport, session } = fixture();
+    render(<DocumentUploads session={session} />);
+    const zone = screen
+      .getByText('Drop files here')
+      .closest('.document-dropzone')!;
+    const dataTransfer = { types: ['Files'], files: [source()] };
+    fireEvent.dragEnter(zone, { dataTransfer });
+    expect(zone).toHaveAttribute('data-dragging', 'true');
+    fireEvent.drop(zone, { dataTransfer });
+    expect(zone).not.toHaveAttribute('data-dragging');
+    expect(screen.getByText('example.txt · 7 bytes')).toBeVisible();
+    // Dropping stages nothing by itself; upload is still one explicit click.
+    expect(transport.review).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Upload selected' }));
+    });
+    expect(transport.upload).toHaveBeenCalledOnce();
   });
 
   it('passes the original files without reading or buffering their contents', async () => {

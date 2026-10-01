@@ -15,10 +15,14 @@ import { clientError } from './errors';
 import thinkingRecording from '../../../contracts/client-platform/v1/fixtures/F-P12.json';
 import type {
   Command,
+  CommandReceipt,
   ConversationView,
   Event,
   EventRecord,
   Snapshot,
+  NoticeFrame,
+  NoticePage,
+  StreamReset,
   SubscriptionView,
   TranscriptPage,
   DraftSave,
@@ -179,8 +183,8 @@ describe('accepted protocol recordings', () => {
 
 it.each([
   ['approval_expired', 'expired'],
-  ['approval_already_resolved', 'already resolved'],
-  ['model_configuration_required', 'configured model'],
+  ['approval_already_resolved', 'already answered'],
+  ['model_configuration_required', 'Choose a model before sending'],
 ])(
   'offers explicit review for %s without exposing server details',
   (code, text) => {
@@ -860,6 +864,35 @@ describe('connection and lifecycle ownership', () => {
     expect(calls).toBe(3);
     expect(value.getSnapshot().status).toBe('ready');
   });
+  it('re-subscribes after a reset without waiting for the retired subscription DELETE', async () => {
+    const transport = new FixtureTransport();
+    const original = transport.unsubscribe.bind(transport);
+    let release!: () => void;
+    const retire = vi
+      .spyOn(transport, 'unsubscribe')
+      .mockImplementationOnce(async (...args) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return original(...args);
+      });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    transport.emit({ snapshot_required: true, recovery: 'resubscribe' });
+    await flush();
+    // The replacement snapshot is installed while the old DELETE is in flight.
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(transport.counters.subscribes).toBe(2);
+    expect(transport.counters.active).toBe(2);
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().projection).not.toBeNull();
+    release();
+    await flush();
+    expect(transport.counters.unsubscribes).toBe(1);
+    expect(transport.counters.active).toBe(1);
+  });
   it('resets after a stalled ACK deadline and contains its late failure without a trailing ACK', async () => {
     vi.useFakeTimers();
     const transport = new FixtureTransport();
@@ -931,7 +964,9 @@ describe('connection and lifecycle ownership', () => {
       let observed: AbortSignal | undefined;
       vi.spyOn(transport, operation).mockImplementation(
         (...args: unknown[]) => {
-          observed = args.at(-1) as AbortSignal;
+          observed = args.find(
+            (arg): arg is AbortSignal => arg instanceof AbortSignal,
+          );
           return new Promise<never>((resolve) => {
             release = resolve;
           });
@@ -1079,6 +1114,245 @@ describe('connection and lifecycle ownership', () => {
     expect(transport.counters.polls).toBeLessThanOrEqual(6);
     expect(transport.counters.streams).toBe(0);
     expect(transport.counters.commands).toBe(0);
+  });
+  it('re-handshakes by itself after a server restart and reopens the conversation (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    const connects = transport.counters.connects;
+    const subscribes = transport.counters.subscribes;
+    // The new server instance has no record of this session.
+    transport.scenario = 'unauthorized';
+    transport.emit({ snapshot_required: true });
+    await flush();
+    expect(value.getSnapshot().status).toBe('unauthorized');
+    transport.scenario = 'normal';
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+    expect(transport.counters.connects).toBe(connects + 1);
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().error).toBeNull();
+    expect(value.getSnapshot().selectedConversationId).toBe('conversation-a');
+    expect(transport.counters.subscribes).toBeGreaterThan(subscribes);
+    expect(transport.counters.commands).toBe(0);
+  });
+  it('delivers background notices from the event stream once, apart from events', async () => {
+    const epoch = '00000000-0000-4000-8000-00000000e90c';
+    const notice = (id: number, level: 'info' | 'warning' = 'warning') => ({
+      id,
+      level,
+      title: 'Approval Required',
+      message: `Digest ${id}`,
+      source: 'workflow',
+      requested: false,
+      startup: false,
+      count: 1,
+      at: '2026-09-28T12:00:00Z',
+    });
+    let positions: unknown[] = [];
+    class NoticeStream extends FixtureTransport {
+      sent = false;
+      override async *observe(
+        subscription: string,
+        cursor: string,
+        signal: AbortSignal,
+        notices?: { after: number; epoch: string },
+      ): AsyncGenerator<EventRecord | StreamReset | { notice: NoticeFrame }> {
+        positions.push(notices);
+        if (!this.sent) {
+          this.sent = true;
+          yield { notice: { notices_epoch: epoch, notice: notice(1) } };
+          yield { notice: { notices_epoch: epoch, notice: notice(1) } };
+          yield { notice: { notices_epoch: epoch, notice: notice(2) } };
+        }
+        yield* super.observe(subscription, cursor, signal);
+      }
+    }
+    localStorage.clear();
+    const transport = new NoticeStream();
+    const value = client(transport);
+    const received: number[] = [];
+    value.onNotice((item) => received.push(item.id));
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await vi.waitFor(() => expect(received).toEqual([1, 2]));
+    // Notices never touch the conversation's projection or cursor.
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.metrics.resets).toBe(1);
+    expect(JSON.parse(localStorage.getItem('row-bot.notices.v1')!)).toEqual({
+      epoch,
+      after: 2,
+    });
+    // A later stream resumes after what this window already showed.
+    positions = [];
+    value.reconnect();
+    await vi.waitFor(() =>
+      expect(positions).toContainEqual({ epoch, after: 2 }),
+    );
+    expect(received).toEqual([1, 2]);
+  });
+  it('reads notices while no conversation stream is open', async () => {
+    vi.useFakeTimers();
+    const epoch = '00000000-0000-4000-8000-00000000e90d';
+    let reads = 0;
+    class NoticeRead extends FixtureTransport {
+      async notices(): Promise<NoticePage> {
+        reads += 1;
+        return {
+          server_epoch: epoch,
+          latest: reads,
+          notices: [
+            {
+              id: reads,
+              level: 'warning',
+              title: 'Start-up warning',
+              message: `Warning ${reads}`,
+              source: 'startup',
+              requested: false,
+              startup: true,
+              count: 1,
+              at: '2026-09-28T12:00:00Z',
+            },
+          ],
+          startup_warnings: [],
+        };
+      }
+    }
+    localStorage.clear();
+    const transport = new NoticeRead();
+    const value = client(transport);
+    const received: string[] = [];
+    value.onNotice((item) => received.push(item.message));
+    await value.start();
+    await flush();
+    expect(received).toEqual(['Warning 1']);
+    await vi.advanceTimersByTimeAsync(30000);
+    await flush();
+    expect(received).toEqual(['Warning 1', 'Warning 2']);
+    // A hidden window does not read.
+    value.setVisible(false);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(reads).toBe(2);
+  });
+  it('holds notices read before the window listens, and shows them once it does', async () => {
+    // main.tsx starts the controller before React mounts the notice hook, so
+    // the first read (start-up warnings) lands before anything listens.
+    const epoch = '00000000-0000-4000-8000-00000000e90e';
+    class EarlyNotices extends FixtureTransport {
+      async notices(): Promise<NoticePage> {
+        return {
+          server_epoch: epoch,
+          latest: 2,
+          notices: [1, 2].map((id) => ({
+            id,
+            level: 'warning' as const,
+            title: 'Start-up warning',
+            message: `Warning ${id}`,
+            source: 'plugins',
+            requested: false,
+            startup: true,
+            count: 1,
+            at: '2026-09-28T12:00:00Z',
+          })),
+          startup_warnings: [],
+        };
+      }
+    }
+    localStorage.clear();
+    const value = client(new EarlyNotices());
+    await value.start();
+    await flush();
+    // Held, not yet seen: a window that never shows notices swallows none.
+    expect(localStorage.getItem('row-bot.notices.v1')).toBeNull();
+    const first: string[] = [];
+    const stop = value.onNotice((item) => first.push(item.message));
+    expect(first).toEqual(['Warning 1', 'Warning 2']);
+    // Delivered once: a listener that comes later does not see them again.
+    stop();
+    const later: string[] = [];
+    value.onNotice((item) => later.push(item.message));
+    expect(later).toEqual([]);
+    // Nor does another window on this device after the same start.
+    const other = client(new EarlyNotices());
+    const again: string[] = [];
+    other.onNotice((item) => again.push(item.message));
+    await other.start();
+    await flush();
+    expect(again).toEqual([]);
+  });
+  it('keeps an unsaved draft through a restart, hidden until a new session opens (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    value.setDraft('conversation-a', {
+      text: 'Typed just before the restart',
+      attachments: [],
+    });
+    transport.scenario = 'unauthorized';
+    transport.emit({ snapshot_required: true });
+    await flush();
+    expect(value.getSnapshot().status).toBe('unauthorized');
+    // Nothing private is visible without a session.
+    expect(value.getDraft('conversation-a').text).toBe('');
+    transport.scenario = 'normal';
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getDraft('conversation-a').text).toBe(
+      'Typed just before the restart',
+    );
+  });
+  it('keeps probing an unreachable server while visible and reconnects within seconds (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport({ scenario: 'disconnected' });
+    const value = client(transport);
+    await value.start();
+    expect(value.getSnapshot().status).toBe('disconnected');
+    // Down for a while: probes continue at most every five seconds.
+    await vi.advanceTimersByTimeAsync(30000);
+    const probes = transport.counters.connects;
+    expect(probes).toBeGreaterThanOrEqual(6);
+    expect(probes).toBeLessThanOrEqual(10);
+    // A hidden window stops probing until it is shown again.
+    value.setVisible(false);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(transport.counters.connects - probes).toBeLessThanOrEqual(1);
+    transport.scenario = 'normal';
+    value.setVisible(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+  });
+  it('re-handshakes when a long outage ends with a new server that forgot the session (B110)', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    // The server is down for half a minute; the window keeps probing.
+    transport.scenario = 'disconnected';
+    await value.reconnect().catch(() => undefined);
+    await flush();
+    expect(value.getSnapshot().status).toBe('disconnected');
+    await vi.advanceTimersByTimeAsync(30000);
+    // The new server is up, and the next probe carries the old session,
+    // which it no longer knows.
+    transport.scenario = 'unauthorized';
+    await vi.advanceTimersByTimeAsync(5000);
+    await flush();
+    expect(value.getSnapshot().status).toBe('unauthorized');
+    transport.scenario = 'normal';
+    await vi.advanceTimersByTimeAsync(5000);
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().selectedConversationId).toBe('conversation-a');
   });
   it('halts after authentication revocation and clears protected view without replaying commands', async () => {
     vi.useFakeTimers();
@@ -1353,6 +1627,25 @@ describe('revisioned snapshot and independent selection', () => {
       first.length,
     );
   });
+  it('refreshes a background activity row without losing its list cursor', async () => {
+    const transport = new FixtureTransport({ conversationCount: 55 });
+    const value = client(transport);
+    await value.start();
+    const before = value.getSnapshot();
+    expect(before.hasMoreConversations).toBe(true);
+    transport.conversations[1].activity_state = 'terminal';
+    transport.conversations[1].activity_phase = 'completed';
+    const list = vi.spyOn(transport, 'listConversations');
+    await value.refreshListedConversation('conversation-2');
+    expect(value.getSnapshot().conversations[1].activity_state).toBe(
+      'terminal',
+    );
+    expect(value.getSnapshot().hasMoreConversations).toBe(true);
+    expect(list).not.toHaveBeenCalled();
+    await value.loadMoreConversations();
+    expect(list).toHaveBeenCalledWith('50', expect.any(AbortSignal), 'all');
+    expect(value.getSnapshot().conversations).toHaveLength(55);
+  });
   it('traverses the accepted 1005-row recording with at most 200 materialized rows', async () => {
     const pages = recorded<TranscriptPage>('F-P05', 'TranscriptPage');
     const observed = new Set<string>();
@@ -1480,6 +1773,75 @@ describe('event order, atomic reset and commands', () => {
     expect(value.getSnapshot().status).toBe('incompatible');
     expect(transport.counters.subscribes).toBe(4);
     expect(transport.counters.active).toBe(0);
+  });
+  it('counts server-owned resets that move the projection forward as progress (B109)', async () => {
+    // Switching the model away and back publishes resource.changed twice and
+    // sending publishes transcript.checkpoint: each one is a reset the server
+    // asks for, and each new snapshot is newer. Four in a row used to look
+    // like a reset loop and stranded the chat on "Client update needed".
+    class ServerResets extends FixtureTransport {
+      revision = 0n;
+      epoch = '';
+      resets = 5;
+      override async subscribe(id: string, signal?: AbortSignal) {
+        const view = await super.subscribe(id, signal);
+        if (!this.revision)
+          this.revision = BigInt(view.snapshot.projection_revision);
+        this.epoch = view.snapshot.server_epoch;
+        const cursor = `server-reset-${this.revision}`;
+        return {
+          ...view,
+          snapshot: {
+            ...view.snapshot,
+            projection_revision: String(this.revision),
+            cursor,
+          },
+          cursor,
+        };
+      }
+      override async *observe(
+        subscription: string,
+        cursor: string,
+        signal: AbortSignal,
+      ): AsyncGenerator<EventRecord | StreamReset | { notice: NoticeFrame }> {
+        if (this.resets > 0) {
+          this.resets -= 1;
+          this.revision += 1n;
+          const revision = String(this.revision);
+          yield {
+            cursor: `server-reset-${revision}`,
+            event: validateWire<Event>('Event', {
+              protocol_version: '1.0',
+              event_id: `resource-${revision}`,
+              topic: 'conversation.conversation-a',
+              server_epoch: this.epoch,
+              conversation_id: 'conversation-a',
+              projection_revision: revision,
+              source: 'resource',
+              source_stream_id: 'conversation-a',
+              source_epoch: this.epoch,
+              source_sequence_start: revision,
+              source_sequence_end: revision,
+              type: 'resource.changed',
+              payload: { revision },
+            }),
+          };
+          return;
+        }
+        yield* super.observe(subscription, cursor, signal);
+      }
+    }
+    const transport = new ServerResets();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await vi.waitFor(() => expect(transport.counters.subscribes).toBe(6));
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().error).toBeNull();
+    expect(value.getSnapshot().projection?.projection_revision).toBe(
+      String(transport.revision),
+    );
   });
   it('a late old acknowledgement cannot start a second stream or overwrite new selection', async () => {
     let resume!: () => void;
@@ -1670,6 +2032,53 @@ describe('event order, atomic reset and commands', () => {
     expect(value.getSnapshot().projection?.projection_revision).toBe('11');
     expect(value.getSnapshot().projection?.server_epoch).toBe('new-epoch');
     expect(value.getSnapshot().selectedConversationId).toBe('conversation-a');
+  });
+  it('lets a send wait for a model change that is still saving (B109)', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    let finish!: (receipt: CommandReceipt) => void;
+    let fail!: (error: unknown) => void;
+    const command = vi
+      .spyOn(value, 'command')
+      .mockImplementationOnce(
+        () => new Promise<CommandReceipt>((resolve) => (finish = resolve)),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<CommandReceipt>((_resolve, reject) => (fail = reject)),
+      );
+    const saving = value.intent(
+      'conversation-a',
+      'conversation.controls',
+      { model_selection: { provider_id: 'fixture', model_ref: 'other' } },
+      '1',
+    );
+    let settled = false;
+    const waiting = value
+      .controlsSettled('conversation-a')
+      .then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    // Another conversation, or nothing saving, never waits.
+    await value.controlsSettled('conversation-b');
+    finish({ command_id: 'saved', status: 'completed' });
+    await saving;
+    await waiting;
+    expect(settled).toBe(true);
+    // A refused save also lets the send go (it reads the refusal itself).
+    const refused = value.intent(
+      'conversation-a',
+      'conversation.controls',
+      {},
+      '2',
+    );
+    const next = value.controlsSettled('conversation-a');
+    fail({ code: 'generation_active', status: 409 });
+    await expect(refused).rejects.toMatchObject({ code: 'generation_active' });
+    await next;
+    expect(command).toHaveBeenCalledTimes(2);
   });
   it('coalesces duplicate command intent, rejects changed input and never retries response loss', async () => {
     vi.stubGlobal('crypto', webcrypto);
@@ -1864,5 +2273,204 @@ describe('event order, atomic reset and commands', () => {
     await assertion;
     expect(value.getSnapshot().status).toBe('ready');
     expect(value.getSnapshot().handshake).not.toBeNull();
+  });
+});
+
+describe('earlier history above the live window', () => {
+  const rows = Array.from({ length: 9 }, (_, index) => ({
+    id: `row-${index}`,
+    message_id: `message-${index}`,
+    role: index % 2 ? ('assistant' as const) : ('user' as const),
+    blocks: [{ type: 'text' as const, text: `Row ${index}` }],
+  }));
+  class Pages extends FixtureTransport {
+    hold = false;
+    release: () => void = () => undefined;
+    history = vi.fn(
+      async (id: string, message?: string): Promise<TranscriptPage> => {
+        const base = await this.getTranscript(id);
+        if (!message)
+          return {
+            ...base,
+            rows: rows.slice(6),
+            previous_cursor: 'latest-previous',
+            has_more: false,
+            next_cursor: null,
+          };
+        if (this.hold)
+          await new Promise<void>((resolve) => {
+            this.release = resolve;
+          });
+        const at = rows.findIndex((row) => row.message_id === message);
+        const start = Math.max(0, at - 3);
+        return {
+          ...base,
+          rows: rows.slice(start, at + 2),
+          previous_cursor: start ? `before-${start}` : null,
+          has_more: true,
+          next_cursor: 'later',
+        };
+      },
+    );
+  }
+
+  it('anchors each read on the oldest shown message and prepends only older rows', async () => {
+    const transport = new Pages(),
+      value = client(transport);
+    value.setVisible(false);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    expect(value.getSnapshot().earlierAvailable).toBe(true);
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'message-6',
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(value.getSnapshot().earlier.map((row) => row.id)).toEqual([
+      'row-3',
+      'row-4',
+      'row-5',
+    ]);
+    expect(value.getSnapshot().earlierAvailable).toBe(true);
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenLastCalledWith(
+      'conversation-a',
+      'message-3',
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(value.getSnapshot().earlier.map((row) => row.id)).toEqual([
+      'row-0',
+      'row-1',
+      'row-2',
+      'row-3',
+      'row-4',
+      'row-5',
+    ]);
+    expect(value.getSnapshot().earlierAvailable).toBe(false);
+    const reads = transport.history.mock.calls.length;
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenCalledTimes(reads);
+    value.showLatest();
+    expect(value.getSnapshot().earlier).toEqual([]);
+    // Trimmed rows can be loaded again by scrolling up.
+    expect(value.getSnapshot().earlierAvailable).toBe(true);
+  });
+
+  it('ignores a late earlier page after the selection moves and never loads in history mode', async () => {
+    const transport = new Pages(),
+      value = client(transport);
+    value.setVisible(false);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    transport.hold = true;
+    const late = value.loadEarlier();
+    await flush();
+    expect(value.getSnapshot().loadingEarlier).toBe(true);
+    await value.selectConversation('conversation-3');
+    transport.release();
+    await late;
+    expect(value.getSnapshot().earlier).toEqual([]);
+    expect(value.getSnapshot().loadingEarlier).toBe(false);
+    transport.hold = false;
+    await value.selectConversation('conversation-a');
+    await value.showHistory();
+    const reads = transport.history.mock.calls.length;
+    await value.loadEarlier();
+    expect(transport.history).toHaveBeenCalledTimes(reads);
+  });
+});
+
+describe('deleted conversations', () => {
+  it('closes the open conversation after its deletion and stays connected', async () => {
+    const transport = new FixtureTransport({ conversationCount: 3 });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    expect(value.getSnapshot().projection).not.toBeNull();
+    value.forgetConversation('conversation-a');
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.projection).toBeNull();
+    expect(state.conversations.map((row) => row.id)).not.toContain(
+      'conversation-a',
+    );
+    // Forgetting another row only removes it from the list.
+    value.forgetConversation('conversation-3');
+    expect(
+      value.getSnapshot().conversations.map((row) => row.id),
+    ).not.toContain('conversation-3');
+    expect(value.getSnapshot().status).toBe('ready');
+  });
+
+  it('treats a vanished open conversation as closed, not as a lost connection', async () => {
+    class DeletedFixture extends FixtureTransport {
+      gone = new Set<string>();
+      override async subscribe(id: string, signal?: AbortSignal) {
+        if (this.gone.has(id)) throw clientError({ code: 'not_found' });
+        return super.subscribe(id, signal);
+      }
+    }
+    const transport = new DeletedFixture({ conversationCount: 3 });
+    transport.gone.add('conversation-2');
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-2');
+    await flush();
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.handshake).not.toBeNull();
+  });
+
+  // Reading a conversation that is being deleted closes it; the app stays
+  // connected (it went to "Connection interrupted" after a delete).
+  class DeletingFixture extends FixtureTransport {
+    deleting = new Set<string>();
+    override async getConversation(id: string, signal?: AbortSignal) {
+      if (this.deleting.has(id))
+        throw clientError({ code: 'conversation_deleting' });
+      return super.getConversation(id, signal);
+    }
+    async workspace(id: string): Promise<wire.ConversationWorkspace> {
+      if (this.deleting.has(id))
+        throw clientError({ code: 'conversation_deleting' });
+      return null as unknown as wire.ConversationWorkspace;
+    }
+  }
+
+  it('opening a conversation that is being deleted closes it and stays connected', async () => {
+    const transport = new DeletingFixture({ conversationCount: 3 });
+    transport.deleting.add('conversation-2');
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-2');
+    await flush();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.error).toBeNull();
+    expect(state.selectedConversationId).toBeNull();
+  });
+
+  it('refreshing the open conversation after its deletion closes it and stays connected', async () => {
+    const transport = new DeletingFixture({ conversationCount: 3 });
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    expect(value.getSnapshot().projection).not.toBeNull();
+    transport.deleting.add('conversation-a');
+    await value.refreshWorkspace();
+    const state = value.getSnapshot();
+    expect(state.status).toBe('ready');
+    expect(state.error).toBeNull();
+    expect(state.selectedConversationId).toBeNull();
+    expect(state.handshake).not.toBeNull();
   });
 });

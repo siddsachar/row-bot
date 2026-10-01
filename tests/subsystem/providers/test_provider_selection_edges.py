@@ -160,9 +160,7 @@ def test_model_choice_options_include_diagnostics_and_inactive_include_values() 
     included = next(option for option in inactive if option["value"] == ref)
     assert included["active"] is False
     assert included["reason"].startswith("Capability metadata")
-    assert selection.model_choice_options_map("chat", include_values=[ref], include_inactive=True)[ref].startswith(
-        "Unavailable:"
-    )
+    assert str(included["label"]).startswith("Unavailable:")
 
 
 def test_catalog_model_selection_requires_pinned_brain_choices() -> None:
@@ -280,7 +278,7 @@ def test_seed_configured_media_quick_choices_updates_existing_defaults(monkeypat
     updated_choice = {**image_choice, "display_name": "GPT Image Updated"}
     image_calls = iter([image_choice, updated_choice])
 
-    monkeypatch.setattr(selection, "_media_tool_selection", lambda tool_name, default_model: "openai/gpt-image-1")
+    monkeypatch.setattr(selection, "_media_tool_selection", lambda tool_name: "openai/gpt-image-1")
     monkeypatch.setattr(
         selection,
         "_quick_choice_for_media_selection",

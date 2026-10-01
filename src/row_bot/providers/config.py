@@ -206,6 +206,13 @@ def save_provider_config(config: dict[str, Any], path: pathlib.Path | str | None
     return normalized
 
 
+_REPLACE_RETRIES = 5
+_REPLACE_BACKOFF_SECONDS = 0.05
+# Windows refuses to replace a file that a concurrent reader holds open (5) or
+# that another process has locked (32); both clear within moments.
+_REPLACE_RETRY_WINERRORS = {5, 32}
+
+
 def write_provider_metadata(target: pathlib.Path, payload: dict[str, Any]) -> None:
     """Publish provider-owned JSON under the caller's canonical writer admission."""
     with tempfile.NamedTemporaryFile("w", delete=False, dir=target.parent, encoding="utf-8") as tmp:
@@ -215,7 +222,14 @@ def write_provider_metadata(target: pathlib.Path, payload: dict[str, Any]) -> No
         os.fsync(tmp.fileno())
         temp_name = tmp.name
     try:
-        pathlib.Path(temp_name).replace(target)
+        for attempt in range(_REPLACE_RETRIES):
+            try:
+                pathlib.Path(temp_name).replace(target)
+                break
+            except OSError as exc:
+                if getattr(exc, "winerror", None) not in _REPLACE_RETRY_WINERRORS or attempt >= _REPLACE_RETRIES - 1:
+                    raise
+                time.sleep(_REPLACE_BACKOFF_SECONDS * (attempt + 1))
     finally:
         pathlib.Path(temp_name).unlink(missing_ok=True)
 

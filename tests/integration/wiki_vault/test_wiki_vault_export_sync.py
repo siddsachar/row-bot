@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import ast
-import inspect
 import json
 import os
 import time
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.subsystem]
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _entity(**overrides: Any) -> dict[str, Any]:
@@ -44,7 +39,7 @@ def test_wiki_vault_filename_frontmatter_and_markdown_rendering(wiki_stack: dict
     assert len(wiki_vault._safe_filename("x" * 200)) <= 120
 
     entity = _entity()
-    assert wiki_vault._entity_md_path(entity).name == wiki_vault._entity_filename(entity["id"]) + ".md"
+    assert wiki_vault._entity_md_path(entity).name == "Bob.md"
     assert "person" in str(wiki_vault._entity_md_path(entity))
 
     frontmatter = wiki_vault._render_frontmatter(entity)
@@ -146,7 +141,7 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
 
     type_index = wiki_vault._render_type_index("person", [bob, tiny])
     assert "# Person" in type_index
-    assert f"[[{wiki_vault._entity_filename(bob['id'])}|Bob]]" in type_index
+    assert "[[Bob]]" in type_index
     assert "## Quick Notes" in type_index
     assert "**Tiny**" in type_index
 
@@ -170,7 +165,7 @@ def test_wiki_vault_indexes_rebuild_and_orphan_cleanup(wiki_stack: dict[str, Any
     assert (wiki_stack["vault"] / "wiki" / "index.md").exists()
 
 
-def test_wiki_cleanup_preserves_raw_and_conversations_and_ui_uses_knowledge_tab(
+def test_wiki_cleanup_preserves_raw_and_conversations(
     wiki_stack: dict[str, Any],
 ) -> None:
     wiki_vault = wiki_stack["wiki_vault"]
@@ -194,37 +189,8 @@ def test_wiki_cleanup_preserves_raw_and_conversations_and_ui_uses_knowledge_tab(
     assert (vault / "raw" / "upload.pdf").exists()
     assert (vault / "conversations" / "chat.md").exists()
 
-    kg_source = (REPO_ROOT / "src" / "row_bot" / "knowledge_graph.py").read_text(encoding="utf-8")
-    delete_all = kg_source.split("def delete_all_entities", 1)[1].split("\ndef ", 1)[0]
-    assert "wiki_vault" in delete_all
-    assert "clear_wiki_folder" in delete_all
 
-    settings_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-    home_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "home.py").read_text(encoding="utf-8")
-    status_checks_source = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
-    ast.parse(settings_source)
-    ast.parse(home_source)
-    ast.parse(status_checks_source)
-
-    assert "_build_knowledge_tab" in settings_source
-    assert "_build_memory_tab" not in settings_source
-    assert "_build_wiki_tab" not in settings_source
-    assert "tab_knowledge" in settings_source
-    assert "tab_mem" not in settings_source
-    assert "tab_wiki" not in settings_source
-    assert '"Knowledge"' in settings_source
-    assert "confirm(" in settings_source.split("_delete_all_knowledge", 1)[1].split("\n\n", 1)[0]
-    assert "reset_vector_store" in settings_source.split("_delete_all_knowledge", 1)[1][:800]
-    assert "clear_wiki_folder" in settings_source.split("_delete_all_knowledge", 1)[1][:800]
-    assert "confirm(" in settings_source.split("_clear_docs", 1)[1].split("\n\n", 1)[0]
-    assert 'ui.tab("Knowledge"' in home_source
-    assert 'ui.tab("Memory"' not in home_source
-    assert "Knowledge Extraction" in home_source
-    assert 'settings_tab="Memory"' not in status_checks_source
-    assert 'settings_tab="Knowledge"' in status_checks_source
-
-
-def test_wiki_vault_parse_check_sync_import_and_batch_sync(wiki_stack: dict[str, Any]) -> None:
+def test_wiki_vault_parse_check_sync_and_import(wiki_stack: dict[str, Any]) -> None:
     kg = wiki_stack["kg"]
     memory = wiki_stack["memory"]
     wiki_vault = wiki_stack["wiki_vault"]
@@ -268,20 +234,6 @@ def test_wiki_vault_parse_check_sync_import_and_batch_sync(wiki_stack: dict[str,
         props = json.loads(props)
     assert props["status"] == "active"
 
-    second = memory.save_memory(
-        "place",
-        "VaultPlace",
-        "VaultPlace is a deterministic batch sync integration test place.",
-    )
-    second_md = wiki_vault.export_entity(kg.get_entity(second["id"]))
-    assert second_md is not None
-    second_md.write_text(second_md.read_text(encoding="utf-8") + "\nBatch edit.\n", encoding="utf-8")
-    os.utime(second_md, (time.time() + 20, time.time() + 20))
-
-    sync_result = wiki_vault.sync_all_from_vault()
-    assert sync_result["synced"] >= 1
-    assert sync_result["failed"] == 0
-
 
 def test_wiki_tool_contract_and_removed_search_tool(wiki_stack: dict[str, Any]) -> None:
     kg = wiki_stack["kg"]
@@ -307,7 +259,7 @@ def test_wiki_tool_contract_and_removed_search_tool(wiki_stack: dict[str, Any]) 
     assert "Wiki Vault Status" in stats_tool.invoke({})
 
 
-def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str, Any]) -> None:
+def test_knowledge_editability_and_hybrid_search(wiki_stack: dict[str, Any]) -> None:
     kg = wiki_stack["kg"]
     memory = wiki_stack["memory"]
     memory_tool = wiki_stack["memory_tool"]
@@ -360,7 +312,6 @@ def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str,
     assert {"id", "category", "subject", "content"} <= set(parsed_results[0])
 
     from row_bot.tools.memory_tool import _UpdateMemoryInput
-    from row_bot.ui.entity_editor import open_entity_editor
 
     assert set(_UpdateMemoryInput.model_fields) == {
         "memory_id",
@@ -370,26 +321,29 @@ def test_knowledge_editability_hybrid_search_and_ui_wiring(wiki_stack: dict[str,
         "aliases",
         "tags",
     }
-    sig = inspect.signature(open_entity_editor)
-    assert "entity_id" in sig.parameters
-    assert "on_saved" in sig.parameters
 
-    prompts_src = (REPO_ROOT / "src" / "row_bot" / "prompts.py").read_text(encoding="utf-8")
-    settings_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
-    graph_panel_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "graph_panel.py").read_text(encoding="utf-8")
-    status_checks_src = (REPO_ROOT / "src" / "row_bot" / "status_checks.py").read_text(encoding="utf-8")
-    entity_editor_src = (REPO_ROOT / "src" / "row_bot" / "ui" / "entity_editor.py").read_text(encoding="utf-8")
-    for source in (settings_src, graph_panel_src, status_checks_src, entity_editor_src):
-        ast.parse(source)
 
-    assert "wiki_search" not in prompts_src
-    assert "check_vault_sync" in settings_src
-    assert "sync_all_from_vault" in settings_src
-    assert "Sync from Vault" in settings_src
-    assert "graph-edit-trigger" in graph_panel_src
-    assert "entity_editor" in graph_panel_src
-    assert "check_vault_sync" in status_checks_src
-    assert "edited in vault" in status_checks_src
-    assert "Audit and Provenance" in entity_editor_src
-    assert "mark_user_modified" in entity_editor_src
-    assert "set_status" in entity_editor_src
+def test_a_manifest_replace_refused_for_a_moment_by_windows_still_lands(
+    wiki_stack: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows refuses a replace while a scan holds the new file (seen in a full run, B256)."""
+    wiki_vault = wiki_stack["wiki_vault"]
+    kg = wiki_stack["kg"]
+    wiki_vault.set_enabled(True)
+    kg.save_entity("person", "Ada", "A saved memory long enough for an article.")
+    replace = os.replace
+    refused = []
+
+    def busy_once(source, target, *args, **kwargs):
+        if str(target).endswith(".row-bot-ownership.json") and not refused:
+            refused.append(target)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5
+            raise error
+        return replace(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(wiki_vault.os, "replace", busy_once)
+    wiki_vault.rebuild_vault()
+    assert refused
+    manifest = wiki_stack["vault"] / "wiki" / ".row-bot-ownership.json"
+    assert json.loads(manifest.read_text(encoding="utf-8"))["files"]

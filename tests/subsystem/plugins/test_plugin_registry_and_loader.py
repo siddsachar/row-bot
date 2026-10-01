@@ -519,9 +519,6 @@ def test_loader_reports_broken_plugin_without_crashing(
     assert result.success is False
     assert "crashed" in result.error
     assert registry.get_plugin_tool_names() == []
-    logs = loader.read_plugin_logs("broken-plugin")
-    assert logs[-1]["success"] is False
-    assert "crashed" in logs[-1]["error"]
 
 
 @pytest.mark.parametrize(

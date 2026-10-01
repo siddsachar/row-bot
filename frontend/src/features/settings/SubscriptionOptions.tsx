@@ -190,7 +190,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The original outcome is unconfirmed. Read its receipt before taking another action.',
+        "Row-Bot couldn't confirm that. Check again before another action.",
       );
     } finally {
       setBusy('');
@@ -207,9 +207,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
       if (result.command_id !== pending.commandId)
         throw { code: 'operation_uncertain' };
       if (result.status === 'uncertain')
-        setNotice(
-          'The original outcome remains unconfirmed. No operation was replayed.',
-        );
+        setNotice('Still unconfirmed. Nothing was done twice.');
       else {
         accept(result.options);
         setPending(null);
@@ -287,7 +285,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The outcome is uncertain. Read the original receipt before another action.',
+        "Row-Bot couldn't confirm that. Check again before another action.",
       );
     } finally {
       setBusy('');
@@ -321,7 +319,10 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
               for your own xAI OAuth app.
             </p>
             {snapshot && <p>Current source: {snapshot.xai_client_id_source}</p>}
-            <Field label="OAuth client ID override">
+            <Field
+              label="OAuth client ID override"
+              hint="Saves when you leave the field or press Enter."
+            >
               <Input
                 value={client}
                 maxLength={512}
@@ -330,15 +331,16 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
                   setClient(event.target.value);
                   setDirty(true);
                 }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                }}
+                onBlur={() => {
+                  if (dirty && client.trim())
+                    void performDirect(provider, 'client_id_save');
+                }}
               />
             </Field>
             <div className="actions">
-              <Button
-                disabled={locked || !client.trim()}
-                onClick={() => void performDirect(provider, 'client_id_save')}
-              >
-                Save override
-              </Button>
               <Button
                 disabled={locked}
                 onClick={() => void performDirect(provider, 'client_id_reset')}
@@ -366,7 +368,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
         <div className="actions">
           {pending && (
             <Button disabled={!!busy} onClick={() => void receipt()}>
-              Read original receipt
+              Check again
             </Button>
           )}
           <Button disabled={!!busy || !!pending} onClick={props.onClose}>
@@ -427,16 +429,19 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
             disabled={locked || !snapshot || dirty}
             onClick={() => void review('codex', 'reference')}
           >
-            Save Codex CLI reference
+            Reference Codex CLI login
           </Button>
           <Button
             disabled={locked || !snapshot || dirty}
             onClick={() => void review('claude_subscription', 'reference')}
           >
-            Save Claude Code reference
+            Reference Claude Code login
           </Button>
         </div>
-        <Field label="xAI OAuth client ID override">
+        <Field
+          label="xAI OAuth client ID override"
+          hint="Saves when you leave the field or press Enter."
+        >
           <Input
             aria-label="xAI OAuth client ID override"
             value={client}
@@ -447,6 +452,12 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
               setDirty(true);
               setReviewed(null);
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+            onBlur={() => {
+              if (dirty && client) void review('xai_oauth', 'client_id_save');
+            }}
           />
         </Field>
         <p>
@@ -454,12 +465,6 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
           environment override takes precedence over saved settings.
         </p>
         <div className="actions">
-          <Button
-            disabled={locked || !snapshot || !client}
-            onClick={() => void review('xai_oauth', 'client_id_save')}
-          >
-            Save client ID override
-          </Button>
           <Button
             disabled={locked || !snapshot}
             onClick={() => void review('xai_oauth', 'client_id_reset')}
@@ -470,7 +475,7 @@ export default function SubscriptionOptions(props: SubscriptionOptionsProps) {
             disabled={!pending || !!busy || !session.active}
             onClick={() => void receipt()}
           >
-            Read original option receipt
+            Check option
           </Button>
           <Button
             disabled={locked || (!dirty && !reviewed)}

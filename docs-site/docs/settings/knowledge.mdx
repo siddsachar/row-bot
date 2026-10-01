@@ -1,49 +1,62 @@
 ---
-title: "Settings: Knowledge"
-description: "Configure memory, graph review, embeddings, document knowledge, and wiki export."
+title: "Settings: Memory"
+description: "Turn remembering on or off, check graph health, configure the wiki vault, and delete all knowledge in Settings › Memory."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# Settings: Knowledge
+# Settings: Memory
 
-Knowledge settings decide how Row-Bot stores useful information, retrieves it later, and organizes it into a local knowledge graph. This affects what Row-Bot can remember between conversations.
+The Memory page holds the settings for what Row-Bot remembers between conversations. The memories themselves are in **Home › Knowledge**, where you search, review, edit and delete them. See [Knowledge](/docs/knowledge/).
 
-<Screenshot id="settings-knowledge" alt="Settings: Knowledge in Row-Bot." caption="The Knowledge settings tab controls memory, graph behavior, document knowledge, embeddings, and export options." />
+<Screenshot id="settings-knowledge" alt="Settings: Memory in Row-Bot." caption="Settings › Memory shows whether Row-Bot remembers, the graph's health, and the wiki vault." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Knowledge** from the left tab list.
+Open **Settings**, then choose **Memory** in the **Knowledge** group, or search for it with **Find a setting**. Old links to Settings › Knowledge or Settings › Wiki open this page.
 
-## Controls
+## Remembering
 
-- Memory controls decide whether Row-Bot can save and recall useful facts.
-- Embedding controls affect how memories and documents become searchable.
-- Graph review controls decide how extracted entities and relationships are handled.
-- Dream cycle options control background organization when that feature is enabled.
-- Wiki export creates local markdown-style views of selected knowledge records.
+**Enable Memory** decides whether Row-Bot saves useful facts from conversations and recalls them later. A link opens Home › Knowledge to manage what is saved.
+
+## Graph Health
+
+**Graph health** counts your **Memories**, how many **Connected groups** they form, and how many **Unconnected memories** stand alone. A memory graph thumbnail opens Home › Knowledge. Many unconnected memories usually means Dream Cycle or a review would help.
+
+## Wiki Vault
+
+**Wiki vault** writes your memories as linked Markdown articles in a folder you choose, and brings your edits back. See [Wiki Vault](/docs/knowledge/wiki-vault).
+
+## Delete All Knowledge
+
+**Delete all knowledge** permanently removes the saved graph after reviewing exactly what will go. Row-Bot-managed wiki files and local indexes are cleaned up; files outside Row-Bot's managed wiki are kept. Back up first if you might want it back.
+
+## Related Settings
+
+- Dream Cycle's hours are in **Settings › Preferences › Overnight tidy-up**.
+- Where memory and document search runs, and its search model, are in **Settings › Documents**.
 
 ## Common Workflow
 
-1. Enable memory only if you want Row-Bot to remember useful details.
-2. Set embeddings before indexing a large document or memory collection.
-3. Use the Knowledge Home tab to review and correct important entries.
-4. Export a wiki when you want a readable local snapshot outside the app.
+1. Keep memory on if you want Row-Bot to remember useful details.
+2. Install the private search model in Settings › Documents before building a large memory.
+3. Review and correct important memories in Home › Knowledge.
+4. Turn on the wiki vault when you want a readable local copy outside the app.
 
 ## What Is Saved
 
-Knowledge records live in local Row-Bot data. They can be sent to a model provider only as relevant prompt context when you ask Row-Bot to use them.
+Memories live in local Row-Bot data. They are sent to a model provider only as relevant context in a conversation that uses that provider.
 
 ## Privacy And Safety
 
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
+The wiki vault is a folder other software can read or sync; treat it as an export. Deleting all knowledge cannot be undone without a backup.
 
 ## Control-Level Reference
 
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#knowledge-controls) lists the visible controls found in the current application source, including defaults, allowed values when they are declared inline, dependencies, restart notes, security notes, and source locations.
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#memory-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
 
 ## Troubleshooting
 
-- If recall feels stale, refresh vectors or review extraction journals.
-- If Row-Bot remembers something wrong, edit or remove the knowledge entry.
-- If background organization is noisy, reduce or disable dream cycle behavior.
+- If recall feels stale, rebuild the memory index in Settings › Documents.
+- If Row-Bot remembers something wrong, edit or archive the memory in Home › Knowledge.
+- If Dream Cycle is noisy, change its hours or turn it off in Settings › Preferences.

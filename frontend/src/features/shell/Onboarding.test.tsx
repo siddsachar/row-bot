@@ -1,8 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { OnboardingSnapshot } from '../../api/types';
 import { OnboardingCenter } from './Onboarding';
+import { WorkspaceActionsContext } from './workspace-actions';
 
 const snapshot: OnboardingSnapshot = {
   schema_version: 1,
@@ -43,28 +51,32 @@ function show(
 
 beforeEach(() => sessionStorage.clear());
 
-it('loads progress passively and finishes selected model from one click', async () => {
-  const { send } = show();
-  expect(await screen.findByText('Connect your first model')).toBeVisible();
-  expect(send).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Use selected model and continue' }),
+it('loads progress passively and shows no first-model step once a model exists', async () => {
+  const { send } = show(
+    vi.fn(async () => ({
+      ...snapshot,
+      setup_complete: true,
+      needs_model: false,
+      completed_steps: ['models'],
+      live_done: ['models'],
+    })),
   );
   expect(
     await screen.findByRole('region', { name: 'Setup checklist' }),
   ).toBeVisible();
-  expect(send).toHaveBeenCalledWith(
-    expect.objectContaining({
-      action: 'finish_models',
-      expected_revision: snapshot.revision,
-    }),
-  );
+  expect(send).not.toHaveBeenCalled();
+  // No preset "Use selected model" step (decision 9): the checklist follows
+  // the real state instead.
+  expect(screen.queryByText('Connect your first model')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Use selected model and continue' }),
+  ).toBeNull();
 });
 
-it('saves an intent switch directly and uses its receipt revision', async () => {
+it('saves an intent tile directly and uses its receipt revision', async () => {
   const { send } = show();
   fireEvent.click(
-    await screen.findByRole('switch', { name: 'Chat assistant' }),
+    await screen.findByRole('checkbox', { name: 'Chat assistant' }),
   );
   expect(send).toHaveBeenCalledWith(
     expect.objectContaining({ action: 'save_profile', profile: ['chat'] }),
@@ -118,7 +130,7 @@ it('adds starter workflows only from an explicit click in resumed setup', async 
   );
   expect(
     screen.getByRole('link', { name: 'Import from Hermes or OpenClaw' }),
-  ).toHaveAttribute('href', '/settings/system');
+  ).toHaveAttribute('href', '/settings/data#migration');
 });
 
 it('retains the original command for recovery after an uncertain response', async () => {
@@ -136,9 +148,7 @@ it('retains the original command for recovery after an uncertain response', asyn
     send,
   );
   fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Use selected model and continue',
-    }),
+    await screen.findByRole('checkbox', { name: 'Chat assistant' }),
   );
   expect(
     await screen.findByRole('button', { name: 'Check setup action' }),
@@ -181,28 +191,105 @@ it('offers interrupted command recovery after remount without auto-executing', a
   expect(send).toHaveBeenCalledWith(command);
 });
 
-it('lets the user correct a rejected unready model choice', async () => {
-  const send = vi
-    .fn()
-    .mockRejectedValue({ code: 'onboarding_model_required', status: 409 });
-  show(
-    vi.fn(async () => snapshot),
-    send,
+it('orders recommended areas first with a status chip and one primary action', async () => {
+  const resumed: OnboardingSnapshot = {
+    ...snapshot,
+    setup_complete: true,
+    profile: ['designer'],
+    completed_steps: ['models'],
+    skipped_steps: ['voice'],
+    steps: [
+      ...snapshot.steps,
+      { id: 'knowledge', title: 'Knowledge', description: 'Memory.' },
+      { id: 'designer', title: 'Designer', description: 'Designs.' },
+    ],
+    intents: [
+      ...snapshot.intents,
+      { id: 'designer', label: 'Designer Studio' },
+    ],
+  };
+  const send = vi.fn(async (command) => ({
+    schema_version: 1 as const,
+    command_id: command.command_id,
+    status: 'completed' as const,
+    snapshot: { ...resumed, completed_steps: ['models', 'knowledge'] },
+  }));
+  const newChat = vi.fn();
+  render(
+    <MemoryRouter>
+      <WorkspaceActionsContext.Provider
+        value={{ resetLayout: vi.fn(), newChat }}
+      >
+        <OnboardingCenter owner={{ load: vi.fn(async () => resumed), send }} />
+      </WorkspaceActionsContext.Provider>
+    </MemoryRouter>,
   );
+  const list = await screen.findByRole('list');
+  const titles = within(list)
+    .getAllByRole('heading', { level: 3 })
+    .map((heading) => heading.textContent);
+  expect(titles).toEqual(['Designer', 'Knowledge', 'Models', 'Voice']);
+  // Done and skipped are counted apart (U9).
+  expect(
+    screen.getByRole('progressbar', { name: '1 of 4 done · 1 skipped' }),
+  ).toBeInTheDocument();
+  const items = within(list).getAllByRole('listitem');
+  expect(items.map((item) => item.getAttribute('data-status'))).toEqual([
+    'recommended',
+    'recommended',
+    'done',
+    'skipped',
+  ]);
+  expect(within(items[2]).getByText('Done')).toBeVisible();
+  expect(
+    within(items[1]).getByRole('link', { name: 'Open Knowledge' }),
+  ).toHaveAttribute('href', '/settings/knowledge');
   fireEvent.click(
-    await screen.findByRole('button', {
-      name: 'Use selected model and continue',
-    }),
+    within(items[0]).getByRole('button', { name: 'Start a design' }),
+  );
+  expect(newChat).toHaveBeenCalledWith('Create a design: ');
+  expect(send).not.toHaveBeenCalled();
+  const more = within(items[1]).getByRole('button', {
+    name: 'More actions for Knowledge',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Mark Knowledge done' }),
+    ),
+  );
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({ action: 'mark_done', step: 'knowledge' }),
+  );
+});
+
+it('shows live areas as done and never offers to skip them (decision 13)', async () => {
+  const live: OnboardingSnapshot = {
+    ...snapshot,
+    setup_complete: true,
+    completed_steps: ['models', 'developer'],
+    live_done: ['models', 'developer'],
+    skipped_steps: [],
+    steps: [
+      ...snapshot.steps,
+      { id: 'developer', title: 'Developer', description: 'Code.' },
+    ],
+  };
+  show(vi.fn(async () => live));
+  const list = await screen.findByRole('list');
+  const developer = within(list)
+    .getAllByRole('listitem')
+    .find((item) => item.textContent?.includes('Developer'))!;
+  expect(developer).toHaveAttribute('data-status', 'done');
+  await act(async () =>
+    fireEvent.keyDown(
+      within(developer).getByRole('button', {
+        name: 'More actions for Developer',
+      }),
+      { key: 'Enter' },
+    ),
   );
   expect(
-    await screen.findByText(
-      'Choose an available model in Settings, then try this step again.',
-    ),
-  ).toBeVisible();
-  expect(
-    screen.queryByRole('button', { name: 'Check setup action' }),
-  ).toBeNull();
-  expect(
-    screen.getByRole('button', { name: 'Use selected model and continue' }),
-  ).toBeEnabled();
+    screen.getByRole('menuitem', { name: 'Skip Developer' }),
+  ).toHaveAttribute('aria-disabled', 'true');
 });

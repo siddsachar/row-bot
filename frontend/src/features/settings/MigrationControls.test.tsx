@@ -174,3 +174,126 @@ it('recovers an original interrupted command without replaying apply', async () 
   );
   expect(owner.apply).not.toHaveBeenCalled();
 });
+
+it('finds the old app in its usual folder and scans it without a typed path', async () => {
+  const owner = {
+    ...owners(),
+    sources: vi.fn(async () => ({
+      sources: [
+        {
+          provider: 'hermes' as const,
+          label: 'Hermes Agent',
+          found: false,
+          place: null,
+        },
+        {
+          provider: 'openclaw' as const,
+          label: 'OpenClaw',
+          found: true,
+          place: '~/.openclaw',
+        },
+      ],
+    })),
+  };
+  render(<MigrationControls owner={owner} />);
+  expect(
+    await screen.findByText(
+      'Found OpenClaw in ~/.openclaw. Leave Source folder empty to use it.',
+    ),
+  ).toBeVisible();
+  expect(screen.getByLabelText('Source app')).toHaveValue('openclaw');
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  expect(await screen.findByText(/2 items found/)).toBeVisible();
+  expect(owner.scan).toHaveBeenCalledWith({
+    provider: 'openclaw',
+    source: '',
+    target: '',
+    include_secrets: false,
+  });
+  fireEvent.change(screen.getByLabelText('Source app'), {
+    target: { value: 'hermes' },
+  });
+  expect(
+    screen.getByText(
+      "Hermes Agent isn't in its usual folder. Enter the folder it uses.",
+    ),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Scan folders' })).toBeDisabled();
+});
+
+it('Select all and Clear all change only the items that can be imported', async () => {
+  const owner = owners();
+  render(<MigrationControls owner={owner} />);
+  fireEvent.change(screen.getByLabelText('Source folder'), {
+    target: { value: 'C:\\fixture\\hermes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  expect(await screen.findByText(/1 selected/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select all' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+  expect(screen.getByText(/0 selected/)).toBeVisible();
+  expect(
+    screen.getByRole('button', { name: 'Apply selected items' }),
+  ).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+  expect(screen.getByText(/1 selected/)).toBeVisible();
+  expect(screen.getByLabelText(/Agent identity/)).toBeChecked();
+  expect(screen.getByLabelText(/Old sessions/)).not.toBeChecked();
+});
+
+it('Browse picks the folder once; a rescan with other choices reuses that preview', async () => {
+  const owner = {
+    ...owners(),
+    sources: vi.fn(async () => ({
+      sources: [
+        {
+          provider: 'hermes' as const,
+          label: 'Hermes Agent',
+          found: false,
+          place: null,
+        },
+      ],
+    })),
+    pick: vi.fn(async () => 'grant-9'),
+  };
+  const view = render(<MigrationControls owner={owner} canBrowse />);
+  expect(
+    await screen.findByText(
+      "Hermes Agent isn't in its usual folder. Browse for it, or enter the folder it uses.",
+    ),
+  ).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Scan folders' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Browse…' }));
+  expect(await screen.findByText('Using the folder you chose.')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  expect(await screen.findByText(/2 items found/)).toBeVisible();
+  expect(owner.scan).toHaveBeenLastCalledWith({
+    provider: 'hermes',
+    source: '',
+    target: '',
+    include_secrets: false,
+    source_grant: 'grant-9',
+  });
+  fireEvent.click(
+    screen.getByRole('switch', { name: 'Include API keys and tokens' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Scan folders' }));
+  expect(await screen.findByText(/2 items found/)).toBeVisible();
+  expect(owner.scan).toHaveBeenLastCalledWith({
+    provider: 'hermes',
+    source: '',
+    target: '',
+    include_secrets: true,
+    same_source_as: preview.plan_id,
+  });
+  view.unmount();
+
+  // Without the desktop app there is nothing to browse with.
+  render(<MigrationControls owner={owner} />);
+  expect(
+    await screen.findByText(
+      "Hermes Agent isn't in its usual folder. Enter the folder it uses.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Browse…' })).toBeNull();
+});

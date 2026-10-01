@@ -1,7 +1,7 @@
-"""Disposable real NiceGUI app with scripted external calls for browser QA.
+"""Disposable real Row-Bot server with scripted external calls for browser QA.
 
-Run only through run_browser.py. This is not an alternate application service:
-the real app entry, stores, runtime, projection and NiceGUI renderer are used.
+This is not an alternate application service: the real app entry, stores,
+runtime and projection are used.
 External provider/tool calls are scripted, with explicit producer barriers;
 native desktop notification and sound outputs are replaced by counted sinks.
 """
@@ -16,7 +16,7 @@ from typing import Any
 
 from fastapi import Header, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from nicegui import app
+from row_bot.server import app
 
 from tests.helpers.client_platform_fakes import fixture_id
 
@@ -27,6 +27,8 @@ if os.environ.get("ROW_BOT_TEST_MODE") != "1" or not TOKEN or not DATA.name.star
     raise RuntimeError("Browser fixture requires a disposable runner environment")
 DATA.mkdir(parents=True, exist_ok=True)
 
+FIXTURE_DEFAULT_MODEL = "model:ollama:qwen3:14b"
+
 
 def seed() -> None:
     from scripts.docs import seed_real_app_demo_data as seeder
@@ -34,6 +36,15 @@ def seed() -> None:
     from row_bot.threads import create_thread
 
     seeder._seed_app_config(DATA, first_run=False)
+    # Nothing is preset (decision 9): the synthetic profile has chosen its model.
+    from row_bot.providers import saved_model_settings
+
+    saved_model_settings.update_saved_model_settings(
+        lambda raw: {**raw, "model": FIXTURE_DEFAULT_MODEL}, path=DATA / "model_settings.json")
+    import sys
+
+    if "row_bot.models" in sys.modules:
+        sys.modules["row_bot.models"].adopt_saved_default(FIXTURE_DEFAULT_MODEL)
     from row_bot.tools.registry import set_tool_config
     set_tool_config("filesystem", "workspace_root", str(DATA / "attachment-workspace"))
     state = default_docs_capture_demo_state()
@@ -162,14 +173,12 @@ def _authorize(value: str) -> None:
 def fixture_state(x_fixture_token: str = Header(default="")) -> dict:
     _authorize(x_fixture_token)
     from row_bot.threads import get_latest_checkpoint_messages
-    from row_bot.ui.state import _active_generations
 
     with _lock:
         calls = [dict(call) for call in _calls]
         notification_outputs = dict(_notification_outputs)
     return {"calls": calls, "external_calls": 0,
             "notification_outputs": notification_outputs,
-            "legacy_generations": {str(key): str(value.status) for key, value in _active_generations.items()},
             "checkpoint_ids": {thread_id: [str(message.id) for message in get_latest_checkpoint_messages(thread_id)]
                                for thread_id in ("p1-browser-a", "p1-browser-b")}}
 

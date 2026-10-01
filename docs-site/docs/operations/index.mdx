@@ -5,7 +5,7 @@ description: "Back up, restore, update, repair, and uninstall Row-Bot without lo
 
 # Operations, Data, And Recovery
 
-Row-Bot is local-first, so operational safety starts with knowing which data directory and workspace are active. Conversations, settings, memory, Knowledge, workflows, documents, Designer projects, Developer workspace records, skills, plugins, logs, channel state, and MCP configuration can live under that directory. Operating-system key stores may hold credentials separately.
+Row-Bot is local-first, so operational safety starts with knowing which data directory and workspace are active. Conversations, settings, memory, Knowledge, workflows, documents, designs, code folder records, skills, plugins, logs, channel state, and MCP configuration can live under that directory. Operating-system key stores may hold credentials separately.
 
 ## Remote Access And Server Operations
 
@@ -17,20 +17,27 @@ Remote access remains off by default in ordinary desktop launches. Server operat
 
 ## Back Up
 
-1. Open Settings and note the active data and workspace paths.
-2. Stop running workflows, channels, servers, and active generations.
-3. Close Row-Bot so databases are not changing during the copy.
-4. Copy the whole active data directory to protected storage.
-5. Back up external workspaces, exported Designer files, and Wiki vaults separately when they live elsewhere.
-6. Record the Row-Bot version used with the backup.
+**Settings › Data › Back up and restore** makes a copy of your Row-Bot on this computer, without passwords or sign-ins. Choose **Back up now**; the command palette finds it as "back up".
+
+To copy everything by hand instead:
+
+1. Stop running workflows, channels, servers, and active replies.
+2. Close Row-Bot so databases are not changing during the copy.
+3. Copy the whole active data directory to protected storage.
+4. Back up code folders, exported design files, and wiki vaults separately when they live elsewhere.
+5. Record the Row-Bot version used with the backup.
 
 ## Restore
 
-Restore related databases and files as one set while Row-Bot is closed. Point a test launch at the restored directory first, then check conversations, providers, workflows, Knowledge, documents, Designer, Developer, plugins, MCP, and channels. Reconnect secrets that were stored in an OS keychain and were not included in the file backup.
+**Restore from backup** on the same page restores a backup made there; it needs the Row-Bot desktop app and lists what to set up again afterwards, such as passwords and sign-ins. To restore a hand-made copy, restore related databases and files as one set while Row-Bot is closed. Point a test launch at the restored directory first, then check conversations, providers, workflows, Knowledge, documents, designs, code folders, plugins, MCP, and channels. Reconnect secrets that were stored in an OS keychain and were not included in the backup.
+
+## Import From Another Assistant
+
+**Settings › Data › Import from another assistant** scans Hermes Agent or OpenClaw data on this computer and lets you choose what to bring in: memories, persona and skills, and, only if you tick it, API keys and tokens. Nothing is written until you confirm the preview. First launch offers it when it finds one of them. The same page's danger zone holds irreversible clean-up, such as removing tracker data.
 
 ## Update, Repair, And Uninstall
 
-Use the supported package or updater flow for your platform. Back up before a major update. Repair may replace application files but should not be treated as a data backup. Uninstalling the application and deleting the local data directory are separate decisions; review both the application location and the data location before removal.
+**Settings › Updates** shows the version you have, the update **Channel**, and when Row-Bot last checked. **Check for updates** checks now; when an update is available, the sidebar's attention indicator says so and **Remind me later** hides it for a day on this device. Use the supported package or updater flow for your platform. Back up before a major update. Repair may replace application files but should not be treated as a data backup. Uninstalling the application and deleting the local data directory are separate decisions; review both the application location and the data location before removal.
 
 ## Logs And Support
 

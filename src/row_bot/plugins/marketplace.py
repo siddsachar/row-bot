@@ -6,10 +6,11 @@ import json
 import logging
 import os
 import pathlib
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse, urlsplit
 from urllib.request import url2pathname
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -174,47 +175,6 @@ def fetch_index(force_refresh: bool = False) -> MarketplaceIndex:
         return MarketplaceIndex()
 
 
-def search_plugins(
-    query: str = "",
-    tag: str = "",
-    index: MarketplaceIndex | None = None,
-) -> list[MarketplaceEntry]:
-    """Search/filter the marketplace."""
-
-    if index is None:
-        index = fetch_index()
-
-    results = index.plugins
-
-    if tag:
-        tag_lower = tag.lower()
-        results = [p for p in results if tag_lower in [t.lower() for t in p.tags]]
-
-    if query:
-        q = query.lower()
-        results = [
-            p for p in results
-            if q in p.name.lower()
-            or q in p.description.lower()
-            or q in p.id.lower()
-            or any(q in t.lower() for t in p.tags)
-            or any(q in permission.lower() for permission in p.permissions)
-        ]
-
-    return results
-
-
-def get_all_tags(index: MarketplaceIndex | None = None) -> list[str]:
-    """Return sorted unique tags from all plugins."""
-
-    if index is None:
-        index = fetch_index()
-    tags = set()
-    for plugin in index.plugins:
-        tags.update(plugin.tags)
-    return sorted(tags)
-
-
 def get_entry(plugin_id: str, index: MarketplaceIndex | None = None) -> MarketplaceEntry | None:
     """Look up a single plugin by ID."""
 
@@ -226,29 +186,96 @@ def get_entry(plugin_id: str, index: MarketplaceIndex | None = None) -> Marketpl
     return None
 
 
-def source_dir_for_entry(entry: MarketplaceEntry) -> pathlib.Path | None:
-    """Resolve a directory-backed entry from an explicitly configured index."""
-    if not entry.path:
-        return None
-    path = pathlib.Path(entry.path).expanduser()
-    if path.is_absolute() and path.is_dir():
-        return path.resolve()
-    source = str(entry.index_source or "")
-    root: pathlib.Path | None = None
+_GITHUB_REPOSITORY = re.compile(r"https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9_-][A-Za-z0-9._-]*?)(?:\.git)?/?")
+_ARCHIVE_FOLDER = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*")
+_SHA256 = re.compile(r"sha256:[0-9A-Fa-f]{64}")
+
+
+@dataclass(frozen=True)
+class EntrySource:
+    """Where one index entry's plugin code comes from (B266).
+
+    ``problem`` is the public error code when the entry can't be installed.
+    """
+
+    label: str
+    local_dir: pathlib.Path | None = None
+    archive_url: str = ""
+    archive_path: str = ""
+    problem: str | None = None
+
+
+def entry_source(entry: MarketplaceEntry) -> EntrySource:
+    """Resolve where an index entry installs from, without a network call.
+
+    The index ``source`` says where its plugins live. A local index (a
+    ``file://`` URL or an absolute folder) holds local folders; an https
+    GitHub repository (or, without a source, the configured plugin repository)
+    is downloaded as its archive, the entry's ``path`` being the plugin's
+    folder in it. A ``path`` is never resolved against the working folder, and
+    downloaded code must carry a sha256 checksum.
+    """
+    from row_bot.plugins.installer import DEFAULT_REPO_URL
+
+    if entry.archive_url:
+        host = _https_host(entry.archive_url)
+        if host is None:
+            return EntrySource("unsupported archive link", problem="plugin_source_unsupported")
+        return _downloaded(entry, EntrySource(host, archive_url=entry.archive_url))
+    repository = entry.index_source or DEFAULT_REPO_URL
+    if not re.match(r"(?i)https?://", repository):
+        return _local_entry(entry, _local_index_root(repository))
+    match = _GITHUB_REPOSITORY.fullmatch(repository)
+    if match is None:
+        return EntrySource(_https_host(repository) or "unsupported index source", problem="plugin_source_unsupported")
+    owner, name = match.groups()
+    label = f"github.com/{owner}/{name}"
+    if entry.path and not _ARCHIVE_FOLDER.fullmatch(entry.path):
+        return EntrySource(label, problem="plugin_source_unsupported")
+    return _downloaded(entry, EntrySource(
+        label,
+        archive_url=f"https://github.com/{owner}/{name}/archive/refs/heads/main.zip",
+        archive_path=entry.path,
+    ))
+
+
+def _downloaded(entry: MarketplaceEntry, source: EntrySource) -> EntrySource:
+    if _SHA256.fullmatch(entry.checksum.strip()):
+        return source
+    return EntrySource(source.label, problem="plugin_checksum_unavailable")
+
+
+def _local_entry(entry: MarketplaceEntry, root: pathlib.Path | None) -> EntrySource:
+    label = "local directory"
+    path = pathlib.Path(entry.path)
+    if not entry.path or (not path.is_absolute() and root is None):
+        return EntrySource(label, problem="plugin_source_unsupported")
+    candidate = (path if path.is_absolute() else root / path).resolve()
+    if not path.is_absolute() and not candidate.is_relative_to(root.resolve()):
+        return EntrySource(label, problem="plugin_source_unsupported")
+    if not candidate.is_dir():
+        return EntrySource(label, problem="plugin_source_unavailable")
+    return EntrySource(label, local_dir=candidate)
+
+
+def _local_index_root(source: str) -> pathlib.Path | None:
     if source.startswith("file://"):
         parsed = urlparse(source)
-        root = pathlib.Path(unquote(parsed.path)).expanduser()
-    elif source and source not in {"local", "unit-test"}:
-        candidate = pathlib.Path(source).expanduser()
-        if candidate.is_dir():
-            root = candidate
-    candidate = (root / entry.path if root is not None else path).resolve()
-    if root is not None:
-        try:
-            candidate.relative_to(root.resolve())
-        except ValueError:
-            return None
-    return candidate if candidate.is_dir() else None
+        raw_path = url2pathname(parsed.path)
+        root = pathlib.Path(f"//{parsed.netloc}{raw_path}" if parsed.netloc else raw_path)
+    else:
+        root = pathlib.Path(source)
+    return root if root.is_absolute() and root.is_dir() else None
+
+
+def _https_host(url: str) -> str | None:
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return None
+    return parsed.hostname
 
 
 def check_updates(installed_manifests: list) -> list[dict[str, str]]:

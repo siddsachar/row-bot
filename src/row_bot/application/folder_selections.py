@@ -111,6 +111,29 @@ class FolderSelections:
         path = scoped_workspace_path(Path(path))
         if not path.is_dir():
             raise ClientPlatformError("invalid_resource")
+        return self._grant(session_id, path)
+
+    def claim_exact(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+        *,
+        intent: str,
+        destination: str,
+    ) -> dict | None:
+        """A folder picked in the desktop window for a setting, as a session grant.
+
+        The desktop server has no window of its own, so a setting's folder
+        (the wiki vault, the workspace folder) is picked through the window's
+        exact chooser; its one-use reference becomes the same short-lived
+        grant ``pick`` gives. ``None`` means the reference is unknown.
+        """
+        path = self.consume_exact_path(
+            grant_id, session_id, validate, intent=intent, destination=destination, kind="folder")
+        return None if path is None else self._grant(session_id, path)
+
+    def _grant(self, session_id: str, path: Path) -> dict:
         with self._lock:
             self._prune()
             if len(self._values) >= 128:
@@ -163,6 +186,8 @@ class FolderSelections:
         scope: FolderSelectionScope,
         path: Path | None,
         validate: Callable[[], None],
+        *,
+        kind: str = "folder",
     ) -> dict:
         """Consume an exact native intent and mint a one-shot opaque grant.
 
@@ -185,7 +210,7 @@ class FolderSelections:
                 return {"status": "cancelled"}
             from row_bot.developer.review import scoped_workspace_path
             selected = scoped_workspace_path(Path(path))
-            if not selected.is_dir():
+            if not (selected.is_file() if kind == "file" else selected.is_dir()):
                 raise ClientPlatformError("invalid_resource")
             validate()
             with self._lock:
@@ -239,7 +264,84 @@ class FolderSelections:
         The complete scope comes from the server-owned grant.  Callers supply
         only the authenticated session and an authority revalidator.  ``None``
         means the identifier belongs to the retained legacy picker path.
+        A clone's parent folder is picked for ``workspace:clone_repository``.
         """
+        return self._consume_exact_for(
+            grant_id, session_id, validate,
+            intents={"resource_setup", "resource_continue"},
+            destinations={"workspace:existing_folder", "workspace:empty_folder",
+                          "workspace:clone_repository"},
+        )
+
+    def consume_exact_custom_tool(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+    ) -> AuthorizedWorkspaceFolder | None:
+        """Consume the desktop pick behind Settings › Custom tools › Add from a folder.
+
+        Only a grant minted for that intent and destination in this session
+        is accepted, once.  ``None`` means a legacy picker grant.
+        """
+        exact = self._consume_exact_for(
+            grant_id, session_id, validate, intents={"custom_tool"}, destinations={"custom-tools"},
+        )
+        return None if exact is None else exact[0]
+
+    def consume_exact_backup_file(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+    ) -> Path | None:
+        """The backup archive picked for Settings › Data › Restore, once."""
+        return self.consume_exact_path(
+            grant_id, session_id, validate, intent="restore_backup", destination="data-restore", kind="file",
+        )
+
+    def consume_exact_path(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+        *,
+        intent: str,
+        destination: str,
+        kind: str,
+    ) -> Path | None:
+        """One picked file or folder for exactly this intent, once."""
+        from row_bot.developer.review import scoped_workspace_path
+
+        with self._lock:
+            self._prune()
+            grant = self._exact_values.get(grant_id)
+            if grant is None:
+                return None
+            scope = grant.scope
+            if (
+                scope.session_id != session_id
+                or scope.intent != intent
+                or scope.destination != destination
+            ):
+                raise ClientPlatformError("capability_revoked")
+            validate(scope)
+            del self._exact_values[grant_id]
+        validate(scope)
+        selected = scoped_workspace_path(grant.path)
+        if not (selected.is_file() if kind == "file" else selected.is_dir()):
+            raise ClientPlatformError("resource_unavailable")
+        return selected
+
+    def _consume_exact_for(
+        self,
+        grant_id: str,
+        session_id: str,
+        validate: Callable[[FolderSelectionScope], None],
+        *,
+        intents: set[str],
+        destinations: set[str],
+    ) -> tuple[AuthorizedWorkspaceFolder, FolderSelectionScope] | None:
         from row_bot.developer.client_workspace import AuthorizedWorkspaceFolder
         from row_bot.developer.review import scoped_workspace_path
 
@@ -251,9 +353,8 @@ class FolderSelections:
             scope = grant.scope
             if (
                 scope.session_id != session_id
-                or scope.intent not in {"resource_setup", "resource_continue"}
-                or scope.destination
-                not in {"workspace:existing_folder", "workspace:empty_folder"}
+                or scope.intent not in intents
+                or scope.destination not in destinations
             ):
                 raise ClientPlatformError("capability_revoked")
             validate(scope)

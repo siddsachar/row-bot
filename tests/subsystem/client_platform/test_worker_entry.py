@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from tests.test_agent_runner import _fresh_agent_runner_modules, _workspace
+from tests.subsystem.agents.test_agent_runner import _fresh_agent_runner_modules, _workspace
 
 
 def _defer_worker_starts(monkeypatch):

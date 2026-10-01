@@ -1,6 +1,13 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { useClientSelector, useRuntime } from '../../runtime';
-import { Button, EmptyState, Skeleton } from '../../ui/primitives';
+import { Disclosure, EmptyState, Skeleton } from '../../ui/primitives';
 import WorkspaceProcesses from './WorkspaceProcesses';
 import WorkspaceImports from './WorkspaceImports';
 import WorkspaceUndo from './WorkspaceUndo';
@@ -12,66 +19,402 @@ import { artifactEdits } from './artifact-edits';
 import { artifactExports } from './artifact-exports';
 import { artifactSharing } from './artifact-sharing';
 import { workspaceEdits } from './workspace-edits';
-import type { ArtifactAuthoring } from '../../api/types';
+import type { ArtifactAuthoring, ResourceView } from '../../api/types';
 import type { ArtifactEditingOptions } from './ArtifactEditor';
 import type { ArtifactDesignSession } from './artifact-design-sessions';
 import type { ClientController } from '../../api/controller';
 import type { DeveloperRepositoryReviewRequest } from '../../api/types';
 import DeveloperRepositoryPanel, {
   createDeveloperRepositorySession,
+  type DeveloperRepositorySession,
 } from '../developer/DeveloperRepositoryPanel';
 import CustomToolBuilder from '../developer/CustomToolBuilder';
+import { sendPrompt } from '../shell/composer-bridge';
+import { requestResourcePanel } from './panel-requests';
+import { draftingKey, draftingOf } from './design-drafting';
+import type { AskOutcome } from './DesignSelection';
+import type { WorkspaceEditScope } from './workspace-edit-sessions';
 
 export const resourcePanelMetrics = { mounted: 0, renders: 0 };
 const Preview = memo(ArtifactPreview);
 const Inspector = memo(WorkspaceInspector);
+const noSubscription = () => () => {};
+const noSnapshot = () => null;
 
-function RepositorySurface({
+type ResourceApi = ReturnType<typeof resourceApi>;
+
+function resourceApi(
+  controller: ClientController,
+  conversation: string,
+  binding: string,
+) {
+  return {
+    preview: (
+      page?: string,
+      revision?: string,
+      signal?: AbortSignal,
+      authoring?: ArtifactAuthoring,
+    ) =>
+      controller.artifactPreview(
+        conversation,
+        binding,
+        page,
+        revision,
+        signal,
+        authoring,
+      ),
+    editing: (options: ArtifactEditingOptions, signal: AbortSignal) =>
+      controller.artifactEditing(
+        conversation,
+        binding,
+        options.pageId,
+        options.pageCursor,
+        options.elementCursor,
+        options.historyCursor,
+        options.elementId,
+        options.limit,
+        signal,
+      ),
+    palette: (revision: string, query: string, signal: AbortSignal) =>
+      controller.artifactPalette(
+        conversation,
+        binding,
+        revision,
+        query,
+        signal,
+      ),
+    edit: artifactEdits(controller, conversation, binding),
+    exports: artifactExports(controller, conversation, binding),
+    sharing: {
+      ...artifactSharing(controller, conversation, binding),
+      loadChannels: controller.artifactShareChannels,
+      loadPublication: (signal: AbortSignal) =>
+        controller.artifactPublication(conversation, binding, signal),
+    },
+    presentation: {
+      load: (
+        options: import('../../api/types').DesignPresentationOptions,
+        signal: AbortSignal,
+      ) =>
+        controller.designPresentation(conversation, binding, options, signal),
+      preview: (page: string, signal: AbortSignal) =>
+        controller.artifactStaticPreview(conversation, binding, page, signal),
+    },
+    lifecycle:
+      typeof controller.artifactLifecycle === 'function'
+        ? {
+            load: (
+              _resourceId: string,
+              resourceRevision: string,
+              signal: AbortSignal,
+            ) =>
+              controller.artifactLifecycle(
+                conversation,
+                binding,
+                resourceRevision,
+                signal,
+              ),
+          }
+        : undefined,
+    editableFile: (path: string, signal?: AbortSignal) =>
+      controller.workspaceEditableFile(conversation, binding, path, signal),
+    saveFile: workspaceEdits(controller, conversation, binding),
+    inspector: (refresh?: boolean, signal?: AbortSignal) =>
+      controller.inspector(conversation, binding, refresh, signal),
+    changes: (revision: string, cursor?: string, signal?: AbortSignal) =>
+      controller.changes(conversation, binding, revision, cursor, signal),
+    directory: (
+      path: string,
+      cursor?: string,
+      revision?: string,
+      signal?: AbortSignal,
+    ) =>
+      controller.directory(
+        conversation,
+        binding,
+        path,
+        cursor,
+        revision,
+        signal,
+      ),
+    file: (
+      path: string,
+      offset?: number,
+      revision?: string,
+      signal?: AbortSignal,
+    ) => controller.file(conversation, binding, path, offset, revision, signal),
+    diff: (
+      path: string,
+      snapshot: string,
+      offset?: number,
+      revision?: string,
+      signal?: AbortSignal,
+    ) =>
+      controller.diff(
+        conversation,
+        binding,
+        path,
+        snapshot,
+        offset,
+        revision,
+        signal,
+      ),
+    changeSets: (revision: string, cursor?: string, signal?: AbortSignal) =>
+      controller.changeSets(conversation, binding, revision, cursor, signal),
+    changeSetFiles: (
+      change: string,
+      revision: string,
+      cursor?: string,
+      signal?: AbortSignal,
+    ) =>
+      controller.changeSetFiles(
+        conversation,
+        binding,
+        change,
+        revision,
+        cursor,
+        signal,
+      ),
+  };
+}
+
+/**
+ * The Developer inspector for one bound code folder: it owns the repository
+ * session (branch list, ahead/behind) and re-reads after an agent turn ends,
+ * since the agent may have changed files without a binding revision change.
+ */
+function WorkspaceSurface({
   controller,
   conversation,
   binding,
-  resourceId,
-  bindingRevision,
+  resource,
   visible,
+  api,
+  editSessions,
 }: {
   controller: ClientController;
   conversation: string;
   binding: string;
-  resourceId: string;
-  bindingRevision: string;
+  resource: ResourceView;
   visible: boolean;
+  api: ResourceApi;
+  editSessions?: WorkspaceEditScope;
 }) {
-  const scope = `${conversation}:${resourceId}:${binding}:${bindingRevision}`;
-  const session = useMemo(
-    () => createDeveloperRepositorySession(scope),
-    [scope],
+  const {
+    workspaceProcessSessions,
+    workspaceImportSessions,
+    workspaceUndoSessions,
+  } = useRuntime();
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [undoSelection, setUndoSelection] = useState<{
+    binding: string;
+    changeSet: string;
+    summary: string;
+  } | null>(null);
+  const settled = useClientSelector((state) => {
+    const generation = state.projection?.generation;
+    return state.selectedConversationId === conversation &&
+      generation?.conversation_id === conversation &&
+      generation.quiesced
+      ? generation.generation_id
+      : '';
+  });
+  const seenSettled = useRef(settled);
+  useEffect(() => {
+    if (!settled || settled === seenSettled.current) return;
+    seenSettled.current = settled;
+    setRefreshToken((value) => value + 1);
+  }, [settled]);
+  const scope = `${conversation}:${resource.binding.resource_id}:${binding}:${resource.binding.revision}`;
+  const repositorySession = useMemo<DeveloperRepositorySession | null>(
+    () =>
+      typeof controller.developerRepository === 'function'
+        ? createDeveloperRepositorySession(scope)
+        : null,
+    [controller, scope],
   );
-  useEffect(() => () => session.dispose(), [session]);
-  return (
-    <DeveloperRepositoryPanel
-      scope={scope}
-      visible={visible}
-      session={session}
-      load={(signal) =>
-        controller.developerRepository(conversation, binding, signal)
-      }
-      review={(action, payload, signal) =>
-        controller.reviewDeveloperRepository(
+  useEffect(() => () => repositorySession?.dispose(), [repositorySession]);
+  const repositoryState = useSyncExternalStore(
+    repositorySession?.subscribe ?? noSubscription,
+    repositorySession?.getSnapshot ?? noSnapshot,
+    repositorySession?.getSnapshot ?? noSnapshot,
+  );
+  const processSession = workspaceProcessSessions?.forResource(
+    conversation,
+    resource,
+  );
+  const processState = useSyncExternalStore(
+    processSession?.session.subscribe ?? noSubscription,
+    processSession?.session.getSnapshot ?? noSnapshot,
+    processSession?.session.getSnapshot ?? noSnapshot,
+  );
+  const importSession = workspaceImportSessions?.forResource(
+    conversation,
+    resource,
+  );
+  const undoSession =
+    undoSelection?.binding === binding
+      ? workspaceUndoSessions?.forChangeSet(
           conversation,
-          binding,
-          action,
-          payload as DeveloperRepositoryReviewRequest['payload'],
-          signal,
+          resource,
+          undoSelection.changeSet,
         )
-      }
-      execute={(command, review) => {
-        if (!review.review_id) throw new Error('review_required');
-        return controller.executeDeveloperRepository(conversation, binding, {
-          ...command,
-          payload: { ...command.payload, nonce: review.review_id },
-        });
-      }}
-    />
+      : workspaceUndoSessions?.retainedForResource(conversation, resource);
+  const pendingImports =
+    repositoryState?.snapshot?.sandbox.pending_imports ?? 0;
+  const bump = () => setRefreshToken((value) => value + 1);
+  return (
+    <div className="resource-panel dev-panel">
+      <Inspector
+        onUndo={
+          workspaceUndoSessions
+            ? (changeSet, summary) =>
+                setUndoSelection({ binding, changeSet, summary })
+            : undefined
+        }
+        resourceId={resource.binding.resource_id}
+        refreshToken={refreshToken}
+        resourceRevision={resource.resource_revision}
+        visible={visible}
+        load={api.inspector}
+        changes={api.changes}
+        directory={api.directory}
+        file={api.file}
+        editableFile={api.editableFile}
+        saveFile={api.saveFile}
+        editSessions={editSessions}
+        diff={api.diff}
+        changeSets={api.changeSets}
+        changeSetFiles={api.changeSetFiles}
+        onAsk={(text) =>
+          controller.getSnapshot().selectedConversationId === conversation &&
+          sendPrompt(conversation, text)
+        }
+        repository={repositoryState?.snapshot ?? null}
+        processes={processState?.processes}
+        renderRun={
+          processSession
+            ? ({ checks }) => (
+                <WorkspaceProcesses
+                  {...processSession.api}
+                  scope={processSession.scope}
+                  session={processSession.session}
+                  resourceRevision={resource.resource_revision}
+                  visible={visible}
+                  checks={checks}
+                />
+              )
+            : () => (
+                <p className="dev-empty" role="status">
+                  Commands are unavailable here right now. Finish or recover the
+                  commands another workspace kept running first.
+                </p>
+              )
+        }
+        renderGit={
+          repositorySession
+            ? (git) => (
+                <DeveloperRepositoryPanel
+                  scope={scope}
+                  visible={visible}
+                  session={repositorySession}
+                  changedFiles={git.changedFiles}
+                  commitSuggestion={git.commitSuggestion}
+                  pullRequestSuggestion={git.pullRequestSuggestion}
+                  revisionKey={`${refreshToken}:${git.revision}`}
+                  onChanged={bump}
+                  load={(signal) =>
+                    controller.developerRepository(
+                      conversation,
+                      binding,
+                      signal,
+                    )
+                  }
+                  review={(action, payload, signal) =>
+                    controller.reviewDeveloperRepository(
+                      conversation,
+                      binding,
+                      action,
+                      payload as DeveloperRepositoryReviewRequest['payload'],
+                      signal,
+                    )
+                  }
+                  execute={(command, review) => {
+                    if (!review.review_id) throw new Error('review_required');
+                    return controller.executeDeveloperRepository(
+                      conversation,
+                      binding,
+                      {
+                        ...command,
+                        payload: {
+                          ...command.payload,
+                          nonce: review.review_id,
+                        },
+                      },
+                    );
+                  }}
+                  advanced={
+                    typeof controller.customTools === 'function' ? (
+                      <section
+                        className="dev-git-section"
+                        aria-label="Custom tools"
+                      >
+                        <h4>Custom tools</h4>
+                        <CustomToolBuilder
+                          controller={controller}
+                          conversation={conversation}
+                          binding={binding}
+                          visible={visible}
+                        />
+                      </section>
+                    ) : null
+                  }
+                />
+              )
+            : undefined
+        }
+        undo={
+          undoSession ? (
+            <WorkspaceUndo
+              {...undoSession.api}
+              session={undoSession.session}
+              summary={
+                undoSelection?.binding === binding
+                  ? undoSelection.summary
+                  : undefined
+              }
+              onUndone={bump}
+              onCancel={() => setUndoSelection(null)}
+            />
+          ) : undoSelection?.binding === binding ? (
+            <p className="dev-muted-line" role="status">
+              Finish the Undo review that is still open before undoing another
+              change.
+            </p>
+          ) : null
+        }
+        imports={
+          <Disclosure
+            summary="Sandbox changes"
+            meta={pendingImports ? `${pendingImports} waiting` : undefined}
+            defaultOpen={pendingImports > 0}
+            className="dev-disclosure"
+          >
+            {importSession ? (
+              <WorkspaceImports
+                {...importSession.api}
+                session={importSession.session}
+                onImported={bump}
+              />
+            ) : (
+              <p className="dev-muted-line" role="status">
+                Finish the sandbox imports another workspace kept open first.
+              </p>
+            )}
+          </Disclosure>
+        }
+      />
+    </div>
   );
 }
 
@@ -82,23 +425,8 @@ function ResourcePanel({
   panel: PanelInstance;
   visible: boolean;
 }) {
-  const {
-    controller,
-    workspaceEditSessions,
-    workspaceProcessSessions,
-    workspaceImportSessions,
-    workspaceUndoSessions,
-    artifactDesignSessions,
-  } = useRuntime();
-  const [processesOpen, setProcessesOpen] = useState(false);
-  const [importsOpen, setImportsOpen] = useState(false);
-  const [repositoryOpen, setRepositoryOpen] = useState(false);
-  const [customToolsOpen, setCustomToolsOpen] = useState(false);
-  const [importRevision, setImportRevision] = useState(0);
-  const [undoSelection, setUndoSelection] = useState<{
-    binding: string;
-    changeSet: string;
-  } | null>(null);
+  const { controller, workspaceEditSessions, artifactDesignSessions } =
+    useRuntime();
   const workspace = useClientSelector((state) => state.workspace);
   const selected = useClientSelector((state) => state.selectedConversationId);
   const loading = useClientSelector((state) => state.loadingConversation);
@@ -119,134 +447,16 @@ function ResourcePanel({
     () => workspaceEditSessions?.forBinding(conversation, binding),
     [workspaceEditSessions, conversation, binding],
   );
+  // A turn working on this conversation's design: say what it does and
+  // refresh the page as each step is saved (U35).
+  const drafting = useClientSelector((state) =>
+    panel.descriptor.panel_kind === 'artifact.preview' &&
+    state.selectedConversationId === conversation
+      ? draftingKey(conversation, state.projection?.generation, state.activity)
+      : '',
+  );
   const api = useMemo(
-    () => ({
-      preview: (
-        page?: string,
-        revision?: string,
-        signal?: AbortSignal,
-        authoring?: ArtifactAuthoring,
-      ) =>
-        controller.artifactPreview(
-          conversation,
-          binding,
-          page,
-          revision,
-          signal,
-          authoring,
-        ),
-      editing: (options: ArtifactEditingOptions, signal: AbortSignal) =>
-        controller.artifactEditing(
-          conversation,
-          binding,
-          options.pageId,
-          options.pageCursor,
-          options.elementCursor,
-          options.historyCursor,
-          options.elementId,
-          options.limit,
-          signal,
-        ),
-      palette: (revision: string, query: string, signal: AbortSignal) =>
-        controller.artifactPalette(
-          conversation,
-          binding,
-          revision,
-          query,
-          signal,
-        ),
-      edit: artifactEdits(controller, conversation, binding),
-      exports: artifactExports(controller, conversation, binding),
-      sharing: {
-        ...artifactSharing(controller, conversation, binding),
-        loadChannels: controller.artifactShareChannels,
-      },
-      presentation: {
-        load: (
-          options: import('../../api/types').DesignPresentationOptions,
-          signal: AbortSignal,
-        ) =>
-          controller.designPresentation(conversation, binding, options, signal),
-        preview: (page: string, signal: AbortSignal) =>
-          controller.artifactStaticPreview(conversation, binding, page, signal),
-      },
-      lifecycle:
-        typeof controller.artifactLifecycle === 'function'
-          ? {
-              load: (
-                _resourceId: string,
-                resourceRevision: string,
-                signal: AbortSignal,
-              ) =>
-                controller.artifactLifecycle(
-                  conversation,
-                  binding,
-                  resourceRevision,
-                  signal,
-                ),
-            }
-          : undefined,
-      editableFile: (path: string, signal?: AbortSignal) =>
-        controller.workspaceEditableFile(conversation, binding, path, signal),
-      saveFile: workspaceEdits(controller, conversation, binding),
-      inspector: (refresh?: boolean, signal?: AbortSignal) =>
-        controller.inspector(conversation, binding, refresh, signal),
-      changes: (revision: string, cursor?: string, signal?: AbortSignal) =>
-        controller.changes(conversation, binding, revision, cursor, signal),
-      directory: (
-        path: string,
-        cursor?: string,
-        revision?: string,
-        signal?: AbortSignal,
-      ) =>
-        controller.directory(
-          conversation,
-          binding,
-          path,
-          cursor,
-          revision,
-          signal,
-        ),
-      file: (
-        path: string,
-        offset?: number,
-        revision?: string,
-        signal?: AbortSignal,
-      ) =>
-        controller.file(conversation, binding, path, offset, revision, signal),
-      diff: (
-        path: string,
-        snapshot: string,
-        offset?: number,
-        revision?: string,
-        signal?: AbortSignal,
-      ) =>
-        controller.diff(
-          conversation,
-          binding,
-          path,
-          snapshot,
-          offset,
-          revision,
-          signal,
-        ),
-      changeSets: (revision: string, cursor?: string, signal?: AbortSignal) =>
-        controller.changeSets(conversation, binding, revision, cursor, signal),
-      changeSetFiles: (
-        change: string,
-        revision: string,
-        cursor?: string,
-        signal?: AbortSignal,
-      ) =>
-        controller.changeSetFiles(
-          conversation,
-          binding,
-          change,
-          revision,
-          cursor,
-          signal,
-        ),
-    }),
+    () => resourceApi(controller, conversation, binding),
     [controller, conversation, binding],
   );
   if (loading) return <Skeleton label="Opening resource" />;
@@ -281,24 +491,18 @@ function ResourcePanel({
         does not delete the resource.
       </EmptyState>
     );
-  const processSession =
-    resource.binding.kind === 'workspace'
-      ? workspaceProcessSessions?.forResource(conversation, resource)
-      : null;
-  const importSession =
-    resource.binding.kind === 'workspace'
-      ? workspaceImportSessions?.forResource(conversation, resource)
-      : null;
-  const undoSession =
-    resource.binding.kind === 'workspace'
-      ? undoSelection?.binding === binding
-        ? workspaceUndoSessions?.forChangeSet(
-            conversation,
-            resource,
-            undoSelection.changeSet,
-          )
-        : workspaceUndoSessions?.retainedForResource(conversation, resource)
-      : null;
+  if (panel.descriptor.panel_kind !== 'artifact.preview')
+    return (
+      <WorkspaceSurface
+        controller={controller}
+        conversation={conversation}
+        binding={binding}
+        resource={resource}
+        visible={visible}
+        api={api}
+        editSessions={editSessions}
+      />
+    );
   let designSession: ArtifactDesignSession | undefined;
   if (resource.binding.kind === 'artifact' && artifactDesignSessions) {
     try {
@@ -316,8 +520,50 @@ function ResourcePanel({
     if (combined.length > 200000) throw new Error('draft_full');
     controller.setDraft(conversation, { ...draft, text: combined });
   };
-  return panel.descriptor.panel_kind === 'artifact.preview' ? (
+  // "Ask Row-Bot to change this…" goes through the open conversation's
+  // composer; the preview falls back to the draft when it cannot send.
+  const askDesign = (text: string): AskOutcome => {
+    try {
+      designSession?.guard();
+    } catch {
+      return 'unavailable';
+    }
+    if (controller.getSnapshot().selectedConversationId !== conversation)
+      return 'unavailable';
+    return sendPrompt(conversation, text) ? 'sent' : 'unavailable';
+  };
+  // A copy is bound beside the original and opens in its own panel.
+  const duplicateDesign = async () => {
+    const fresh = await controller.workspaceFor(conversation);
+    const source = fresh.resources.find(
+      (item) => item.binding.binding_id === binding,
+    );
+    if (!source?.available || source.binding.kind !== 'artifact')
+      throw { code: 'resource_binding_revoked' };
+    const result = await controller.intent(
+      conversation,
+      'resource.setup',
+      {
+        kind: 'artifact',
+        intent: 'create',
+        duplicate_of: source.binding.resource_id,
+        expected_resource_revision: source.resource_revision,
+      },
+      fresh.revision,
+    );
+    if (result.status !== 'completed' || !result.binding_id)
+      throw { code: result.code ?? 'setup_stage_failed' };
+    requestResourcePanel({
+      conversationId: conversation,
+      resourceRef: `${conversation}:${result.binding_id}`,
+    });
+  };
+  return (
     <Preview
+      title={resource.title}
+      drafting={draftingOf(drafting)}
+      onAsk={askDesign}
+      duplicate={duplicateDesign}
       resourceId={resource.binding.resource_id}
       resourceRevision={resource.resource_revision}
       visible={visible}
@@ -328,6 +574,8 @@ function ResourcePanel({
       edit={api.edit}
       createExport={api.exports.create}
       downloadExport={api.exports.download}
+      saveExport={api.exports.save}
+      revealExport={api.exports.reveal}
       sharing={api.sharing}
       presentation={api.presentation}
       lifecycle={api.lifecycle}
@@ -340,128 +588,6 @@ function ResourcePanel({
           : undefined
       }
     />
-  ) : (
-    <div className="stack resource-panel">
-      <Inspector
-        onUndo={
-          workspaceUndoSessions
-            ? (changeSet) => setUndoSelection({ binding, changeSet })
-            : undefined
-        }
-        resourceId={resource.binding.resource_id}
-        refreshToken={importRevision}
-        resourceRevision={resource.resource_revision}
-        visible={visible}
-        load={api.inspector}
-        changes={api.changes}
-        directory={api.directory}
-        file={api.file}
-        editableFile={api.editableFile}
-        saveFile={api.saveFile}
-        editSessions={editSessions}
-        diff={api.diff}
-        changeSets={api.changeSets}
-        changeSetFiles={api.changeSetFiles}
-      />
-      <details className="resource-advanced">
-        <summary>Workspace tools and settings</summary>
-        {typeof controller.developerRepository === 'function' && (
-          <>
-            <Button
-              aria-expanded={repositoryOpen}
-              onClick={() => setRepositoryOpen((value) => !value)}
-            >
-              {repositoryOpen
-                ? 'Hide repository controls'
-                : 'Repository controls'}
-            </Button>
-            <div hidden={!repositoryOpen}>
-              <RepositorySurface
-                controller={controller}
-                conversation={conversation}
-                binding={binding}
-                resourceId={resource.binding.resource_id}
-                bindingRevision={resource.binding.revision}
-                visible={visible && repositoryOpen}
-              />
-            </div>
-          </>
-        )}
-        {typeof controller.customTools === 'function' && (
-          <>
-            <Button
-              aria-expanded={customToolsOpen}
-              onClick={() => setCustomToolsOpen((value) => !value)}
-            >
-              {customToolsOpen
-                ? 'Hide Custom Tool Builder'
-                : 'Custom Tool Builder'}
-            </Button>
-            {customToolsOpen && (
-              <CustomToolBuilder
-                controller={controller}
-                conversation={conversation}
-                binding={binding}
-                visible={visible}
-              />
-            )}
-          </>
-        )}
-        <Button
-          aria-expanded={importsOpen}
-          onClick={() => setImportsOpen((value) => !value)}
-        >
-          {importsOpen ? 'Hide sandbox changes' : 'Sandbox changes'}
-        </Button>
-        {importsOpen && !importSession && (
-          <p role="status">
-            Finish retained imports before opening another workspace.
-          </p>
-        )}
-        {importsOpen && importSession && (
-          <WorkspaceImports
-            {...importSession.api}
-            session={importSession.session}
-            onImported={() => setImportRevision((value) => value + 1)}
-          />
-        )}
-        <Button
-          aria-expanded={processesOpen}
-          onClick={() => setProcessesOpen((value) => !value)}
-        >
-          {processesOpen ? 'Hide processes' : 'Processes'}
-        </Button>
-        {processesOpen && !processSession && (
-          <p role="status">
-            Process sessions are unavailable or full. Finish retained sessions
-            before opening another workspace.
-          </p>
-        )}
-        {processSession && (
-          <div hidden={!processesOpen}>
-            <WorkspaceProcesses
-              {...processSession.api}
-              scope={processSession.scope}
-              session={processSession.session}
-              resourceRevision={resource.resource_revision}
-              visible={visible && processesOpen}
-            />
-          </div>
-        )}
-      </details>
-      {undoSession && (
-        <WorkspaceUndo
-          {...undoSession.api}
-          session={undoSession.session}
-          onUndone={() => setImportRevision((value) => value + 1)}
-        />
-      )}
-      {undoSelection?.binding === binding && !undoSession && (
-        <p role="status">
-          Finish retained Undo reviews before opening another change set.
-        </p>
-      )}
-    </div>
   );
 }
 export default memo(ResourcePanel);

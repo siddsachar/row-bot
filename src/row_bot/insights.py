@@ -117,8 +117,12 @@ def add_insight(
     source: str = "",
     affected_surface: str = "",
     evidence_refs: Optional[list[str]] = None,
+    found_with_model: str = "",
 ) -> Optional[dict]:
     """Add a new insight, deduplicating against existing ones.
+
+    ``found_with_model`` is the chat model in use when it was found, so
+    Insights can say when it may no longer apply (B124).
 
     Returns the insight dict if added/merged, or None if rejected as duplicate.
     """
@@ -163,6 +167,10 @@ def add_insight(
             existing["body"] = body  # use latest description
             if severity == "critical" or (severity == "warning" and existing["severity"] == "info"):
                 existing["severity"] = severity
+            # Seen again: it holds now, under the model in use now.
+            existing["seen_at"] = datetime.now(timezone.utc).isoformat()
+            if found_with_model:
+                existing["found_with_model"] = found_with_model
             logger.info("Merged insight into existing: %s", existing["id"])
             _save_store(store)
             _ensure_linked_proposals(existing)
@@ -188,6 +196,7 @@ def add_insight(
         "affected_surface": affected_surface,
         "evidence_refs": evidence_refs or [],
         "skill_draft": skill_draft,
+        "found_with_model": found_with_model,
     }
 
     insights.append(insight)
@@ -251,16 +260,6 @@ def update_insight_status(insight_id: str, new_status: str) -> bool:
     return False
 
 
-def dismiss_insight(insight_id: str) -> bool:
-    """Dismiss an insight (hides it from the UI)."""
-    return update_insight_status(insight_id, "dismissed")
-
-
-def pin_insight(insight_id: str) -> bool:
-    """Pin an insight (prevents auto-prune)."""
-    return update_insight_status(insight_id, "pinned")
-
-
 def get_insight_by_id(insight_id: str) -> Optional[dict]:
     """Look up a single insight by ID."""
     store = _load_store()
@@ -269,55 +268,6 @@ def get_insight_by_id(insight_id: str) -> Optional[dict]:
             return insight
     return None
 
-
-def apply_insight(insight_id: str) -> dict:
-    """Convert a backend-fixable insight into approval-gated proposal(s)."""
-    insight = get_insight_by_id(insight_id)
-    if not insight:
-        return {"ok": False, "message": "Insight not found", "action": None}
-
-    status = insight.get("status", "new")
-    if status in INACTIVE_STATUSES:
-        return {
-            "ok": False,
-            "message": f"Insight already {status}",
-            "action": None,
-        }
-
-    if insight.get("category") != "skill_proposal":
-        return {
-            "ok": False,
-            "message": "Only skill proposal insights can be converted from Apply; use Investigate or Report Issue for this insight.",
-            "action": None,
-        }
-
-    try:
-        from row_bot.evolution import ensure_proposals_for_insight
-
-        proposals = [
-            proposal
-            for proposal in ensure_proposals_for_insight(insight)
-            if proposal.get("proposal_type") in {"create_skill", "patch_skill"}
-        ]
-    except ValueError as exc:
-        return {"ok": False, "message": str(exc), "action": None}
-    except Exception as exc:
-        logger.warning("Failed to propose insight %s: %s", insight_id, exc, exc_info=True)
-        return {
-            "ok": False,
-            "message": f"Failed to create proposal: {exc}",
-            "action": None,
-        }
-
-    if not proposals:
-        return {"ok": False, "message": "No skill proposal could be generated", "action": None}
-
-    return {
-        "ok": True,
-        "message": f"Created {len(proposals)} proposal(s). Preview and approve before applying.",
-        "action": [proposal["id"] for proposal in proposals],
-        "proposals": proposals,
-    }
 
 def get_insights_meta() -> dict:
     """Return the meta section of the insights store."""
@@ -333,6 +283,11 @@ def set_last_analysis(timestamp: Optional[str] = None) -> None:
 
 # ── Maintenance ──────────────────────────────────────────────────────────────
 
+def last_seen(insight: dict) -> str:
+    """When an insight was last found to hold (ISO time): re-found or created."""
+    return str(insight.get("seen_at") or insight.get("created") or "")
+
+
 def auto_prune() -> int:
     """Dismiss insights older than AUTO_PRUNE_DAYS with status 'new'.
 
@@ -342,7 +297,7 @@ def auto_prune() -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=AUTO_PRUNE_DAYS)).isoformat()
     pruned = 0
     for insight in store["insights"]:
-        if insight["status"] == "new" and insight.get("created", "") < cutoff:
+        if insight["status"] == "new" and last_seen(insight) < cutoff:
             insight["status"] = "dismissed"
             pruned += 1
     if pruned:

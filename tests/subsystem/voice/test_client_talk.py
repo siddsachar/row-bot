@@ -112,7 +112,7 @@ def test_dictation_handle_cannot_be_used_as_talk(runtime):
     assert r.dictation.snapshot(r.owner, snapshot.handle, validate=lambda: None).state == "capturing"
 
 
-@pytest.mark.parametrize("field,value", [("client_session_id", str(uuid4())), ("conversation_id", "B"),
+@pytest.mark.parametrize("field,value", [("client_session_id", "7f1c2e3a-0b4d-4c5e-8f6a-9b8c7d6e5f4a"), ("conversation_id", "B"),
                                         ("access_binding", "foreign"), ("server_epoch", "new")])
 def test_wrong_owner_cannot_stop_or_receive(runtime, field, value):
     r = runtime

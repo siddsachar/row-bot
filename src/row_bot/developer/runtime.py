@@ -341,6 +341,20 @@ def _watch_tracked_process(state: TrackedProcess) -> None:
     state.done.set()
 
 
+def _worker_interpreter() -> str:
+    """The interpreter for the stdlib-only process worker.
+
+    On Windows a virtual environment's python.exe is a redirector that runs the
+    real interpreter inside its own job, one that lets children break away
+    silently: a command started by a worker there left the owning job and
+    outlived Stop (B191). The worker needs no packages (-I -S), so it runs on the
+    real interpreter directly.
+    """
+    if os.name == "nt":
+        return getattr(sys, "_base_executable", "") or sys.executable
+    return sys.executable
+
+
 def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
         process_id: str | None = None, metadata: dict[str, str] | None = None,
         on_quiesced: Callable[[TrackedProcess], None] | None = None,
@@ -352,8 +366,8 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
     identity = process_id or str(uuid.uuid4())
     if bootstrap_argv is None and sys.platform.startswith("linux"):
         if verify_receipt is None:
-            # Legacy NiceGUI callers use the same supervised owner without a
-            # durable client command receipt. No detached-child group fallback.
+            # Callers without a durable client command receipt use the same
+            # supervised owner. No detached-child group fallback.
             from row_bot.developer.process_worker import verify_receipt as check_receipt
             secret, target = os.urandom(32), "0" * 64
             request_fields = {"owner_id": identity, "container_id": target, "key": secret.hex()}
@@ -384,7 +398,7 @@ def launch_tracked_process(root: pathlib.Path, argv: list[str], command: str, *,
                   "stderr": subprocess.PIPE, "shell": False, "close_fds": True}
         if os.name != "nt":
             kwargs["start_new_session"] = True
-        process = subprocess.Popen(bootstrap_argv or [sys.executable, "-I", "-S", "-B",
+        process = subprocess.Popen(bootstrap_argv or [_worker_interpreter(), "-I", "-S", "-B",
             str(pathlib.Path(__file__).with_name("process_worker.py"))], **kwargs)
         state = TrackedProcess(identity, command, dict(metadata or {}), process, on_quiesced)
         state.guard = validate
@@ -1049,46 +1063,3 @@ def start_workspace_process(
     return CommandResult(command=command, cwd=str(root), returncode=0 if not state.code else None,
         stdout=f"Started PID {state.process.pid}" if not state.code else "", decision=decision,
         process_id=state.process_id, code=state.code)
-
-
-def stop_workspace_processes(workspace_path: str, *, workspace_id: str = "") -> int:
-    if workspace_id:
-        try:
-            from row_bot.developer.storage import get_workspace
-            workspace = get_workspace(workspace_id)
-        except Exception:
-            workspace = None
-        if workspace is not None and workspace.execution_mode == "docker":
-            from row_bot.developer.sandbox_runtime import stop_docker_sandbox_processes
-
-            return stop_docker_sandbox_processes(workspace)
-    root = str(pathlib.Path(workspace_path).expanduser().resolve())
-    with _PROCESS_LOCK:
-        processes = list(_ACTIVE_PROCESSES.get(root, []))
-    stopped = 0
-    for proc in processes:
-        state = getattr(proc, "_row_bot_state", None)
-        if isinstance(state, TrackedProcess):
-            was_active = not state.quiesced
-            stop_tracked_process(state)
-            state.done.wait(timeout=10)
-            if not _retirable_tracked_process(proc):
-                continue
-            stopped += int(was_active)
-            with _PROCESS_LOCK:
-                if proc in _ACTIVE_PROCESSES.get(root, []):
-                    _ACTIVE_PROCESSES[root].remove(proc)
-            continue
-        if proc.poll() is not None:
-            continue
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=5)
-        stopped += 1
-        with _PROCESS_LOCK:
-            if proc in _ACTIVE_PROCESSES.get(root, []):
-                _ACTIVE_PROCESSES[root].remove(proc)
-    return stopped

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, ErrorState, Skeleton } from '../../ui/primitives';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import * as Popover from '@radix-ui/react-popover';
+import { Button, StatusDot } from '../../ui/primitives';
 
 export type ArtifactLifecycleCapability = {
   id:
@@ -27,7 +28,7 @@ export type ArtifactLifecycleState = {
   capabilities: ArtifactLifecycleCapability[];
 };
 
-type LifecycleView = 'presentation' | 'export' | 'sharing';
+export type LifecycleView = 'presentation' | 'export' | 'sharing';
 
 export type ArtifactLifecyclePanelProps = {
   resourceId: string;
@@ -38,9 +39,6 @@ export type ArtifactLifecyclePanelProps = {
     resourceRevision: string,
     signal: AbortSignal,
   ) => Promise<ArtifactLifecycleState>;
-  renderPresentation: (state: ArtifactLifecycleState) => ReactNode;
-  renderExport: (state: ArtifactLifecycleState) => ReactNode;
-  renderSharing: (state: ArtifactLifecycleState) => ReactNode;
 };
 
 const groups: Record<LifecycleView, string[]> = {
@@ -49,20 +47,31 @@ const groups: Record<LifecycleView, string[]> = {
   sharing: ['publish.local', 'publish.remote', 'share.channel', 'share.x'],
 };
 
-export default function ArtifactLifecyclePanel(
-  props: ArtifactLifecyclePanelProps,
-) {
-  const { load, resourceId, resourceRevision, visible } = props;
+export type DesignLifecycle = {
+  state: ArtifactLifecycleState | null;
+  error: string;
+  /** Whether any operation of a view can run; true while unknown. */
+  available: (view: LifecycleView) => boolean;
+  retry: () => void;
+};
+
+/**
+ * Reads what the saved design can do (present, export, share) once per saved
+ * revision while the panel shows it. Nothing polls; Retry re-reads.
+ */
+export function useDesignLifecycle({
+  load,
+  resourceId,
+  resourceRevision,
+  visible,
+}: ArtifactLifecyclePanelProps): DesignLifecycle {
   const [state, setState] = useState<ArtifactLifecycleState | null>(null);
-  const [active, setActive] = useState<LifecycleView | null>(null);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const request = useRef<AbortController | null>(null);
-
   useEffect(() => {
     request.current?.abort();
     setState(null);
-    setActive(null);
     setError('');
     if (!visible) return;
     const controller = new AbortController();
@@ -85,101 +94,116 @@ export default function ArtifactLifecyclePanel(
             : '';
         setError(
           code === 'resource_revision_conflict'
-            ? 'The saved design changed. Reload its current lifecycle options.'
-            : 'Lifecycle options are unavailable for this design.',
+            ? 'The saved design changed while its options were read.'
+            : 'What this design can do could not be read.',
         );
       });
     return () => controller.abort();
   }, [load, reload, resourceId, resourceRevision, visible]);
+  const current =
+    state?.resource_id === resourceId &&
+    state.resource_revision === resourceRevision
+      ? state
+      : null;
+  return {
+    state: current,
+    error,
+    available: (view) =>
+      !current ||
+      current.capabilities.some(
+        (item) =>
+          groups[view].includes(item.id) && item.state !== 'unavailable',
+      ),
+    retry: () => setReload((value) => value + 1),
+  };
+}
 
-  const availability = useMemo(() => {
-    const result = new Map<LifecycleView, boolean>();
-    for (const view of Object.keys(groups) as LifecycleView[])
-      result.set(
-        view,
-        !!state?.capabilities.some(
-          (item) =>
-            groups[view].includes(item.id) && item.state !== 'unavailable',
-        ),
-      );
-    return result;
-  }, [state]);
+const stateWords: Record<
+  ArtifactLifecycleCapability['state'],
+  { text: string; tone: 'success' | 'neutral' | 'warning' }
+> = {
+  ready: { text: 'Ready', tone: 'success' },
+  check_on_use: { text: 'Checked when used', tone: 'neutral' },
+  unavailable: { text: 'Unavailable', tone: 'warning' },
+};
 
-  if (!visible) return null;
+/**
+ * Capabilities and review requirements, opened from the design's ⋯ menu and
+ * shown beside it (`children` is what it is anchored to).
+ */
+export function DesignCapabilities({
+  lifecycle,
+  open,
+  onOpenChange,
+  returnFocus,
+  children,
+}: {
+  lifecycle: DesignLifecycle;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Where focus goes when it closes (the menu button). */
+  returnFocus: () => HTMLElement | null;
+  children: ReactNode;
+}) {
+  const { state, error } = lifecycle;
   return (
-    <section className="studio-section stack" aria-label="Design lifecycle">
-      <header className="capability-header">
-        <div>
-          <h3>Present, export and share</h3>
-          <p>
-            Work from this exact saved version. Publishing and delivery always
-            require a separate review.
-          </p>
-        </div>
-      </header>
-      {!state && !error && <Skeleton label="Loading design lifecycle" />}
-      {error && (
-        <ErrorState
-          title="Design lifecycle unavailable"
-          action={
-            <Button onClick={() => setReload((value) => value + 1)}>
-              Reload
-            </Button>
-          }
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Anchor asChild>{children}</Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content
+          className="popover design-capabilities"
+          aria-label="Design capabilities"
+          align="end"
+          sideOffset={8}
+          collisionPadding={12}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            returnFocus()?.focus({ preventScroll: true });
+          }}
         >
-          {error}
-        </ErrorState>
-      )}
-      {state && (
-        <>
-          <div
-            className="panel-toolbar action-cluster"
-            role="toolbar"
-            aria-label="Design lifecycle views"
-          >
-            {(
-              [
-                ['presentation', 'Present'],
-                ['export', 'Export'],
-                ['sharing', 'Share'],
-              ] as const
-            ).map(([view, label]) => (
-              <Button
-                key={view}
-                disabled={!availability.get(view)}
-                aria-pressed={active === view}
-                onClick={() =>
-                  setActive((current) => (current === view ? null : view))
-                }
-              >
-                {label}
-              </Button>
-            ))}
-            <Button onClick={() => setReload((value) => value + 1)}>
-              Refresh options
-            </Button>
-          </div>
-          <ul
-            className="capability-summary"
-            aria-label="Lifecycle availability"
-          >
-            {state.capabilities.map((item) => (
-              <li key={item.id}>
-                <strong>{item.label}:</strong>{' '}
-                {item.state === 'ready'
-                  ? 'Ready.'
-                  : item.state === 'check_on_use'
-                    ? 'Checked when used.'
-                    : 'Unavailable.'}{' '}
-                {item.detail}
-              </li>
-            ))}
-          </ul>
-          {active === 'presentation' && props.renderPresentation(state)}
-          {active === 'export' && props.renderExport(state)}
-          {active === 'sharing' && props.renderSharing(state)}
-        </>
-      )}
-    </section>
+          <p className="design-capabilities-title">
+            Capabilities and review requirements
+          </p>
+          {error ? (
+            <div className="design-capabilities-error">
+              <p>{error}</p>
+              <Button onClick={lifecycle.retry}>Retry</Button>
+            </div>
+          ) : !state ? (
+            <p className="muted">Reading what this design can do…</p>
+          ) : (
+            <ul
+              className="design-capabilities-list"
+              aria-label="Lifecycle availability"
+            >
+              {state.capabilities.map((item) => {
+                const words = stateWords[item.state];
+                return (
+                  <li key={item.id}>
+                    <StatusDot tone={words.tone} label={words.text} />
+                    <span className="design-capabilities-name">
+                      {item.label}
+                    </span>
+                    <span className="design-capabilities-state">
+                      {words.text}
+                      {item.review_required ? ' · Review required' : ''}
+                    </span>
+                    {item.detail && (
+                      <span className="design-capabilities-detail">
+                        {item.detail}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="design-capabilities-note">
+            Publishing and delivery require a separate review. Exports and
+            downloads stay on this device.
+          </p>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

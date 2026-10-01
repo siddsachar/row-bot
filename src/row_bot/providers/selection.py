@@ -937,18 +937,6 @@ def list_model_choice_options(
     return options
 
 
-def model_choice_options_map(
-    surface: str = "chat",
-    *,
-    include_values: Iterable[str] | None = None,
-    include_inactive: bool = False,
-) -> dict[str, str]:
-    return {
-        str(option["value"]): str(option["label"])
-        for option in list_model_choice_options(surface, include_values=include_values, include_inactive=include_inactive)
-    }
-
-
 def route_ref(route_id: str) -> str:
     return f"route:{route_id}"
 
@@ -1236,15 +1224,16 @@ def prune_stale_custom_quick_choices() -> int:
     return removed
 
 
-def _media_tool_selection(tool_name: str, default_model: str) -> str:
+def _media_tool_selection(tool_name: str) -> str:
+    """The chosen image/video model, or "" when none is chosen (no preset)."""
     try:
         from row_bot.tools import registry
         tool = registry.get_tool(tool_name)
         if tool:
-            return str(tool.get_config("model", default_model) or default_model)
+            return str(tool.get_config("model", "") or "")
     except Exception:
         pass
-    return default_model
+    return ""
 
 
 def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str, Any] | None:
@@ -1292,15 +1281,9 @@ def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str,
 
 
 def seed_configured_media_quick_choices() -> list[dict[str, Any]]:
-    try:
-        from row_bot.tools.image_gen_tool import DEFAULT_MODEL as IMAGE_DEFAULT
-        from row_bot.tools.video_gen_tool import DEFAULT_MODEL as VIDEO_DEFAULT
-    except Exception:
-        return load_provider_config().get("quick_choices", [])
-
     candidates = [
-        _quick_choice_for_media_selection(_media_tool_selection("image_gen", IMAGE_DEFAULT), "image"),
-        _quick_choice_for_media_selection(_media_tool_selection("video_gen", VIDEO_DEFAULT), "video"),
+        _quick_choice_for_media_selection(_media_tool_selection("image_gen"), "image"),
+        _quick_choice_for_media_selection(_media_tool_selection("video_gen"), "video"),
     ]
     cfg = load_provider_config()
     quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]
@@ -1520,21 +1503,6 @@ def remove_quick_choice_for_model(model_id: str, *, provider_id: str | None = No
         if not isinstance(c, dict) or c.get("id") != ref
     ]
     save_provider_config(cfg)
-
-
-@provider_config_transaction()
-def remove_quick_choices_for_provider(provider_id: str) -> int:
-    provider_id = str(provider_id or "").strip()
-    if not provider_id:
-        return 0
-    cfg = load_provider_config()
-    quick = [c for c in cfg.get("quick_choices", []) if isinstance(c, dict)]
-    kept = [c for c in quick if str(c.get("provider_id") or "") != provider_id]
-    removed = len(quick) - len(kept)
-    if removed:
-        cfg["quick_choices"] = kept
-        save_provider_config(cfg)
-    return removed
 
 
 @provider_config_transaction()

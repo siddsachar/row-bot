@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-import configparser
-from pathlib import Path
 import subprocess
-import sys
-import textwrap
-import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -15,126 +10,42 @@ import scripts.run_test_matrix as matrix
 pytestmark = [pytest.mark.subsystem, pytest.mark.installer]
 
 
-def test_pr_tier_contains_required_deterministic_lanes() -> None:
-    names = [spec.name for spec in matrix.commands_for_tier("pr")]
+def test_the_pr_lane_runs_every_app_test_once() -> None:
+    pytest_runs = [spec for spec in matrix.commands_for_tier("pr") if "pytest" in spec.argv]
 
-    assert "lock-check" in names
-    assert "runtime-deps" in names
-    assert "contracts" in names
-    assert "client-platform-boundaries" in names
-    assert "client-platform-contracts" in names
-    assert "client-foundation" in names
-    assert "dependency-requirements" in names
-    assert "subsystem" in names
-    assert "coverage-migrated" in names
-    assert "deterministic" in names
-    assert "installer-contracts" in names
-    assert "app-smoke" in names
-    assert "legacy-inventory" in names
-    assert "legacy-test-suite" not in names
+    assert [spec.name for spec in pytest_runs] == ["python"]
+    argv = pytest_runs[0].argv
+    assert argv[argv.index("pytest") + 1] == "tests"
+    assert "not slow and not live_provider and not e2e" in argv
 
 
-def test_coverage_tier_enforces_migrated_subsystem_baseline(tmp_path, monkeypatch) -> None:
-    coverage = matrix.COMMANDS["coverage-migrated"]
-    threshold_arg = next(arg for arg in coverage.argv if arg.startswith("--cov-fail-under="))
-    selected_modules = set(matrix.MIGRATED_COVERAGE_MODULES)
+def test_shards_split_the_test_files_without_dropping_any() -> None:
+    from tests.conftest import shard_files
 
-    assert int(threshold_arg.split("=", 1)[1]) >= 45
-    assert "--cov-fail-under=55" in coverage.argv
-    assert "--cov-report=xml:.tmp/coverage/migrated-subsystems.xml" in coverage.argv
-    assert "--cov=src/row_bot" in coverage.argv
-    assert "--cov-config=.tmp/coverage/migrated-subsystems.coveragerc" in coverage.argv
-    assert "row_bot.knowledge_graph" in selected_modules
-    assert {
-        "row_bot.providers.runtime",
-        "row_bot.providers.selection",
-        "row_bot.providers.catalog",
-        "row_bot.tools.memory_tool",
-        "row_bot.updater",
-    } <= selected_modules
-    assert {
-        "row_bot.plugins.api",
-        "row_bot.plugins.loader",
-        "row_bot.plugins.registry",
-        "row_bot.plugins.installer",
-        "row_bot.plugins.marketplace",
-    } <= selected_modules
-    assert not any(module.startswith("row_bot.skills_hub") for module in selected_modules)
-    assert coverage.env["COVERAGE_FILE"].endswith(".coverage.migrated-subsystems")
-    monkeypatch.setattr(matrix, "REPO_ROOT", tmp_path)
-    config = configparser.ConfigParser()
-    config.read(matrix._write_migrated_coverage_config(), encoding="utf-8")
-    assert config["run"]["source"] == "src/row_bot"
-    assert set(config["report"]["include"].split()) == {
-        "src/" + module.replace(".", "/") + ".py" for module in selected_modules
-    }
-    assert len(selected_modules) == 21
+    files = {f"tests/area_{area}/test_{number}.py" for area in "abc" for number in range(7)}
+    shards = [shard_files(files, f"{index}/3") for index in (1, 2, 3)]
+
+    assert set().union(*shards) == files
+    assert sum(len(shard) for shard in shards) == len(files)
+    assert max(map(len, shards)) - min(map(len, shards)) <= 1
+    with pytest.raises(ValueError):
+        shard_files(files, "4/3")
 
 
-def test_coverage_discovery_preserves_imports_and_counts_unexecuted_files(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(matrix, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(matrix, "MIGRATED_COVERAGE_MODULES", ("row_bot.covered", "row_bot.uncovered"))
-    package = tmp_path / "src" / "row_bot"
-    package.mkdir(parents=True)
-    (package / "__init__.py").write_text(
-        "from pathlib import Path\nPath('discovery-imported').write_text('unexpected')\n", encoding="utf-8"
-    )
-    for name in ("covered", "uncovered", "excluded"):
-        (package / f"{name}.py").write_text("value = 1\n", encoding="utf-8")
-    config = matrix._write_migrated_coverage_config()
-    script = textwrap.dedent("""
-        import coverage
-        import runpy
-        import sys
-        cov = coverage.Coverage(config_file=sys.argv[1], data_file=sys.argv[2])
-        cov.start()
-        try:
-            runpy.run_path('src/row_bot/covered.py')
-            runpy.run_path('src/row_bot/excluded.py')
-        finally:
-            cov.stop()
-        cov.xml_report(outfile='coverage.xml')
-    """)
-    subprocess.run(
-        [sys.executable, "-c", script, str(config), str(tmp_path / ".coverage")],
-        cwd=tmp_path, check=True, capture_output=True, text=True, timeout=30,
-    )
-    assert not (tmp_path / "discovery-imported").exists()
-    classes = {Path(node.attrib["filename"]).name: node for node in ET.parse(tmp_path / "coverage.xml").findall(".//class")}
-    assert set(classes) == {"covered.py", "uncovered.py"}
-    assert float(classes["covered.py"].attrib["line-rate"]) == 1
-    assert float(classes["uncovered.py"].attrib["line-rate"]) == 0
+def test_changed_tier_selects_tests_by_convention(tmp_path) -> None:
+    for folder in ("tests/subsystem/providers", "tests/integration/providers"):
+        (tmp_path / folder).mkdir(parents=True)
+    (tmp_path / "tests/subsystem/workflows").mkdir(parents=True)
+    (tmp_path / "tests/subsystem/workflows/test_tasks_recovery.py").touch()
+    (tmp_path / "tests/test_goal_mode.py").touch()
 
+    paths = matrix.changed_test_paths([
+        "src/row_bot/providers/runtime.py", "src/row_bot/tasks.py", "tests/test_goal_mode.py",
+        "src/row_bot/unmapped/module.py", "README.md",
+    ], root=tmp_path)
 
-def test_coverage_dry_run_does_not_write_generated_configuration(tmp_path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(matrix, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: pytest.fail("dry-run should not execute commands"))
-    assert matrix.main(["coverage", "--dry-run"]) == 0
-    assert "--cov=src/row_bot" in capsys.readouterr().out
-    assert not (tmp_path / matrix.COVERAGE_CONFIG_PATH).exists()
-
-
-def test_release_tier_matches_pr_preflight_lanes() -> None:
-    assert [spec.name for spec in matrix.commands_for_tier("release")] == [
-        spec.name for spec in matrix.commands_for_tier("pr")
-    ]
-
-
-def test_changed_tier_expands_source_test_map() -> None:
-    specs = matrix.commands_for_tier("changed", changed_files=["src/row_bot/providers/runtime.py"])
-
-    changed = next(spec for spec in specs if spec.name == "changed-tests")
-    assert "tests/contracts/test_provider_contract.py" in changed.argv
-    assert "tests/subsystem/providers" in changed.argv
-    assert changed.env["ROW_BOT_TEST_MODE"] == "1"
-
-
-def test_changed_frontend_selects_node_checks_and_backend_contracts() -> None:
-    specs = matrix.commands_for_tier("changed", changed_files=["frontend/src/api/http.ts"])
-    assert "client-foundation" in [spec.name for spec in specs]
-    changed = next(spec for spec in specs if spec.name == "changed-tests")
-    assert "tests/subsystem/client_host" in changed.argv
-    assert "tests/subsystem/client_protocol" in changed.argv
+    assert paths == ["tests/subsystem/providers", "tests/integration/providers",
+                     "tests/subsystem/workflows/test_tasks_recovery.py", "tests/test_goal_mode.py"]
 
 
 def test_client_checks_never_install_and_fail_fast(tmp_path, monkeypatch) -> None:

@@ -30,14 +30,6 @@ class GhResult:
     decision: ApprovalDecision | None = None
 
 
-@dataclass(frozen=True)
-class PrPreview:
-    title: str
-    body: str
-    branch: str = ""
-    changed_files: int = 0
-
-
 def _run(args: list[str], *, cwd: str | None = None, timeout: int = 20) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
@@ -79,39 +71,6 @@ def get_gh_status(timeout: int = 6) -> GhStatus:
 
     message = "Authenticated with GitHub CLI." if authenticated else "Run `gh auth login` to connect GitHub."
     return GhStatus(True, authenticated, version=version, user=user, message=message, path=gh_path)
-
-
-def suggest_pull_request_text(workspace_path: str, *, max_files: int = 20) -> PrPreview:
-    root = Path(workspace_path).expanduser().resolve()
-    if not root.is_dir():
-        raise ValueError(f"Workspace path does not exist: {root}")
-    branch_proc = _run(["git", "branch", "--show-current"], cwd=str(root), timeout=8)
-    branch = (branch_proc.stdout or "").strip()
-    status_proc = _run(["git", "status", "--porcelain"], cwd=str(root), timeout=8)
-    changed = []
-    for line in (status_proc.stdout or "").splitlines():
-        if not line.strip():
-            continue
-        changed.append(line[3:].strip() or line.strip())
-    title_seed = branch.replace("feat/", "").replace("fix/", "").replace("-", " ").strip()
-    title = title_seed[:1].upper() + title_seed[1:] if title_seed else "Developer changes"
-    shown = changed[:max_files]
-    body_lines = [
-        "## Summary",
-        "",
-        "- Update implementation via Row-Bot Developer Studio.",
-        "",
-        "## Changed files",
-        "",
-    ]
-    if shown:
-        body_lines.extend(f"- `{path}`" for path in shown)
-        if len(changed) > len(shown):
-            body_lines.append(f"- ...and {len(changed) - len(shown)} more")
-    else:
-        body_lines.append("- No local file changes detected yet.")
-    body_lines.extend(["", "## Tests", "", "- Not run yet."])
-    return PrPreview(title=title, body="\n".join(body_lines), branch=branch, changed_files=len(changed))
 
 
 def push_current_branch(

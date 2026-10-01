@@ -30,12 +30,14 @@ def read_updates() -> dict[str, Any]:
     with _LOCK:
         state = updater.get_update_state()
         release = state.available
+        skipped = updater.skipped_release()
         values = {
             "channel": state.channel if state.channel in {"stable", "beta"} else "stable",
             "current_version": state.current_version[:64],
             "last_check": state.last_check[:64] if state.last_check else None,
             "last_success": state.last_success[:64] if state.last_success else None,
-            "skipped_versions": [item[:64] for item in state.skipped_versions[:64]],
+            # Only the skip holding back the release on offer (B261).
+            "skipped_versions": [skipped[:64]] if skipped else [],
             "available": (
                 {
                     "version": release.version[:64],
@@ -97,9 +99,11 @@ def execute_update_choice(
         else:
             if version:
                 raise ClientPlatformError("invalid_update_command")
+            # "Show it again": the check offers the release once more.
             updater.clear_skipped_versions()
+            updater.check_for_updates(force=True)
             after = read_updates()
-            status = "completed"
+            status = "completed" if after["last_success"] != before["last_success"] else "failed"
         receipt = {
             "schema_version": 1,
             "command_id": command_id,

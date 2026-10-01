@@ -15,6 +15,16 @@ for (const args of [
   });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+// The component gallery is for development and fixture builds only (B267).
+const chunks = JSON.parse(
+  await readFile(resolve(output, '.vite/manifest.json'), 'utf8'),
+);
+if (
+  Object.values(chunks).some(
+    (chunk) => chunk.src === 'src/features/shell/Gallery.tsx',
+  )
+)
+  throw new Error('Production build includes the component gallery');
 const inventory = JSON.parse(
   await readFile('dist/asset-manifest.json', 'utf8'),
 );

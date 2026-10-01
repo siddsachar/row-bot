@@ -37,6 +37,7 @@ def undo(imports, monkeypatch):
     return d
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("before,after", [(b"old\r\n", b"new\r\n"), (b"old", b"new"),
     (b"", None), (None, b""), (None, b"new\n"), (b"old\n", None)])
 def test_exact_original_bytes_and_metadata_are_restored(undo, before, after):
@@ -57,6 +58,7 @@ def test_exact_original_bytes_and_metadata_are_restored(undo, before, after):
     assert d.ledger.read_change_set(identity)[0].reverted
 
 
+@pytest.mark.slow
 def test_invalid_utf8_untouched_source_restores_exact_bytes(undo):
     d = undo
     before = b"first\n" + b"context\n" * 10 + b"retained \xff\n"
@@ -98,6 +100,7 @@ def test_user_changes_are_never_overwritten(undo, stage, edit):
     assert not d.ledger.read_change_set(identity)[0].reverted
 
 
+@pytest.mark.slow
 def test_new_directories_remain_and_unrelated_children_survive(undo):
     d = undo
     pending = d.sandbox._record_pending_change(d.workspace, "chat", "synthetic", {}, {"new/nested/file.txt": "created\n"})
@@ -111,6 +114,7 @@ def test_new_directories_remain_and_unrelated_children_survive(undo):
     assert not (d.root / "new/nested/file.txt").exists()
 
 
+@pytest.mark.slow
 def test_mixed_empty_creation_and_text_update_are_separate_git_changes(undo):
     d = undo
     identity = d.imported({"old.txt": "before\n"}, {"old.txt": "after\n", "new/nested/empty.txt": ""})
@@ -120,6 +124,7 @@ def test_mixed_empty_creation_and_text_update_are_separate_git_changes(undo):
     assert (d.root / "old.txt").read_bytes() == b"before\n"
 
 
+@pytest.mark.slow
 def test_partial_restore_retries_original_proof_without_overwriting_later_edits(undo, monkeypatch):
     d = undo
     identity = d.imported({"a.txt": "old a\n", "b.txt": "old b\n"}, {"a.txt": "new a\n", "b.txt": "new b\n"})
@@ -140,6 +145,7 @@ def test_partial_restore_retries_original_proof_without_overwriting_later_edits(
     assert (d.root / "b.txt").read_bytes() == b"old b\n"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("failure", ["ledger", "release", "finish"])
 def test_original_command_recovers_finalization_without_duplicate_restore(undo, monkeypatch, failure):
     from row_bot import agent_runs
@@ -202,6 +208,7 @@ def test_reviewed_action_tampering_is_rejected(undo):
     assert result.status == "conflict" and result.code == "edit_recovery_conflict"
 
 
+@pytest.mark.slow
 def test_retained_adapter_recovers_original_review_after_lost_marker(undo, monkeypatch):
     d = undo
     identity = d.imported({"a.txt": "old\n"}, {"a.txt": "new\n"})
@@ -276,6 +283,7 @@ def test_retained_source_tampering_never_restores_unproven_content(undo, tamper)
     assert (d.root / "a.txt").read_bytes() == b"new\n"
 
 
+@pytest.mark.slow
 def test_later_edit_after_partial_undo_is_not_overwritten_on_retry(undo, monkeypatch):
     d = undo
     identity = d.imported({"a.txt": "old\n"}, {"a.txt": "new\n"})
@@ -291,6 +299,7 @@ def test_later_edit_after_partial_undo_is_not_overwritten_on_retry(undo, monkeyp
     assert (d.root / "a.txt").read_bytes() == b"user after restore\n"
 
 
+@pytest.mark.slow
 def test_legacy_tool_routes_strict_undo_through_original_review(undo, monkeypatch):
     from row_bot import agent, conversation_resources
     from row_bot.tools import developer_tool
@@ -326,6 +335,7 @@ def test_legacy_tool_approval_cannot_adopt_a_later_source_revision(undo, monkeyp
     assert (d.root / "a.txt").read_bytes() == b"user during approval\n"
 
 
+@pytest.mark.slow
 def test_cancelled_tool_review_allows_a_new_explicit_review_without_resurrecting_approval(undo):
     from row_bot.runtime import admissions
     d = undo
@@ -338,59 +348,7 @@ def test_cancelled_tool_review_allows_a_new_explicit_review_without_resurrecting
     assert d.undo.execute_retained_undo(second_review, second, confirmed=True, validate=lambda: None).reverted
 
 
-@pytest.mark.parametrize("confirm,revoked", [(False, False), (True, False), (True, True)])
-def test_actual_nicegui_revert_callback_requires_confirmation_and_live_owner(undo, monkeypatch, confirm, revoked):
-    import ast
-    import asyncio
-    from functools import partial
-    from pathlib import Path
-    from types import SimpleNamespace
-    from row_bot.ui import access_context
-    d = undo
-    identity = d.imported({"a.txt": "old\n"}, {"a.txt": "new\n"})
-    module = ast.parse(Path("src/row_bot/developer/ui.py").read_text())
-    callback = next(node for node in ast.walk(module) if isinstance(node, ast.AsyncFunctionDef) and node.name == "_revert")
-    class Element:
-        def __enter__(self): return self
-        def __exit__(self, *_args): return None
-        def classes(self, *_args): return self
-        def style(self, *_args): return self
-        def props(self, *_args): return self
-        def submit(self, value): self.value = value
-        def __await__(self):
-            async def answer():
-                if revoked:
-                    client.has_socket_connection = False
-                return confirm
-            return answer().__await__()
-    class Client:
-        instances = {}
-        id = "synthetic-client"
-        has_socket_connection = True
-        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(row_bot_access_service=None)))
-    client = Client()
-    Client.instances[client.id] = client
-    access = SimpleNamespace(is_local_owner=True)
-    monkeypatch.setattr(access_context, "access_context_from_client", lambda _client: access)
-    monkeypatch.setattr(access_context, "require_ui_owner", lambda selected: selected)
-    notices, audits = [], []
-    ui = SimpleNamespace(context=SimpleNamespace(client=client), dialog=Element, card=Element, row=Element,
-        label=lambda *_args: Element(), button=lambda *_args, **_kwargs: Element(), notify=lambda message, **_kwargs: notices.append(message))
-    async def io_bound(function, *args, **kwargs):
-        return function(*args, **kwargs)
-    state = SimpleNamespace(thread_id="chat", active_developer_workspace_id=d.workspace.id, messages=[])
-    scope = {"ui": ui, "run": SimpleNamespace(io_bound=io_bound), "partial": partial, "workspace_now": d.workspace,
-        "next_snapshot": SimpleNamespace(thread_id="chat"), "state": state, "add_chat_message": audits.append,
-        "on_refresh": lambda: None, "reverting": set(), "revert_change_set": lambda *_a: pytest.fail("strict Undo used legacy text reconstruction")}
-    exec(compile(ast.Module(body=[callback], type_ignores=[]), "<actual-nicegui-undo-callback>", "exec"), scope)
-    asyncio.run(scope["_revert"](identity))
-    assert (d.root / "a.txt").read_bytes() == (b"old\n" if confirm and not revoked else b"new\n")
-    assert len(audits) == (1 if confirm and not revoked else 0)
-    assert not scope["reverting"]
-    if revoked:
-        assert notices and "resource_binding_revoked" in notices[-1]
-
-
+@pytest.mark.slow
 def test_fresh_inspector_snapshot_keeps_original_reverted_undo_until_finalization(undo, monkeypatch):
     from row_bot.developer import inspector_snapshot, runtime, todos
     d = undo

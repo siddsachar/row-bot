@@ -57,6 +57,7 @@ function fixture() {
       };
     },
     load: vi.fn(),
+    assetThumbnail: vi.fn(),
     review: vi.fn(),
     draftFix: vi.fn(async () => 'Local fix draft'),
     stageUpload: vi.fn(async () => ({
@@ -389,4 +390,21 @@ it('refuses mismatched staged bytes before a command can be dispatched', async (
   ).rejects.toThrow('preparation');
   expect(f.owner.execute).not.toHaveBeenCalled();
   expect(f.entry.getSnapshot().attempt).toBeNull();
+});
+
+it('ends a change to an element that is gone quietly, with nothing left to recover (B247)', async () => {
+  const f = fixture();
+  vi.mocked(f.owner.execute).mockRejectedValueOnce({
+    code: 'element_unavailable',
+  });
+  await expect(
+    f.entry.apply('style', { color: '#123456' }, 'r1', 'page', 'gone'),
+  ).rejects.toThrow('element_unavailable');
+  expect(f.entry.getSnapshot().attempt).toBeNull();
+  // Anything else unanswered stays unconfirmed for an explicit check.
+  vi.mocked(f.owner.execute).mockRejectedValueOnce({ code: 'network_error' });
+  await expect(
+    f.entry.apply('style', { color: '#123456' }, 'r1', 'page', 'other'),
+  ).rejects.toThrow('artifact_design_unconfirmed');
+  expect(f.entry.getSnapshot().attempt?.status).toBe('uncertain');
 });

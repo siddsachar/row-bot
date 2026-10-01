@@ -158,6 +158,17 @@ class Channel(ABC):
         """``True`` when this channel benefits from a public tunnel URL."""
         return self.webhook_port is not None
 
+    def public_address(self) -> str | None:
+        """The public https address a service calls this channel at, while
+        it has one (SMS's Twilio webhook). Shown as "Reachable at …"."""
+        return None
+
+    def link_status(self) -> dict | None:
+        """For a channel linked by scanning a code (WhatsApp): ``{"state":
+        "starting" | "scan" | "linked", "code": str | None}`` while it runs.
+        A channel that can link again also defines ``async reset_link()``."""
+        return None
+
     # ── Lifecycle ────────────────────────────────────────────────────
 
     @abstractmethod
@@ -254,9 +265,3 @@ class Channel(ABC):
         """
         return []
 
-    def build_custom_ui(self, container) -> None:
-        """Render additional custom widgets in the settings panel.
-
-        Called *after* the template-generated config fields.
-        """
-        pass

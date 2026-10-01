@@ -51,6 +51,10 @@ export type WorkspaceUndoProps = {
     signal?: AbortSignal,
   ) => Promise<WorkspaceUndoResult | null>;
   onUndone?: () => void;
+  /** The change's own description, for the confirmation. */
+  summary?: string;
+  /** Close the confirmation without changing anything. */
+  onCancel?: () => void;
 };
 type Pending = { review: WorkspaceUndoReview; commandId: string };
 type State = {
@@ -196,7 +200,7 @@ export class WorkspaceUndoSession {
       this.publish({
         error: clientError(error).message,
         notice:
-          'The outcome is unconfirmed. Check the original receipt or retry this same operation.',
+          "Row-Bot couldn't confirm the undo. Check again, or retry the same undo.",
       });
     } finally {
       this.publish({ busy: false });
@@ -265,7 +269,7 @@ export class WorkspaceUndoSession {
       else
         this.publish({
           notice:
-            'No confirmed receipt is available. The original operation remains retained.',
+            "Row-Bot can't confirm what happened. The undo is kept so it can be checked.",
         });
     } catch (error) {
       if (this.read === abort && !abort.signal.aborted)
@@ -294,48 +298,51 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
   if (!state.active || owned.scope !== props.scope)
     return <p role="status">Undo is unavailable for this workspace session.</p>;
   const reviewed = state.review;
+  const done = state.result && !state.pending;
   return (
-    <section
-      className="studio-section stack"
-      aria-label="Undo workspace changes"
-    >
-      <header className="capability-header">
-        <div>
-          <h3>Undo imported changes</h3>
-          <p>
-            Restore the exact retained originals. Later edits will be preserved.
-          </p>
-        </div>
-      </header>
+    <section className="dev-undo" aria-label="Undo workspace changes">
+      <strong>
+        {done
+          ? 'Change undone'
+          : state.pending
+            ? 'Undo not confirmed'
+            : `Undo ${props.summary ? `“${props.summary}”` : 'this agent change'}?`}
+      </strong>
+      {/* A retained undo names its own change, whatever is selected now. */}
+      {(state.pending?.review ?? reviewed) && (
+        <p className="muted">
+          Change set: {(state.pending?.review ?? reviewed)?.change_set_id}
+        </p>
+      )}
+      {!done && !state.pending && (
+        <p>
+          The files this change touched go back to how they were before it.
+          Edits made after it are kept.
+        </p>
+      )}
       {state.error && (
         <ErrorState title="Undo needs attention">{state.error}</ErrorState>
       )}
       {state.notice && <p role="status">{state.notice}</p>}
       {state.result && (
         <p>
-          {state.result.files_restored.length} files restored ·{' '}
-          {state.result.status}
+          {state.result.files_restored.length}{' '}
+          {state.result.files_restored.length === 1
+            ? 'file restored'
+            : 'files restored'}{' '}
+          · {state.result.status}
         </p>
       )}
-      {!state.pending && (
-        <Button
-          disabled={state.reading || state.busy || !props.changeSetId}
-          onClick={() => void owned.start(props)}
-        >
-          Undo change
-        </Button>
-      )}
-      {reviewed && !state.busy && (
-        <div>
-          <p>Change set: {reviewed.change_set_id}</p>
-          <ul>
+      {reviewed && (
+        <>
+          <ul aria-label="Files this undo restores">
             {reviewed.files.map((path) => (
               <li key={path}>{path}</li>
             ))}
           </ul>
           {reviewed.directories_retained.length > 0 && (
             <>
-              <p>These created folders will remain:</p>
+              <p>These created folders stay:</p>
               <ul>
                 {reviewed.directories_retained.map((path) => (
                   <li key={path}>{path}</li>
@@ -346,22 +353,48 @@ export default function WorkspaceUndo(props: WorkspaceUndoProps) {
           {reviewed.policy_decision === 'block' && (
             <p role="alert">The current policy blocks Undo.</p>
           )}
-          {!state.pending && (
-            <div className="actions action-cluster">
-              <Button onClick={() => owned.cancelReview()}>
-                Dismiss details
-              </Button>
-            </div>
+        </>
+      )}
+      {!state.pending && (
+        <div className="action-cluster">
+          {!done && (
+            <Button
+              disabled={state.reading || state.busy}
+              onClick={() => {
+                owned.cancelReview();
+                props.onCancel?.();
+              }}
+            >
+              Keep changes
+            </Button>
+          )}
+          {!done ? (
+            <Button
+              variant="danger"
+              disabled={state.reading || state.busy || !props.changeSetId}
+              onClick={() => void owned.start(props)}
+            >
+              Undo change
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                owned.cancelReview();
+                props.onCancel?.();
+              }}
+            >
+              Dismiss details
+            </Button>
           )}
         </div>
       )}
       {state.pending && (
-        <div className="actions action-cluster">
+        <div className="action-cluster">
           <Button
             disabled={state.busy || state.reading}
             onClick={() => void owned.check(props)}
           >
-            Check Undo receipt
+            Check Undo
           </Button>
           <Button
             disabled={state.busy || state.reading}

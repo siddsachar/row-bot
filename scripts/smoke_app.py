@@ -1,9 +1,12 @@
 """Reusable Row-Bot app launch smoke test.
 
 Starts the app, waits for an authenticated launcher ping (or a public health
-probe for commands that spawn a child server), optionally checks /, and then
-terminates the process. The script is intentionally stdlib-only so CI and
-packaged release smoke can run it before any extra test dependencies are added.
+probe for commands that spawn a child server), checks that / sends a browser
+to the React client and that the page it ends on loads, and then terminates
+the process. A port that is already in use fails: the app answering there
+would not be the one under test. The script is intentionally stdlib-only so
+CI and packaged release smoke can run it before any extra test dependencies
+are added.
 """
 
 from __future__ import annotations
@@ -17,13 +20,16 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from contextlib import ExitStack
+from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass, field
 from pathlib import Path
 
 
 LAUNCH_SECRET_ENV = "ROW_BOT_LAUNCH_SECRET"
+_REDIRECTS = {301, 302, 303, 307, 308}
 
 
 @dataclass
@@ -52,6 +58,84 @@ def _tail_file(path: Path, max_lines: int = 80) -> str:
     return "\n".join(lines[-max(1, max_lines):])
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):  # noqa: ANN002, ANN003
+        return None
+
+
+def _http_get(url: str) -> tuple[int, str, bytes]:
+    """One GET that does not follow redirects: (status, Location, body)."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    request = urllib.request.Request(url, headers={"Accept": "text/html"})
+    try:
+        with opener.open(request, timeout=10) as response:
+            return response.status, response.headers.get("Location", ""), response.read(65536)
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers.get("Location", ""), error.read(65536)
+
+
+def _check_root(result: SmokeResult, port: int) -> bool:
+    """`/` must send a browser to the React client, and the page it ends on must load.
+
+    The desktop app redirects straight to /app-v2/; a server-mode app sends an
+    unpaired browser to Connect with next=/app-v2/.
+    """
+    base = f"http://127.0.0.1:{port}/"
+    status, location, _body = _http_get(base)
+    if status not in _REDIRECTS or not ("/app-v2/" in location or "%2Fapp-v2%2F" in location):
+        result.add("FAIL", f"GET / did not redirect to the React client (HTTP {status}, Location {location or '-'})")
+        return False
+    first, path = location, location
+    for _hop in range(3):
+        status, location, body = _http_get(urljoin(base, path))
+        if status in _REDIRECTS and location:
+            path = location
+            continue
+        break
+    if status != 200:
+        result.add("FAIL", f"GET {path} (after / redirected to {first}) returned HTTP {status}")
+        return False
+    if urlparse(path).path.startswith("/app-v2") and b'id="root"' not in body:
+        result.add("FAIL", f"GET {path} did not serve the React client shell")
+        return False
+    result.add("PASS", f"GET / redirects to {first}; {path} loads")
+    return True
+
+
+def _job_owning_tree(proc: subprocess.Popen) -> int | None:
+    """Windows: a job holding the launched process, so ending the job ends its whole tree.
+
+    A launcher runs its server as a child. TerminateProcess can't be caught, so a
+    launcher ended that way never stops that child (B203); terminating the job
+    does. Children join the job as they start. Elsewhere the smoke sends SIGTERM,
+    which the launcher handles by stopping its server.
+    """
+    handle = getattr(proc, "_handle", None)
+    if os.name != "nt" or handle is None:
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    if not kernel32.AssignProcessToJobObject(wintypes.HANDLE(job), wintypes.HANDLE(int(handle))):
+        kernel32.CloseHandle(wintypes.HANDLE(job))
+        return None
+    return job
+
+
+def _end_job(job: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject(wintypes.HANDLE(job), 1)
+    kernel32.CloseHandle(wintypes.HANDLE(job))
+
+
 def _add_tail(result: SmokeResult, label: str, path: Path, max_lines: int = 80) -> None:
     tail = _tail_file(path, max_lines=max_lines)
     if tail:
@@ -74,11 +158,11 @@ def run_app_smoke(
     result = SmokeResult(ok=False, port=port)
 
     if _port_open(port):
-        result.add("WARN", f"port {port} already in use; skipping live launch")
-        result.ok = True
+        result.add("FAIL", f"port {port} is already in use; stop that process or pick another port")
         return result
 
     proc: subprocess.Popen | None = None
+    job: int | None = None
     env = {
         **os.environ,
         "ROW_BOT_PORT": str(port),
@@ -112,6 +196,7 @@ def run_app_smoke(
                 stdout=stdout_file,
                 stderr=stderr_file,
             )
+            job = _job_owning_tree(proc)
             result.add("PASS", f"app process started (PID {proc.pid})")
 
             launched_at = time.monotonic()
@@ -212,24 +297,27 @@ def run_app_smoke(
 
             if check_root:
                 try:
-                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=10) as response:
-                        if response.status == 200:
-                            result.add("PASS", "HTTP GET / returned 200")
-                        else:
-                            result.add("WARN", f"HTTP GET / returned {response.status}")
+                    if not _check_root(result, port):
+                        return result
                 except Exception as exc:
-                    result.add("WARN", f"HTTP GET / failed: {exc}")
+                    result.add("FAIL", f"GET / failed: {exc}")
+                    return result
 
             result.ok = True
             return result
     finally:
         if proc and proc.poll() is None:
-            proc.terminate()
+            if job is not None:
+                _end_job(job)
+            else:
+                proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
             result.add("PASS", "app process terminated")
+        elif job is not None:
+            _end_job(job)  # the command exited; anything it started may not have
         if temp_data is not None:
             temp_data.cleanup()
 
@@ -247,12 +335,20 @@ def main() -> int:
         action="store_true",
         help="Use /healthz and /readyz when the command owns the app secret",
     )
-    parser.add_argument("command", nargs=argparse.REMAINDER, help="Optional command after --")
+    parser.add_argument(
+        "command",
+        nargs=argparse.REMAINDER,
+        help="Optional command after --; a leading `python` runs with this script's interpreter",
+    )
     args = parser.parse_args()
 
     command = args.command or None
     if command and command[0] == "--":
         command = command[1:]
+    if command and command[0] == "python":
+        # This environment's interpreter. On Windows a bare `python` would resolve
+        # next to the base interpreter first, outside the virtual environment.
+        command = [sys.executable, *command[1:]]
     result = run_app_smoke(
         command=command,
         cwd=args.cwd,

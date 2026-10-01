@@ -161,6 +161,49 @@ def test_canonical_schedule_forms_remain_supported(owner, fields, schedule):
     assert create(replace(fields, schedule=schedule)).task.fields.schedule == schedule
 
 
+PAST, FUTURE = "2020-01-01T09:00", "2099-01-01T09:00"
+
+
+def _fired(owner, task_id, when="2020-01-01T09:00:05"):
+    conn = owner._get_conn()
+    conn.execute("UPDATE tasks SET last_run=? WHERE id=?", (when, task_id))
+    conn.commit()
+    conn.close()
+    return control.get_task_editor(task_id)
+
+
+def test_a_one_off_time_in_the_past_is_refused_instead_of_running_on_save(owner, fields):
+    """B133: saving never starts a run, so an enabled one-off in the past is refused."""
+    with pytest.raises(control.TaskControlError, match="task_time_passed"):
+        create(replace(fields, enabled=True, at=PAST))
+    assert owner.list_tasks() == []
+    # Switched off it is only a draft; switching it on at that time is refused.
+    draft = create(replace(fields, enabled=False, at=PAST)).task
+    with pytest.raises(control.TaskControlError, match="task_time_passed"):
+        control.update_saved_task(draft.id, replace(draft.fields, enabled=True),
+                                  expected_revision=draft.revision, validate=lambda: None)
+    moved = control.update_saved_task(draft.id, replace(draft.fields, enabled=True, at=FUTURE),
+                                      expected_revision=draft.revision, validate=lambda: None).task
+    with pytest.raises(control.TaskControlError, match="task_time_passed"):
+        control.update_saved_task(moved.id, replace(moved.fields, at=PAST),
+                                  expected_revision=moved.revision, validate=lambda: None)
+
+
+def test_a_finished_one_off_can_still_be_edited_and_switched_off(owner, fields):
+    """B150: a one-off that already ran never runs again on save, so edits and Off are fine."""
+    created = create(replace(fields, enabled=False, at=PAST)).task
+    conn = owner._get_conn()
+    conn.execute("UPDATE tasks SET enabled=1 WHERE id=?", (created.id,))
+    conn.commit()
+    conn.close()
+    finished = _fired(owner, created.id)
+    renamed = control.update_saved_task(finished.id, replace(finished.fields, name="Renamed"),
+                                        expected_revision=finished.revision, validate=lambda: None).task
+    off = control.update_saved_task(renamed.id, replace(renamed.fields, enabled=False),
+                                    expected_revision=renamed.revision, validate=lambda: None).task
+    assert off.fields.enabled is False and off.fields.at == PAST
+
+
 @pytest.mark.parametrize("at", ["bad", "2026-09-11T15:30:00+01:00"])
 def test_invalid_local_date_never_saves(owner, fields, at):
     with pytest.raises(control.TaskControlError, match="invalid_task_schedule"):

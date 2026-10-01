@@ -78,7 +78,7 @@ describe('retained knowledge editor', () => {
     await screen.findByText(/Knowledge saved./);
     expect(transport.execute).toHaveBeenCalledTimes(1);
     expect(session.getSnapshot().draft.subject).toBe('Changed subject');
-    expect(screen.getByText(/projections remain pending/)).toBeInTheDocument();
+    expect(screen.getByText(/catch up in a moment/)).toBeInTheDocument();
   });
   it('retains original command and draft across lost acknowledgement and remount', async () => {
     const { session, transport } = setup();

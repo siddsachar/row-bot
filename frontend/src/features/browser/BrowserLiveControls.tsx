@@ -198,7 +198,7 @@ const unavailableLabels: Record<string, string> = {
   'browser.click': 'Page clicks need an exact page-target contract.',
   'browser.type': 'Text entry needs exact target and hidden-text handling.',
   'browser.scroll': 'Scrolling needs a client-safe page observation contract.',
-  'browser.tab': 'Tab controls need stable owned-tab identities.',
+  'browser.tab': "Switching tabs isn't available here yet.",
   'browser.screenshot': 'Private browser previews cannot be exported here.',
   'browser.external.attach':
     'Use Computer Use for an existing external browser.',

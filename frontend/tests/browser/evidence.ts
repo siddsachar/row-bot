@@ -12,7 +12,7 @@ type BrowserEvidence = {
   console: { type: string; text: string }[];
   pageErrors: string[];
   pageErrorDetails: { name: string; stack: string }[];
-  network: { event: string; path: string; status?: number }[];
+  network: { event: string; path: string; status?: number; method?: string }[];
   webSockets: { event: 'open' | 'close' | 'error'; path: string }[];
   blockedExternal: string[];
 };
@@ -35,6 +35,11 @@ type ExpectedError = {
   count: number;
   owner: string;
   fixture: string;
+  /**
+   * The count is an upper bound: a race the test cannot pin (a request in
+   * flight when the fixture acts) may produce fewer, but never more.
+   */
+  upTo?: boolean;
 };
 
 function assertConsoleEvidence(
@@ -66,7 +71,9 @@ function assertConsoleEvidence(
     const matched = remaining.filter(
       (entry) => entry.text === expected!.signature,
     );
-    expect(matched).toHaveLength(expected!.count);
+    if (expected!.upTo)
+      expect(matched.length).toBeLessThanOrEqual(expected!.count);
+    else expect(matched).toHaveLength(expected!.count);
     for (const entry of matched) remaining.splice(remaining.indexOf(entry), 1);
   }
   expect(remaining, 'Unexplained console errors').toEqual([]);
@@ -102,10 +109,12 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
   expect(directives.get('media-src')).toEqual(["'self'", 'blob:']);
   expect(directives.get('font-src')).toEqual(["'self'", 'data:']);
   expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"]);
-  // The client host permits only its own frames and the reviewed privacy-enhanced
-  // YouTube embed. Keep this exact allowlist aligned with client_assets.py.
+  // The client host permits only its own frames, same-origin blob frames for
+  // verified PDF attachments and the reviewed privacy-enhanced YouTube embed.
+  // Keep this exact allowlist aligned with client_assets.py.
   expect(directives.get('frame-src')).toEqual([
     "'self'",
+    'blob:',
     'https://www.youtube-nocookie.com',
   ]);
   expect(directives.get('object-src')).toEqual(["'none'"]);
@@ -173,12 +182,14 @@ export const test = base.extend<{
             event: 'response',
             path: publicPath(response.url()),
             status: response.status(),
+            method: response.request().method(),
           }),
         );
         observed.on('requestfailed', (request) =>
           evidence.network.push({
             event: 'failed',
             path: publicPath(request.url()),
+            method: request.method(),
           }),
         );
         observed.on('websocket', (socket) => {
@@ -249,6 +260,15 @@ export async function assertNoOverflow(page: Page): Promise<void> {
         : null;
     };
     const offenders = [...document.querySelectorAll<HTMLElement>('body *')]
+      // A visually hidden element (clipped to nothing, e.g. a toast's focus
+      // proxy) never shows or scrolls, whatever its box.
+      .filter((element) => {
+        const own = getComputedStyle(element);
+        return !(
+          own.clip === 'rect(0px, 0px, 0px, 0px)' ||
+          /inset\(50%\)/.test(own.clipPath)
+        );
+      })
       .map((element) => {
         const box = element.getBoundingClientRect();
         let visibleLeft = box.left;
@@ -317,6 +337,23 @@ export async function accessibility(
   name: string,
   options: { opaquePreview?: boolean } = {},
 ): Promise<void> {
+  // Scan what stays on screen: a card still fading in (Overview's staggered
+  // entrance) measures as low contrast. Endless animations (spinners) are
+  // left running, and the wait is bounded.
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.effect?.getComputedTiming().iterations !== Infinity,
+          )
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]),
+  );
   const builder = new AxeBuilder({ page }).withTags([
     'wcag2a',
     'wcag2aa',

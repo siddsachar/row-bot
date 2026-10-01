@@ -13,7 +13,7 @@ import pytest
 
 from row_bot.mcp_client import requirements as runtime
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def archive(members):
@@ -40,6 +40,7 @@ def owner(tmp_path, monkeypatch):
     return tmp_path, data, calls, plan
 
 
+@pytest.mark.slow
 def test_plan_is_passive_immutable_and_install_never_resolves_again(owner, monkeypatch):
     tmp, _, calls, make = owner
     plan = make()
@@ -120,7 +121,8 @@ def test_download_mismatch_retains_prior_manifest_and_generation(owner, monkeypa
     assert not (runtime.RUNTIMES_DIR / "synthetic/2.0.0").exists()
 
 
-def test_publication_failure_retains_previous_and_unadvertised_new_generation(owner, monkeypatch):
+@pytest.mark.slow
+def test_publication_failure_keeps_previous_and_removes_the_unpublished_generation(owner, monkeypatch):
     _, _, _, make = owner
     runtime.install_runtime_plan(make())
     previous = runtime._manifest_bytes("synthetic")
@@ -130,7 +132,9 @@ def test_publication_failure_retains_previous_and_unadvertised_new_generation(ow
         runtime.install_runtime_plan(plan)
     assert runtime._manifest_bytes("synthetic") == previous
     assert (runtime.RUNTIMES_DIR / "synthetic/1.2.3/runtime.exe").read_bytes() == b"synthetic executable"
-    assert (runtime.RUNTIMES_DIR / "synthetic/2.0.0/runtime.exe").read_bytes() == b"synthetic executable"
+    # The never-published generation and the staging folder are gone, so a retry is not blocked.
+    assert not (runtime.RUNTIMES_DIR / "synthetic/2.0.0").exists()
+    assert not list((runtime.RUNTIMES_DIR / "synthetic").glob(".install-*"))
     assert runtime._managed_bin_dir("synthetic").name == "1.2.3"
 
 
@@ -199,6 +203,7 @@ def test_native_node_link_install_and_link_target_generation_proof(tmp_path, mon
     assert runtime._managed_bin_dir("node") is None
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("runtime_id", ["node", "uv"])
 def test_legacy_install_resolves_once_and_publishes_actual_platform_layout(tmp_path, monkeypatch, runtime_id):
     import json
@@ -305,7 +310,7 @@ def test_generation_change_in_final_publication_callback_is_not_reported_install
     with pytest.raises(RuntimeError, match="generation changed"):
         runtime.install_runtime_plan(make())
     assert runtime._read_manifest("synthetic") == {}
-    assert (runtime.RUNTIMES_DIR / "synthetic/1.2.3/runtime.exe").read_bytes() == b"external edit before publication"
+    assert not (runtime.RUNTIMES_DIR / "synthetic/1.2.3").exists()
 
 
 def test_cancellation_after_download_never_activates_generation(owner, monkeypatch):
@@ -358,6 +363,7 @@ def test_revocation_while_waiting_for_real_install_lock_prevents_directory_effec
     assert not runtime.RUNTIMES_DIR.exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("legacy", [False, True])
 def test_private_download_directory_os_alias_is_canonicalized(owner, monkeypatch, legacy):
     from contextlib import contextmanager

@@ -1,11 +1,61 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { Play, Square } from 'lucide-react';
 import {
   Button,
-  ErrorState,
-  Field,
+  Disclosure,
+  IconButton,
   Input,
   Skeleton,
+  StatusDot,
 } from '../../ui/primitives';
+import { clientError } from '../../api/errors';
+
+/** Output lines kept for the live console of one process. */
+const LOG_LIMIT = 2000;
+type LogEntry = WorkspaceProcessOutput['entries'][number];
+
+/** The operators the server refuses (`developer/runtime.py`), outside quotes. */
+const SHELL_OPERATORS = ['&&', '||', '|', '>', '<'] as const;
+
+/**
+ * Commands run as one program with its arguments, never through a shell, so
+ * the server refuses shell operators. Say so before sending (B142), with the
+ * same unquoting rule the server applies.
+ */
+export function shellOperators(command: string): string[] {
+  let text = '',
+    single = false,
+    double = false,
+    escaped = false;
+  for (const char of command) {
+    if (escaped) {
+      escaped = false;
+      if (!single && !double) text += char;
+    } else if (char === '\\' && double) escaped = true;
+    else if (char === "'" && !double) single = !single;
+    else if (char === '"' && !single) double = !double;
+    else if (!single && !double) text += char;
+  }
+  const found: string[] = [];
+  let rest = text;
+  for (const operator of SHELL_OPERATORS)
+    if (rest.includes(operator)) {
+      found.push(operator);
+      rest = rest.split(operator).join(' ');
+    }
+  return found;
+}
+
+function operatorNote(operators: string[]) {
+  const names = operators.join(' ');
+  return `Row-Bot runs one command without a shell, so ${names} can't be used here. Run the commands one at a time, or put them in a script and run that.`;
+}
 
 // Structural domain DTOs; shared generated aliases are integrated by the owner.
 export type WorkspaceProcessInfo = {
@@ -79,6 +129,13 @@ type SessionState = {
   recovery: WorkspaceProcessRecoveryPage | null;
   recoveryCursor: string | undefined;
   recoveryLoading: boolean;
+  /** The live console: lines read so far for the selected process. */
+  log: {
+    processId: string;
+    entries: LogEntry[];
+    next: number;
+    truncated: boolean;
+  } | null;
 };
 
 function sameScope(a: WorkspaceProcessScope, b: WorkspaceProcessScope) {
@@ -112,6 +169,7 @@ export function createWorkspaceProcessesSession(scope: WorkspaceProcessScope) {
     recovery: null,
     recoveryCursor: undefined,
     recoveryLoading: false,
+    log: null,
   };
   const listeners = new Set<() => void>();
   const session = {
@@ -159,6 +217,7 @@ export function createWorkspaceProcessesSession(scope: WorkspaceProcessScope) {
         recovery: null,
         recoveryCursor: undefined,
         recoveryLoading: false,
+        log: null,
       };
       listeners.forEach((listener) => listener());
       listeners.clear();
@@ -191,6 +250,8 @@ export type WorkspaceProcessesProps = {
   ) => Promise<WorkspaceProcessInfo>;
   stop: (processId: string) => Promise<WorkspaceProcessInfo>;
   recover: (processId: string) => Promise<WorkspaceProcessInfo>;
+  /** Checks the inspector detected, each run through the same review. */
+  checks?: { label: string; kind: string; command: string }[];
 };
 
 function mergeProcess(
@@ -328,59 +389,6 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
     }
   }
 
-  async function output(
-    processId: string,
-    cursor = 0,
-    direction: 'next' | 'previous' | 'first' | 'refresh' = 'first',
-  ) {
-    if (!active()) return;
-    reads.current.output?.abort();
-    const abort = new AbortController();
-    reads.current.output = abort;
-    update((current) => ({
-      ...current,
-      selected: processId,
-      ...(current.selected !== processId
-        ? { output: null, cursor: 0, previous: [] }
-        : {}),
-    }));
-    try {
-      const result = await callbacks.current.output(
-        processId,
-        cursor,
-        abort.signal,
-      );
-      if (
-        abort.signal.aborted ||
-        !active() ||
-        session.getSnapshot().selected !== processId
-      )
-        return;
-      if (result.process_id !== processId || result.next_cursor < cursor)
-        throw new Error('scope');
-      update((current) => ({
-        ...current,
-        output: result,
-        cursor,
-        previous:
-          direction === 'first'
-            ? []
-            : direction === 'previous'
-              ? current.previous.slice(0, -1)
-              : direction === 'next'
-                ? [...current.previous, current.cursor].slice(-32)
-                : current.previous,
-      }));
-    } catch {
-      if (!abort.signal.aborted && active())
-        update((current) => ({
-          ...current,
-          error:
-            'Output is unavailable. Refresh or return to the first retained output; no process was started.',
-        }));
-    }
-  }
-
   useEffect(() => {
     const requests = reads.current;
     if (props.visible && sameScope(props.scope, session.scope)) void load();
@@ -466,16 +474,18 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
         attempt: { ...attempt, review: evidence },
         notice:
           evidence.decision === 'approved'
-            ? 'Command approved. Choose Start command to run this exact command.'
+            ? 'Command approved.'
             : evidence.decision === 'pending'
               ? 'Approval is pending. Review its approval card, then check approval here.'
               : 'This command was not approved. No process was started.',
       }));
-    } catch {
+    } catch (cause) {
       update((value) => ({
         ...value,
         error:
-          'Approval could not be confirmed. Check the original review again; no process was started.',
+          clientError(cause).code === 'process_command_invalid'
+            ? "That command can't run here. Row-Bot runs one program with its arguments, without a shell; check it and run it again."
+            : 'Approval could not be confirmed. Check the original review again; no process was started.',
       }));
     } finally {
       update((value) => ({ ...value, activity: null }));
@@ -505,7 +515,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
       update((value) => ({
         ...value,
         error:
-          'The process session is full. Stop an owned process before starting another.',
+          'Too many commands are running. Stop one before starting another.',
       }));
       return;
     }
@@ -549,7 +559,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
           attempt: { ...owned, uncertain: !stopped },
           error: stopped
             ? ''
-            : 'Start is unconfirmed. Keep this command identity; retry the original Start or stop its owned process. A new command will not be sent automatically.',
+            : "Row-Bot couldn't confirm the command started. Retry Start to check it, or stop the command. Nothing new is sent automatically.",
         };
       });
     } finally {
@@ -605,177 +615,460 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
     }
   }
 
+  // ------------------------------------------------ live log tail
+  async function tail(processId: string, reset = false) {
+    if (!active()) return;
+    const known = session.getSnapshot().log;
+    const log =
+      !reset && known?.processId === processId
+        ? known
+        : { processId, entries: [], next: 0, truncated: false };
+    reads.current.output?.abort();
+    const abort = new AbortController();
+    reads.current.output = abort;
+    update((current) => ({ ...current, selected: processId, log }));
+    try {
+      const result = await callbacks.current.output(
+        processId,
+        log.next,
+        abort.signal,
+      );
+      if (
+        abort.signal.aborted ||
+        !active() ||
+        session.getSnapshot().log?.processId !== processId
+      )
+        return;
+      if (result.process_id !== processId || result.next_cursor < log.next)
+        throw new Error('scope');
+      update((current) => {
+        const base = current.log?.processId === processId ? current.log : log;
+        const seen = new Set(base.entries.map((entry) => entry.sequence));
+        const entries = [
+          ...base.entries,
+          ...result.entries.filter((entry) => !seen.has(entry.sequence)),
+        ];
+        const overflow = Math.max(0, entries.length - LOG_LIMIT);
+        return {
+          ...current,
+          log: {
+            processId,
+            entries: overflow ? entries.slice(overflow) : entries,
+            next: result.next_cursor,
+            truncated: base.truncated || result.truncated || overflow > 0,
+          },
+        };
+      });
+    } catch {
+      if (!abort.signal.aborted && active())
+        update((current) => ({
+          ...current,
+          error:
+            'Output is unavailable right now. Nothing was started or stopped.',
+        }));
+    }
+  }
+
+  // Follow the selected process while it runs (only while this tab shows);
+  // one last read after it stops collects its final lines.
+  const selectedProcess = state.processes.find(
+    (item) => item.process_id === state.selected,
+  );
+  const following =
+    props.visible && !!selectedProcess && !selectedProcess.quiesced;
+  const followed = useRef('');
+  useEffect(() => {
+    const was = followed.current;
+    followed.current = following ? state.selected : '';
+    if (!props.visible || !state.selected || state.revoked) return;
+    if (!following) {
+      if (was === state.selected) void tail(state.selected);
+      return;
+    }
+    let ended = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = async () => {
+      await tail(session.getSnapshot().selected);
+      if (!ended) timer = setTimeout(() => void step(), 1000);
+    };
+    timer = setTimeout(() => void step(), 400);
+    return () => {
+      ended = true;
+      clearTimeout(timer);
+    };
+    // The session owns callbacks; only the selection and its state matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.visible, state.selected, following, state.revoked]);
+  const consoleRef = useRef<HTMLPreElement>(null);
+  const [pinned, setPinned] = useState(true);
+  useLayoutEffect(() => {
+    const element = consoleRef.current;
+    if (element && pinned) element.scrollTop = element.scrollHeight;
+  }, [state.log?.entries.length, pinned]);
+
+  async function run(command: string) {
+    const current = session.getSnapshot();
+    const owned = current.processes.find(
+      (item) => item.process_id === current.attempt?.command_id,
+    );
+    if (
+      !command.trim() ||
+      current.activity ||
+      current.revoked ||
+      current.attempt?.uncertain ||
+      (current.attempt?.started && !owned?.quiesced)
+    )
+      return;
+    const operators = shellOperators(command);
+    update((value) => ({
+      ...value,
+      draft: command,
+      attempt: null,
+      notice: operators.length ? operatorNote(operators) : '',
+      error: '',
+    }));
+    if (!operators.length) await continueRun();
+  }
+  async function continueRun() {
+    await review();
+    const attempt = session.getSnapshot().attempt;
+    if (
+      attempt?.review?.decision === 'approved' &&
+      attempt.review.approval_id &&
+      !attempt.started
+    ) {
+      await start();
+      const started = session.getSnapshot().attempt;
+      if (started?.started && !started.uncertain)
+        void tail(started.command_id, true);
+    }
+  }
+
   if (!props.visible) return null;
   if (!sameScope(session.scope, props.scope))
     return (
-      <ErrorState title="Workspace process access changed">
-        Open the matching workspace session to review its retained command.
-      </ErrorState>
+      <div className="dev-error-card" role="alert">
+        <strong>Workspace process access changed</strong>
+        <p>Open the matching workspace to review its retained command.</p>
+      </div>
     );
   const attempt = state.attempt;
   const owned = state.processes.find(
     (item) => item.process_id === attempt?.command_id,
   );
-  const approved =
-    attempt?.review?.decision === 'approved' && !!attempt.review.approval_id;
+  const running = !!attempt?.started && !owned?.quiesced;
+  const pending = attempt?.review?.decision === 'pending';
+  const blocked =
+    !!state.activity ||
+    state.revoked ||
+    !state.snapshot ||
+    state.snapshot.resource_revision !== props.resourceRevision ||
+    !!attempt?.uncertain ||
+    running;
+  const checks = props.checks ?? [];
+  const tone = (item: WorkspaceProcessInfo) =>
+    !item.quiesced
+      ? item.state === 'cleanup_incomplete'
+        ? 'warning'
+        : 'info'
+      : item.state === 'failed' ||
+          (item.exit_code !== null && item.exit_code !== 0)
+        ? 'danger'
+        : item.exit_code === 0
+          ? 'success'
+          : 'neutral';
+  const stateWord = (item: WorkspaceProcessInfo) =>
+    item.state === 'running'
+      ? 'Running'
+      : item.state === 'starting'
+        ? 'Starting'
+        : item.state === 'stopping'
+          ? 'Stopping'
+          : item.state === 'cleanup_incomplete'
+            ? 'Cleanup incomplete'
+            : item.state === 'failed'
+              ? 'Failed to start'
+              : item.exit_code === 0
+                ? 'Passed'
+                : item.exit_code !== null
+                  ? `Exited ${item.exit_code}`
+                  : 'Stopped';
+  const log = state.log;
+  const stoppable = state.processes.filter(
+    (item) =>
+      !item.quiesced &&
+      item.state !== 'stopping' &&
+      !state.controls.has(item.process_id),
+  );
   return (
-    <section className="stack studio-section" aria-label="Workspace processes">
-      <header className="capability-header">
-        <div>
-          <h3>Processes</h3>
-          <p>
-            Review a command before starting it. Active processes hold the
-            workspace writer until cleanup is confirmed.
-          </p>
-        </div>
-        <div className="action-cluster">
-          <Button onClick={() => void load()}>Refresh processes</Button>
-        </div>
-      </header>
+    <section className="dev-run" aria-label="Workspace processes">
       {!state.snapshot && !state.error && (
         <Skeleton label="Loading process status" />
       )}
       {state.error && (
-        <ErrorState title="Process requires attention">
-          {state.error}
-        </ErrorState>
+        <div className="dev-error-card" role="alert">
+          <strong>Process needs attention</strong>
+          <p>{state.error}</p>
+          <Button onClick={() => void load()}>Retry</Button>
+        </div>
       )}
-      <Field label="Process command">
+      {checks.length > 0 && (
+        <section className="dev-run-section" aria-label="Detected checks">
+          <h4>Checks</h4>
+          <ul className="dev-checks">
+            {checks.map((check) => {
+              const last = [...state.processes]
+                .reverse()
+                .find((item) => item.command === check.command);
+              return (
+                <li key={`${check.kind}:${check.label}`}>
+                  <StatusDot
+                    tone={last ? tone(last) : 'neutral'}
+                    pulse={!!last && !last.quiesced}
+                    label={last ? stateWord(last) : 'Not run'}
+                  />
+                  <span className="dev-check-name">{check.label}</span>
+                  <code className="dev-check-command">{check.command}</code>
+                  {last && (
+                    <button
+                      type="button"
+                      className="dev-link"
+                      onClick={() => void tail(last.process_id, true)}
+                    >
+                      {stateWord(last)}
+                    </button>
+                  )}
+                  <IconButton
+                    size="sm"
+                    label={`Run ${check.label}`}
+                    disabled={blocked}
+                    onClick={() => void run(check.command)}
+                  >
+                    <Play size={14} aria-hidden />
+                  </IconButton>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+      <form
+        className="dev-run-command"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (pending) void continueRun();
+          else if (attempt?.uncertain) void start();
+          else void run(state.draft);
+        }}
+      >
         <Input
+          aria-label="Process command"
+          placeholder="Run a command, such as npm test"
           value={state.draft}
           maxLength={4096}
-          disabled={!!state.activity || !!attempt?.started || state.revoked}
+          disabled={!!state.activity || running || state.revoked || pending}
           onChange={(event) =>
             update((value) => ({
               ...value,
               draft: event.target.value,
-              attempt: null,
+              attempt: value.attempt?.started ? value.attempt : null,
               notice: '',
             }))
           }
         />
-      </Field>
-      <div className="actions">
-        <Button
-          disabled={
-            !!state.activity ||
-            !!attempt?.started ||
-            state.revoked ||
-            !state.snapshot ||
-            state.snapshot.resource_revision !== props.resourceRevision ||
-            !state.draft.trim()
-          }
-          onClick={() => void review()}
-        >
-          {attempt &&
-          attempt.snapshot.resource_revision !== props.resourceRevision
-            ? 'Check current revision'
-            : attempt
-              ? 'Check original approval'
-              : 'Check command'}
-        </Button>
-        <Button
-          disabled={
-            !!state.activity ||
-            state.revoked ||
-            !approved ||
-            (!!attempt?.started && !attempt.uncertain) ||
-            (!attempt?.started &&
-              attempt?.snapshot.resource_revision !== props.resourceRevision)
-          }
-          onClick={() => void start()}
-        >
-          {attempt?.uncertain ? 'Retry original Start' : 'Start command'}
-        </Button>
-        <Button
-          disabled={
-            !!state.activity ||
-            !!attempt?.uncertain ||
-            (!!attempt?.started && !owned?.quiesced)
-          }
-          onClick={() =>
-            update((value) => ({
-              ...value,
-              draft: '',
-              attempt: null,
-              notice: '',
-              error: '',
-            }))
-          }
-        >
-          New command
-        </Button>
-      </div>
-      {attempt && (
-        <p className="muted">
-          Original process ID: <code>{attempt.command_id}</code>
-        </p>
-      )}
+        {attempt?.uncertain ? (
+          <Button type="submit" disabled={!!state.activity || state.revoked}>
+            Retry original Start
+          </Button>
+        ) : pending ? (
+          <>
+            <Button
+              disabled={!!state.activity || state.revoked}
+              onClick={() =>
+                update((value) => ({
+                  ...value,
+                  attempt: null,
+                  notice: 'Cancelled. Nothing was started.',
+                }))
+              }
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!!state.activity || state.revoked}>
+              Check approval
+            </Button>
+          </>
+        ) : (
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={blocked || !state.draft.trim()}
+          >
+            <Play size={14} aria-hidden />
+            Run
+          </Button>
+        )}
+      </form>
+      <p className="dev-muted-line">
+        Commands are reviewed before they start and may ask for your approval in
+        the chat. A running command holds the workspace until it stops.
+      </p>
       {attempt?.uncertain && (
-        <p role="status">
-          Original Start is unconfirmed. Its command and recovery identity are
-          retained.
+        <p className="dev-git-status" role="status">
+          The start was not confirmed. Retry the same start or stop its process;
+          a new command is never sent automatically.
         </p>
       )}
-      {state.notice && <p role="status">{state.notice}</p>}
-      {state.processes.length === 0 && state.snapshot && (
-        <p>No owned processes reported.</p>
+      {state.notice && (
+        <p className="dev-git-status" role="status">
+          {state.notice}
+        </p>
       )}
-      <ul>
-        {state.processes.map((item) => (
-          <li key={item.process_id}>
-            <p>
-              <code>{item.command || item.process_id}</code> ·{' '}
-              {item.state.replaceAll('_', ' ')}
-              {item.exit_code !== null && ` · Exit ${item.exit_code}`}
-            </p>
-            {!item.quiesced && (
-              <p>
-                {!item.run_id
-                  ? 'Start has not been confirmed. Stop uses its original process identity.'
-                  : item.state === 'cleanup_incomplete'
-                    ? 'Cleanup incomplete · workspace writer retained.'
-                    : 'Workspace writer held until cleanup completes.'}
-              </p>
-            )}
-            <div className="actions">
-              <Button onClick={() => void output(item.process_id)}>
-                View output
-              </Button>
+      {state.processes.length > 0 && (
+        <section className="dev-run-section" aria-label="Processes">
+          <header className="dev-run-section-header">
+            <h4>Processes</h4>
+            {stoppable.length > 1 && (
               <Button
-                disabled={
-                  item.quiesced ||
-                  item.state === 'stopping' ||
-                  state.controls.has(item.process_id)
+                variant="ghost"
+                aria-label="Stop all processes"
+                onClick={() =>
+                  stoppable.forEach(
+                    (item) => void control(item.process_id, false),
+                  )
                 }
-                aria-label={`Stop ${item.process_id}`}
-                onClick={() => void control(item.process_id, false)}
               >
-                Stop
+                <Square size={12} aria-hidden />
+                Stop all
               </Button>
-              <Button
-                disabled={item.quiesced || state.controls.has(item.process_id)}
-                aria-label={`Recover and stop ${item.process_id}`}
-                onClick={() => void control(item.process_id, true)}
+            )}
+          </header>
+          <ul className="dev-processes">
+            {[...state.processes].reverse().map((item) => (
+              <li
+                key={item.process_id}
+                data-selected={
+                  state.selected === item.process_id ? 'true' : undefined
+                }
               >
-                Recover and stop
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
+                <button
+                  type="button"
+                  className="dev-process-main"
+                  aria-label={`View output of ${item.command || item.process_id}`}
+                  aria-current={
+                    state.selected === item.process_id ? 'true' : undefined
+                  }
+                  onClick={() => void tail(item.process_id, true)}
+                >
+                  <StatusDot
+                    tone={tone(item)}
+                    pulse={!item.quiesced}
+                    label={stateWord(item)}
+                  />
+                  <code>{item.command || item.process_id}</code>
+                  <span className="dev-process-state">{stateWord(item)}</span>
+                </button>
+                {!item.quiesced && (
+                  <Button
+                    variant="ghost"
+                    disabled={
+                      item.state === 'stopping' ||
+                      state.controls.has(item.process_id)
+                    }
+                    aria-label={`Stop ${item.process_id}`}
+                    onClick={() => void control(item.process_id, false)}
+                  >
+                    <Square size={12} aria-hidden />
+                    Stop
+                  </Button>
+                )}
+                {!item.quiesced &&
+                  (item.state === 'cleanup_incomplete' ||
+                    item.state === 'stopping' ||
+                    !item.run_id) && (
+                    <Button
+                      variant="ghost"
+                      disabled={state.controls.has(item.process_id)}
+                      aria-label={`Recover and stop ${item.process_id}`}
+                      onClick={() => void control(item.process_id, true)}
+                    >
+                      Recover and stop
+                    </Button>
+                  )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {state.snapshot && !state.processes.length && !checks.length && (
+        <p className="dev-empty">
+          No commands have run here yet. Run one above; its output streams here.
+        </p>
+      )}
+      {log && (
+        <section className="dev-console" aria-label="Process output reader">
+          <header className="dev-console-header">
+            <span className="dev-console-title">
+              {selectedProcess?.command || log.processId}
+            </span>
+            {selectedProcess && (
+              <span className="dev-process-state">
+                {stateWord(selectedProcess)}
+              </span>
+            )}
+            <label className="dev-toggle-row">
+              <input
+                type="checkbox"
+                checked={pinned}
+                onChange={(event) => setPinned(event.target.checked)}
+              />
+              <span>Follow</span>
+            </label>
+          </header>
+          {log.truncated && (
+            <p className="dev-muted-line" role="status">
+              Earlier output is no longer kept; this is the latest part.
+            </p>
+          )}
+          <pre
+            ref={consoleRef}
+            className="dev-console-lines"
+            tabIndex={0}
+            role="region"
+            aria-label="Process output"
+            onScroll={(event) => {
+              const element = event.currentTarget;
+              const atEnd =
+                element.scrollHeight -
+                  element.scrollTop -
+                  element.clientHeight <
+                24;
+              if (atEnd !== pinned) setPinned(atEnd);
+            }}
+          >
+            {log.entries.length
+              ? log.entries.map((entry) => (
+                  <span
+                    key={entry.sequence}
+                    className="dev-console-line"
+                    data-channel={entry.channel}
+                  >
+                    {entry.text}
+                  </span>
+                ))
+              : following
+                ? 'Waiting for output…'
+                : 'No output.'}
+          </pre>
+        </section>
+      )}
       {props.loadRecovery && (
-        <section
-          className="stack capability-section"
-          aria-label="Saved process recovery"
-        >
-          <h4>Saved process recovery</h4>
-          <p>
-            Historical owners need explicit recovery to confirm cleanup. Each
-            page shows at most 32 saved owners; loading it does not probe or
-            start a process.
+        <Disclosure summary="Saved process recovery" className="dev-disclosure">
+          <p className="muted">
+            Commands started before a restart need an explicit recovery to
+            confirm cleanup. Loading this page does not start or probe anything.
           </p>
-          <div className="actions">
+          <div className="action-cluster">
             <Button
               disabled={
                 state.revoked || state.recoveryLoading || !!state.controls.size
@@ -804,9 +1097,9 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
             <Skeleton label="Loading saved process recovery" />
           )}
           {state.recovery?.items.length === 0 && (
-            <p>No saved owners on this recovery page.</p>
+            <p className="muted">No saved commands on this page.</p>
           )}
-          <ul>
+          <ul className="dev-processes">
             {state.recovery?.items
               .filter(
                 (item) =>
@@ -816,13 +1109,16 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
               )
               .map((item) => (
                 <li key={item.process_id}>
-                  <p>
-                    <code>{item.process_id}</code> ·{' '}
-                    {item.quiesced
-                      ? 'Cleanup confirmed'
-                      : 'Cleanup unconfirmed · writer release not confirmed'}
-                  </p>
+                  <span className="dev-process-main">
+                    <code>{item.process_id}</code>
+                    <span className="dev-process-state">
+                      {item.quiesced
+                        ? 'Cleanup confirmed'
+                        : 'Cleanup not confirmed'}
+                    </span>
+                  </span>
                   <Button
+                    variant="ghost"
                     disabled={
                       item.quiesced || state.controls.has(item.process_id)
                     }
@@ -834,83 +1130,7 @@ export default function WorkspaceProcesses(props: WorkspaceProcessesProps) {
                 </li>
               ))}
           </ul>
-        </section>
-      )}
-      {state.selected && (
-        <section
-          className="stack capability-section"
-          aria-label="Process output reader"
-        >
-          <h4>Output</h4>
-          <p className="muted">
-            Read-only retained output. This panel does not send interactive
-            terminal input.
-          </p>
-          {state.output?.truncated && (
-            <p role="status">
-              Earlier output is no longer retained, or its drain was incomplete.
-              This is the available bounded tail.
-            </p>
-          )}
-          <pre
-            className="code-sample"
-            tabIndex={0}
-            role="region"
-            aria-label="Process output"
-            style={{
-              minWidth: 0,
-              maxWidth: '100%',
-              maxHeight: 320,
-              overflow: 'auto',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {state.output?.entries
-              .map(
-                (entry) =>
-                  `${entry.channel === 'stderr' ? '[stderr] ' : ''}${entry.text}`,
-              )
-              .join('') || 'No output in this section.'}
-          </pre>
-          <div className="actions">
-            <Button onClick={() => void output(state.selected, 0)}>
-              First retained output
-            </Button>
-            <Button
-              disabled={!state.previous.length}
-              onClick={() =>
-                void output(
-                  state.selected,
-                  state.previous.at(-1) ?? 0,
-                  'previous',
-                )
-              }
-            >
-              Previous output
-            </Button>
-            <Button
-              disabled={
-                !state.output || state.output.next_cursor <= state.cursor
-              }
-              onClick={() =>
-                void output(
-                  state.selected,
-                  state.output?.next_cursor ?? 0,
-                  'next',
-                )
-              }
-            >
-              Next output
-            </Button>
-            <Button
-              onClick={() =>
-                void output(state.selected, state.cursor, 'refresh')
-              }
-            >
-              Refresh output
-            </Button>
-          </div>
-        </section>
+        </Disclosure>
       )}
     </section>
   );

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -39,7 +40,7 @@ def client(root: Path, *, mode: str = "desktop", middleware: bool = True) -> Tes
     app = FastAPI()
     @app.get("/")
     def root_route():
-        return {"surface": "NiceGUI fixture"}
+        return {"surface": "existing root fixture"}
     @app.get("/connect")
     def connect():
         return {"surface": "connect"}
@@ -56,15 +57,18 @@ def client(root: Path, *, mode: str = "desktop", middleware: bool = True) -> Tes
 
 def test_dual_host_cache_history_and_private_manifest(build: Path) -> None:
     host = client(build)
-    assert host.get("/").json() == {"surface": "NiceGUI fixture"}
+    assert host.get("/").json() == {"surface": "existing root fixture"}
     assert host.get("/app-v2").headers["location"] == "/app-v2/"
     shell = host.get("/app-v2/")
     assert shell.status_code == 200 and shell.headers["cache-control"] == "no-store"
     assert "sha256-" in shell.headers["content-security-policy"]
-    assert "frame-src 'self' https://www.youtube-nocookie.com" in shell.headers["content-security-policy"]
+    assert "frame-src 'self' blob: https://www.youtube-nocookie.com" in shell.headers["content-security-policy"]
     assert "object-src 'none'" in shell.headers["content-security-policy"]
     directives = dict(part.strip().split(' ', 1) for part in shell.headers["content-security-policy"].split(';') if part.strip())
     assert directives['media-src'].split() == ["'self'", 'blob:']
+    # Inline PDF attachments: same-origin blob frames only, no plugins.
+    assert directives['frame-src'].split() == ["'self'", 'blob:', 'https://www.youtube-nocookie.com']
+    assert directives['object-src'].split() == ["'none'"]
     assert host.get("/app-v2/conversations/fixture", headers={"Accept": "text/html"}).content == shell.content
     assert host.head("/app-v2/").content == b""
     assert host.head("/app-v2/").headers["content-length"] == str(len(shell.content))
@@ -98,7 +102,7 @@ def test_missing_build_does_not_break_existing_root(tmp_path: Path) -> None:
     assert host.get("/app-v2/").status_code == 503
 
 
-def test_missing_preview_runtime_preserves_nicegui_and_fails_new_client_safely(build: Path, monkeypatch) -> None:
+def test_missing_preview_runtime_preserves_existing_root_and_fails_new_client_safely(build: Path, monkeypatch) -> None:
     from row_bot.designer.runtime import loader
     def missing():
         raise OSError("private runtime path")
@@ -150,5 +154,52 @@ def test_reparse_boundary_is_rejected_without_os_symlink_permission(build: Path,
         st_mode = 0o120777
         st_file_attributes = 0x400
     monkeypatch.setattr(Path, "lstat", lambda path, **kwargs: LinkedStat() if path == build / "assets" else original(path, **kwargs))
+    with pytest.raises(AssetValidationError):
+        load_client_assets(build)
+
+
+def _add_overlay(root: Path, *, entry: bool = True) -> None:
+    overlay = b'<html><head><script>window.overlay="theme";</script></head><body><script type="module" src="/app-v2/assets/buddy-overlay-abcdef12.js"></script></body></html>'
+    (root / "buddy-overlay.html").write_bytes(overlay)
+    (root / "assets/buddy-overlay-abcdef12.js").write_bytes(b"export const buddy = true;")
+    manifest = json.loads((root / "asset-manifest.json").read_text())
+    for name in ("buddy-overlay.html", "assets/buddy-overlay-abcdef12.js"):
+        data = (root / name).read_bytes()
+        manifest["files"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+    (root / "asset-manifest.json").write_text(json.dumps(manifest))
+    vite = json.loads((root / ".vite/manifest.json").read_text())
+    vite["buddy-overlay.html"] = {"file": "assets/buddy-overlay-abcdef12.js", "isEntry": entry}
+    (root / ".vite/manifest.json").write_text(json.dumps(vite))
+
+
+def test_desktop_buddy_document_is_its_own_shell_with_its_own_policy(build: Path) -> None:
+    _add_overlay(build)
+    host = client(build)
+    html = {"Accept": "text/html"}
+    overlay = host.get("/app-v2/buddy-overlay", headers=html)
+    shell = host.get("/app-v2/")
+    assert overlay.status_code == 200 and b"window.overlay" in overlay.content
+    assert overlay.headers["cache-control"] == "no-store"
+    assert overlay.headers["x-frame-options"] == "DENY"
+    # Each document's policy allows exactly its own inline bootstrap.
+    overlay_hash = "'sha256-" + base64.b64encode(hashlib.sha256(b'window.overlay="theme";').digest()).decode() + "'"
+    shell_hash = "'sha256-" + base64.b64encode(hashlib.sha256(b'window.theme="dark";').digest()).decode() + "'"
+    assert overlay_hash in overlay.headers["content-security-policy"]
+    assert shell_hash not in overlay.headers["content-security-policy"]
+    assert overlay_hash not in shell.headers["content-security-policy"]
+    # The document is never served as a cacheable asset or to non-page loads.
+    direct = host.get("/app-v2/buddy-overlay.html", headers=html)
+    assert direct.content == overlay.content and direct.headers["cache-control"] == "no-store"
+    assert host.get("/app-v2/buddy-overlay", headers={"Accept": "application/json"}).status_code == 404
+    assert host.head("/app-v2/buddy-overlay").headers["content-length"] == str(len(overlay.content))
+    assert "immutable" in host.get("/app-v2/assets/buddy-overlay-abcdef12.js").headers["cache-control"]
+
+
+def test_missing_or_undeclared_buddy_document(build: Path) -> None:
+    host = client(build)
+    missing = host.get("/app-v2/buddy-overlay", headers={"Accept": "text/html"})
+    assert missing.status_code == 503 and b"Buddy is not built" in missing.content
+    assert host.get("/app-v2/").status_code == 200
+    _add_overlay(build, entry=False)
     with pytest.raises(AssetValidationError):
         load_client_assets(build)

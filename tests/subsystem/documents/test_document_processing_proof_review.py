@@ -15,7 +15,7 @@ from tests.subsystem.knowledge_graph import test_document_processing_policy as o
 pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
     sys.platform == "darwin",
     reason="Strict document processing requires a descriptor-backed SQLite path bridge",
-)]
+), pytest.mark.platform]
 processing_fixture = owner_tests.processing
 
 

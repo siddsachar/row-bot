@@ -14,11 +14,39 @@
       "title": "Provider",
       "type": "string"
     },
+    "same_source_as": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Same Source As"
+    },
     "source": {
+      "default": "",
       "maxLength": 2048,
-      "minLength": 1,
       "title": "Source",
       "type": "string"
+    },
+    "source_grant": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Grant"
     },
     "target": {
       "default": "",
@@ -28,8 +56,7 @@
     }
   },
   "required": [
-    "provider",
-    "source"
+    "provider"
   ],
   "title": "MigrationScanRequest",
   "type": "object"

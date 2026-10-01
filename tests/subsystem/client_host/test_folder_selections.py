@@ -150,3 +150,72 @@ def test_invalid_scope_never_opens_or_mutates_any_resource() -> None:
     selections = FolderSelections()
     with pytest.raises(ClientPlatformError, match="invalid_request"):
         selections.begin_exact(replace(_scope(), authority_grant=""))
+
+
+def test_custom_tool_grant_is_consumed_once_for_its_own_intent_and_session(tmp_path) -> None:
+    """Settings › Custom tools › Add from a folder: the desktop pick's exact grant (B170)."""
+    selected = tmp_path / "tool folder"
+    selected.mkdir()
+    selections = FolderSelections(clock=lambda: 10.0)
+    scope = replace(_scope(), intent="custom_tool", destination="custom-tools", conversation_id=None)
+    grant_id = selections.complete_exact(selections.begin_exact(scope), scope, selected, lambda: None)["grant_id"]
+    seen = []
+    # Another session, or a grant minted for a workspace, is refused.
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_custom_tool(grant_id, "session-2", seen.append)
+    authorized = selections.consume_exact_custom_tool(grant_id, "session-1", seen.append)
+    assert authorized.path == selected
+    assert seen == [scope, scope]
+    assert selections.consume_exact_custom_tool(grant_id, "session-1", seen.append) is None
+    workspace = replace(_scope(), intent="resource_setup", destination="workspace:existing_folder")
+    other = selections.complete_exact(selections.begin_exact(workspace), workspace, selected, lambda: None)["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_custom_tool(other, "session-1", seen.append)
+    # A legacy picker grant is not an exact one: the caller resolves it itself.
+    assert selections.consume_exact_custom_tool("unknown", "session-1", seen.append) is None
+
+
+def test_a_backup_archive_grant_is_one_file_for_its_own_intent(tmp_path) -> None:
+    """Settings › Data › Restore: the desktop pick of one archive, used once."""
+    archive = tmp_path / "Row-Bot backup.zip"
+    archive.write_bytes(b"PK")
+    selections = FolderSelections(clock=lambda: 10.0)
+    scope = replace(_scope(), intent="restore_backup", destination="data-restore", conversation_id=None)
+    with pytest.raises(ClientPlatformError, match="invalid_resource"):
+        selections.complete_exact(selections.begin_exact(scope), scope, tmp_path, lambda: None, kind="file")
+    grant = selections.complete_exact(selections.begin_exact(scope), scope, archive, lambda: None, kind="file")["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_backup_file(grant, "session-2", lambda _scope: None)
+    assert selections.consume_exact_backup_file(grant, "session-1", lambda _scope: None) == archive
+    assert selections.consume_exact_backup_file(grant, "session-1", lambda _scope: None) is None
+    folder_scope = replace(_scope(), intent="custom_tool", destination="custom-tools", conversation_id=None)
+    folder_grant = selections.complete_exact(selections.begin_exact(folder_scope), folder_scope, tmp_path, lambda: None)["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.consume_exact_backup_file(folder_grant, "session-1", lambda _scope: None)
+
+
+def test_a_settings_folder_picked_in_the_desktop_window_becomes_a_session_grant(tmp_path) -> None:
+    """The wiki vault and workspace folder: the desktop server can't show a picker (B280)."""
+    vault = tmp_path / "Vault"
+    vault.mkdir()
+    selections = FolderSelections(clock=lambda: 10.0)
+    scope = replace(_scope(), intent="settings_folder", destination="settings", conversation_id=None)
+    reference = selections.complete_exact(selections.begin_exact(scope), scope, vault, lambda: None)["grant_id"]
+    seen = []
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.claim_exact(reference, "session-2", seen.append, intent="settings_folder", destination="settings")
+    claimed = selections.claim_exact(reference, "session-1", seen.append, intent="settings_folder",
+                                     destination="settings")
+    assert claimed["status"] == "selected" and claimed["name"] == "Vault"
+    assert seen == [scope, scope]
+    # The same short-lived grant the wiki and workspace settings resolve.
+    assert selections.resolve(claimed["grant_id"], "session-1").path == vault
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.resolve(claimed["grant_id"], "session-2")
+    # Once only, and never a pick made for something else.
+    assert selections.claim_exact(reference, "session-1", seen.append, intent="settings_folder",
+                                  destination="settings") is None
+    workspace = replace(_scope(), intent="resource_setup", destination="workspace:existing_folder")
+    other = selections.complete_exact(selections.begin_exact(workspace), workspace, vault, lambda: None)["grant_id"]
+    with pytest.raises(ClientPlatformError, match="capability_revoked"):
+        selections.claim_exact(other, "session-1", seen.append, intent="settings_folder", destination="settings")

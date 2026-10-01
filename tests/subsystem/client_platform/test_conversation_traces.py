@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
-from pathlib import Path
 
 import pytest
 
@@ -38,6 +37,17 @@ pytestmark = pytest.mark.subsystem
         ({"content": '{"status":"uncertain"}'}, "uncertain"),
         ({"content": "Error: synthetic failure"}, "failed"),
         ({"content": "ordinary public result"}, "succeeded"),
+        # A denied approval is a refusal, not a completed action.
+        ({"content": "Action cancelled by user."}, "cancelled"),
+        ({"content": "Command cancelled by user."}, "cancelled"),
+        # An approval-gated result leads with its approval line (B235); the
+        # rest of the result still decides how it went.
+        ({"content": "Approval: asked; denied by you — did not run\nCommand cancelled by user."}, "cancelled"),
+        ({"content": "Approval: asked; approved by you\n$ New-Item notes.txt"}, "succeeded"),
+        ({"content": "Approval: not needed (Auto approval mode)\nError: synthetic failure"}, "failed"),
+        # A turn that ended early answers its open calls (B234).
+        ({"content": "Cancelled: stopped before it finished."}, "cancelled"),
+        ({"content": "Error: the turn ended before it finished."}, "failed"),
     ],
 )
 def test_result_classification_is_closed_and_truthful(value, expected):
@@ -236,6 +246,11 @@ def test_skill_specialization_exposes_only_reviewed_bounded_metadata():
         "media_kind": "",
         "media": (),
         "error_code": "",
+        "resource_kind": "",
+        "resource_id": "",
+        "binding_id": "",
+        "setup_target": "",
+        "settings_page": "",
     }
     assert private not in repr(specialized)
 
@@ -263,6 +278,38 @@ def test_agent_specialization_is_deduped_bounded_and_private_field_free():
     assert len(specialized.agent_runs) == MAX_AGENT_REFERENCES
     assert len({run.run_id for run in specialized.agent_runs}) == MAX_AGENT_REFERENCES
     assert private not in repr(specialized)
+
+
+def test_started_agents_keep_their_profile_with_the_turn():
+    """B240/B241: the turn's agent stubs pick the same icon as Agents."""
+    run = {
+        "id": "run-1",
+        "display_name": "Pricing scan",
+        "status": "queued",
+        "profile": {"id": "profile-7", "slug": "researcher", "display_name": "Researcher"},
+    }
+    records = [
+        {
+            "row": {"id": "assistant:checkpoint:parent", "message_id": "parent", "role": "assistant", "blocks": []},
+            "tool_calls": [{"id": "call-start", "name": "delegate_work"}],
+        },
+        {
+            "row": {
+                "id": "tool:checkpoint:result",
+                "message_id": "result",
+                "role": "tool",
+                "tool_call_id": "call-start",
+                "blocks": [{"type": "text", "text": json.dumps({"ok": True, "run": run})}],
+            }
+        },
+    ]
+
+    parent = project_assistant_row_traces(records)[0]
+    item = parent["traces"][0]["items"][0]
+
+    assert item["specialization"]["agent_runs"] == [
+        {"run_id": "run-1", "display_name": "Pricing scan", "status": "queued", "profile_id": "profile-7"}
+    ]
 
 
 def test_media_specialization_keeps_references_without_marker_or_inline_data():
@@ -293,15 +340,6 @@ def test_media_specialization_keeps_references_without_marker_or_inline_data():
         }
     ]
     assert private_image not in repr(specialized)
-
-
-def test_application_trace_owner_has_no_ui_import_or_unsafe_object_loader():
-    source = Path("src/row_bot/application/conversation_traces.py").read_text(
-        encoding="utf-8"
-    )
-    assert "row_bot.ui" not in source
-    assert "pickle" not in source
-    assert "yaml.load" not in source
 
 
 def test_ordered_public_rows_project_stable_grouped_assistant_traces():
@@ -382,6 +420,36 @@ def test_ordered_public_rows_project_stable_grouped_assistant_traces():
         "assistant:checkpoint:parent",
         "assistant:checkpoint:parent",
     ]
+
+
+def _denied_call_records(*later_roles: str) -> list[dict]:
+    """A call with no result (a denial recorded before B234), then later rows."""
+    records = [{
+        "row": {"id": "assistant:checkpoint:ask", "message_id": "ask", "role": "assistant", "blocks": []},
+        "tool_calls": [{"id": "call-delete", "name": "run_command"}],
+    }]
+    for index, role in enumerate(later_roles):
+        records.append({"row": {
+            "id": f"{role}:checkpoint:later-{index}", "message_id": f"later-{index}", "role": role,
+            "blocks": [{"type": "text", "text": "The requested action was denied."}],
+        }})
+    return records
+
+
+def test_a_call_the_conversation_moved_past_without_a_result_reads_cancelled_not_running():
+    # Histories written before B234 have a denied call with no result, followed by
+    # the denial reply: the step never ran, so it must not spin forever.
+    after_reply = project_assistant_row_traces(_denied_call_records("assistant"))
+    after_next_message = project_assistant_row_traces(_denied_call_records("user"))
+
+    assert after_reply[0]["traces"][0]["status"] == "cancelled"
+    assert after_next_message[0]["traces"][0]["status"] == "cancelled"
+
+
+def test_a_call_at_the_end_of_the_transcript_stays_pending():
+    rows = project_assistant_row_traces(_denied_call_records())
+
+    assert rows[0]["traces"][0]["status"] == "pending"
 
 
 def test_trace_adapter_copies_rows_and_leaves_orphan_results_unattached():

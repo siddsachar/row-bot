@@ -1,4 +1,11 @@
 import { createBuddySessions } from './features/buddy/buddy-sessions';
+import {
+  OpenConversationRequests,
+  publishBuddyTarget,
+} from './features/buddy/BuddyFollow';
+import { bindDraftSync } from './draft-sync';
+import { keepNativeLease } from './native-lease';
+import { keepAccessSessionRenewed } from './api/access-renewal';
 import { createKnowledgeSessions } from './features/knowledge/knowledge-sessions';
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -10,8 +17,11 @@ import { bindPageLifecycle } from './page-lifecycle';
 import { PwaStatus } from './pwa';
 import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
+import { installInputModality } from './ui/input-modality';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
 import Workspace, { panelMetrics } from './features/shell/Workspace';
+import { EditMenu } from './features/shell/EditMenu';
+import DesktopReconnecting from './features/shell/DesktopReconnecting';
 import { resourcePanelMetrics } from './features/panels/ResourcePanel';
 import { createWorkspaceEditSessions } from './features/panels/workspace-edit-sessions';
 import { createWorkspaceProcessSessions } from './features/panels/workspace-process-sessions';
@@ -27,6 +37,7 @@ import { createProviderConfigurationOwner } from './features/settings/provider-c
 import { createAuthenticatedEditorOwner } from './features/settings/authenticated-editor-owner';
 import { DefaultModelSession } from './features/settings/DefaultModelSettings';
 import { createCapabilitySettingsSession } from './features/settings/CapabilitySettings';
+import { createMcpFacadeSession } from './features/settings/McpFacadeControls';
 import { SubscriptionAccountsSession } from './features/settings/SubscriptionAccounts';
 import { SubscriptionProbesSession } from './features/settings/SubscriptionProbes';
 import { SubscriptionOptionsSession } from './features/settings/SubscriptionOptions';
@@ -47,9 +58,15 @@ import {
   bindActiveConversationSession,
   browserSessionStorage,
 } from './active-conversation-session';
-import './ui/styles.css';
+import './ui/styles/index.css';
 
-const Gallery = lazy(() => import('./features/shell/Gallery'));
+// The component gallery is a design-system check for development and fixture
+// builds; a production build leaves it out and /primitives is an unknown view.
+const Gallery =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_FIXTURES === '1'
+    ? lazy(() => import('./features/shell/Gallery'))
+    : null;
+const LibraryPage = lazy(() => import('./features/shell/LibraryPage'));
 const Onboarding = lazy(() => import('./features/shell/Onboarding'));
 const SettingRoute = lazy(() => import('./features/settings/SettingRoute'));
 const SettingsIndex = lazy(() => import('./features/settings/SettingsIndex'));
@@ -155,7 +172,7 @@ class RenderBoundary extends Component<
             </a>
           }
         >
-          Try reloading, or return to the <a href="/">current application</a>.
+          Try reloading. If this keeps happening, restart Row-Bot.
         </ErrorState>
       </main>
     ) : (
@@ -164,6 +181,7 @@ class RenderBoundary extends Component<
   }
 }
 async function start() {
+  installInputModality();
   const query = new URLSearchParams(location.search).get('fixture');
   const fixture = [
     'normal',
@@ -189,7 +207,15 @@ async function start() {
   let platform = await selectClientPlatform(
     controller,
     controller.getSnapshot().handshake,
+    window,
+    () => controller.nativeAttestation(),
   );
+  // The desktop Buddy follows this window's conversation and shares drafts.
+  const unpublishBuddyTarget = publishBuddyTarget(controller, platform);
+  const unbindDraftSync = bindDraftSync(controller);
+  const releaseNativeLease = keepNativeLease(controller, platform);
+  // A phone or computer signed in by invitation stays signed in (B137).
+  const stopAccessRenewal = keepAccessSessionRenewed();
   const workspaceEditSessions = createWorkspaceEditSessions(controller, {
     capacity: 8,
   });
@@ -217,6 +243,10 @@ async function start() {
   const capabilitySettingsOwner = createAuthenticatedEditorOwner(
     controller,
     createCapabilitySettingsSession,
+  );
+  const mcpChatOwner = createAuthenticatedEditorOwner(
+    controller,
+    createMcpFacadeSession,
   );
   const buddyOwner = createAuthenticatedEditorOwner(controller, () =>
     createBuddySessions(controller),
@@ -263,7 +293,7 @@ async function start() {
     () => createDocumentProcessingSession(controller),
   );
   const wikiOwner = createAuthenticatedEditorOwner(controller, () =>
-    createWikiSettingsSession(controller),
+    createWikiSettingsSession(controller, () => platform),
   );
   const channelOwner = createAuthenticatedEditorOwner(
     controller,
@@ -328,6 +358,7 @@ async function start() {
             providerSettingsSessions,
             defaultModelOwner,
             capabilitySettingsOwner,
+            mcpChatOwner,
             buddyOwner,
             subscriptionAccountsOwner,
             subscriptionOptionsOwner,
@@ -352,6 +383,9 @@ async function start() {
         >
           <BrowserRouter basename="/app-v2">
             <OverlayProvider>
+              <OpenConversationRequests />
+              <EditMenu />
+              <DesktopReconnecting platform={platform} />
               <Suspense fallback={<Skeleton label="Opening workspace" />}>
                 <Routes>
                   <Route path="/" element={<Workspace />}>
@@ -359,7 +393,10 @@ async function start() {
                       path="conversations/:conversationId"
                       element={null}
                     />
-                    <Route path="primitives" element={<Gallery />} />
+                    {Gallery && (
+                      <Route path="primitives" element={<Gallery />} />
+                    )}
+                    <Route path="library" element={<LibraryPage />} />
                     <Route path="setup" element={<Onboarding />} />
                     <Route path="settings" element={<SettingsIndex />} />
                     <Route
@@ -406,6 +443,7 @@ async function start() {
       providerSettingsSessions.hasRetained() ||
       defaultModelOwner.hasRetained() ||
       capabilitySettingsOwner.hasRetained() ||
+      mcpChatOwner.hasRetained() ||
       buddyOwner.hasRetained() ||
       subscriptionAccountsOwner.hasRetained() ||
       subscriptionOptionsOwner.hasRetained() ||
@@ -435,6 +473,7 @@ async function start() {
       providerSettingsSessions.dispose();
       defaultModelOwner.dispose();
       capabilitySettingsOwner.dispose();
+      mcpChatOwner.dispose();
       buddyOwner.dispose();
       subscriptionAccountsOwner.dispose();
       subscriptionOptionsOwner.dispose();
@@ -456,6 +495,10 @@ async function start() {
       providerConfigurationOwner.dispose();
       artifactDesignSessions.dispose();
       disposeActiveConversationSession();
+      unpublishBuddyTarget();
+      unbindDraftSync();
+      releaseNativeLease();
+      stopAccessRenewal();
       controller.dispose();
     },
   });
@@ -466,8 +509,12 @@ void start().catch(() => {
   const message = document.createElement('p');
   message.textContent =
     'The workspace could not start. Reload the page to try again.';
-  const link = document.createElement('a');
-  link.href = '/';
-  link.textContent = 'Open current application';
-  root.append(message, link);
+  // A start that fails is usually a connection problem: reload, never
+  // another app (B110).
+  const reload = document.createElement('button');
+  reload.type = 'button';
+  reload.className = 'button';
+  reload.textContent = 'Reload';
+  reload.addEventListener('click', () => window.location.reload());
+  root.append(message, reload);
 });

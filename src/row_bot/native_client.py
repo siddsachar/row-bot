@@ -24,7 +24,14 @@ _REFERENCE = re.compile(r"[A-Za-z0-9:_-]{1,256}")
 _SCOPE_VALUE = re.compile(r"[A-Za-z0-9:_.-]{1,256}")
 _OPERATIONS = frozenset({"discover", "select_file", "select_folder", "clipboard_read",
                          "clipboard_write", "open_external", "managed_window", "save",
-                         "terminal_open"})
+                         "terminal_open", "terminal_external", "buddy_placement", "buddy_follow",
+                         "main_window"})
+# Main windows tear Buddy off and dock it; the desktop Buddy docks, hides
+# itself and reports that its first view is drawn ("ready").
+_BUDDY_ACTIONS = frozenset({"status", "dock", "hide", "ready"})
+# A document's lease. It runs from the latest attestation the document
+# exchanged, so a long-lived window renews it with a fresh one (B99).
+LEASE_SECONDS = 1800
 
 
 def _unavailable(reason: str = "unsupported") -> dict[str, Any]:
@@ -120,8 +127,37 @@ class NativeDriver(Protocol):
     def clipboard_write(self, text: str) -> bool: ...
     def open_external(self, url: str) -> bool: ...
     def managed_window(self, route: str) -> bool: ...
+    def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None: ...
+    def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None: ...
+    def main_window(self, conversation_id: str | None) -> bool: ...
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None: ...
     def capabilities(self) -> list[str]: ...
+
+
+def _dialog_path(selected: object) -> str | None:
+    """The one path a pywebview dialog chose, or None when it was cancelled.
+
+    Most dialogs answer a tuple, but the Windows and macOS save dialogs answer
+    a plain string: indexing it wrote exports to a file named after the drive
+    letter in the working folder (B238). A relative answer is refused.
+    """
+    if isinstance(selected, (list, tuple)):
+        if not selected:
+            return None
+        if len(selected) != 1:
+            raise ValueError("invalid_dialog_answer")
+        selected = selected[0]
+    if not selected:
+        return None
+    if not isinstance(selected, str) or not Path(selected).is_absolute():
+        raise ValueError("invalid_dialog_answer")
+    return selected
+
+
+def _save_folder() -> str:
+    """Start the Save dialog in Downloads (pywebview's Windows default has no drive)."""
+    downloads = Path.home() / "Downloads"
+    return str(downloads if downloads.is_dir() else Path.home())
 
 
 def select_existing_workspace_folder() -> Path | None:
@@ -147,27 +183,44 @@ class PyWebViewDriver:
                  read_clipboard: Callable[[], str | None] | None = None,
                  write_clipboard: Callable[[str], bool] | None = None,
                  save_reference: Callable[[str, Path], bool] | None = None,
-                 open_external: Callable[[str], bool] | None = None) -> None:
+                 open_external: Callable[[str], bool] | None = None,
+                 buddy_placement: Callable[[str, float | None, float | None], dict[str, Any] | None] | None = None,
+                 publish_buddy_target: Callable[[str], dict[str, Any] | None] | None = None,
+                 read_buddy_target: Callable[[], dict[str, Any] | None] | None = None,
+                 show_main_window: Callable[[str | None], bool] | None = None,
+                 allowed: frozenset[str] | None = None) -> None:
+        if publish_buddy_target is not None and read_buddy_target is not None:
+            # One window either publishes what it shows or follows; never both.
+            raise ValueError("buddy_follow_role_conflict")
         self._window = window
         self._open_window = open_window
         self._read_clipboard = read_clipboard
         self._write_clipboard = write_clipboard
         self._save_reference = save_reference
         self._open_external = open_external
+        self._buddy_placement = buddy_placement
+        self._publish_buddy_target = publish_buddy_target
+        self._read_buddy_target = read_buddy_target
+        self._show_main_window = show_main_window
+        self._allowed = allowed
 
     def capabilities(self) -> list[str]:
         result = ["select_file", "select_folder", "open_external"]
         for name, callback in (("managed_window", self._open_window), ("clipboard_read", self._read_clipboard),
-                               ("clipboard_write", self._write_clipboard), ("save", self._save_reference)):
+                               ("clipboard_write", self._write_clipboard), ("save", self._save_reference),
+                               ("buddy_placement", self._buddy_placement),
+                               ("buddy_follow", self._publish_buddy_target or self._read_buddy_target),
+                               ("main_window", self._show_main_window)):
             if callback is not None:
                 result.append(name)
-        return result
+        # A window role may narrow what its document can reach (the desktop
+        # Buddy gets no pickers, clipboard, saves or external navigation).
+        return [name for name in result if self._allowed is None or name in self._allowed]
 
     def select(self, kind: str) -> str | None:
         import webview
-        selected = self._window.create_file_dialog(webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG,
-                                                   allow_multiple=False)
-        return str(selected[0]) if selected else None
+        return _dialog_path(self._window.create_file_dialog(
+            webview.FOLDER_DIALOG if kind == "folder" else webview.OPEN_DIALOG, allow_multiple=False))
 
     def clipboard_read(self) -> str | None:
         return self._read_clipboard() if self._read_clipboard is not None else None
@@ -184,16 +237,31 @@ class PyWebViewDriver:
     def managed_window(self, route: str) -> bool:
         return bool(self._open_window and self._open_window(route))
 
+    def buddy_placement(self, action: str, x: float | None, y: float | None) -> dict[str, Any] | None:
+        return self._buddy_placement(action, x, y) if self._buddy_placement else None
+
+    def buddy_follow(self, conversation_id: str | None) -> dict[str, Any] | None:
+        if conversation_id is None:
+            return self._read_buddy_target() if self._read_buddy_target else None
+        return self._publish_buddy_target(conversation_id) if self._publish_buddy_target else None
+
+    def main_window(self, conversation_id: str | None) -> bool:
+        return bool(self._show_main_window and self._show_main_window(conversation_id))
+
     def save(self, reference: str, suggested_name: str, authorized: Callable[[], bool]) -> bool | None:
         if self._save_reference is None:
             return False
         import webview
-        selected = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name)
-        if not selected:
+        try:
+            selected = _dialog_path(self._window.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename=suggested_name, directory=_save_folder()))
+        except ValueError:
+            return False
+        if selected is None:
             return None
         if not authorized():
             return False
-        return self._save_reference(reference, Path(selected[0]))
+        return self._save_reference(reference, Path(selected))
 
 
 class NativeClientBridge:
@@ -227,6 +295,10 @@ class NativeClientBridge:
                  open_terminal: Callable[
                      [NativeSelectionAuthority, str | None], str
                  ] | None = None,
+                 open_external_terminal: Callable[
+                     [NativeSelectionAuthority, str | None], bool
+                 ] | None = None,
+                 shell_path: str | None = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         parsed = urlsplit(origin)
         if not safe_external_url(origin) or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
@@ -248,11 +320,19 @@ class NativeClientBridge:
         self._cancel_selection = cancel_selection
         self._revoke_document = revoke_document
         self._open_terminal = open_terminal
+        # Opens the person's own terminal app; the server picks the folder.
+        self._open_external_terminal = open_external_terminal
+        # A window bound to one document (the desktop Buddy) keeps its
+        # bridge only while it shows exactly that document.
+        if shell_path is not None and not re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", shell_path):
+            raise ValueError("invalid_native_shell_path")
+        self._shell_path = shell_path
         self._clock = clock
         self._lock = threading.RLock()
         self._token = ""
         self._epoch = 0
         self._expires = 0.0
+        self._attestation = ""
         self._authority: NativeDocumentAuthority | None = None
 
     def _at_shell(self) -> bool:
@@ -261,8 +341,11 @@ class NativeClientBridge:
             if not isinstance(url, str) or not safe_external_url(url):
                 return False
             parsed = urlsplit(url)
-            return (f"{parsed.scheme}://{parsed.netloc}" == self._origin
-                    and bool(re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", parsed.path)))
+            if f"{parsed.scheme}://{parsed.netloc}" != self._origin:
+                return False
+            if self._shell_path is not None:
+                return parsed.path.rstrip("/") == self._shell_path.rstrip("/")
+            return bool(re.fullmatch(r"/app-v2/(?:[A-Za-z0-9_-]+/?)*", parsed.path))
         except Exception:
             return False
 
@@ -272,6 +355,7 @@ class NativeClientBridge:
             context = self._context()
             self._token = ""
             self._authority = None
+            self._attestation = ""
             self._epoch += 1
         if authority is not None and self._revoke_document is not None:
             try:
@@ -285,7 +369,7 @@ class NativeClientBridge:
             if not self._at_shell():
                 return None
             self._token = secrets.token_urlsafe(32)
-            self._expires = self._clock() + 1800
+            self._expires = self._clock() + LEASE_SECONDS
             return {"instanceId": self._instance, "windowId": self._window,
                     "epoch": self._epoch, "token": self._token}
 
@@ -352,10 +436,14 @@ class NativeClientBridge:
             if (not _valid_authority(authority) or not self._valid_document(proof)
                     or self._epoch != epoch or self._context() != context):
                 return False
+            previous = self._authority
             self._authority = authority
             if not self._valid(proof):
-                self._authority = None
+                # A failed renewal leaves the current authority in place.
+                self._authority = previous
                 return False
+            self._attestation = payload["attestation"]
+            self._expires = self._clock() + LEASE_SECONDS
             return True
 
     def native_client_dispatch(self, proof: object, operation: object, payload: object) -> dict[str, Any]:
@@ -370,15 +458,35 @@ class NativeClientBridge:
                     return _unavailable("native_proof_required")
                 epoch = self._epoch
                 authenticated = self._valid(proof)
-            if operation == "discover" and not authenticated:
+            # A fresh attestation renews an authenticated document's lease;
+            # the one it already exchanged is simply a discovery (B99).
+            renewing = (operation == "discover" and authenticated
+                        and payload.get("attestation") not in (None, self._attestation))
+            if operation == "discover" and (not authenticated or renewing):
                 if not self._authenticate_discovery(proof, payload, epoch):
-                    return _unavailable("native_authentication_required")
+                    if not authenticated:
+                        return _unavailable("native_authentication_required")
+                    # A refused renewal keeps the current lease, but is never
+                    # answered as renewed: the window asks again soon (B231).
+                    with self._lock:
+                        lapsed = epoch != self._epoch or not self._valid_document(proof)
+                    return _unavailable("native_proof_required" if lapsed else "native_renewal_refused")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
-                    return _unavailable("native_proof_required")
+                    # Nothing has run yet. A document that is still bound
+                    # but whose grant was refused (the server's policy
+                    # revision moved on) may exchange a fresh attestation
+                    # through discover and try again (B102); a lost document
+                    # can only load again.
+                    return _unavailable(
+                        "native_authentication_required"
+                        if epoch == self._epoch and self._valid_document(proof)
+                        else "native_proof_required")
             available = self._driver.capabilities()
             if self._open_terminal is not None:
                 available.append("terminal_open")
+            if self._open_external_terminal is not None:
+                available.append("terminal_external")
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
@@ -441,6 +549,21 @@ class NativeClientBridge:
                     if not _REFERENCE.fullmatch(reference):
                         return _unavailable("invalid_reference")
                 return {"status": "ok", "value": {"terminalId": reference}}
+            if operation == "terminal_external":
+                target = payload.get("conversationId")
+                if set(payload) != {"conversationId"} or not (
+                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)):
+                    return _unavailable("invalid_request")
+                assert self._open_external_terminal is not None
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                    authority = self._selection_authority()
+                opened = self._open_external_terminal(authority, target)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return {"status": "ok", "value": None} if opened is True else _unavailable()
             if (operation == "save" and set(payload) == {"reference", "name"}
                     and isinstance(payload["reference"], str) and _REFERENCE.fullmatch(payload["reference"])
                     and isinstance(payload["name"], str)
@@ -451,7 +574,51 @@ class NativeClientBridge:
                 result = self._driver.save(payload["reference"], payload["name"], authorized)
                 if not authorized():
                     return _unavailable("native_proof_required")
-                return {"status": "cancelled"} if result is None else ({"status": "ok", "value": None} if result else _unavailable())
+                # A file the host could not write is never reported as saved.
+                return ({"status": "cancelled"} if result is None
+                        else {"status": "ok", "value": None} if result else _unavailable("save_failed"))
+            if operation == "buddy_follow":
+                publish = set(payload) == {"conversationId"}
+                if not (publish or not payload) or (
+                    publish and not (isinstance(payload["conversationId"], str)
+                                     and _SCOPE_VALUE.fullmatch(payload["conversationId"]))):
+                    return _unavailable("invalid_request")
+                value = self._driver.buddy_follow(payload["conversationId"] if publish else None)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                target = value.get("conversationId") if isinstance(value, dict) else None
+                return ({"status": "ok", "value": value}
+                        if isinstance(value, dict) and set(value) == {"conversationId", "revision"}
+                        and (target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target))
+                        and type(value["revision"]) is int and value["revision"] >= 0 else _unavailable())
+            if operation == "main_window":
+                target = payload.get("conversationId")
+                if set(payload) != {"conversationId"} or not (
+                        target is None or isinstance(target, str) and _SCOPE_VALUE.fullmatch(target)):
+                    return _unavailable("invalid_request")
+                result = self._driver.main_window(target)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return {"status": "ok", "value": None} if result else _unavailable()
+            if operation == "buddy_placement":
+                action = payload.get("action")
+                point = action == "tear_off" and set(payload) == {"action", "x", "y"}
+                if not ((action in _BUDDY_ACTIONS and set(payload) == {"action"})
+                        or (point and all(isinstance(payload[key], (int, float))
+                                          and not isinstance(payload[key], bool)
+                                          and abs(payload[key]) <= 1000000 for key in ("x", "y")))):
+                    return _unavailable("invalid_request")
+                value = self._driver.buddy_placement(
+                    action, payload.get("x") if point else None, payload.get("y") if point else None)
+                with self._lock:
+                    if not self._valid(proof) or epoch != self._epoch:
+                        return _unavailable("native_proof_required")
+                return ({"status": "ok", "value": value}
+                        if isinstance(value, dict) and set(value) == {"placement", "visible"}
+                        and value["placement"] in {"docked", "desktop"}
+                        and isinstance(value["visible"], bool) else _unavailable())
             with self._lock:
                 if not self._valid(proof) or epoch != self._epoch:
                     return _unavailable("native_proof_required")
@@ -502,6 +669,10 @@ def attach_native_client(
     open_terminal: Callable[
         [NativeSelectionAuthority, str | None], str
     ] | None = None,
+    open_external_terminal: Callable[
+        [NativeSelectionAuthority, str | None], bool
+    ] | None = None,
+    shell_path: str | None = None,
 ) -> NativeClientBridge:
     """Attach only to a newly created trusted /app-v2 window, never legacy API.
 
@@ -515,19 +686,42 @@ def attach_native_client(
                                 register_selection=register_selection,
                                 cancel_selection=cancel_selection,
                                 revoke_document=revoke_document,
-                                open_terminal=open_terminal)
+                                open_terminal=open_terminal,
+                                open_external_terminal=open_external_terminal,
+                                shell_path=shell_path)
 
-    def loaded(*_args: Any) -> None:
+    def bind() -> bool:
         proof = bridge._bind_loaded_document()
         if proof is not None:
             # Token is a closure value, never a storage item, URL or public flag.
             script = "(() => { if (window !== window.top) return; const proof = " + json.dumps(proof) + "; "
             script += "Object.defineProperty(window, '__ROW_BOT_NATIVE_CLIENT__', { configurable: true, "
-            script += "value: { dispatch: (operation, payload) => window.pywebview.api.native_client_dispatch(proof, operation, payload) } }); })();"
-            window.evaluate_js(script)
+            script += "value: { dispatch: (operation, payload) => window.pywebview.api.native_client_dispatch(proof, operation, payload) } }); "
+            script += "window.dispatchEvent(new Event('row-bot-native-ready')); })();"
+            # Run it as is: evaluate_js wraps a script in eval(), which the
+            # shell's Content Security Policy refuses in macOS's WebKit.
+            (getattr(window, "run_js", None) or window.evaluate_js)(script)
+        return proof is not None
+
+    def loaded(*_args: Any) -> None:
+        bind()
+
+    def native_client_rebind() -> dict[str, Any]:
+        """Bind the shown document again, exactly as loading it does (B231).
+
+        A window whose lease lapsed (the computer slept past it) or that never
+        received its proof asks for this instead of reloading and losing its
+        state. Only a window showing the app gets a new epoch and token, the
+        old proof stops working, and the new one has no authority until it
+        exchanges a fresh attestation through ``discover``.
+        """
+        try:
+            return {"status": "ok"} if bind() else _unavailable("native_proof_required")
+        except Exception:
+            return _unavailable("operation_failed")
 
     window.events.before_load += bridge._invalidate
     window.events.closed += bridge._invalidate
     window.events.loaded += loaded
-    window.expose(bridge.native_client_dispatch)
+    window.expose(bridge.native_client_dispatch, native_client_rebind)
     return bridge

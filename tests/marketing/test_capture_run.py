@@ -29,7 +29,7 @@ def _receipt() -> RunReceipt:
         story_id="canonical-launch-story",
         prompt_version=1,
         git_commit="46d88892",
-        client="nicegui",
+        client="react",
         models={"local": "model:ollama:qwen3.8:27b"},
         max_generation_attempts=6,
     )

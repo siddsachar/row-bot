@@ -46,6 +46,7 @@ def test_migration_scan_rejects_overlap_and_missing_source(tmp_path):
         )
 
 
+@pytest.mark.slow
 def test_migration_scan_api_denies_remote_before_reading_source(tmp_path, monkeypatch):
     source = create_realistic_hermes_home(tmp_path / "source")
     target = tmp_path / "target"
@@ -215,3 +216,94 @@ def test_migration_conflict_requires_explicit_overwrite_and_preserves_restore_co
     assert backups[0].read_text(encoding="utf-8") == original
     shutil.copy2(backups[0], target / "identity" / "SOUL.md")
     assert (target / "identity" / "SOUL.md").read_text(encoding="utf-8") == original
+
+
+def test_migration_finds_the_old_app_in_its_usual_folder(tmp_path, monkeypatch):
+    """Parity row 53: the source is detected; only a home-relative place is shown."""
+    from row_bot.migration.fixtures import create_realistic_openclaw_home
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    assert client_migration.detect_sources() == {"sources": [
+        {"provider": "hermes", "label": "Hermes Agent", "found": False, "place": None},
+        {"provider": "openclaw", "label": "OpenClaw", "found": False, "place": None},
+    ]}
+    with pytest.raises(Exception, match="migration_source_not_found"):
+        client_migration.scan_migration(owner_id="local", provider="hermes", source="",
+                                        target=str(tmp_path / "target"))
+    create_realistic_openclaw_home(home / ".clawdbot")
+    (home / ".hermes").mkdir()  # an empty folder is not Hermes
+    found = client_migration.detect_sources()["sources"]
+    assert found == [
+        {"provider": "hermes", "label": "Hermes Agent", "found": False, "place": None},
+        {"provider": "openclaw", "label": "OpenClaw", "found": True, "place": "~/.clawdbot"},
+    ]
+    assert str(tmp_path) not in json.dumps(found)
+    preview = client_migration.scan_migration(owner_id="local", provider="openclaw", source="",
+                                              target=str(tmp_path / "target"))
+    assert preview["source_found"] is True and preview["summary"]["total"] > 0
+    assert not (tmp_path / "target").exists()
+
+
+def test_migration_sources_api_is_for_this_computer_only(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    create_realistic_hermes_home(home / ".hermes")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    local, _, _ = client_app()
+    remote, _, _ = client_app(remote=True)
+    with local, remote:
+        _, headers = bootstrap(local)
+        _, remote_headers = bootstrap(remote)
+        assert remote.get("/api/v1/system/migration/sources", headers=remote_headers).status_code == 403
+        result = local.get("/api/v1/system/migration/sources", headers=headers)
+    assert result.status_code == 200, result.text
+    assert result.json()["sources"][0] == {"provider": "hermes", "label": "Hermes Agent",
+                                           "found": True, "place": "~/.hermes"}
+
+
+def test_browse_picks_the_folder_once_and_a_rescan_reuses_that_preview(tmp_path, monkeypatch):
+    """Parity row 53: Browse when the old app isn't in its usual folder; no path reaches the page."""
+    from tests.subsystem.client_protocol.test_protocol_security import _native_proof
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "empty-home"))
+    source = create_realistic_hermes_home(tmp_path / "elsewhere" / "hermes-copy")
+    target = tmp_path / "target"
+    local, _, _ = client_app()
+    with local:
+        proof, headers = _native_proof(local)
+        picked = local.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                            json={**proof, "selection_kind": "folder", "intent_id": str(uuid4()),
+                                  "intent": "migration_source", "conversation_id": None,
+                                  "destination": "migration", "path": str(source)})
+        assert picked.status_code == 200, picked.text
+        assert str(source) not in picked.text
+        grant = picked.json()["reference"]
+        body = {"provider": "hermes", "target": str(target), "include_secrets": False}
+        first = local.post("/api/v1/system/migration/scan", headers=headers, json={**body, "source_grant": grant})
+        assert first.status_code == 200, first.text
+        assert first.json()["source_found"] is True
+        assert str(source) not in first.text
+        # The grant is spent; a rescan with other choices names the preview instead.
+        spent = local.post("/api/v1/system/migration/scan", headers=headers, json={**body, "source_grant": grant})
+        assert spent.status_code == 409
+        again = local.post("/api/v1/system/migration/scan", headers=headers,
+                           json={**body, "include_secrets": True, "same_source_as": first.json()["plan_id"]})
+        assert again.status_code == 200, again.text
+        assert any(item["category"] == "api_keys" and item["selected"] for item in again.json()["items"])
+        # Another app's pick kind or intent is refused.
+        wrong = local.post("/api/v1/native/selections/complete", headers={"Origin": "http://localhost"},
+                           json={**proof, "selection_kind": "file", "intent_id": str(uuid4()),
+                                 "intent": "migration_source", "conversation_id": None,
+                                 "destination": "migration", "path": str(source / "config.yaml")})
+        assert wrong.status_code == 422
+    assert not target.exists()
+
+
+def test_a_rescan_cannot_borrow_another_owners_preview(tmp_path):
+    source = create_realistic_hermes_home(tmp_path / "source")
+    preview = client_migration.scan_migration(owner_id="owner-a", provider="hermes", source=str(source),
+                                              target=str(tmp_path / "target"))
+    with pytest.raises(Exception, match="migration_plan_missing"):
+        client_migration.scan_migration(owner_id="owner-b", provider="hermes", source="",
+                                        target=str(tmp_path / "target"), same_source_as=preview["plan_id"])

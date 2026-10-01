@@ -9,31 +9,28 @@ import Screenshot from '@site/src/components/Screenshot';
 
 MCP lets Row-Bot use tools exposed by external Model Context Protocol servers. An MCP server can be local or remote, simple or powerful. Treat it like an extension with its own access and trust boundary.
 
-<Screenshot id="settings-mcp" alt="Row-Bot MCP settings." caption="MCP settings manage global enablement, server rows, add/import/browse actions, tests, diagnostics, and per-server controls." />
+<Screenshot id="settings-mcp" alt="Row-Bot MCP settings." caption="MCP settings put the MCP switches and runtimes first, then saved servers with their status, Connect or Disconnect, and each server's menu." />
 
-<Screenshot id="mcp-marketplace" alt="Row-Bot Browse MCP Servers marketplace with bundled starter servers." caption="Browse starts with the bundled starter catalogue and exposes publisher, transport, overlap, authentication, and risk labels before import." />
+<Screenshot id="mcp-marketplace" alt="Row-Bot Add a server dialog on Browse, with bundled starter servers." caption="Browse starts with the bundled starter catalogue and shows publisher, transport, overlap, authentication and risk labels before you add a server." />
 
-<Screenshot id="mcp-add-server" alt="Row-Bot Add MCP Server dialog." caption="Manual server configuration starts disabled so you can review transport, command or URL, environment, and tool risk before testing." />
+<Screenshot id="mcp-add-server" alt="Row-Bot Add a server dialog on Manual." caption="A server added by hand stays turned off until you connect it, so you can review its type, command or URL, environment and tool risk first." />
 
 ## Setup Workflow
 
-1. Open Settings -> MCP.
-2. Leave Enable MCP off until a trusted server is configured.
-3. Add, import, or browse for a server.
-4. Review the command, arguments, URL, transport, and expected tools.
-5. Save disabled first if you are unsure.
-6. Test the server.
-7. Enable the server only after you understand what it can access.
+1. Open Settings › MCP. The command palette finds it as "add mcp server".
+2. Choose **Add a server**, then **Browse**, **Manual** or **Paste JSON**.
+3. Review the command, arguments, URL, transport, and expected tools. A new server is saved turned off.
+4. Install a runtime under **Runtimes (Node.js, uv)** if the server needs one.
+5. Choose **Test connection**, then **Connect**.
+6. Open **Details** to review its tools and permissions, and disconnect it if they reach more than you want.
 
 ## Controls
 
-- **Enable MCP** turns all external MCP tools on or off.
-- **Add Server** opens the manual server form.
-- **Import Config** imports server definitions from configuration text.
-- **Browse MCP Servers** searches available server directories.
-- **Diagnostics** helps explain connection failures.
-- **Per-server enablement** decides whether a saved server contributes tools.
-- **Test, refresh, edit, delete** manage the server row.
+- **Use MCP servers** turns MCP on or off; **Offer MCP tools in chats** decides whether conversations can use MCP tools.
+- **Runtimes (Node.js, uv)** installs the runtimes many servers need.
+- **Add a server** browses a directory, takes the details by hand, or imports pasted JSON.
+- Each server's button connects, turns on and connects, or disconnects it, and its status says **Connected**, **Couldn't connect** or **On · not connected**.
+- Each server's **⋯** menu opens **Details** (connection, tools, permissions), **Test connection**, **Edit settings…**, **Rename…** and **Remove server…**.
 
 ## Safety
 
@@ -42,5 +39,5 @@ MCP tools can read, write, call APIs, or automate services depending on the serv
 ## Troubleshooting
 
 - If a server fails to test, check transport, command, arguments, URL, and dependencies.
-- If tools are missing, enable both the global MCP switch and the server.
+- If tools are missing, check **Use MCP servers**, **Offer MCP tools in chats** and the server's own status.
 - If a prompt asks for unexpected access, reject it and inspect the server configuration.

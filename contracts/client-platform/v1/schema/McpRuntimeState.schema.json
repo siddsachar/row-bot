@@ -35,6 +35,17 @@
       ],
       "title": "Configuration Revision"
     },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Enabled"
+    },
     "runtime_id": {
       "anyOf": [
         {
@@ -93,7 +104,8 @@
     "availability",
     "runtime_id",
     "state",
-    "session_quiesced"
+    "session_quiesced",
+    "enabled"
   ],
   "title": "McpRuntimeState",
   "type": "object"

@@ -201,6 +201,20 @@ class LiveContentStore:
                 self._total -= spool.size
                 spool.file.close()
 
+    def read_text(self, conversation_id: str, content_ref: str) -> str:
+        """The whole text a spool holds, or "" (a stopped reply keeps it, B149)."""
+        with self._lock:
+            spool = self._spools.get((conversation_id, content_ref))
+            if spool is None:
+                return ""
+            spool.file.seek(0)
+            data = spool.file.read(spool.size)
+        try:
+            blocks = json.loads(data)
+            return str(blocks[0].get("text") or "") if blocks else ""
+        except (ValueError, TypeError, IndexError, AttributeError):
+            return ""
+
     def references(self, conversation_id: str) -> list[str]:
         with self._lock:
             return sorted(reference for conversation, reference in self._spools if conversation == conversation_id)
@@ -234,6 +248,10 @@ def discard(conversation_id: str, content_ref: str) -> None:
 
 def references(conversation_id: str) -> list[str]:
     return live_content_store.references(conversation_id)
+
+
+def read_text(conversation_id: str, content_ref: str) -> str:
+    return live_content_store.read_text(conversation_id, content_ref)
 
 
 def close() -> None:

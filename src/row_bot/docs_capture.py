@@ -12,20 +12,18 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
 
 
 DOCS_CAPTURE_ENV = "ROW_BOT_DOCS_CAPTURE"
 DOCS_FIXED_NOW_ENV = "ROW_BOT_DOCS_FIXED_NOW"
-DOCS_DISABLE_NETWORK_ENV = "ROW_BOT_DOCS_DISABLE_NETWORK"
 DOCS_DISABLE_AUTOSTART_ENV = "ROW_BOT_DOCS_DISABLE_AUTOSTART"
 DOCS_REDUCE_MOTION_ENV = "ROW_BOT_DOCS_REDUCE_MOTION"
 DOCS_FAKE_PROVIDERS_ENV = "ROW_BOT_DOCS_FAKE_PROVIDERS"
 DOCS_REAL_DATA_ENV = "ROW_BOT_DOCS_REAL_DATA"
 MARKETING_CAPTURE_ENV = "ROW_BOT_MARKETING_CAPTURE"
-MARKETING_KNOWLEDGE_IDS_ENV = "ROW_BOT_MARKETING_KNOWLEDGE_IDS"
 DOCS_DEMO_STATE_FILE = "docs_real_ui_demo_state.json"
 DEMO_THREAD_ID = "docs-demo-chat"
 
@@ -84,33 +82,12 @@ def is_docs_read_only_real_data_capture() -> bool:
     return is_docs_real_data_capture() and not is_authorized_marketing_capture()
 
 
-def marketing_capture_knowledge_ids() -> tuple[str, ...]:
-    """Return the bounded public-safe knowledge allowlist for a capture process."""
-
-    if not is_authorized_marketing_capture():
-        return ()
-    result: list[str] = []
-    for raw in str(os.environ.get(MARKETING_KNOWLEDGE_IDS_ENV) or "").split(","):
-        value = raw.strip()
-        if not value or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value):
-            continue
-        if value not in result:
-            result.append(value)
-        if len(result) >= 24:
-            break
-    return tuple(result)
-
-
 def docs_capture_fixed_now() -> datetime:
     raw = os.environ.get(DOCS_FIXED_NOW_ENV) or "2026-06-18T09:00:00Z"
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
         return datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc)
-
-
-def docs_capture_disable_network() -> bool:
-    return is_docs_capture() and _truthy(os.environ.get(DOCS_DISABLE_NETWORK_ENV, "1"))
 
 
 def docs_capture_disable_autostart() -> bool:
@@ -222,73 +199,9 @@ def docs_capture_provider_cards() -> list[dict[str, Any]]:
     ]
 
 
-def docs_capture_model_choices() -> list[dict[str, str]]:
-    """Return inert, display-only Quick Choices for screenshot capture."""
-    if not docs_capture_fake_provider_status():
-        return []
-    return [
-        {
-            "value": "model:ollama:llama3.1:8b",
-            "label": "Ollama Local · llama3.1:8b",
-        },
-        {
-            "value": "model:custom:demo-chat",
-            "label": "Custom local endpoint · demo-chat",
-        },
-    ]
-
-
-def docs_capture_reduce_motion_css() -> str:
-    if not (is_docs_capture() and _truthy(os.environ.get(DOCS_REDUCE_MOTION_ENV, "1"))):
-        return ""
-    return """
-<style>
-html[data-row-bot-docs-capture="1"] *, html[data-row-bot-docs-capture="1"] *::before, html[data-row-bot-docs-capture="1"] *::after {
-  animation-duration: 0.001ms !important;
-  animation-iteration-count: 1 !important;
-  scroll-behavior: auto !important;
-  transition-duration: 0.001ms !important;
-}
-</style>
-""".strip()
-
-
-def docs_capture_bootstrap_html() -> str:
-    if not is_docs_capture():
-        return ""
-    return """
-<script>
-(() => {
-  if (window.__rowBotDocsCaptureInstalled) return;
-  window.__rowBotDocsCaptureInstalled = true;
-  document.documentElement.setAttribute('data-row-bot-docs-capture', '1');
-  const mark = () => {
-    if (document.body) document.body.setAttribute('data-docs-id', 'app-shell');
-    document.querySelectorAll('input[type="password"], [autocomplete*="token"], [autocomplete*="password"]').forEach((el) => {
-      el.setAttribute('data-sensitive', 'true');
-    });
-  };
-  mark();
-  new MutationObserver(mark).observe(document.documentElement, {childList: true, subtree: true});
-})();
-</script>
-""".strip()
-
-
 def docs_capture_demo_state_path(data_dir: Path | None = None) -> Path:
     root = data_dir or get_row_bot_data_dir()
     return root / DOCS_DEMO_STATE_FILE
-
-
-def load_docs_capture_demo_state(data_dir: Path | None = None) -> dict[str, Any]:
-    path = docs_capture_demo_state_path(data_dir)
-    if not path.exists():
-        return default_docs_capture_demo_state()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default_docs_capture_demo_state()
-    return data if isinstance(data, dict) else default_docs_capture_demo_state()
 
 
 def write_docs_capture_demo_state(data_dir: Path, scenario: str = "full") -> Path:
@@ -362,7 +275,7 @@ def default_docs_capture_demo_state() -> dict[str, Any]:
         "agents": [
             {
                 "id": "docs-agent-parent",
-                "thread_id": DEMO_THREAD_ID,
+                "thread_id": "docs-agent-coordinator",
                 "display_name": "Launch coordinator",
                 "kind": "subagent",
                 "status": "running",
@@ -461,151 +374,6 @@ def default_docs_capture_demo_state() -> dict[str, Any]:
             "events": ["Paired", "Access granted", "Session refreshed"],
         },
     }
-
-
-def docs_capture_query_params(client: Any) -> dict[str, str]:
-    try:
-        params = getattr(getattr(client, "request", None), "query_params", {})
-        return {str(key): str(value) for key, value in dict(params).items()}
-    except Exception:
-        return {}
-
-
-def _list_real_capture_threads() -> list[Any]:
-    """Load real thread rows only for an explicitly authorized capture."""
-    from row_bot.threads import _list_threads
-
-    return _list_threads(include_details=True)
-
-
-def configure_docs_capture_state(
-    state: Any,
-    query: dict[str, str],
-    *,
-    load_messages: Callable[[str], list[dict[str, Any]]] | None = None,
-) -> dict[str, str]:
-    """Apply capture-only navigation state to the real app state object."""
-    if not is_docs_capture():
-        return {}
-    intent = {
-        "surface": query.get("docs_surface", ""),
-        "home_tab": query.get("home_tab", ""),
-        "settings_tab": query.get("settings_tab", ""),
-        "dialog": query.get("dialog", ""),
-        "mobile_view": query.get("mobile_view", ""),
-        "project_id": query.get("project_id", ""),
-        "workflow_id": query.get("workflow_id", ""),
-    }
-    real_data = is_docs_real_data_capture()
-    demo = {} if real_data else load_docs_capture_demo_state()
-    state.active_designer_project = None
-    state.active_developer_workspace_id = None
-    if intent["mobile_view"]:
-        state.mobile_view = intent["mobile_view"].strip().title()
-    if intent["surface"] == "designer-editor":
-        from row_bot.designer.storage import list_projects, load_project
-
-        project_id = str((demo.get("designer") or {}).get("project_id") or "")
-        if real_data and intent["project_id"]:
-            project_id = intent["project_id"]
-        elif real_data:
-            projects = list_projects()
-            project_id = str(projects[0].get("id") or "") if projects else ""
-        state.active_designer_project = load_project(project_id)
-        project_thread_id = str(
-            getattr(state.active_designer_project, "thread_id", "") or ""
-        )
-        state.thread_id = project_thread_id if real_data else "docs-designer-thread"
-        state.thread_name = (
-            str(getattr(state.active_designer_project, "name", "") or "Designer project")
-            if real_data
-            else "Community Workshop Deck"
-        )
-        state.messages = (
-            load_messages(project_thread_id)
-            if real_data and project_thread_id and load_messages is not None
-            else []
-        )
-        return intent
-    if intent["surface"] == "developer-workspace":
-        workspace_id = str((demo.get("developer") or {}).get("workspace_id") or "")
-        if real_data:
-            from row_bot.developer.storage import list_workspaces
-
-            workspaces = list_workspaces()
-            workspace_id = str(workspaces[0].id) if workspaces else ""
-        state.active_developer_workspace_id = workspace_id
-        state.thread_id = "docs-developer-thread"
-        state.thread_name = "Developer workspace" if real_data else "Demo release notes"
-        state.messages = []
-        return intent
-    if intent["home_tab"]:
-        state.thread_id = None
-        state.thread_name = None
-        state.messages = []
-        state.preferred_home_tab = intent["home_tab"]
-        return intent
-    if intent["settings_tab"] or intent["dialog"] in {
-        "setup-center",
-        "skills-hub",
-        "plugin-marketplace",
-        "mcp-add-server",
-        "mcp-marketplace",
-    }:
-        if intent["settings_tab"] == "Plugins":
-            # Normal startup loads plugins in a later background phase. The
-            # capture startup is intentionally abbreviated, so load only the
-            # inert plugin already seeded into the isolated demo directory.
-            if real_data:
-                from row_bot.plugins.loader import load_plugin_manifests_readonly
-
-                load_plugin_manifests_readonly()
-            else:
-                from row_bot.plugins.loader import load_plugins
-
-                load_plugins()
-        state.thread_id = None
-        state.thread_name = None
-        state.messages = []
-        state.preferred_home_tab = "Workflows"
-        return intent
-    if intent["surface"].startswith("chat") or query.get("thread_id"):
-        thread_id = query.get("thread_id") or str(demo.get("thread_id") or DEMO_THREAD_ID)
-        thread_name = str(demo.get("thread_name") or "Demo thread")
-        if real_data:
-            rows = _list_real_capture_threads()
-            if thread_id and thread_id != DEMO_THREAD_ID:
-                row = next(
-                    (item for item in rows if str(item[0] or "") == thread_id),
-                    None,
-                )
-            else:
-                row = next(
-                    (
-                        item
-                        for item in rows
-                        if str(item[6] or "chat").casefold() in {"", "chat"}
-                    ),
-                    None,
-                )
-            if row is not None:
-                thread_id = str(row[0])
-                thread_name = str(row[1] or "Conversation")
-                state.thread_model_override = str(row[4] or "")
-        state.thread_id = thread_id
-        state.thread_name = thread_name
-        if not real_data:
-            state.thread_model_override = str(demo.get("model") or "")
-        loaded = load_messages(thread_id) if load_messages else []
-        state.messages = loaded or list(demo.get("messages") or [])
-        if intent["mobile_view"] and thread_id:
-            state.mobile_chat_mode = "thread"
-        return intent
-    state.thread_id = None
-    state.thread_name = None
-    state.messages = []
-    state.preferred_home_tab = intent["home_tab"] or "Workflows"
-    return intent
 
 
 def scan_demo_data_safety(data_dir: Path) -> list[str]:

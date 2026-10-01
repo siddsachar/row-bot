@@ -14,6 +14,10 @@ pytestmark = pytest.mark.subsystem
 
 def _fresh_modules(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    # Nothing is preset (decision 9): these runs need an explicitly chosen model.
+    from row_bot import models
+
+    monkeypatch.setattr(models, "_current_model", "model:ollama:fixture-model")
     for name in (
         "row_bot.tasks",
         "row_bot.threads",

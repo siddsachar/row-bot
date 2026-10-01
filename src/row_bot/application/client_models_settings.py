@@ -6,6 +6,8 @@ from typing import Callable
 
 from row_bot.application.provider_default_model import read_default_model
 from row_bot.providers import client_status
+from row_bot.providers.catalog import provider_billing
+from row_bot.providers.model_catalog import picker_options
 from row_bot.providers.selection import format_model_choice_label, model_choice_value, parse_model_ref
 
 SURFACES = ("chat", "vision", "image", "video")
@@ -20,33 +22,19 @@ def _media_ref(value: str, *, default_provider: str) -> str:
 
 def _picker(surface: str, current: str, rows: tuple, *, enabled: bool | None = None,
             media_options: dict[str, str] | None = None) -> dict:
-    options = []
-    found = False
-    for row in rows:
-        if surface not in row.pinned_surfaces and row.selection_ref != current:
-            continue
-        if surface not in row.categories and row.selection_ref != current:
-            continue
-        available = bool(row.configured and row.runtime_ready and row.installed and surface in row.categories)
-        found |= row.selection_ref == current
-        options.append({
-            "selection_ref": row.selection_ref,
-            "label": format_model_choice_label(row.provider_id, row.model_id, row.display_name, include_icon=False)[:256],
-            "source": row.source[:80], "available": available,
-            "context_window": row.context_window,
-            "reason": row.status_reason[:256] if not available else "",
-        })
-    if current and not found:
+    options = picker_options(rows, surface, current)
+    if current and not any(option["selection_ref"] == current for option in options):
         parsed = parse_model_ref(current)
         provider_id, model_id = parsed if parsed else ("", current)
         media_value = f"{provider_id}/{model_id}"
         available = bool(media_options and media_value in media_options)
         options.append({
-            "selection_ref": current,
+            "selection_ref": current, "provider_id": provider_id,
             "label": (media_options.get(media_value) if available and media_options else
                       format_model_choice_label(provider_id, model_id, include_icon=False))[:256],
             "source": "configured_default" if available else "included_value",
-            "available": available, "context_window": None,
+            "available": available, "unavailable_reason": None if available else "unavailable",
+            "context_window": None, "billing": provider_billing(provider_id),
             "reason": "" if available else "This saved model is not available in the local catalog.",
         })
     current_option = next((option for option in options if option["selection_ref"] == current), None)
@@ -66,16 +54,17 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
     from row_bot.models import (get_cloud_context_override, get_context_policy,
                                 get_current_model, get_local_context_mode, get_user_context_size)
     from row_bot.tools import registry
-    from row_bot.tools.image_gen_tool import DEFAULT_MODEL as IMAGE_DEFAULT, get_available_image_models
-    from row_bot.tools.video_gen_tool import DEFAULT_MODEL as VIDEO_DEFAULT, get_available_video_models
+    from row_bot.tools.image_gen_tool import get_available_image_models
+    from row_bot.tools.video_gen_tool import get_available_video_models
     from row_bot.vision_runtime import get_vision_service
 
     default = read_default_model(validate=validate)
     vision = get_vision_service()
     image_tool = registry.get_tool("image_gen")
     video_tool = registry.get_tool("video_gen")
-    image_value = image_tool.get_config("model", IMAGE_DEFAULT) if image_tool else registry.get_tool_config("image_gen", "model", IMAGE_DEFAULT)
-    video_value = video_tool.get_config("model", VIDEO_DEFAULT) if video_tool else registry.get_tool_config("video_gen", "model", VIDEO_DEFAULT)
+    # Nothing is preset (decision 9): an unset surface reads as unset, not as a default.
+    image_value = image_tool.get_config("model", "") if image_tool else registry.get_tool_config("image_gen", "model", "")
+    video_value = video_tool.get_config("model", "") if video_tool else registry.get_tool_config("video_gen", "model", "")
     brain_ref = model_choice_value(get_current_model()) or default.selection_ref or ""
     vision_ref = model_choice_value(vision.model)
     image_ref = _media_ref(str(image_value), default_provider="openai")
@@ -106,12 +95,17 @@ def read_models_settings(*, validate: Callable[[], None] = lambda: None) -> dict
 def update_model_surface(surface: str, action: str, *, selection_ref: str | None = None,
                          enabled: bool | None = None, camera_index: int | None = None,
                          validate: Callable[[], None]) -> dict:
-    """Write through the same Vision/tool owners used by NiceGUI."""
+    """Write through the Vision and tool owners."""
     validate()
     from row_bot.tools import registry
     from row_bot.vision_runtime import get_vision_service
 
-    if action == "default":
+    if action == "default" and surface == "vision" and selection_ref == "":
+        # "Same as chat model" (decision 11): Vision follows the chat model.
+        get_vision_service().model = ""
+        from row_bot.agent import clear_agent_cache
+        clear_agent_cache()
+    elif action == "default":
         state = read_models_settings(validate=validate)
         options = state[surface]["options"]
         if not selection_ref or not any(item["selection_ref"] == selection_ref and item["available"] for item in options):

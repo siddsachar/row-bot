@@ -100,6 +100,7 @@ class AccessStore:
     ) -> None:
         self.db_path = Path(db_path) if db_path is not None else get_access_db_path()
         self._migration_hook = migration_hook
+        self._optional_columns_checked = False
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,6 +145,7 @@ class AccessStore:
             if current_version == SCHEMA_VERSION and self._required_tables_exist(
                 connection
             ):
+                self._add_optional_columns(connection)
                 return
             if current_version in {1, 2}:
                 self._make_recovery_copy()
@@ -152,6 +154,7 @@ class AccessStore:
                 self._run_migration_hook("after_schema")
                 self._migrate_single_owner(connection)
                 self._run_migration_hook("after_semantic_normalization")
+                self._add_optional_columns(connection, remember=False)
                 connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 self._run_migration_hook("before_commit")
                 return
@@ -168,8 +171,32 @@ class AccessStore:
             self._run_migration_hook("after_schema")
             self._migrate_legacy(connection)
             self._run_migration_hook("after_legacy")
+            self._add_optional_columns(connection, remember=False)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             self._run_migration_hook("before_commit")
+
+    def _add_optional_columns(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        remember: bool = True,
+    ) -> None:
+        """Add nullable columns that older app versions simply ignore.
+
+        They need no schema version: older code selects named columns and
+        inserts with explicit column lists, so a newer database stays readable.
+        A migration's own transaction may still roll back, so it does not
+        remember the check.
+        """
+        if self._optional_columns_checked:
+            return
+        device_columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(access_devices)")
+        }
+        if "last_address" not in device_columns:
+            connection.execute("ALTER TABLE access_devices ADD COLUMN last_address TEXT")
+        self._optional_columns_checked = remember
 
     def _run_migration_hook(self, phase: str) -> None:
         if self._migration_hook is not None:
@@ -252,7 +279,8 @@ class AccessStore:
               user_agent TEXT,
               paired_from TEXT,
               access_route TEXT,
-              legacy_source_id TEXT UNIQUE
+              legacy_source_id TEXT UNIQUE,
+              last_address TEXT
             )
             """,
             """
@@ -1080,7 +1108,9 @@ class AccessStore:
         session_id: str,
         *,
         now: datetime | None = None,
+        address: str | None = None,
     ) -> None:
+        """Record that a session was used, and from which client address."""
         self.ensure_schema()
         timestamp = to_iso(now)
         with self._immediate_transaction() as connection:
@@ -1097,14 +1127,52 @@ class AccessStore:
                 connection.execute(
                     """
                     UPDATE access_devices
-                       SET last_seen_at = ?
+                       SET last_seen_at = ?,
+                           last_address = COALESCE(?, last_address)
                      WHERE id = (
                          SELECT device_id FROM access_sessions WHERE id = ?
                      )
                        AND revoked_at IS NULL
                     """,
-                    (timestamp, session_id),
+                    (timestamp, _bounded(address, 128), session_id),
                 )
+
+    def rename_device(self, device_id: str, display_name: str) -> AccessDevice | None:
+        """Rename an active device; a signed-out device keeps its name."""
+        self.ensure_schema()
+        with self._immediate_transaction() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE access_devices
+                   SET display_name = ?
+                 WHERE id = ?
+                   AND revoked_at IS NULL
+                """,
+                (display_name[:80], device_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+        return self.get_device(device_id)
+
+    def claimed_device_ids(self, invitation_ids: list[str]) -> dict[str, str]:
+        """The device each claimed invitation connected, from the claim record."""
+        self.ensure_schema()
+        wanted = [str(item) for item in invitation_ids if item][:200]
+        if not wanted:
+            return {}
+        placeholders = ", ".join("?" for _ in wanted)
+        with self._read_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT invitation_id, device_id
+                  FROM access_events
+                 WHERE event_type = 'invitation_claimed'
+                   AND device_id IS NOT NULL
+                   AND invitation_id IN ({placeholders})
+                """,
+                wanted,
+            ).fetchall()
+        return {str(row["invitation_id"]): str(row["device_id"]) for row in rows}
 
     def revoke_session(
         self,
@@ -1390,6 +1458,7 @@ def _device_from_row(row: sqlite3.Row) -> AccessDevice:
         paired_from=row["paired_from"],
         access_route=row["access_route"],
         legacy_source_id=row["legacy_source_id"],
+        last_address=_row_value(row, "last_address"),
     )
 
 

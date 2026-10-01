@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Button, ErrorState } from '../../ui/primitives';
 
 export type DesignPresentationState = {
@@ -30,6 +36,13 @@ export type ArtifactPresentationProps = {
   renderPreview: (pageId: string, kind: 'stage' | 'thumbnail') => ReactNode;
   onSession?: (session: PresentationSession) => void;
   openAudience?: (session: PresentationSession) => Promise<boolean>;
+  /** Start at once (the design panel's Present) on this page. */
+  autoStart?: boolean;
+  /** Already full screen (the design panel's Present): no Fullscreen button. */
+  fullscreen?: boolean;
+  startIndex?: number;
+  /** Called after End presentation, so the owner can leave presenter view. */
+  onEnded?: () => void;
 };
 
 export default function ArtifactPresentation(props: ArtifactPresentationProps) {
@@ -149,7 +162,33 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
     }
   }
 
+  const autoStarted = useRef('');
+  useEffect(() => {
+    const key = `${resourceId}:${resourceRevision}`;
+    if (!props.autoStart || !visible || active || autoStarted.current === key)
+      return;
+    autoStarted.current = key;
+    void load(props.startIndex);
+    // Start once per saved revision; later navigation belongs to the presenter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.autoStart, visible, active, resourceId, resourceRevision]);
+
+  // Presenting takes the keyboard at once, so arrows and Escape work
+  // without first clicking into the slide. A layout effect: focus moves in
+  // the commit that shows the first slide, never a frame after it; one that
+  // starts on its own takes it while the first slide loads.
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (
+      (active || props.autoStart) &&
+      element &&
+      !element.contains(document.activeElement)
+    )
+      element.focus({ preventScroll: true });
+  }, [active, props.autoStart]);
+
   function end() {
+    props.onEnded?.();
     request.current?.abort();
     request.current = null;
     if (session.current)
@@ -181,20 +220,30 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
   }
 
   if (!props.visible) return null;
+  const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const seconds = String(elapsed % 60).padStart(2, '0');
   return (
     <div
       ref={host}
-      className="artifact-presentation panel-section studio-section stack"
+      tabIndex={-1}
+      role="group"
+      aria-label="Presentation"
+      className="artifact-presentation"
+      data-active={active ? 'true' : undefined}
       onKeyDown={(event) => {
         if (
-          !active ||
-          busy ||
           event.target instanceof HTMLInputElement ||
           event.target instanceof HTMLTextAreaElement
         )
           return;
-        if (event.key === 'Escape') end();
-        else if (
+        // Escape also ends one whose slide is still loading.
+        if (event.key === 'Escape' && (active || busy)) {
+          event.preventDefault();
+          end();
+          return;
+        }
+        if (!active || busy) return;
+        if (
           event.key === 'ArrowRight' &&
           state &&
           state.page_index + 1 < state.page_count
@@ -207,19 +256,50 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
         }
       }}
     >
-      <header className="capability-header">
-        <div>
-          <h3>Presentation</h3>
-          <p>Present the exact saved design without editing the source.</p>
-        </div>
+      <header className="presentation-bar">
+        <h3>Presentation</h3>
+        {state && (
+          <p className="presentation-position" aria-live="polite">
+            Slide {state.page_index + 1} of {state.page_count}: {state.title}
+          </p>
+        )}
+        {active && (
+          <p
+            className="presentation-timer"
+            role="timer"
+            aria-label="Presentation elapsed time"
+          >
+            {minutes}:{seconds}
+          </p>
+        )}
       </header>
       {!active ? (
-        <Button variant="primary" disabled={busy} onClick={() => void load()}>
-          Start presentation
-        </Button>
+        <div className="presentation-start">
+          <p className="muted">
+            Present the exact saved design without editing the source.
+          </p>
+          <Button variant="primary" disabled={busy} onClick={() => void load()}>
+            Start presentation
+          </Button>
+        </div>
       ) : (
         <>
-          <div className="panel-toolbar action-cluster">
+          {state && (
+            <div className="presentation-body">
+              <div
+                className="presentation-stage"
+                role="group"
+                aria-label="Presentation slide"
+              >
+                {props.renderPreview(state.page_id, 'stage')}
+              </div>
+              <aside className="presentation-notes" aria-label="Speaker notes">
+                <h4>Speaker notes</h4>
+                <p>{state.notes || 'No speaker notes for this slide.'}</p>
+              </aside>
+            </div>
+          )}
+          <div className="presentation-controls action-cluster">
             <Button
               disabled={busy || !state || state.page_index === 0}
               onClick={() => state && void load(state.page_index - 1)}
@@ -234,89 +314,72 @@ export default function ArtifactPresentation(props: ArtifactPresentationProps) {
             >
               Next slide
             </Button>
-            <Button
-              onClick={() => {
-                if (!host.current?.requestFullscreen) {
-                  setError('Fullscreen is unavailable in this browser.');
-                  return;
-                }
-                void host.current
-                  .requestFullscreen()
-                  .catch(() => setError('Fullscreen was not permitted.'));
-              }}
-            >
-              Fullscreen
-            </Button>
+            {!props.fullscreen && (
+              <Button
+                onClick={() => {
+                  if (!host.current?.requestFullscreen) {
+                    setError('Fullscreen is unavailable in this browser.');
+                    return;
+                  }
+                  void host.current
+                    .requestFullscreen()
+                    .catch(() => setError('Fullscreen was not permitted.'));
+                }}
+              >
+                Fullscreen
+              </Button>
+            )}
             {props.openAudience && (
               <Button onClick={() => void audience()}>
                 Open audience window
               </Button>
             )}
-            <Button onClick={end}>End presentation</Button>
+            <Button
+              aria-pressed={thumbnails}
+              onClick={() => setThumbnails((value) => !value)}
+            >
+              Slide thumbnails
+            </Button>
+            <Button variant="primary" onClick={end}>
+              End presentation
+            </Button>
           </div>
-          {state && (
-            <>
-              <p aria-live="polite">
-                Slide {state.page_index + 1} of {state.page_count}:{' '}
-                {state.title}
-              </p>
-              <div role="group" aria-label="Presentation slide">
-                {props.renderPreview(state.page_id, 'stage')}
-              </div>
-              <aside className="capability-section" aria-label="Speaker notes">
-                <h4>Speaker notes</h4>
-                <p style={{ whiteSpace: 'pre-wrap' }}>
-                  {state.notes || 'No speaker notes for this slide.'}
-                </p>
-              </aside>
-              <p role="timer" aria-label="Presentation elapsed time">
-                {String(Math.floor(elapsed / 60)).padStart(2, '0')}:
-                {String(elapsed % 60).padStart(2, '0')}
-              </p>
+          {state && thumbnails && (
+            <nav
+              className="presentation-thumbnails"
+              aria-label="Slide thumbnails"
+            >
               <Button
-                aria-pressed={thumbnails}
-                onClick={() => setThumbnails((value) => !value)}
+                disabled={busy}
+                onClick={() => void load(state.page_index)}
               >
-                Slide thumbnails
+                First thumbnails
               </Button>
-              {thumbnails && (
-                <nav
-                  className="capability-section stack"
-                  aria-label="Slide thumbnails"
-                >
+              {state.pages.map((page) => (
+                <div key={page.id} className="presentation-thumbnail">
                   <Button
                     disabled={busy}
-                    onClick={() => void load(state.page_index)}
+                    aria-current={
+                      page.id === state.page_id ? 'page' : undefined
+                    }
+                    onClick={() => void load(page.index)}
                   >
-                    First thumbnails
+                    {page.index + 1}. {page.title}
                   </Button>
-                  {state.pages.map((page) => (
-                    <div key={page.id}>
-                      <Button
-                        disabled={busy}
-                        aria-current={
-                          page.id === state.page_id ? 'page' : undefined
-                        }
-                        onClick={() => void load(page.index)}
-                      >
-                        {page.index + 1}. {page.title}
-                      </Button>
-                      {props.renderPreview(page.id, 'thumbnail')}
-                    </div>
-                  ))}
-                  {state.next_cursor && (
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void load(state.page_index, state.next_cursor!)
-                      }
-                    >
-                      More slides
-                    </Button>
-                  )}
-                </nav>
+                  {props.renderPreview(page.id, 'thumbnail')}
+                </div>
+              ))}
+              {state.next_cursor && (
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    void load(state.page_index, state.next_cursor!)
+                  }
+                >
+                  More slides
+                </Button>
               )}
-            </>
+            </nav>
           )}
         </>
       )}

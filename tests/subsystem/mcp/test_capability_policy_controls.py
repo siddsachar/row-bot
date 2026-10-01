@@ -60,7 +60,7 @@ def execute(value, **callbacks):
     ("utility_enabled", {"utility": "resources"}), ("utility_enabled", {"utility": "prompts"})])
 def test_each_saved_policy_control_preserves_unknowns_and_never_runs_connections(owner, monkeypatch, operation, fields):
     from row_bot.mcp_client import runtime
-    for name in ("discover_enabled_servers", "stop_server", "shutdown", "refresh_server", "probe_server", "_schedule"):
+    for name in ("discover_enabled_servers", "stop_server", "shutdown", "probe_server", "_schedule"):
         monkeypatch.setattr(runtime, name, lambda *_a, **_k: pytest.fail("Saved policy must not run a connection effect"))
     value = command(operation, enabled=operation == "tool_approval", **fields)
     reviewed = controls.review_mcp_policy_command(**value["payload"], validate=lambda: None)

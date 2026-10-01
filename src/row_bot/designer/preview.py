@@ -1,23 +1,17 @@
-"""Designer — interactive iframe preview engine with aspect-ratio container, zoom, and JS bridge."""
+"""Designer page rendering: brand variables, logo, isolation and multi-route HTML."""
 
 from __future__ import annotations
 
 import base64
 import json
 import logging
-import secrets
 from typing import Any
 
-from row_bot.designer.render_assets import resolve_project_image_sources, resolve_project_media_sources
+from row_bot.designer.render_assets import resolve_project_media_sources
 from row_bot.designer.storage import load_asset_bytes
 from row_bot.designer.state import DesignerProject, BrandConfig
-from row_bot.designer.interaction import inject_bridge_js
 
 logger = logging.getLogger(__name__)
-
-# Zoom levels
-ZOOM_LEVELS = {"Fit": None, "50%": 0.5, "75%": 0.75, "100%": 1.0}
-
 
 def _build_brand_css(brand: BrandConfig) -> str:
     """Build the <style> block with :root CSS variables and @font-face for a brand."""
@@ -37,6 +31,25 @@ def _build_brand_css(brand: BrandConfig) -> str:
         f" --heading-font: '{brand.heading_font}', {h_fallback};"
         f" --body-font: '{brand.body_font}', {b_fallback};"
         " }\n</style>"
+    )
+
+
+def branded_blank_html(project: DesignerProject, title: str) -> str:
+    """A minimal page in the design's brand, for a new blank page or screen."""
+    brand = project.brand
+    w, h = project.canvas_width, project.canvas_height
+    brand_css = _build_brand_css(brand) if brand else ""
+    return (
+        f"<!DOCTYPE html><html><head>{brand_css}"
+        f"<style>html,body{{margin:0;width:{w}px;height:{h}px;overflow:hidden;"
+        f"background:var(--bg,#0F172A);color:var(--text,#F8FAFC);"
+        f"font-family:var(--body-font,sans-serif);}}"
+        f"h1,h2,h3,h4{{font-family:var(--heading-font,sans-serif);}}</style>"
+        f"</head><body>"
+        f"<div style=\"display:flex;align-items:center;justify-content:center;"
+        f"height:100%;\">"
+        f"<h1 style=\"font-size:2.5rem;opacity:0.3;\">{_escape_attr(title)}</h1>"
+        f"</div></body></html>"
     )
 
 
@@ -539,334 +552,3 @@ def update_brand_in_html(html: str, brand: BrandConfig) -> str:
     if "<head>" in html:
         return html.replace("<head>", f"<head>{css}", 1)
     return css + html
-
-
-def build_preview(project: DesignerProject, *,
-                   on_element_click=None, on_text_edit=None,
-                   on_undo_shortcut=None, on_redo_shortcut=None,
-                   on_navigate=None) -> dict:
-    """Build the preview panel returning a dict with refresh_fn and zoom control.
-
-    Returns ``{"refresh": callable, "container": ui.element}``.
-
-    Parameters
-    ----------
-    on_element_click : callable, optional
-        Called with element info dict when user clicks an element in the preview.
-    on_text_edit : callable, optional
-        Called with edit detail dict when user finishes inline text editing.
-    on_undo_shortcut : callable, optional
-        Called when the preview iframe forwards a designer undo shortcut.
-    on_redo_shortcut : callable, optional
-        Called when the preview iframe forwards a designer redo shortcut.
-    on_navigate : callable, optional
-        Called when the page structure or active page changes (e.g. agent added
-        or deleted a page).  The page navigator uses this to re-render.
-    """
-    from nicegui import ui
-
-    _last_html: list[str | None] = [None]
-    _last_inputs: list[tuple[Any, ...] | None] = [None]
-    _bridge_identity = ["", ""]
-    _last_structure: list[tuple[int, int, int, int]] = [
-        (len(project.pages), project.active_page,
-         project.canvas_width, project.canvas_height)
-    ]
-    # Fingerprint of every page's title+html so we can detect agent edits
-    # that mutate a page in place (no structural change) and still rebuild
-    # the navigator thumbnails. Uses hash() per-page to stay cheap; a tuple
-    # of ints is trivial to compare on each poll tick.
-    def _content_fingerprint() -> tuple[int, ...]:
-        return tuple(hash((p.title, p.html)) for p in project.pages)
-    _last_content: list[tuple[int, ...]] = [_content_fingerprint()]
-    _iframe_id = f"designer-preview-{secrets.token_hex(12)}"
-    _zoom_value: list[str] = ["Fit"]
-    # "authoring" = the designer-side click/edit bridge that captures clicks
-    # to drive the hotspot recorder and inline text editor. This is ON by
-    # default when the caller registers element_click/text_edit handlers.
-    _authoring_enabled: bool = on_element_click is not None or on_text_edit is not None
-    # Preview mode toggle — when True we suppress the authoring bridge so
-    # clicks flow through to the runtime bridge (navigate/toggle_state/etc.)
-    # and the user can test interactive prototypes without leaving the editor.
-    # Exposed via the returned dict so the toolbar can flip it.
-    _preview_mode: list[bool] = [False]
-    # Scripts must be allowed for any interactive-mode project so the runtime
-    # bridge can run, independent of whether authoring is active.
-    _scripts_allowed: bool = _authoring_enabled or (
-        getattr(project, "mode", "deck") in INTERACTIVE_MODES
-    )
-
-    with ui.column().classes("w-full h-full").style("position: relative;") as container:
-        # Zoom controls bar
-        with ui.row().classes("w-full items-center justify-end gap-2").style(
-            "padding: 4px 8px; background: rgba(0,0,0,0.3); border-radius: 8px 8px 0 0;"
-        ):
-            ui.label("Zoom:").classes("text-xs text-grey-5")
-            for label in ZOOM_LEVELS:
-                def _set_zoom(lbl=label):
-                    _zoom_value[0] = lbl
-                    _apply_zoom()
-                ui.button(label, on_click=_set_zoom).props(
-                    "flat dense no-caps size=xs"
-                ).style("font-size: 0.7rem;")
-
-        # Aspect-ratio container
-        ratio = project.canvas_width / project.canvas_height
-        _sandbox = "allow-scripts" if _scripts_allowed else ""
-        _chrome = get_preview_chrome(project)
-        with ui.element("div").classes("w-full flex-grow").style(
-            "display: flex; align-items: center; justify-content: center;"
-            "overflow: hidden; background: #111;"
-        ) as _ratio_wrap:
-            # Sized wrapper — JS will set width/height to the scaled dims
-            _wrapper_id = f"{_iframe_id}-wrapper"
-            _iframe_markup = (
-                f'<iframe id="{_iframe_id}" '
-                f'sandbox="{_sandbox}" '
-                f'style="border: none; background: white; '
-                f'width: {project.canvas_width}px; height: {project.canvas_height}px; '
-                f'transform-origin: top left; position: absolute; top: 0; left: 0;" '
-                f'></iframe>'
-            )
-            if _chrome.get("kind") == "phone":
-                _inner_html = (
-                    f'<div style="{_chrome["bezel_style"]}">'
-                    f'<div style="{_chrome["notch_style"]}"></div>'
-                    f'<div id="{_wrapper_id}" style="{_chrome["screen_style"]}'
-                    "overflow: hidden;\">"
-                    f"{_iframe_markup}"
-                    "</div>"
-                    "</div>"
-                )
-            else:
-                _inner_html = (
-                    f'<div id="{_wrapper_id}" style="position: relative; overflow: hidden;">'
-                    f"{_iframe_markup}"
-                    "</div>"
-                )
-            ui.html(_inner_html, sanitize=False)
-
-    def _apply_zoom():
-        zoom = ZOOM_LEVELS.get(_zoom_value[0])
-        if zoom is None:
-            # Fit: scale iframe and size wrapper to match
-            js = f'''
-                (function() {{
-                    var iframe = document.getElementById("{_iframe_id}");
-                    var wrapper = document.getElementById("{_wrapper_id}");
-                    if (!iframe || !wrapper) return;
-                    var container = wrapper.closest(".flex-grow");
-                    if (!container) return;
-                    var pw = container.clientWidth;
-                    var ph = container.clientHeight;
-                    var scale = Math.min(pw / {project.canvas_width}, ph / {project.canvas_height});
-                    iframe.style.transform = "scale(" + scale + ")";
-                    wrapper.style.width = Math.ceil({project.canvas_width} * scale) + "px";
-                    wrapper.style.height = Math.ceil({project.canvas_height} * scale) + "px";
-                }})();
-            '''
-        else:
-            js = f'''
-                (function() {{
-                    var iframe = document.getElementById("{_iframe_id}");
-                    var wrapper = document.getElementById("{_wrapper_id}");
-                    if (!iframe) return;
-                    iframe.style.transform = "scale({zoom})";
-                    if (wrapper) {{
-                        wrapper.style.width = Math.ceil({project.canvas_width} * {zoom}) + "px";
-                        wrapper.style.height = Math.ceil({project.canvas_height} * {zoom}) + "px";
-                    }}
-                }})();
-            '''
-        ui.run_javascript(js)
-
-    def _refresh(force: bool = False):
-        """Refresh the preview iframe with current page HTML.
-
-        When ``force`` is true, bypass the HTML cache guard and hard-reload the
-        iframe srcdoc. This is used after undo/redo style state restores where
-        the preview DOM may have diverged from the stored page HTML.
-        """
-        if not project.pages:
-            return
-        inputs = preview_fingerprint(project, preview_mode=_preview_mode[0])
-        if not force and inputs == _last_inputs[0]:
-            return
-        # Detect structural changes (page added/deleted/navigated/resized)
-        cur_structure = (len(project.pages), project.active_page,
-                         project.canvas_width, project.canvas_height)
-        structure_changed = cur_structure != _last_structure[0]
-        dims_changed = (cur_structure[2] != _last_structure[0][2] or
-                        cur_structure[3] != _last_structure[0][3])
-        # Detect per-page content changes (agent edits a slide in place)
-        cur_content = _content_fingerprint()
-        content_changed = cur_content != _last_content[0]
-        if structure_changed:
-            _last_structure[0] = cur_structure
-        if content_changed:
-            _last_content[0] = cur_content
-        # Nav bar must rebuild whenever structure OR page content changed
-        # so thumbnails reflect the latest HTML. Without the content check
-        # an agent-driven designer_update_page leaves the thumbnail stale
-        # until the user clicks the page tile.
-        if (structure_changed or content_changed) and on_navigate:
-            on_navigate()
-        # If canvas dimensions changed, resize the iframe element
-        if dims_changed:
-            cw, ch = project.canvas_width, project.canvas_height
-            ui.run_javascript(f'''
-                (function() {{
-                    var iframe = document.getElementById("{_iframe_id}");
-                    if (iframe) {{
-                        iframe.style.width = "{cw}px";
-                        iframe.style.height = "{ch}px";
-                    }}
-                }})();
-            ''')
-        idx = max(0, min(project.active_page, len(project.pages) - 1))
-        page = project.pages[idx]
-        _is_interactive_mode = (
-            getattr(project, "mode", "deck") in INTERACTIVE_MODES
-        )
-        if _is_interactive_mode:
-            route_ids = _ensure_page_route_ids(project)
-            active_route = route_ids[idx] if idx < len(route_ids) else None
-            html = render_multi_route_html(project, active_route_id=active_route)
-        else:
-            html = render_page_html(project, page.html, page_index=idx)
-        # Inject the authoring (click/edit capture) bridge only when the
-        # caller wired authoring handlers AND the user is NOT in preview
-        # mode. Preview mode lets clicks reach the runtime bridge so
-        # interactive prototypes can be exercised from the editor.
-        if _authoring_enabled and not _preview_mode[0]:
-            _bridge_identity[:] = [secrets.token_hex(16), secrets.token_hex(32)]
-            html = inject_bridge_js(html, preview_id=_iframe_id,
-                                    revision=_bridge_identity[0], capability=_bridge_identity[1])
-        else:
-            _bridge_identity[:] = ["", ""]
-        html = isolate_preview_html(html, scripts=_scripts_allowed, brand=project.brand)
-        if inputs != preview_fingerprint(project, preview_mode=_preview_mode[0]):
-            return  # A background edit won; the next tick renders its revision.
-        if not force and html == _last_html[0] and not structure_changed:
-            return
-        safe_html = json.dumps(html)
-        if force:
-            js = f'''
-                (function() {{
-                    var iframe = document.getElementById("{_iframe_id}");
-                    if (!iframe) return;
-                    var replacement = iframe.cloneNode(false);
-                    iframe.replaceWith(replacement);
-                    replacement.dataset.previewRevision = {json.dumps(_bridge_identity[0])};
-                    replacement.dataset.previewCapability = {json.dumps(_bridge_identity[1])};
-                    replacement.srcdoc = {safe_html};
-                }})();
-            '''
-        else:
-            js = f'''
-                (function() {{
-                    var iframe = document.getElementById("{_iframe_id}");
-                    if (iframe) {{
-                        iframe.dataset.previewRevision = {json.dumps(_bridge_identity[0])};
-                        iframe.dataset.previewCapability = {json.dumps(_bridge_identity[1])};
-                        iframe.srcdoc = {safe_html};
-                    }}
-                }})();
-            '''
-        ui.run_javascript(js)
-        _last_html[0] = html
-        _last_inputs[0] = inputs
-        # Re-apply zoom after content change
-        _apply_zoom()
-
-    # Initial render + poll timer
-    _refresh()
-
-    def _safe_refresh():
-        try:
-            _refresh()
-        except RuntimeError:
-            try:
-                _refresh_timer.deactivate()
-            except Exception:
-                pass
-            pass  # parent slot deleted — page navigated away
-    _refresh_timer = ui.timer(0.5, _safe_refresh)
-    try:
-        ui.context.client.on_disconnect(lambda: _refresh_timer.deactivate())
-    except Exception:
-        pass
-
-    # Register parent-side message listener for interactive bridge
-    if _authoring_enabled:
-        _setup_message_listener(
-            iframe_id=_iframe_id,
-            current_identity=lambda: tuple(_bridge_identity),
-            on_element_click=on_element_click,
-            on_text_edit=on_text_edit,
-            on_undo_shortcut=on_undo_shortcut,
-            on_redo_shortcut=on_redo_shortcut,
-        )
-
-    def _set_preview_mode(enabled: bool) -> None:
-        """Toggle preview mode (suppresses the authoring click/edit bridge).
-
-        Forces a full iframe reload so the sandboxed document reflects the
-        new bridge-injection state.
-        """
-        new_val = bool(enabled)
-        if _preview_mode[0] == new_val:
-            return
-        _preview_mode[0] = new_val
-        try:
-            _refresh(force=True)
-        except Exception:
-            pass
-
-    return {
-        "refresh": _refresh,
-        "force_refresh": lambda: _refresh(force=True),
-        "container": container,
-        "set_preview_mode": _set_preview_mode,
-        "is_preview_mode": lambda: _preview_mode[0],
-        "supports_preview_mode": _authoring_enabled,
-    }
-
-
-def _setup_message_listener(
-    *,
-    iframe_id: str,
-    current_identity,
-    on_element_click=None,
-    on_text_edit=None,
-    on_undo_shortcut=None,
-    on_redo_shortcut=None,
-):
-    """Register a window.message listener that forwards iframe events to Python."""
-    from nicegui import ui
-    from row_bot.designer.interaction import get_parent_listener_js, validate_bridge_event
-    # Use a hidden NiceGUI element to receive events from JS
-    bridge = ui.element("div").style("display:none;")
-
-    def _handle_bridge_event(e):
-        data = e.args or {}
-        revision, capability = current_identity()
-        if not validate_bridge_event(data, preview_id=iframe_id,
-                                     revision=revision, capability=capability):
-            return
-        msg_type = data.get("msgType", "")
-        detail = data.get("detail", {})
-        if msg_type == "element-click" and on_element_click:
-            on_element_click(detail)
-        elif msg_type == "text-edit" and on_text_edit:
-            on_text_edit(detail)
-        elif msg_type == "designer-undo-shortcut" and on_undo_shortcut:
-            on_undo_shortcut()
-        elif msg_type == "designer-redo-shortcut" and on_redo_shortcut:
-            on_redo_shortcut()
-
-    bridge.on("bridge_msg", _handle_bridge_event,
-              args=["msgType", "detail", "previewId", "revision", "capability"])
-
-    # Register JS listener that forwards postMessage events to the bridge element
-    ui.run_javascript(get_parent_listener_js(str(bridge.id), iframe_id=iframe_id))

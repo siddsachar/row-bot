@@ -120,9 +120,7 @@ it('settles a late uncertain save after unmount and reads only its original rece
   expect(
     screen.queryByRole('button', { name: 'Discard unsent default' }),
   ).not.toBeInTheDocument();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check original default receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Check default model' }));
   await waitFor(() =>
     expect(props.receipt).toHaveBeenCalledWith(
       originalId,

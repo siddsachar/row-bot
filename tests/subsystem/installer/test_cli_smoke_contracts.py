@@ -6,23 +6,7 @@ import sys
 import pytest
 
 
-pytestmark = [pytest.mark.subsystem, pytest.mark.installer]
-
-
-def test_smoke_app_skips_live_launch_when_port_is_already_in_use(monkeypatch, tmp_path) -> None:
-    import scripts.smoke_app as smoke_app
-
-    monkeypatch.setattr(smoke_app, "_port_open", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        smoke_app.subprocess,
-        "Popen",
-        lambda *_args, **_kwargs: pytest.fail("Popen should not be called when port is already open"),
-    )
-
-    result = smoke_app.run_app_smoke(cwd=tmp_path, port=8123, timeout=0.1)
-
-    assert result.ok is True
-    assert result.messages == [("WARN", "port 8123 already in use; skipping live launch")]
+pytestmark = [pytest.mark.subsystem, pytest.mark.installer, pytest.mark.platform]
 
 
 def test_smoke_app_main_parses_command_and_returns_status(monkeypatch, capsys) -> None:
@@ -61,7 +45,8 @@ def test_smoke_app_main_parses_command_and_returns_status(monkeypatch, capsys) -
     assert captured["timeout"] == 3
     assert captured["check_root"] is False
     assert captured["public_probes"] is True
-    assert captured["command"] == ["python", "app.py"]
+    # A bare `python` runs with the smoke's own interpreter (the virtual environment's).
+    assert captured["command"] == [sys.executable, "app.py"]
     assert "[PASS] fake smoke" in capsys.readouterr().out
 
 
@@ -124,6 +109,8 @@ def test_smoke_app_selects_authenticated_or_public_probe_contract(
     monkeypatch.setattr(smoke_app, "_port_open", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(smoke_app.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(smoke_app.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(smoke_app, "_http_get", lambda url: (
+        (307, "/app-v2/", b"") if url.endswith(":8125/") else (200, "", b'<div id="root"></div>')))
 
     result = smoke_app.run_app_smoke(
         command=["python", "app.py"],

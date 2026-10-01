@@ -314,9 +314,11 @@ class ClientSecurity:
         # View navigation and observing a run must not consume its Stop/approval
         # reserve. Each lane is still bounded; subscription and stream ownership
         # additionally retain their independent concurrent admission limits.
+        # The desktop terminal sends each typed key and reads its echo about
+        # once a frame, so it has its own lane (B248).
         capacity, per_minute = {"query": (30, 120), "mutation": (10, 60), "control": (20, 20),
                                "view": (60, 240), "observation": (120, 600),
-                               "acknowledgement": (30, 180)}[lane]
+                               "acknowledgement": (30, 180), "terminal": (240, 7200)}[lane]
         with self._lock:
             now = self.clock()
             tokens, then = session.buckets.get(lane, (float(capacity), now))

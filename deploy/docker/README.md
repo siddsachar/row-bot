@@ -371,8 +371,8 @@ arguments, command line, or image layers.
 - Host fonts, a desktop display server, and GPU acceleration are not assumed.
   The image supplies its own common fonts but rendering can differ from a
   desktop that has additional fonts.
-- NiceGUI runs as a single process. Do not scale this service to multiple
-  workers against the same data volume.
+- Row-Bot runs as a single process (in-memory sessions and schedulers). Do not
+  scale this service to multiple workers against the same data volume.
 - Public HTTPS hosting remains an explicit operator choice. Review rate limits,
   recovery, logs, backups, and reverse-proxy behavior before exposing it.
 

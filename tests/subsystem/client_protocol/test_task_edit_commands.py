@@ -111,6 +111,42 @@ def test_revision_bound_delete_preserves_audit_ownership(task_api, fields):
         assert send(client, headers, command).json() == deleted.json()
 
 
+def test_duplicate_is_a_revision_bound_copy_without_schedule_or_webhook(task_api, fields):
+    """Parity row 18: Duplicate workflow makes "<name> (copy)" once, never runs it."""
+    from dataclasses import replace
+
+    service, tasks = task_api
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        source = replace(fields, schedule="daily:09:30", channels=("telegram",))
+        created = send(client, headers, body(headers, source)).json()
+        tasks.update_task(created["task_id"], trigger={"type": "webhook", "secret": "s" * 32})
+        revision = client.get(f"/api/v1/tasks/{created['task_id']}/editing", headers=headers).json()["revision"]
+        command = {
+            "command_id": str(uuid4()),
+            "client_session_id": headers["X-Client-Session"],
+            "type": "task.duplicate",
+            "expected_revision": "0",
+            "payload": {"task_id": created["task_id"], "task_revision": revision},
+        }
+        copied = send(client, headers, command)
+        assert copied.status_code == 200, copied.text
+        receipt = copied.json()
+        assert receipt["task_created"] is True and receipt["task_id"] != created["task_id"]
+        copy = tasks.get_task(receipt["task_id"])
+        assert copy["name"] == f"{fields.name} (copy)"
+        assert copy["prompts"] == list(fields.prompts) and copy["channels"] == ["telegram"]
+        assert copy["schedule"] is None and copy["at"] is None and not copy.get("trigger")
+        # B177: a copy starts switched off, whatever the original was.
+        assert copy["enabled"] is False
+        assert send(client, headers, command).json() == receipt
+        assert len(tasks.list_tasks()) == 2 and tasks.get_recent_runs() == []
+        stale = {**command, "command_id": str(uuid4()), "payload": {**command["payload"], "task_revision": "0" * 64}}
+        refused = send(client, headers, stale)
+        assert refused.status_code == 409 and refused.json()["code"] == "task_revision_conflict"
+        assert len(tasks.list_tasks()) == 2
+
+
 def test_delivery_defaults_are_passive_revision_bound_and_idempotent(
     task_api, monkeypatch
 ):
@@ -255,3 +291,43 @@ def test_task_commands_cannot_use_conversation_route(task_api, fields):
             headers={**headers, "Idempotency-Key": command["command_id"]},
         )
         assert response.status_code == 422 and tasks.list_tasks() == []
+
+
+def test_a_finished_past_once_workflow_can_be_switched_off(task_api):
+    """B150: the enable switch of a one-off that already ran answered 503."""
+    service, tasks = task_api
+    import sqlite3
+    from contextlib import closing
+
+    row = {
+        "id": "b150-once", "name": "[synthetic] finished once", "description": "", "icon": "⚡",
+        "prompts": '["Reply with just the word NOTICE."]', "schedule": None, "at": "2026-09-28T13:11",
+        "notify_only": 0, "notify_label": "", "enabled": 1, "last_run": "2026-09-28T13:11:08.920557",
+        "created_at": "2026-09-28T13:04:46.526999", "sort_order": 0, "delivery_channel": None,
+        "delivery_target": None, "model_override": None, "persistent_thread_id": None,
+        "delete_after_run": 0, "allowed_commands": "[]", "allowed_recipients": "[]",
+        "skills_override": None, "steps": "[]", "safety_mode": "block", "concurrency_group": None,
+        "trigger": None, "tools_override": None, "channels": "[]", "advanced_mode": 0,
+        "agent_profile_id": "builtin:row_bot_default", "profile_migration_status": "not_needed",
+        "profile_migration_note": "Profile-first workflow.", "profile_migration_snapshot_json": "{}",
+        "automation_kind": "workflow", "automation_subtype": "",
+    }
+    with closing(sqlite3.connect(tasks._DB_PATH)) as conn, conn:
+        columns = {info[1] for info in conn.execute("PRAGMA table_info(tasks)")}
+        row = {key: value for key, value in row.items() if key in columns}
+        conn.execute(f"INSERT INTO tasks ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})",
+                     list(row.values()))
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        editor = client.get("/api/v1/tasks/b150-once/editing", headers=headers)
+        assert editor.status_code == 200, editor.text
+        state = editor.json()
+        command = {
+            "command_id": str(uuid4()), "client_session_id": headers["X-Client-Session"],
+            "type": "task.update", "expected_revision": "0",
+            "payload": {"fields": {**state["fields"], "enabled": False},
+                        "task_id": "b150-once", "task_revision": state["revision"]},
+        }
+        switched = send(client, headers, command)
+        assert switched.status_code == 200, switched.text
+        assert tasks.get_task("b150-once")["enabled"] is False

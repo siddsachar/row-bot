@@ -68,6 +68,7 @@ _CORE_TOOL_MODULES = (
     "row_bot.tools.row_bot_status_tool",
     "row_bot.tools.agent_tool",
     "row_bot.tools.goal_tool",
+    "row_bot.tools.conversation_setup_tool",
     "row_bot.tools.updater_tool",
 )
 

@@ -137,6 +137,8 @@ it('starts a generated look in one click and releases settled command state', as
       onSettings={() => {}}
     />,
   );
+  // The generation flow opens from the last look tile (B258).
+  fireEvent.click(await screen.findByRole('button', { name: /New look/ }));
   await screen.findByLabelText('Describe your Buddy');
   fireEvent.change(screen.getByLabelText('Describe your Buddy'), {
     target: { value: 'Synthetic look' },

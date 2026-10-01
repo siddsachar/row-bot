@@ -69,6 +69,29 @@
       "const": 1,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "system_available": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "System Available"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Version"
     }
   },
   "required": [
@@ -78,7 +101,9 @@
     "availability",
     "installed",
     "active_command_id",
-    "quiesced"
+    "quiesced",
+    "version",
+    "system_available"
   ],
   "title": "RuntimeInstallationSnapshot",
   "type": "object"

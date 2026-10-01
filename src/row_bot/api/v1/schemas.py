@@ -120,6 +120,7 @@ class CreatePayload(WireModel):
     title: Annotated[str, StringConstraints(min_length=1, max_length=256)] = (
         "New conversation"
     )
+    agent_profile_id: str = Field(default="", max_length=256)
 
 
 class PinPayload(WireModel):
@@ -166,11 +167,12 @@ class ConversationActionPinFields(WireModel):
 
 
 class ConversationActionExportFields(WireModel):
-    pass
+    format: Literal["markdown", "pdf"] | None = None
 
 
 class ConversationActionExportReviewFields(WireModel):
     title: str = Field(max_length=256)
+    format: Literal["pdf"] | None = None
 
 
 CONVERSATION_ACTION_REVIEW_PAYLOADS = {
@@ -240,6 +242,7 @@ class ConversationActionPinPayload(ConversationActionCommandBase):
 
 class ConversationActionExportPayload(ConversationActionCommandBase):
     export_title: str = Field(max_length=256)
+    export_format: Literal["markdown", "pdf"] | None = None
 
 
 CONVERSATION_ACTION_COMMAND_PAYLOADS = {
@@ -279,7 +282,7 @@ class ConversationActionConversation(WireModel):
 
 class ConversationActionExport(WireModel):
     attachment_ref: Reference
-    file_name: Literal["conversation-export.md"]
+    file_name: Literal["conversation-export.md", "conversation-export.pdf"]
     size_bytes: int = Field(ge=0, le=8 * 1024 * 1024)
     checkpoint_revision: str = Field(max_length=128)
 
@@ -407,6 +410,58 @@ class BrowserReceipt(WireModel):
     code: str | None = Field(max_length=128)
     revision: BrowserRevision | None
     browser_control: BrowserControlSnapshot | None
+
+
+ComputerUseAction = Literal[
+    "computer_use.stop",
+    "computer_use.pause",
+    "computer_use.resume",
+]
+
+
+class ComputerUseSnapshot(WireModel):
+    """The conversation's computer-use card: plain state and what it can do."""
+
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    revision: BrowserRevision
+    # A session belongs to this conversation (it may be paused).
+    active: bool
+    state: Literal["working", "paused", "waiting_approval", "needs_attention", "stopped"]
+    app: str = Field(max_length=120)
+    has_picture: bool
+    # The approval the paused turn waits on; Resume answers it.
+    approval_id: OpaqueId | None
+    can_pause: bool
+    can_resume: bool
+    can_stop: bool
+
+
+class ComputerUsePreview(WireModel):
+    """The latest picture, from memory only; never stored or cached."""
+
+    schema_version: Literal[1]
+    conversation_id: OpaqueId
+    revision: BrowserRevision
+    state: Literal["available", "waiting", "hidden", "inactive"]
+    mime_type: Literal["image/png", "image/jpeg"] | None = None
+    image_base64: str | None = Field(default=None, max_length=2_000_000)
+
+
+class ComputerUseCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    type: ComputerUseAction
+
+
+class ComputerUseReceipt(WireModel):
+    schema_version: Literal[1]
+    command_id: UUID
+    action: ComputerUseAction
+    conversation_id: OpaqueId
+    status: Literal["completed", "partial", "rejected"]
+    code: str | None = Field(max_length=128)
+    computer_use: ComputerUseSnapshot | None
 
 
 class StopPayload(WireModel):
@@ -638,6 +693,7 @@ class VoiceRuntimeSettingsSnapshot(WireModel):
 
 class VoiceLocalSettingsSnapshot(WireModel):
     whisper_model: Literal["tiny", "base", "small", "medium"]
+    whisper_installed: bool = False
     sensevoice_path_configured: bool
     runtime_state: Literal["cached_unknown"]
 
@@ -705,8 +761,10 @@ class SettingsFileOperationsSnapshot(SettingsToggleSnapshot):
 class SettingsTunnelSnapshot(WireModel):
     provider: str = Field(max_length=64)
     credential: SettingsCredentialState
-    runtime_state: Literal["not_checked"]
+    # What this server process is doing now (read locally, no network).
+    runtime_state: Literal["active", "failed", "idle", "not_configured", "not_checked"]
     active_count: int | None = Field(ge=0)
+    last_error: str | None = Field(default=None, max_length=500)
     main_app_enabled: bool
     main_app_url: str | None = Field(max_length=512)
     local_owner_control_available: bool
@@ -788,6 +846,16 @@ class KnowledgeSettingsSnapshot(WireModel):
     status_counts: KnowledgeStatusCounts = Field(default_factory=KnowledgeStatusCounts)
 
 
+class WikiTidySummary(WireModel):
+    """The vault's one-time naming tidy: readable articles, hashed copies moved."""
+
+    date: str = Field(max_length=32)
+    tidied: int = Field(ge=0)
+    moved: int = Field(ge=0)
+    folder: str = Field(max_length=512)
+    review: list[Annotated[str, StringConstraints(max_length=512)]] = Field(default_factory=list, max_length=50)
+
+
 class WikiSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     enabled: bool
@@ -795,6 +863,7 @@ class WikiSettingsSnapshot(WireModel):
     path_state: Literal["available", "missing", "not_local", "unavailable"]
     articles: int = Field(ge=0)
     conversations: int = Field(ge=0)
+    tidy: WikiTidySummary | None = None
 
 
 class DocumentEmbeddingSettingsSnapshot(WireModel):
@@ -830,6 +899,8 @@ class DocumentRuntimeStatus(WireModel):
 class DocumentSettingsSnapshot(WireModel):
     availability: Literal["available", "unavailable"]
     embedding: DocumentEmbeddingSettingsSnapshot
+    # The model picked for document processing; "" follows the conversation.
+    processing_model: str = Field(default="", max_length=512)
     indexed_documents: int | None = Field(default=None, ge=0)
     active_embedding: str = Field(default="", max_length=256)
     document_vectors: DocumentRuntimeStatus = Field(
@@ -882,6 +953,8 @@ class AccountSettingsItem(WireModel):
     authentication_state: Literal[
         "not_configured",
         "not_authenticated",
+        "connected",
+        "invalid",
         "configured_unchecked",
         "saved_unchecked",
         "expired",
@@ -900,6 +973,9 @@ class AccountSettingsItem(WireModel):
     engage_operations: list[Annotated[str, StringConstraints(max_length=128)]] = Field(
         max_length=128
     )
+    # The address to register with the provider (X's fixed OAuth callback),
+    # shown with Copy in the account's connect sheet (parity row 45).
+    callback_url: str | None = Field(default=None, max_length=512)
 
 
 class AccountSettingsSnapshot(WireModel):
@@ -961,6 +1037,7 @@ class SkillHubSearchRequest(WireModel):
         "all"
     )
     refresh: bool = False
+    limit: int = Field(default=24, ge=1, le=96)
 
 
 class SkillHubSearchResult(WireModel):
@@ -968,7 +1045,8 @@ class SkillHubSearchResult(WireModel):
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     mode: str = Field(max_length=40)
     query: str = Field(max_length=2000)
-    entries: list[SkillHubEntryView] = Field(max_length=24)
+    entries: list[SkillHubEntryView] = Field(max_length=96)
+    has_more: bool
     source_statuses: list[SkillHubSourceStatus] = Field(max_length=12)
     error: str = Field(max_length=500)
 
@@ -996,6 +1074,7 @@ class SkillHubPreview(WireModel):
     preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     entry: SkillHubEntryView
+    skill_name: str = Field(max_length=160)
     primary_text: str = Field(max_length=6000)
     files: list[str] = Field(max_length=100)
     scan: SkillHubScanView
@@ -1061,7 +1140,17 @@ class AccountAuthSnapshot(WireModel):
     account: Literal["google", "x"]
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     configured: bool
-    state: Literal["not_configured", "not_authenticated", "saved_unchecked", "partial"]
+    # From the last check while the token files are as it left them (B263).
+    state: Literal[
+        "not_configured",
+        "not_authenticated",
+        "saved_unchecked",
+        "partial",
+        "connected",
+        "invalid",
+        "expired",
+        "unavailable",
+    ]
     token_files: int = Field(ge=0, le=2)
 
 
@@ -1133,9 +1222,6 @@ class UpdateSettingsSnapshot(WireModel):
     channel: Literal["stable", "beta"]
     last_check: str | None = Field(max_length=80)
     last_success: str | None = Field(max_length=80)
-    skipped_versions: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
-        max_length=128
-    )
     runtime_state: Literal["cached"]
 
 
@@ -1155,6 +1241,20 @@ class PreferenceSettingsSnapshot(WireModel):
     migration: MigrationSettingsSnapshot
 
 
+SettingsMutationPage = Literal[
+    "voice",
+    "system",
+    "tracker",
+    "knowledge",
+    "documents",
+    "tools",
+    "accounts",
+    "utilities",
+    "preferences",
+]
+SettingsMutationValue = str | bool | int | float | list[str] | None
+
+
 class SettingsSnapshot(WireModel):
     schema_version: Literal[1]
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -1170,20 +1270,13 @@ class SettingsSnapshot(WireModel):
     utilities: UtilitySettingsSnapshot
     plugins: SettingsPluginSummary
     preferences: PreferenceSettingsSnapshot
+    # Per page, what each saved field reads on a fresh profile; clients show
+    # a "modified" mark and a reset for fields that differ.
+    defaults: dict[SettingsMutationPage, dict[str, SettingsMutationValue]] = Field(
+        default_factory=dict
+    )
 
 
-SettingsMutationPage = Literal[
-    "voice",
-    "system",
-    "tracker",
-    "knowledge",
-    "documents",
-    "tools",
-    "accounts",
-    "utilities",
-    "preferences",
-]
-SettingsMutationValue = str | bool | int | float | list[str] | None
 
 
 class SettingsMutationRequest(WireModel):
@@ -1232,6 +1325,19 @@ class SettingsMutationReceipt(WireModel):
     action_result: SettingsActionResult | None = None
 
 
+class TaskRunDigest(WireModel):
+    status: str = Field(max_length=80)
+    started_at: str = Field(max_length=80)
+
+
+class TaskActiveRun(WireModel):
+    id: OpaqueId
+    status: str = Field(max_length=80)
+    started_at: str = Field(max_length=80)
+    steps_done: int = Field(ge=0)
+    steps_total: int = Field(ge=0)
+
+
 class TaskSummary(WireModel):
     id: OpaqueId
     name: str = Field(max_length=256)
@@ -1239,11 +1345,19 @@ class TaskSummary(WireModel):
     icon: str = Field(max_length=32)
     enabled: bool
     notify_only: bool
+    step_count: int = Field(ge=0)
     schedule: str | None = Field(max_length=256)
     at: str | None = Field(max_length=80)
     last_run: str | None = Field(max_length=80)
     last_status: str | None = Field(max_length=80)
     conversation_id: OpaqueId | None
+    # The profile and approval mode a run starts with (B254).
+    agent_profile_id: str = Field(max_length=128)
+    approval_mode: str = Field(max_length=64)
+    # Saved history (newest first) and the saved schedule's next fire time.
+    recent_runs: list[TaskRunDigest] = Field(default_factory=list, max_length=10)
+    active_run: TaskActiveRun | None = None
+    next_run: str | None = Field(default=None, max_length=80)
 
 
 class TaskSummaryPage(WireModel):
@@ -1715,6 +1829,7 @@ class McpDirectoryEntry(WireModel):
     transport: str = Field(max_length=32)
     risk_level: str = Field(max_length=32)
     requires_auth: bool
+    sign_in_required: bool
     recommended: bool
     import_json: str = Field(max_length=8192)
 
@@ -1831,6 +1946,8 @@ class KnowledgeGraphNode(WireModel):
     relation_count: int = Field(ge=0, le=9007199254740991)
     orphan: bool
     is_user: bool
+    status: Literal["active", "needs_review", "superseded", "archived"]
+    tier: Literal["core", "semantic", "episodic", "resource"]
 
 
 class KnowledgeGraphEdge(WireModel):
@@ -1845,12 +1962,12 @@ class KnowledgeGraphSnapshot(WireModel):
     schema_version: Literal[1]
     availability: Literal["available", "missing", "unavailable", "corrupt"]
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    nodes: list[KnowledgeGraphNode] = Field(max_length=250)
-    edges: list[KnowledgeGraphEdge] = Field(max_length=2000)
+    nodes: list[KnowledgeGraphNode] = Field(max_length=5000)
+    edges: list[KnowledgeGraphEdge] = Field(max_length=15000)
     total_entities: int = Field(ge=0, le=9007199254740991)
     total_relations: int = Field(ge=0, le=9007199254740991)
-    shown_entities: int = Field(ge=0, le=250)
-    shown_relations: int = Field(ge=0, le=2000)
+    shown_entities: int = Field(ge=0, le=5000)
+    shown_relations: int = Field(ge=0, le=15000)
     truncated: bool
     center_id: OpaqueId | None
     entity_types: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
@@ -1859,6 +1976,8 @@ class KnowledgeGraphSnapshot(WireModel):
     sources: list[Literal["manual", "extraction", "document", "wiki", "other"]] = Field(
         max_length=5
     )
+    # Every saved memory's status, not only the shown ones (B264).
+    status_counts: KnowledgeStatusCounts
 
 
 MonitorAvailability = Literal["available", "missing", "unavailable", "corrupt"]
@@ -1952,17 +2071,44 @@ class MonitorLogs(WireModel):
     full_available: bool
 
 
+class ProblemFix(WireModel):
+    """The one fix offered with a problem (Phase 18). The client words it and
+    runs it through the owner that does it in Settings: a channel restart or
+    an account sign-in reviewed as there, or opening the exact setting."""
+    kind: Literal["restart_channel", "reconnect_account", "choose_model", "open", "check_again"]
+    # Where it is fixed by hand, an in-app path ("/settings/access#tunnel").
+    href: str | None = Field(max_length=160, pattern=r"^/[A-Za-z0-9/?=&#._:-]{0,159}$")
+    # restart_channel: the channel's id; reconnect_account: "google" or "x".
+    target: str | None = Field(max_length=128)
+    # What it acts on, in words ("Telegram", "Google", "Public link").
+    name: str = Field(max_length=128)
+
+
 class SystemDiagnosisCheck(WireModel):
+    """One check's last result, kept by the server with its time (B252)."""
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9:-]{0,63}$")
     name: str = Field(max_length=128)
     status: Literal["ok", "warn", "error", "inactive"]
     detail: str = Field(max_length=512)
     checked_at: float
     settings_tab: str = Field(max_length=64)
+    # It contacts a provider, an account or the internet.
+    network: bool
+    # Older than its schedule allows ("checked yesterday · Check again").
+    stale: bool
+    # A warning or an error carries its one fix (Phase 18).
+    fix: ProblemFix | None = None
 
 
 class SystemDiagnosis(WireModel):
     schema_version: Literal[1]
+    # "Check connections every hour".
+    hourly_network_checks: bool
     checks: list[SystemDiagnosisCheck] = Field(max_length=64)
+
+
+class SystemDiagnosisSettings(WireModel):
+    hourly_network_checks: bool
 
 
 class UpdateRelease(WireModel):
@@ -1982,8 +2128,9 @@ class UpdateSnapshot(WireModel):
     current_version: str = Field(max_length=64)
     last_check: str | None = Field(max_length=64)
     last_success: str | None = Field(max_length=64)
+    # The skip holding back the release on offer, if any (B261).
     skipped_versions: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
-        max_length=64
+        max_length=1
     )
     available: UpdateRelease | None
     dev_install: bool
@@ -2021,9 +2168,25 @@ class UpdateInstallStatus(WireModel):
 
 class MigrationScanRequest(WireModel):
     provider: Literal["hermes", "openclaw"]
-    source: str = Field(min_length=1, max_length=2048)
+    # Empty: the old app's folder found in its usual place.
+    source: str = Field(default="", max_length=2048)
+    # Or the folder picked with Browse in the desktop app (one use) ...
+    source_grant: OpaqueId | None = None
+    # ... and, for a rescan with other choices, that preview's folder again.
+    same_source_as: UUID | None = None
     target: str = Field(default="", max_length=2048)
     include_secrets: bool = False
+
+
+class MigrationSource(WireModel):
+    provider: Literal["hermes", "openclaw"]
+    label: str = Field(max_length=64)
+    found: bool
+    place: str | None = Field(default=None, max_length=64)
+
+
+class MigrationSources(WireModel):
+    sources: list[MigrationSource] = Field(max_length=4)
 
 
 class MigrationPreviewSummary(WireModel):
@@ -2122,10 +2285,23 @@ class OnboardingIntent(WireModel):
     label: str = Field(max_length=64)
 
 
+class OnboardingImportSource(WireModel):
+    id: Literal["hermes", "openclaw"]
+    label: str = Field(max_length=64)
+
+
 class OnboardingSnapshot(WireModel):
     schema_version: Literal[1]
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     setup_complete: bool
+    # No default model yet: the client opens Setup until one is chosen.
+    needs_model: bool = False
+    default_model: str | None = Field(default=None, max_length=1024)
+    # Areas whose real state says they are done (a chosen model, Developer tools on).
+    live_done: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
+        default_factory=list, max_length=11
+    )
+    import_sources: list[OnboardingImportSource] = Field(default_factory=list, max_length=2)
     starter_workflows_missing: int = Field(ge=0, le=32)
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         max_length=7
@@ -2145,12 +2321,14 @@ class OnboardingCommand(WireModel):
     command_id: UUID
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: Literal[
-        "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters"
+        "save_profile", "finish_models", "mark_done", "skip_step", "dismiss_home", "add_starters",
+        "choose_model",
     ]
     profile: list[Annotated[str, StringConstraints(max_length=32)]] = Field(
         default_factory=list, max_length=7
     )
     step: str = Field(default="", max_length=32)
+    model_ref: str = Field(default="", max_length=1024)
 
 
 class OnboardingReceipt(WireModel):
@@ -2158,6 +2336,38 @@ class OnboardingReceipt(WireModel):
     command_id: UUID
     status: Literal["completed"]
     snapshot: OnboardingSnapshot
+
+
+class LocalRuntimeModel(WireModel):
+    model_ref: str = Field(min_length=1, max_length=1024)
+    name: str = Field(max_length=512)
+    agent_ready: bool | None = None
+
+
+class LocalRuntimeSnapshot(WireModel):
+    schema_version: Literal[1]
+    state: Literal["running", "installed", "not_installed"]
+    platform: Literal["windows", "macos", "linux"]
+    download_url: str = Field(max_length=256)
+    models: list[LocalRuntimeModel] = Field(max_length=256)
+
+
+class ModelTestResult(WireModel):
+    schema_version: Literal[1]
+    ok: bool
+    detail: str = Field(max_length=512)
+    elapsed_ms: int = Field(ge=0)
+
+
+class ProviderKeyCheckRequest(WireModel):
+    provider_id: OpaqueId
+    value: str = Field(min_length=1, max_length=16384)
+
+
+class ProviderKeyCheck(WireModel):
+    schema_version: Literal[1]
+    state: Literal["valid", "invalid", "unchecked", "unreachable"]
+    detail: str = Field(max_length=512)
 
 
 class MonitorSnapshot(WireModel):
@@ -2368,6 +2578,10 @@ class KnowledgeMaintenanceReceipt(WireModel):
     missing: list[
         Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     ] = Field(max_length=100)
+    # The lists name at most 100 entries each; the counts are complete.
+    deleted_count: int = Field(default=0, ge=0)
+    stale_count: int = Field(default=0, ge=0)
+    missing_count: int = Field(default=0, ge=0)
     cleanup: KnowledgeCleanupResult
     code: (
         Literal[
@@ -2710,7 +2924,7 @@ class WikiOpenFolderResult(WireModel):
     status: Literal["opened", "unavailable", "not_found", "denied"]
 
 
-ChannelOperation = Literal["configure", "start", "stop", "pair", "revoke"]
+ChannelOperation = Literal["configure", "start", "stop", "pair", "revoke", "test", "reset"]
 
 
 class ChannelSource(WireModel):
@@ -2762,7 +2976,20 @@ class ChannelStatus(WireModel):
     fields: list[ChannelFieldStatus] = Field(max_length=64)
     paired_identities: list[PairedChannelIdentity] = Field(max_length=128)
     capabilities: list[str] = Field(max_length=16)
+    # The connect sheet (Phase 15): a code-linked channel's state (WhatsApp;
+    # the code only through the owner's own read), where a service reaches a
+    # channel that needs a public address, why it can't, and whether a test
+    # message to the person's own account is possible.
+    link_state: Literal["starting", "scan", "linked"] | None = None
+    public_address: str | None = Field(default=None, max_length=2048)
+    reachability_problem: str | None = Field(default=None, max_length=512)
+    can_test: bool = False
     availability: ChannelAvailability
+
+
+class ChannelLink(WireModel):
+    state: Literal["starting", "scan", "linked"] | None
+    code: str | None = Field(default=None, max_length=4096)
 
 
 class ChannelPage(WireModel):
@@ -2836,6 +3063,9 @@ class PluginCatalogPage(WireModel):
     items: list[PluginCatalogItem] = Field(max_length=50)
     total: int = Field(ge=0, le=2000)
     next_cursor: str | None = Field(max_length=2048)
+    # Over every plugin, whatever the tab or search shows (B120).
+    installed_count: int = Field(default=0, ge=0, le=2000)
+    attention_count: int = Field(default=0, ge=0, le=2000)
 
 
 class PluginField(WireModel):
@@ -2860,6 +3090,11 @@ class PluginHealth(WireModel):
     checks: list[PluginHealthCheck] = Field(max_length=64)
 
 
+class PluginSignIn(WireModel):
+    label: str = Field(max_length=128)
+    kind: str = Field(max_length=64)
+
+
 class PluginDetail(WireModel):
     schema_version: Literal[1]
     plugin_id: OpaqueId
@@ -2873,6 +3108,11 @@ class PluginDetail(WireModel):
     health: PluginHealth
     permissions: list[str] = Field(max_length=64)
     capabilities: dict[str, PluginCapability]
+    # The plugin's connect sheet (parity row 39): its README as setup steps,
+    # the sign-ins it declares, and the marketplace changelog link.
+    guide: str = Field(default="", max_length=32768)
+    sign_in: list[PluginSignIn] = Field(default_factory=list, max_length=16)
+    changelog_url: str | None = Field(default=None, max_length=2048)
 
 
 PluginAction = Literal[
@@ -2929,12 +3169,12 @@ class PluginReceipt(WireModel):
 
 
 class PluginLifecycleReviewRequest(WireModel):
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(default="", max_length=128)
 
 
 class PluginLifecycleReview(WireModel):
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(max_length=128)
     name: str = Field(max_length=256)
     version: str = Field(max_length=64)
@@ -2948,7 +3188,7 @@ class PluginLifecycleReview(WireModel):
 class PluginLifecycleCommand(WireModel):
     command_id: UUID
     client_session_id: UUID
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(default="", max_length=128)
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -2956,7 +3196,7 @@ class PluginLifecycleCommand(WireModel):
 class PluginLifecycleReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain"]
-    action: Literal["install", "update", "remove", "refresh"]
+    action: Literal["install", "update", "remove", "refresh", "prepare"]
     plugin_id: str = Field(max_length=128)
     message: str = Field(max_length=1024)
 
@@ -3125,6 +3365,10 @@ class GoalSummary(WireModel):
     max_turns: int = Field(ge=0, le=1000)
     token_budget: int = Field(ge=0)
     tokens_used: int = Field(ge=0)
+    # Time running and the optional time limit (minutes, 0 = none; B244).
+    started_at: str = Field(max_length=64)
+    window_started_at: str = Field(max_length=64)
+    max_minutes: int = Field(ge=0, le=10080)
     last_progress: str = Field(max_length=2049)
     last_reason: str = Field(max_length=2049)
     evidence: list[str] = Field(max_length=10)
@@ -3142,6 +3386,8 @@ class GoalPage(WireModel):
     items: list[GoalSummary] = Field(max_length=50)
     total: int = Field(ge=0, le=500)
     next_cursor: str | None = Field(max_length=80)
+    # The turn limit a new goal starts with (Agent runtime); 0 = no limit.
+    default_max_turns: int = Field(ge=0, le=1000)
 
 
 class GoalDetail(WireModel):
@@ -3156,6 +3402,7 @@ class GoalCommandPayload(WireModel):
     operation: GoalOperation
     objective: str | None = Field(max_length=4096)
     max_turns: int | None = Field(ge=1, le=1000)
+    max_minutes: int | None = Field(default=None, ge=1, le=10080)
     reason: str | None = Field(max_length=1024)
 
 
@@ -3196,6 +3443,8 @@ class ProfileSummary(WireModel):
     scope: ProfileScope
     surface_scope: Literal["global"]
     source: str = Field(max_length=128)
+    group: str = Field(default="", max_length=64)
+    icon: str = Field(default="", max_length=32)
     enabled: bool
     editable: bool
     revision: str = Field(pattern=r"^[1-9][0-9]{0,19}$")
@@ -3300,6 +3549,9 @@ class DeveloperGitState(WireModel):
     dirty: bool
     remote_configured: bool
     tracking_summary: str = Field(max_length=512)
+    branches: list[Annotated[str, StringConstraints(max_length=256)]] = Field(
+        default_factory=list, max_length=50
+    )
 
 
 class DeveloperWorktreeState(WireModel):
@@ -3396,17 +3648,132 @@ class CustomToolCommand(WireModel):
     payload: dict[str, Any] = Field(default_factory=dict, max_length=8)
 
 
+class CustomToolApproval(WireModel):
+    """What the standard approval card shows before a test command runs once."""
+    command_name: str = Field(max_length=128)
+    command: str = Field(max_length=4096)
+    label: str = Field(max_length=64)
+    reason: str = Field(max_length=1024)
+    nonce: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class CustomToolReceipt(WireModel):
     command_id: UUID
-    status: Literal["completed", "failed", "uncertain"]
+    status: Literal["completed", "failed", "uncertain", "approval_required"]
     summary: str = Field(max_length=1024)
     snapshot: CustomToolSnapshot
+    approval: CustomToolApproval | None = None
+
+
+class CustomToolLibraryDraft(CustomToolDraftView):
+    folder: str = Field(max_length=256)
+
+
+class CustomToolLibraryTool(CustomToolView):
+    folder: str = Field(max_length=256)
+    draft_id: str = Field(max_length=128)
+
+
+class CustomToolLibrary(WireModel):
+    """Settings › Tools › Custom tools: every custom tool and unfinished draft."""
+    schema_version: Literal[1]
+    tools: list[CustomToolLibraryTool] = Field(max_length=64)
+    drafts: list[CustomToolLibraryDraft] = Field(max_length=32)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CustomToolLibraryCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["inspect", "refine", "update", "create", "setup", "test", "enable", "promote", "remove"]
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=8)
+    # "Add from a folder": the desktop folder pick (never a path from the page).
+    folder_grant: OpaqueId | None = None
+
+
+class DataBackupSignIn(WireModel):
+    kind: Literal["provider", "account", "channel", "mcp", "webhooks"]
+    name: str = Field(max_length=200)
+
+
+class DataBackupJob(WireModel):
+    kind: Literal["backup", "restore"]
+    status: Literal["running", "completed", "failed"]
+    started_at: str | None = Field(default=None, max_length=40)
+    finished_at: str | None = Field(default=None, max_length=40)
+    code: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None, max_length=260)
+
+
+class DataRestorePending(WireModel):
+    created_at: str = Field(max_length=40)
+    source_name: str = Field(max_length=200)
+    sign_in_again: list[DataBackupSignIn] = Field(max_length=100)
+
+
+class DataRestoreResult(WireModel):
+    status: Literal["applied", "failed"]
+    applied_at: str | None = Field(default=None, max_length=40)
+    source_created_at: str = Field(max_length=40)
+    kept_aside: str | None = Field(default=None, max_length=120)
+    sign_in_again: list[DataBackupSignIn] = Field(max_length=100)
+
+
+class DataBackupState(WireModel):
+    """Settings › Data: backups and restores for the local owner (decision 21)."""
+    local_owner: bool
+    last_backup_at: str | None = Field(default=None, max_length=40)
+    last_backup_name: str | None = Field(default=None, max_length=260)
+    folder: str | None = Field(default=None, max_length=300)
+    job: DataBackupJob | None = None
+    pending_restore: DataRestorePending | None = None
+    restore_result: DataRestoreResult | None = None
+
+
+class DataRestoreReview(WireModel):
+    review_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_name: str = Field(max_length=200)
+    created_at: str = Field(max_length=40)
+    app_version: str = Field(max_length=40)
+    files: int = Field(ge=0)
+    bytes: int = Field(ge=0)
+    left_out: list[Annotated[str, StringConstraints(max_length=200)]] = Field(max_length=10)
+    sign_in_again: list[DataBackupSignIn] = Field(max_length=100)
+
+
+class DataBackupCommand(WireModel):
+    command_id: UUID
+    client_session_id: UUID
+    action: Literal["backup", "inspect_restore", "restore", "cancel_restore", "dismiss_result", "reveal"]
+    # inspect_restore: the desktop pick of one archive (never a path).
+    file_grant: OpaqueId | None = None
+    # restore: the review of that archive the person confirmed.
+    review_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class DataBackupReceipt(WireModel):
+    command_id: UUID
+    status: Literal["accepted", "completed"]
+    review: DataRestoreReview | None = None
+    state: DataBackupState
+
+
+class CustomToolLibraryReceipt(WireModel):
+    command_id: UUID
+    status: Literal["completed", "failed", "uncertain", "approval_required"]
+    summary: str = Field(max_length=1024)
+    snapshot: CustomToolLibrary
+    approval: CustomToolApproval | None = None
+    test: CustomToolTestView | None = None
 
 
 class InsightProposalView(WireModel):
     id: str = Field(max_length=128)
     title: str = Field(max_length=256)
     proposal_type: str = Field(max_length=64)
+    # Applying can carry it out; review-only kinds offer no Apply (B124).
+    executable: bool
     status: str = Field(max_length=64)
     risk: str = Field(max_length=64)
     rationale: str = Field(max_length=2048)
@@ -3425,6 +3792,9 @@ class InsightView(WireModel):
     category: str = Field(max_length=64)
     severity: str = Field(max_length=32)
     status: str = Field(max_length=32)
+    # When it was found (ISO time), and why it may no longer apply, or "" (B124).
+    found_at: str = Field(max_length=64)
+    out_of_date: str = Field(max_length=160)
     proposals: list[InsightProposalView] = Field(max_length=8)
 
 
@@ -3447,7 +3817,7 @@ class InsightCommand(WireModel):
     command_id: UUID
     client_session_id: UUID
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    action: Literal["pin", "unpin", "dismiss", "generate", "review_skills", "apply", "reject"]
+    action: Literal["pin", "unpin", "dismiss", "restore", "generate", "review_skills", "apply", "reject"]
     insight_id: str = Field(default="", max_length=128)
     proposal_id: str = Field(default="", max_length=128)
     reason: str = Field(default="", max_length=512)
@@ -3644,6 +4014,8 @@ class RuntimeInstallationSnapshot(WireModel):
     installed: bool | None
     active_command_id: UUID | None
     quiesced: bool | None
+    version: str | None = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+    system_available: bool | None
 
 
 class RuntimeInstallationReviewRequest(WireModel):
@@ -3721,6 +4093,79 @@ class McpCatalogRequest(WireModel):
 
 class McpCatalogPayload(McpCatalogRequest):
     nonce: str = Field(min_length=1, max_length=128)
+
+
+class AttentionProblem(WireModel):
+    id: str = Field(min_length=1, max_length=64)
+    title: str = Field(max_length=160)
+    detail: str = Field(max_length=512)
+    # "health": a Monitor check whose last result is an error (B252).
+    place: Literal["channels", "plugins", "mcp", "access", "models", "workflows", "health"]
+    fix: ProblemFix | None = None
+
+
+class AttentionUpdate(WireModel):
+    version: str = Field(min_length=1, max_length=64)
+
+
+class AttentionSnapshot(WireModel):
+    """What needs the person now: the sidebar's one indicator (parity 12, 13)."""
+    schema_version: Literal[1]
+    problems: list[AttentionProblem] = Field(max_length=20)
+    update: AttentionUpdate | None
+
+
+class PendingApproval(WireModel):
+    """One approval waiting for the person: what it is, since when, and the
+    ids to answer it (``/approvals/{id}``) or open where it was raised."""
+    id: OpaqueId
+    source: Literal["workflow", "conversation", "agent"]
+    title: str = Field(max_length=160)
+    what: str = Field(max_length=512)
+    requested_at: str = Field(max_length=80)
+    expires_at: str | None = Field(max_length=80)
+    conversation_id: OpaqueId | None
+    task_id: OpaqueId | None
+
+
+class PendingApprovalPage(WireModel):
+    """Every pending approval, from workflows, conversations and agents (B255)."""
+    schema_version: Literal[1]
+    items: list[PendingApproval] = Field(max_length=50)
+    total: int = Field(ge=0)
+
+
+class McpChatState(WireModel):
+    """Whether connected MCP servers' tools reach the chat ("Enable in chat", B130)."""
+    schema_version: Literal[1]
+    resource_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    availability: Literal["available", "missing", "registration_unavailable", "recovery_required", "unavailable"]
+    saved_enabled: bool | None
+    effective_enabled: bool | None
+    registered: bool
+
+
+class McpChatReviewRequest(WireModel):
+    resource_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    enabled: bool
+
+
+class McpChatReview(McpChatReviewRequest):
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    nonce: str = Field(min_length=1, max_length=128)
+
+
+class McpChatPayload(McpChatReviewRequest):
+    nonce: str = Field(min_length=1, max_length=128)
+
+
+class McpChatOutcome(WireModel):
+    schema_version: Literal[1]
+    status: Literal["saved", "partial"]
+    resource_revision: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    saved_enabled: bool | None
+    effective_enabled: bool | None
+    code: str | None = Field(max_length=128)
 
 
 class McpCatalogReview(McpCatalogRequest):
@@ -3838,6 +4283,8 @@ class McpRuntimeState(WireModel):
         "missing",
     ]
     session_quiesced: bool | None
+    # MCP and this server are both turned on; Connect is refused until they are.
+    enabled: bool | None
 
 
 class McpRuntimeReviewRequest(WireModel):
@@ -3975,6 +4422,7 @@ class ProviderLiveCard(WireModel):
     reconnect_required: bool = False
     risk_label: str = Field(max_length=80)
     last_runtime_probe_ok: bool | None = None
+    billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
 
 
 class ProviderLiveSnapshot(WireModel):
@@ -4053,11 +4501,14 @@ class CachedModelPage(WireModel):
 
 class ModelPickerOption(WireModel):
     selection_ref: str = Field(max_length=647)
+    provider_id: str = Field(max_length=128)
     label: str = Field(max_length=256)
     source: str = Field(max_length=80)
     available: bool
+    unavailable_reason: Literal["configuration_required", "metadata_missing", "unavailable"] | None = None
     context_window: int | None = Field(default=None, ge=1)
     reason: str = Field(default="", max_length=256)
+    billing: Literal["subscription", "pay_per_use", "credits", "local"] | None = None
 
 
 class ModelPickerSurface(WireModel):
@@ -4108,6 +4559,8 @@ class AgentRuntimeSettingsState(WireModel):
     max_concurrent_children: int = Field(ge=1, le=1000000)
     max_active_children_global: int = Field(ge=1, le=1000000)
     child_timeout_seconds: int = Field(ge=0, le=1000000)
+    # Turns a new goal may take unless its start says otherwise; 0 = no limit.
+    goal_max_turns: int = Field(ge=0, le=1000)
 
 
 class ModelCatalogProviderSummary(WireModel):
@@ -4158,6 +4611,45 @@ class UnbindPayload(WireModel):
     binding_id: OpaqueId
 
 
+class ResourceDiscardPayload(WireModel):
+    """Undo a design or code folder this conversation created."""
+
+    binding_id: OpaqueId
+
+
+class ResourceRenamePayload(WireModel):
+    binding_id: OpaqueId
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+
+
+class ResourceForgetPayload(WireModel):
+    """Remove a saved code folder from Open saved; ``restore`` puts it back.
+
+    Only the list entry changes: files and conversations using it stay.
+    """
+
+    kind: Literal["workspace"]
+    resource_id: OpaqueId
+    expected_resource_revision: str = Field(min_length=1, max_length=128)
+    restore: bool = False
+
+
+class AgentStopPayload(WireModel):
+    run_id: OpaqueId
+
+
+class AgentMessagePayload(WireModel):
+    run_id: OpaqueId
+    message_id: UUID
+    text: Annotated[str, StringConstraints(min_length=1, max_length=16000)]
+
+
+class AgentStartPayload(WireModel):
+    """``/agent [profile] <task>`` from the composer."""
+
+    text: Annotated[str, StringConstraints(min_length=1, max_length=16000)]
+
+
 class ApprovalPayload(WireModel):
     decision: Literal["approve", "reject"]
     nonce: Annotated[str, StringConstraints(min_length=32, max_length=256)]
@@ -4203,11 +4695,27 @@ class ResourceSetupPayload(WireModel):
     artifact: ArtifactSetupPayload | None = None
     empty_workspace: EmptyWorkspaceSetupPayload | None = None
     draft_workspace: bool | None = None
+    # A new draft's name from the request ("Tiny date app"); the server makes
+    # it a free folder name under Drafts.
+    draft_name: str | None = Field(default=None, min_length=1, max_length=120)
     clone_workspace: CloneWorkspaceSetupPayload | None = None
     folder_grant: OpaqueId | None = None
+    # Create a copy of this design (with its revision in expected_resource_revision).
+    duplicate_of: OpaqueId | None = None
 
     @model_validator(mode="after")
     def typed_setup(self) -> ResourceSetupPayload:
+        if self.duplicate_of is not None and (
+            self.kind != "artifact" or self.intent != "create"
+            or self.expected_resource_revision is None or self.resource_id is not None
+            or self.folder_grant is not None
+            or any(value is not None for value in (
+                self.deck, self.artifact, self.empty_workspace, self.draft_workspace, self.clone_workspace
+            ))
+        ):
+            raise ValueError("A duplicate names one design and its current revision.")
+        if self.draft_name is not None and self.draft_workspace is not True:
+            raise ValueError("Only a new draft workspace takes a draft name.")
         if self.artifact is not None and (
             self.kind != "artifact"
             or self.intent != "create"
@@ -4271,7 +4779,10 @@ class SetupContinuePayload(WireModel):
 
 class ArtifactEditPayload(WireModel):
     target: WriteTarget
-    operation: Literal["project_properties", "page_properties", "text", "restore"]
+    operation: Literal[
+        "project_properties", "page_properties", "text", "restore",
+        "page_add", "page_delete", "canvas_size",
+    ]
     page_id: OpaqueId | None = None
     name: str | None = Field(default=None, max_length=256)
     title: str | None = Field(default=None, max_length=256)
@@ -4284,6 +4795,8 @@ class ArtifactEditPayload(WireModel):
         max_length=40,
         pattern=r"^[0-9]{1,20}(\.[0-9]{1,12})?$",
     )
+    # The Design panel's size menu (re-fits every page); anything else by asking.
+    aspect_ratio: Literal["16:9", "4:3", "1:1", "A4", "9:16"] | None = None
 
     @model_validator(mode="after")
     def artifact_target(self) -> ArtifactEditPayload:
@@ -4423,6 +4936,10 @@ class DesignElement(WireModel):
         Annotated[str, StringConstraints(max_length=256)],
     ] = Field(max_length=32)
     action: str = Field(max_length=256)
+    kind: Literal["text", "image", "shape", "layout"]
+    text: str = Field(max_length=120)
+    alt: str = Field(max_length=512)
+    asset_id: str = Field(max_length=128)
 
 
 class DesignControlItem(WireModel):
@@ -4482,7 +4999,9 @@ class ArtifactDesignControlPayload(WireModel):
         "preset",
         "style",
         "hotspot",
+        "image",
         "review_fix",
+        "review_fix_all",
         "asset_insert",
         "asset_remove",
         "asset_forget",
@@ -4587,6 +5106,46 @@ class DesignPresentationState(WireModel):
     page_count: int = Field(ge=0)
     pages: list[DesignPresentationPage] = Field(max_length=50)
     next_cursor: str | None = Field(max_length=2048)
+
+
+class ArtifactBrandSuggestionRequest(WireModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class ArtifactBrandSuggestion(WireModel):
+    """Colours and fonts a website uses; nothing is saved until the panel applies them."""
+    found: bool
+    site: str = Field(max_length=256)
+    primary_color: str | None = Field(default=None, max_length=32)
+    secondary_color: str | None = Field(default=None, max_length=32)
+    accent_color: str | None = Field(default=None, max_length=32)
+    heading_font: str | None = Field(default=None, max_length=128)
+    body_font: str | None = Field(default=None, max_length=128)
+
+
+class ArtifactSavedExport(WireModel):
+    """A ready export copied into the workspace's Exports folder (local owner)."""
+    export_id: UUID
+    filename: str = Field(min_length=1, max_length=256)
+    folder: str = Field(min_length=1, max_length=512)
+
+
+class ArtifactExportReveal(WireModel):
+    action: Literal["open", "show"]
+
+
+class ArtifactExportRevealResult(WireModel):
+    status: Literal["opened", "not_found", "unavailable"]
+
+
+class ExportSaved(WireModel):
+    """A conversation export written into the workspace's Exports folder (local owner)."""
+    file_name: str = Field(min_length=1, max_length=256)
+    folder: str = Field(min_length=1, max_length=512)
+
+
+class ExportRevealRequest(WireModel):
+    file_name: str = Field(min_length=1, max_length=256)
 
 
 class ArtifactExport(WireModel):
@@ -4969,7 +5528,7 @@ class ArtifactExportPayload(WireModel):
 
 
 class ArtifactShareOptions(WireModel):
-    action: Literal["publish", "channel", "x"]
+    action: Literal["publish", "unpublish", "channel", "x"]
     channel_name: str | None = Field(default=None, max_length=128)
     target: str | None = Field(default=None, max_length=1024)
     delivery: Literal["link", "slides", "pdf", "pptx", "html"] = "link"
@@ -4995,7 +5554,7 @@ class ArtifactShareReview(WireModel):
     review_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     resource_id: OpaqueId
     resource_revision: str = Field(max_length=128)
-    action: Literal["publish", "channel", "x"]
+    action: Literal["publish", "unpublish", "channel", "x"]
     channel_name: str | None = Field(max_length=128)
     recipient: str | None = Field(max_length=1024)
     delivery: Literal["link", "slides", "pdf", "pptx", "html"]
@@ -5007,7 +5566,7 @@ class ArtifactShareReview(WireModel):
 
 
 class ArtifactShareOutcome(WireModel):
-    status: Literal["published", "submitted", "partial", "uncertain", "denied"]
+    status: Literal["published", "unpublished", "submitted", "partial", "uncertain", "denied"]
     code: str | None = Field(max_length=128)
     resource_id: OpaqueId
     resource_revision: str = Field(max_length=128)
@@ -5015,6 +5574,16 @@ class ArtifactShareOutcome(WireModel):
     link_kind: Literal["local", "remote_access"] | None
     submitted_count: int = Field(ge=0, le=200)
     total_count: int = Field(ge=0, le=200)
+
+
+class ArtifactPublication(WireModel):
+    """A design's published link, shown with Copy, QR and Unpublish."""
+    resource_id: OpaqueId
+    resource_revision: str = Field(max_length=128)
+    published: bool
+    url: str | None = Field(max_length=4096)
+    link_kind: Literal["local", "remote_access"] | None
+    published_at: str | None = Field(max_length=64)
 
 
 class ArtifactShareProgress(WireModel):
@@ -5054,6 +5623,11 @@ class TaskUpdatePayload(TaskCreatePayload):
 
 
 class TaskDeletePayload(WireModel):
+    task_id: OpaqueId
+    task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TaskDuplicatePayload(WireModel):
     task_id: OpaqueId
     task_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -5267,6 +5841,14 @@ class Command(WireModel):
         "conversation.skills",
         "resource.setup",
         "resource.continue",
+        "resource.discard",
+        "resource.rename",
+        "resource.forget",
+        "agent.stop",
+        "agent.message",
+        "agent.start",
+        "agent.resume",
+        "agent.dismiss",
         "media.save",
         "conversation.queue.edit",
         "conversation.queue.remove",
@@ -5275,6 +5857,7 @@ class Command(WireModel):
         "task.create",
         "task.update",
         "task.delete",
+        "task.duplicate",
         "task.delivery.update",
         "task.graph.update",
         "task.settings.update",
@@ -5346,6 +5929,7 @@ class Command(WireModel):
         "browser.back",
         "browser.end",
         "mcp.catalog.accept",
+        "mcp.facade.control",
         "knowledge.create",
         "knowledge.edit",
         "knowledge.archive",
@@ -5405,7 +5989,7 @@ class Command(WireModel):
         if self.type == "conversation.controls" and "reasoning" not in supplied:
             self.payload.pop("reasoning", None)
         if self.type == "resource.setup":
-            for field in ("artifact", "empty_workspace", "draft_workspace", "clone_workspace"):
+            for field in ("artifact", "empty_workspace", "draft_workspace", "draft_name", "clone_workspace"):
                 if field not in supplied:
                     self.payload.pop(field, None)
         if self.type == "resource.continue" and "folder_grant" not in supplied:
@@ -5437,6 +6021,15 @@ COMMAND_PAYLOADS = {
     "conversation.skills": ConversationSkillPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
+    "resource.discard": ResourceDiscardPayload,
+    "resource.rename": ResourceRenamePayload,
+    "resource.forget": ResourceForgetPayload,
+    "agent.stop": AgentStopPayload,
+    "agent.message": AgentMessagePayload,
+    "agent.start": AgentStartPayload,
+    # The conversation's interrupted agent work: Resume runs it, Dismiss stops it.
+    "agent.resume": EmptyPayload,
+    "agent.dismiss": EmptyPayload,
     "media.save": MediaSavePayload,
     "conversation.queue.edit": QueueEditPayload,
     "conversation.queue.remove": QueueItemCommand,
@@ -5448,6 +6041,7 @@ COMMAND_PAYLOADS = {
     "task.create": TaskCreatePayload,
     "task.update": TaskUpdatePayload,
     "task.delete": TaskDeletePayload,
+    "task.duplicate": TaskDuplicatePayload,
     "task.delivery.update": TaskDeliveryUpdatePayload,
     "task.settings.update": TaskSettingsUpdatePayload,
     "task.webhook.rotate": TaskWebhookRotatePayload,
@@ -5517,6 +6111,7 @@ COMMAND_PAYLOADS = {
     "browser.back": BrowserCommandRevisionPayload,
     "browser.end": BrowserCommandRevisionPayload,
     "mcp.catalog.accept": McpCatalogPayload,
+    "mcp.facade.control": McpChatPayload,
     "knowledge.create": KnowledgeWritePayload,
     "knowledge.edit": KnowledgeWritePayload,
     "knowledge.archive": KnowledgeLifecyclePayload,
@@ -5618,9 +6213,35 @@ class TranscriptDelta(WireModel):
     public_text_delta: Annotated[str, StringConstraints(max_length=60000)]
 
 
+class ApprovalFolderChoice(WireModel):
+    """A registered code folder a folder card offers (never its path)."""
+
+    resource_id: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=120)
+    revision: str = Field(default="", max_length=128)
+
+
+class ApprovalSetup(WireModel):
+    """An approval that sets up something the work needs (a setup card).
+
+    ``tool`` turns a tool on; ``folder`` and ``clone`` pause the turn while
+    the person picks a code folder, or where to clone ``repo_url``, through
+    Add resource's picker and setup path (B277).
+    """
+
+    kind: Literal["tool", "folder", "clone"]
+    label: str = Field(min_length=1, max_length=120)
+    repo_url: str = Field(default="", max_length=2048)
+    folders: list[ApprovalFolderChoice] = Field(default_factory=list, max_length=8)
+
+
 class ToolActivity(WireModel):
     state: Literal["tool_call", "tool_done"]
     tool_name: str = Field(default="", max_length=128)
+    # The first-party designer step behind "🎨 Designer" (designer_set_pages),
+    # so the Design panel can say what a drafting turn is doing. Empty for
+    # every other tool.
+    runtime_tool: str = Field(default="", max_length=64, pattern=r"^(designer_[a-z_]{1,55})?$")
     tool_call_id: str = Field(default="", max_length=256)
     message_id: str = Field(default="", max_length=256)
     pass_id: OpaqueId | None = None
@@ -5636,6 +6257,9 @@ class ToolActivity(WireModel):
     safe_summary: str = Field(default="", max_length=512)
     summary_truncated: bool = False
     content_ref: str = Field(default="", max_length=256)
+    # Only for results shown as a card (a created design or code folder, a
+    # connection the work needs), so the card appears while the turn runs.
+    specialization: TraceSpecialization | None = None
 
 
 class GenerationActivity(WireModel):
@@ -5651,6 +6275,7 @@ class ApprovalRequired(WireModel):
     scope: str = Field(default="", max_length=1024)
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
+    setup: ApprovalSetup | None = None
 
 
 class GenerationError(WireModel):
@@ -5909,6 +6534,7 @@ class CommandReceipt(WireModel):
     selection: DefaultModelSnapshot | None = None
     mcp_configuration: McpConfigurationOutcome | None = None
     mcp_runtime: McpRuntimeOutcome | None = None
+    native_mcp: McpChatOutcome | None = None
     removal: DocumentRemovalOutcome | None = None
     accounts: SubscriptionAccountsSnapshot | None = None
     options: SubscriptionOptionsSnapshot | None = None
@@ -6011,6 +6637,10 @@ class ConversationView(WireModel):
     revision: Revision
     title: str = Field(max_length=256)
     pinned: bool
+    updated_at: str = Field(default="", max_length=80)
+    parent_conversation_id: OpaqueId | None = None
+    activity_state: Literal["active", "attention", "terminal"] | None = None
+    activity_phase: str = Field(default="", max_length=64)
     category: Literal["chat", "designer", "code", "workflow"] = "chat"
     generation_state: list[GenerationState] = Field(default_factory=list, max_length=32)
     resource_bindings: list[ResourceBinding] = Field(
@@ -6084,6 +6714,7 @@ class TraceAgentReference(WireModel):
     run_id: str = Field(min_length=1, max_length=256)
     display_name: str = Field(max_length=256)
     status: str = Field(max_length=64)
+    profile_id: str = Field(default="", max_length=256)
 
 
 class TraceMediaReference(WireModel):
@@ -6092,7 +6723,9 @@ class TraceMediaReference(WireModel):
 
 
 class TraceSpecialization(WireModel):
-    kind: Literal["skill_load", "delegated_agent", "media"]
+    kind: Literal[
+        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+    ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
     source: str = Field(default="", max_length=180)
@@ -6102,6 +6735,14 @@ class TraceSpecialization(WireModel):
     media_kind: str = Field(default="", max_length=64)
     media: list[TraceMediaReference] = Field(default_factory=list, max_length=8)
     error_code: str = Field(default="", max_length=80)
+    # resource_created: the card's Open / Rename / Undo act on this binding;
+    # resource_bound (a folder the person had or cloned): Open / Undo.
+    resource_kind: Literal["", "design", "code"] = ""
+    resource_id: str = Field(default="", max_length=256)
+    binding_id: str = Field(default="", max_length=256)
+    # setup_needed: a Connect card for an account or channel.
+    setup_target: str = Field(default="", max_length=64)
+    settings_page: Literal["", "accounts", "channels"] = ""
 
 
 class TranscriptTraceItem(WireModel):
@@ -6152,6 +6793,13 @@ class TranscriptRow(WireModel):
     content_ref: str | None = Field(default=None, max_length=256)
     traces: list[TranscriptTraceGroup] = Field(default_factory=list, max_length=256)
     trace_parent_id: str | None = Field(default=None, max_length=1024)
+    # A server-started follow-up (a goal step, work continuing in a resource
+    # the assistant created), a delegated agent's task or its parent's
+    # messages to it: the row's text is a short public note.
+    note: Literal["continuation", "agent_task", "agent_guidance"] | None = None
+    # A delegated agent's approval announced in its parent conversation: the
+    # row is answered in place with the approval card.
+    approval_id: str | None = Field(default=None, max_length=128)
 
 
 class Snapshot(WireModel):
@@ -6207,11 +6855,46 @@ class EventRecord(WireModel):
         return self
 
 
+class Notice(WireModel):
+    """A background notice (application.app_notices): text for people only."""
+
+    id: int = Field(ge=1, le=9007199254740991)
+    level: Literal["info", "warning", "error"]
+    title: str = Field(min_length=1, max_length=120)
+    message: str = Field(max_length=500)
+    source: str = Field(min_length=1, max_length=32)
+    requested: bool
+    startup: bool
+    count: int = Field(ge=1, le=9007199254740991)
+    at: str = Field(min_length=1, max_length=64)
+
+
+class NoticePage(WireModel):
+    server_epoch: OpaqueId
+    latest: int = Field(ge=0, le=9007199254740991)
+    notices: list[Notice] = Field(max_length=64)
+    startup_warnings: list[str] = Field(max_length=32)
+
+
+class NoticeFrame(WireModel):
+    """Data of an event-stream `notice` frame."""
+
+    notices_epoch: OpaqueId
+    notice: Notice
+
+
 class EventPage(WireModel):
     snapshot_required: bool
     snapshot: Snapshot | None = None
     events: list[EventRecord] = Field(max_length=4096)
     cursor: Cursor
+    # Background notices newer than the poll's notices_after (event stream
+    # clients receive them as `notice` frames instead).
+    notices: list[Notice] = Field(default_factory=list, max_length=64)
+    notices_epoch: OpaqueId | None = None
+
+
+ProviderBilling = Literal["subscription", "pay_per_use", "credits", "local"]
 
 
 class ModelChoice(WireModel):
@@ -6219,7 +6902,8 @@ class ModelChoice(WireModel):
     model_ref: str = Field(min_length=1, max_length=256)
     label: str = Field(max_length=256)
     available: bool
-    unavailable_reason: Literal["configuration_required", "unavailable"] | None = None
+    unavailable_reason: Literal["configuration_required", "metadata_missing", "unavailable"] | None = None
+    billing: ProviderBilling | None = None
 
 
 class CapabilityChoice(WireModel):
@@ -6283,6 +6967,12 @@ class NativeSelectionView(WireModel):
 
 
 class NativeTerminalOpenRequest(NativeGrantRequest):
+    conversation_id: OpaqueId | None = None
+
+
+class NativeTerminalExternalRequest(NativeGrantRequest):
+    """Open the person's own terminal app; the server picks the folder."""
+
     conversation_id: OpaqueId | None = None
 
 
@@ -6365,6 +7055,8 @@ class ApprovalView(WireModel):
     id: OpaqueId
     status: Literal["pending"]
     revision: Revision
+    # When it started waiting ("Waiting since 9:00", B255).
+    requested_at: str | None = Field(default=None, max_length=80)
     expires_at: str | None = Field(default=None, max_length=80)
     summary: str | None = Field(default=None, max_length=4096)
     action_label: str = Field(default="Requested action", max_length=180)
@@ -6373,6 +7065,7 @@ class ApprovalView(WireModel):
     scope: str = Field(default="", max_length=1024)
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
+    setup: ApprovalSetup | None = None
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 
@@ -6488,10 +7181,22 @@ class SlashCommandResult(WireModel):
     text: str = Field(max_length=16384)
 
 
+class ConversationModelStatus(WireModel):
+    """What the composer's model pill says about the conversation's model."""
+
+    state: Literal["ready", "unavailable", "missing"]
+    reason: str = Field(default="", max_length=256)
+    fix: Literal["reconnect", "choose"] | None = None
+    local: bool = False
+    # Whether images attached here can be seen; None when it cannot be known.
+    sees_images: bool | None = None
+
+
 class ConversationWorkspace(WireModel):
     conversation_id: OpaqueId
     revision: Revision
     controls: ConversationControls
+    model_status: ConversationModelStatus | None = None
     profiles: list[ProfileChoice] = Field(max_length=256)
     resources: list[ResourceView] = Field(max_length=200)
     generated_outputs: list[MediaAvailable] = Field(default_factory=list, max_length=20)
@@ -6509,11 +7214,14 @@ class DelegatedRun(WireModel):
     name: str = Field(max_length=256)
     status: str = Field(max_length=80)
     summary: str = Field(max_length=4096)
+    profile_id: str = Field(default="", max_length=256)
 
 
 class DelegatedActivityView(WireModel):
     conversation_id: OpaqueId
     parent_conversation_id: OpaqueId | None = None
+    parent_title: str | None = Field(default=None, max_length=256)
+    own_run: DelegatedRun | None = None
     items: list[DelegatedRun] = Field(max_length=50)
     next_cursor: str | None = Field(default=None, max_length=2048)
     has_more: bool
@@ -6554,6 +7262,12 @@ class ResourceChoice(WireModel):
 class ResourceChoicePage(WireModel):
     items: list[ResourceChoice] = Field(max_length=100)
     next_cursor: Cursor | None = None
+
+
+class FolderGrantClaim(WireModel):
+    """A desktop window's one-use folder reference for a setting (B280)."""
+
+    reference: OpaqueId
 
 
 class FolderGrantView(WireModel):
@@ -6704,6 +7418,7 @@ class WorkspaceCommandStatus(WireModel):
     label: str = Field(max_length=4096)
     kind: str = Field(max_length=128)
     status: Literal["not_run"]
+    command: str = Field(default="", max_length=4096)
 
 
 class WorkspaceProcessStatus(WireModel):
@@ -6788,6 +7503,7 @@ class WorkspaceChangeSet(WireModel):
     reviewed: bool
     reverted: bool
     file_count: int = Field(ge=0)
+    undoable: bool = False
 
 
 class WorkspaceChangeSetPage(WireModel):

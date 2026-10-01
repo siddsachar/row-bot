@@ -8,7 +8,7 @@ interactive navigation so the editor can render a mini-map:
 - ``route_graph_summary(project)`` returns a human-readable summary
   (e.g. counts of orphans, reachability from the entry route).
 
-Nothing in this module imports NiceGUI; it is safe to call from
+Nothing in this module imports UI code; it is safe to call from
 tests and from non-UI contexts.
 """
 

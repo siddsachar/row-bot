@@ -104,6 +104,10 @@ _STATUS.update(
         "resource_limit": 413,
         "resource_binding_revoked": 403,
         "resource_setup_partial": 409,
+        "resource_not_discardable": 409,
+        "agent_run_finished": 409,
+        "agent_work_not_resumable": 409,
+        "agent_resume_unavailable": 409,
         "media_scope_conflict": 403,
         "media_type_conflict": 422,
         "media_destination_unavailable": 409,
@@ -142,6 +146,7 @@ _STATUS.update(
 )
 _STATUS.update(
     {
+        "migration_source_not_found": 404,
         "invalid_migration_selection": 422,
         "migration_plan_too_large": 413,
         "migration_plan_missing": 404,
@@ -162,6 +167,7 @@ _STATUS.update(
         "account_busy": 429,
         "github_cli_missing": 409,
         "github_cli_host_terminal_required": 409,
+        "github_cli_unauthenticated": 409,
         "account_receipt_missing": 404,
         "account_credentials_invalid": 422,
         "account_credentials_required": 409,
@@ -264,6 +270,7 @@ _STATUS.update(
         "conversation_transcript_changed": 409,
         "conversation_action_unconfirmed": 409,
         "conversation_export_unconfirmed": 409,
+        "conversation_export_pdf_unavailable": 503,
         "conversation_export_too_large": 413,
         "conversation_state_unavailable": 503,
         "conversation_transcript_unavailable": 503,
@@ -309,7 +316,16 @@ _STATUS.update(
 _STATUS.update(
     {
         "owner_local_only": 403,
+        "backup_not_row_bot": 422,
+        "backup_newer": 422,
+        "backup_invalid": 422,
+        "backup_too_large": 413,
+        "backup_review_expired": 409,
+        "backup_unavailable": 404,
+        "backup_storage_unavailable": 503,
+        "data_job_running": 409,
         "custom_tool_draft_unavailable": 404,
+        "custom_tool_unavailable": 404,
         "custom_tool_receipt_unavailable": 404,
         "custom_tool_revision_conflict": 409,
         "invalid_custom_tool_command": 422,
@@ -318,11 +334,17 @@ _STATUS.update(
         "insight_unavailable": 404,
         "insight_proposal_unavailable": 404,
         "insight_proposal_finished": 409,
+        "insight_proposal_draft_only": 409,
         "insight_receipt_unavailable": 404,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,
         "plugin_marketplace_entry_unavailable": 404,
         "plugin_source_unavailable": 409,
+        "plugin_source_unsupported": 409,
+        "plugin_checksum_unavailable": 409,
+        "plugin_already_installed": 409,
+        "plugin_not_installed": 409,
+        "plugin_update_unavailable": 409,
         "plugin_lifecycle_changed": 409,
         "plugin_lifecycle_receipt_unavailable": 404,
     }
@@ -349,6 +371,18 @@ _STATUS.update(
     }
 )
 _STATUS.update(
+    {
+        "invalid_computer_use_command": 422,
+        "computer_use_local_only": 403,
+        "computer_use_revision_conflict": 409,
+        "computer_use_inactive": 409,
+        "computer_use_busy": 409,
+        "computer_use_not_paused": 409,
+        "computer_use_resume_failed": 409,
+        "computer_use_outcome_uncertain": 409,
+    }
+)
+_STATUS.update(
     {"invalid_edit": 422, "element_unavailable": 409, "history_unavailable": 409}
 )
 _STATUS["invalid_preview_identity"] = 422
@@ -359,6 +393,7 @@ _STATUS.update(
         "design_catalog_too_large": 413,
         "design_review_unavailable": 409,
         "design_review_too_large": 413,
+        "brand_website_unavailable": 422,
         "font_unavailable": 409,
     }
 )
@@ -403,6 +438,7 @@ _STATUS.update(
         (
             "invalid_task_fields",
             "invalid_task_schedule",
+            "task_time_passed",
             "invalid_task_identity",
             "invalid_task_revision",
         ),
@@ -490,6 +526,8 @@ _STATUS.update(
         "skill_catalog_changed": 409,
         "skill_preview_expired": 410,
         "skill_preview_changed": 409,
+        "skill_preview_unavailable": 503,
+        "skill_source_timeout": 504,
         "skill_command_conflict": 409,
         "skill_install_pending": 409,
         "skill_receipt_missing": 404,
@@ -619,6 +657,15 @@ _STATUS.update(
     dict.fromkeys(("channel_operation_unavailable", "action_unavailable"), 404)
 )
 _STATUS["channel_status_unavailable"] = 503
+# A worker plugin that was prepared meanwhile (B129).
+_STATUS["plugin_environment_ready"] = 409
+# "Send a test message to me" needs a running channel that knows the person.
+_STATUS["channel_not_running"] = 409
+_STATUS["channel_test_target_missing"] = 409
+# A custom endpoint that did not answer a refresh or probe (B114).
+_STATUS["endpoint_unreachable"] = 409
+# "Enable in chat" (B130): the MCP tool isn't registered in this process.
+_STATUS["native_mcp_unavailable"] = 409
 _STATUS.update(dict.fromkeys(("invalid_plugin_query", "invalid_plugin_command"), 422))
 _STATUS.update(
     dict.fromkeys(
@@ -676,6 +723,7 @@ _STATUS.update(
             "invalid_relation_page",
             "invalid_relation_command",
             "invalid_relation_type",
+            "relation_type_too_vague",
             "invalid_relation_target",
         ),
         422,
@@ -963,28 +1011,10 @@ _STATUS.update(
 )
 
 
-class ProtocolRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
-        original = super().get_route_handler()
-
-        async def safe_handler(request: Request) -> Response:
-            try:
-                return await original(request)
-            except (RequestValidationError, ValidationError):
-                return problem(ProtocolError("invalid_command", 422))
-            except Exception as exc:
-                return problem(exc)
-
-        return safe_handler
-
-
-def problem(exc: Exception) -> JSONResponse:
-    code = getattr(exc, "code", "dependency_unavailable")
-    # Retained readers use exact ValueError codes; never expose arbitrary messages.
-    if isinstance(exc, ValueError) and str(exc) in _STATUS:
-        code = str(exc)
-    # Only codes are public. Never interpolate exceptions or validator input.
-    known = {
+# Codes a problem may carry without an entry in _STATUS (the status comes
+# from the raised error, else 409).
+_KNOWN_CODES = frozenset(
+    {
         "revision_conflict",
         "idempotency_mismatch",
         "idempotency_expired",
@@ -1013,7 +1043,43 @@ def problem(exc: Exception) -> JSONResponse:
         "model_selection_mismatch",
         "invalid_resource",
     }
-    if code not in known and code not in _STATUS:
+)
+
+
+def public_problem_codes() -> dict[str, int]:
+    """Every code a problem response can carry, with its default status.
+
+    The client's error catalog must describe each one; the contract generator
+    publishes this list so a client test can enumerate it.
+    """
+    codes = {code: 409 for code in _KNOWN_CODES}
+    codes.update(_STATUS)
+    codes["dependency_unavailable"] = _STATUS.get("dependency_unavailable", 503)
+    return dict(sorted(codes.items()))
+
+
+class ProtocolRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        original = super().get_route_handler()
+
+        async def safe_handler(request: Request) -> Response:
+            try:
+                return await original(request)
+            except (RequestValidationError, ValidationError):
+                return problem(ProtocolError("invalid_command", 422))
+            except Exception as exc:
+                return problem(exc)
+
+        return safe_handler
+
+
+def problem(exc: Exception) -> JSONResponse:
+    code = getattr(exc, "code", "dependency_unavailable")
+    # Retained readers use exact ValueError codes; never expose arbitrary messages.
+    if isinstance(exc, ValueError) and str(exc) in _STATUS:
+        code = str(exc)
+    # Only codes are public. Never interpolate exceptions or validator input.
+    if code not in _KNOWN_CODES and code not in _STATUS:
         code = "dependency_unavailable"
     status = getattr(
         exc,
@@ -1098,23 +1164,23 @@ async def _context(request: Request) -> AccessContext:
 def cached_choices() -> dict:
     """Read existing caches/catalogues; opening a client never refreshes a provider."""
     from row_bot.providers.model_catalog_cache import read_model_catalog_cache
-    from row_bot.providers.selection import list_model_choice_options
+    from row_bot.providers.client_status import picker_choices
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state as plugin_state
     from row_bot.mcp_client.runtime import get_catalog_snapshot
 
     snapshot = read_model_catalog_cache()
+    # The composer offers the Brain picker's list, judged by the same rule.
     models = [
         {
-            "provider_id": row["provider_id"],
-            "model_ref": row["value"],
-            "label": row["label"],
-            "available": bool(row.get("active")),
-            "unavailable_reason": "configuration_required"
-            if not row.get("active")
-            else None,
+            "provider_id": option["provider_id"],
+            "model_ref": option["selection_ref"],
+            "label": option["label"],
+            "available": option["available"],
+            "unavailable_reason": option["unavailable_reason"],
+            "billing": option["billing"],
         }
-        for row in list_model_choice_options(include_inactive=True)
+        for option in picker_choices("chat")
     ]
     capabilities = []
 
@@ -1513,6 +1579,31 @@ def create_router(
                 {"reference": value["grant_id"], "kind": "folder"},
             )
 
+        exact_picks = {("restore_backup", "data-restore"): "file", ("migration_source", "migration"): "folder",
+                       ("settings_folder", "settings"): "folder"}
+        wanted = exact_picks.get((body.intent, body.destination))
+        if wanted is not None and body.conversation_id is None:
+            # Settings › Data: a backup to restore (one .zip) or the old app's
+            # folder to import from; a setting's folder (the wiki vault, the
+            # workspace folder, B280); each granted by reference.
+            if body.selection_kind != wanted or (wanted == "file" and selected.suffix.lower() != ".zip"):
+                raise ProtocolError("invalid_command", 422)
+            native_intent = await call(folder_selections.begin_exact, scope)
+            value = await call(
+                folder_selections.complete_exact,
+                native_intent,
+                scope,
+                selected,
+                authorized,
+                kind=wanted,
+            )
+            if value.get("status") != "selected":
+                raise ProtocolError("action_denied", 403)
+            return await respond(
+                request,
+                dto.NativeSelectionView,
+                {"reference": value["grant_id"], "kind": wanted},
+            )
         if body.conversation_id is None or body.intent != "attachment":
             raise ProtocolError("invalid_command", 422)
         from row_bot.application.attachments import read_native_selection
@@ -1586,6 +1677,39 @@ def create_router(
             {"terminal_id": identifier},
         )
 
+    @router.post("/native/terminal/external")
+    async def native_terminal_external(request: Request) -> JSONResponse:
+        """Open the person's own terminal app at the conversation's folder.
+
+        Only the trusted desktop host calls this, with the document's grant.
+        The folder is resolved here from the conversation's bound code
+        folder (else home); no path ever comes from a page.
+        """
+        context = await _context(request)
+        require_native_local(request, context)
+        body = await _body(request, dto.NativeTerminalExternalRequest, 4096)
+
+        def authorize() -> None:
+            if not security.authorize_native_grant(
+                body.authority_grant,
+                session_id=body.session_id,
+                policy_revision=body.policy_revision,
+                instance_id=body.instance_id,
+                window_id=body.window_id,
+                window_epoch=body.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        authorize()
+        from row_bot.application import external_terminal
+
+        await call(
+            external_terminal.open_external_terminal,
+            body.conversation_id,
+            validate=authorize,
+        )
+        return await respond(request, dto.NativeTerminalChanged, {"ok": True})
+
     @router.post("/native/attachments/{reference}")
     async def native_attachment_download(reference: str, request: Request) -> Response:
         context = await _context(request)
@@ -1633,7 +1757,7 @@ def create_router(
         cursor: int = 0,
         max_bytes: int = 65536,
     ) -> JSONResponse:
-        current = await session(request, lane="observation")
+        current = await session(request, lane="terminal")
         try:
             value = await call(
                 terminal_client(terminal_id, current).read, cursor, max_bytes
@@ -1644,7 +1768,7 @@ def create_router(
 
     @router.post("/native/terminals/{terminal_id}/input")
     async def native_terminal_input(terminal_id: str, request: Request) -> JSONResponse:
-        current = await session(request, lane="control")
+        current = await session(request, lane="terminal")
         body = await _body(request, dto.NativeTerminalInput, 32768)
         try:
             await call(terminal_client(terminal_id, current).input, body.data)
@@ -1656,7 +1780,7 @@ def create_router(
     async def native_terminal_resize(
         terminal_id: str, request: Request
     ) -> JSONResponse:
-        current = await session(request, lane="control")
+        current = await session(request, lane="terminal")
         body = await _body(request, dto.NativeTerminalResize, 4096)
         try:
             await call(
@@ -2515,6 +2639,86 @@ def create_router(
         )
         return await respond(request, dto.BrowserReceipt, result)
 
+    async def computer_control_authority(
+        conversation_id: str, request: Request, current: Any
+    ) -> Callable[[], None]:
+        # The picture and the controls are this computer's own screen: only
+        # the local owner on a direct loopback connection may see or use them.
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("computer_use_local_only", 403)
+        await readable_conversation(conversation_id)
+        access = dispatch_validation(request, current)
+
+        def validate() -> None:
+            from row_bot.runtime import admissions
+
+            access()
+            service._metadata(conversation_id)
+            if admissions.deletion_state(conversation_id) != "active":
+                raise ProtocolError("conversation_deleting", 409)
+
+        return validate
+
+    @router.get("/conversations/{conversation_id}/computer")
+    async def computer_use_snapshot(
+        conversation_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="observation")
+        validate = await computer_control_authority(conversation_id, request, current)
+        from row_bot.application.client_computer_controls import read_computer_controls
+
+        result = await call(
+            read_computer_controls, service, conversation_id, validate=validate
+        )
+        return await respond(request, dto.ComputerUseSnapshot, result)
+
+    @router.get("/conversations/{conversation_id}/computer/preview")
+    async def computer_use_preview(
+        conversation_id: str, request: Request, revision: str
+    ) -> JSONResponse:
+        current = await session(request, lane="observation")
+        validate = await computer_control_authority(conversation_id, request, current)
+        from row_bot.application.client_computer_controls import read_computer_preview
+
+        result = await call(
+            read_computer_preview,
+            service,
+            conversation_id,
+            revision,
+            validate=validate,
+        )
+        response = await respond(request, dto.ComputerUsePreview, result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @router.post("/conversations/{conversation_id}/computer/commands")
+    async def computer_use_command(
+        conversation_id: str, request: Request
+    ) -> JSONResponse:
+        current = await session(request, lane="control")
+        validate = await computer_control_authority(conversation_id, request, current)
+        body = await _body(request, dto.ComputerUseCommand, 4096)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_computer_use_command", 422)
+        key = request.headers.get("idempotency-key", "")
+        if key != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_computer_controls import (
+            execute_computer_command,
+        )
+
+        result = await call(
+            execute_computer_command,
+            service,
+            body.model_dump(mode="json"),
+            conversation_id,
+            owner_id=current.id,
+            key=key,
+            validate=validate,
+        )
+        return await respond(request, dto.ComputerUseReceipt, result)
+
     @router.get("/conversations/{conversation_id}/open")
     async def open_conversation(conversation_id: str, request: Request) -> JSONResponse:
         await session(request, lane="view")
@@ -2745,6 +2949,7 @@ def create_router(
         generation_id: str = "",
         cursor: str | None = None,
         limit: int = 100,
+        waiting: bool = False,
     ) -> JSONResponse:
         await session(request)
         if (
@@ -2762,6 +2967,7 @@ def create_router(
             generation_id=generation_id,
             cursor=cursor,
             limit=limit,
+            waiting=waiting,
         )
         await call(service._metadata, conversation_id)
         return await respond(request, dto.ClientQueueView, asdict(result))
@@ -2837,6 +3043,7 @@ def create_router(
             if body.type
             in {
                 "conversation.stop",
+                "agent.stop",
                 "task.stop",
                 "task.approval",
                 "approval.resolve",
@@ -2860,6 +3067,7 @@ def create_router(
                 "task.create",
                 "task.update",
                 "task.delete",
+                "task.duplicate",
                 "task.delivery.update",
                 "task.graph.update",
                 "task.settings.update",
@@ -2876,7 +3084,11 @@ def create_router(
             raise ProtocolError("invalid_command", 422)
         if document_command != body.type.startswith("document."):
             raise ProtocolError("invalid_command", 422)
-        if resource_setup and body.type not in {"resource.setup", "resource.continue"}:
+        if resource_setup and body.type not in {
+            "resource.setup",
+            "resource.continue",
+            "resource.forget",
+        }:
             raise ProtocolError("invalid_command", 422)
         try:
             key = str(UUID(request.headers.get("idempotency-key", "")))
@@ -3175,6 +3387,44 @@ def create_router(
                 validate_review=validate_catalog_review,
             )
             return await respond(request, dto.CommandReceipt, public_receipt(result))
+        if body.type == "mcp.facade.control":
+            # "Enable in chat" (B130): external MCP tools reach the chat.
+            from row_bot.application.native_mcp_controls import (
+                execute_native_mcp_command,
+                public_receipt as native_public_receipt,
+            )
+            from row_bot.runtime.admissions import keyed_digest, read_command_metadata
+
+            def validate_chat_review(review: dict) -> None:
+                validate_access()
+                security.consume_nonce(
+                    current,
+                    "settings:mcp-chat",
+                    review["resource_revision"],
+                    review["action_digest"],
+                    body.payload["nonce"],
+                    str(body.command_id),
+                )
+
+            chat_intent = {
+                "resource_revision": body.payload["resource_revision"],
+                "enabled": body.payload["enabled"],
+            }
+            reviewed = {**chat_intent, "action_digest": await call(keyed_digest, chat_intent)}
+            original = await call(
+                read_command_metadata, security.instance_id, str(body.command_id)
+            )
+            if original is None:
+                await call(validate_chat_review, reviewed)
+            result = await call(
+                execute_native_mcp_command,
+                owner_id=security.instance_id,
+                key=key,
+                command=wire,
+                validate=validate_access,
+                validate_review=lambda _review: validate_access(),
+            )
+            return await respond(request, dto.CommandReceipt, native_public_receipt(result))
         if body.type in {"mcp.configuration.save", "mcp.configuration.control"}:
             from row_bot.application.capability_configuration_controls import (
                 execute_mcp_configuration_command,
@@ -3774,6 +4024,37 @@ def create_router(
         )
         return await respond(request, dto.FolderGrantView, result)
 
+    @router.post("/resources/folder-selection/claim")
+    async def claim_folder(request: Request) -> JSONResponse:
+        # The desktop server has no window, so a setting's folder is picked in
+        # the desktop window and its one-use reference claimed here (B280).
+        current = await session(request, lane="mutation")
+        require_native_local(request, await _context(request))
+        body = await _body(request, dto.FolderGrantClaim, 1024)
+
+        def validate_native_folder(scope: Any) -> None:
+            if not security.authorize_native_grant(
+                scope.authority_grant,
+                session_id=scope.session_id,
+                policy_revision=scope.policy_revision,
+                instance_id=scope.instance_id,
+                window_id=scope.window_id,
+                window_epoch=scope.window_epoch,
+            ):
+                raise ProtocolError("action_denied", 403)
+
+        result = await call(
+            folder_selections.claim_exact,
+            body.reference,
+            current.id,
+            validate_native_folder,
+            intent="settings_folder",
+            destination="settings",
+        )
+        if result is None:
+            raise ProtocolError("capability_revoked", 409)
+        return await respond(request, dto.FolderGrantView, result)
+
     async def wiki_scope(
         request: Request, current: Any, grant_id: str
     ) -> tuple[Any, Callable[[], None]]:
@@ -4010,6 +4291,21 @@ def create_router(
         if result is None:
             raise ProtocolError("not_found", 404)
         return await respond(request, dto.ChannelReceipt, result)
+
+    @router.get("/settings/channels/{channel_id}/link")
+    async def channel_link(channel_id: str, request: Request) -> JSONResponse:
+        # The code links a phone to Row-Bot (WhatsApp's QR, B139): only the
+        # owner on this computer reads it.
+        current = await session(request)
+        require_native_local(request, await _context(request))
+        from row_bot.application.channel_controls import read_channel_link
+
+        result = await call(
+            read_channel_link,
+            channel_id,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.ChannelLink, result)
 
     @router.post("/settings/channels/commands")
     async def channel_command(request: Request) -> JSONResponse:
@@ -4260,6 +4556,7 @@ def create_router(
                 query=body.query,
                 source=body.source,
                 refresh=body.refresh,
+                limit=body.limit,
             )
         except SkillHubCommandError as exc:
             raise ProtocolError(exc.code, _STATUS.get(exc.code, 409)) from exc
@@ -4606,6 +4903,7 @@ def create_router(
         from row_bot.application.client_goal_profile_commands import (
             execute_goal_command,
         )
+        from row_bot.application.conversation_followups import after_goal_change
 
         result = await call(
             execute_goal_command,
@@ -4614,6 +4912,9 @@ def create_router(
             command=wire,
             validate=validate,
             validate_review=validate_review,
+            on_change=lambda operation, target, goal: after_goal_change(
+                service, target, operation, goal
+            ),
         )
         return await respond(request, dto.GoalReceipt, result)
 
@@ -4766,6 +5067,30 @@ def create_router(
         )
         return await respond(request, dto.MonitorSnapshot, result)
 
+    @router.get("/monitor/attention")
+    async def monitor_attention(request: Request) -> JSONResponse:
+        # The sidebar's one indicator (parity rows 12, 13). Only the owner on
+        # this computer hears about updates: other devices can't install.
+        await session(request)
+        context = await _context(request)
+        from row_bot.application.client_monitor import read_attention
+
+        result = await call(
+            read_attention,
+            include_update=context.is_local_owner and context.direct_loopback,
+        )
+        return await respond(request, dto.AttentionSnapshot, result)
+
+    @router.get("/monitor/approvals")
+    async def monitor_approvals(request: Request) -> JSONResponse:
+        # Every pending approval, wherever it was raised (B255). Each one is
+        # answered through /approvals/{id}, like an approval card.
+        await session(request)
+        from row_bot.application.client_monitor import read_pending_approvals
+
+        result = await call(read_pending_approvals)
+        return await respond(request, dto.PendingApprovalPage, result)
+
     @router.get("/monitor/logs")
     async def monitor_logs(request: Request, limit: int = 200) -> JSONResponse:
         await session(request)
@@ -4784,6 +5109,23 @@ def create_router(
         from row_bot.application.client_diagnosis import run_system_diagnosis
 
         result = await call(run_system_diagnosis)
+        return await respond(request, dto.SystemDiagnosis, result)
+
+    @router.get("/monitor/diagnosis")
+    async def monitor_kept_diagnosis(request: Request) -> JSONResponse:
+        # The last result of every check (B252): a file read, nothing runs.
+        await session(request)
+        from row_bot.application.client_diagnosis import read_system_health
+
+        return await respond(request, dto.SystemDiagnosis, await call(read_system_health))
+
+    @router.post("/monitor/diagnosis/settings")
+    async def monitor_diagnosis_settings(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SystemDiagnosisSettings, 256)
+        from row_bot.application.client_diagnosis import set_hourly_network_checks
+
+        result = await call(set_hourly_network_checks, body.hourly_network_checks)
         return await respond(request, dto.SystemDiagnosis, result)
 
     @router.get("/system/updates")
@@ -4967,6 +5309,15 @@ def create_router(
             raise ProtocolError("action_denied", 403)
         return await respond(request, dto.AccountAuthReceipt, result)
 
+    @router.get("/system/migration/sources")
+    async def migration_sources(request: Request) -> JSONResponse:
+        await session(request)
+        context = await _context(request)
+        require_native_local(request, context)
+        from row_bot.application.client_migration import detect_sources
+
+        return await respond(request, dto.MigrationSources, await call(detect_sources))
+
     @router.post("/system/migration/scan")
     async def migration_scan(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
@@ -4975,13 +5326,42 @@ def create_router(
         body = await _body(request, dto.MigrationScanRequest, 8192)
         from row_bot.application.client_migration import scan_migration
 
+        source = body.source
+        if body.source_grant:
+            if body.source or body.same_source_as:
+                raise ProtocolError("invalid_migration_selection", 422)
+
+            def validate_native_folder(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            picked = await call(
+                folder_selections.consume_exact_path,
+                body.source_grant,
+                current.id,
+                validate_native_folder,
+                intent="migration_source",
+                destination="migration",
+                kind="folder",
+            )
+            if picked is None:
+                raise ProtocolError("capability_revoked", 409)
+            source = str(picked)
         result = await call(
             scan_migration,
             owner_id=current.id,
             provider=body.provider,
-            source=body.source,
+            source=source,
             target=body.target,
             include_secrets=body.include_secrets,
+            same_source_as=str(body.same_source_as) if body.same_source_as and not body.source_grant else None,
         )
         return await respond(request, dto.MigrationPreview, result)
 
@@ -5062,8 +5442,39 @@ def create_router(
             action=body.action,
             profile=body.profile,
             step=body.step,
+            model_ref=body.model_ref,
         )
         return await respond(request, dto.OnboardingReceipt, result)
+
+    @router.get("/setup/local-runtime")
+    async def setup_local_runtime(request: Request) -> JSONResponse:
+        # Loopback-only detection; Setup polls it while the local choice is open.
+        await session(request)
+        from row_bot.application.client_first_run import detect_local_runtime
+
+        return await respond(
+            request, dto.LocalRuntimeSnapshot, await call(detect_local_runtime)
+        )
+
+    @router.post("/setup/model-test")
+    async def setup_model_test(request: Request) -> JSONResponse:
+        # One short message to the model the person just chose (its provider is
+        # contacted, like any message); the result is words, never an error.
+        await session(request, lane="mutation")
+        from row_bot.application.client_first_run import run_model_test
+
+        return await respond(request, dto.ModelTestResult, await call(run_model_test))
+
+    @router.post("/setup/provider-key/check")
+    async def setup_provider_key_check(request: Request) -> JSONResponse:
+        # Asks the provider whether a key works before it is saved; the key is
+        # neither stored nor logged here.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ProviderKeyCheckRequest, 20000)
+        from row_bot.application.client_first_run import check_provider_key
+
+        result = await call(check_provider_key, body.provider_id, body.value)
+        return await respond(request, dto.ProviderKeyCheck, result)
 
     @router.post("/monitor/dream/review")
     async def monitor_dream_review(request: Request) -> JSONResponse:
@@ -5931,7 +6342,12 @@ def create_router(
         def context() -> dict:
             validate()
             row = service._metadata(conversation)
-            selection = row.get("model_override")
+            from row_bot.application.settings_snapshot import (
+                read_document_processing_model,
+            )
+
+            # The model picked in the queue, else the conversation's (U45).
+            selection = read_document_processing_model() or row.get("model_override")
             if not selection:
                 from row_bot.application.provider_default_model import (
                     read_default_model,
@@ -6620,6 +7036,36 @@ def create_router(
     @router.post("/settings/mcp/commands")
     async def mcp_mutation(request: Request) -> JSONResponse:
         return await command("settings:mcp", request, mcp_command=True)
+
+    @router.get("/settings/mcp/chat")
+    async def mcp_chat_state(request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.native_mcp_controls import read_native_mcp_state
+
+        result = await call(
+            read_native_mcp_state, validate=dispatch_validation(request, current)
+        )
+        return await respond(request, dto.McpChatState, asdict(result))
+
+    @router.post("/settings/mcp/chat/review")
+    async def mcp_chat_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpChatReviewRequest, 4096)
+        from row_bot.application.native_mcp_controls import review_native_mcp_command
+
+        result = await call(
+            review_native_mcp_command,
+            body.resource_revision,
+            body.enabled,
+            validate=dispatch_validation(request, current),
+        )
+        result["nonce"] = security.approval_nonce(
+            current,
+            "settings:mcp-chat",
+            result["resource_revision"],
+            result["action_digest"],
+        )
+        return await respond(request, dto.McpChatReview, result)
 
     @router.get("/settings/mcp/runtime/{server_id}")
     async def mcp_runtime_state(server_id: str, request: Request) -> JSONResponse:
@@ -7821,6 +8267,35 @@ def create_router(
             limit=limit,
         )
 
+    @router.get(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/assets/{asset_id}/thumbnail"
+    )
+    async def design_asset_thumbnail(
+        conversation_id: str,
+        binding_id: str,
+        asset_id: str,
+        request: Request,
+    ) -> Response:
+        """A small picture of one of the design's images, for the panel's pickers."""
+        await session(request, lane="view")
+        if len(asset_id) > 128:
+            raise ProtocolError("invalid_command", 422)
+        from row_bot.designer.client_design_controls import read_asset_thumbnail
+
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        data, content_type = await call(read_asset_thumbnail, identity, asset_id=asset_id)
+        if await call(bound_resource, conversation_id, binding_id, "artifact") != identity:
+            raise ProtocolError("resource_binding_revoked", 403)
+        return Response(
+            data,
+            media_type=content_type,
+            headers={
+                **HEADERS,
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+
     @router.get("/conversations/{conversation_id}/artifacts/{binding_id}/design-review")
     async def design_review(
         conversation_id: str,
@@ -7969,6 +8444,17 @@ def create_router(
         )
         return await respond(request, dto.ArtifactShareReview, result)
 
+    @router.get("/conversations/{conversation_id}/artifacts/{binding_id}/publication")
+    async def artifact_publication(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        await session(request, lane="view")
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        from row_bot.designer.client_sharing import read_publication
+
+        value = await call(read_publication, identity)
+        return await respond(request, dto.ArtifactPublication, asdict(value))
+
     @router.get("/sharing/channels")
     async def share_channels(
         request: Request, cursor: str | None = None
@@ -8056,6 +8542,79 @@ def create_router(
         return await bound_export(
             conversation_id, binding_id, export_id, request, download=True
         )
+
+    @router.post(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/brand-suggestion"
+    )
+    async def artifact_brand_suggestion(
+        conversation_id: str, binding_id: str, request: Request
+    ) -> JSONResponse:
+        # One explicitly asked-for, guarded read of a public page (Brand › From
+        # a website); the panel applies the result through the brand control.
+        await session(request, lane="mutation")
+        body = await _body(request, dto.ArtifactBrandSuggestionRequest)
+        await call(bound_resource, conversation_id, binding_id, "artifact")
+        from row_bot.designer.brand_fetch import brand_suggestion
+
+        result = await call(brand_suggestion, body.url)
+        return await respond(request, dto.ArtifactBrandSuggestion, result)
+
+    async def local_export(
+        conversation_id: str, binding_id: str, export_id: str, request: Request
+    ) -> tuple[str, Callable[[], None]]:
+        """Saving and opening files on this computer: the local owner only."""
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        if context.authentication_kind != "local_owner" or not context.direct_loopback:
+            raise ProtocolError("owner_local_only", 403)
+        try:
+            if str(UUID(export_id)) != export_id:
+                raise ValueError
+        except ValueError:
+            raise ProtocolError("invalid_export", 422) from None
+        identity = await call(bound_resource, conversation_id, binding_id, "artifact")
+        auth = dispatch_validation(request, current)
+
+        def validate() -> None:
+            auth()
+            if bound_resource(conversation_id, binding_id, "artifact") != identity:
+                raise ProtocolError("resource_binding_revoked", 403)
+
+        return identity, validate
+
+    @router.post(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/save"
+    )
+    async def artifact_export_save(
+        conversation_id: str, binding_id: str, export_id: str, request: Request
+    ) -> JSONResponse:
+        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
+        from row_bot.designer.client_exports import save_export_copy
+
+        result = await call(
+            save_export_copy, identity, export_id, binding_id=binding_id, validate=validate
+        )
+        return await respond(request, dto.ArtifactSavedExport, asdict(result))
+
+    @router.post(
+        "/conversations/{conversation_id}/artifacts/{binding_id}/exports/{export_id}/reveal"
+    )
+    async def artifact_export_reveal(
+        conversation_id: str, binding_id: str, export_id: str, request: Request
+    ) -> JSONResponse:
+        identity, validate = await local_export(conversation_id, binding_id, export_id, request)
+        body = await _body(request, dto.ArtifactExportReveal)
+        from row_bot.designer.client_exports import reveal_export_copy
+
+        result = await call(
+            reveal_export_copy,
+            identity,
+            export_id,
+            binding_id=binding_id,
+            action=body.action,
+            validate=validate,
+        )
+        return await respond(request, dto.ArtifactExportRevealResult, result)
 
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/inspector")
     async def workspace_inspector(
@@ -8446,6 +9005,168 @@ def create_router(
         if not (context.is_local_owner and context.direct_loopback):
             raise ProtocolError("owner_local_only", 403)
         return await import_authority(conversation_id, binding_id, request, current)
+
+    async def custom_tool_library_authority(
+        request: Request, current: Any
+    ) -> Callable[[], None]:
+        context = await _context(request)
+        if not (context.is_local_owner and context.direct_loopback):
+            raise ProtocolError("owner_local_only", 403)
+        return dispatch_validation(request, current)
+
+    # Settings › Data (decision 21): the local owner on this computer only.
+    _DATA_RECEIPTS: dict[str, dict] = {}
+
+    async def data_backup_state(request: Request) -> dict:
+        context = await _context(request)
+        from row_bot.application.client_data_backup import read_state
+
+        return await call(read_state, local_owner=bool(context.is_local_owner and context.direct_loopback))
+
+    @router.get("/data/backup")
+    async def data_backup(request: Request) -> JSONResponse:
+        await session(request)
+        return await respond(request, dto.DataBackupState, await data_backup_state(request))
+
+    @router.post("/data/backup/commands")
+    async def data_backup_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.DataBackupCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        validate = await custom_tool_library_authority(request, current)
+        key = f"{current.id}:{body.command_id}"
+        if key in _DATA_RECEIPTS:
+            receipt = dict(_DATA_RECEIPTS[key])
+            receipt["state"] = await data_backup_state(request)
+            return await respond(request, dto.DataBackupReceipt, receipt)
+        from row_bot.application import client_data_backup as data
+
+        review = None
+        status = "completed"
+        # The owner check waits on the event loop, so it runs in a worker.
+        await call(validate)
+        if body.action == "backup":
+            await call(data.backup)
+            status = "accepted"
+        elif body.action == "inspect_restore":
+            if not body.file_grant:
+                raise ProtocolError("invalid_command", 422)
+
+            def validate_native_file(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            path = await call(
+                folder_selections.consume_exact_backup_file,
+                body.file_grant,
+                current.id,
+                validate_native_file,
+            )
+            if path is None:
+                raise ProtocolError("capability_revoked", 409)
+            from row_bot.application.profile_backup import BackupError
+
+            try:
+                review = await call(data.inspect_restore, path)
+            except BackupError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from None
+        elif body.action == "restore":
+            if not body.review_id:
+                raise ProtocolError("invalid_command", 422)
+            from row_bot.application.profile_backup import BackupError
+
+            try:
+                await call(data.restore, body.review_id)
+            except BackupError as exc:
+                raise ProtocolError(exc.code, _STATUS.get(exc.code, 422)) from None
+            status = "accepted"
+        elif body.action == "cancel_restore":
+            await call(data.cancel_restore)
+        elif body.action == "dismiss_result":
+            await call(data.dismiss_result)
+        else:
+            await call(data.reveal_last)
+        receipt = {"command_id": str(body.command_id), "status": status, "review": review}
+        if body.action != "inspect_restore":
+            if len(_DATA_RECEIPTS) > 256:
+                _DATA_RECEIPTS.clear()
+            _DATA_RECEIPTS[key] = receipt
+        receipt = {**receipt, "state": await data_backup_state(request)}
+        return await respond(request, dto.DataBackupReceipt, receipt)
+
+    @router.get("/custom-tools")
+    async def custom_tool_library(request: Request) -> JSONResponse:
+        current = await session(request)
+        validate = await custom_tool_library_authority(request, current)
+        from row_bot.developer.client_custom_tool_library import read_custom_tool_library
+
+        result = await call(read_custom_tool_library, validate=validate)
+        return await respond(request, dto.CustomToolLibrary, result)
+
+    @router.get("/custom-tools/commands/{command_id}")
+    async def custom_tool_library_receipt(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        validate = await custom_tool_library_authority(request, current)
+        from row_bot.developer.client_custom_tool_library import read_custom_tool_library_receipt
+
+        result = await call(
+            read_custom_tool_library_receipt, str(command_id), owner_id=current.id, validate=validate
+        )
+        return await respond(request, dto.CustomToolLibraryReceipt, result)
+
+    @router.post("/custom-tools/commands")
+    async def custom_tool_library_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.CustomToolLibraryCommand, 64 * 1024)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        validate = await custom_tool_library_authority(request, current)
+        folder = None
+        if body.folder_grant:
+            if body.action != "inspect":
+                raise ProtocolError("invalid_custom_tool_command", 422)
+
+            def validate_native_folder(scope: Any) -> None:
+                if not security.authorize_native_grant(
+                    scope.authority_grant,
+                    session_id=scope.session_id,
+                    policy_revision=scope.policy_revision,
+                    instance_id=scope.instance_id,
+                    window_id=scope.window_id,
+                    window_epoch=scope.window_epoch,
+                ):
+                    raise ProtocolError("action_denied", 403)
+
+            # The desktop app's pick is an exact grant; the older picker's
+            # grants are resolved as before.
+            selected = await call(
+                folder_selections.consume_exact_custom_tool,
+                body.folder_grant,
+                current.id,
+                validate_native_folder,
+            )
+            if selected is None:
+                selected = await call(folder_selections.resolve, body.folder_grant, current.id)
+            folder = selected.path
+        from row_bot.developer.client_custom_tool_library import execute_custom_tool_library
+
+        command = body.model_dump(mode="json", exclude={"folder_grant", "client_session_id"})
+        result = await call(
+            execute_custom_tool_library, command, owner_id=current.id, validate=validate, folder=folder
+        )
+        return await respond(request, dto.CustomToolLibraryReceipt, result)
 
     @router.get("/conversations/{conversation_id}/workspaces/{binding_id}/custom-tools")
     async def custom_tool_snapshot(
@@ -9013,6 +9734,7 @@ def create_router(
                 "id",
                 "status",
                 "revision",
+                "requested_at",
                 "expires_at",
                 "summary",
                 "action_label",
@@ -9021,6 +9743,7 @@ def create_router(
                 "scope",
                 "safe_argument_summary",
                 "requesting_trace_id",
+                "setup",
                 "policy_revision",
             )
             if k in view
@@ -9097,15 +9820,50 @@ def create_router(
             "cursor": security.cursor(sub, delivered_revision),
         }
 
+    def _notices_after(after: int, epoch: str) -> int:
+        # A new server numbers its notices from 1 again.
+        from row_bot.application.app_notices import app_notices
+
+        return after if epoch == app_notices.epoch and after >= 0 else 0
+
     @router.get("/events/poll")
-    async def poll(request: Request, subscription_id: str, cursor: str) -> JSONResponse:
+    async def poll(
+        request: Request,
+        subscription_id: str,
+        cursor: str,
+        notices_after: int = 0,
+        notices_epoch: str | None = None,
+    ) -> JSONResponse:
         current = await session(request, lane="observation")
         sub = security.subscription(current, subscription_id)
         if sub.streaming:
             raise ProtocolError("subscription_in_use", 409)
         result = await replay(sub, cursor)
         await _context(request)
+        if notices_epoch is not None:
+            # Only a client that asks for notices (by sending its position,
+            # empty at first) receives them.
+            from row_bot.application.app_notices import app_notices
+
+            result["notices"] = [
+                notice.view()
+                for notice in app_notices.since(
+                    _notices_after(notices_after, notices_epoch)
+                )
+            ]
+            result["notices_epoch"] = app_notices.epoch
         return await respond(request, dto.EventPage, result)
+
+    @router.get("/notices")
+    async def notices(request: Request, after: int = 0, epoch: str = "") -> JSONResponse:
+        """Background notices and start-up warnings, for a client with no
+        conversation stream open (Home, Settings) and for Monitor."""
+        await session(request)
+        from row_bot.application.app_notices import app_notices
+
+        return await respond(
+            request, dto.NoticePage, app_notices.page(_notices_after(after, epoch))
+        )
 
     @router.put("/subscriptions/{subscription_id}/ack")
     async def acknowledge(subscription_id: str, request: Request) -> JSONResponse:
@@ -9124,15 +9882,25 @@ def create_router(
 
     @router.get("/events")
     async def events(
-        request: Request, subscription_id: str, cursor: str
+        request: Request,
+        subscription_id: str,
+        cursor: str,
+        notices_after: int = 0,
+        notices_epoch: str | None = None,
     ) -> StreamingResponse:
         current = await session(request, lane="observation")
         sub = security.subscription(current, subscription_id)
         security.decode_cursor(sub, cursor)
         security.enter_stream(sub)
+        from row_bot.application.app_notices import app_notices
 
         async def stream() -> Any:
             position = cursor
+            notice_position = (
+                _notices_after(notices_after, notices_epoch)
+                if notices_epoch is not None
+                else None
+            )
             heartbeat = security.clock()
             try:
                 # Flush the accepted stream even when replay is empty; an idle
@@ -9161,6 +9929,18 @@ def create_router(
                                 + json.dumps(item["event"], separators=(",", ":"))
                                 + "\n\n"
                             )
+                    # Background notices ride the same stream as their own
+                    # frames; they never move the conversation cursor.
+                    for notice in (
+                        app_notices.since(notice_position)
+                        if notice_position is not None
+                        else ()
+                    ):
+                        frame = dto.NoticeFrame(
+                            notices_epoch=app_notices.epoch, notice=notice.view()
+                        )
+                        yield "event: notice\ndata: " + frame.model_dump_json() + "\n\n"
+                        notice_position = notice.id
                     position = result["cursor"]
                     if security.clock() - heartbeat >= 15:
                         yield ": heartbeat\n\n"
@@ -9335,6 +10115,24 @@ def create_router(
             await call(inspect_attachment, reference),
         )
 
+    @router.get("/attachments/{reference}/thumbnail")
+    async def attachment_thumbnail(reference: str, request: Request) -> Response:
+        """A small picture of an image attachment, for the composer's tiles (B232)."""
+        current = await session(request, lane="view")
+        from row_bot.application.attachments import read_attachment_thumbnail
+
+        data = await call(read_attachment_thumbnail, reference)
+        security.session(await _context(request), current.id, current.csrf)
+        return Response(
+            data,
+            media_type="image/png",
+            headers={
+                **HEADERS,
+                "Content-Disposition": "inline",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+
     @router.get("/attachments/{reference}")
     async def attachment(reference: str, request: Request) -> Response:
         current = await session(request)
@@ -9361,6 +10159,40 @@ def create_router(
                 + quote(metadata["name"], safe=""),
             },
         )
+
+    async def local_owner_session(request: Request) -> Any:
+        """Writing and showing files on this computer: the local owner only."""
+        current = await session(request, lane="mutation")
+        context = await _context(request)
+        if context.authentication_kind != "local_owner" or not context.direct_loopback:
+            raise ProtocolError("owner_local_only", 403)
+        return current
+
+    @router.post("/attachments/{reference}/save")
+    async def attachment_save(reference: str, request: Request) -> JSONResponse:
+        """Save a conversation export into Exports when the desktop window
+        cannot show its Save dialog (B238)."""
+        current = await local_owner_session(request)
+        from row_bot.application.attachments import read_attachment
+        from row_bot.application.export_folder import save_export
+
+        metadata, data = await call(read_attachment, reference)
+        result = await call(
+            save_export,
+            metadata["name"],
+            data,
+            validate=dispatch_validation(request, current),
+        )
+        return await respond(request, dto.ExportSaved, result)
+
+    @router.post("/exports/reveal")
+    async def export_reveal(request: Request) -> JSONResponse:
+        await local_owner_session(request)
+        body = await _body(request, dto.ExportRevealRequest)
+        from row_bot.application.export_folder import reveal_export
+
+        result = await call(reveal_export, body.file_name)
+        return await respond(request, dto.ArtifactExportRevealResult, result)
 
     return router
 

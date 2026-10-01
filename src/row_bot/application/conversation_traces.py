@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 
@@ -25,7 +24,22 @@ TraceStatus = Literal[
     "uncertain",
 ]
 TraceGroupKind = Literal["generic", "browser", "computer"]
-TraceSpecializationKind = Literal["skill_load", "delegated_agent", "media"]
+TraceSpecializationKind = Literal[
+    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+]
+CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed"})
+# A design or code folder a turn created, or a folder it brought in (B277).
+_RESOURCE_CARDS: dict[tuple[str, str], TraceSpecializationKind] = {
+    ("create_design", "resource_created"): "resource_created",
+    ("create_code_folder", "resource_created"): "resource_created",
+    ("use_code_folder", "resource_bound"): "resource_bound",
+    ("clone_repository", "resource_bound"): "resource_bound",
+}
+_CONNECTION_PAGES = {
+    "google": "accounts", "github": "accounts", "x": "accounts",
+    "telegram": "channels", "slack": "channels", "discord": "channels",
+    "sms": "channels", "whatsapp": "channels", "email": "channels",
+}
 
 TRACE_STATUSES: frozenset[str] = frozenset(
     {"pending", "succeeded", "failed", "blocked", "cancelled", "uncertain"}
@@ -76,6 +90,8 @@ class DelegatedAgentReference:
     run_id: str
     display_name: str
     status: str
+    # The agent's profile, when it has one: its icon follows it (B240).
+    profile_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -100,6 +116,11 @@ class TraceSpecialization:
     media_kind: str = ""
     media: tuple[MediaReference, ...] = ()
     error_code: str = ""
+    resource_kind: str = ""
+    resource_id: str = ""
+    binding_id: str = ""
+    setup_target: str = ""
+    settings_page: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,29 +168,6 @@ class TraceGroup:
                 "uncertain",
             )
         }
-
-
-@dataclass
-class ToolResultGroup:
-    """Legacy display group retained for the NiceGUI renderer."""
-
-    name: str
-    results: list[dict[str, Any]] = field(default_factory=list)
-
-    @property
-    def count(self) -> int:
-        return len(self.results)
-
-    @property
-    def label(self) -> str:
-        if is_browser_tool_name(self.name):
-            suffix = "step" if self.count == 1 else "steps"
-            return f"Browser activity · {self.count} {suffix}"
-        if is_computer_tool_name(self.name):
-            suffix = "step" if self.count == 1 else "steps"
-            return f"Computer activity · {self.count} {suffix}"
-        suffix = "call" if self.count == 1 else "calls"
-        return f"{self.name} · {self.count} {suffix}"
 
 
 def _clean_text(value: Any, maximum: int, *, fallback: str = "") -> str:
@@ -268,27 +266,6 @@ def canonical_group(name: Any) -> tuple[str, TraceGroupKind]:
     return canonical, "generic"
 
 
-def group_tool_results(
-    tool_results: list[dict[str, Any]] | None,
-) -> list[ToolResultGroup]:
-    """Keep the retained renderer's first-seen grouping behavior."""
-
-    grouped: OrderedDict[str, ToolResultGroup] = OrderedDict()
-    for result in tool_results or []:
-        name = canonical_tool_name(
-            result.get("name", "tool") if isinstance(result, dict) else "tool"
-        )
-        key, _ = canonical_group(name)
-        if key not in grouped:
-            grouped[key] = ToolResultGroup(name=key)
-        grouped[key].results.append(
-            result
-            if isinstance(result, dict)
-            else {"name": name, "content": str(result)}
-        )
-    return list(grouped.values())
-
-
 def _bounded_json_object(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         payload = value
@@ -336,6 +313,17 @@ def _content(value: Any) -> Any:
     if isinstance(value, dict) and "content" in value:
         return value.get("content")
     return value
+
+
+# Refusals a tool returns when a person denies its approval (the approval gate,
+# the agent's tool wrapper and the shell tool). A denied action did not run.
+_DENIED_RESULTS = frozenset(
+    {
+        "action cancelled by user.",
+        "command cancelled by user.",
+        "install cancelled.",
+    }
+)
 
 
 def classify_tool_result(
@@ -388,6 +376,14 @@ def classify_tool_result(
             return "failed"
 
     text = str(content or "").strip().casefold()
+    if text.startswith("approval: "):
+        # An approval-gated result leads with its approval line (B235).
+        approval, _, text = text.partition("\n")
+        if approval.startswith("approval: asked; denied"):
+            return "cancelled"
+        text = text.strip()
+    if text in _DENIED_RESULTS:
+        return "cancelled"
     if text.startswith(("uncertain:", "outcome uncertain:")):
         return "uncertain"
     if text.startswith(("blocked:", "tool blocked:")):
@@ -399,17 +395,6 @@ def classify_tool_result(
     ):
         return "failed"
     return "succeeded"
-
-
-def tool_result_failed(result_or_content: Any) -> bool:
-    """Whether a settled result needs attention in the retained UI."""
-
-    return classify_tool_result(result_or_content) in {
-        "failed",
-        "blocked",
-        "cancelled",
-        "uncertain",
-    }
 
 
 def _summary_text(result_or_content: Any) -> str:
@@ -514,11 +499,13 @@ def _agent_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpe
         if not run_id or run_id in seen:
             continue
         seen.add(run_id)
+        profile = raw.get("profile")
         runs.append(
             DelegatedAgentReference(
                 run_id=run_id,
                 display_name=_clean_text(raw.get("display_name"), 256, fallback="Delegated task"),
                 status=_clean_text(raw.get("status"), 64, fallback="unknown"),
+                profile_id=_clean_text(profile.get("id") if isinstance(profile, dict) else "", 256),
             )
         )
     return (
@@ -564,6 +551,31 @@ def _media_specialization(result: Any) -> TraceSpecialization | None:
     )
 
 
+def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpecialization | None:
+    """A created (or brought-in) design or code folder, or a connection the work needs."""
+    if not payload or payload.get("ok") is not True:
+        return None
+    card = _RESOURCE_CARDS.get((name, str(payload.get("kind"))))
+    if card:
+        kind = str(payload.get("resource_kind") or "")
+        binding = _clean_text(payload.get("binding_id"), MAX_IDENTIFIER_CHARS)
+        resource = _clean_text(payload.get("resource_id"), MAX_IDENTIFIER_CHARS)
+        display = _clean_text(payload.get("name"), 180)
+        if kind not in {"design", "code"} or not binding or not resource or not display:
+            return None
+        return TraceSpecialization(kind=card, display_name=display, resource_kind=kind,
+                                   resource_id=resource, binding_id=binding)
+    if name == "request_connection" and payload.get("kind") == "setup_needed":
+        target = _clean_text(payload.get("target"), 64)
+        page = _CONNECTION_PAGES.get(target, "")
+        display = _clean_text(payload.get("label"), 180)
+        if not page or not display:
+            return None
+        return TraceSpecialization(kind="setup_needed", display_name=display, setup_target=target,
+                                   settings_page=page)
+    return None
+
+
 def specialize_tool_result(result: Any) -> TraceSpecialization | None:
     """Return only reviewed specialization metadata, never the raw payload."""
 
@@ -573,6 +585,7 @@ def specialize_tool_result(result: Any) -> TraceSpecialization | None:
     return (
         _skill_specialization(name, payload)
         or _agent_specialization(name, payload)
+        or _card_specialization(name, payload)
         or _media_specialization(result)
     )
 
@@ -680,7 +693,19 @@ def _public_specialization(
 ) -> dict[str, Any] | None:
     if specialization is None:
         return None
+    card = (
+        {
+            "resource_kind": specialization.resource_kind,
+            "resource_id": specialization.resource_id,
+            "binding_id": specialization.binding_id,
+            "setup_target": specialization.setup_target,
+            "settings_page": specialization.settings_page,
+        }
+        if specialization.kind in CARD_SPECIALIZATIONS
+        else {}
+    )
     return {
+        **card,
         "kind": specialization.kind,
         "skill_id": specialization.skill_id,
         "display_name": specialization.display_name,
@@ -692,6 +717,7 @@ def _public_specialization(
                 "run_id": run.run_id,
                 "display_name": run.display_name,
                 "status": run.status,
+                "profile_id": run.profile_id,
             }
             for run in specialization.agent_runs
         ],
@@ -765,8 +791,10 @@ def project_assistant_row_traces(
     assistant row.  A later tool row identifies its call with
     ``row["tool_call_id"]``.  The returned list contains copied public rows:
     initiating assistant rows gain ``traces`` and matched tool rows gain
-    ``trace_parent_id``.  Calls without a result remain pending; orphan result
-    rows stay untouched.
+    ``trace_parent_id``.  Calls without a result remain pending while nothing
+    but tool rows follows them; a call the conversation moved past (a later
+    user or assistant row) never ran and is cancelled, as histories recorded
+    before B234 left denied calls.  Orphan result rows stay untouched.
 
     Caller-supplied call IDs are the stable item identities.  A canonical
     group uses the first matching call ID as its stable group identity unless
@@ -858,9 +886,15 @@ def project_assistant_row_traces(
         call["result"] = result
         call["result_row"] = row
 
+    later_turns = [
+        index for index, row in enumerate(output)
+        if str(row.get("role") or "") in {"user", "assistant"}
+    ]
     for parent_id, projected_calls in parent_calls.items():
         items: list[TraceItem] = []
         for call in projected_calls:
+            if call["result"] is None and any(index > call["record_index"] for index in later_turns):
+                call["result"] = {"name": call["tool_name"], "content": "", "status": "cancelled"}
             result_row = call["result_row"] or {}
             result_message_id = str(result_row.get("message_id") or "").strip()
             content_ref = str(result_row.get("content_ref") or result_message_id).strip()

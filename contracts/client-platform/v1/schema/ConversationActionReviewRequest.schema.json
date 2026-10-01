@@ -2,7 +2,24 @@
   "$defs": {
     "ConversationActionExportFields": {
       "additionalProperties": false,
-      "properties": {},
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "enum": [
+                "markdown",
+                "pdf"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        }
+      },
       "title": "ConversationActionExportFields",
       "type": "object"
     },

@@ -524,22 +524,6 @@ def allocate_worktree(
     )
 
 
-def allocate_thread_worktree(
-    thread_id: str,
-    project_workspace_id: str,
-    *,
-    objective: str = "",
-    seed_mode: str = "current_changes",
-) -> dict[str, Any]:
-    return allocate_worktree(
-        "thread",
-        thread_id,
-        project_workspace_id,
-        objective=objective,
-        seed_mode=seed_mode,
-    )
-
-
 def allocate_agent_worktree(
     run_id: str,
     parent_workspace_id: str,
@@ -571,16 +555,6 @@ def allocate_agent_worktree(
             "parent_owner_id": parent_thread_id,
         },
     )
-
-
-def switch_thread_to_worktree(thread_id: str, worktree_workspace_id: str) -> None:
-    row = get_worktree_for_workspace(worktree_workspace_id)
-    if row is None:
-        raise ValueError("Worktree not found for workspace.")
-    from row_bot.threads import _set_thread_developer_workspace, _set_thread_project_workspace
-
-    _set_thread_developer_workspace(thread_id, worktree_workspace_id)
-    _set_thread_project_workspace(thread_id, str(row.get("project_workspace_id") or ""))
 
 
 def mark_worktree_preserved(
@@ -648,53 +622,6 @@ def worktree_diff_summary(owner_kind: str, owner_id: str | None = None) -> dict[
         summary["ok"] = False
         summary["error"] = str(exc)
     return summary
-
-
-def _status_paths(path: pathlib.Path) -> set[str]:
-    try:
-        status_out = subprocess.run(
-            ["git", "-C", str(path), "status", "--porcelain"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        return set()
-    paths: set[str] = set()
-    for line in status_out.stdout.splitlines():
-        if len(line) < 4:
-            continue
-        raw_path = line[3:].strip()
-        if " -> " in raw_path:
-            paths.update(part.strip() for part in raw_path.split(" -> ") if part.strip())
-        elif raw_path:
-            paths.add(raw_path)
-    return paths
-
-
-def source_dirty_missing_from_worktree(owner_kind: str, owner_id: str) -> dict[str, Any]:
-    row = get_worktree(owner_kind, owner_id)
-    if not row:
-        return {"ok": False, "missing": [], "error": "Worktree not found."}
-    metadata = row.get("metadata_json") or {}
-    source_path = pathlib.Path(str(metadata.get("source_path") or row.get("project_path") or ""))
-    worktree_path = pathlib.Path(str(row.get("worktree_path") or ""))
-    if not source_path.exists() or not worktree_path.exists():
-        return {"ok": False, "missing": [], "error": "Source or Worktree path does not exist."}
-    source_paths = _status_paths(source_path)
-    worktree_paths = _status_paths(worktree_path)
-    missing = [
-        rel
-        for rel in sorted(source_paths)
-        if rel not in worktree_paths and not (worktree_path / pathlib.Path(rel)).exists()
-    ]
-    return {
-        "ok": True,
-        "missing": missing,
-        "source_path": str(source_path),
-        "worktree_path": str(worktree_path),
-    }
 
 
 def _delete_worktree_record(row_id: str) -> bool:

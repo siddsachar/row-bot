@@ -96,6 +96,9 @@ class WorkspaceCommandStatus:
     label: str
     kind: str
     status: Literal["not_run"] = "not_run"
+    # The exact detected command line, so the client can offer to run it
+    # through the reviewed process flow.
+    command: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,9 @@ class WorkspaceChangeSet:
     reviewed: bool
     reverted: bool
     file_count: int
+    # Only sandbox imports keep the originals the panel's Undo restores; the
+    # agent's own edits are reverted by its developer_revert_agent_changes tool.
+    undoable: bool = False
 
 
 @dataclass(frozen=True)
@@ -448,6 +454,37 @@ def resolve_workspace_open(resource_id: str, expected_revision: str) -> Workspac
     return _choice(workspace)
 
 
+def _is_worktree(resource_id: str) -> bool:
+    try:
+        from row_bot.developer.worktrees import get_worktree_for_workspace
+        return get_worktree_for_workspace(resource_id) is not None
+    except Exception:
+        # Unknown: never put it in the saved list.
+        return True
+
+
+def set_workspace_listed(resource_id: str, expected_revision: str, *, listed: bool,
+                         validate: Callable[[], None] | None = None) -> WorkspaceChoice:
+    """Remove a saved code folder from the saved list, or put it back (Undo).
+
+    This is Developer's "Remove from recents": only the entry's ``hidden``
+    flag changes. Files, Git state, history, origin and every binding stay;
+    a bound conversation keeps reading the folder (``get_workspace`` and
+    ``describe`` include hidden entries) at the same revision. Registering
+    the same folder again also shows it. Worktree checkouts are always
+    hidden and never join the list.
+    """
+    with storage.workspace_transaction():
+        workspace = _workspace(resource_id)
+        if workspace.updated_at != expected_revision:
+            raise ValueError("resource_revision_conflict")
+        if listed and workspace.hidden and _is_worktree(resource_id):
+            raise ValueError("action_denied")
+        if validate is not None:
+            validate()
+        return _choice(storage.set_workspace_hidden(resource_id, not listed))
+
+
 def associate_workspace(resource_id: str, conversation_id: str, expected_revision: str,
                         expected_origin_id: str | None, repair: bool = False) -> WorkspaceChoice:
     """CAS a resume association. Binding and deletion authority remain separate."""
@@ -505,7 +542,8 @@ async def get_workspace_inspector(resource_id: str, conversation_id: str,
         "stale" if snapshot.error or refresh_error else "ready", bool(snapshot.git_summary.get("is_git")),
         str(snapshot.git_summary.get("branch") or ""), bool(snapshot.git_summary.get("dirty")),
         len(snapshot.changed_files), snapshot.diff_stats,
-        tuple(WorkspaceCommandStatus(c.label, c.kind) for c in snapshot.command_specs[:100]), processes,
+        tuple(WorkspaceCommandStatus(c.label, c.kind, command=c.command[:4096])
+              for c in snapshot.command_specs[:100]), processes,
         tuple(WorkspaceTodo(t.id[:256], t.label[:4096], t.status[:80]) for t in snapshot.todos[:100]),
         "inspector_refresh_failed" if snapshot.error or refresh_error else "")
 
@@ -549,7 +587,9 @@ def list_inspector_change_sets(resource_id: str, conversation_id: str, cursor: s
         raise ValueError("snapshot_revision_conflict")
     scope = f"ledger:{resource_id}:{conversation_id}"
     offset = _page_cursor(cursor, scope, revision)
-    items = tuple(WorkspaceChangeSet(item.id, item.summary[:4096], item.reviewed, item.reverted, len(item.files))
+    items = tuple(WorkspaceChangeSet(item.id, item.summary[:4096], item.reviewed, item.reverted, len(item.files),
+                                     undoable=isinstance(item.guarded_import, dict)
+                                     and item.guarded_import.get("kind") == "workspace.import.v1")
                   for item in snapshot.agent_changes[offset:offset + limit])
     return WorkspaceChangeSetPage(items, _next_cursor(scope, revision, offset + len(items), len(snapshot.agent_changes)),
                                   revision, len(snapshot.agent_changes))

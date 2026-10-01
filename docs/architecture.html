@@ -5,20 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script>document.documentElement.classList.add('js');</script>
     <title>Row-Bot &mdash; Architecture</title>
-    <meta name="description" content="Explore Row-Bot's local-first architecture: parent-led agent orchestration, durable documents, authenticated owner access, explicit model and tool routes, workflows, studios, extensions, and safety boundaries.">
+    <meta name="description" content="Explore Row-Bot's local-first architecture: one React client and a local server, parent-led agent orchestration, durable documents, authenticated owner access, explicit model and tool routes, workflows, design and code panels, extensions, and safety boundaries.">
     <link rel="canonical" href="https://row-bot.ai/architecture.html">
     <meta name="theme-color" content="#080b0f">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://row-bot.ai/architecture.html">
     <meta property="og:title" content="Row-Bot Architecture">
-    <meta property="og:description" content="Visual subsystem maps and 4.9 architectural principles for Row-Bot's local-first AI workbench.">
-    <meta property="og:image" content="https://row-bot.ai/Core_Agent_Arch.png">
+    <meta property="og:description" content="Visual subsystem maps and 5.0 architectural principles for Row-Bot's local-first AI workbench.">
+    <meta property="og:image" content="https://row-bot.ai/marketing/core-agent-architecture.png">
     <meta property="og:image:width" content="1024">
     <meta property="og:image:height" content="1024">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Row-Bot Architecture">
-    <meta name="twitter:description" content="Visual subsystem maps and 4.9 architectural principles for Row-Bot's local-first AI workbench.">
-    <meta name="twitter:image" content="https://row-bot.ai/Core_Agent_Arch.png">
+    <meta name="twitter:description" content="Visual subsystem maps and 5.0 architectural principles for Row-Bot's local-first AI workbench.">
+    <meta name="twitter:image" content="https://row-bot.ai/marketing/core-agent-architecture.png">
     <link rel="icon" href="favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -53,10 +53,10 @@
         <header class="page-hero page-hero--visual architecture-page-hero">
             <div class="shell page-hero__grid">
                 <div class="page-hero__content">
-                    <a class="release-pill" href="https://github.com/siddsachar/row-bot/releases/tag/v4.9.1" target="_blank" rel="noopener noreferrer">Row-Bot 4.9.1 architecture overview</a>
+                    <a class="release-pill" href="https://github.com/siddsachar/row-bot/releases" target="_blank" rel="noopener noreferrer">Row-Bot 5.0 architecture overview</a>
                     <p class="eyebrow">Architecture</p>
                     <h1>How Row-Bot stays <em>local-first.</em></h1>
-                    <p class="page-hero__copy">These high-level subsystem maps show Row-Bot's 4.9 control plane: one checkpointed parent coordinates agent work; conversations, documents, memory, workflows, and project assets stay durable with the host; and exact-model reasoning, context metering, and recoverable compaction remain provider-aware. Tools and skills can load progressively without expanding approval boundaries, OpenCode routes through native model protocols, authenticated browsers share one owner authority, and models, network routes, and optional runtimes remain explicit.</p>
+                    <p class="page-hero__copy">These high-level subsystem maps show Row-Bot's 5.0 control plane: one React client, in the desktop window, a browser, or on a phone, talks to a local FastAPI server; one checkpointed parent coordinates agent work; conversations, documents, memory, workflows, and project assets stay durable with the host; and exact-model reasoning, context metering, and recoverable compaction remain provider-aware. Designs and code folders belong to the conversation that works on them, tools and skills can load progressively without expanding approval boundaries, OpenCode routes through native model protocols, every signed-in device shares one owner authority, and models, network routes, and optional runtimes remain explicit.</p>
                     <div class="hero-actions">
                         <a href="#diagrams" class="button button--primary">Explore diagrams</a>
                         <a href="https://github.com/siddsachar/row-bot/blob/main/docs/ARCHITECTURE.md" class="button button--secondary" target="_blank" rel="noopener noreferrer">Read technical reference</a>
@@ -75,7 +75,7 @@
                 <div class="overview-grid">
                     <div class="overview-item">
                         <span>Durable local state</span>
-                        <p>Conversations, orchestration checkpoints, documents, memory, tasks, access records, and project assets live with the Row-Bot host.</p>
+                        <p>Conversations, orchestration checkpoints, documents, memory, tasks, access records, and project assets live with the Row-Bot host, served to one React client by a local FastAPI server.</p>
                     </div>
                     <div class="overview-item">
                         <span>Parent-led work</span>
@@ -83,7 +83,7 @@
                     </div>
                     <div class="overview-item">
                         <span>One owner authority</span>
-                        <p>Local desktop, remote desktop, and compact sessions expose the same owner capability behind invitations, revocable sessions, exact saved addresses, and host checks.</p>
+                        <p>The desktop app, a browser on another computer, and a phone expose the same owner capability behind invitations, revocable device sessions, exact saved addresses, and host checks.</p>
                     </div>
                     <div class="overview-item">
                         <span>Explicit external routes</span>
@@ -97,12 +97,12 @@
             <div class="container">
                 <div class="section-head">
                     <h2>Subsystem maps</h2>
-                    <p>Open any high-level diagram for a larger view. The gallery starts with the core-agent map, then moves through specialized subsystems; the technical reference documents the current 4.9 runtime and security contracts in detail.</p>
+                    <p>Open any high-level diagram for a larger view. The gallery starts with the core-agent map, then moves through specialized subsystems; the technical reference documents the current 5.0 runtime and security contracts in detail.</p>
                 </div>
                 <div class="diagram-grid">
                     <a class="diagram-card" href="#core-agent" data-lightbox-open>
-                        <img src="Core_Agent_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot core agent architecture diagram">
-                        <div class="diagram-caption"><span>01</span><h3>Core Agent</h3><p>Interfaces, parent-led orchestration, provider routing, checkpointed budgets, context, memory, tool calls, workflows, storage, and control planes.</p></div>
+                        <img src="marketing/core-agent-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot core agent architecture diagram">
+                        <div class="diagram-caption"><span>01</span><h3>Core Agent</h3><p>Interfaces, the local server, parent-led orchestration, provider routing, checkpointed budgets, context, memory, tool calls, workflows, storage, and control planes.</p></div>
                     </a>
                     <a class="diagram-card" href="#context" data-lightbox-open>
                         <img src="Context_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot context architecture diagram">
@@ -121,15 +121,15 @@
                         <div class="diagram-caption"><span>05</span><h3>Multi-Channel Runtime</h3><p>Messaging entry points, adapters, normalization, identity mapping, attachment handling, and delivery.</p></div>
                     </a>
                     <a class="diagram-card" href="#designer" data-lightbox-open>
-                        <img src="Designer_Studio_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Designer Studio architecture diagram">
-                        <div class="diagram-caption"><span>06</span><h3>Designer Studio</h3><p>Project modes, page generation, media, targeted edits, preview sandboxing, export, and publish paths.</p></div>
+                        <img src="marketing/design-panel-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Design panel architecture diagram">
+                        <div class="diagram-caption"><span>06</span><h3>Design Panel</h3><p>Conversation-first creation, design kinds and brand, targeted edits and review in the Design panel, preview sandboxing, and present, share, and export paths.</p></div>
                     </a>
                     <a class="diagram-card" href="#developer" data-lightbox-open>
-                        <img src="Developer_Studio_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Developer Studio architecture diagram">
-                        <div class="diagram-caption"><span>07</span><h3>Developer Studio</h3><p>Workspace linking, repo context, approval modes, Git operations, Docker Sandbox, tests, and PR prep.</p></div>
+                        <img src="marketing/developer-panel-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Developer panel architecture diagram">
+                        <div class="diagram-caption"><span>07</span><h3>Developer Panel</h3><p>Code folders bound from the conversation, approval modes, changes, checks, and Git in the Developer panel, the terminal dock, Docker Sandbox, and Custom Tools.</p></div>
                     </a>
                     <a class="diagram-card" href="#skills" data-lightbox-open>
-                        <img src="Skills_System_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot skills system architecture diagram">
+                        <img src="marketing/skills-system-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot skills system architecture diagram">
                         <div class="diagram-caption"><span>08</span><h3>Skills System</h3><p>Smart Skills activation, task-scoped progressive selection, child isolation, Skills Hub imports, bundled guides, slash commands, and bounded skill prompts.</p></div>
                     </a>
                     <a class="diagram-card" href="#safety" data-lightbox-open>
@@ -162,14 +162,14 @@
         </div>
     </footer>
 
-    <div class="lightbox" id="core-agent" data-lightbox role="dialog" aria-modal="true" aria-labelledby="core-agent-title" tabindex="-1"><figure class="lightbox-figure"><img src="Core_Agent_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot core agent architecture diagram"><figcaption><span id="core-agent-title">Core Agent Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
+    <div class="lightbox" id="core-agent" data-lightbox role="dialog" aria-modal="true" aria-labelledby="core-agent-title" tabindex="-1"><figure class="lightbox-figure"><img src="marketing/core-agent-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot core agent architecture diagram"><figcaption><span id="core-agent-title">Core Agent Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
     <div class="lightbox" id="context" data-lightbox role="dialog" aria-modal="true" aria-labelledby="context-title" tabindex="-1"><figure class="lightbox-figure"><img src="Context_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot context architecture diagram"><figcaption><span id="context-title">Context Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
     <div class="lightbox" id="knowledge-graph" data-lightbox role="dialog" aria-modal="true" aria-labelledby="knowledge-graph-title" tabindex="-1"><figure class="lightbox-figure"><img src="Knowledge_Graph_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot knowledge graph architecture diagram"><figcaption><span id="knowledge-graph-title">Knowledge Graph Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
     <div class="lightbox" id="workflows" data-lightbox role="dialog" aria-modal="true" aria-labelledby="workflows-title" tabindex="-1"><figure class="lightbox-figure"><img src="Workflows_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot background workflow architecture diagram"><figcaption><span id="workflows-title">Background Workflow Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
     <div class="lightbox" id="channels" data-lightbox role="dialog" aria-modal="true" aria-labelledby="channels-title" tabindex="-1"><figure class="lightbox-figure"><img src="Multi_Channel_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot multi-channel architecture diagram"><figcaption><span id="channels-title">Multi-Channel Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
-    <div class="lightbox" id="designer" data-lightbox role="dialog" aria-modal="true" aria-labelledby="designer-title" tabindex="-1"><figure class="lightbox-figure"><img src="Designer_Studio_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Designer Studio architecture diagram"><figcaption><span id="designer-title">Designer Studio Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
-    <div class="lightbox" id="developer" data-lightbox role="dialog" aria-modal="true" aria-labelledby="developer-title" tabindex="-1"><figure class="lightbox-figure"><img src="Developer_Studio_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Developer Studio architecture diagram"><figcaption><span id="developer-title">Developer Studio Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
-    <div class="lightbox" id="skills" data-lightbox role="dialog" aria-modal="true" aria-labelledby="skills-title" tabindex="-1"><figure class="lightbox-figure"><img src="Skills_System_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot skills system architecture diagram"><figcaption><span id="skills-title">Skills System Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
+    <div class="lightbox" id="designer" data-lightbox role="dialog" aria-modal="true" aria-labelledby="designer-title" tabindex="-1"><figure class="lightbox-figure"><img src="marketing/design-panel-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Design panel architecture diagram"><figcaption><span id="designer-title">Design Panel Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
+    <div class="lightbox" id="developer" data-lightbox role="dialog" aria-modal="true" aria-labelledby="developer-title" tabindex="-1"><figure class="lightbox-figure"><img src="marketing/developer-panel-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot Developer panel architecture diagram"><figcaption><span id="developer-title">Developer Panel Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
+    <div class="lightbox" id="skills" data-lightbox role="dialog" aria-modal="true" aria-labelledby="skills-title" tabindex="-1"><figure class="lightbox-figure"><img src="marketing/skills-system-architecture.svg" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot skills system architecture diagram"><figcaption><span id="skills-title">Skills System Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
     <div class="lightbox" id="safety" data-lightbox role="dialog" aria-modal="true" aria-labelledby="safety-title" tabindex="-1"><figure class="lightbox-figure"><img src="Safety_Privacy_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot safety privacy and control architecture diagram"><figcaption><span id="safety-title">Safety, Privacy &amp; Control Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
     <div class="lightbox" id="self-evolution" data-lightbox role="dialog" aria-modal="true" aria-labelledby="self-evolution-title" tabindex="-1"><figure class="lightbox-figure"><img src="Self_Evolution_Arch.png" width="1024" height="1024" loading="lazy" decoding="async" alt="Row-Bot self-evolution architecture diagram"><figcaption><span id="self-evolution-title">Self-Evolution Architecture</span><a class="lightbox-close" href="#diagrams" data-lightbox-close>Close</a></figcaption></figure></div>
 </body>

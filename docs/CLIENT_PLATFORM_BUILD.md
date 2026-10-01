@@ -1,8 +1,8 @@
 # Client build and dependency consistency
 
 The client uses Node only for development, validation and asset generation.
-Python remains the application host. The existing NiceGUI, access, storage and
-installer paths retain their owners; the optional client is mounted at
+Python remains the application host (FastAPI, run by uvicorn). The access,
+storage and installer paths retain their owners; the client is mounted at
 `/app-v2/`. See [hosting](CLIENT_PLATFORM_HOSTING.md) for delivery and cache rules.
 
 ## Verify local output
@@ -53,7 +53,7 @@ hidden `.vite` directory) and hashed asset files. The build-only setuptools
 `ClientBuildPy` hook selects only the current inventory and exact private manifest
 bytes; stale source assets, source maps and unlisted files do not enter the wheel.
 It uses standard-library and setuptools build dependencies, without importing
-the application, FastAPI or NiceGUI. Runtime serving still validates the payload
+the application or FastAPI. Runtime serving still validates the payload
 independently through `row_bot.client_assets`.
 
 Each non-editable build creates fresh generated library and wheel staging
@@ -61,8 +61,8 @@ directories inside the project's build directory. Earlier output is preserved,
 including output from failed builds, and cannot leak into the new wheel through
 setuptools' recursive install copy. Missing or malformed required assets fail
 before staging begins. Metadata and editable queries permit an absent frontend
-payload so the existing NiceGUI source environment can still be installed before
-the opt-in frontend is built. The hook includes its own source in an sdist; it is
+payload so a source environment can still be installed before the frontend is
+built. The hook includes its own source in an sdist; it is
 build tooling and is not added to the installed Python package.
 
 After a production frontend build, verify the source payload, build a wheel with

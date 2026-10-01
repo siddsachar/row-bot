@@ -81,9 +81,40 @@ def _finish_journal(command_id: str, plan_id: str, digest: str, receipt: dict[st
     os.replace(temporary, path)
 
 
+_USUAL_FOLDERS = {"hermes": (".hermes",), "openclaw": (".openclaw", ".clawdbot", ".moltbot")}
+
+
+def _usual_folder(provider: str) -> Path | None:
+    """The old app's folder in its usual place, when it really is that app."""
+    from row_bot.migration import detection
+
+    looks = detection._looks_like_hermes if provider == "hermes" else detection._looks_like_openclaw
+    for name in _USUAL_FOLDERS[provider]:
+        folder = Path.home() / name
+        if folder.is_dir() and not folder.is_symlink() and looks(folder):
+            return folder
+    return None
+
+
+def detect_sources() -> dict[str, Any]:
+    """Which old apps are in their usual folders (a home-relative place only)."""
+    sources = []
+    for provider, label in (("hermes", "Hermes Agent"), ("openclaw", "OpenClaw")):
+        folder = _usual_folder(provider)
+        sources.append({"provider": provider, "label": label, "found": folder is not None,
+                        "place": f"~/{folder.name}" if folder is not None else None})
+    return {"sources": sources}
+
+
 def _roots(provider: str, source: str, target: str) -> tuple[Path, Path]:
-    if provider not in {"hermes", "openclaw"} or not source or len(source) > 2048 or len(target) > 2048:
+    if provider not in {"hermes", "openclaw"} or len(source) > 2048 or len(target) > 2048:
         raise ClientPlatformError("invalid_migration_selection")
+    if not source:
+        # No folder given: the one found in its usual place.
+        usual = _usual_folder(provider)
+        if usual is None:
+            raise ClientPlatformError("migration_source_not_found")
+        source = str(usual)
     source_root = Path(source).expanduser()
     target_root = Path(target).expanduser() if target else get_row_bot_data_dir(create=False)
     if not source_root.is_absolute() or not target_root.is_absolute():
@@ -164,8 +195,16 @@ def _preview(plan_id: str, plan: MigrationPlan, target_root: Path, revision: str
 
 def scan_migration(
     *, owner_id: str, provider: str, source: str, target: str = "", include_secrets: bool = False,
+    same_source_as: str | None = None,
 ) -> dict[str, Any]:
     """Build a read-only plan only after the owner requests a scan."""
+    if same_source_as is not None:
+        # A rescan with other choices reuses the folder of this owner's last preview.
+        with _LOCK:
+            saved = _PLANS.get(same_source_as)
+        if saved is None or saved["owner_id"] != owner_id:
+            raise ClientPlatformError("migration_plan_missing")
+        source = str(saved["source"])
     source_root, target_root = _roots(provider, source, target)
     plan = build_migration_plan(provider, source_root, target_root=target_root, include_secrets=include_secrets)
     if len(plan.items) > 4096:

@@ -1,24 +1,31 @@
 dialogs:
   setup-center:
-    source: src/row_bot/ui/onboarding_center.py
+    source: frontend/src/features/shell/Onboarding.tsx
     docs_route: /docs/getting-started/first-launch
     screenshot_id: setup-center
   export:
-    source: src/row_bot/ui/export.py
-    docs_route: /docs/chat/tools-approvals-and-terminal
-    screenshot_id: chat-main
+    source: frontend/src/features/settings/ConversationActions.tsx
+    docs_route: /docs/chat/
+    screenshot_id: chat-export
   approval:
-    source: src/row_bot/ui/streaming.py
-    docs_route: /docs/privacy-safety/
+    source: frontend/src/features/shell/ApprovalCard.tsx
+    docs_route: /docs/chat/tools-approvals-and-terminal
     screenshot_id: chat-approval
-    status: deferred
+  agents:
+    source: frontend/src/features/shell/agent-profiles.tsx
+    docs_route: /docs/profiles-goals-agents/
+    screenshot_id: agents-dialog
+  command-palette:
+    source: frontend/src/features/shell/CommandPalette.tsx
+    docs_route: /docs/app-shell/navigation
+    screenshot_id: command-palette
   plugin-marketplace:
-    source: src/row_bot/plugins/ui_marketplace.py
+    source: frontend/src/features/settings/PluginSettings.tsx
     docs_route: /docs/integrations/plugins
     screenshot_id: plugin-marketplace
     status: deferred
   mcp-add-server:
-    source: src/row_bot/ui/mcp_settings.py
+    source: frontend/src/features/settings/CapabilitySettings.tsx
     docs_route: /docs/integrations/mcp
     screenshot_id: mcp-add-server
     status: deferred

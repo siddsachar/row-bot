@@ -1,48 +1,61 @@
 ---
 title: "Profiles, Goals, And Agents"
-description: "Choose reusable Agent Profiles, run bounded goals, and review delegated parent and child agents."
+description: "Manage agent profiles in the sidebar's Agents dialog, give a conversation a goal that keeps going until done, and follow the agents it delegates to."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Profiles, Goals, And Agents
 
-These three features work together but solve different problems. An **Agent Profile** is a reusable role and policy. A **goal** is a bounded objective for the current task. An **agent run** is one execution of delegated work, with its own status and evidence.
+These three features work together but solve different problems. An **agent profile** is a reusable role and policy. A **goal** is an objective a conversation keeps working toward, turn after turn. An **agent run** is one piece of delegated work, with its own conversation, status and result.
 
 For the mental model behind delegation and hand-offs, read [How Profiles, Goals, And Agents Work](/docs/concepts/profiles-goals-and-agents).
 
-<Screenshot id="agent-profile-library" alt="Row-Bot Agent Profile library with fictional Research Guide and Project Coordinator profiles." caption="Agent Profiles package reusable instructions, skills, tools, model policy, and approval policy without changing the underlying thread history." />
+## Agent Profiles
 
-## Choose Or Create A Profile
+<Screenshot id="agents-dialog" alt="Row-Bot Agents dialog listing agent profiles in groups with search and Create profile." caption="The Agents dialog holds the whole profile library: search, groups, Create profile, and each profile's pin, chat, view, duplicate and edit actions." />
 
-1. Open a chat and expand **Agent profiles** in the left sidebar.
-2. Choose a built-in profile or create one for a repeated role.
-3. Keep the role narrow: describe the outcome, sources it may use, and what it must not do.
-4. Review its model, skill, tool, delegation, and approval policy.
-5. Save it, then select it before asking for work.
+Open the **Agents** dialog with **All agents** in the sidebar's **Agents** section, **All agents…** under **New chat**'s **▾**, the Agents icon on the collapsed rail, or **Agent profiles** in the command palette. It lists every profile in groups (Everyday, Creative, Developer, your own profiles, and profiles from workspaces, plugins or imports), with **Search profiles** and a scope filter.
 
-Profiles do not grant capabilities by themselves. A selected tool must still be enabled, available, and allowed by the active approval policy. A profile that can delegate may start child agents, but each run remains visible in the Activity Center and the chat agent strip.
+Each profile row can:
 
-New runs also receive a checkpointed work budget. The Models settings tab shows the recommended application-wide work-round, nesting, concurrency, and optional child active-time limits. Extra children wait in a first-in, first-out queue when capacity is full; changing a setting affects new runs, not work already in progress.
+- **Pin to the sidebar**: pinned profiles become favourites in the sidebar's **Agents** section and under **New chat**'s **▾**, one click from a new chat;
+- **Start chat** with that profile;
+- **View**, **Duplicate**, and, for your own profiles, **Edit**, turn on or off, or **Delete**.
 
-<Screenshot id="goal-and-agents" alt="Row-Bot active goal and delegated agents for a fictional launch checklist." caption="The goal strip records bounded progress while parent and child agent rows show who is running, complete, waiting, or stopped." />
+**Create profile** describes a new role: its name, description and when to use it, instructions, capability (read only, write capable, or orchestrator), allowed tools and skills, context mode, workspace mode and approval mode. Keep the role narrow: describe the outcome, the sources it may use, and what it must not do.
 
-## Run A Goal
+To use a profile in an existing conversation, choose it from the composer's **+ › Agent profile**. Profiles do not grant capabilities by themselves. A selected tool must still be enabled, available, and allowed by the conversation's approvals.
 
-A goal is useful when work needs more than one turn. State the objective and an observable finish condition. Row-Bot records progress, blockers, evidence, turns, and status so it can continue without pretending that partial work is complete.
+## Goals
 
-- **Active** means work can continue.
-- **Complete** means the objective and required checks are genuinely finished.
-- **Blocked** is for a repeated impasse that requires your input or an external change.
-- **Stop** ends the active run; it does not delete the thread or its evidence.
+<Screenshot id="goal-and-agents" alt="Row-Bot conversation details card with an active goal and the agents it delegated to." caption="The details card shows the conversation's goal with its turn, time and token use, and the agents it started with Message and Stop." />
 
-## Review Delegated Work
+A goal is useful when work needs more than one turn. Set it from the conversation's details card: under **Goal**, choose **Set a goal**, describe **What should this conversation achieve?**, and choose **Start goal**. Row-Bot starts at once and keeps going turn after turn; it stops for approvals and when it needs you.
 
-Parent agents coordinate. Child agents handle bounded subtasks. Open an agent row to review its prompt, profile, model, status, result, evidence, and thread. A completed child result is evidence for the parent, not automatic permission to write files, send messages, commit code, or publish.
+- **No turn limit by default.** Overnight and multi-day goals keep going while they make progress. Set an optional **Turn limit** or **Time limit (hours)** when you want one. A default turn limit for new goals is in Settings › Models › Limits for long work.
+- **Smart stop.** Row-Bot pauses the goal and says why when it stops making progress (no progress in the last 2 turns) or the same step fails 3 times. When a provider's usage limit stops a turn, the goal waits and continues by itself once the limit resets, if the provider says when.
+- **Survives restarts.** An active goal continues after Row-Bot restarts or the computer wakes, from its last saved turn, asking again for anything that needed approval.
+- **Visible usage.** The card shows the goal's state (Working, Continuing, Waiting for your approval, Paused, Needs you, Done or Stopped), the turn it is on ("Turn 7", or "Turn 7 of 30" with a limit), how long it has been running and the tokens it has used.
+- **Pause**, **Resume** and **Stop** control it. Stopping ends the goal; it does not delete the conversation or its evidence. Starting a new goal replaces the current one, and **Earlier goals** lists the ones before.
 
-For coding work, a parent can assign a child to an existing local folder. Row-Bot registers that folder as the child's Developer workspace and applies writer ownership to the resolved folder, not merely the process working directory. Children assigned to distinct folders or worktrees can write in parallel; writers targeting the same folder wait and run serially.
+## Delegated Agents
 
-If a run appears stuck, inspect its last update before stopping it. If several agents edit the same resource, give them distinct folders or worktrees, narrow their ownership, or run them sequentially. Keep consequential final actions with the parent and a human approval point.
+A conversation can delegate parts of its work to agents. Each agent works in its own conversation.
+
+- **In the transcript**, the turn that started agents shows a small stub for each one, with its icon, name and live status (working, waiting for you, done, failed or stopped). A failed agent's stub says why. Click a stub to open that agent's conversation.
+- **In the details card**, **Agents** lists them, live and failed ones first. **Message** sends an agent a note it reads at its next step; **Stop** ends its run.
+- **In an agent's own conversation**, the header leads back to the parent conversation.
+- **When an agent needs approval**, the request appears in the parent conversation and everywhere else approvals show. See [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal#approvals).
+- **If work was interrupted** before it finished, for example by a restart, the card and Overview's **Needs you** offer **Resume agent work** or **Dismiss agent work**.
+
+A completed agent's result is evidence for the parent, not automatic permission to write files, send messages, commit code, or publish.
+
+For coding work, a parent can assign an agent to an existing local folder. Row-Bot registers that folder as the agent's code folder and applies writer ownership to the resolved folder, not merely the process working directory. Agents assigned to distinct folders or worktrees can write in parallel; writers targeting the same folder wait and run serially.
+
+New runs also receive a checkpointed work budget. Settings › Models › **Limits for long work** shows the recommended steps per run, helper levels, helpers at a time, and the optional helper time limit. Extra agents wait in a first-in, first-out queue when capacity is full; changing a setting affects new runs, not work already in progress.
+
+If a run appears stuck, open its conversation to read its last update before stopping it. If several agents edit the same resource, give them distinct folders or worktrees, narrow their ownership, or run them sequentially. Keep consequential final actions with the parent and a human approval point.
 
 Row-Bot saves the parent's first continuation checkpoint when asynchronous delegation begins. If a child process outlives its launching shell or the app restarts, resume repairs only genuinely unanswered tool calls with an interruption marker, then wakes the parent from durable child results. It does not replay previously executed work. If a checkpoint cannot be repaired safely, the run remains stopped for review.
 
@@ -50,4 +63,4 @@ Repeated model-and-tool states are detected before a run can loop indefinitely. 
 
 ## What Is Saved
 
-Profiles, goals, agent runs, edges, progress, results, and evidence are stored in the active local data directory. Provider prompts still follow the privacy terms of the model route selected for each run.
+Profiles, goals, agent runs, edges, progress, results, and evidence are stored in the active local data directory. Favourite profiles are remembered on each device. Provider prompts still follow the privacy terms of the model route selected for each run.

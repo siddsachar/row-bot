@@ -41,6 +41,10 @@
           "title": "Risk Level",
           "type": "string"
         },
+        "sign_in_required": {
+          "title": "Sign In Required",
+          "type": "boolean"
+        },
         "source": {
           "maxLength": 32,
           "title": "Source",
@@ -61,6 +65,7 @@
         "transport",
         "risk_level",
         "requires_auth",
+        "sign_in_required",
         "recommended",
         "import_json"
       ],

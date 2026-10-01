@@ -12,7 +12,7 @@ import pytest
 
 from tests.subsystem.plugins.conftest import write_plugin
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 OPERATION = str(UUID(int=1))
 
@@ -539,3 +539,37 @@ def test_source_enumeration_stops_at_budget_before_materializing_huge_directory(
         setup[0]._tree_revision(setup[2], source=True)
     assert reads == 8193
     assert not setup[3]
+
+
+def test_a_worker_plugin_without_its_environment_is_prepared_on_request_and_loads(setup, monkeypatch):
+    """B129/B164: nothing ever prepared a worker plugin's environment, so
+    'hacker-news' and 'rss-reader' failed at every start with
+    worker_environment_not_ready. Settings offers Prepare; it creates the
+    environment (no download without declared dependencies) and reloads."""
+    from uuid import uuid4
+    from row_bot.application import client_plugin_lifecycle as owner, plugin_commands
+    from row_bot.plugins import loader, worker
+
+    installer, state, source, calls, _plan = setup
+    state.set_plugin_enabled("sample-plugin", True)
+    with pytest.raises(worker.WorkerError, match="worker_environment_not_ready"):
+        worker.prepared_worker("sample-plugin", source)
+    items, _revision = plugin_commands._catalog(lambda: None)
+    item = next(row for row in items if row["plugin_id"] == "sample-plugin")
+    assert item["capabilities"]["prepare"]["available"] is True
+    review = owner.review_plugin_lifecycle("prepare", "sample-plugin", validate=lambda: None)
+    assert review["action"] == "prepare" and review["disclosures"]
+    assert any("Nothing is downloaded" in line for line in review["disclosures"])
+    assert calls == []
+    reloads = []
+    monkeypatch.setattr(loader, "refresh_plugin_runtime", lambda reason, **_kwargs: reloads.append(reason))
+    receipt = owner.execute_plugin_lifecycle(
+        {"command_id": str(uuid4()), "action": "prepare", "plugin_id": "sample-plugin",
+         "revision": review["revision"]},
+        owner_id="owner", validate=lambda: None)
+    assert receipt["status"] == "completed", receipt
+    assert worker.prepared_worker("sample-plugin", source).environment.exists()
+    assert reloads and len(calls) == 1 and "venv" in calls[0]  # no pip: no dependencies
+    items, _revision = plugin_commands._catalog(lambda: None)
+    item = next(row for row in items if row["plugin_id"] == "sample-plugin")
+    assert item["capabilities"]["prepare"]["available"] is False

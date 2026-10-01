@@ -6,7 +6,11 @@ import type {
   TaskSettingsSnapshot,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { taskEdits, type TaskCommandOwner } from './task-edits';
+import {
+  DEFINITE_TASK_REFUSALS,
+  taskEdits,
+  type TaskCommandOwner,
+} from './task-edits';
 import { taskGraphs } from './task-graphs';
 import { taskSettings } from './task-settings';
 
@@ -127,16 +131,7 @@ export class TaskEditSession {
         },
         (cause: unknown) => {
           if (this.meta.active) {
-            const known = [
-              'task_revision_conflict',
-              'task_settings_profile_conflict',
-              'invalid_task_fields',
-              'invalid_task_schedule',
-              'invalid_task_graph',
-              'invalid_task_settings',
-              'task_not_found',
-              'action_denied',
-            ].includes(clientError(cause).code);
+            const known = DEFINITE_TASK_REFUSALS.has(clientError(cause).code);
             const uncertain =
               !readOnly && (this.hasPending ? this.hasPending() : !known);
             if (!uncertain) this.retry = null;
@@ -266,6 +261,8 @@ export function createTaskEditSessions(
       kind: TaskEditKind;
       taskId: string;
       label: string;
+      /** Shown in the editor right now. */
+      open: boolean;
       dirty: boolean;
       busy: boolean;
       uncertain: boolean;
@@ -286,6 +283,7 @@ export function createTaskEditSessions(
             kind: entry.session.kind,
             taskId: entry.session.taskId,
             label: entry.label,
+            open: key === selected,
             dirty: meta.dirty,
             busy: meta.busy,
             uncertain: meta.uncertain,
@@ -394,6 +392,20 @@ export function createTaskEditSessions(
       full = false;
       notify();
       return true;
+    },
+    /** A deleted workflow's drafts go with it, even one still waiting (B122). */
+    forget(taskId: string) {
+      let changed = false;
+      for (const [key, entry] of [...entries]) {
+        if (!taskId || entry.session.taskId !== taskId) continue;
+        entries.delete(key);
+        entry.session.dispose();
+        if (selected === key) selected = null;
+        changed = true;
+      }
+      if (!changed) return;
+      full = false;
+      notify();
     },
     hasRetained: () =>
       [...entries.values()].some((entry) => entry.session.retained()),

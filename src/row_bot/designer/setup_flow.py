@@ -6,8 +6,9 @@ without relying on UI interactions.
 
 from __future__ import annotations
 
+import re
+
 from row_bot.designer.brand import get_all_presets
-from row_bot.designer.briefing import build_initial_design_request, project_has_build_brief
 from row_bot.designer.state import (
     ASPECT_RATIOS,
     BrandConfig,
@@ -24,14 +25,18 @@ from row_bot.designer.templates import get_template
 
 
 DEFAULT_PROJECT_NAME = "Untitled Design"
-_INFERRED_OUTPUT_TYPES = {
-    "pitch_deck": "pitch deck",
-    "status_report": "status report",
-    "marketing_one_pager": "marketing one-pager",
-    "product_launch": "product launch presentation",
-    "social_media": "social media set",
-    "wireframe_kit": "wireframe kit",
-}
+_PLACEHOLDER_NAME = re.compile(r"Design [0-9a-f]{8}")
+
+
+def placeholder_project_name(seed: str) -> str:
+    """Name for a design set up before anyone named it (first-turn setup)."""
+    return f"Design {seed[:8]}"
+
+
+def is_placeholder_project_name(name: str) -> bool:
+    """True for names nobody chose: first-turn setup and blank starters."""
+    name = name.strip()
+    return name in {"", DEFAULT_PROJECT_NAME} or _PLACEHOLDER_NAME.fullmatch(name) is not None
 
 # Phase 2.3.E — Canvas control shown in the setup dialog is scoped to
 # the selected mode so users don't get irrelevant options (e.g.
@@ -158,15 +163,6 @@ def default_project_name_for_template(template_id: str) -> str:
     return DEFAULT_PROJECT_NAME
 
 
-def infer_output_type_for_template(template_id: str) -> str:
-    """Return the implied output type for non-blank templates."""
-
-    tmpl = get_template(template_id) or get_template("blank_canvas")
-    if tmpl is None or tmpl.id.startswith("blank_"):
-        return ""
-    return _INFERRED_OUTPUT_TYPES.get(tmpl.id, tmpl.name.lower())
-
-
 def resolve_project_brand(
     *,
     preset_name: str = "",
@@ -258,31 +254,3 @@ def create_project_from_setup(
         template_id=tmpl.id,
         mode=resolved_mode,
     )
-
-
-def prepare_project_creation(
-    template_id: str,
-    *,
-    aspect_ratio: str = "",
-    project_name: str = "",
-    brief: ProjectBrief | None = None,
-    preset_name: str = "",
-    extracted_brand: BrandConfig | None = None,
-    auto_build: bool = False,
-    mode: str = MODE_CHOICE_AUTO,
-) -> tuple[DesignerProject, str | None]:
-    """Return the newly created project plus an optional initial build prompt."""
-
-    project = create_project_from_setup(
-        template_id,
-        aspect_ratio=aspect_ratio,
-        project_name=project_name,
-        brief=brief,
-        preset_name=preset_name,
-        extracted_brand=extracted_brand,
-        mode=mode,
-    )
-    initial_prompt = None
-    if auto_build and project_has_build_brief(project):
-        initial_prompt = build_initial_design_request(project)
-    return project, initial_prompt

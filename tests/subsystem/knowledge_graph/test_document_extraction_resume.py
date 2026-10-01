@@ -10,6 +10,9 @@ from langchain_core.documents import Document
 import pytest
 
 
+pytestmark = pytest.mark.platform
+
+
 def test_rolling_windows_preserve_order_and_overlap(monkeypatch):
     import row_bot.document_extraction as extraction
 

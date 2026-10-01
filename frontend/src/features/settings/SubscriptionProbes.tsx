@@ -12,6 +12,8 @@ import {
   ProviderSettingsSession,
   useProviderSettingsValue,
 } from './provider-settings-sessions';
+import { When } from '../../ui/When';
+import { humanizeToken } from '../../ui/format';
 
 type Provider = SubscriptionProbeRequest['provider_id'];
 type Kind = SubscriptionProbeRequest['kind'];
@@ -244,7 +246,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
     } catch (cause) {
       setError(clientError(cause).message);
       setNotice(
-        'The original outcome is unconfirmed. Check its progress or receipt; it will not be replayed.',
+        "Row-Bot couldn't confirm the check. Look at its progress; it won't run twice.",
       );
     } finally {
       setBusy('');
@@ -315,7 +317,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
         setNotice(
           receipt?.published
             ? 'The saved result is confirmed. The original work has not yet been confirmed stopped.'
-            : 'The original outcome remains unconfirmed. No provider request was replayed.',
+            : 'Still unconfirmed. Nothing was sent to the provider twice.',
         );
       }
     } catch (cause) {
@@ -362,8 +364,16 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
           <ul>
             {snapshot.items.map((item) => (
               <li key={`${item.provider_id}:${item.kind}`}>
-                {names[item.provider_id]} · {labels[item.kind]}: {item.status}
-                {item.checked_at ? ` (${item.checked_at})` : ' (not checked)'}
+                {names[item.provider_id]} · {labels[item.kind]}:{' '}
+                {humanizeToken(item.status).toLowerCase()}
+                {item.checked_at ? (
+                  <>
+                    {' ('}
+                    <When value={item.checked_at} />)
+                  </>
+                ) : (
+                  ' (not checked)'
+                )}
                 {item.model_ref && <p>{item.model_ref}</p>}
                 {item.kind === 'runtime' && (
                   <p>
@@ -382,7 +392,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
         {result && (
           <p role="status">
             Last result: {names[result.provider_id]} · {labels[result.kind]}:{' '}
-            {result.status}.
+            {humanizeToken(result.status).toLowerCase()}.
           </p>
         )}
         <div className="field-row">
@@ -446,7 +456,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
         </p>
         {state && (
           <p>
-            Original work: {state.state}.{' '}
+            Original work: {humanizeToken(state.state).toLowerCase()}.{' '}
             {state.quiescent ? 'Stopped.' : 'Still active.'}
           </p>
         )}
@@ -483,7 +493,7 @@ export default function SubscriptionProbes(props: SubscriptionProbesProps) {
             disabled={!pending || !!busy || !!checking || !session.active}
             onClick={() => void inspect('receipt')}
           >
-            Read original check receipt
+            Check status
           </Button>
           <Button
             disabled={locked || (!dirty && !reviewed)}

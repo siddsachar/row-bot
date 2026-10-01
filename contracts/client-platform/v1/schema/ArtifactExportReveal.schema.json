@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "open",
+        "show"
+      ],
+      "title": "Action",
+      "type": "string"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "title": "ArtifactExportReveal",
+  "type": "object"
+}

@@ -1,10 +1,9 @@
-import type { ResourceView } from '../../api/types';
+import type { ArtifactBrandSuggestion, ResourceView } from '../../api/types';
 import type {
   DesignBrand,
   DesignControlsProps,
   DesignControlsState,
   DesignReviewState,
-  DesignSection,
 } from './ArtifactDesignControls';
 
 export type DesignScope = {
@@ -19,7 +18,6 @@ export type DesignPresetIntent = {
   preset_id?: string;
 };
 export type DesignFormState = {
-  section: DesignSection;
   state: DesignControlsState | null;
   brand: DesignBrand | null;
   styles: Record<string, string>;
@@ -37,11 +35,9 @@ export type DesignFormState = {
   reload: number;
   dirtySource: string | null;
   dirtyFields: string[];
-  controlPage: boolean;
   reviewPage: boolean;
 };
 const blank = (): DesignFormState => ({
-  section: 'elements',
   state: null,
   brand: null,
   styles: {},
@@ -59,7 +55,6 @@ const blank = (): DesignFormState => ({
   reload: 0,
   dirtySource: null,
   dirtyFields: [],
-  controlPage: false,
   reviewPage: false,
 });
 
@@ -168,6 +163,12 @@ export type DesignSessionOwner = {
     options: Parameters<DesignControlsProps['load']>[0],
     signal: AbortSignal,
   ): Promise<DesignControlsState>;
+  /** A small picture of one of the design's images (for the logo picker). */
+  assetThumbnail(
+    scope: DesignScope,
+    asset: string,
+    signal: AbortSignal,
+  ): Promise<Blob>;
   review(
     scope: DesignScope,
     options: Parameters<DesignControlsProps['review']>[0],
@@ -178,6 +179,12 @@ export type DesignSessionOwner = {
     options: { finding_id: string; page_id: string; expected_revision: string },
     signal: AbortSignal,
   ): Promise<string>;
+  /** Brand › From a website: a suggestion, applied through the brand control. */
+  suggestBrand?(
+    scope: DesignScope,
+    url: string,
+    signal: AbortSignal,
+  ): Promise<ArtifactBrandSuggestion>;
   stageUpload(
     scope: DesignScope,
     file: File,
@@ -374,8 +381,19 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
         guard(false);
         const outcome = accept(receipt, attempt);
         if (outcome) return outcome;
-      } catch {
+      } catch (reason) {
         guard(false);
+        // The host refuses a change to an element that is gone before it
+        // writes anything: there is nothing to recover or check.
+        if (
+          typeof reason === 'object' &&
+          reason !== null &&
+          'code' in reason &&
+          reason.code === 'element_unavailable'
+        ) {
+          update({ attempt: null });
+          throw new Error('element_unavailable', { cause: reason });
+        }
         update({
           attempt: {
             ...attempt,
@@ -442,6 +460,8 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
       },
       load: (options: Parameters<DesignControlsProps['load']>[0]) =>
         query((signal) => owner.load(scope, options, signal)),
+      thumbnail: (asset: string) =>
+        query((signal) => owner.assetThumbnail(scope, asset, signal)),
       review: (options: Parameters<DesignControlsProps['review']>[0]) =>
         query((signal) => owner.review(scope, options, signal)),
       draftFix: (
@@ -456,6 +476,10 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
             signal,
           ),
         ),
+      suggestBrand: owner.suggestBrand
+        ? (url: string) =>
+            query((signal) => owner.suggestBrand!(scope, url, signal))
+        : undefined,
       apply: (
         operation: Parameters<DesignControlsProps['apply']>[0],
         parameters: Record<string, unknown>,
@@ -595,7 +619,7 @@ export function createArtifactDesignSessions(owner: DesignSessionOwner) {
           else if (!receipt)
             update({
               notice:
-                'The original receipt is unavailable. No effect was repeated.',
+                "Row-Bot can't find what happened to that change. Nothing was done twice.",
             });
         } catch {
           guard();

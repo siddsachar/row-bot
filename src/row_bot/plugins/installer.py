@@ -43,11 +43,15 @@ DEFAULT_REPO_URL = os.environ.get(
 
 @dataclass
 class InstallResult:
-    """Result of an install/update/uninstall operation."""
+    """Result of an install/update/uninstall operation.
+
+    ``code`` names why an install or update failed, for logs without paths.
+    """
     success: bool
     plugin_id: str
     message: str
     version: str = ""
+    code: str = ""
 
 
 _environment_lock = threading.RLock()
@@ -327,18 +331,28 @@ def install_plugin(
     source: str | None = None,
     source_ref: str = "",
     archive_url: str = "",
+    archive_path: str = "",
     expected_checksum: str | None = None,
 ) -> InstallResult:
     """Install a plugin.
 
     If *source_dir* is provided, copies from that directory (local install).
-    Otherwise, downloads from the marketplace repo.
+    Otherwise, downloads from the marketplace repo: the *archive_path* folder
+    of a repository archive, else the one plugin folder with this id. A
+    download needs *expected_checksum*; without one nothing is downloaded.
     """
     dest = PLUGINS_DIR / plugin_id
     if dest.exists():
         return InstallResult(
             success=False, plugin_id=plugin_id,
             message=f"Plugin '{plugin_id}' is already installed. Use update instead.",
+            code="plugin_already_installed",
+        )
+    if not source_dir and not (expected_checksum or "").strip():
+        return InstallResult(
+            success=False, plugin_id=plugin_id,
+            message="The marketplace lists no checksum for this plugin, so it wasn't downloaded.",
+            code="plugin_checksum_unavailable",
         )
 
     try:
@@ -350,10 +364,11 @@ def install_plugin(
                 return InstallResult(
                     success=False, plugin_id=plugin_id,
                     message=f"Source directory not found: {source_dir}",
+                    code="plugin_source_unavailable",
                 )
             shutil.copytree(source_dir, dest)
         elif archive_url:
-            _download_plugin_archive(plugin_id, dest, archive_url)
+            _download_plugin_archive(plugin_id, dest, archive_url, archive_path)
         else:
             # Download from repo
             _download_plugin(plugin_id, dest)
@@ -364,6 +379,7 @@ def install_plugin(
             return InstallResult(
                 success=False, plugin_id=plugin_id,
                 message=checksum_error,
+                code="plugin_checksum_mismatch",
             )
 
         # Validate manifest exists and conforms to the v2 contract.
@@ -376,6 +392,7 @@ def install_plugin(
             return InstallResult(
                 success=False, plugin_id=plugin_id,
                 message=f"Installed plugin manifest is invalid: {exc}",
+                code="plugin_manifest_invalid",
             )
         if manifest.id != plugin_id:
             shutil.rmtree(dest, ignore_errors=True)
@@ -385,6 +402,7 @@ def install_plugin(
                     f"Manifest id '{manifest.id}' does not match requested "
                     f"plugin id '{plugin_id}'"
                 ),
+                code="plugin_manifest_invalid",
             )
         version = manifest.version
 
@@ -396,6 +414,7 @@ def install_plugin(
             return InstallResult(
                 success=False, plugin_id=plugin_id,
                 message=f"Security check failed: {sec_err}",
+                code="plugin_security_check_failed",
             )
 
         from row_bot.plugins import state as plugin_state
@@ -426,6 +445,7 @@ def install_plugin(
         return InstallResult(
             success=False, plugin_id=plugin_id,
             message=f"Install failed: {exc}",
+            code="plugin_install_failed",
         )
 
 
@@ -437,6 +457,7 @@ def update_plugin(
     source: str | None = None,
     source_ref: str = "",
     archive_url: str = "",
+    archive_path: str = "",
     expected_checksum: str | None = None,
 ) -> InstallResult:
     """Update an installed plugin.
@@ -449,6 +470,7 @@ def update_plugin(
         return InstallResult(
             success=False, plugin_id=plugin_id,
             message=f"Plugin '{plugin_id}' is not installed",
+            code="plugin_not_installed",
         )
 
     # Never remove a pre-existing backup from another interrupted update.
@@ -467,6 +489,7 @@ def update_plugin(
             source=source,
             source_ref=source_ref,
             archive_url=archive_url,
+            archive_path=archive_path,
             expected_checksum=expected_checksum,
         )
 
@@ -482,6 +505,7 @@ def update_plugin(
             return InstallResult(
                 success=False, plugin_id=plugin_id,
                 message=f"Update failed, rolled back: {result.message}",
+                code=result.code,
             )
 
     except Exception as exc:
@@ -494,6 +518,7 @@ def update_plugin(
         return InstallResult(
             success=False, plugin_id=plugin_id,
             message=f"Update failed: {exc}",
+            code="plugin_update_failed",
         )
 
 
@@ -538,19 +563,6 @@ def is_installed(plugin_id: str) -> bool:
     return (PLUGINS_DIR / plugin_id).is_dir()
 
 
-def get_installed_version(plugin_id: str) -> str | None:
-    """Get the installed version of a plugin, or None."""
-    manifest_path = PLUGINS_DIR / plugin_id / "plugin.json"
-    if not manifest_path.exists():
-        return None
-    try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("version")
-    except Exception:
-        return None
-
-
 # ── Download ─────────────────────────────────────────────────────────────────
 def _verify_checksum(plugin_dir: pathlib.Path, expected_checksum: str | None) -> str | None:
     expected = (expected_checksum or "").strip()
@@ -577,7 +589,9 @@ def _download_plugin(plugin_id: str, dest: pathlib.Path) -> None:
     _download_plugin_archive(plugin_id, dest, archive_url)
 
 
-def _download_plugin_archive(plugin_id: str, dest: pathlib.Path, archive_url: str) -> None:
+def _download_plugin_archive(
+    plugin_id: str, dest: pathlib.Path, archive_url: str, archive_path: str = ""
+) -> None:
     """Download or read a zip archive and extract one plugin directory."""
 
     logger.info("Downloading plugin '%s' from %s", plugin_id, archive_url)
@@ -590,10 +604,25 @@ def _download_plugin_archive(plugin_id: str, dest: pathlib.Path, archive_url: st
             extract_dir = pathlib.Path(tmp) / "extracted"
             _safe_extract_zip(zf, extract_dir)
 
-        extracted_plugin = _find_extracted_plugin_dir(extract_dir, plugin_id)
+        extracted_plugin = (
+            _repository_folder(extract_dir, archive_path) if archive_path
+            else _find_extracted_plugin_dir(extract_dir, plugin_id)
+        )
         shutil.copytree(extracted_plugin, dest)
 
     logger.info("Downloaded plugin '%s' to %s", plugin_id, dest)
+
+
+def _repository_folder(extract_dir: pathlib.Path, archive_path: str) -> pathlib.Path:
+    """The *archive_path* folder of a repository archive (one top-level folder)."""
+    tops = list(extract_dir.iterdir())
+    if len(tops) != 1 or not tops[0].is_dir():
+        raise ValueError("The plugin archive isn't a repository archive")
+    root = tops[0].resolve()
+    folder = root.joinpath(*archive_path.split("/")).resolve()
+    if not folder.is_relative_to(root) or not folder.is_dir():
+        raise FileNotFoundError(f"The repository archive has no folder '{archive_path}'")
+    return folder
 
 
 def _download_to_file(ref: str, dest: pathlib.Path) -> None:

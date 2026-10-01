@@ -5,6 +5,19 @@ surface changes, update its documentation route and either its `screenshot_id` o
 its short `no_image_reason`. Capture instructions live only in
 `metadata/screenshots.yml`.
 
+`metadata/settings.yml` and `metadata/home_tabs.yml` describe the React settings
+pages (`frontend/src/features/settings/model.ts`) and Home tabs (`homeTabs` in
+`frontend/src/features/shell/Home.tsx`). The inventory collector fails when a
+page or tab is added or removed without a matching entry. Generated reference
+pages name source files (with an anchor where useful), never line numbers. A
+generated page's own title and description are part of the inventory, so run
+the collect and generate steps twice after changing them.
+
+Automated capture is frozen until each screenshot in `metadata/screenshots.yml`
+has a React capture target: a `route` under `/app-v2/`, a `capture_selector`,
+and `expected_text`. Until then the capture command refuses, and
+`--validate-only` checks the committed images.
+
 Use an isolated profile for screenshots. The capture command refuses the normal
 Row-Bot data directory, seeds neutral demonstration data, disables background
 autostart and network status checks, and uses display-only provider, channel,
@@ -14,7 +27,7 @@ plugin, and MCP states where live access would be unsafe.
 uv run python scripts/docs/collect_inventory.py --out docs-build/inventory
 uv run python scripts/docs/generate_mdx.py
 uv run python scripts/docs/generate_llms_txt.py
-uv run python scripts/docs/capture_real_ui_screenshots.py --timeout 120
+uv run python scripts/docs/capture_real_ui_screenshots.py --validate-only
 uv run python scripts/docs/validate_public_docs.py
 uv run python scripts/docs/build_review_report.py
 cd docs-site

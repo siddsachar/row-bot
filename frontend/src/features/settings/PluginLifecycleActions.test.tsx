@@ -24,8 +24,20 @@ const plugin: PluginCatalogItem = {
 
 beforeEach(() => sessionStorage.clear());
 
-it('installs on one click after visible disclosure and keeps the package disabled', async () => {
-  const review = vi.fn().mockResolvedValue({ revision: 'a'.repeat(64) });
+it('shows what the server says about a plugin before installing it (B144)', async () => {
+  const review = vi.fn().mockResolvedValue({
+    action: 'install',
+    plugin_id: 'synthetic-plugin',
+    name: 'Synthetic plugin',
+    version: '1.0.0',
+    source: 'Local directory: synthetic-plugin',
+    checksum: '',
+    permissions: ['filesystem_read'],
+    disclosures: [
+      'The marketplace index lists no checksum for this local folder; it installs only if unchanged since this review.',
+    ],
+    revision: 'a'.repeat(64),
+  });
   const execute = vi.fn().mockImplementation(async (command) => ({
     command_id: command.command_id,
     status: 'completed',
@@ -42,6 +54,15 @@ it('installs on one click after visible disclosure and keeps the package disable
   ).toBeTruthy();
   expect(execute).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+  // The review is shown first; nothing is downloaded until it is confirmed.
+  const dialog = await screen.findByRole('dialog', {
+    name: /Install Synthetic plugin/,
+  });
+  expect(dialog).toHaveTextContent('lists no checksum for this local folder');
+  expect(dialog).toHaveTextContent('Local directory: synthetic-plugin');
+  expect(dialog).toHaveTextContent('Not pinned');
+  expect(execute).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Install plugin' }));
   await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
   expect(execute.mock.calls[0][0]).toMatchObject({
     action: 'install',
@@ -53,9 +74,25 @@ it('installs on one click after visible disclosure and keeps the package disable
 });
 
 it('requires a confirmation for irreversible uninstall', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-  const review = vi.fn();
-  const execute = vi.fn();
+  const review = vi.fn(async () => ({
+    action: 'remove',
+    plugin_id: 'synthetic-plugin',
+    name: 'Synthetic plugin',
+    version: '1.0.0',
+    source: 'installed local plugin',
+    checksum: '',
+    permissions: [],
+    disclosures: [
+      'Removal deletes plugin files, settings, and secret metadata. This cannot be undone.',
+    ],
+    revision: 'a'.repeat(64),
+  }));
+  const execute = vi.fn(async (command: { action: string }) => ({
+    command_id: 'removed',
+    status: 'completed',
+    action: command.action,
+    message: 'Plugin removed.',
+  }));
   const api = {
     review,
     execute,
@@ -69,8 +106,15 @@ it('requires a confirmation for irreversible uninstall', async () => {
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
-  expect(confirm).toHaveBeenCalledOnce();
-  expect(review).not.toHaveBeenCalled();
+  const dialog = await screen.findByRole('dialog', { name: /Uninstall/ });
+  expect(dialog).toHaveTextContent('deletes its files');
+  expect(dialog).toHaveTextContent('cannot be undone');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(execute).not.toHaveBeenCalled();
-  confirm.mockRestore();
+  fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Uninstall plugin' }),
+  );
+  await waitFor(() => expect(execute).toHaveBeenCalledOnce());
+  expect(execute.mock.calls[0][0]).toMatchObject({ action: 'remove' });
 });

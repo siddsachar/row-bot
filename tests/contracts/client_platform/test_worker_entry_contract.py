@@ -106,7 +106,7 @@ def test_child_cleanup_preserves_parent_owned_worktree(tmp_path, monkeypatch, op
     from pathlib import Path
     import subprocess
     from types import SimpleNamespace
-    from tests.test_agent_runner import _fresh_agent_runner_modules
+    from tests.subsystem.agents.test_agent_runner import _fresh_agent_runner_modules
 
     git_calls, unexpected_calls = [], []
 

@@ -106,6 +106,53 @@ def test_passive_snapshot_uses_current_bytes_without_loading_or_writing(
     assert not skills._skills_cache
 
 
+def test_passive_snapshot_reuses_an_unchanged_library_and_rereads_any_change(
+    library, monkeypatch
+):
+    monkeypatch.setattr(library, "_client_snapshot_cache", None)
+    reads = []
+    uncached = library._read_client_skills_uncached
+
+    def counted():
+        reads.append(1)
+        return uncached()
+
+    monkeypatch.setattr(library, "_read_client_skills_uncached", counted)
+    first = library.read_client_skills()
+    second = library.read_client_skills()
+    assert len(reads) == 1
+    assert second == first
+    # Callers receive private copies; mutating one cannot poison the cache.
+    second["items"]["sample"]["skill"].tags.append("mutated")
+    assert "mutated" not in library.read_client_skills()["items"]["sample"]["skill"].tags
+    assert len(reads) == 1
+
+    path = library.USER_SKILLS_DIR / "sample" / "SKILL.md"
+    staged = path.with_name("SKILL.md.next")
+    staged.write_text(
+        "---\nname: sample\ndisplay_name: Changed\ndescription: A saved skill\n---\n\nUse the approved tools.\n",
+        encoding="utf-8",
+    )
+    os.replace(staged, path)
+    changed = library.read_client_skills()
+    assert len(reads) == 2
+    assert changed["items"]["sample"]["skill"].display_name == "Changed"
+    assert changed["revision"] != first["revision"]
+
+    extra = library.USER_SKILLS_DIR / "extra"
+    extra.mkdir()
+    (extra / "SKILL.md").write_text(
+        "---\nname: extra\ndescription: Another skill\n---\n\nUse the approved tools.\n",
+        encoding="utf-8",
+    )
+    assert "extra" in library.read_client_skills()["items"]
+    assert len(reads) == 3
+
+    library.CONFIG_PATH.write_text(json.dumps({"skills": {"sample": False}}), encoding="utf-8")
+    assert library.read_client_skills()["enabled"]["sample"] is False
+    assert len(reads) == 4
+
+
 def test_passive_snapshot_accepts_the_public_description_bound(library):
     path = library.USER_SKILLS_DIR / "sample" / "SKILL.md"
     description = "Detailed local workflow guidance. " * 20
@@ -438,9 +485,6 @@ def test_reviewed_create_edit_duplicate_delete_and_exact_recovery(library, monke
     )
     recovered = execute(delete, delete_review)
     assert recovered["status"] == "completed" and not created_path.exists()
-    monkeypatch.setattr(
-        library, "delete_skill", lambda *_args: pytest.fail("no replay")
-    )
     assert execute(delete, delete_review) == recovered
 
 
@@ -687,3 +731,77 @@ def test_invalid_fields_fail_before_admission(library, bad_fields):
                 "fields": bad_fields,
             },
         )
+
+
+@pytest.mark.parametrize(
+    "display_name",
+    ["[draft] Weekly review", "#triage", "Review: weekly", "yes", "a #b", "{x}"],
+)
+def test_create_keeps_display_names_yaml_would_misread(library, display_name):
+    # Frontmatter values are quoted when YAML would read them differently, so
+    # the reviewed round-trip check accepts names like "[draft] …" or "#tag".
+    snapshot = library.read_client_skills()
+    create, review = prepare(
+        "skill.create",
+        {
+            "revision": snapshot["revision"],
+            "name": "awkward_name",
+            "fields": fields(
+                display_name=display_name,
+                description=f"About {display_name}",
+                tags=["#tag", "yes"],
+                activation={"keywords": ["[k]"], "phrases": ["note: this"]},
+            ),
+        },
+    )
+    assert execute(create, review)["status"] == "completed"
+    saved = library.read_client_skills()["items"]["awkward_name"]["skill"]
+    assert saved.display_name == display_name
+    assert saved.description == f"About {display_name}"
+    assert list(saved.tags) == ["#tag", "yes"]
+    assert saved.activation == {"keywords": ["[k]"], "phrases": ["note: this"]}
+
+
+def test_created_edited_and_deleted_skills_reach_the_runtime_library(library):
+    # The agent injects skills from the in-memory library, so a reviewed
+    # change must reach it without a restart.
+    def runtime(name):
+        return next(
+            (skill for skill in library.get_enabled_manual_skills() if skill.name == name),
+            None,
+        )
+
+    library.load_skills()
+    assert runtime("runtime_skill") is None
+    snapshot = library.read_client_skills()
+    create, review = prepare(
+        "skill.create",
+        {"revision": snapshot["revision"], "name": "runtime_skill", "fields": fields()},
+    )
+    assert execute(create, review)["status"] == "completed"
+    assert runtime("runtime_skill").instructions == "Use only the explicitly approved inputs."
+
+    snapshot = library.read_client_skills()
+    edit, edit_review = prepare(
+        "skill.edit",
+        {
+            "revision": snapshot["revision"],
+            "name": "runtime_skill",
+            "skill_revision": snapshot["items"]["runtime_skill"]["revision"],
+            "fields": {"instructions": "Edited instructions reach the next run."},
+        },
+    )
+    assert execute(edit, edit_review)["status"] == "completed"
+    assert runtime("runtime_skill").instructions == "Edited instructions reach the next run."
+
+    snapshot = library.read_client_skills()
+    delete, delete_review = prepare(
+        "skill.delete",
+        {
+            "revision": snapshot["revision"],
+            "name": "runtime_skill",
+            "skill_revision": snapshot["items"]["runtime_skill"]["revision"],
+        },
+    )
+    assert execute(delete, delete_review)["status"] == "completed"
+    assert runtime("runtime_skill") is None

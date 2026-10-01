@@ -1,12 +1,52 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+} from 'react';
+import {
+  BadgeCheck,
+  BookOpen,
+  BriefcaseBusiness,
+  Bug,
+  Code2,
+  Compass,
+  FilePenLine,
+  FlaskConical,
+  Hammer,
+  MessageSquare,
+  Network,
+  Palette,
+  Pencil,
+  Pin,
+  Power,
+  RefreshCw,
+  Route,
+  Search,
+  Shield,
+  Sparkles,
+  Terminal,
+  Trash2,
+  UserRound,
+  Eye,
+  Copy,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   Button,
   Field,
+  IconButton,
   Input,
   Select,
   Tabs,
   Toggle,
 } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
+import {
+  toggleAgentFavourite,
+  useAgentFavourites,
+} from '../shell/agent-favourites';
 
 export type GoalStatus =
   | 'active'
@@ -42,6 +82,8 @@ export type GoalPage = {
   items: GoalSummary[];
   total: number;
   next_cursor: string | null;
+  /** The turn limit a new goal starts with; 0 = no limit. */
+  default_max_turns: number;
 };
 export type GoalOperation = 'start' | 'pause' | 'resume' | 'complete' | 'clear';
 export type GoalPayload = {
@@ -83,6 +125,8 @@ export type ProfileSummary = {
   scope: ProfileScope;
   surface_scope: 'global';
   source: string;
+  group?: string;
+  icon?: string;
   enabled: boolean;
   editable: boolean;
   revision: string;
@@ -149,6 +193,80 @@ export type ProfileReceipt = {
   code?: string | null;
 };
 
+const profileGroups = [
+  'Everyday',
+  'Work',
+  'Creative',
+  'Developer',
+  'Advanced/Internal',
+  'My Profiles',
+  'Workspace Profiles',
+  'Plugin Profiles',
+  'Imported Profiles',
+] as const;
+const groupIcons: Record<string, LucideIcon> = {
+  Everyday: Compass,
+  Work: BriefcaseBusiness,
+  Creative: Palette,
+  Developer: Code2,
+  'Advanced/Internal': Shield,
+  'My Profiles': UserRound,
+  'Workspace Profiles': BriefcaseBusiness,
+  'Plugin Profiles': BadgeCheck,
+  'Imported Profiles': BadgeCheck,
+};
+const profileIcons: Record<string, LucideIcon> = {
+  auto_awesome: Sparkles,
+  route: Route,
+  manage_search: Search,
+  edit_note: FilePenLine,
+  psychology: Compass,
+  library_books: BookOpen,
+  query_stats: Search,
+  precision_manufacturing: Hammer,
+  fact_check: BadgeCheck,
+  palette: Palette,
+  terminal: Terminal,
+  code: Code2,
+  bug_report: Bug,
+  construction: Hammer,
+  hub: Network,
+  science: FlaskConical,
+};
+function profileGroup(profile: ProfileSummary) {
+  if (profile.source === 'builtin')
+    return profileGroups.includes(
+      profile.group as (typeof profileGroups)[number],
+    )
+      ? profile.group!
+      : 'Everyday';
+  return (
+    (
+      {
+        workspace: 'Workspace Profiles',
+        plugin: 'Plugin Profiles',
+        imported: 'Imported Profiles',
+      } as Record<string, string>
+    )[profile.scope] ?? 'My Profiles'
+  );
+}
+function profilePolicy(profile: ProfileSummary) {
+  return [
+    profile.capability.replaceAll('_', ' '),
+    profile.context_mode === 'auto'
+      ? 'Automatic context'
+      : `${profile.context_mode} context`,
+    profile.allow_tools.length
+      ? `${profile.allow_tools.length} selected tool${profile.allow_tools.length === 1 ? '' : 's'}`
+      : 'Inherits enabled tools',
+    ...(profile.skills.length
+      ? [
+          `${profile.skills.length} skill${profile.skills.length === 1 ? '' : 's'}`,
+        ]
+      : []),
+  ].join(' · ');
+}
+
 type GoalAttempt = { kind: 'goal'; command: GoalCommand; review: GoalReview };
 type ProfileAttempt = {
   kind: 'profile';
@@ -173,9 +291,10 @@ type State = {
   profileQuery: string;
   profileScope: '' | ProfileScope;
   objective: string;
-  maxTurns: string;
+  /** Typed turn limit; null shows the page's default ("" = no limit). */
+  maxTurns: string | null;
   reason: string;
-  profileMode: '' | 'create' | 'edit' | 'duplicate';
+  profileMode: '' | 'create' | 'edit' | 'duplicate' | 'view';
   profileDraft: ProfileDraft;
   reviewed: Attempt | null;
   pending: Attempt | null;
@@ -214,7 +333,7 @@ export function createGoalProfileSettingsSession() {
     profileQuery: '',
     profileScope: '',
     objective: '',
-    maxTurns: '24',
+    maxTurns: null,
     reason: '',
     profileMode: '',
     profileDraft: emptyProfileDraft(),
@@ -275,6 +394,7 @@ export function createGoalProfileSettingsSession() {
         profilePage: null,
         selectedProfile: null,
         objective: '',
+        maxTurns: null,
         reason: '',
         profileMode: '',
         profileDraft: emptyProfileDraft(),
@@ -292,9 +412,11 @@ export type GoalProfileSettingsSession = ReturnType<
 >;
 
 export type GoalProfileSettingsProps = {
-  conversationId: string;
+  conversationId?: string;
+  profilesOnly?: boolean;
+  onStartProfileChat?: (profile: ProfileSummary) => void;
   session: GoalProfileSettingsSession;
-  loadGoals: (
+  loadGoals?: (
     query: { conversation_id: string; query: string; cursor?: string },
     signal: AbortSignal,
   ) => Promise<GoalPage>;
@@ -306,11 +428,11 @@ export type GoalProfileSettingsProps = {
     profileId: string,
     signal: AbortSignal,
   ) => Promise<{ schema_version: 1; profile: ProfileSummary }>;
-  reviewGoal: (
+  reviewGoal?: (
     payload: GoalPayload,
     signal: AbortSignal,
   ) => Promise<GoalReview>;
-  executeGoal: (
+  executeGoal?: (
     command: GoalCommand,
     review: GoalReview,
   ) => Promise<GoalReceipt>;
@@ -323,6 +445,13 @@ export type GoalProfileSettingsProps = {
     review: ProfileReview,
   ) => Promise<ProfileReceipt>;
 };
+
+/** The limit field: what was typed, else the default ("" = no limit). */
+function shownTurns(typed: string | null, page: GoalPage | null) {
+  return (
+    typed ?? (page?.default_max_turns ? String(page.default_max_turns) : '')
+  );
+}
 
 function validGoalPage(page: GoalPage, conversationId: string) {
   if (
@@ -369,9 +498,33 @@ function fieldsFromDraft(draft: ProfileDraft, create: boolean): ProfileFields {
   };
 }
 
+// Profile policy values in words; the option values stay the stable ids.
+const CONTEXT_MODES: Record<ProfileDraft['context_mode'], string> = {
+  auto: 'Automatic',
+  focused: 'Focused',
+  recent: 'Recent turns',
+  full: 'Full conversation',
+  empty: 'Empty',
+  resume: 'Resume',
+};
+const WORKSPACE_MODES: Record<ProfileDraft['workspace_mode'], string> = {
+  auto: 'Automatic',
+  read_only: 'Read only',
+  single_writer: 'Single writer',
+  worktree: 'Separate worktree',
+};
+const APPROVAL_MODES: Record<ProfileDraft['approval_mode'], string> = {
+  inherit: 'Same as the chat',
+  approve: 'Ask',
+  allow_all: 'Auto',
+  block: 'Block',
+};
+
 export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   const {
     conversationId,
+    profilesOnly = false,
+    onStartProfileChat,
     session,
     loadGoals,
     loadProfiles,
@@ -382,22 +535,61 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     executeProfile,
   } = props;
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const favourites = useAgentFavourites();
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(['Everyday']),
+  );
+  // A search opens every group that holds a match; closing one still works.
+  const searchingProfiles = Boolean(state.profileQuery.trim());
+  useEffect(() => {
+    if (!searchingProfiles || !state.profilePage) return;
+    const matched = state.profilePage.items.map(profileGroup);
+    setExpandedGroups((previous) =>
+      matched.every((group) => previous.has(group))
+        ? previous
+        : new Set([...previous, ...matched]),
+    );
+  }, [searchingProfiles, state.profilePage]);
   const locked = !state.active || Boolean(state.busy || state.pending);
   const loadGoalsRef = useRef(loadGoals);
   const loadProfilesRef = useRef(loadProfiles);
+  const profilesLoadKey = useRef('');
+  const profileEditorRef = useRef<HTMLFieldSetElement>(null);
+  const profileDetailsRef = useRef<HTMLElement>(null);
+  const profileReturnFocus = useRef<HTMLElement | null>(null);
+  const previousProfileMode = useRef(state.profileMode);
+  const profileSearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(profileSearchTimer.current), []);
   loadGoalsRef.current = loadGoals;
   loadProfilesRef.current = loadProfiles;
+  useEffect(() => {
+    const previous = previousProfileMode.current;
+    previousProfileMode.current = state.profileMode;
+    if (state.profileMode === 'view') profileDetailsRef.current?.focus();
+    else if (state.profileMode) profileEditorRef.current?.focus();
+    else if (previous && profileReturnFocus.current?.isConnected)
+      profileReturnFocus.current.focus();
+  }, [state.profileMode, state.selectedProfile?.id]);
 
   useEffect(() => {
     const current = session.getSnapshot();
-    if (!current.active || current.tab !== 'goals' || current.busy) return;
+    if (
+      !current.active ||
+      profilesOnly ||
+      current.tab !== 'goals' ||
+      current.busy ||
+      !loadGoalsRef.current ||
+      !conversationId
+    )
+      return;
     const abort = session.beginRead();
     session.update({ busy: 'load-goals' });
-    void loadGoalsRef
-      .current(
-        { conversation_id: conversationId, query: current.goalQuery },
-        abort.signal,
-      )
+    void loadGoalsRef.current!(
+      { conversation_id: conversationId, query: current.goalQuery },
+      abort.signal,
+    )
       .then((page) => {
         if (!abort.signal.aborted)
           session.update({
@@ -414,11 +606,19 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           });
       })
       .finally(() => session.endRead(abort));
-  }, [conversationId, session, state.goalsRefresh, state.tab]);
+  }, [conversationId, profilesOnly, session, state.goalsRefresh, state.tab]);
 
   useEffect(() => {
     const current = session.getSnapshot();
-    if (!current.active || current.tab !== 'profiles' || current.busy) return;
+    const key = `${profilesOnly}:${current.tab}:${current.profilesRefresh}`;
+    if (
+      !current.active ||
+      (!profilesOnly && current.tab !== 'profiles') ||
+      current.busy ||
+      profilesLoadKey.current === key
+    )
+      return;
+    profilesLoadKey.current = key;
     const abort = session.beginRead();
     session.update({ busy: 'load-profiles' });
     void loadProfilesRef
@@ -441,22 +641,74 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           });
       })
       .finally(() => session.endRead(abort));
-  }, [session, state.profilesRefresh, state.tab]);
+  }, [profilesOnly, session, state.profilesRefresh, state.tab, state.busy]);
+
+  const loadMoreProfiles = async () => {
+    const current = session.getSnapshot();
+    if (locked || !current.profilePage?.next_cursor) return;
+    const abort = session.beginRead();
+    session.update({ busy: 'load-profiles' });
+    try {
+      const page = validProfilePage(
+        await loadProfiles(
+          {
+            query: current.profileQuery,
+            scope: current.profileScope || undefined,
+            cursor: current.profilePage.next_cursor,
+          },
+          abort.signal,
+        ),
+      );
+      if (
+        !abort.signal.aborted &&
+        page.revision === current.profilePage.revision
+      )
+        session.update({
+          busy: '',
+          profilePage: {
+            ...page,
+            items: [...current.profilePage.items, ...page.items],
+          },
+        });
+      else if (!abort.signal.aborted)
+        session.update({
+          busy: '',
+          message: 'Profile list changed. Refresh to try again.',
+        });
+    } catch {
+      if (!abort.signal.aborted)
+        session.update({
+          busy: '',
+          message: 'More profiles are unavailable. Try again.',
+        });
+    } finally {
+      session.endRead(abort);
+    }
+  };
 
   const requestGoalReview = async (operation: GoalOperation) => {
     const current = session.getSnapshot();
     const page = current.goalPage;
-    if (!page || locked || current.busy || current.pending) return;
-    const maxTurns = Number(current.maxTurns);
+    if (
+      !page ||
+      !conversationId ||
+      !reviewGoal ||
+      locked ||
+      current.busy ||
+      current.pending
+    )
+      return;
+    const typed = shownTurns(current.maxTurns, page).trim();
+    // No number means no turn limit (B243).
+    const maxTurns = typed ? Number(typed) : null;
     if (
       operation === 'start' &&
       (!current.objective.trim() ||
-        !Number.isInteger(maxTurns) ||
-        maxTurns < 1 ||
-        maxTurns > 1000)
+        (maxTurns !== null &&
+          (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 1000)))
     ) {
       session.update({
-        message: 'Enter a goal and a turn limit from 1 to 1000.',
+        message: 'Enter a goal, and a turn limit from 1 to 1000 or none.',
       });
       return;
     }
@@ -506,7 +758,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
 
   const beginProfile = async (
     profile: ProfileSummary,
-    mode: 'edit' | 'duplicate',
+    mode: 'edit' | 'duplicate' | 'view',
   ) => {
     if (locked || (mode === 'edit' && !profile.editable)) return;
     const abort = session.beginRead();
@@ -639,7 +891,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     try {
       const receipt =
         attempt.kind === 'goal'
-          ? await executeGoal(attempt.command, attempt.review)
+          ? await executeGoal!(attempt.command, attempt.review)
           : await executeProfile(attempt.command, attempt.review);
       if (!session.getSnapshot().active) return;
       if (receipt.command_id !== attempt.command.command_id) throw Error();
@@ -662,7 +914,18 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               : 'Profile change completed.',
         });
         if (attempt.kind === 'goal') session.refreshGoals();
-        else session.refreshProfiles();
+        else {
+          // Created and duplicated profiles are user profiles; open their
+          // group so the new row is visible.
+          const { operation } = attempt.command.payload;
+          if (operation === 'create' || operation === 'duplicate')
+            setExpandedGroups((previous) =>
+              previous.has('My Profiles')
+                ? previous
+                : new Set([...previous, 'My Profiles']),
+            );
+          session.refreshProfiles();
+        }
       } else if (receipt.status === 'rejected') {
         session.update({
           busy: '',
@@ -712,7 +975,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           disabled={locked || !state.goalPage?.next_cursor}
           onClick={() => {
             const current = session.getSnapshot();
-            if (!current.goalPage?.next_cursor) return;
+            if (!current.goalPage?.next_cursor || !loadGoals || !conversationId)
+              return;
             const abort = session.beginRead();
             session.update({ busy: 'load-goals' });
             void loadGoals(
@@ -757,7 +1021,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             type="number"
             min={1}
             max={1000}
-            value={state.maxTurns}
+            placeholder="No limit"
+            value={shownTurns(state.maxTurns, state.goalPage)}
             onChange={(event) =>
               session.update({ maxTurns: event.target.value, reviewed: null })
             }
@@ -785,7 +1050,10 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           <li className="surface" key={goal.id}>
             <strong>{goal.objective}</strong>
             <p>
-              {goal.status} · {goal.turns_used} of {goal.max_turns} turns
+              {humanizeToken(goal.status)} ·{' '}
+              {goal.max_turns
+                ? `${goal.turns_used} of ${goal.max_turns} turns`
+                : `${goal.turns_used} turns`}
             </p>
             {goal.last_progress && <p>{goal.last_progress}</p>}
             {goal.last_reason && <p>{goal.last_reason}</p>}
@@ -840,8 +1108,13 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
     </section>
   );
 
-  const profileEditor = state.profileMode && (
-    <fieldset disabled={locked}>
+  const profileEditor = state.profileMode && state.profileMode !== 'view' && (
+    <fieldset
+      ref={profileEditorRef}
+      className="settings-profile-editor"
+      tabIndex={-1}
+      disabled={locked}
+    >
       <legend>
         {state.profileMode === 'create'
           ? 'Create profile'
@@ -869,9 +1142,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               }
             />
           </Field>
-          <Button onClick={() => void requestProfileReview('duplicate')}>
-            Duplicate profile
-          </Button>
+          <div className="button-row">
+            <Button
+              variant="primary"
+              onClick={() => void requestProfileReview('duplicate')}
+            >
+              Duplicate profile
+            </Button>
+          </div>
         </>
       ) : (
         <>
@@ -895,6 +1173,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           </Field>
           <Field label="Description">
             <textarea
+              className="input"
+              rows={2}
               maxLength={2048}
               value={state.profileDraft.description}
               onChange={(event) =>
@@ -904,6 +1184,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
           </Field>
           <Field label="When to use">
             <textarea
+              className="input"
+              rows={2}
               maxLength={2048}
               value={state.profileDraft.when_to_use}
               onChange={(event) =>
@@ -933,6 +1215,8 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               hint="The saved instruction body is never loaded into this editor."
             >
               <textarea
+                className="input"
+                rows={6}
                 maxLength={49152}
                 value={state.profileDraft.instructions ?? ''}
                 onChange={(event) =>
@@ -983,13 +1267,11 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                 })
               }
             >
-              {['auto', 'focused', 'recent', 'full', 'empty', 'resume'].map(
-                (item) => (
-                  <option value={item} key={item}>
-                    {item}
-                  </option>
-                ),
-              )}
+              {Object.entries(CONTEXT_MODES).map(([item, label]) => (
+                <option value={item} key={item}>
+                  {label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Workspace mode">
@@ -1002,13 +1284,11 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                 })
               }
             >
-              {['auto', 'read_only', 'single_writer', 'worktree'].map(
-                (item) => (
-                  <option value={item} key={item}>
-                    {item}
-                  </option>
-                ),
-              )}
+              {Object.entries(WORKSPACE_MODES).map(([item, label]) => (
+                <option value={item} key={item}>
+                  {label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Approval mode">
@@ -1021,14 +1301,14 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
                 })
               }
             >
-              {['inherit', 'block', 'approve', 'allow_all'].map((item) => (
+              {Object.entries(APPROVAL_MODES).map(([item, label]) => (
                 <option value={item} key={item}>
-                  {item}
+                  {label}
                 </option>
               ))}
             </Select>
           </Field>
-          <label>
+          <label className="settings-profile-toggle">
             <Toggle
               label="Profile enabled"
               checked={state.profileDraft.enabled}
@@ -1038,175 +1318,371 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
             />{' '}
             Profile enabled
           </label>
-          <Button
-            onClick={() =>
-              void requestProfileReview(
-                state.profileMode === 'create' ? 'create' : 'edit',
-              )
-            }
-          >
-            {state.profileMode === 'create' ? 'Create' : 'Save'} profile
-          </Button>
+          <div className="button-row">
+            <Button
+              variant="primary"
+              onClick={() =>
+                void requestProfileReview(
+                  state.profileMode === 'create' ? 'create' : 'edit',
+                )
+              }
+            >
+              {state.profileMode === 'create' ? 'Create' : 'Save'} profile
+            </Button>
+          </div>
         </>
       )}
     </fieldset>
   );
 
-  const profiles = (
-    <section aria-label="Agent Profiles" className="settings-section stack">
-      <h2>Agent Profiles</h2>
-      <p>
-        Reusable profiles are global. Stored instruction bodies stay private;
-        edits either preserve or explicitly replace them.
-      </p>
-      <div className="field-row">
-        <Field label="Search profiles">
-          <Input
-            type="search"
-            maxLength={256}
-            value={state.profileQuery}
+  const profileRow = (profile: ProfileSummary) => {
+    const Icon =
+      profileIcons[profile.icon ?? ''] ??
+      groupIcons[profileGroup(profile)] ??
+      BadgeCheck;
+    const pinned = favourites.includes(profile.id);
+    return (
+      <li className="profile-library-row" key={profile.id}>
+        <Icon size={16} aria-hidden />
+        <div className="profile-library-summary">
+          <strong>{profile.display_name}</strong>
+          {!profile.enabled && <span className="profile-off">off</span>}
+          {profile.description && (
+            <p title={profile.description}>{profile.description}</p>
+          )}
+          <small title={profilePolicy(profile)}>{profilePolicy(profile)}</small>
+        </div>
+        <div className="profile-library-actions">
+          {profile.enabled && onStartProfileChat && (
+            <>
+              {/* A pinned profile is a favourite in the sidebar (B268). */}
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label={
+                  pinned
+                    ? `Unpin ${profile.display_name} from the sidebar`
+                    : `Pin ${profile.display_name} to the sidebar`
+                }
+                aria-pressed={pinned}
+                onClick={() => toggleAgentFavourite(profile.id)}
+              >
+                <Pin
+                  size={14}
+                  fill={pinned ? 'currentColor' : 'none'}
+                  aria-hidden
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                disabled={locked}
+                aria-label={`Start chat with ${profile.display_name}`}
+                onClick={() => onStartProfileChat(profile)}
+              >
+                <MessageSquare size={14} aria-hidden />
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            iconOnly
             disabled={locked}
-            onChange={(event) =>
-              session.update({
-                profileQuery: event.target.value,
-                reviewed: null,
-              })
-            }
-          />
-        </Field>
-        <Field label="Profile scope">
-          <Select
-            value={state.profileScope}
-            disabled={locked}
-            onChange={(event) =>
-              session.update({
-                profileScope: event.target.value as State['profileScope'],
-                reviewed: null,
-              })
-            }
+            aria-label={`View ${profile.display_name}`}
+            onClick={(event) => {
+              profileReturnFocus.current = event.currentTarget;
+              void beginProfile(profile, 'view');
+            }}
           >
-            <option value="">All scopes</option>
-            {['system', 'user', 'workspace', 'plugin', 'imported'].map(
-              (item) => (
-                <option value={item} key={item}>
-                  {item}
-                </option>
-              ),
-            )}
-          </Select>
-        </Field>
-        <Button disabled={locked} onClick={() => session.refreshProfiles()}>
-          Search profiles
-        </Button>
-        <Button
-          disabled={locked}
-          onClick={() =>
-            session.update({
-              selectedProfile: null,
-              profileMode: 'create',
-              profileDraft: emptyProfileDraft(),
-              reviewed: null,
-              message: '',
-            })
-          }
-        >
-          Create profile
-        </Button>
-      </div>
+            <Eye size={14} aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            disabled={locked}
+            aria-label={`Duplicate ${profile.display_name}`}
+            onClick={(event) => {
+              profileReturnFocus.current = event.currentTarget;
+              void beginProfile(profile, 'duplicate');
+            }}
+          >
+            <Copy size={14} aria-hidden />
+          </Button>
+          {profile.editable && (
+            <>
+              <Button
+                variant="ghost"
+                iconOnly
+                disabled={locked}
+                aria-label={`Edit ${profile.display_name}`}
+                onClick={(event) => {
+                  profileReturnFocus.current = event.currentTarget;
+                  void beginProfile(profile, 'edit');
+                }}
+              >
+                <Pencil size={14} aria-hidden />
+              </Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                disabled={locked}
+                aria-label={`${profile.enabled ? 'Disable' : 'Enable'} ${profile.display_name}`}
+                onClick={() => {
+                  session.update({ selectedProfile: profile });
+                  void requestProfileReview(
+                    profile.enabled ? 'disable' : 'enable',
+                  );
+                }}
+              >
+                <Power size={14} aria-hidden />
+              </Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                disabled={locked}
+                aria-label={`Delete ${profile.display_name}`}
+                onClick={() => {
+                  session.update({ selectedProfile: profile });
+                  void requestProfileReview('delete');
+                }}
+              >
+                <Trash2 size={14} aria-hidden />
+              </Button>
+            </>
+          )}
+        </div>
+      </li>
+    );
+  };
+  const beginCreate = (event: MouseEvent<HTMLElement>) => {
+    profileReturnFocus.current = event.currentTarget;
+    session.update({
+      selectedProfile: null,
+      profileMode: 'create',
+      profileDraft: emptyProfileDraft(),
+      reviewed: null,
+      message: '',
+    });
+  };
+  // The Agent profiles dialog (profilesOnly) holds the library directly,
+  // with no card inside the dialog.
+  const sectionClass = profilesOnly ? 'stack' : 'settings-section stack';
+  const profiles = (
+    <section aria-label="Agent Profiles" className={sectionClass}>
+      {!profilesOnly && (
+        <>
+          <h2>Agent Profiles</h2>
+          <p>
+            Reusable profiles are global. Stored instruction bodies stay
+            private; edits either preserve or explicitly replace them.
+          </p>
+        </>
+      )}
+      {profilesOnly ? (
+        <div className="profile-library-toolbar settings-list-toolbar">
+          <label className="settings-inline-search">
+            <span className="visually-hidden">Search profiles</span>
+            <Search size={14} aria-hidden />
+            <Input
+              type="search"
+              maxLength={256}
+              placeholder="Search profiles"
+              value={state.profileQuery}
+              disabled={locked}
+              onChange={(event) => {
+                session.update({
+                  profileQuery: event.target.value,
+                  reviewed: null,
+                });
+                clearTimeout(profileSearchTimer.current);
+                profileSearchTimer.current = setTimeout(
+                  () => session.refreshProfiles(),
+                  350,
+                );
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                clearTimeout(profileSearchTimer.current);
+                session.refreshProfiles();
+              }}
+            />
+          </label>
+          <IconButton
+            label="Refresh profiles"
+            disabled={locked}
+            onClick={() => session.refreshProfiles()}
+          >
+            <RefreshCw size={16} aria-hidden />
+          </IconButton>
+          <Button variant="primary" disabled={locked} onClick={beginCreate}>
+            Create profile
+          </Button>
+        </div>
+      ) : (
+        <div className="field-row">
+          <Field label="Search profiles">
+            <Input
+              type="search"
+              maxLength={256}
+              value={state.profileQuery}
+              disabled={locked}
+              onChange={(event) =>
+                session.update({
+                  profileQuery: event.target.value,
+                  reviewed: null,
+                })
+              }
+            />
+          </Field>
+          <Field label="Profile scope">
+            <Select
+              value={state.profileScope}
+              disabled={locked}
+              onChange={(event) =>
+                session.update({
+                  profileScope: event.target.value as State['profileScope'],
+                  reviewed: null,
+                })
+              }
+            >
+              <option value="">All scopes</option>
+              {['system', 'user', 'workspace', 'plugin', 'imported'].map(
+                (item) => (
+                  <option value={item} key={item}>
+                    {item}
+                  </option>
+                ),
+              )}
+            </Select>
+          </Field>
+          <Button disabled={locked} onClick={() => session.refreshProfiles()}>
+            Search profiles
+          </Button>
+          <Button disabled={locked} onClick={beginCreate}>
+            Create profile
+          </Button>
+        </div>
+      )}
       {state.profilePage && (
         <p role="status">{state.profilePage.total} reusable profiles.</p>
       )}
-      <ul className="settings-results">
-        {state.profilePage?.items.map((profile) => (
-          <li className="surface" key={profile.id}>
-            <strong>{profile.display_name}</strong> · {profile.scope} ·{' '}
-            {profile.enabled ? 'Enabled' : 'Disabled'}
-            <p>{profile.description}</p>
-            <p>
-              {profile.capability} · {profile.workspace_mode} ·{' '}
-              {profile.approval_mode} approvals
-            </p>
-            <div className="button-row">
-              <Button
-                disabled={locked || !profile.editable}
-                onClick={() => void beginProfile(profile, 'edit')}
-              >
-                Edit {profile.display_name}
-              </Button>
-              <Button
-                disabled={locked}
-                onClick={() => void beginProfile(profile, 'duplicate')}
-              >
-                Duplicate {profile.display_name}
-              </Button>
-              {profile.editable && (
-                <>
-                  <Button
-                    disabled={locked}
-                    onClick={() => {
-                      session.update({ selectedProfile: profile });
-                      void requestProfileReview(
-                        profile.enabled ? 'disable' : 'enable',
-                      );
-                    }}
-                  >
-                    {profile.enabled ? 'Disable' : 'Enable'}{' '}
-                    {profile.display_name}
-                  </Button>
-                  <Button
-                    variant="danger"
-                    disabled={locked}
-                    onClick={() => {
-                      session.update({ selectedProfile: profile });
-                      void requestProfileReview('delete');
-                    }}
-                  >
-                    Delete {profile.display_name}
-                  </Button>
-                </>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+      {state.profilePage &&
+        profileGroups.map((group) => {
+          const rows = state.profilePage!.items.filter(
+            (profile) => profileGroup(profile) === group,
+          );
+          return rows.length ? (
+            <details
+              className="profile-library-group"
+              key={group}
+              open={expandedGroups.has(group)}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setExpandedGroups((previous) => {
+                  if (previous.has(group) === open) return previous;
+                  const next = new Set(previous);
+                  if (open) next.add(group);
+                  else next.delete(group);
+                  return next;
+                });
+              }}
+            >
+              <summary>
+                {group} <span>{rows.length}</span>
+              </summary>
+              <ul>{rows.map(profileRow)}</ul>
+            </details>
+          ) : null;
+        })}
+      {state.profilePage?.next_cursor && (
+        <Button disabled={locked} onClick={() => void loadMoreProfiles()}>
+          Load more profiles
+        </Button>
+      )}
+      {state.profileMode === 'view' && state.selectedProfile && (
+        <section
+          ref={profileDetailsRef}
+          tabIndex={-1}
+          className="surface stack"
+          aria-label="Profile details"
+        >
+          <h3>{state.selectedProfile.display_name}</h3>
+          <p>{state.selectedProfile.description}</p>
+          <p>{state.selectedProfile.when_to_use}</p>
+          <p>{profilePolicy(state.selectedProfile)}</p>
+          <p>
+            Workspace: {state.selectedProfile.workspace_mode} · Approval:{' '}
+            {state.selectedProfile.approval_mode}
+          </p>
+          <p>
+            Stored instructions are private and can only be replaced explicitly.
+          </p>
+          <Button
+            onClick={() =>
+              session.update({ profileMode: '', selectedProfile: null })
+            }
+          >
+            Close details
+          </Button>
+        </section>
+      )}
       {profileEditor}
     </section>
   );
 
   return (
-    <section
-      aria-label="Goals and Agent Profiles"
-      className="settings-section stack"
-    >
-      <Tabs
-        label="Goal and profile settings"
-        value={state.tab}
-        onChange={(value) =>
-          session.update({
-            tab: value as State['tab'],
-            reviewed: null,
-            message: '',
-          })
-        }
-        items={[
-          { id: 'goals', label: 'Goals', content: goals },
-          { id: 'profiles', label: 'Agent Profiles', content: profiles },
-        ]}
-      />
+    <section aria-label="Goals and Agent Profiles" className={sectionClass}>
+      {profilesOnly ? (
+        profiles
+      ) : (
+        <Tabs
+          label="Goal and profile settings"
+          value={state.tab}
+          onChange={(value) =>
+            session.update({
+              tab: value as State['tab'],
+              reviewed: null,
+              message: '',
+            })
+          }
+          items={[
+            { id: 'goals', label: 'Goals', content: goals },
+            { id: 'profiles', label: 'Agent Profiles', content: profiles },
+          ]}
+        />
+      )}
       {state.reviewed && (
-        <section aria-label="Goal or profile change review" className="surface">
-          <h3>Confirm removal</h3>
-          <p>
-            {state.reviewed.kind === 'goal'
-              ? `Goal action: ${state.reviewed.review.operation}.`
-              : `Profile action: ${state.reviewed.review.operation}.`}
-          </p>
+        <section
+          aria-label="Goal or profile change review"
+          className="surface settings-profile-confirm"
+        >
+          <h3>
+            {state.reviewed.kind === 'profile' && state.selectedProfile
+              ? `Delete “${state.selectedProfile.display_name}”?`
+              : 'Confirm removal'}
+          </h3>
+          {state.reviewed.kind === 'goal' && (
+            <p>Goal action: {state.reviewed.review.operation}.</p>
+          )}
           {state.reviewed.review.disclosures.map((item) => (
             <p key={item}>{item}</p>
           ))}
-          <Button disabled={locked} onClick={() => void apply(state.reviewed)}>
-            Confirm removal
-          </Button>
+          <div className="button-row">
+            <Button
+              variant="danger"
+              disabled={locked}
+              onClick={() => void apply(state.reviewed)}
+            >
+              Confirm removal
+            </Button>
+            <Button
+              disabled={locked}
+              onClick={() => session.update({ reviewed: null, message: '' })}
+            >
+              {state.reviewed.kind === 'profile' ? 'Keep profile' : 'Keep goal'}
+            </Button>
+          </div>
         </section>
       )}
       {state.pending && (

@@ -81,6 +81,18 @@
           "title": "Enabled",
           "type": "boolean"
         },
+        "group": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Group",
+          "type": "string"
+        },
+        "icon": {
+          "default": "",
+          "maxLength": 32,
+          "title": "Icon",
+          "type": "string"
+        },
         "id": {
           "maxLength": 256,
           "minLength": 1,

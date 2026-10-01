@@ -10,7 +10,11 @@ import type {
   TaskStopResult,
 } from '../../api/types';
 import { clientError } from '../../api/errors';
-import { Button, EmptyState, Skeleton } from '../../ui/primitives';
+import { Play, RefreshCw } from 'lucide-react';
+import { Button, IconButton, InlineEmpty, Skeleton } from '../../ui/primitives';
+import { humanizeToken } from '../../ui/format';
+import { When, runStatus } from '../home/home-format';
+import { WaitingSince } from '../shell/InPlaceApproval';
 
 export interface TaskRunProps {
   taskId: string;
@@ -32,8 +36,19 @@ export interface TaskRunProps {
     approved: boolean,
   ) => Promise<TaskApprovalResult>;
   stop: (taskId: string, runId: string) => Promise<TaskStopResult>;
+  /** Re-read one run; the drawer follows a run that is still going (B121). */
+  loadRun?: (
+    taskId: string,
+    runId: string,
+    signal?: AbortSignal,
+  ) => Promise<TaskRunSummary>;
   openConversation: (conversationId: string) => void;
+  /** A followed run ended: the list behind the drawer can re-read (B178). */
+  onFinished?: () => void;
 }
+
+// How often the drawer re-reads a run that is still going.
+const FOLLOW_MS = 2000;
 
 const terminal = new Set([
   'completed',
@@ -41,6 +56,7 @@ const terminal = new Set([
   'failed',
   'stopped',
   'blocked',
+  'skipped',
 ]);
 
 export default function TaskRun({
@@ -51,7 +67,9 @@ export default function TaskRun({
   loadApprovals,
   respondApproval,
   stop,
+  loadRun,
   openConversation,
+  onFinished,
 }: TaskRunProps) {
   const [review, setReview] = useState<TaskRunReview | null>(null);
   const [history, setHistory] = useState<TaskRunPage | null>(null);
@@ -107,15 +125,17 @@ export default function TaskRun({
     };
   }, [taskId, loadReview, loadHistory, reload]);
 
+  const selectedId = selected?.id ?? null;
+  const selectedState = selected?.status ?? null;
   useEffect(() => {
     const abort = new AbortController();
     setApprovals(null);
-    if (!selected || terminal.has(selected.status)) {
+    if (!selectedId || !selectedState || terminal.has(selectedState)) {
       setLoadingApprovals(false);
       return () => abort.abort();
     }
     setLoadingApprovals(true);
-    loadApprovals(taskId, selected.id, undefined, abort.signal).then(
+    loadApprovals(taskId, selectedId, undefined, abort.signal).then(
       (page) => {
         if (abort.signal.aborted) return;
         setApprovals(page);
@@ -128,7 +148,56 @@ export default function TaskRun({
       },
     );
     return () => abort.abort();
-  }, [taskId, selected, loadApprovals]);
+  }, [taskId, selectedId, selectedState, loadApprovals]);
+
+  // B121: a run that is still going is read again every couple of seconds
+  // until it ends; then the drawer reviews again, so Run now is ready.
+  const followId =
+    loadRun && selectedId && selectedState && !terminal.has(selectedState)
+      ? selectedId
+      : null;
+  useEffect(() => {
+    if (!followId || !loadRun) return;
+    const abort = new AbortController();
+    const ticket = epoch.current;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const next = await loadRun(taskId, followId, abort.signal);
+        if (abort.signal.aborted || ticket !== epoch.current) return;
+        updateRun(next);
+        if (terminal.has(next.status)) {
+          finished(next);
+          return;
+        }
+      } catch {
+        if (abort.signal.aborted) return;
+      }
+      timer = window.setTimeout(() => void tick(), FOLLOW_MS);
+    };
+    timer = window.setTimeout(() => void tick(), FOLLOW_MS);
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+    // updateRun/finished only set state; the loop restarts per followed run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followId, loadRun, taskId]);
+
+  function finished(done: TaskRunSummary) {
+    setNotice(`Run finished · ${runStatus(done.status).label}.`);
+    onFinished?.();
+    const ticket = epoch.current;
+    loadReview(taskId).then(
+      (next) => {
+        if (ticket !== epoch.current) return;
+        setReview(next);
+        setStale(false);
+        setActionUnconfirmed(false);
+      },
+      () => {},
+    );
+  }
 
   function updateRun(next: TaskRunSummary) {
     setSelected(next);
@@ -201,8 +270,9 @@ export default function TaskRun({
       setNotice(
         result.replayed
           ? 'Showing the existing run for this request.'
-          : 'Run admitted. Refresh to see its latest saved progress.',
+          : 'Run started.',
       );
+      if (terminal.has(result.run.status)) finished(result.run);
     });
   }
 
@@ -234,87 +304,133 @@ export default function TaskRun({
     }
   }
 
+  const selectedStatus = selected ? runStatus(selected.status) : null;
+  const progress =
+    selected && selected.steps_total > 0
+      ? Math.min(1, selected.steps_done / selected.steps_total)
+      : null;
   return (
-    <section
-      className="task-run stack capability-section"
-      aria-label="Task runs and approvals"
-    >
-      <header className="capability-header">
-        <div>
-          <h2>Run and history</h2>
-          <p className="muted">
-            Run now uses the saved workflow, agent profile, approval policy, and
-            delivery settings.
+    <section className="task-run" aria-label="Task runs and approvals">
+      <h2 className="visually-hidden">Run and history</h2>
+      <div className="task-run-review">
+        {review ? (
+          <p className="task-run-facts">
+            <span>
+              {review.notify_only
+                ? 'Reminder'
+                : `${review.steps_total} ${review.steps_total === 1 ? 'step' : 'steps'}`}
+            </span>
+            <span aria-hidden>·</span>
+            <span>Profile {profileWords(review.agent_profile_id)}</span>
+            <span aria-hidden>·</span>
+            <span>{approvalWords(review.approval_mode)}</span>
           </p>
+        ) : (
+          <p className="task-run-facts">
+            Uses the saved steps, profile, approvals and delivery.
+          </p>
+        )}
+        <div className="task-run-actions">
+          <IconButton
+            size="sm"
+            label="Refresh runs"
+            disabled={!!busy}
+            onClick={() => {
+              setNotice('');
+              setReload((value) => value + 1);
+            }}
+          >
+            <RefreshCw size={14} aria-hidden />
+          </IconButton>
+          <Button
+            variant="primary"
+            className="small"
+            disabled={
+              !review ||
+              loading ||
+              !!busy ||
+              stale ||
+              (!review.notify_only && review.steps_total === 0)
+            }
+            onClick={() => void runNow()}
+          >
+            <Play size={14} aria-hidden />
+            {busy === 'run' ? 'Starting…' : 'Run now'}
+          </Button>
         </div>
-      </header>
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
-      <div className="actions action-cluster">
-        <Button
-          variant="primary"
-          disabled={
-            !review ||
-            loading ||
-            !!busy ||
-            stale ||
-            (!review.notify_only && review.steps_total === 0)
-          }
-          onClick={() => void runNow()}
-        >
-          {busy === 'run' ? 'Starting…' : 'Run now'}
-        </Button>
-        <Button
-          disabled={!!busy}
-          onClick={() => {
-            setNotice('');
-            setReload((value) => value + 1);
-          }}
-        >
-          Refresh
-        </Button>
       </div>
-      {review && (
-        <p className="muted">
-          {review.notify_only
-            ? 'Reminder'
-            : `${review.steps_total} workflow steps`}{' '}
-          · Profile: {review.agent_profile_id} · Approval policy:{' '}
-          {review.approval_mode}
+      {error && (
+        <p className="task-builder-alert" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="home-caption" role="status">
+          {notice}
         </p>
       )}
       {loading ? (
         <Skeleton label="Loading run review and history" />
       ) : (
         <>
-          {selected && (
-            <section className="surface stack" aria-label="Selected run">
-              <h3>Run {selected.id}</h3>
-              <p>
-                Saved status: {selected.status}. Progress: {selected.steps_done}{' '}
-                of {selected.steps_total} steps.
-              </p>
+          {selected && selectedStatus && (
+            <section className="task-run-selected" aria-label="Selected run">
+              <header>
+                <span className="task-run-pill" data-tone={selectedStatus.tone}>
+                  <span aria-hidden className="task-run-pill-dot" />
+                  {selectedStatus.label}
+                </span>
+                <span className="home-caption">
+                  Started{' '}
+                  <When
+                    value={selected.started_at}
+                    fallback="at an unknown time"
+                  />
+                </span>
+              </header>
+              {progress !== null && (
+                <div className="task-run-progress">
+                  <progress
+                    max={selected.steps_total}
+                    value={selected.steps_done}
+                    aria-label="Run progress"
+                  />
+                  <span>
+                    {selected.steps_done} of {selected.steps_total}{' '}
+                    {selected.steps_total === 1 ? 'step' : 'steps'}
+                  </span>
+                </div>
+              )}
               {selected.status === 'starting' && (
-                <p className="muted">
+                <p className="home-caption">
                   Dispatch may still be starting or its outcome may be
                   unconfirmed. Refresh or open the conversation; this request
                   will not run again automatically.
                 </p>
               )}
               {selected.status === 'stopping' && (
-                <p className="muted">
+                <p className="home-caption">
                   Stop is requested. Completion and cleanup are not yet
                   confirmed.
                 </p>
               )}
-              <div className="actions action-cluster">
+              {selected.status === 'skipped' && (
+                <p className="home-caption">
+                  This scheduled run was skipped: an earlier run still waited
+                  for your approval.
+                </p>
+              )}
+              <div className="task-run-actions">
                 <Button
+                  className="small"
                   onClick={() => openConversation(selected.conversation_id)}
                 >
                   Open conversation
                 </Button>
                 {!terminal.has(selected.status) && (
                   <Button
+                    variant="danger"
+                    className="small"
                     disabled={!!busy}
                     onClick={() => {
                       const current = selected,
@@ -326,7 +442,7 @@ export default function TaskRun({
                         setNotice(
                           result.quiesced
                             ? 'The run has stopped and its worker has finished.'
-                            : 'Stop requested. Waiting for confirmed worker cleanup; refresh for progress.',
+                            : 'Stop requested. Waiting for the run to finish.',
                         );
                       });
                     }}
@@ -340,14 +456,19 @@ export default function TaskRun({
               )}
               {approvals?.items.map((approval) => (
                 <article
-                  className="surface stack"
+                  className="task-run-approval"
                   key={approval.id}
                   aria-label="Pending task approval"
                 >
-                  <h3>Approval required</h3>
+                  <h3>Approval needed</h3>
                   <p className="task-approval-message">{approval.message}</p>
+                  <p className="home-caption">
+                    <WaitingSince value={approval.requested_at} />
+                  </p>
                   {approval.expires_at && (
-                    <p className="muted">Expires: {approval.expires_at}</p>
+                    <p className="home-caption">
+                      Expires <When value={approval.expires_at} />
+                    </p>
                   )}
                   {approval.message_truncated && (
                     <p role="status">
@@ -357,17 +478,18 @@ export default function TaskRun({
                   )}
                   {!approval.response_available &&
                     !approval.message_truncated && (
-                      <p className="muted">
+                      <p className="home-caption">
                         This approval uses its existing conversation controls,
                         or the workflow is still finishing its pause. Open the
                         conversation or refresh after it finishes.
                       </p>
                     )}
-                  <div className="actions action-cluster">
-                    {[true, false].map((approved) => (
+                  <div className="task-run-actions">
+                    {[false, true].map((approved) => (
                       <Button
                         key={String(approved)}
                         variant={approved ? 'primary' : 'secondary'}
+                        className="small"
                         disabled={
                           !!busy ||
                           !approval.response_available ||
@@ -385,8 +507,8 @@ export default function TaskRun({
                             updateRun(result.run);
                             setNotice(
                               approved
-                                ? 'Approval recorded. Refresh for progress.'
-                                : 'Rejection recorded. Refresh for progress.',
+                                ? 'Approval recorded.'
+                                : 'Rejection recorded.',
                             );
                           });
                         }}
@@ -398,13 +520,14 @@ export default function TaskRun({
                 </article>
               ))}
               {approvals && approvals.total > approvals.items.length && (
-                <p className="muted">
+                <p className="home-caption">
                   Showing {approvals.items.length} of {approvals.total} pending
                   approvals on this page.
                 </p>
               )}
               {approvals?.next_cursor && (
                 <Button
+                  className="small"
                   disabled={!!busy || actionUnconfirmed}
                   onClick={() => {
                     const ticket = epoch.current;
@@ -432,34 +555,54 @@ export default function TaskRun({
               )}
             </section>
           )}
-          <h3>Saved run history</h3>
+          <h3 className="task-run-history-title">History</h3>
           {!history?.items.length ? (
-            <EmptyState title="No saved runs">
-              Run this task when you are ready.
-            </EmptyState>
+            <InlineEmpty>No runs yet. Run it when you are ready.</InlineEmpty>
           ) : (
-            <ul className="resource-list">
-              {history.items.map((item) => (
-                <li key={item.id}>
-                  <Button
-                    disabled={!!busy}
-                    onClick={() => setSelected(item)}
-                    aria-label={`Show run ${item.id}`}
-                  >
-                    {item.started_at || item.id} · {item.status}
-                  </Button>
-                </li>
-              ))}
+            <ul className="task-run-history">
+              {history.items.map((item) => {
+                const view = runStatus(item.status);
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className="task-run-row"
+                      aria-current={
+                        item.id === selected?.id ? 'true' : undefined
+                      }
+                      disabled={!!busy}
+                      onClick={() => setSelected(item)}
+                      aria-label={`Show run ${item.id}`}
+                    >
+                      <span
+                        className="task-run-row-dot"
+                        data-tone={view.tone}
+                        aria-hidden
+                      />
+                      <span className="task-run-row-status">{view.label}</span>
+                      <span className="task-run-row-time">
+                        <When value={item.started_at} fallback="Unknown time" />
+                      </span>
+                      {item.steps_total > 0 && (
+                        <span className="task-run-row-steps">
+                          {item.steps_done}/{item.steps_total}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
           {earlierRows > 0 && (
-            <p className="muted">
+            <p className="home-caption">
               {earlierRows} earlier loaded runs are outside this 200-row view.
               Refresh returns to the newest runs.
             </p>
           )}
           {history?.next_cursor && (
             <Button
+              className="small"
               disabled={!!busy || stale}
               onClick={() => void moreHistory()}
             >
@@ -470,4 +613,19 @@ export default function TaskRun({
       )}
     </section>
   );
+}
+
+function profileWords(id: string) {
+  if (!id) return 'Default';
+  return (
+    humanizeToken(id.replace(/^builtin:/, '').replace(/^row_bot_/, '')) ||
+    'Default'
+  );
+}
+
+function approvalWords(mode: string) {
+  if (mode === 'approve') return 'Asks before actions';
+  if (mode === 'block') return 'Blocks actions';
+  if (mode === 'allow_all') return 'Auto approvals';
+  return mode ? humanizeToken(mode) : 'Asks before actions';
 }

@@ -71,7 +71,7 @@ docker compose -f compose.yaml exec row-bot \
 
 Open the printed URL, review the confirmation, and select **Connect**. Use `--layout compact` for phone presentation. Both layouts grant the same owner authority.
 
-<Screenshot id="remote-access-invitation" alt="Row-Bot device invitation dialog showing layout, lifetime, and connection route choices." caption="After connecting the first browser from the terminal invitation, use Settings → System to create later device invitations. Each invitation is a one-time owner credential." />
+<Screenshot id="remote-access-invitation" alt="Row-Bot device invitation dialog showing layout, lifetime, and connection route choices." caption="After connecting the first browser from the terminal invitation, use Settings → Devices & remote access to connect later devices. Each code is a one-time owner credential." />
 
 Useful secret-free checks are:
 
@@ -85,11 +85,11 @@ Do not paste invitation URLs, cookies, provider credentials, or unredacted logs 
 
 ## Finish Setup And Install Private Knowledge Search
 
-The normal first-launch wizard is the same in desktop, source, and Docker installations. It offers **Mixedbread Embed Large v1**, a separate local model used for semantic memory and document search, as a checked-by-default 675 MB download. The download begins only when you finish setup, requires internet access to Hugging Face, and does not upload documents or memories.
+First launch is the same in desktop, source, and Docker installations: answer **How should Row-Bot think?** to choose your first model. Private knowledge search uses **Mixedbread Embed Large v1**, a separate local model for semantic memory and document search, as a 675 MB download you start from Settings → Documents (Setup Center links there). The download requires internet access to Hugging Face and does not upload documents or memories.
 
-In Docker, the downloaded files live in the `/data` cache, so the named volume preserves them across restarts and container replacement. Keep the option selected for the recommended semantic search experience. If you skip it, Row-Bot still works and uses bounded lexical and graph fallback until you install the model from [Settings → Documents](/docs/settings/documents).
+In Docker, the downloaded files live in the `/data` cache, so the named volume preserves them across restarts and container replacement. Install it for the recommended semantic search experience. Until then, Row-Bot still works and uses bounded lexical and graph fallback; install the model from [Settings → Documents](/docs/settings/documents) under **Search model files**.
 
-<Screenshot id="settings-documents" alt="Row-Bot Documents settings showing the local Mixedbread embedding model and its download, retry, repair, and vector rebuild actions." caption="Settings → Documents shows the active embedding model, cache status, Download model, Retry local load, Repair local model, and index rebuild actions." />
+<Screenshot id="settings-documents" alt="Row-Bot Documents settings showing the local search model and its download, retry, repair and rebuild controls." caption="Settings → Documents shows where search runs, the search model, and the Download, Retry, Repair and Rebuild actions." />
 
 After changing an embedding provider or model, rebuild the document and memory vectors from this screen. A cloud embedding provider is a separate opt-in choice and sends the indexed text to that provider; the recommended default stays local after the initial download.
 
@@ -295,7 +295,7 @@ docker compose -f compose.yaml -f compose.vps.yaml exec row-bot \
   --origin https://row-bot.example.com
 ```
 
-From an external browser, confirm the HTTPS connection page, claim the invitation, keep the UI open through a streamed response, and verify its WebSocket remains connected. Reboot the VPS during a maintenance window and repeat DNS, TLS, readiness, authenticated-session, WebSocket, and streaming checks.
+From an external browser, confirm the HTTPS connection page, claim the invitation, keep the UI open through a streamed response, and verify its event stream stays connected. Reboot the VPS during a maintenance window and repeat DNS, TLS, readiness, authenticated-session, and streaming checks.
 
 ## Host-Managed Tailscale Serve
 

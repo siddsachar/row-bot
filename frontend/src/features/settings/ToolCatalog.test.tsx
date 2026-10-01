@@ -148,11 +148,12 @@ it('keeps declarations separate from access and renders labels as text', async (
   expect(container.querySelector('script')).toBeNull();
   fireEvent.click(summary);
   const row = within(summary.closest('li')!);
-  expect(row.getAllByText('Enabled')).toHaveLength(2);
-  expect(row.getByText('Recorded')).toBeVisible();
-  expect(row.getAllByText('Not declared')).toHaveLength(2);
+  // Facts in plain words (U50): turned on, set up, changes things, asks.
+  expect(row.getByText('Enabled')).toBeVisible();
+  expect(row.getAllByText('Yes')).toHaveLength(2);
+  expect(row.getAllByText('No')).toHaveLength(2);
   expect(row.getByText('Unknown')).toBeVisible();
-  expect(row.getByText('plugin-id')).toBeVisible();
+  expect(row.getByText('Plugin ID')).toBeVisible();
   expect(screen.getByText('same · Core')).toBeVisible();
   expect(
     screen.queryByText(/ready to run|credentials verified|safe to execute/i),
@@ -355,7 +356,7 @@ it('redacts errors and supports an explicit first-page retry', async () => {
   render(<ToolCatalog load={load} />);
   await openCatalog();
   expect(
-    await screen.findByText('Row-Bot could not complete this request.'),
+    await screen.findByText('Something went wrong. Try again.'),
   ).toBeVisible();
   expect(screen.queryByText(/private token/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Reload cached tools' }));
@@ -392,9 +393,7 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
   await screen.findByText('Confirmed · Core');
   fireEvent.click(screen.getByRole('button', { name: 'Load more tools' }));
   expect(
-    await screen.findByText(
-      'Disconnected. Your last confirmed view is preserved.',
-    ),
+    await screen.findByText('Disconnected. What you last saw is kept.'),
   ).toBeVisible();
   expect(screen.getByText('Confirmed · Core')).toBeVisible();
   expect(load).toHaveBeenCalledTimes(2);

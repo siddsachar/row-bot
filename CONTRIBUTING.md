@@ -67,27 +67,21 @@ uv run python launcher.py
 uv run python scripts/run_test_matrix.py fast
 ```
 
-For new subsystem work, you can also run the deterministic pytest lane directly:
+While working on one area, run its tests directly, for example:
 
 ```bash
-uv run python -m pytest tests/contracts tests/subsystem -m "not live_provider" -q
+uv run python -m pytest tests/subsystem/providers -q
 ```
 
-`tests/test_suite.py`, `tests/integration_tests.py`, and
-`tests/test_memory_e2e.py` are retired compatibility shims. Their former
-coverage is mapped in `tests/helpers/legacy_inventory.py` and
-`tests/helpers/legacy_inventory_snapshot.py`; add or update real coverage in
-focused pytest files instead.
-
-Before opening a shared or release-sensitive PR, run:
+Before opening a pull request, run what the Linux PR lane runs:
 
 ```bash
 uv run python scripts/run_test_matrix.py pr
 ```
 
-The PR matrix also runs `uv run python scripts/run_test_matrix.py coverage`,
-which writes `.tmp/coverage/migrated-subsystems.xml` and enforces the migrated
-subsystem coverage baseline.
+It records coverage of `src/row_bot` (report only). OS-sensitive changes also
+need `uv run python scripts/run_test_matrix.py platform` on your OS; the
+Windows and macOS runs happen in CI.
 
 When changing dependencies, edit `pyproject.toml`, then run:
 
@@ -193,11 +187,13 @@ Python:
 - Match the surrounding style; no en-masse reformatting in a feature PR
 - No `print(...)` for diagnostics in shipped code; use `logging`
 
-UI (NiceGUI):
+UI (the React client in `frontend/`):
 
-- Reuse the shared primitives in `ui/` (`bulk_select`, `confirm`, `skeleton`,
-  `timer_utils`, `chat_components`) before reaching for new abstractions
-- Match the existing dark-mode-first card aesthetic
+- Reuse the shared primitives in `frontend/src/ui` (`primitives`, `overlays`,
+  `format`) before reaching for new abstractions
+- Follow `docs/CLIENT_PLATFORM_PRODUCT_SYSTEM.md` and check both light and
+  dark themes
+- Run `npm --prefix frontend run check` for client changes
 
 ---
 
@@ -206,16 +202,14 @@ UI (NiceGUI):
 Prefer deterministic pytest tests:
 
 - `tests/contracts/` for fake provider/channel/MCP/tool interface contracts.
-- `tests/subsystem/` for end-to-end behavior with fakes and isolated temp data.
+- `tests/subsystem/<area>/` for end-to-end behavior with fakes and isolated temp data.
+- `tests/integration/<area>/` for several subsystems together.
 - `tests/e2e/` for opt-in live provider or real service checks.
-- `tests/helpers/legacy_inventory.py` for proving retired legacy coverage still maps to replacement lanes.
 
-`tests/test_suite.py`, `tests/integration_tests.py`, and `tests/test_memory_e2e.py`
-are not destinations for new coverage. Add behavior under `tests/contracts/`,
-`tests/subsystem/`, `tests/integration/`, `tests/smoke/`, or a focused
-`tests/test_*.py` file. If a retired legacy mapping changes, update the
-machine-readable inventory so the old section still points at the replacement
-pytest files and verification command.
+Test behaviour, not source text or private constants. Mark tests of about a
+second or more `slow` (they run nightly) and tests of OS-sensitive code
+`platform`; see `AGENTS.md` (Writing Tests) and `tests/README.md`. New test
+files never go in the `tests/` root.
 
 Tests should:
 

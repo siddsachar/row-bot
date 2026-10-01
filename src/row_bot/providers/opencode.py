@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
+import sys
 from dataclasses import dataclass, replace
-from typing import Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
+from row_bot.brand import APP_USER_AGENT
 from row_bot.providers.models import ModelInfo, ModelModality, ModelTask, TransportMode
 from row_bot.providers.selection import model_ref
+
+if TYPE_CHECKING:
+    import httpx
 
 OPENCODE_ZEN_PROVIDER_ID = "opencode_zen"
 OPENCODE_GO_PROVIDER_ID = "opencode_go"
@@ -13,6 +21,32 @@ OPENCODE_PROVIDER_IDS = frozenset({OPENCODE_ZEN_PROVIDER_ID, OPENCODE_GO_PROVIDE
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_MODELS_DEV_URL = "https://models.dev/api.json"
+OPENCODE_SESSION_HEADER = "x-opencode-session"
+# Keys the session digest for this process only, so the header never carries
+# the conversation id (channel conversations embed chat ids and phone numbers).
+_SESSION_KEY = secrets.token_bytes(32)
+
+
+def opencode_request_headers() -> dict[str, str]:
+    """Headers OpenCode needs on every request: who the client is and which conversation.
+
+    OpenCode Go refuses a request without a stable per-conversation
+    ``x-opencode-session`` and asks clients to name themselves in the user agent.
+    """
+    # The conversation is the agent's; no conversation exists before it loads.
+    agent = sys.modules.get("row_bot.agent")
+    conversation_id = agent.get_current_thread_id() if agent is not None else ""
+    session = hmac.new(_SESSION_KEY, conversation_id.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    return {"User-Agent": APP_USER_AGENT, OPENCODE_SESSION_HEADER: session}
+
+
+def add_opencode_request_headers(request: httpx.Request) -> None:
+    """httpx request hook for the SDK clients that carry OpenCode requests."""
+    request.headers.update(opencode_request_headers())
+
+
+async def add_opencode_request_headers_async(request: httpx.Request) -> None:
+    add_opencode_request_headers(request)
 
 _MODELS_DEV_PROVIDER_IDS = {
     OPENCODE_ZEN_PROVIDER_ID: "opencode",

@@ -148,6 +148,11 @@ test('real artifact stays unchanged for sixty seconds and one hundred reopen cyc
       previewBuilds: (window as unknown as AuditWindow).__QA_PREVIEW_BUILDS__,
     }));
   await expect.poll(() => inFlight.size).toBe(0);
+  // One-shot work from creating the Deck (notices, debounced saves) settles
+  // first; the contract is that nothing re-renders once the panel is idle.
+  await expect
+    .poll(async () => (await snapshot()).timers.timeouts, { timeout: 15_000 })
+    .toBe(0);
   const visibleRequestsBefore = panelRequests;
   const visibleBefore = await snapshot();
   await page.waitForTimeout(60_000);
@@ -171,6 +176,9 @@ test('real artifact stays unchanged for sixty seconds and one hundred reopen cyc
   await page
     .getByRole('menuitem', { name: 'Collapse panel', exact: true })
     .click();
+  await expect
+    .poll(async () => (await snapshot()).timers.timeouts, { timeout: 15_000 })
+    .toBe(0);
   const hiddenBefore = await snapshot();
   const hiddenRequestsBefore = panelRequests;
   await page.waitForTimeout(60_000);
@@ -197,10 +205,12 @@ test('real artifact stays unchanged for sixty seconds and one hundred reopen cyc
   await cdp.send('HeapProfiler.collectGarbage');
   const beforeHeap = await cdp.send('Runtime.getHeapUsage');
   const cycles: { cycle: number; mounted: number }[] = [];
+  // With every panel closed, the Deck reopens from Context's Working on list.
+  const reopen = page
+    .getByRole('complementary', { name: 'Conversation details' })
+    .getByRole('button', { name: 'Lifecycle Deck Design', exact: true });
   for (let index = 0; index < 100; index++) {
-    await page
-      .getByRole('button', { name: 'Lifecycle Deck', exact: true })
-      .click();
+    await reopen.click();
     await expect(
       page.getByRole('region', { name: 'Design preview', exact: true }),
     ).toBeVisible();

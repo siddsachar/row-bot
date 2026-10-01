@@ -54,6 +54,15 @@ export async function fixtureState(page: Page): Promise<{
   return response.json();
 }
 
+// Earlier specs may choose another default model; Thinking controls belong to
+// the one synthetic model that supplies reasoning capabilities.
+export async function restoreThinkingDefault(page: Page): Promise<void> {
+  const response = await page.request.post('/__p4_fixture/reasoning-default', {
+    headers: fixtureHeaders(),
+  });
+  expect(response.ok()).toBe(true);
+}
+
 export async function releaseProducer(
   page: Page,
   call: FixtureCall,
@@ -65,6 +74,15 @@ export async function releaseProducer(
     },
   );
   expect(response.ok()).toBe(true);
+}
+
+/** Lose every client session and cursor key, as a server restart does. */
+export async function forgetClientSessions(page: Page): Promise<number> {
+  const response = await page.request.post('/__p4_fixture/sessions/forget', {
+    headers: fixtureHeaders(),
+  });
+  expect(response.ok()).toBe(true);
+  return (await response.json()).forgotten;
 }
 
 export async function startExpiryProducer(
@@ -275,9 +293,10 @@ export async function openConversation(
   await expect(
     page.getByLabel('Opening conversation', { exact: true }),
   ).toHaveCount(0);
+  // History now loads by scrolling up; the transcript is the readiness signal.
   await expect(
-    page.getByRole('button', { name: 'Browse history', exact: true }),
-  ).toBeEnabled();
+    page.getByRole('log', { name: 'Conversation', exact: true }),
+  ).toBeVisible();
   await expect(page.locator('.connection-status.connected')).toHaveText(
     'Connected',
   );
@@ -288,8 +307,10 @@ export async function openConversation(
 export async function newConversation(page: Page): Promise<string> {
   await retireDocument(page);
   await page.goto('/app-v2/');
-  await expect(page.locator('.home-connection-status')).toHaveText(
-    'Connected · local workspace',
+  // Home no longer shows a connected label (parity slice 1); the shell's
+  // announced connection status is the stable readiness signal.
+  await expect(page.locator('.connection-status.connected')).toHaveText(
+    'Connected',
   );
   const newChat = page.getByRole('button', {
     name: 'New chat',
@@ -459,12 +480,9 @@ export async function assertControlTextUnclipped(
 }
 
 export async function assertConversationSummaries(page: Page): Promise<void> {
-  for (const label of [/^Steering queue$/, /^Activity \(/]) {
-    const summary = page
-      .locator('.chat-content > details.activity > summary')
-      .filter({ hasText: label });
-    if (await summary.count()) await assertControlTextUnclipped(summary);
-  }
+  // Waiting messages show above the composer while some wait.
+  const summary = page.locator('.composer .waiting-messages-title');
+  if (await summary.count()) await assertControlTextUnclipped(summary);
 }
 
 export async function addReviewResourcePair(
@@ -472,15 +490,7 @@ export async function addReviewResourcePair(
   deck: string,
 ): Promise<void> {
   for (const kind of ['artifact', 'workspace']) {
-    const add = page.getByRole('button', { name: 'Add resource', exact: true });
-    if (!(await add.isVisible())) {
-      const context = page.getByRole('button', {
-        name: 'Context',
-        exact: true,
-      });
-      if (await context.isVisible()) await context.click();
-    }
-    await add.click();
+    await openAddResource(page);
     const setup = page.getByRole('dialog', {
       name: 'Add resource',
       exact: true,
@@ -490,11 +500,11 @@ export async function addReviewResourcePair(
         .getByRole('button', { name: 'Start another resource', exact: true })
         .click();
       await setup
-        .getByRole('combobox', { name: 'Resource type', exact: true })
-        .selectOption('workspace');
+        .getByRole('radio', { name: 'Code folder', exact: true })
+        .click();
       await setup
-        .getByRole('combobox', { name: 'Choose resource', exact: true })
-        .selectOption('existing');
+        .getByRole('radio', { name: 'Open saved', exact: true })
+        .click();
       await setup
         .getByRole('button', {
           name: `Phase 1 workspace Resource ID: ${(await fixtureResources(page)).workspace_id}`,
@@ -530,15 +540,13 @@ export async function captureActualResourcePanels(
   label: string,
 ): Promise<void> {
   const desktop = page.viewportSize()!.width >= 1024;
-  const contextToggle = page.getByRole('button', {
-    name: 'Context',
-    exact: true,
-  });
   const context = page.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
-  if (!(await context.isVisible()) && (await contextToggle.isVisible()))
-    await contextToggle.click();
+  // Conversation details is pinned open on desktop, a header button on
+  // tablets and an item in the header's menu on phones; reveal it if hidden.
+  if (!(await context.isVisible()))
+    await headerAction(page, 'Conversation details');
   await context.getByRole('button', { name: `${deck} Design` }).click();
   const preview = page.getByRole('region', {
     name: 'Design preview',
@@ -630,9 +638,10 @@ export async function captureActualResourcePanels(
       .getByRole('button', { name: 'Back to conversation', exact: true })
       .click();
   }
-  if (await contextToggle.isVisible()) await contextToggle.click();
+  if (!(await context.isVisible()))
+    await headerAction(page, 'Conversation details');
   await page
-    .getByRole('complementary', { name: 'Conversation context' })
+    .getByRole('complementary', { name: 'Conversation details' })
     .getByRole('button', { name: 'Phase 1 workspace Developer' })
     .click();
   const inspector = page.getByRole('region', {
@@ -670,4 +679,169 @@ export async function captureActualResourcePanels(
     inspector: 'Phase 1 workspace inspector',
     composerCount: await composer(page).count(),
   });
+}
+
+/**
+ * Add resource: the Context card's button where Context is on screen, else
+ * the composer's + menu (tablets and phones show Context as a sheet).
+ */
+export async function openAddResource(page: Page): Promise<void> {
+  const inline = page.getByRole('button', {
+    name: 'Add resource',
+    exact: true,
+  });
+  if (await inline.isVisible()) {
+    await inline.click();
+    return;
+  }
+  await page
+    .getByRole('button', { name: 'Add files and more', exact: true })
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Add resource…', exact: true })
+    .click();
+}
+
+/** New chat from the sidebar, opening the drawer below the desktop width. */
+export async function clickNewChat(page: Page): Promise<void> {
+  // The collapsed rail and the full sidebar each have one; use the shown one.
+  const newChat = page
+    .getByRole('button', { name: 'New chat', exact: true })
+    .filter({ visible: true });
+  const toggle = page.getByRole('button', {
+    name: 'Toggle navigation',
+    exact: true,
+  });
+  // Wait for the shell before choosing: the sidebar, or the drawer toggle.
+  await expect(newChat.or(toggle).first()).toBeVisible();
+  if ((await newChat.count()) > 0) {
+    await newChat.first().click();
+    return;
+  }
+  await toggle.click();
+  await page
+    .getByRole('dialog', { name: 'Conversations' })
+    .getByRole('button', { name: 'New chat', exact: true })
+    .click();
+}
+
+/**
+ * Shows the Conversation details card's controls: already pinned open on a
+ * wide desktop chat, its header toggle on tablets, the header menu on phones.
+ */
+export async function revealContextControl(
+  page: Page,
+  name: string,
+): Promise<void> {
+  const control = page.getByRole('button', { name, exact: true });
+  const card = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  const context = page.getByRole('button', {
+    name: 'Conversation details',
+    exact: true,
+  });
+  const menu = page.getByRole('button', {
+    name: 'Conversation menu',
+    exact: true,
+  });
+  // Wait for the card or the header before choosing; an open card whose row
+  // has not arrived yet must not be toggled closed.
+  await expect(control.or(card).or(context).or(menu).first()).toBeVisible();
+  if (!(await control.isVisible()) && !(await card.isVisible())) {
+    if (await context.isVisible()) await context.click();
+    else {
+      await menu.click();
+      await page
+        .getByRole('menuitem', { name: 'Conversation details', exact: true })
+        .click();
+    }
+  }
+  await expect(control).toBeVisible();
+}
+
+/**
+ * Shows the Conversation details card and returns it: pinned open on a wide
+ * desktop chat, the header toggle when a panel narrows it or on tablets, the
+ * header menu on phones.
+ */
+export async function revealContext(page: Page): Promise<Locator> {
+  const card = page.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  const context = page.getByRole('button', {
+    name: 'Conversation details',
+    exact: true,
+  });
+  const menu = page.getByRole('button', {
+    name: 'Conversation menu',
+    exact: true,
+  });
+  await expect(card.or(context).or(menu).first()).toBeVisible();
+  if (!(await card.isVisible())) {
+    if (await context.isVisible()) await context.click();
+    else {
+      await menu.click();
+      await page
+        .getByRole('menuitem', { name: 'Conversation details', exact: true })
+        .click();
+    }
+  }
+  await expect(card).toBeVisible();
+  return card;
+}
+
+/** Closes the details sheet or floating card when it covers the chat. */
+export async function dismissContext(page: Page): Promise<void> {
+  const sheet = page.getByRole('dialog').filter({
+    has: page.getByRole('complementary', { name: 'Conversation details' }),
+  });
+  if (await sheet.isVisible()) {
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+  }
+}
+
+/**
+ * Leaves open panels: Close all panels where the side region shows them,
+ * Back to conversation where a compact panel covers the chat.
+ */
+export async function leavePanels(page: Page): Promise<void> {
+  const close = page.getByRole('button', {
+    name: 'Close all panels',
+    exact: true,
+  });
+  const back = page.getByRole('button', {
+    name: 'Back to conversation',
+    exact: true,
+  });
+  if (await close.isVisible()) await close.click();
+  else if (await back.isVisible()) await back.click();
+}
+
+/**
+ * Runs a conversation header action: its icon button on desktop and tablets,
+ * the same item in the header's ⋯ menu on phones. Returns the control that
+ * keeps focus afterwards (the icon, or the ⋯ trigger).
+ */
+export async function headerAction(page: Page, name: string): Promise<Locator> {
+  const button = page.getByRole('button', { name, exact: true });
+  const menu = page.getByRole('button', {
+    name: 'Conversation menu',
+    exact: true,
+  });
+  // The header re-renders after navigation; wait for it before choosing.
+  await expect(button.or(menu).first()).toBeVisible();
+  if (await button.isVisible()) {
+    await button.click();
+    return button;
+  }
+  await menu.click();
+  await page
+    .getByRole('menuitem', {
+      name: name === 'Find' ? 'Find in conversation' : name,
+      exact: true,
+    })
+    .click();
+  return menu;
 }

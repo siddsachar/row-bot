@@ -40,7 +40,9 @@
         "start",
         "stop",
         "pair",
-        "revoke"
+        "revoke",
+        "test",
+        "reset"
       ],
       "title": "Operation",
       "type": "string"

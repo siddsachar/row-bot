@@ -1,4 +1,6 @@
 import type {
+  BuddyPlacement,
+  BuddyTarget,
   CapabilityResult,
   ClientPlatform,
   MediaTransport,
@@ -7,6 +9,7 @@ import type {
   SelectionIntent,
 } from './types';
 import {
+  nativeConversationId,
   protect,
   safeDownloadName,
   safeExternalUrl,
@@ -20,29 +23,104 @@ export interface NativeEndpoint {
   ): Promise<unknown>;
 }
 
+/** pywebview's own page bridge; only its window-move channel is used here. */
+type PyWebViewHost = {
+  pywebview?: {
+    _jsApiCallback?(name: string, params: unknown, id: string): unknown;
+  };
+};
+
+const PASSED_REASONS = new Set([
+  'native_proof_required',
+  'native_authentication_required',
+  'save_failed',
+]);
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const reference = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9:_-]{1,256}$/.test(value);
+const placementValue = (value: unknown): value is BuddyPlacement =>
+  object(value) &&
+  ['docked', 'desktop'].includes(String(value.placement)) &&
+  typeof value.visible === 'boolean' &&
+  Object.keys(value).length === 2;
+const targetValue = (value: unknown): value is BuddyTarget =>
+  object(value) &&
+  (value.conversationId === null ||
+    nativeConversationId(value.conversationId)) &&
+  Number.isSafeInteger(value.revision) &&
+  (value.revision as number) >= 0 &&
+  Object.keys(value).length === 2;
 
 // The closure endpoint is installed by trusted shell code. This is not a flag
 // check; Python validates instance/window/document proof before every effect.
 export function createPyWebViewPlatform(
   endpoint: NativeEndpoint,
   media: MediaTransport,
-  attestation: string,
+  initialAttestation: string,
+  host: PyWebViewHost = window as PyWebViewHost,
+  reattest?: () => Promise<string | null>,
 ): ClientPlatform {
+  // The latest attestation this document exchanged; renewNative replaces it.
+  let attestation = initialAttestation;
+  // The server refuses every grant once its policy revision moves on (an MCP
+  // server connecting after start-up, a Settings change). The bridge says so
+  // before any effect runs, so this document exchanges a fresh attestation
+  // from its own session once and tries again (B102). Concurrent calls share
+  // one exchange.
+  let reauthenticating: Promise<boolean> | null = null;
+  const reauthenticate = (): Promise<boolean> => {
+    if (!reattest) return Promise.resolve(false);
+    reauthenticating ??= (async () => {
+      try {
+        const fresh = await reattest();
+        if (!reference(fresh)) return false;
+        const response = await endpoint.dispatch('discover', {
+          attestation: fresh,
+        });
+        if (!object(response) || response.status !== 'ok') return false;
+        attestation = fresh;
+        return true;
+      } catch {
+        return false;
+      } finally {
+        reauthenticating = null;
+      }
+    })();
+    return reauthenticating;
+  };
   async function call<T>(
     operation: string,
-    payload: Record<string, unknown>,
+    // A function is read at send time, so a retried discovery carries the
+    // attestation this document holds by then.
+    payload: Record<string, unknown> | (() => Record<string, unknown>),
     valid: (value: unknown) => value is T,
+    retry = true,
   ): Promise<CapabilityResult<T>> {
     try {
-      const response = await endpoint.dispatch(operation, payload);
+      const response = await endpoint.dispatch(
+        operation,
+        typeof payload === 'function' ? payload() : payload,
+      );
       if (!object(response)) return unavailable('invalid_native_response');
       if (response.status === 'cancelled') return { status: 'cancelled' };
+      if (
+        response.status === 'unavailable' &&
+        response.reason === 'native_authentication_required' &&
+        retry &&
+        (await reauthenticate())
+      )
+        return call(operation, payload, valid, false);
       if (response.status === 'unavailable')
-        return unavailable('native_operation_unavailable');
+        // A lapsed lease is told apart: its window must be bound again (B99,
+        // B231). So is a grant that stays refused (B102), and a file the host
+        // could not write (B238). Other reasons stay generic.
+        return unavailable(
+          typeof response.reason === 'string' &&
+            PASSED_REASONS.has(response.reason)
+            ? response.reason
+            : 'native_operation_unavailable',
+        );
       return response.status === 'ok' && valid(response.value)
         ? { status: 'ok', value: response.value }
         : unavailable('invalid_native_response');
@@ -69,11 +147,33 @@ export function createPyWebViewPlatform(
     );
     return signal?.aborted ? { status: 'cancelled' } : result;
   };
+  const platformInfo = (value: unknown): value is PlatformInfo =>
+    object(value) &&
+    value.kind === 'pywebview' &&
+    ['windows', 'macos', 'linux', 'unknown'].includes(String(value.platform)) &&
+    Array.isArray(value.capabilities) &&
+    value.capabilities.every((item) => typeof item === 'string') &&
+    typeof value.instanceId === 'string' &&
+    typeof value.windowId === 'string' &&
+    typeof value.epoch === 'number';
   return {
+    // A fresh attestation (from a new handshake on this session) renews the
+    // document's lease before it lapses.
+    renewNative: async (fresh) => {
+      if (!reference(fresh)) return unavailable('invalid_attestation');
+      const result = await call(
+        'discover',
+        { attestation: fresh },
+        platformInfo,
+        false,
+      );
+      if (result.status === 'ok') attestation = fresh;
+      return result;
+    },
     discover: () =>
       call<PlatformInfo>(
         'discover',
-        { attestation },
+        () => ({ attestation }),
         (value): value is PlatformInfo =>
           object(value) &&
           value.kind === 'pywebview' &&
@@ -111,6 +211,62 @@ export function createPyWebViewPlatform(
       /^\/app-v2\/(?:[A-Za-z0-9_-]+\/?)*$/.test(route)
         ? call('managed_window', { route }, nullValue)
         : Promise.resolve(unavailable('invalid_route')),
+    buddyPlacement: async (action, point) => {
+      if (
+        action === 'tear_off' &&
+        (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y))
+      )
+        return unavailable('invalid_drop_position');
+      // A plain discovery: sending the held attestation could race a renewal
+      // and be refused as a stale one (B231).
+      const discovered = await call<PlatformInfo>(
+        'discover',
+        {},
+        (value): value is PlatformInfo =>
+          object(value) &&
+          value.kind === 'pywebview' &&
+          Array.isArray(value.capabilities) &&
+          typeof value.instanceId === 'string' &&
+          typeof value.windowId === 'string' &&
+          typeof value.epoch === 'number',
+      );
+      if (
+        discovered.status !== 'ok' ||
+        !discovered.value.capabilities.includes('buddy_placement')
+      )
+        return unavailable('buddy_placement_requires_native');
+      return call(
+        'buddy_placement',
+        action === 'tear_off'
+          ? { action, x: point!.x, y: point!.y }
+          : { action },
+        placementValue,
+      );
+    },
+    // The host refuses these outside the window role that owns them: main
+    // windows publish, only the desktop Buddy reads and shows the main window.
+    publishBuddyTarget: (conversationId) =>
+      nativeConversationId(conversationId)
+        ? call('buddy_follow', { conversationId }, targetValue)
+        : Promise.resolve(unavailable('invalid_conversation')),
+    readBuddyTarget: () => call('buddy_follow', {}, targetValue),
+    showMainWindow: (conversationId) =>
+      conversationId === null || nativeConversationId(conversationId)
+        ? call('main_window', { conversationId }, nullValue)
+        : Promise.resolve(unavailable('invalid_conversation')),
+    // pywebview binds `.pywebview-drag-region` once, when the page loads,
+    // before this client renders; the same move channel serves our header.
+    moveWindow: (x, y) => {
+      const bridge = host.pywebview?._jsApiCallback;
+      if (typeof bridge !== 'function' || !Number.isFinite(x + y)) return false;
+      bridge.call(
+        host.pywebview,
+        'pywebviewMoveWindow',
+        [Math.round(x), Math.round(y)],
+        'move',
+      );
+      return true;
+    },
     openTerminal: (conversationId) =>
       call<{ terminalId: string }>(
         'terminal_open',
@@ -120,13 +276,21 @@ export function createPyWebViewPlatform(
           reference(value.terminalId) &&
           Object.keys(value).length === 1,
       ),
+    openExternalTerminal: (conversationId) =>
+      conversationId === null || nativeConversationId(conversationId)
+        ? call('terminal_external', { conversationId }, nullValue)
+        : Promise.resolve(unavailable('invalid_conversation')),
     save: async (ref, name, signal) => {
       if (signal?.aborted) return { status: 'cancelled' };
       if (!reference(ref) || !safeDownloadName(name))
         return unavailable('invalid_request');
       const result = await call('save', { reference: ref, name }, nullValue);
       // Discard late completion; this cannot undo an already performed host save.
-      return signal?.aborted ? { status: 'cancelled' } : result;
+      if (signal?.aborted) return { status: 'cancelled' };
+      // The host answers ok only once the chosen file is written.
+      return result.status === 'ok'
+        ? { status: 'ok', value: { kind: 'file' } }
+        : result;
     },
   };
 }

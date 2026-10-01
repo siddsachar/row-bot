@@ -21,6 +21,7 @@ from typing import List, Optional, Union
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
 
+from row_bot.account_token_checks import record_token_check
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -50,7 +51,14 @@ def _check_google_token(token_path: str) -> tuple[str, str]:
     """Probe a Google OAuth *token_path* and attempt silent refresh.
 
     Returns ``(status, detail)`` — see ``GmailTool.check_token_health``.
+    Settings › Accounts reports the verdict (B263).
     """
+    result = _probe_google_token(token_path)
+    record_token_check(token_path, result[0])
+    return result
+
+
+def _probe_google_token(token_path: str) -> tuple[str, str]:
     if not os.path.isfile(token_path):
         return ("missing", "No token file found")
     try:

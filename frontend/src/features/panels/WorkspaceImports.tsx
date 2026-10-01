@@ -338,7 +338,7 @@ export class WorkspaceImportsSession {
             stale: true,
             error: '',
             notice:
-              'This original command was not admitted. Reload and explicitly review the current changes before importing.',
+              "This import can't go ahead. Reload and check the current changes before importing.",
           });
         } else this.publish({ error: failure.message });
       } finally {
@@ -523,7 +523,7 @@ export default function WorkspaceImports(props: WorkspaceImportsProps) {
             disabled={state.busy}
             onClick={() => void session.check(props)}
           >
-            Check import receipt
+            Check import
           </Button>
           <Button
             disabled={state.busy}

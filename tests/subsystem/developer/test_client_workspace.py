@@ -27,7 +27,7 @@ def domain(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "workspace_has_custom_read_hooks", lambda _: False)
     def forbidden(*args, **kwargs):
         pytest.fail("Setup invoked an implicit execution or conversation mutation")
-    for name in ("clone_repository", "create_workspace_thread", "ensure_workspace_thread", "create_thread_worktree"):
+    for name in ("clone_repository", "ensure_workspace_thread"):
         monkeypatch.setattr(storage, name, forbidden)
     monkeypatch.setattr(threads, "create_thread", forbidden)
     return service, storage, threads
@@ -170,7 +170,8 @@ def test_inspector_complete_changes_cache_and_revocation(domain, tmp_path, monke
         [ChangedFile(f"file-{i:04}.txt", "M") for i in range(1003)], None,
         [ChangeSet(f"set-{i}", choice.resource_id, "chat-a", i, f"Fixture {i}",
                    [FileChange(f"changed-{j}.txt", "update", "old", "new", before_text="private-before-text")
-                    for j in range(203)]) for i in range(17)], [],
+                    for j in range(203)],
+                   guarded_import={"kind": "workspace.import.v1"} if i == 0 else None) for i in range(17)], [],
         DevcontainerInfo(present=False), SandboxProbe(False), None, [])
     def collect(*args):
         calls.append(args)
@@ -191,10 +192,14 @@ def test_inspector_complete_changes_cache_and_revocation(domain, tmp_path, monke
         assert len(paths) == len(set(paths)) == 1003
         ledger = service.list_inspector_change_sets(choice.resource_id, "chat-a", limit=5)
         identifiers = [item.id for item in ledger.items]
+        undoable = {item.id for item in ledger.items if item.undoable}
         while ledger.next_cursor:
             ledger = service.list_inspector_change_sets(choice.resource_id, "chat-a", cursor=ledger.next_cursor, limit=5)
             identifiers.extend(item.id for item in ledger.items)
+            undoable.update(item.id for item in ledger.items if item.undoable)
         assert len(identifiers) == len(set(identifiers)) == 17
+        # Only a sandbox import keeps the originals the panel's Undo restores.
+        assert undoable == {"set-0"}
         files = service.list_inspector_change_set_files(choice.resource_id, "chat-a", "set-16", limit=33)
         paths = [item.path for item in files.items]
         assert "private-before-text" not in json.dumps(asdict(files))

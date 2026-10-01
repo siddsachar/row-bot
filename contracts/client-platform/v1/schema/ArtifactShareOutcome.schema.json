@@ -43,6 +43,7 @@
     "status": {
       "enum": [
         "published",
+        "unpublished",
         "submitted",
         "partial",
         "uncertain",

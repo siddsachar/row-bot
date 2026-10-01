@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ArtifactPublication } from '../../api/types';
+import { writeClipboardText } from '../../platform/clipboard';
+import type { ClientPlatform } from '../../platform/types';
+import { QrCode } from '../../ui/QrCode';
 import { Button, ErrorState, Field, Input, Select } from '../../ui/primitives';
 
 export type ArtifactShareOptions = {
-  action: 'publish' | 'channel' | 'x';
+  action: 'publish' | 'unpublish' | 'channel' | 'x';
   channel_name?: string;
   target?: string;
   delivery: 'link' | 'slides' | 'pdf' | 'pptx' | 'html';
@@ -15,7 +19,7 @@ export type ArtifactShareReview = {
   review_id: string;
   resource_id: string;
   resource_revision: string;
-  action: 'publish' | 'channel' | 'x';
+  action: 'publish' | 'unpublish' | 'channel' | 'x';
   channel_name: string | null;
   recipient: string | null;
   delivery: string;
@@ -25,7 +29,13 @@ export type ArtifactShareReview = {
   requires_pairing: boolean;
 };
 export type ArtifactShareOutcome = {
-  status: 'published' | 'submitted' | 'partial' | 'uncertain' | 'denied';
+  status:
+    | 'published'
+    | 'unpublished'
+    | 'submitted'
+    | 'partial'
+    | 'uncertain'
+    | 'denied';
   code: string | null;
   resource_id: string;
   resource_revision: string;
@@ -45,6 +55,9 @@ export type ArtifactSharingProps = {
     reviewId: string,
     expectedRevision: string,
   ) => Promise<ArtifactShareOutcome>;
+  /** The design's published link, if any (Copy, QR, Unpublish). */
+  loadPublication?: (signal: AbortSignal) => Promise<ArtifactPublication>;
+  writeClipboard?: ClientPlatform['writeClipboard'];
 };
 
 function safeUrl(value: string | null) {
@@ -60,6 +73,15 @@ function safeUrl(value: string | null) {
   }
 }
 
+const UNPUBLISH: ArtifactShareOptions = {
+  action: 'unpublish',
+  delivery: 'link',
+  pages: 'all',
+  text: '',
+  pptx_mode: 'screenshot',
+  remote: false,
+};
+
 export default function ArtifactSharing(props: ArtifactSharingProps) {
   const [options, setOptions] = useState<ArtifactShareOptions>({
     action: 'publish',
@@ -71,6 +93,12 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
   });
   const [review, setReview] = useState<ArtifactShareReview | null>(null);
   const [outcome, setOutcome] = useState<ArtifactShareOutcome | null>(null);
+  const [publication, setPublication] = useState<ArtifactPublication | null>(
+    null,
+  );
+  const [reloadPublication, setReloadPublication] = useState(0);
+  const [qr, setQr] = useState(false);
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const operation = useRef<symbol | null>(null);
@@ -84,22 +112,88 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
   }, [props.resourceId, props.resourceRevision]);
   useEffect(() => {
     setOutcome(null);
+    setPublication(null);
+    setQr(false);
+    setNotice('');
   }, [props.resourceId]);
+  const { loadPublication, visible, resourceId, resourceRevision } = props;
+  useEffect(() => {
+    if (!visible || !loadPublication) return;
+    const abort = new AbortController();
+    loadPublication(abort.signal).then(
+      (value) => {
+        if (!abort.signal.aborted && value.resource_id === resourceId)
+          setPublication(value);
+      },
+      () => {
+        // Without the saved link the panel still publishes; it just can't
+        // show the current one.
+      },
+    );
+    return () => abort.abort();
+  }, [
+    visible,
+    loadPublication,
+    resourceId,
+    resourceRevision,
+    reloadPublication,
+  ]);
 
   function change(value: Partial<ArtifactShareOptions>) {
     setOptions((previous) => ({ ...previous, ...value }));
     setReview(null);
     setOutcome(null);
     setError('');
+    setNotice('');
   }
-  async function run(confirm = false) {
+  function failure(reason: unknown) {
+    const code =
+      typeof reason === 'object' && reason !== null && 'code' in reason
+        ? String(reason.code)
+        : '';
+    setReview(null);
+    if (
+      [
+        'action_denied',
+        'capability_revoked',
+        'resource_binding_revoked',
+      ].includes(code)
+    ) {
+      setOutcome(null);
+      setError(
+        'Access changed. Review this design and destination before continuing.',
+      );
+    } else if (code === 'sharing_media_limit')
+      setError(
+        'X supports up to four selected pages. Choose an explicit page range.',
+      );
+    else if (code === 'interactive_publish_requires_all_pages')
+      setError(
+        'This interactive design publishes all routes together. Select all pages.',
+      );
+    else if (
+      code === 'share_review_changed' ||
+      code === 'resource_revision_conflict'
+    )
+      setError(
+        'The source or destination changed. Review the current details again.',
+      );
+    else
+      setError(
+        'The operation is unconfirmed. Check the destination before starting another attempt.',
+      );
+  }
+  // Every action asks once (review, then confirm); only Unpublish, which
+  // takes a link back, runs straight away.
+  async function run(confirm = false, selectedOptions = options) {
     if (operation.current || !props.visible || (confirm && !review)) return;
     const identity = Symbol('sharing');
     operation.current = identity;
     setBusy(true);
     setError('');
+    setNotice('');
     const resourceId = props.resourceId;
-    const selected = structuredClone(options);
+    const selected = structuredClone(selectedOptions);
     try {
       const reviewed =
         confirm && review ? review : await props.prepare(selected);
@@ -110,7 +204,7 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
         reviewed.action !== selected.action
       )
         throw { code: 'share_review_changed' };
-      if (!confirm && selected.action !== 'publish') {
+      if (!confirm && selected.action !== 'unpublish') {
         setReview(reviewed);
         setOutcome(null);
         return;
@@ -123,45 +217,30 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
       if (current.current.resourceId !== resourceId) return;
       if (result.resource_id !== resourceId)
         throw { code: 'share_review_changed' };
-      setOutcome(result);
       setReview(null);
+      if (result.status === 'unpublished') {
+        setOutcome(null);
+        setQr(false);
+        setPublication((value) =>
+          value ? { ...value, published: false, url: null } : value,
+        );
+        setNotice('Unpublished. The link no longer opens.');
+      } else {
+        setOutcome(result);
+        if (result.status === 'published' && safeUrl(result.url))
+          setPublication({
+            resource_id: resourceId,
+            resource_revision: result.resource_revision,
+            published: true,
+            url: result.url,
+            link_kind: result.link_kind,
+            published_at: null,
+          });
+      }
+      setReloadPublication((value) => value + 1);
     } catch (reason) {
       if (current.current.resourceId !== resourceId) return;
-      const code =
-        typeof reason === 'object' && reason !== null && 'code' in reason
-          ? String(reason.code)
-          : '';
-      setReview(null);
-      if (
-        [
-          'action_denied',
-          'capability_revoked',
-          'resource_binding_revoked',
-        ].includes(code)
-      ) {
-        setOutcome(null);
-        setError(
-          'Access changed. Review this design and destination before continuing.',
-        );
-      } else if (code === 'sharing_media_limit')
-        setError(
-          'X supports up to four selected pages. Choose an explicit page range.',
-        );
-      else if (code === 'interactive_publish_requires_all_pages')
-        setError(
-          'This interactive design publishes all routes together. Select all pages.',
-        );
-      else if (
-        code === 'share_review_changed' ||
-        code === 'resource_revision_conflict'
-      )
-        setError(
-          'The source or destination changed. Review the current details again.',
-        );
-      else
-        setError(
-          'The operation is unconfirmed. Check the destination before starting another attempt.',
-        );
+      failure(reason);
     } finally {
       if (operation.current === identity) {
         operation.current = null;
@@ -169,22 +248,78 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
       }
     }
   }
+  async function copyLink(url: string) {
+    const copied = await writeClipboardText(url, props.writeClipboard);
+    setNotice(
+      copied
+        ? 'Link copied.'
+        : "The link couldn't be copied here. Select it and copy it yourself.",
+    );
+  }
   if (!props.visible) return null;
-  const url = safeUrl(outcome?.url ?? null);
+  const publishedUrl = publication?.published ? safeUrl(publication.url) : null;
+  const remoteLink = publication?.link_kind === 'remote_access';
   const actionLabel =
     options.action === 'publish'
-      ? options.remote
-        ? 'Publish remote access link'
-        : 'Publish local link'
+      ? publishedUrl
+        ? 'Update the published copy'
+        : options.remote
+          ? 'Publish remote access link'
+          : 'Publish local link'
       : options.action === 'x'
-        ? 'Post to X'
-        : 'Send to channel';
+        ? 'Prepare X post'
+        : 'Prepare channel send';
   return (
     <section
       className="studio-section stack"
       aria-label="Design sharing"
       aria-busy={busy}
     >
+      {publishedUrl && (
+        <section className="share-published" aria-label="Published link">
+          <p className="share-published-state">
+            <strong>Published</strong> ·{' '}
+            {remoteLink
+              ? 'opens with Row-Bot sign-in or a paired device'
+              : 'opens on this computer'}
+          </p>
+          <code className="share-published-url">{publishedUrl}</code>
+          <div className="action-cluster">
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void copyLink(publishedUrl)}
+            >
+              Copy link
+            </Button>
+            <a
+              className="button secondary"
+              href={publishedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open {remoteLink ? 'remote access' : 'local'} link
+            </a>
+            {remoteLink && (
+              <Button
+                aria-pressed={qr}
+                onClick={() => setQr((value) => !value)}
+              >
+                QR code
+              </Button>
+            )}
+            <Button disabled={busy} onClick={() => void run(false, UNPUBLISH)}>
+              Unpublish
+            </Button>
+          </div>
+          {remoteLink && qr && (
+            <QrCode
+              value={publishedUrl}
+              label="QR code for the published link"
+            />
+          )}
+        </section>
+      )}
       <Field label="Share action">
         <Select
           aria-label="Share action"
@@ -328,35 +463,50 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
           </Select>
         </Field>
       )}
-      <Button
-        disabled={
-          busy ||
-          (options.action === 'channel' && !options.channel_name) ||
-          !options.pages.trim()
-        }
-        onClick={() => void run()}
-      >
-        {options.action === 'publish'
-          ? actionLabel
-          : options.action === 'x'
-            ? 'Prepare X post'
-            : 'Prepare channel send'}
-      </Button>
-      {review && options.action !== 'publish' && (
+      {!review && (
+        <Button
+          disabled={
+            busy ||
+            (options.action === 'channel' && !options.channel_name) ||
+            !options.pages.trim()
+          }
+          onClick={() => void run()}
+        >
+          {actionLabel}
+        </Button>
+      )}
+      {review && (
         <div role="group" aria-label="Confirm sharing destination">
-          <p>
-            {review.page_count} pages · {review.delivery}
-          </p>
-          {review.recipient && <p>Recipient: {review.recipient}</p>}
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => void run(true)}
-          >
-            {options.action === 'x'
-              ? 'Confirm post to X'
-              : 'Confirm send to channel'}
-          </Button>
+          {review.action === 'publish' ? (
+            <p>
+              {review.remote
+                ? `Publish ${review.page_count === 1 ? 'this page' : `these ${review.page_count} pages`} at a remote access link? The configured tunnel can make it reachable from the internet; opening it still needs Row-Bot sign-in or a paired device.`
+                : `Publish ${review.page_count === 1 ? 'this page' : `these ${review.page_count} pages`} at a local link? It opens on this computer only.`}
+            </p>
+          ) : (
+            <>
+              <p>
+                {review.page_count} pages · {review.delivery}
+              </p>
+              {review.recipient && <p>Recipient: {review.recipient}</p>}
+            </>
+          )}
+          <div className="action-cluster">
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void run(true)}
+            >
+              {review.action === 'publish'
+                ? 'Confirm publish'
+                : options.action === 'x'
+                  ? 'Confirm post to X'
+                  : 'Confirm send to channel'}
+            </Button>
+            <Button disabled={busy} onClick={() => setReview(null)}>
+              Cancel
+            </Button>
+          </div>
         </div>
       )}
       <p>
@@ -365,6 +515,7 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
           : 'Sending shares the selected content outside Row-Bot.'}
       </p>
       {error && <ErrorState title="Sharing unavailable">{error}</ErrorState>}
+      {notice && <p role="status">{notice}</p>}
       {outcome && (
         <div role="status">
           {outcome.status === 'published' ? (
@@ -393,15 +544,6 @@ export default function ArtifactSharing(props: ArtifactSharingProps) {
           )}
           {outcome.code === 'remote_access_unavailable' && (
             <p>The tunnel was unavailable. Only the local link is ready.</p>
-          )}
-          {url && (
-            <a href={url} target="_blank" rel="noopener noreferrer">
-              Open{' '}
-              {outcome.link_kind === 'remote_access'
-                ? 'remote access'
-                : 'local'}{' '}
-              link
-            </a>
           )}
         </div>
       )}

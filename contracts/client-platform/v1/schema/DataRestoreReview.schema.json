@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "DataBackupSignIn": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "provider",
+            "account",
+            "channel",
+            "mcp",
+            "webhooks"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "DataBackupSignIn",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "app_version": {
+      "maxLength": 40,
+      "title": "App Version",
+      "type": "string"
+    },
+    "bytes": {
+      "minimum": 0,
+      "title": "Bytes",
+      "type": "integer"
+    },
+    "created_at": {
+      "maxLength": 40,
+      "title": "Created At",
+      "type": "string"
+    },
+    "files": {
+      "minimum": 0,
+      "title": "Files",
+      "type": "integer"
+    },
+    "left_out": {
+      "items": {
+        "maxLength": 200,
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Left Out",
+      "type": "array"
+    },
+    "review_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Review Id",
+      "type": "string"
+    },
+    "sign_in_again": {
+      "items": {
+        "$ref": "#/$defs/DataBackupSignIn"
+      },
+      "maxItems": 100,
+      "title": "Sign In Again",
+      "type": "array"
+    },
+    "source_name": {
+      "maxLength": 200,
+      "title": "Source Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "source_name",
+    "created_at",
+    "app_version",
+    "files",
+    "bytes",
+    "left_out",
+    "sign_in_again"
+  ],
+  "title": "DataRestoreReview",
+  "type": "object"
+}

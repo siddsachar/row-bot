@@ -11,6 +11,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import UUID
 
+from row_bot.account_token_checks import record_token_check, token_file_state
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.data_paths import get_row_bot_data_dir
 
@@ -55,8 +56,12 @@ def _stamp(path: Path) -> tuple[int, int] | None:
         return None
 
 
+# Google keeps two token files; the account reads as the less healthy one.
+_STATE_ORDER = ("not_authenticated", "invalid", "expired", "unavailable", "saved_unchecked", "connected")
+
+
 def read_account_auth(*, account: str) -> dict[str, Any]:
-    """Read local file metadata only; no provider or refresh call."""
+    """Read local file metadata and remembered checks only; no provider or refresh call."""
     paths = _paths(account)
     if account == "google":
         configured = _google_credentials_path().is_file()
@@ -65,7 +70,15 @@ def read_account_auth(*, account: str) -> dict[str, Any]:
         configured = bool(get_key("X_CLIENT_ID") and get_key("X_CLIENT_SECRET"))
     states = [_stamp(path) for path in paths]
     present = sum(value is not None for value in states)
-    state = "not_configured" if not configured else "not_authenticated" if not present else "saved_unchecked" if present == len(paths) else "partial"
+    if not configured:
+        state = "not_configured"
+    elif not present:
+        state = "not_authenticated"
+    elif present < len(paths):
+        state = "partial"
+    else:
+        found = {token_file_state(path) for path in paths}
+        state = next(item for item in _STATE_ORDER if item in found)
     revision = hashlib.sha256(json.dumps({
         "account": account, "configured": configured,
         "credentials": _stamp(_google_credentials_path()) if account == "google" else None,
@@ -181,6 +194,9 @@ def _finish_auth(job_key: str) -> None:
             if not cancelled:
                 job["validate"]()
                 _write_tokens(account, content)
+                # The provider has just issued these tokens.
+                for path in _paths(account):
+                    record_token_check(path, "valid")
         phase = "cancelled" if cancelled else "completed"
         message = "Authentication cancelled." if cancelled else "Account authorization saved."
     except Exception:
@@ -251,15 +267,20 @@ def execute_account_auth(
             phase, message = "completed", "Local account tokens removed. Provider authorization may still exist."
         else:
             validate()
+            # Each check remembers its verdict for Settings › Accounts.
             if account == "google":
                 from row_bot.tools.gmail_tool import _check_google_token as gmail_check
                 from row_bot.tools.calendar_tool import _check_google_token as calendar_check
-                checks = [gmail_check(str(_paths(account)[0])), calendar_check(str(_paths(account)[1]))]
-                good = all(status in {"valid", "refreshed"} for status, _ in checks)
+                statuses = [gmail_check(str(_paths(account)[0]))[0], calendar_check(str(_paths(account)[1]))[0]]
             else:
                 from row_bot.tools.x_tool import XTool
-                good = XTool().check_token_health()[0] in {"valid", "refreshed"}
-            phase, message = "completed", "Account token is healthy." if good else "Account token needs authentication."
+                statuses = [XTool().check_token_health()[0]]
+            if all(status in {"valid", "refreshed"} for status in statuses):
+                phase, message = "completed", "Account token is healthy."
+            elif any(status in {"expired", "missing"} for status in statuses):
+                phase, message = "failed", "Account token needs authentication. Reconnect this account."
+            else:
+                phase, message = "failed", "The account token could not be checked. Try again later."
         job["receipt"] = _receipt(command_id, account, action, phase, message)
         return job["receipt"]
     except Exception:

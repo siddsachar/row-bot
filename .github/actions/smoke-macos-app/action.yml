@@ -1,0 +1,66 @@
+name: Smoke the macOS app
+description: >-
+  Check a built or installed Row-Bot.app (Mach-O host, Info.plist, the tray host's
+  self-test, the bundled Python and client assets) and start its launcher. Shared by
+  release.yml and installer-verify.yml.
+inputs:
+  app-path:
+    description: Path to Row-Bot.app
+    required: true
+  port:
+    description: Loopback port for the launcher smoke
+    required: false
+    default: "8097"
+runs:
+  using: composite
+  steps:
+    - name: Check and start the app bundle
+      shell: bash
+      env:
+        APP_PATH: ${{ inputs.app-path }}
+        SMOKE_PORT: ${{ inputs.port }}
+      run: |
+        set -euo pipefail
+        resolve_bundle_python() {
+          local resources="$1"
+          local candidate
+          for candidate in \
+            "$resources/python/bin/python3" \
+            "$resources/python/bin/python" \
+            "$resources/python/bin"/python3.*; do
+            if [ -x "$candidate" ]; then
+              printf '%s\n' "$candidate"
+              return 0
+            fi
+          done
+          return 1
+        }
+
+        APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"
+        RESOURCES="$APP_PATH/Contents/Resources"
+        APP_DIR="$RESOURCES/app"
+        test -x "$APP_EXEC"
+        file "$APP_EXEC" | grep -q "Mach-O"
+        plutil -lint "$APP_PATH/Contents/Info.plist"
+        "$APP_EXEC" --self-test
+        if ! PYTHON="$(resolve_bundle_python "$RESOURCES")"; then
+          echo "::error::Bundled Python not found under $RESOURCES/python/bin"
+          find "$APP_PATH" -maxdepth 5 -path '*/python/bin/*' -print || true
+          exit 1
+        fi
+        PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 "$PYTHON" "$GITHUB_WORKSPACE/scripts/verify_client_assets.py" \
+          --root "$APP_DIR/src/row_bot/static/client-v2" \
+          --compare "$GITHUB_WORKSPACE/frontend/dist" --strict
+        # The launcher issues its own launch secret, so the smoke uses the public
+        # probes (B203). Nothing is written into the bundle.
+        ROW_BOT_INSTALL_ROOT="$RESOURCES" \
+        PYTHONNOUSERSITE=1 \
+        PYTHONDONTWRITEBYTECODE=1 \
+        PYTHONIOENCODING=utf-8 \
+        PLAYWRIGHT_BROWSERS_PATH="$RESOURCES/python/playwright-browsers" \
+        python3 scripts/smoke_app.py \
+          --port "$SMOKE_PORT" \
+          --timeout 180 \
+          --public-probes \
+          --cwd "$APP_DIR" \
+          -- "$PYTHON" launcher.py --server --no-open --no-splash --no-ollama --port "$SMOKE_PORT"

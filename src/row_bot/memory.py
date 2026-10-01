@@ -129,24 +129,6 @@ def delete_memory(memory_id: str) -> bool:
     return _kg.delete_entity(memory_id)
 
 
-def delete_memories(memory_ids: list[str]) -> tuple[int, list[tuple[str, str]]]:
-    """Delete several memories at once.
-
-    Returns ``(deleted_count, failures)``. Ids whose entity was already
-    gone (``delete_memory`` returns False) are not counted as failures
-    — they're idempotent no-ops.
-    """
-    deleted = 0
-    failures: list[tuple[str, str]] = []
-    for mid in memory_ids:
-        try:
-            if delete_memory(mid):
-                deleted += 1
-        except Exception as exc:
-            failures.append((mid, str(exc)))
-    return deleted, failures
-
-
 def get_memory(memory_id: str) -> dict | None:
     entity = _kg.get_entity(memory_id)
     return _entity_to_memory(entity) if entity else None
@@ -154,31 +136,6 @@ def get_memory(memory_id: str) -> dict | None:
 
 def list_memories(category: str | None = None, limit: int = 50) -> list[dict]:
     return _entities_to_memories(_kg.list_entities(entity_type=category, limit=limit))
-
-
-def list_memory_summaries(
-    category: str | None = None,
-    *,
-    limit: int = 50,
-    offset: int = 0,
-    description_chars: int = 500,
-) -> list[dict]:
-    return _entities_to_memories(
-        _kg.list_entity_summaries(
-            entity_type=category,
-            limit=limit,
-            offset=offset,
-            description_chars=description_chars,
-        )
-    )
-
-
-def list_memory_subjects(memory_ids: list[str] | tuple[str, ...] | set[str]) -> dict[str, str]:
-    return _kg.list_entity_subjects(memory_ids)
-
-
-def count_memories() -> int:
-    return _kg.count_entities()
 
 
 def search_memories(query: str, category: str | None = None, limit: int = 20) -> list[dict]:
@@ -202,10 +159,6 @@ def find_duplicate(
 ) -> dict | None:
     entity = _kg.find_duplicate(entity_type=category, subject=subject, description=content, threshold=threshold)
     return _entity_to_memory(entity) if entity else None
-
-
-def delete_all_memories() -> int:
-    return _kg.delete_all_entities()
 
 
 def consolidate_duplicates(threshold: float = 0.90) -> int:

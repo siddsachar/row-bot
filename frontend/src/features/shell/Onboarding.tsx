@@ -1,6 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ExternalLink, SkipForward } from 'lucide-react';
+import {
+  BadgeCheck,
+  BookOpen,
+  Brain,
+  Check,
+  Code2,
+  Compass,
+  Cpu,
+  HardDrive,
+  MessageSquare,
+  MessagesSquare,
+  Mic,
+  MoreHorizontal,
+  Palette,
+  Puzzle,
+  SkipForward,
+  UsersRound,
+  Workflow,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import type {
   OnboardingCommand,
   OnboardingReceipt,
@@ -10,31 +30,109 @@ import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 import {
   Button,
-  CompactAction,
   EmptyState,
   ErrorState,
+  Menu,
+  ProgressRing,
   Skeleton,
-  Toggle,
 } from '../../ui/primitives';
+import { useWorkspaceActions } from './workspace-actions';
+import FirstRun from './FirstRun';
 
 type Owner = {
   load: (signal?: AbortSignal) => Promise<OnboardingSnapshot>;
   send: (command: OnboardingCommand) => Promise<OnboardingReceipt>;
 };
 
-const destinations: Record<string, string> = {
-  models: '/settings/models',
-  knowledge: '/settings/knowledge',
-  workflows: '/?tab=workflows',
-  designer: '/',
-  developer: '/',
-  channels: '/settings/channels',
-  accounts: '/settings/accounts',
-  tools: '/settings/tools',
-  extensions: '/settings/mcp',
-  voice: '/settings/voice',
-  final: '/settings/system',
+type Area = {
+  icon: LucideIcon;
+  /** The one primary action: a link, or a chat for areas that start in one. */
+  action: string;
+  to?: string;
+  draft?: string;
 };
+
+/** Where each area is set up. Designs start in a chat (no studio gallery). */
+const areas: Record<string, Area> = {
+  models: { icon: Cpu, action: 'Choose models', to: '/settings/models' },
+  knowledge: {
+    icon: Brain,
+    action: 'Open Knowledge',
+    to: '/settings/knowledge',
+  },
+  workflows: {
+    icon: Workflow,
+    action: 'Open Workflows',
+    to: '/?tab=workflows',
+  },
+  designer: {
+    icon: Palette,
+    action: 'Start a design',
+    draft: 'Create a design: ',
+  },
+  developer: {
+    icon: Code2,
+    action: 'Developer tools',
+    to: '/settings/tools#built-in-tools',
+  },
+  channels: {
+    icon: MessagesSquare,
+    action: 'Open Channels',
+    to: '/settings/channels',
+  },
+  accounts: {
+    icon: UsersRound,
+    action: 'Open Accounts',
+    to: '/settings/accounts',
+  },
+  tools: { icon: Wrench, action: 'Review tools', to: '/settings/tools' },
+  extensions: {
+    icon: Puzzle,
+    action: 'Open MCP & Plugins',
+    to: '/settings/mcp',
+  },
+  voice: { icon: Mic, action: 'Open Voice', to: '/settings/voice' },
+  final: { icon: BadgeCheck, action: 'Run diagnosis', to: '/?tab=monitor' },
+};
+
+const intentIcons: Record<string, LucideIcon> = {
+  chat: MessageSquare,
+  research: BookOpen,
+  workflows: Workflow,
+  designer: Palette,
+  developer: Code2,
+  channels: MessagesSquare,
+  local: HardDrive,
+};
+
+/** Areas that matter most for each use, in the order they are recommended. */
+const intentPriority: Record<string, readonly string[]> = {
+  chat: ['models', 'tools'],
+  research: ['knowledge', 'tools', 'extensions'],
+  workflows: ['workflows', 'channels', 'accounts'],
+  designer: ['designer', 'knowledge'],
+  developer: ['developer', 'tools'],
+  channels: ['channels', 'accounts'],
+  local: ['models', 'knowledge'],
+};
+
+/** Recommended areas first (from the chosen uses), then the rest in order. */
+export function orderSetupSteps<T extends { id: string }>(
+  steps: readonly T[],
+  profile: readonly string[],
+): { ordered: T[]; recommended: Set<string> } {
+  const recommended = new Set<string>();
+  for (const intent of profile)
+    for (const step of intentPriority[intent] ?? [])
+      if (steps.some((item) => item.id === step)) recommended.add(step);
+  const priority = [...recommended];
+  const ordered = [
+    ...priority.map((id) => steps.find((step) => step.id === id)!),
+    ...steps.filter((step) => !recommended.has(step.id)),
+  ];
+  return { ordered, recommended };
+}
+
 const pendingKey = 'row-bot:onboarding:pending:v1';
 
 function savedPending(): OnboardingCommand | null {
@@ -51,7 +149,31 @@ function savedPending(): OnboardingCommand | null {
   }
 }
 
+function StatusChip({
+  status,
+}: {
+  status: 'done' | 'skipped' | 'recommended' | 'todo';
+}) {
+  const label = {
+    done: 'Done',
+    skipped: 'Skipped',
+    recommended: 'Recommended',
+    todo: 'To do',
+  }[status];
+  return (
+    <span className="setup-chip" data-status={status}>
+      {status === 'done' ? (
+        <Check size={12} aria-hidden />
+      ) : (
+        <span className="setup-chip-dot" aria-hidden />
+      )}
+      {label}
+    </span>
+  );
+}
+
 export function OnboardingCenter({ owner }: { owner: Owner }) {
+  const workspace = useWorkspaceActions();
   const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -61,6 +183,9 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
     savedPending,
   );
   const running = useRef(false);
+  const firstRunStarted = useRef(false);
+  const latest = useRef<OnboardingSnapshot | null>(null);
+  latest.current = snapshot ?? latest.current;
   const load = useCallback(
     async (signal?: AbortSignal) => {
       setLoading(true);
@@ -139,21 +264,82 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
     }
   }
 
+  /** First-run commands: the result or the error goes back to the step. */
+  async function firstRun(
+    action: 'choose_model' | 'finish_models',
+    modelRef = '',
+  ): Promise<OnboardingSnapshot> {
+    // The latest snapshot: the choice moves the revision before finishing.
+    const current = latest.current;
+    if (!current) throw new Error('Setup is still loading');
+    const command: OnboardingCommand = {
+      command_id: crypto.randomUUID(),
+      expected_revision: current.revision,
+      action,
+      profile: [],
+      step: '',
+      ...(modelRef ? { model_ref: modelRef } : {}),
+    };
+    const receipt = await owner.send(command);
+    if (
+      receipt.command_id !== command.command_id ||
+      receipt.status !== 'completed'
+    )
+      throw new Error('Setup receipt did not match the requested action');
+    latest.current = receipt.snapshot;
+    setSnapshot(receipt.snapshot);
+    return receipt.snapshot;
+  }
+
+  const locked = busy || !!pending;
+  // Setup shows the real state (decision 13): done and skipped are counted
+  // separately, and an area that is really done never reads as skipped.
+  const done = snapshot ? new Set(snapshot.completed_steps).size : 0;
+  const skipped = snapshot
+    ? snapshot.skipped_steps.filter(
+        (step) => !snapshot.completed_steps.includes(step),
+      ).length
+    : 0;
+  const total = snapshot?.steps.length ?? 0;
+  const ringLabel = `${done} of ${total} done${skipped ? ` · ${skipped} skipped` : ''}`;
+  const { ordered, recommended } = orderSetupSteps(
+    snapshot?.steps ?? [],
+    snapshot?.profile ?? [],
+  );
+
+  // Once the first run has started it stays until it finishes: choosing a
+  // model saves the default (so the snapshot stops needing one) while the
+  // quick test is still running.
+  if (snapshot?.needs_model) firstRunStarted.current = true;
+  if (snapshot && firstRunStarted.current)
+    return (
+      <FirstRun
+        snapshot={snapshot}
+        actions={{
+          choose: (modelRef) => firstRun('choose_model', modelRef),
+          finish: () => firstRun('finish_models'),
+        }}
+      />
+    );
+
   return (
-    <section className="stack capability-page" aria-label="Setup Center">
-      <header className="capability-header">
-        <div>
+    <section className="setup-center" aria-label="Setup Center">
+      <header className="setup-header">
+        <span className="setup-header-icon" aria-hidden>
+          <Compass size={18} />
+        </span>
+        <div className="setup-header-text">
           <h1>Setup Center</h1>
           <p>
-            Connect one model, then finish or skip the areas you want. Your
-            progress is saved.
+            Finish or skip the areas you want. Each area shows its real state,
+            and your progress is saved.
           </p>
         </div>
-        <Link className="button ghost" to="/">
-          Return home
-        </Link>
+        {snapshot && (
+          <ProgressRing value={done} total={total} label={ringLabel} />
+        )}
       </header>
-      {loading && <Skeleton label="Loading setup progress" />}
+      {loading && !snapshot && <Skeleton label="Loading setup progress" />}
       {error && (
         <ErrorState
           title="Setup needs attention"
@@ -163,7 +349,7 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
         </ErrorState>
       )}
       {pending && (
-        <div className="surface stack" role="status">
+        <div className="setup-callout" role="status">
           <p>
             An earlier setup action may have completed. Check its original
             result before making another change.
@@ -173,135 +359,167 @@ export function OnboardingCenter({ owner }: { owner: Owner }) {
           </Button>
         </div>
       )}
-      {notice && <p role="status">{notice}</p>}
+      <p role="status" className={notice ? 'setup-notice' : 'visually-hidden'}>
+        {notice}
+      </p>
       {!loading && !snapshot && !error && (
         <EmptyState title="Setup unavailable">Refresh to try again.</EmptyState>
       )}
       {snapshot && (
         <>
-          {!snapshot.setup_complete && (
-            <section
-              className="capability-section stack"
-              aria-label="First model setup"
-            >
-              <h2>Connect your first model</h2>
-              <p>
-                Choose a local, cloud, or self-hosted model in Settings. Return
-                here when a working model is selected.
-              </p>
-              <div className="actions">
-                <Link className="button secondary" to="/settings/models">
-                  Local models <ExternalLink size={16} aria-hidden />
-                </Link>
-                <Link className="button secondary" to="/settings/providers">
-                  Cloud or self-hosted providers{' '}
-                  <ExternalLink size={16} aria-hidden />
-                </Link>
-              </div>
-              <Button
-                disabled={busy || !!pending}
-                onClick={() => void send('finish_models')}
-              >
-                Use selected model and continue
-              </Button>
-              <p className="muted">
-                Optional migration and private knowledge model setup remain
-                available after this step.
-              </p>
-            </section>
-          )}
-          <section className="capability-section stack" aria-label="Your goals">
-            <h2>What would you like to use?</h2>
-            <div className="settings-choice-grid">
-              {snapshot.intents.map((intent) => (
-                <label key={intent.id} className="check-field">
-                  <Toggle
-                    label={intent.label}
-                    checked={snapshot.profile.includes(intent.id)}
-                    disabled={busy || !!pending}
-                    onChange={(event) =>
-                      void send(
-                        'save_profile',
-                        event.target.checked
-                          ? [...snapshot.profile, intent.id]
-                          : snapshot.profile.filter(
-                              (value) => value !== intent.id,
-                            ),
-                      )
-                    }
-                  />
-                  {intent.label}
-                </label>
-              ))}
+          <section className="setup-section" aria-label="Your goals">
+            <div className="setup-section-head">
+              <h2>What would you like to use?</h2>
+              <p>Pick any. Recommended areas move to the top.</p>
+            </div>
+            <div className="setup-intents">
+              {snapshot.intents.map((intent) => {
+                const Icon = intentIcons[intent.id] ?? Compass;
+                const checked = snapshot.profile.includes(intent.id);
+                return (
+                  <label
+                    key={intent.id}
+                    className="setup-intent"
+                    data-checked={checked ? 'true' : undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      className="setup-intent-input"
+                      checked={checked}
+                      disabled={locked}
+                      onChange={(event) =>
+                        void send(
+                          'save_profile',
+                          event.target.checked
+                            ? [...snapshot.profile, intent.id]
+                            : snapshot.profile.filter(
+                                (value) => value !== intent.id,
+                              ),
+                        )
+                      }
+                    />
+                    <span className="setup-intent-icon" aria-hidden>
+                      <Icon size={18} />
+                    </span>
+                    <span className="setup-intent-label">{intent.label}</span>
+                    <span className="setup-intent-check" aria-hidden>
+                      <Check size={14} />
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </section>
           {snapshot.setup_complete && (
-            <section
-              className="capability-section stack"
-              aria-label="Setup checklist"
-            >
-              <h2>Continue setup</h2>
-              <p>
-                {
-                  new Set([
-                    ...snapshot.completed_steps,
-                    ...snapshot.skipped_steps,
-                  ]).size
-                }{' '}
-                of {snapshot.steps.length} areas handled.
-              </p>
-              <div className="setup-grid">
-                {snapshot.steps.map((step) => {
-                  const done = snapshot.completed_steps.includes(step.id);
-                  const skipped = snapshot.skipped_steps.includes(step.id);
+            <section className="setup-section" aria-label="Setup checklist">
+              <div className="setup-section-head">
+                <h2>Continue setup</h2>
+                <p>
+                  {ringLabel}.
+                  {recommended.size > 0 &&
+                    ' Recommended areas come first; every area stays available.'}
+                </p>
+              </div>
+              <ul className="setup-areas">
+                {ordered.map((step) => {
+                  const area = areas[step.id] ?? {
+                    icon: Compass,
+                    action: `Open ${step.title}`,
+                    to: '/',
+                  };
+                  const Icon = area.icon;
+                  const areaDone = snapshot.completed_steps.includes(step.id);
+                  const live = (snapshot.live_done ?? []).includes(step.id);
+                  const areaSkipped =
+                    !areaDone && snapshot.skipped_steps.includes(step.id);
+                  const status = areaDone
+                    ? 'done'
+                    : areaSkipped
+                      ? 'skipped'
+                      : recommended.has(step.id)
+                        ? 'recommended'
+                        : 'todo';
+                  const starters =
+                    step.id === 'workflows' &&
+                    snapshot.starter_workflows_missing > 0;
                   return (
-                    <article className="surface stack" key={step.id}>
-                      <h3>{step.title}</h3>
-                      <p>{step.description}</p>
-                      <p>{done ? 'Done' : skipped ? 'Skipped' : 'Open'}</p>
-                      <div className="actions">
-                        <Link
-                          className="button ghost"
-                          to={destinations[step.id] ?? '/'}
-                        >
-                          Open {step.title}
-                        </Link>
-                        <CompactAction
-                          label={`Mark ${step.title} done`}
-                          disabled={busy || !!pending}
-                          onClick={() => void send('mark_done', [], step.id)}
-                        >
-                          <Check size={17} aria-hidden />
-                        </CompactAction>
-                        <CompactAction
-                          label={`Skip ${step.title}`}
-                          disabled={busy || !!pending}
-                          onClick={() => void send('skip_step', [], step.id)}
-                        >
-                          <SkipForward size={17} aria-hidden />
-                        </CompactAction>
-                        {step.id === 'workflows' &&
-                          snapshot.starter_workflows_missing > 0 && (
-                            <Button
-                              disabled={busy || !!pending}
-                              onClick={() => void send('add_starters')}
-                            >
-                              Add missing starter workflows
-                            </Button>
-                          )}
+                    <li
+                      className="setup-area"
+                      key={step.id}
+                      data-status={status}
+                    >
+                      <span className="setup-area-icon" aria-hidden>
+                        <Icon size={18} />
+                      </span>
+                      <div className="setup-area-text">
+                        <h3>{step.title}</h3>
+                        <p>{step.description}</p>
                       </div>
-                    </article>
+                      <StatusChip status={status} />
+                      <div className="setup-area-actions">
+                        {starters ? (
+                          <Button
+                            className="small"
+                            disabled={locked}
+                            onClick={() => void send('add_starters')}
+                          >
+                            Add missing starter workflows
+                          </Button>
+                        ) : area.draft && workspace?.newChat ? (
+                          <Button
+                            className="small"
+                            onClick={() => workspace.newChat?.(area.draft)}
+                          >
+                            {area.action}
+                          </Button>
+                        ) : (
+                          <Link
+                            className="button small"
+                            to={area.to ?? '/library'}
+                          >
+                            {area.action}
+                          </Link>
+                        )}
+                        <Menu
+                          label={`More actions for ${step.title}`}
+                          iconOnly
+                          variant="ghost"
+                          className="setup-area-more"
+                          disabled={locked}
+                          actions={[
+                            {
+                              label: `Mark ${step.title} done`,
+                              icon: <Check size={16} />,
+                              disabled: areaDone,
+                              onSelect: () =>
+                                void send('mark_done', [], step.id),
+                            },
+                            {
+                              label: `Skip ${step.title}`,
+                              icon: <SkipForward size={16} />,
+                              // Live areas follow their real state.
+                              disabled: areaSkipped || live,
+                              onSelect: () =>
+                                void send('skip_step', [], step.id),
+                            },
+                          ]}
+                        >
+                          <MoreHorizontal size={16} aria-hidden />
+                        </Menu>
+                      </div>
+                    </li>
                   );
                 })}
-              </div>
-              <div className="actions">
-                <Link className="button ghost" to="/settings/system">
+              </ul>
+              <p className="setup-more">
+                <Link to="/settings/data#migration">
                   Import from Hermes or OpenClaw
                 </Link>
-                <Link className="button ghost" to="/settings/documents">
+                <span aria-hidden>·</span>
+                <Link to="/settings/documents">
                   Set up private knowledge embeddings
                 </Link>
-              </div>
+              </p>
             </section>
           )}
         </>

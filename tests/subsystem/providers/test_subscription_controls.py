@@ -107,6 +107,28 @@ def test_passive_account_views_have_no_secrets_runtime_or_effects(account, store
     assert "private" not in json.dumps(asdict(snapshot))
 
 
+SAVED_STATES = {
+    "no-entry": (None, "disconnected"),
+    "signed-out": ({"configured": False}, "disconnected"),
+    "cleared-bundle": ({"configured": True, "oauth_bundle_ref": {"cleared": True}}, "disconnected"),
+    "external-cli": ({"configured": True, "source": "external_cli"}, "metadata_only"),
+    "row-bot-oauth": ({"configured": True, "source": "oauth_pkce"}, "saved"),
+    "malformed": ({"configured": "yes"}, "unavailable"),
+}
+
+
+@pytest.mark.parametrize(("entry", "state"), list(SAVED_STATES.values()), ids=list(SAVED_STATES))
+def test_saved_credentials_decide_the_account_state_the_client_offers_actions_for(store, entry, state):
+    # Connect/Reconnect and Disconnect follow saved_state: a detected CLI login is
+    # referenced metadata, a Row-Bot sign-in is a saved credential.
+    providers = {} if entry is None else {provider: dict(entry) for provider in controls.PROVIDERS}
+    config.save_provider_config({"providers": providers})
+
+    snapshot = controls.read_accounts()
+
+    assert {item.provider_id: item.saved_state for item in snapshot.accounts} == dict.fromkeys(controls.PROVIDERS, state)
+
+
 def test_explicit_signin_publishes_once_and_durable_receipt_is_redacted(account):
     provider, owner, _, calls, _, listener_done = account
     cmd = command(provider)
@@ -430,7 +452,7 @@ def test_bounded_auth_client_close_cancels_stalled_body_and_closes_transport(mon
 
 
 def test_xai_strict_start_does_not_publish_discovery_and_legacy_default_does(store, monkeypatch):
-    from tests.test_xai_oauth_provider import _HttpClient, _Response, _discovery_payload
+    from tests.subsystem.providers.test_xai_oauth_provider import _HttpClient, _Response, _discovery_payload
     before = config.CONFIG_PATH.read_bytes()
     client = _HttpClient([_Response(payload=_discovery_payload())])
     flow = xai_oauth.start_xai_oauth_flow(http_client=client, persist_discovery=False)
@@ -442,7 +464,7 @@ def test_xai_strict_start_does_not_publish_discovery_and_legacy_default_does(sto
 
 def test_xai_strict_listener_releases_accepted_partial_header_after_cancel(monkeypatch):
     import socket
-    from tests.test_xai_oauth_provider import _free_loopback_port
+    from tests.subsystem.providers.test_xai_oauth_provider import _free_loopback_port
     port = _free_loopback_port()
     ready, reading, cancel = Event(), Event(), Event()
     original = socket.socket.recv_into

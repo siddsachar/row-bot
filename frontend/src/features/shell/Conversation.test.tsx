@@ -11,14 +11,20 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
   ApprovalView,
   CommandReceipt,
+  ConversationView as ConversationRow,
   ConversationWorkspace,
+  DelegatedActivityView,
+  DelegatedRun,
   ModelChoice,
   SearchPage,
   Snapshot,
   TranscriptPage,
+  TranscriptRow,
 } from '../../api/types';
+import { AgentAvatar, agentSeed } from '../../ui/AgentAvatar';
 import { commandReceipts } from './command-receipts';
-import ConversationView, { Media } from './Conversation';
+import { ContextHostContext, useContextHostOwner } from './context-host';
+import ConversationView, { isNarrowChat, Media } from './Conversation';
 import useNewChat from './useNewChat';
 import SearchConversations from './SearchConversations';
 
@@ -35,6 +41,10 @@ const mock = vi.hoisted(() => ({
     workspace: null as ConversationWorkspace | null,
     history: null as TranscriptPage | null,
     historyFocus: null,
+    earlier: [] as TranscriptRow[],
+    earlierAvailable: false,
+    loadingEarlier: false,
+    conversations: [] as ConversationRow[],
     status: 'ready',
     handshake: {
       instance_id: '',
@@ -52,11 +62,15 @@ const mock = vi.hoisted(() => ({
   routeKey: 'conversation-route',
   navigate: vi.fn(),
   intent: vi.fn(),
+  controlsSettled: vi.fn(),
   workspaceFor: vi.fn(),
+  waitingMessages: vi.fn(),
+  steering: vi.fn(),
   approval: vi.fn(),
   receipt: vi.fn(),
   showHistory: vi.fn(),
   showLatest: vi.fn(),
+  loadEarlier: vi.fn(),
   selectConversation: vi.fn(),
   loadMoreConversations: vi.fn(),
   conversationActions: vi.fn(),
@@ -65,15 +79,30 @@ const mock = vi.hoisted(() => ({
   searchLibrary: vi.fn(),
   close: vi.fn(),
   open: vi.fn(),
+  dismiss: vi.fn(),
   download: vi.fn(),
   writeClipboard: vi.fn(),
   platformDiscover: vi.fn(),
   drafts: new Map<string, { text: string; attachments: [] }>(),
   setDraft: vi.fn(),
+  upload: vi.fn(),
+  attachmentThumbnail: vi.fn(() => new Promise<Blob>(() => undefined)),
+  composer: vi.fn(),
+  refreshWorkspace: vi.fn(),
+  notify: vi.fn(),
+  goals: vi.fn(),
+  reviewGoal: vi.fn(),
+  executeGoal: vi.fn(),
+  computerUse: vi.fn(),
+  computerUsePreview: vi.fn(),
+  computerUseCommand: vi.fn(),
+  delegatedPage: vi.fn(),
+  delegatedRun: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mock.navigate,
   useLocation: () => ({ key: mock.routeKey }),
+  useInRouterContext: () => false,
 }));
 vi.mock('../../runtime', () => {
   const runtime = {
@@ -90,12 +119,26 @@ vi.mock('../../runtime', () => {
       getDraft: (id: string) =>
         mock.drafts.get(id) ?? { text: '', attachments: [] },
       setDraft: mock.setDraft,
+      upload: mock.upload,
+      attachmentThumbnail: mock.attachmentThumbnail,
+      composer: mock.composer,
+      refreshWorkspace: mock.refreshWorkspace,
+      goals: mock.goals,
+      reviewGoal: mock.reviewGoal,
+      executeGoal: mock.executeGoal,
+      computerUse: mock.computerUse,
+      computerUsePreview: mock.computerUsePreview,
+      computerUseCommand: mock.computerUseCommand,
       intent: mock.intent,
+      controlsSettled: mock.controlsSettled,
       workspaceFor: mock.workspaceFor,
+      waitingMessages: mock.waitingMessages,
+      steering: mock.steering,
       approval: mock.approval,
       receipt: mock.receipt,
       showHistory: mock.showHistory,
       showLatest: mock.showLatest,
+      loadEarlier: mock.loadEarlier,
       selectConversation: mock.selectConversation,
       loadMoreConversations: mock.loadMoreConversations,
       conversationActions: mock.conversationActions,
@@ -103,16 +146,10 @@ vi.mock('../../runtime', () => {
       executeConversationAction: mock.executeConversationAction,
       searchLibrary: mock.searchLibrary,
       download: mock.download,
-      delegatedActivity: async (conversationId: string) => ({
-        conversation_id: conversationId,
-        parent_conversation_id: null,
-        items: [],
-        next_cursor: null,
-        has_more: false,
-      }),
-      delegatedRun: async () => {
-        throw new Error('No delegated run in this fixture');
-      },
+      delegatedActivity: (conversationId: string) =>
+        mock.delegatedPage(conversationId),
+      delegatedRun: (conversationId: string, runId: string) =>
+        mock.delegatedRun(conversationId, runId),
     },
     platform: {
       discover: mock.platformDiscover,
@@ -134,8 +171,8 @@ vi.mock('../../ui/overlays', () => ({
   useOverlay: () => ({
     close: mock.close,
     open: mock.open,
-    dismiss: vi.fn(),
-    notify: vi.fn(),
+    dismiss: mock.dismiss,
+    notify: mock.notify,
   }),
 }));
 beforeEach(() => {
@@ -148,6 +185,10 @@ beforeEach(() => {
   mock.state.projection = null;
   mock.state.workspace = null;
   mock.state.history = null;
+  mock.state.earlier = [];
+  mock.state.earlierAvailable = false;
+  mock.state.loadingEarlier = false;
+  mock.state.conversations = [];
   mock.state.loadingConversation = false;
   mock.drafts.clear();
   mock.setDraft.mockImplementation((id, draft) => mock.drafts.set(id, draft));
@@ -161,11 +202,30 @@ beforeEach(() => {
     value: { kind: 'browser', platform: 'browser', capabilities: [] },
   });
   mock.workspaceFor.mockResolvedValue({ writer_status: '' });
+  mock.controlsSettled.mockResolvedValue(undefined);
+  mock.waitingMessages.mockImplementation(async (id: string) => ({
+    conversation_id: id,
+    generation_id: '',
+    items: [],
+    has_more: false,
+  }));
   mock.selectConversation.mockImplementation(async (id: string) => {
     mock.version++;
     mock.state.selectedConversationId = id;
     mock.state.conversation = { id, title: id, revision: '1', pinned: false };
   });
+  mock.delegatedPage.mockImplementation(
+    async (conversationId: string): Promise<DelegatedActivityView> => ({
+      conversation_id: conversationId,
+      parent_conversation_id: null,
+      items: [],
+      next_cursor: null,
+      has_more: false,
+    }),
+  );
+  mock.delegatedRun.mockRejectedValue(
+    new Error('No delegated run in this fixture'),
+  );
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -188,11 +248,16 @@ function Conversation(props: Parameters<typeof ConversationView>[0]) {
       >
         New chat with example
       </button>
+      <button
+        onClick={() =>
+          void owner.newChat('Create a design: ', undefined, { send: false })
+        }
+      >
+        New chat with a draft
+      </button>
       {owner.error && <p role="alert">{owner.error}</p>}
       {owner.canReview && (
-        <button onClick={owner.reviewMissingReceipt}>
-          Check pending receipt
-        </button>
+        <button onClick={owner.reviewMissingReceipt}>Stop checking</button>
       )}
       <ConversationView
         {...props}
@@ -208,18 +273,16 @@ function conversation() {
   return render(<Conversation onPanel={vi.fn()} />);
 }
 
-it('keeps Browse history disabled until the selected conversation finishes opening', async () => {
+it('offers earlier messages above the live window only once the selected conversation has opened', async () => {
   mock.state.selectedConversationId = 'conversation-b';
   mock.state.loadingConversation = true;
-  mock.showHistory.mockResolvedValue(undefined);
+  mock.state.earlierAvailable = true;
+  mock.loadEarlier.mockResolvedValue(undefined);
   let rendered!: ReturnType<typeof conversation>;
   await act(async () => {
     rendered = conversation();
   });
-  const browse = screen.getByRole('button', { name: 'Browse history' });
-  expect(browse).toBeDisabled();
-  fireEvent.click(browse);
-  expect(mock.showHistory).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Earlier messages' })).toBeNull();
 
   mock.state.conversation = {
     id: 'conversation-b',
@@ -228,17 +291,15 @@ it('keeps Browse history disabled until the selected conversation finishes openi
     pinned: false,
   };
   rendered.rerender(<Conversation onPanel={vi.fn()} />);
-  expect(browse).toBeDisabled();
-  fireEvent.click(browse);
-  expect(mock.showHistory).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Earlier messages' })).toBeNull();
 
   mock.state.loadingConversation = false;
   rendered.rerender(<Conversation onPanel={vi.fn()} />);
-  expect(browse).toBeEnabled();
   await act(async () => {
-    fireEvent.click(browse);
+    fireEvent.click(screen.getByRole('button', { name: 'Earlier messages' }));
   });
-  expect(mock.showHistory).toHaveBeenCalledExactlyOnceWith();
+  expect(mock.loadEarlier).toHaveBeenCalledOnce();
+  expect(mock.showHistory).not.toHaveBeenCalled();
 });
 
 it('fences history navigation for a missing or mismatched loaded conversation and during loading', async () => {
@@ -253,8 +314,8 @@ it('fences history navigation for a missing or mismatched loaded conversation an
   await act(async () => {
     rendered = conversation();
   });
-  const controls = ['Browse history', 'Earlier messages', 'Later messages'].map(
-    (name) => screen.getByRole('button', { name }),
+  const controls = ['Earlier messages', 'Later messages'].map((name) =>
+    screen.getByRole('button', { name }),
   );
   const expectDisabled = () => {
     for (const button of controls) {
@@ -280,8 +341,8 @@ it('fences history navigation for a missing or mismatched loaded conversation an
   rendered.rerender(<Conversation onPanel={vi.fn()} />);
   for (const button of controls) expect(button).toBeEnabled();
   await act(async () => {
+    fireEvent.click(controls[0]);
     fireEvent.click(controls[1]);
-    fireEvent.click(controls[2]);
   });
   expect(mock.showHistory.mock.calls).toEqual([
     [undefined, 'before'],
@@ -304,6 +365,24 @@ function activeConversation(id = 'conversation-a') {
   mock.drafts.set(id, { text: 'Original queued draft', attachments: [] });
   return commandReceipts.scope(mock.state.handshake.instance_id, id);
 }
+
+it('morphs Send into Stop on one button that keeps its place and focus', () => {
+  activeConversation();
+  const rendered = render(<Conversation onPanel={vi.fn()} />);
+  const stop = screen.getByRole('button', { name: 'Stop' });
+  expect(stop).toHaveAttribute('data-state', 'stop');
+  expect(stop).toHaveAttribute('type', 'button');
+  stop.focus();
+  mock.state.projection = {
+    rows: [],
+    generation: null,
+  } as unknown as Snapshot;
+  rendered.rerender(<Conversation onPanel={vi.fn()} />);
+  const send = screen.getByRole('button', { name: 'Send' });
+  expect(send).toBe(stop);
+  expect(send).toHaveAttribute('data-state', 'send');
+  expect(send).toHaveAttribute('type', 'submit');
+});
 
 it('anchors bounded approval context inline with canonical resolve controls', async () => {
   activeConversation();
@@ -367,14 +446,15 @@ it('anchors bounded approval context inline with canonical resolve controls', as
     name: 'Approval required for fixture_tool',
   });
   expect(bar).toHaveTextContent('Read a reviewed local value.');
-  expect(bar).toHaveTextContent('Risk: low · One local read.');
-  expect(within(bar).getByRole('button', { name: 'Reject' })).toBeVisible();
+  expect(bar).toHaveTextContent('Low risk');
+  expect(bar).not.toHaveTextContent('One local read.');
+  expect(within(bar).getByRole('button', { name: 'Deny' })).toBeVisible();
   expect(within(bar).getByRole('button', { name: 'Details' })).toBeVisible();
   await act(async () =>
     fireEvent.click(within(bar).getByRole('button', { name: 'Details' })),
   );
   expect(mock.open.mock.lastCall?.[0]).toMatchObject({
-    title: 'Approval details · fixture_tool',
+    title: 'Allow Fixture tool?',
   });
   await act(async () =>
     fireEvent.click(within(bar).getByRole('button', { name: 'Approve' })),
@@ -390,10 +470,126 @@ it('anchors bounded approval context inline with canonical resolve controls', as
   );
 });
 
+function computerPaused() {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: false,
+      status: 'waiting_approval',
+      approval_id: 'approval-a',
+    },
+  } as unknown as Snapshot;
+  mock.state.activity = [
+    {
+      cursor: '4',
+      event: {
+        event_id: 'event-pause',
+        type: 'approval.required',
+        conversation_id: 'conversation-a',
+        projection_revision: '4',
+        protocol_version: '1.0',
+        server_epoch: 'epoch',
+        source: 'runtime',
+        source_epoch: 'epoch',
+        source_stream_id: 'conversation-a',
+        source_sequence_start: '4',
+        source_sequence_end: '4',
+        payload: {
+          status: 'waiting_approval',
+          approval_id: 'approval-a',
+          action_label: 'Computer activity',
+          reason:
+            'Computer control is paused. Use Resume or Stop in the live panel.',
+        },
+      },
+    },
+  ] as never[];
+  mock.computerUse.mockResolvedValue({
+    schema_version: 1,
+    conversation_id: 'conversation-a',
+    revision: 'c'.repeat(64),
+    active: true,
+    state: 'paused',
+    app: 'Calculator',
+    has_picture: false,
+    approval_id: 'approval-a',
+    can_pause: false,
+    can_resume: true,
+    can_stop: true,
+  });
+}
+
+it('shows a paused computer as the computer card in place of the approval card', async () => {
+  computerPaused();
+  mock.state.handshake.application_capabilities = ['computer:interactive'];
+  mock.computerUseCommand.mockResolvedValue({
+    schema_version: 1,
+    command_id: crypto.randomUUID(),
+    action: 'computer_use.resume',
+    conversation_id: 'conversation-a',
+    status: 'completed',
+    code: null,
+    computer_use: null,
+  });
+
+  await act(async () => conversation());
+  const card = await screen.findByRole('region', { name: 'Computer use' });
+  expect(card).toHaveTextContent('Using your computer · Calculator');
+  expect(within(card).getByRole('button', { name: 'Stop' })).toBeVisible();
+  // Never both: Resume answers the pause, so no approval card asks again.
+  expect(
+    screen.queryByRole('complementary', { name: /Approval required/ }),
+  ).toBeNull();
+  expect(mock.approval).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(within(card).getByRole('button', { name: 'Resume' })),
+  );
+  expect(mock.computerUseCommand).toHaveBeenCalledWith(
+    'conversation-a',
+    'computer_use.resume',
+  );
+});
+
+it('keeps the approval card on another device and never asks about the computer', async () => {
+  computerPaused();
+  mock.approval.mockResolvedValue({
+    id: 'approval-a',
+    status: 'pending',
+    revision: '0',
+    expires_at: '2030-01-01T00:00:00Z',
+    summary: 'Computer control is paused.',
+    action_label: 'Computer activity',
+    reason: 'Computer control is paused. Use Resume or Stop in the live panel.',
+    risk_class: 'unknown',
+    scope: 'Only this requested action will be resolved.',
+    safe_argument_summary: '',
+    requesting_trace_id: '',
+    policy_revision: '1',
+    nonce: 'n'.repeat(32),
+  } satisfies ApprovalView);
+
+  await act(async () => conversation());
+  expect(
+    await screen.findByRole('complementary', { name: /Approval required/ }),
+  ).toBeVisible();
+  expect(mock.computerUse).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: 'Computer use' })).toBeNull();
+});
+
 it('renders assistant Markdown safely and copies only the visible canonical text', async () => {
   activeConversation();
   mock.state.projection = {
     ...mock.state.projection!,
+    // Turn actions appear once the reply has finished streaming.
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: false,
+      status: 'completed',
+    },
     rows: [
       {
         id: 'row-a',
@@ -431,7 +627,11 @@ it('renders assistant Markdown safely and copies only the visible canonical text
     within(message).getByText('<script>never markup</script>'),
   ).toBeVisible();
   expect(message.querySelector('script')).toBeNull();
-  expect(within(message).getByText('1 tool call')).toBeVisible();
+  // No call count: the activity row carries tools. The author is in the
+  // message's name; its turn marker is decorative (B271).
+  expect(
+    within(message).getByText('Row-Bot').closest('[aria-hidden="true"]'),
+  ).not.toBeNull();
   expect(within(message).getByText('Paged content')).toBeVisible();
   await act(async () =>
     fireEvent.click(
@@ -449,6 +649,26 @@ it('renders assistant Markdown safely and copies only the visible canonical text
   ).toBeVisible();
 });
 
+it('opens the managed browser as a panel and closes the Context sheet it came from', async () => {
+  activeConversation();
+  const user = userEvent.setup();
+  const onPanel = vi.fn();
+  await act(async () => {
+    render(<Conversation onPanel={onPanel} />);
+  });
+  await user.click(
+    screen.getByRole('button', { name: 'Conversation actions' }),
+  );
+  await user.click(
+    await screen.findByRole('menuitem', { name: 'Manage browser' }),
+  );
+  expect(onPanel).toHaveBeenCalledWith(
+    expect.objectContaining({ panel_kind: 'browser.live' }),
+  );
+  // Below 1024px Context is a sheet: the panel must not open behind it.
+  expect(mock.dismiss).toHaveBeenCalledWith('conversation-context');
+});
+
 it('opens reviewed conversation management from the existing action menu', async () => {
   activeConversation();
   const user = userEvent.setup();
@@ -462,36 +682,38 @@ it('opens reviewed conversation management from the existing action menu', async
     await screen.findByRole('menuitem', { name: 'Manage conversation' }),
   );
   const options = mock.open.mock.lastCall?.[0];
-  expect(options).toMatchObject({
-    title: 'Conversation actions',
-    description:
-      'Review changes to this saved conversation and keep its resources in place.',
-  });
+  // Titled with the conversation's name; the meta line says its type (B237).
+  expect(options.description).toMatch(/^Chat/);
   expect(options.content.props).toMatchObject({
     conversationId: 'conversation-a',
     load: mock.conversationActions,
     review: mock.reviewConversationAction,
     execute: mock.executeConversationAction,
+    onDelete: expect.any(Function),
   });
 });
 
-it('keeps resources, agents, and utilities in the persistent context rail', async () => {
+it('keeps the context rail quiet: empty Working on and Agents sections stay hidden (B7)', async () => {
   idleConversation();
   await act(async () => conversation());
 
   const rail = screen.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
+  // Delegated activity has loaded with nothing to show.
+  await waitFor(() =>
+    expect(
+      within(rail).getByText('No delegated agents in this conversation.'),
+    ).not.toBeVisible(),
+  );
   expect(
-    within(rail).getByRole('heading', { name: 'Working on' }),
-  ).toBeVisible();
+    within(rail).queryByRole('heading', { name: 'Working on' }),
+  ).not.toBeInTheDocument();
   expect(
     within(rail).getByText('Agents', { selector: 'summary' }),
-  ).toBeVisible();
-  expect(
-    within(rail).getByText('Utilities', { selector: 'summary' }),
-  ).toBeVisible();
-  fireEvent.click(within(rail).getByText('Agents', { selector: 'summary' }));
+  ).not.toBeVisible();
+  // The goal always shows; Find and the terminal live in the header (B223).
+  expect(within(rail).getByText('Goal', { selector: 'summary' })).toBeVisible();
   expect(
     within(rail).getByRole('button', { name: 'Add resource' }),
   ).toBeVisible();
@@ -506,47 +728,9 @@ it('keeps resources, agents, and utilities in the persistent context rail', asyn
       },
     ),
   ).not.toBeInTheDocument();
-  expect(
-    await within(rail).findByText('No delegated agents in this conversation.'),
-  ).toBeVisible();
 });
 
-it('enables terminal only for an authorized pywebview platform', async () => {
-  idleConversation();
-  mock.state.handshake.application_capabilities = ['native:terminal'];
-  mock.platformDiscover.mockResolvedValue({
-    status: 'ok',
-    value: {
-      kind: 'pywebview',
-      platform: 'windows',
-      capabilities: ['terminal_open'],
-      instanceId: mock.state.handshake.instance_id,
-      windowId: 'synthetic-window',
-      epoch: 1,
-    },
-  });
-  await act(async () => conversation());
-
-  fireEvent.click(screen.getByText('Utilities', { selector: 'summary' }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Interactive terminal' }),
-    ).toBeEnabled(),
-  );
-});
-
-it('keeps terminal denied when only the application capability is present', async () => {
-  idleConversation();
-  mock.state.handshake.application_capabilities = ['native:terminal'];
-  await act(async () => conversation());
-
-  await waitFor(() => expect(mock.platformDiscover).toHaveBeenCalled());
-  expect(
-    screen.queryByRole('button', { name: 'Interactive terminal' }),
-  ).not.toBeInTheDocument();
-});
-
-it('uses one persistent Context entry point for the compact sheet', async () => {
+it('uses one persistent Conversation details entry point for the compact sheet', async () => {
   idleConversation();
   let rendered!: ReturnType<typeof render>;
   await act(async () => {
@@ -554,21 +738,23 @@ it('uses one persistent Context entry point for the compact sheet', async () => 
   });
 
   expect(
-    screen.queryByRole('complementary', { name: 'Conversation context' }),
+    screen.queryByRole('complementary', { name: 'Conversation details' }),
   ).not.toBeInTheDocument();
   mock.state.loadingConversation = true;
   rendered.rerender(<ConversationView onPanel={vi.fn()} compactContext />);
-  expect(screen.getByRole('button', { name: 'Context' })).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Context' }));
+  const toggle = () =>
+    screen.getByRole('button', { name: 'Conversation details' });
+  expect(toggle()).toBeDisabled();
+  fireEvent.click(toggle());
   expect(mock.open).not.toHaveBeenCalled();
   mock.state.loadingConversation = false;
   rendered.rerender(<ConversationView onPanel={vi.fn()} compactContext />);
-  expect(screen.getByRole('button', { name: 'Context' })).toBeEnabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Context' }));
+  expect(toggle()).toBeEnabled();
+  fireEvent.click(toggle());
   expect(mock.open.mock.lastCall?.[0]).toMatchObject({
     kind: 'sheet',
     key: 'conversation-context',
-    title: 'Conversation context',
+    title: 'Conversation details',
   });
 });
 
@@ -614,6 +800,38 @@ it('follows live rows until the reader scrolls away and resumes only on explicit
   expect(screen.queryByRole('button', { name: 'Latest messages' })).toBeNull();
   expect(mock.drafts.get('conversation-a')?.text).toBe('Original queued draft');
   expect(mock.showLatest).not.toHaveBeenCalled();
+});
+
+it('stays on the latest row when the layout, not the reader, moves the transcript', async () => {
+  activeConversation();
+  let client = 100;
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(
+    function (this: HTMLElement) {
+      return this.classList.contains('transcript') ? 900 : 0;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(
+    function (this: HTMLElement) {
+      return this.classList.contains('transcript') ? client : 0;
+    },
+  );
+  await act(async () => {
+    conversation();
+  });
+  const log = screen.getByRole('log');
+  expect(log.scrollTop).toBe(800);
+  // A panel opens and the composer grows: the transcript is 38px shorter and
+  // the browser reports a scroll before any resize callback runs.
+  client = 62;
+  fireEvent.scroll(log);
+  expect(log.scrollTop).toBe(838);
+  expect(screen.queryByRole('button', { name: 'Latest messages' })).toBeNull();
+  // The reader scrolling away still stops following.
+  log.scrollTop = 300;
+  fireEvent.scroll(log);
+  expect(
+    screen.getByRole('button', { name: 'Latest messages' }),
+  ).toBeInTheDocument();
 });
 
 it('preserves an older history position and follows the newest window after leaving history or switching conversation', async () => {
@@ -724,6 +942,115 @@ function idleConversation() {
   );
 }
 
+function waitingItem(text = 'Waiting follow-up') {
+  return {
+    id: 'submission-waiting',
+    submission_id: 'submission-waiting',
+    generation_id: 'generation-waiting',
+    text,
+    revision: '2',
+    state: 'paused' as const,
+    editable: true,
+    removable: true,
+  };
+}
+
+it('drops a send the server refused because a message waits, and offers Send now (B107)', async () => {
+  const key = idleConversation();
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'user:submission:stopped',
+        message_id: 'stopped',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Stopped question' }],
+      },
+    ],
+    generation: {
+      generation_id: 'run-stopped',
+      quiesced: true,
+      can_stop: false,
+      status: 'stopped',
+    },
+  } as unknown as Snapshot;
+  mock.waitingMessages.mockResolvedValue({
+    conversation_id: 'conversation-a',
+    generation_id: '',
+    items: [waitingItem()],
+    has_more: false,
+  });
+  mock.workspaceFor.mockResolvedValue({ revision: '7', writer_status: '' });
+  mock.intent.mockImplementation(async (_id, type) => {
+    if (type === 'conversation.submit')
+      throw { code: 'queue_pending', status: 409 };
+    return { status: 'completed', conversation_id: 'conversation-a' };
+  });
+  await act(async () => {
+    conversation();
+  });
+  const waiting = await screen.findByRole(
+    'region',
+    { name: 'Waiting messages' },
+    { timeout: 2000 },
+  );
+  expect(waiting).toHaveTextContent('1 message waiting');
+  // The stopped notice points at the waiting message instead of offering a
+  // Send again the server would refuse.
+  expect(screen.queryByRole('button', { name: 'Send again' })).toBeNull();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent(
+    'A message is waiting to be sent. Send it now, or discard it first.',
+  );
+  // Refused before anything ran: no claim blocks the composer, no pending
+  // "awaiting confirmation" bubble, no check button.
+  expect(commandReceipts.read(key)).toBeNull();
+  expect(
+    screen.queryByRole('article', {
+      name: 'You message awaiting confirmation',
+    }),
+  ).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Check message' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  await act(async () => {
+    fireEvent.click(within(alert).getByRole('button', { name: 'Send now' }));
+  });
+  expect(mock.intent).toHaveBeenLastCalledWith(
+    'conversation-a',
+    'conversation.queue.dispatch',
+    { submission_id: 'submission-waiting', expected_queue_revision: '2' },
+    '7',
+  );
+});
+
+it('drops a claim whose check reads a refusal instead of looping on Check (B107)', async () => {
+  const key = idleConversation(),
+    saved = { commandId: crypto.randomUUID(), steeringId: crypto.randomUUID() };
+  commandReceipts.reserve(key, saved);
+  mock.receipt.mockResolvedValue({
+    command_id: saved.commandId,
+    conversation_id: 'conversation-a',
+    status: 'rejected',
+    code: 'generation_active',
+  });
+  await act(async () => {
+    conversation();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Check message' }));
+  });
+  expect(mock.receipt).toHaveBeenCalledWith(saved.commandId);
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(commandReceipts.read(key)).toBeNull();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Row-Bot is still answering. Wait for it to finish, or stop it first.',
+  );
+  expect(screen.queryByRole('button', { name: 'Check message' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Stop checking' })).toBeNull();
+});
+
 function interruptedConversation() {
   idleConversation();
   mock.state.projection = {
@@ -742,12 +1069,91 @@ function interruptedConversation() {
   );
 }
 
-it('shows welcome examples without a request and sends one with a single click while preserving the draft', async () => {
+it('offers interrupted recovery in the transcript with a cause and next steps, at any width', async () => {
+  interruptedConversation();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        if (target.classList.contains('composer'))
+          this.callback(
+            [{ contentRect: { width: 480 } } as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+      }
+      disconnect() {}
+    },
+  );
+  mock.intent.mockImplementation(
+    async (_id, _type, _payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent('The response was interrupted');
+  expect(
+    within(log).getByRole('button', { name: 'Switch model' }),
+  ).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Message actions' })).toBeNull();
+  await userEvent
+    .setup()
+    .click(within(log).getByRole('button', { name: 'Resume' }));
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.resume');
+});
+
+it('says when a stop left the last message unanswered and offers to send it again', async () => {
   idleConversation();
-  mock.drafts.set('conversation-a', {
-    text: 'An unfinished private draft',
-    attachments: [],
-  });
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'user:guidance',
+        message_id: 'guidance',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'Keep it under five paragraphs.' }],
+      },
+    ],
+    generation: {
+      generation_id: 'stopped-run',
+      quiesced: true,
+      can_stop: false,
+      status: 'stopped',
+    },
+  } as unknown as Snapshot;
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  expect(log).toHaveTextContent('Stopped before a reply');
+  expect(within(log).getByRole('button', { name: 'Send again' })).toBeVisible();
+});
+
+it('waits for a model change that is still saving, then sends with it (B109)', async () => {
+  idleConversation();
+  const other = { provider_id: 'fixture', model_ref: 'fixture/other' };
+  let saved!: () => void;
+  mock.controlsSettled.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        saved = () => {
+          // What the save wrote back: the new model and a newer revision.
+          mock.state.conversation = {
+            ...mock.state.conversation!,
+            revision: '2',
+          };
+          mock.state.workspace = {
+            ...mock.state.workspace!,
+            revision: '2',
+            controls: {
+              ...mock.state.workspace!.controls,
+              model_selection: other,
+            },
+          } as ConversationWorkspace;
+          resolve();
+        };
+      }),
+  );
   mock.intent.mockImplementation(
     async (_conversation, _type, payload, _revision, commandId) => ({
       command_id: commandId,
@@ -756,6 +1162,85 @@ it('shows welcome examples without a request and sends one with a single click w
       status: 'accepted',
     }),
   );
+  await act(async () => conversation());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+  expect(mock.intent).not.toHaveBeenCalled();
+  await act(async () => saved());
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({
+      text: 'Original queued draft',
+      model_selection: other,
+    }),
+    '2',
+    expect.any(String),
+  );
+});
+
+it('sends the files again with Send again, not their names as text (B136)', async () => {
+  idleConversation();
+  mock.download.mockResolvedValue(new Blob(['notes'], { type: 'text/plain' }));
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:attachment');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  mock.state.projection = {
+    rows: [
+      {
+        id: 'user:with-file',
+        message_id: 'with-file',
+        role: 'user',
+        blocks: [
+          { type: 'text', text: 'Summarise this file' },
+          {
+            id: 'attachment:one',
+            type: 'attachment',
+            attachment_ref: 'conversation-a:attachment-one',
+            name: 'notes.txt',
+            mime_type: 'application/octet-stream',
+            size_bytes: 12,
+            revision: 'rev-1',
+          },
+        ],
+      },
+    ],
+    generation: {
+      generation_id: 'stopped-run',
+      quiesced: true,
+      can_stop: false,
+      status: 'stopped',
+    },
+  } as unknown as Snapshot;
+  mock.intent.mockImplementation(
+    async (_conversation, _type, payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'conversation-a',
+      submission_id: payload.submission_id,
+      status: 'accepted',
+    }),
+  );
+  await act(async () => conversation());
+  const log = screen.getByRole('log', { name: 'Conversation' });
+  await act(async () => {
+    fireEvent.click(within(log).getByRole('button', { name: 'Send again' }));
+  });
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.objectContaining({
+      text: 'Summarise this file',
+      attachment_refs: ['conversation-a:attachment-one'],
+    }),
+    '1',
+    expect.any(String),
+  );
+});
+
+it('shows welcome examples without a request and fills the composer with one instead of sending (U17)', async () => {
+  idleConversation();
+  mock.drafts.set('conversation-a', { text: '', attachments: [] });
   await act(async () => conversation());
   expect(mock.intent).not.toHaveBeenCalled();
   await act(async () => {
@@ -766,16 +1251,9 @@ it('shows welcome examples without a request and sends one with a single click w
     );
   });
   expect(mock.open).not.toHaveBeenCalled();
-  expect(mock.intent).toHaveBeenCalledTimes(1);
-  expect(mock.intent.mock.calls[0][0]).toBe('conversation-a');
-  expect(mock.intent.mock.calls[0][1]).toBe('conversation.submit');
-  expect(mock.intent.mock.calls[0][2]).toMatchObject({
-    text: 'Create a disabled workflow for a weekly research briefing',
-    attachment_refs: [],
-    write_targets: [],
-  });
+  expect(mock.intent).not.toHaveBeenCalled();
   expect(mock.drafts.get('conversation-a')?.text).toBe(
-    'An unfinished private draft',
+    'Create a disabled workflow for a weekly research briefing',
   );
 });
 
@@ -820,6 +1298,33 @@ it('creates a conversation and submits a Home example through one user action', 
     write_targets: [],
   });
   expect(mock.drafts.get('first-chat')?.text).toBe('');
+});
+
+it('starts a chat with a draft that waits in the composer and is never sent', async () => {
+  idleConversation();
+  mock.state.selectedConversationId = null;
+  mock.state.conversation = null;
+  mock.state.workspace!.conversation_id = 'first-chat';
+  mock.intent.mockImplementation(
+    async (_target, _type, _payload, _revision, commandId) => ({
+      command_id: commandId,
+      conversation_id: 'first-chat',
+      status: 'completed',
+    }),
+  );
+  let rendered!: ReturnType<typeof conversation>;
+  await act(async () => {
+    rendered = conversation();
+  });
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'New chat with a draft' }),
+    ),
+  );
+  await act(async () => rendered.rerender(<Conversation onPanel={vi.fn()} />));
+  expect(mock.intent).toHaveBeenCalledTimes(1);
+  expect(mock.intent.mock.calls[0][1]).toBe('conversation.create');
+  expect(mock.drafts.get('first-chat')?.text).toBe('Create a design: ');
 });
 
 it('keeps a Home example as a local draft until a model becomes ready', async () => {
@@ -929,7 +1434,7 @@ it('names the composer and explains why sending is unavailable', async () => {
   });
   await act(async () => conversation());
   const composer = screen.getByRole('form', { name: 'Message composer' });
-  const reason = screen.getByText(/choose a configured model to send/i);
+  const reason = screen.getByText(/choose a model to send/i);
   expect(composer).toContainElement(reason);
   expect(
     screen.getByRole('textbox', { name: 'Message' }),
@@ -958,12 +1463,16 @@ it('changes the model through the compact composer menu and preserves the curren
   await act(async () => conversation());
   expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull();
   await act(async () =>
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Model' }), {
-      key: 'Enter',
-    }),
+    fireEvent.click(screen.getByRole('button', { name: 'Model' })),
   );
+  const picker = screen.getByRole('dialog', { name: 'Choose a model' });
+  expect(
+    within(picker).getByRole('combobox', { name: 'Search models' }),
+  ).toHaveFocus();
   await act(async () =>
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Chosen model' })),
+    fireEvent.click(
+      within(picker).getByRole('option', { name: 'Chosen model' }),
+    ),
   );
   expect(mock.intent).toHaveBeenCalledWith(
     'conversation-a',
@@ -995,8 +1504,10 @@ it('shows a failed compact approval save in the conversation without changing it
   expect(mock.intent.mock.calls[0][2].approval_mode).toBe('block');
   expect(screen.getByRole('alert')).toHaveTextContent(/review|changed|retry/i);
   expect(mock.drafts.get('conversation-a')?.text).toBe('Keep my draft');
-  expect(screen.getByRole('button', { name: 'Approvals' })).toHaveTextContent(
-    'Ask',
+  // The shield's glyph shows the mode; its description names it.
+  expect(screen.getByRole('button', { name: 'Approvals' })).toHaveAttribute(
+    'aria-description',
+    'Approvals: Ask',
   );
 });
 
@@ -1041,9 +1552,7 @@ it('reserves Resume before dispatch and recovers a lost accepted response after 
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check resume receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check Resume' }));
   });
   expect(mock.receipt).toHaveBeenCalledWith(saved.commandId);
   expect(mock.intent).toHaveBeenCalledTimes(1);
@@ -1070,7 +1579,7 @@ it.each(['throw', 'discard'] as const)(
     expect(mock.intent).not.toHaveBeenCalled();
     expect(mock.setDraft).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Receipt storage is unavailable',
+      "This browser can't store what Row-Bot needs",
     );
   },
 );
@@ -1084,15 +1593,11 @@ it('retains a missing Resume receipt until explicit review without replaying it'
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check resume receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check Resume' }));
   });
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
   });
@@ -1139,7 +1644,7 @@ it('coalesces Resume clicks and fences its late success after A to B to C naviga
   expect(mock.showLatest).not.toHaveBeenCalled();
   expect(mock.navigate).not.toHaveBeenCalled();
   expect(
-    screen.queryByRole('button', { name: 'Check resume receipt' }),
+    screen.queryByRole('button', { name: 'Check Resume' }),
   ).not.toBeInTheDocument();
   expect(mock.drafts.get('conversation-c')?.text).toBe('C draft');
 });
@@ -1159,9 +1664,7 @@ it('keeps pending Resume on a foreign receipt and blocks Queue while unresolved'
   });
   expect(screen.getByRole('button', { name: 'Queue message' })).toBeDisabled();
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check resume receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check Resume' }));
   });
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
@@ -1219,9 +1722,7 @@ it('persists ordinary submit identity before dispatch and recovers a lost respon
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check request receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check message' }));
   });
   expect(mock.receipt).toHaveBeenCalledWith(saved.commandId);
   expect(mock.intent).toHaveBeenCalledTimes(1);
@@ -1295,7 +1796,7 @@ it('does not submit when its persisted recovery identity write fails', async () 
   expect(mock.intent).not.toHaveBeenCalled();
   expect(mock.setDraft).not.toHaveBeenCalled();
   expect(screen.getByRole('alert')).toHaveTextContent(
-    'Receipt storage is unavailable',
+    "This browser can't store what Row-Bot needs",
   );
 });
 
@@ -1335,7 +1836,7 @@ it('fences a late submit result and protects B draft after switching away from A
   expect(mock.showLatest).not.toHaveBeenCalled();
   expect(mock.drafts.get('conversation-b')?.text).toBe('B draft');
   expect(
-    screen.queryByRole('button', { name: 'Check request receipt' }),
+    screen.queryByRole('button', { name: 'Check message' }),
   ).not.toBeInTheDocument();
 });
 
@@ -1348,16 +1849,12 @@ it('keeps an absent ordinary submit receipt until explicit review without resend
     conversation();
   });
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Check request receipt' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check message' }));
   });
   expect(commandReceipts.read(key)).toEqual(saved);
   expect(mock.intent).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
   });
@@ -1380,7 +1877,7 @@ it.each(['throw', 'discard'] as const)(
     });
     expect(mock.intent).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Receipt storage is unavailable',
+      "This browser can't store what Row-Bot needs",
     );
     expect(screen.getByRole('alert')).not.toHaveTextContent(
       'Private storage detail',
@@ -1407,12 +1904,8 @@ it('checks an absent New chat receipt without replay and requires explicit revie
       `row-bot.new-chat.${mock.state.handshake.instance_id}`,
     ),
   ).toBe(identity);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
-  expect(mock.open.mock.calls.at(-1)?.[0].confirmLabel).toBe(
-    'Clear pending receipt',
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
+  expect(mock.open.mock.calls.at(-1)?.[0].confirmLabel).toBe('Stop checking');
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
   });
@@ -1434,7 +1927,7 @@ it('fails closed before queue dispatch if its recovery identity cannot be saved'
   expect(mock.intent).not.toHaveBeenCalled();
   expect(mock.setDraft).not.toHaveBeenCalled();
   expect(screen.getByRole('alert')).toHaveTextContent(
-    'Receipt storage is unavailable',
+    "This browser can't store what Row-Bot needs",
   );
 });
 
@@ -1504,7 +1997,7 @@ it('retains the exact pending identity when a queue receipt belongs to another c
   });
   await act(async () => {
     fireEvent.click(
-      screen.getByRole('button', { name: 'Check queued message' }),
+      screen.getByRole('button', { name: 'Check waiting message' }),
     );
   });
   expect(commandReceipts.read(key)).toEqual(saved);
@@ -1548,7 +2041,7 @@ it('checks the exact lost queue receipt after remount and run completion, preser
   });
   await act(async () => {
     fireEvent.click(
-      screen.getByRole('button', { name: 'Check queued message' }),
+      screen.getByRole('button', { name: 'Check waiting message' }),
     );
   });
   expect(mock.intent).toHaveBeenCalledTimes(1);
@@ -1600,7 +2093,7 @@ it('fences A queue completion after switching through B to C and preserves edits
   );
   expect(mock.drafts.get('conversation-c')?.text).toBe('C draft');
   expect(
-    screen.queryByRole('button', { name: 'Check queued message' }),
+    screen.queryByRole('button', { name: 'Check waiting message' }),
   ).not.toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
@@ -1615,16 +2108,14 @@ it('retains an absent queue receipt until an explicit review, without creating a
   });
   await act(async () => {
     fireEvent.click(
-      screen.getByRole('button', { name: 'Check queued message' }),
+      screen.getByRole('button', { name: 'Check waiting message' }),
     );
   });
   expect(mock.intent).not.toHaveBeenCalled();
   expect(commandReceipts.read(key)).toEqual(saved);
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Check pending receipt' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Stop checking' }));
   expect(mock.open.mock.calls.at(-1)?.[0].description).toContain(
-    'sending again could create a duplicate',
+    'sending it again could make it appear twice',
   );
   await act(async () => {
     mock.open.mock.calls.at(-1)?.[0].onConfirm();
@@ -1909,4 +2400,727 @@ it('fences a search hit when A history resolves after selection has moved throug
   expect(mock.navigate).not.toHaveBeenCalled();
   expect(mock.close).not.toHaveBeenCalled();
   expect(mock.state.selectedConversationId).toBe('conversation-c');
+});
+
+it('renders a folded create_chart result with its parent message (B4)', async () => {
+  activeConversation();
+  mock.state.projection = {
+    ...mock.state.projection!,
+    rows: [
+      {
+        id: 'assistant:checkpoint:a',
+        message_id: 'a',
+        role: 'assistant',
+        blocks: [{ type: 'text', text: 'Charting the numbers now.' }],
+        tool_call_ids: ['call-chart'],
+      },
+      {
+        id: 'tool:checkpoint:b',
+        message_id: 'b',
+        role: 'tool',
+        tool_call_id: 'call-chart',
+        trace_parent_id: 'assistant:checkpoint:a',
+        blocks: [
+          {
+            id: 'block:chart',
+            type: 'chart',
+            figure_json: '{"data":[],"layout":{}}',
+            text: 'Sample revenue vs costs',
+          },
+        ],
+      },
+    ],
+  } as unknown as Snapshot;
+  await act(async () => {
+    conversation();
+  });
+  const message = screen.getByRole('article', { name: 'Row-Bot message' });
+  expect(
+    within(message).getByText('Sample revenue vs costs', {
+      selector: 'figcaption',
+    }),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole('article', { name: 'Tool result message' }),
+  ).toBeNull();
+});
+
+it('floats Context below 740px and docks it again only from 780px', () => {
+  expect(isNarrowChat(718, false)).toBe(true);
+  expect(isNarrowChat(760, false)).toBe(false);
+  // Hysteresis: a floating chat stays floating until it is clearly wide.
+  expect(isNarrowChat(760, true)).toBe(true);
+  expect(isNarrowChat(780, true)).toBe(false);
+});
+
+it('says so when an attached image cannot be seen and offers a vision model (decision 11)', async () => {
+  idleConversation();
+  mock.state.workspace!.model_status = {
+    state: 'ready',
+    local: false,
+    sees_images: false,
+  };
+  mock.drafts.set('conversation-a', {
+    text: 'What is in this picture?',
+    attachments: [
+      {
+        attachment_ref: 'attachment-photo',
+        name: 'photo.png',
+        mime_type: 'image/png',
+        size_bytes: 1024,
+        revision: '1',
+      },
+    ],
+  } as never);
+  await act(async () => conversation());
+  expect(screen.getByText(/can't see images\./)).toBeVisible();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Choose a vision model' }),
+  );
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/models#vision');
+});
+
+it('offers the fix that matches why the model cannot answer', async () => {
+  idleConversation();
+  mock.state.workspace!.actions = [{ action: 'send', ready: false }];
+  mock.state.workspace!.model_status = {
+    state: 'unavailable',
+    reason: "Ollama isn't running",
+    fix: 'reconnect',
+    local: true,
+  };
+  await act(async () => conversation());
+  expect(
+    screen.getByText(/The model is unavailable: Ollama isn't running\./),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/providers');
+});
+
+function uploaded(file: File) {
+  return {
+    attachment_ref: `conversation-a:${file.name}`,
+    name: file.name,
+    mime_type: file.type,
+    size_bytes: file.size,
+    revision: '1',
+  };
+}
+
+it('attaches a pasted screenshot with a readable name (parity row 1)', async () => {
+  idleConversation();
+  mock.upload.mockImplementation(async (_id: string, file: File) =>
+    uploaded(file),
+  );
+  conversation();
+  const composer = screen.getByRole('textbox', { name: 'Message' });
+  const shot = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', {
+    type: 'image/png',
+  });
+  await act(async () => {
+    fireEvent.paste(composer, {
+      clipboardData: { files: [shot], getData: () => '' },
+    });
+  });
+  expect(mock.upload).toHaveBeenCalledOnce();
+  const sent = mock.upload.mock.calls[0][1] as File;
+  expect(sent.name).toMatch(/^Pasted image \d{4}-\d{2}-\d{2} [\d.]+\.png$/);
+  expect(mock.drafts.get('conversation-a')?.attachments).toHaveLength(1);
+});
+
+it('attaches several dropped files and names the one over the limit (U18)', async () => {
+  idleConversation();
+  mock.upload.mockImplementation(async (_id: string, file: File) =>
+    uploaded(file),
+  );
+  const { container } = conversation();
+  const field = container.querySelector('.composer-field')!;
+  const small = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+  const other = new File(['more'], 'more.txt', { type: 'text/plain' });
+  const huge = new File(['x'], 'film.mov', { type: 'video/quicktime' });
+  Object.defineProperty(huge, 'size', { value: 40 * 1024 * 1024 });
+  const dataTransfer = { types: ['Files'], files: [small, other, huge] };
+  fireEvent.dragEnter(field, { dataTransfer });
+  expect(field).toHaveAttribute('data-dragging', 'true');
+  expect(container.querySelector('.composer-drop')).toHaveTextContent(
+    'Drop to attach · up to 25 MB each',
+  );
+  await act(async () => {
+    fireEvent.drop(field, { dataTransfer });
+  });
+  expect(field).not.toHaveAttribute('data-dragging');
+  expect(mock.upload.mock.calls.map((call) => (call[1] as File).name)).toEqual([
+    'notes.txt',
+    'more.txt',
+  ]);
+  expect(
+    screen.getByText(/“film.mov” is 40 MB; files can be up to 25 MB./),
+  ).toBeVisible();
+});
+
+it('shows each dropped file uploading on its own tile, a failure there, and Retry (B232)', async () => {
+  idleConversation();
+  let report!: (sent: number) => void;
+  let finish!: (value: ReturnType<typeof uploaded>) => void;
+  const notes = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+  const draft = new File(['draft'], 'draft.txt', { type: 'text/plain' });
+  mock.upload
+    .mockImplementationOnce(
+      (_id: string, _file: File, _signal: AbortSignal, progress) => {
+        report = progress;
+        return new Promise((resolve) => (finish = resolve));
+      },
+    )
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockImplementationOnce(async (_id: string, file: File) => uploaded(file));
+  const { container } = conversation();
+  await act(async () => {
+    fireEvent.drop(container.querySelector('.composer-field')!, {
+      dataTransfer: { types: ['Files'], files: [notes, draft] },
+    });
+  });
+  const list = screen.getByRole('list', { name: 'Attachments' });
+  act(() => report(3));
+  expect(
+    within(list).getByRole('progressbar', { name: 'Uploading notes.txt' }),
+  ).toHaveAttribute('aria-valuenow', '60');
+  await act(async () => finish(uploaded(notes)));
+  expect(await within(list).findByRole('alert')).toHaveTextContent(
+    /^Couldn’t upload draft\.txt\./,
+  );
+  expect(
+    within(list).getByRole('button', { name: 'Preview notes.txt' }),
+  ).toBeVisible();
+  expect(mock.drafts.get('conversation-a')?.attachments).toMatchObject([
+    { name: 'notes.txt' },
+  ]);
+  const retry = within(list).getByRole('button', { name: 'Retry draft.txt' });
+  await waitFor(() => expect(retry).toBeEnabled());
+  await act(async () => {
+    fireEvent.click(retry);
+  });
+  await waitFor(() =>
+    expect(mock.drafts.get('conversation-a')?.attachments).toMatchObject([
+      { name: 'notes.txt' },
+      { name: 'draft.txt' },
+    ]),
+  );
+  expect(within(list).queryByRole('alert')).toBeNull();
+});
+
+it('cancels an upload when its tile is removed (B232)', async () => {
+  idleConversation();
+  let signal!: AbortSignal;
+  mock.upload.mockImplementationOnce(
+    (_id: string, _file: File, current: AbortSignal) => {
+      signal = current;
+      return new Promise((_resolve, reject) =>
+        current.addEventListener('abort', () =>
+          reject(new DOMException('Cancelled', 'AbortError')),
+        ),
+      );
+    },
+  );
+  const { container } = conversation();
+  const notes = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+  await act(async () => {
+    fireEvent.drop(container.querySelector('.composer-field')!, {
+      dataTransfer: { types: ['Files'], files: [notes] },
+    });
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Remove notes.txt' }));
+  });
+  expect(signal.aborted).toBe(true);
+  expect(screen.queryByRole('list', { name: 'Attachments' })).toBeNull();
+  expect(mock.drafts.get('conversation-a')?.attachments ?? []).toEqual([]);
+});
+
+function slashCommands() {
+  const command = (id: string, label: string) => ({
+    id,
+    token: `/${id}`,
+    aliases: [],
+    label,
+    description: label,
+    icon: 'flag',
+    category: 'Chat',
+    argument_mode: 'prefix',
+    argument_hint: '',
+    handler_kind: id,
+    skill_id: null,
+  });
+  return [
+    command('goal', 'Goal'),
+    command('reasoning', 'Reasoning'),
+    command('profile', 'Agent Profile'),
+    command('agent', 'Start Agent'),
+  ];
+}
+
+function withCommands() {
+  idleConversation();
+  const composer = {
+    conversation_id: 'conversation-a',
+    composer_revision: 'composer-1',
+    library: { availability: 'available', revision: 'library-1' },
+    active_skills: [],
+    suggestions: [],
+    commands: slashCommands(),
+  };
+  Object.assign(mock.state.workspace!, {
+    composer,
+    profiles: [{ id: 'writer-profile', label: 'Writer' }],
+    reasoning: {
+      model_ref: 'fixture/model',
+      capability_revision: 'caps-1',
+      available: true,
+      selection: { kind: 'provider_default' },
+      choices: [
+        { selection: { kind: 'effort', effort: 'low' }, label: 'Low' },
+        { selection: { kind: 'effort', effort: 'high' }, label: 'High' },
+      ],
+      supports_budget: false,
+      budget_min: 0,
+      budget_max: 0,
+    },
+  });
+  mock.composer.mockResolvedValue(composer);
+  mock.intent.mockResolvedValue({ status: 'completed' });
+}
+
+async function sendText(text: string) {
+  mock.drafts.set('conversation-a', { text, attachments: [] });
+  conversation();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  });
+}
+
+it('sets the thinking level from /reasoning high instead of sending it (B112)', async () => {
+  withCommands();
+  await sendText('/reasoning high');
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.controls',
+    expect.objectContaining({
+      reasoning: {
+        model_ref: 'fixture/model',
+        capability_revision: 'caps-1',
+        selection: { kind: 'effort', effort: 'high' },
+      },
+    }),
+    '1',
+  );
+  expect(mock.intent).not.toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.submit',
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+  );
+  expect(mock.drafts.get('conversation-a')?.text).toBe('');
+});
+
+it('says which levels exist when /reasoning names none, and keeps the text', async () => {
+  withCommands();
+  await sendText('/reasoning turbo');
+  expect(mock.intent).not.toHaveBeenCalled();
+  expect(
+    screen.getByText(/isn't a thinking level for this model. Try Low, High./),
+  ).toBeVisible();
+  expect(mock.drafts.get('conversation-a')?.text).toBe('/reasoning turbo');
+});
+
+it('switches the profile with /profile', async () => {
+  withCommands();
+  await sendText('/profile writer');
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.controls',
+    expect.objectContaining({ profile_id: 'writer-profile' }),
+    '1',
+  );
+});
+
+it('starts a delegated agent with /agent and its task', async () => {
+  withCommands();
+  await sendText('/agent Summarise tide tables');
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'agent.start',
+    { text: 'Summarise tide tables' },
+    '1',
+  );
+});
+
+it('starts a goal at once with /goal and no turn limit unless Agent runtime sets one (B243)', async () => {
+  withCommands();
+  mock.goals.mockResolvedValue({
+    conversation_id: 'conversation-a',
+    current_goal_id: null,
+    current_revision: 'none',
+    default_max_turns: 0,
+    items: [],
+  });
+  mock.reviewGoal.mockImplementation(async (_id: string, payload) => ({
+    ...payload,
+    review_id: 'review-1',
+  }));
+  mock.executeGoal.mockResolvedValue({ status: 'completed' });
+  await sendText('/goal Draft three posts about tides');
+  expect(mock.reviewGoal).toHaveBeenCalledWith(
+    'conversation-a',
+    expect.objectContaining({
+      operation: 'start',
+      objective: 'Draft three posts about tides',
+      max_turns: null,
+    }),
+  );
+  expect(mock.executeGoal.mock.calls[0][1]).toMatchObject({
+    type: 'goal.control',
+    payload: { operation: 'start', review_id: 'review-1' },
+  });
+  expect(mock.drafts.get('conversation-a')?.text).toBe('');
+});
+
+it('removes a default skill from this chat with Undo in the notice (B236)', async () => {
+  withCommands();
+  const skill = {
+    id: 'proactive_agent',
+    display_name: 'Proactive Agent',
+    icon: '✨',
+    description: 'Plans ahead.',
+    library_source: 'bundled',
+    source: 'default',
+    removable: true,
+  };
+  const before = {
+    ...mock.state.workspace!.composer!,
+    active_skills: [skill],
+  };
+  const after = {
+    ...before,
+    composer_revision: 'composer-2',
+    active_skills: [],
+  };
+  mock.state.workspace!.composer = before as never;
+  mock.composer.mockResolvedValue(before);
+  mock.intent.mockImplementation(
+    async (_id, _type, _payload, _revision, commandId: string) => {
+      mock.composer.mockResolvedValue(after);
+      return { status: 'completed', command_id: commandId };
+    },
+  );
+  conversation();
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove Proactive Agent from this chat',
+      }),
+    ),
+  );
+  expect(mock.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.skills',
+    expect.objectContaining({
+      action: 'remove',
+      composer_revision: 'composer-1',
+      skill_id: 'proactive_agent',
+    }),
+    '1',
+    expect.any(String),
+  );
+  expect(mock.notify).toHaveBeenCalledWith(
+    'Removed from this chat.',
+    undefined,
+    expect.objectContaining({ label: 'Undo' }),
+  );
+  // Undo brings the skill back against the chat's fresh composer revision.
+  const undo = mock.notify.mock.calls.at(-1)![2] as { onAction(): void };
+  await act(async () => undo.onAction());
+  expect(mock.intent).toHaveBeenLastCalledWith(
+    'conversation-a',
+    'conversation.skills',
+    expect.objectContaining({
+      action: 'activate',
+      composer_revision: 'composer-2',
+      skill_id: 'proactive_agent',
+    }),
+    '1',
+    expect.any(String),
+  );
+});
+
+function HostedConversation() {
+  const { host, parking } = useContextHostOwner();
+  return (
+    <ContextHostContext.Provider value={host}>
+      <ConversationView onPanel={vi.fn()} />
+      <div ref={parking} hidden />
+    </ContextHostContext.Provider>
+  );
+}
+
+it('pins Conversation details open in a wide chat, beside the column, until its toggle hides it (B221)', async () => {
+  idleConversation();
+  localStorage.removeItem('row-bot.context-hidden.v1');
+  await act(async () => {
+    render(<HostedConversation />);
+  });
+  const workspace = document.querySelector('.chat-workspace')!;
+  const details = screen.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  // It floats pinned open (no column of its own) and the column moves aside.
+  expect(details.closest('.context-card')).toHaveClass('context-card-pinned');
+  expect(workspace).toHaveClass('details-wide', 'details-open');
+  const toggle = screen.getByRole('button', { name: 'Conversation details' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(toggle);
+  expect(workspace).toHaveClass('details-wide');
+  expect(workspace).not.toHaveClass('details-open');
+  expect(details).not.toBeVisible();
+  expect(localStorage.getItem('row-bot.context-hidden.v1')).toBe('1');
+  fireEvent.click(toggle);
+  expect(workspace).toHaveClass('details-open');
+  expect(details).toBeVisible();
+  expect(localStorage.getItem('row-bot.context-hidden.v1')).toBeNull();
+});
+
+const row = (
+  id: string,
+  role: 'user' | 'assistant',
+  text: string,
+  extra: Partial<TranscriptRow> = {},
+) =>
+  ({
+    id,
+    message_id: id,
+    role,
+    blocks: [{ type: 'text', text }],
+    ...extra,
+  }) as unknown as TranscriptRow;
+
+function settledRows(rows: TranscriptRow[]) {
+  mock.state.projection = {
+    rows,
+    generation: {
+      generation_id: 'run-a',
+      quiesced: true,
+      can_stop: false,
+      status: 'completed',
+    },
+  } as unknown as Snapshot;
+}
+
+const avatarOf = (seed: string) =>
+  render(<AgentAvatar seed={seed} />)
+    .container.querySelector('.agent-avatar')!
+    .getAttribute('data-avatar');
+
+it('marks each turn’s start with its speaker, never a follow-up (B271)', async () => {
+  idleConversation();
+  settledRows([
+    row('u1', 'user', 'Plan the launch.'),
+    row('a1', 'assistant', 'Here is a plan.'),
+    row('a2', 'assistant', 'And a timeline.'),
+    row('u2', 'user', 'Thanks.'),
+    row('a3', 'assistant', 'Glad to help.'),
+  ]);
+  await act(async () => {
+    conversation();
+  });
+  const marked = screen
+    .getAllByRole('article')
+    .map((article) => [
+      article.getAttribute('data-row-id'),
+      article.querySelector('.turn-marker-user')
+        ? 'you'
+        : article.querySelector('.turn-marker-buddy')
+          ? 'buddy'
+          : '',
+    ]);
+  expect(marked).toEqual([
+    ['u1', 'you'],
+    ['a1', 'buddy'],
+    ['a2', ''],
+    ['u2', 'you'],
+    ['a3', 'buddy'],
+  ]);
+});
+
+it('links an agent’s own conversation back to its parent and marks its replies with its icon (B242, B271)', async () => {
+  idleConversation();
+  mock.state.conversation = {
+    id: 'conversation-a',
+    title: 'Pricing scan',
+    revision: '1',
+    pinned: false,
+    parent_conversation_id: 'parent-a',
+  } as typeof mock.state.conversation;
+  settledRows([
+    row('u1', 'user', 'Also cover euros.'),
+    row('a1', 'assistant', 'Adding an EU column.'),
+  ]);
+  const own: DelegatedRun = {
+    run_id: 'run-own',
+    parent_conversation_id: 'parent-a',
+    child_conversation_id: 'conversation-a',
+    name: 'Pricing scan',
+    status: 'running',
+    summary: '',
+    profile_id: 'profile-7',
+  };
+  mock.delegatedPage.mockImplementation(async (conversationId: string) => ({
+    conversation_id: conversationId,
+    parent_conversation_id: 'parent-a',
+    parent_title: 'Q4 launch plan',
+    own_run: own,
+    items: [],
+    next_cursor: null,
+    has_more: false,
+  }));
+  await act(async () => {
+    conversation();
+  });
+  const back = await screen.findByRole('link', {
+    name: 'Back to Q4 launch plan',
+  });
+  expect(back).toHaveAttribute('href', '/app-v2/conversations/parent-a');
+  const reply = screen.getByRole('article', { name: 'Row-Bot message' });
+  const icon = reply.querySelector('.turn-marker .agent-avatar');
+  // The same icon as the card's "This agent" row and the breadcrumb.
+  expect(icon?.getAttribute('data-avatar')).toBe(
+    avatarOf(agentSeed('profile-7', 'run-own')),
+  );
+  expect(
+    document
+      .querySelector('header.conversation-heading .agent-avatar')
+      ?.getAttribute('data-avatar'),
+  ).toBe(icon?.getAttribute('data-avatar'));
+  // The person's own follow-up keeps the person marker.
+  expect(
+    screen
+      .getByRole('article', { name: 'You message' })
+      .querySelector('.turn-marker-user'),
+  ).not.toBeNull();
+});
+
+it('shows the agents a turn started as stubs that update in place and open each agent (B241)', async () => {
+  idleConversation();
+  const started = {
+    group_id: 'group-agents',
+    name: 'delegate_work',
+    kind: 'generic',
+    group_order: 0,
+    status: 'succeeded',
+    counts: { succeeded: 2 },
+    items: ['run-1', 'run-2'].map((runId, index) => ({
+      item_id: `call-${index}`,
+      group_id: 'group-agents',
+      call_id: `call-${index}`,
+      result_message_id: `result-${index}`,
+      call_order: index,
+      group_order: 0,
+      canonical_name: 'delegate_work',
+      group_name: 'delegate_work',
+      group_kind: 'generic',
+      status: 'succeeded',
+      safe_input: '',
+      safe_summary: '',
+      summary_truncated: false,
+      content_ref: '',
+      specialization: {
+        kind: 'delegated_agent',
+        agent_runs: [
+          {
+            run_id: runId,
+            display_name: index ? 'Launch email' : 'Pricing scan',
+            status: 'queued',
+            profile_id: index ? '' : 'profile-7',
+          },
+        ],
+      },
+    })),
+  } as unknown as NonNullable<TranscriptRow['traces']>[number];
+  settledRows([
+    row('u1', 'user', 'Get the launch moving.'),
+    row('a1', 'assistant', 'I started two agents.', { traces: [started] }),
+  ]);
+  const feed = (pricing: string, email: string): DelegatedActivityView => ({
+    conversation_id: 'conversation-a',
+    parent_conversation_id: null,
+    items: [
+      {
+        run_id: 'run-1',
+        parent_conversation_id: 'conversation-a',
+        child_conversation_id: 'child-1',
+        name: 'Pricing scan',
+        status: pricing,
+        summary: '',
+        profile_id: 'profile-7',
+      },
+      {
+        run_id: 'run-2',
+        parent_conversation_id: 'conversation-a',
+        child_conversation_id: 'child-2',
+        name: 'Launch email',
+        status: email,
+        summary: 'The model could not be reached.',
+        profile_id: '',
+      },
+    ],
+    next_cursor: null,
+    has_more: false,
+  });
+  mock.delegatedPage.mockResolvedValue(feed('running', 'running'));
+  let view!: ReturnType<typeof conversation>;
+  await act(async () => {
+    view = conversation();
+  });
+  const stubs = screen.getByRole('list', { name: 'Agents started' });
+  expect(
+    await within(stubs).findByRole('button', { name: 'Pricing scan, Working' }),
+  ).toBeVisible();
+  expect(
+    within(stubs).getByRole('button', { name: 'Launch email, Working' }),
+  ).toBeVisible();
+  // One row for the agents started together, each with the panel's icon.
+  expect(
+    within(stubs)
+      .getByRole('button', { name: /^Pricing scan/ })
+      .querySelector('.agent-avatar')
+      ?.getAttribute('data-avatar'),
+  ).toBe(avatarOf(agentSeed('profile-7', 'run-1')));
+
+  // The feed moves on: the same stubs change in place.
+  mock.delegatedPage.mockResolvedValue(feed('completed', 'failed'));
+  mock.state.activity = [
+    {
+      event: {
+        type: 'agent.activity',
+        event_id: 'agent-event-1',
+        payload: { run_id: 'run-2', status: 'failed' },
+      },
+    },
+  ] as unknown as typeof mock.state.activity;
+  mock.version++;
+  await act(async () => {
+    view.rerender(<Conversation onPanel={vi.fn()} />);
+  });
+  expect(
+    await within(stubs).findByRole('button', { name: 'Pricing scan, Done' }),
+  ).toBeVisible();
+  const failed = within(stubs).getByRole('button', {
+    name: 'Launch email, Failed',
+  });
+  // A failed stub says why.
+  expect(failed).toHaveAttribute(
+    'aria-description',
+    'The model could not be reached.',
+  );
+  expect(within(stubs).getAllByRole('listitem')).toHaveLength(2);
+  await act(async () => fireEvent.click(failed));
+  expect(mock.selectConversation).toHaveBeenCalledWith('child-2');
 });

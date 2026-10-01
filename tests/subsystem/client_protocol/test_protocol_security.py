@@ -84,13 +84,14 @@ def test_query_revoked_during_store_wait_never_delivers_data():
 
 def test_choice_discovery_reads_metadata_without_plugin_construction_or_refresh(monkeypatch):
     from row_bot.api.v1.routes import cached_choices
-    from row_bot.providers import model_catalog_cache, selection
+    from row_bot.providers import client_status, model_catalog_cache
     from row_bot.tools import registry as tool_registry
     from row_bot.plugins import registry as plugin_registry, state
     from row_bot.mcp_client import runtime
     monkeypatch.setattr(model_catalog_cache, "read_model_catalog_cache", lambda: SimpleNamespace(is_stale=True))
-    monkeypatch.setattr(selection, "list_model_choice_options", lambda **kwargs: [{"provider_id": "fixture",
-        "value": "fixture::model", "label": "Fixture", "active": True, "api_key": "PRIVATE_SENTINEL"}])
+    monkeypatch.setattr(client_status, "picker_choices", lambda surface: [{"provider_id": "fixture",
+        "selection_ref": "fixture::model", "label": "Fixture", "available": True, "unavailable_reason": None,
+        "billing": None, "api_key": "PRIVATE_SENTINEL"}])
     tool = SimpleNamespace(name="fixture_tool", destructive_tool_names={"fixture_delete"},
                            as_langchain_tools=lambda: pytest.fail("Discovery constructed plugin tools"))
     monkeypatch.setattr(tool_registry, "get_all_tools", lambda: [])
@@ -451,6 +452,132 @@ def test_native_terminal_lease_is_session_bound_revocable_and_bounded(monkeypatc
         ).status_code == 403
 
 
+def test_typing_in_the_terminal_is_not_rate_limited_and_keeps_the_stop_reserve(monkeypatch):
+    """Keystrokes and the reads that echo them have their own budget (B248).
+
+    A person typing at ten keys a second, with the client reading output
+    after each key, is never refused, and Stop keeps its reserve.
+    """
+    from row_bot.terminal_bridge import TerminalBridge
+
+    typed = []
+
+    class TerminalClient:
+        def __init__(self, authority):
+            self.authority = authority
+
+        def read(self, cursor=0, _max_bytes=65536):
+            return {"cursor": cursor, "latest": cursor, "truncated": False,
+                    "frames": [], "status": "running"}
+
+        def input(self, data):
+            typed.append(data)
+
+        def disconnect(self):
+            pass
+
+    class Bridge:
+        is_running = True
+
+        def open_native_client(self, authority, *, authorize, local_owner, direct_loopback):
+            assert local_owner and direct_loopback and authorize(authority)
+            return TerminalClient(authority)
+
+    monkeypatch.setattr(TerminalBridge, "get_instance", classmethod(lambda _cls: Bridge()))
+    now = [10.0]
+    service = Service()
+    service.receipt = lambda *_: (_ for _ in ()).throw(ProtocolError("not_found", 404))
+    app = create_client_platform_app(
+        service, access_config=AccessConfig(deployment_mode=DeploymentMode.DESKTOP),
+        security=ClientSecurity("fixture", clock=lambda: now[0]),
+        choices=lambda: {"models": [], "capabilities": []})
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as client:
+        proof, headers = _native_proof(client)
+        terminal = client.post("/api/v1/native/terminal/open", headers={"Origin": "http://localhost"},
+                               json={**proof, "conversation_id": None}).json()["terminal_id"]
+        for key in "dir\r" * 30:
+            now[0] += 0.1
+            response = client.post(f"/api/v1/native/terminals/{terminal}/input",
+                                   headers=headers, json={"data": key})
+            assert response.status_code == 200, response.text
+            for _ in range(4):
+                response = client.get(f"/api/v1/native/terminals/{terminal}?cursor=0", headers=headers)
+                assert response.status_code == 200, response.text
+        assert "".join(typed) == "dir\r" * 30
+        identity = str(uuid4())
+        response = client.post(
+            "/api/v1/conversations/chat-1/commands", headers={**headers, "Idempotency-Key": identity},
+            json={"command_id": identity, "client_session_id": headers["X-Client-Session"],
+                  "type": "conversation.stop", "expected_revision": "0", "payload": {}})
+        assert response.status_code == 200, response.text
+        assert len(service.commands) == 1
+
+
+def _record_external_terminal(monkeypatch, outcome=None):
+    from row_bot.application import external_terminal
+
+    opened = []
+
+    def open_external_terminal(conversation_id, *, validate):
+        validate()
+        opened.append(conversation_id)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(external_terminal, "open_external_terminal", open_external_terminal)
+    return opened
+
+
+def test_native_external_terminal_needs_the_documents_live_grant(monkeypatch):
+    opened = _record_external_terminal(monkeypatch)
+    client, _, _ = client_app()
+    with client:
+        proof, headers = _native_proof(client)
+        route = "/api/v1/native/terminal/external"
+        local = {"Origin": "http://localhost"}
+        assert client.post(route, headers=local, json={**proof, "conversation_id": "conversation-1"}).json() == {
+            "ok": True}
+        assert client.post(route, headers=local, json={**proof, "conversation_id": None}).status_code == 200
+        assert opened == ["conversation-1", None]
+        # A page's session is not the document's grant, and paths are refused.
+        assert client.post(route, headers=headers, json={"conversation_id": None}).status_code == 422
+        assert client.post(route, headers=local, json={**proof, "conversation_id": "../x"}).status_code == 422
+        assert client.post(route, headers=local, json={**proof, "path": "C:\\Users"}).status_code == 422
+        assert client.post(route, headers=local, json={**proof, "window_id": "window-b"}).status_code == 403
+        assert client.post(route, headers={"Origin": "http://foreign.invalid"},
+                           json={**proof, "conversation_id": None}).status_code == 403
+        assert client.post("/api/v1/native/revoke", headers=local, json=proof).status_code == 200
+        revoked = client.post(route, headers=local, json={**proof, "conversation_id": None})
+        assert revoked.status_code == 403 and revoked.json()["code"] == "action_denied"
+    assert opened == ["conversation-1", None]
+
+
+def test_native_external_terminal_is_local_owner_only(monkeypatch):
+    opened = _record_external_terminal(monkeypatch)
+    client, _, _ = client_app(remote=True)
+    with client:
+        response = client.post("/api/v1/native/terminal/external", headers={"Origin": "http://localhost"}, json={
+            "session_id": str(uuid4()), "policy_revision": "a" * 64, "authority_grant": "g" * 43,
+            "instance_id": "fixture-instance", "window_id": "window-a", "window_epoch": 1,
+            "conversation_id": None})
+    assert response.status_code == 403
+    assert opened == []
+
+
+def test_native_external_terminal_reports_why_it_could_not_open(monkeypatch):
+    from row_bot.application.client_platform import ClientPlatformError
+
+    opened = _record_external_terminal(monkeypatch, ClientPlatformError("capability_unavailable"))
+    client, _, _ = client_app()
+    with client:
+        proof, _ = _native_proof(client)
+        response = client.post("/api/v1/native/terminal/external", headers={"Origin": "http://localhost"},
+                               json={**proof, "conversation_id": None})
+    assert response.status_code == 403
+    assert response.json()["code"] == "capability_unavailable"
+    assert opened == [None]
+
+
 def test_no_csrf_no_command_and_no_validation_input_leak():
     client, service, _ = client_app()
     with client:
@@ -544,7 +671,8 @@ def test_mutation_saturation_preserves_stop_reserve():
     security.rate(current, "control")
 
 
-@pytest.mark.parametrize("lane,capacity", [("view", 60), ("observation", 120), ("acknowledgement", 30)])
+@pytest.mark.parametrize("lane,capacity", [("view", 60), ("observation", 120), ("acknowledgement", 30),
+                                           ("terminal", 240)])
 def test_navigation_lanes_are_bounded_and_preserve_command_reserves(lane, capacity):
     security = ClientSecurity("fixture", clock=lambda: 10)
     current = security.handshake(context())

@@ -255,6 +255,34 @@ def test_unsafe_asset_content_rejected_before_any_file_publication(project, data
     assert storage.load_project(project.id).assets == []
 
 
+def test_fonts_say_where_they_come_from(project):
+    cached = fonts._CACHE_DIR / 'pt-sans'
+    cached.mkdir(parents=True)
+    (cached / 'pt-sans-400.woff2').write_bytes(b'wOF2')
+    kinds = {item.id: item.kind for item in client.read_controls(project.id, section='fonts', limit=50).items}
+    assert (kinds['Inter'], kinds['Pt Sans'], kinds['Georgia']) == ('bundled', 'cached', 'system')
+
+
+def test_image_thumbnails_are_small_and_read_only(project):
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new('RGB', (640, 320), 'red').save(buffer, format='JPEG')
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
+    current = upload(project, data=buffer.getvalue(), filename='photo.jpg')
+    current = upload(current, data=svg, filename='logo.svg')
+    current = upload(current, data=b'RIFF\x00\x00\x00\x00WAVEfmt ', filename='sound.wav')
+    photo, logo, sound = current.assets
+    before = storage.load_project(project.id).to_dict()
+    data, kind = client.read_asset_thumbnail(project.id, asset_id=photo.id)
+    with Image.open(io.BytesIO(data)) as image:
+        assert (kind, image.format, image.size) == ('image/png', 'PNG', (160, 80))
+    assert client.read_asset_thumbnail(project.id, asset_id=logo.id) == (svg, 'image/svg+xml')
+    for asset_id in (sound.id, 'asset-missing'):
+        with pytest.raises(ArtifactError, match='asset_unavailable'):
+            client.read_asset_thumbnail(project.id, asset_id=asset_id)
+    assert storage.load_project(project.id).to_dict() == before
+
+
 def test_safe_svg_preserves_original_bytes_without_fetching(project):
     data = b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#123456"/></svg>'
     updated = upload(project, data=data, filename='logo.svg')
@@ -539,7 +567,6 @@ def test_presentation_passive_read_has_bound_cursor_and_plain_notes(project, mon
 def test_review_draft_is_bound_to_current_finding_and_never_dispatches_or_saves(project, monkeypatch):
     project.pages[0].html = '<h2 style="font-size:12px">Small heading</h2><img src="row-bot-asset:missing">'
     storage.save_project(project)
-    monkeypatch.setattr(client.review, 'request_ai_fix', lambda *_a, **_k: pytest.fail('implicit dispatch'))
     monkeypatch.setattr(storage, 'save_project', lambda *_: pytest.fail('draft mutation'))
     finding = client.read_review(project.id).findings[0]
     text = client.draft_review_fix(project.id, expected_revision=project.updated_at, page_id=finding.page_id, finding_id=finding.id)
@@ -548,21 +575,6 @@ def test_review_draft_is_bound_to_current_finding_and_never_dispatches_or_saves(
         client.draft_review_fix(project.id, expected_revision='old', page_id=finding.page_id, finding_id=finding.id)
     with pytest.raises(ArtifactError, match='design_finding_unavailable'):
         client.draft_review_fix(project.id, expected_revision=project.updated_at, page_id=finding.page_id, finding_id='unknown')
-
-
-def test_retained_presentation_escapes_script_metadata_and_offline_mode_avoids_cdn(project, monkeypatch):
-    from row_bot.designer import presentation
-    project.pages[0].notes = '</script><script>unexpected()</script>'
-    project.brand.heading_font = 'Missing Font'
-    project.brand.body_font = 'Missing Font'
-    monkeypatch.setattr(fonts, 'get_font_css_embedded', lambda family, **_kw: fonts._strict_font_css(family))
-    with pytest.raises(fonts.FontReadError, match='font_unavailable'):
-        presentation._build_reveal_html(project, offline_fonts=True)
-    project.brand.heading_font = project.brand.body_font = 'Arial'
-    html = presentation._build_reveal_html(project, offline_fonts=True)
-    assert '\\u003c/script\\u003e' in html
-    assert '</script><script>unexpected()' not in html
-    assert 'fonts.googleapis.com' not in html
 
 
 def test_global_preset_leaf_replacement_is_retained_without_overwrite(project, monkeypatch):
@@ -599,3 +611,113 @@ def test_posix_global_preset_parent_swap_never_redirects_effect(project, monkeyp
         mutate_global(project, 'delete', preset_id=first['preset_id'])
     assert list(outside.iterdir()) == []
     assert (retained / 'Shared.json').read_bytes() == original
+
+
+def test_fix_all_safe_issues_applies_every_safe_fix_in_one_step(project):
+    from row_bot.designer.state import DesignerPage
+
+    project.pages[0].html = '<img src="row-bot-asset:missing"><img src="row-bot-asset:also-missing">'
+    project.pages.append(DesignerPage(title='Third', route_id='third',
+                                      html='<img src="row-bot-asset:third-missing">'))
+    storage.save_project(project)
+    first = client.read_review(project.id, scope='project')
+    safe = [item for item in first.findings if item.auto_fixable]
+    assert safe, 'the synthetic pages have safe findings'
+    fixed = apply(project, 'review_fix_all', {'scope': 'project'}, page_id=first.page_id)
+    assert fixed.pages[0].html.count('alt=""') == 2 and 'alt=""' in fixed.pages[-1].html
+    after = client.read_review(fixed.id, scope='project')
+    assert not [item for item in after.findings if item.auto_fixable]
+    # Nothing safe left: the same request changes nothing and says so.
+    with pytest.raises(ArtifactError, match='design_finding_unavailable'):
+        apply(fixed, 'review_fix_all', {'scope': 'project'}, page_id=first.page_id)
+
+
+def test_fix_all_on_this_page_leaves_other_pages_alone(project):
+    from row_bot.designer.state import DesignerPage
+
+    project.pages[0].html = '<img src="row-bot-asset:missing">'
+    project.pages.append(DesignerPage(title='Third', route_id='third',
+                                      html='<img src="row-bot-asset:third-missing">'))
+    storage.save_project(project)
+    page = client.read_review(project.id).page_id
+    fixed = apply(project, 'review_fix_all', {'scope': 'page'}, page_id=page)
+    assert 'alt=""' in fixed.pages[0].html and 'alt=""' not in fixed.pages[-1].html
+    for payload in ({}, {'scope': 'everything'}, {'scope': 'page', 'extra': 1}):
+        with pytest.raises(ArtifactError, match='invalid_design_control'):
+            apply(fixed, 'review_fix_all', payload, page_id=page)
+
+
+def test_selected_element_says_what_it_is_so_the_panel_offers_matching_controls(project):
+    updated = upload(project)
+    asset = updated.assets[0]
+    updated.pages[0].html = (
+        '<h1>Solstice   Bake Sale</h1>'
+        f'<img src="asset://{asset.id}" alt="A rye loaf">'
+        '<img src="https://example.invalid/remote.png">'
+        '<div class="sun"></div>'
+        '<div style="background-color: #fbeaec"><p>Saturday</p></div>'
+        '<section><p>Market <b>Square</b></p></section>'
+    )
+    storage.save_project(updated)
+    items = client.read_controls(updated.id, limit=50).items
+    by_tag = {}
+    for item in items:
+        by_tag.setdefault(item.kind, []).append(item)
+
+    def element(tag, index=0):
+        return client.read_controls(updated.id, element_id=by_tag[tag][index].id).element
+
+    heading, photo, remote = element('h1'), element('img'), element('img', 1)
+    assert (heading.kind, heading.text, heading.alt, heading.asset_id) == ('text', 'Solstice Bake Sale', '', '')
+    assert (photo.kind, photo.alt, photo.asset_id) == ('image', 'A rye loaf', asset.id)
+    assert (remote.kind, remote.asset_id) == ('image', '')
+    assert [element('div', index).kind for index in (0, 1)] == ['shape', 'shape']
+    assert element('section').kind == 'layout'
+    assert element('p', 1).kind == 'text'
+    # The page's elements carry their kind too, for "On this page".
+    assert {item.kind: item.detail for item in items}['img'] == 'image'
+    assert {item.kind: item.detail for item in items}['section'] == 'layout'
+
+
+def test_style_controls_take_fit_crop_border_and_fit_width(project):
+    state = client.read_controls(project.id)
+    result = apply(project, 'style', {'object-fit': 'cover', 'object-position': 'top', 'border-style': 'dashed',
+                                      'border-width': '2px', 'width': 'fit-content'},
+                   page_id=state.page_id, element_id=state.items[0].id)
+    html = result.pages[0].html
+    for declaration in ('object-fit: cover', 'object-position: top', 'border-style: dashed',
+                        'border-width: 2px', 'width: fit-content'):
+        assert declaration in html
+    for updates in ({'object-fit': 'url(x)'}, {'border-style': 'double'}, {'object-position': '10px 10px'},
+                    {'width': 'min-content'}, {'border-width': 'thick'}, {'padding': 'fit-content'}):
+        with pytest.raises(ArtifactError, match='invalid_design_control'):
+            apply(result, 'style', updates, page_id=state.page_id, element_id=state.items[0].id)
+
+
+def test_image_control_swaps_the_picture_for_a_design_image_and_describes_it(project):
+    updated = upload(project)
+    updated = upload(updated, data=b'RIFF\x00\x00\x00\x00WAVEfmt ', filename='sound.wav')
+    photo, sound = updated.assets
+    updated.pages[0].html = '<h1>Title</h1><img src="data:image/png;base64,AAAA" srcset="a.png 2x" alt="Old">'
+    storage.save_project(updated)
+    items = client.read_controls(updated.id).items
+    image = next(item.id for item in items if item.kind == 'img')
+    heading = next(item.id for item in items if item.kind == 'h1')
+    replaced = apply(updated, 'image', {'asset_id': photo.id, 'alt': 'A rye   loaf'}, page_id='first', element_id=image)
+    html = replaced.pages[0].html
+    assert f'src="asset://{photo.id}"' in html and f'data-asset-id="{photo.id}"' in html
+    assert 'alt="A rye loaf"' in html and 'srcset' not in html
+    assert list((history.HISTORY_DIR / project.id).glob('*.json'))
+    described = apply(replaced, 'image', {'alt': ''}, page_id='first', element_id=image)
+    assert 'alt=""' in described.pages[0].html and f'asset://{photo.id}' in described.pages[0].html
+    for payload, element_id, code in (
+        ({'asset_id': photo.id}, heading, 'invalid_design_control'),
+        ({'asset_id': sound.id}, image, 'asset_unavailable'),
+        ({'asset_id': 'asset-missing'}, image, 'asset_unavailable'),
+        ({}, image, 'invalid_design_control'),
+        ({'src': 'https://example.invalid/x.png'}, image, 'invalid_design_control'),
+        ({'alt': 'bad\x00text'}, image, 'invalid_design_control'),
+    ):
+        with pytest.raises(ArtifactError, match=code):
+            apply(described, 'image', payload, page_id='first', element_id=element_id)
+    assert storage.load_project(project.id).updated_at == described.updated_at

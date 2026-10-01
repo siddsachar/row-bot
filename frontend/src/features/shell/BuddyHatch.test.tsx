@@ -92,9 +92,6 @@ describe('Buddy Hatch explicit controls', () => {
     render(<BuddyHatch {...input} />);
 
     expect(
-      screen.getByRole('heading', { name: 'Generate Look' }),
-    ).toBeVisible();
-    expect(
       screen.getByRole('button', { name: 'Generate full Buddy' }),
     ).toBeVisible();
     expect(

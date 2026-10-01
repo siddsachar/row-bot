@@ -12,7 +12,7 @@ from tests.subsystem.plugins.test_plugin_environment import (
 )
 
 setup = _setup
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 def test_in_place_interpreter_edit_after_plan_is_rejected(setup, monkeypatch):

@@ -120,3 +120,95 @@ def test_child_agent_approval_routes_to_parent_channel(tmp_path, monkeypatch) ->
 
     assert resumed == [("child-run", True)]
     assert source.approval_updates == [(sent["message_ref"], "approved", "web")]
+
+
+def test_telegram_forgets_pending_approvals_after_an_hour(monkeypatch) -> None:
+    import time
+
+    from row_bot.channels import telegram
+
+    now = 100_000.0
+    monkeypatch.setattr(time, "time", lambda: now)
+    monkeypatch.setattr(telegram, "_pending_interrupts", {1: {"_ts": now - 3601}, 2: {"_ts": now - 10}})
+    monkeypatch.setattr(telegram, "_pending_task_approvals", {5: {"_ts": now - 3601}, 6: {"_ts": now}})
+    monkeypatch.setattr(telegram, "_pending_skill_choices", {"old": {"_ts": now - 601}, "new": {"_ts": now}})
+
+    telegram._cleanup_stale_pending()
+
+    assert set(telegram._pending_interrupts) == {2}
+    assert set(telegram._pending_task_approvals) == {6}
+    assert set(telegram._pending_skill_choices) == {"new"}
+
+
+_ADAPTERS = [
+    ("telegram", True),
+    ("slack", True),
+    ("discord_channel", True),
+    ("whatsapp", True),
+    ("sms", False),
+]
+
+
+def _thread_in_block_mode(tmp_path, monkeypatch) -> dict:
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    import row_bot.threads as threads
+
+    threads = importlib.reload(threads)
+    threads._save_thread_meta("channel-thread", "Channel thread")
+    threads._set_thread_approval_mode("channel-thread", "block")
+    return {"configurable": {"thread_id": "channel-thread"}}
+
+
+@pytest.mark.parametrize("module,streams", _ADAPTERS)
+def test_channel_turns_carry_the_thread_approval_mode(tmp_path, monkeypatch, module, streams) -> None:
+    base = _thread_in_block_mode(tmp_path, monkeypatch)
+    adapter = importlib.import_module(f"row_bot.channels.{module}")
+
+    message = adapter.build_channel_runtime_config(base, "message")["configurable"]
+    approval = adapter.build_channel_runtime_config(base, "approval")["configurable"]
+
+    assert (message["runtime_surface"], message["runtime_mode"], message["channel_streaming"]) == (
+        "channel",
+        "auto",
+        streams,
+    )
+    assert (approval["runtime_surface"], approval["runtime_mode"], approval["channel_streaming"]) == (
+        "approval",
+        "agent",
+        False,
+    )
+    assert message["approval_mode"] == approval["approval_mode"] == "block"
+    assert message["thread_id"] == approval["thread_id"] == "channel-thread"
+
+
+def test_a_channel_approval_resumes_with_the_thread_approval_mode(tmp_path, monkeypatch) -> None:
+    import sys
+    import types
+
+    import row_bot
+    from row_bot.channels.approval import resume_agent_sync
+    from row_bot.tools import registry
+
+    base = _thread_in_block_mode(tmp_path, monkeypatch)
+    seen = []
+
+    def resume_stream_agent(enabled, config, approved, interrupt_ids=None):
+        seen.append((config["configurable"], approved, interrupt_ids))
+        return iter([("done", "denied")])
+
+    fake_agent = types.ModuleType("row_bot.agent")
+    fake_agent.resume_stream_agent = resume_stream_agent
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
+    monkeypatch.setattr(row_bot, "agent", fake_agent, raising=False)
+    monkeypatch.setattr(registry, "get_enabled_tools", lambda: [])
+
+    assert resume_agent_sync(base, False, interrupt_ids=["interrupt-1"])[0] == "denied"
+
+    [(configurable, approved, interrupt_ids)] = seen
+    assert approved is False
+    assert interrupt_ids == ["interrupt-1"]
+    assert (configurable["runtime_surface"], configurable["runtime_mode"], configurable["approval_mode"]) == (
+        "approval",
+        "agent",
+        "block",
+    )

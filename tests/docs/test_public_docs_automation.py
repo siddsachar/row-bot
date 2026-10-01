@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import ExitStack
 from html.parser import HTMLParser
 from pathlib import Path
@@ -49,13 +50,146 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert any(path["id"] == "threads_db" for path in inventory["data_paths"])
     assert any(rule["id"] == "approve" for rule in inventory["safety"])
     assert any(page["path"] == "index.mdx" for page in inventory["docs_pages"])
-    assert {item["tab"] for item in inventory["settings_controls"]} == {
-        "Accounts", "Buddy", "Channels", "Documents", "Knowledge", "MCP",
-        "Models", "Plugins", "Preferences", "Providers", "Skills", "Tools",
-        "System", "Tracker", "Utilities", "Voice",
-    }
+    controls = inventory["settings_controls"]
+    assert {row["page_id"] for row in controls} <= {page["id"] for page in inventory["settings"]}
+    assert all(
+        row["app_route"] == f"/app-v2/settings/{row['page_id']}#{row['anchor']}"
+        and row["source"] == f"frontend/src/features/settings/model.ts#{row['anchor']}"
+        for row in controls
+    )
     assert inventory["cli_options"]
     assert inventory["environment"]
+
+
+def test_inventory_sources_never_carry_line_numbers() -> None:
+    inventory = build_inventory()
+    sources = [
+        str(row.get("source") or "")
+        for section in inventory.values()
+        if isinstance(section, list)
+        for row in section
+        if isinstance(row, dict)
+    ]
+
+    assert len(sources) > 100
+    assert [source for source in sources if re.search(r"\.\w+:\d+", source)] == []
+    assert all(row["source"] == "src/row_bot/launcher.py" for row in inventory["cli_options"] if row["command"] == "row-bot")
+
+
+def _write_react_client(root: Path, model: str, settings: str, home: str, home_tabs: str) -> None:
+    files = {
+        "frontend/src/features/settings/model.ts": model,
+        "docs-content/metadata/settings.yml": settings,
+        "frontend/src/features/shell/Home.tsx": home,
+        "docs-content/metadata/home_tabs.yml": home_tabs,
+    }
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+_MODEL = """
+export const settingsGroups = [
+  { id: 'general', label: 'General', leaves: ['preferences'] },
+  // A trailing comment and comma must not matter.
+  { id: 'system', label: 'System', leaves: ['access'], },
+] as const;
+const leafLabels: Record<SettingsLeafId, string> = {
+  preferences: 'Preferences',
+  access: "Devices & remote access",
+};
+export const settingsKeywords: Record<SettingsLeafId, string> = {
+  preferences: 'identity',
+  'access': 'phone qr',
+};
+export const settingsRows: SettingsRow[] = [
+  { leaf: 'preferences', anchor: 'identity.name', label: 'Assistant name' },
+  /* block comment */
+  { leaf: 'access', anchor: 'devices', label: 'Your devices', keywords: 'sessions' },
+];
+"""
+_SETTINGS = """
+pages:
+  preferences: {description: Identity., docs_route: /docs/settings/preferences}
+  access: {description: Devices., docs_route: /docs/operations/remote-access, security: Owner access.}
+"""
+_HOME = "const homeTabs = ['overview', 'monitor'];\nexport default function Home() {}\n"
+_HOME_TABS = """
+tabs:
+  overview: {title: Overview, docs_route: /docs/home/, source: frontend/src/features/home/OverviewHome.tsx}
+  monitor: {title: Monitor, docs_route: /docs/home/monitor, source: frontend/src/features/home/MonitorHome.tsx}
+"""
+
+
+def test_settings_and_home_inventory_read_the_react_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.docs.collect_inventory as collector
+
+    _write_react_client(tmp_path, _MODEL, _SETTINGS, _HOME, _HOME_TABS)
+    monkeypatch.setattr(collector, "ROOT", tmp_path)
+
+    pages = collector.collect_settings()
+    assert [(page["id"], page["title"], page["category"]) for page in pages] == [
+        ("preferences", "Preferences", "General"),
+        ("access", "Devices & remote access", "System"),
+    ]
+    assert pages[1]["app_route"] == "/app-v2/settings/access"
+    assert pages[1]["security"] == "Owner access."
+    assert collector.collect_settings_controls() == [
+        {
+            "id": "preferences-identity-name",
+            "page_id": "preferences",
+            "page": "Preferences",
+            "category": "General",
+            "label": "Assistant name",
+            "anchor": "identity.name",
+            "keywords": "",
+            "app_route": "/app-v2/settings/preferences#identity.name",
+            "docs_route": "/docs/settings/preferences",
+            "source": "frontend/src/features/settings/model.ts#identity.name",
+        },
+        {
+            "id": "access-devices",
+            "page_id": "access",
+            "page": "Devices & remote access",
+            "category": "System",
+            "label": "Your devices",
+            "anchor": "devices",
+            "keywords": "sessions",
+            "app_route": "/app-v2/settings/access#devices",
+            "docs_route": "/docs/operations/remote-access",
+            "source": "frontend/src/features/settings/model.ts#devices",
+        },
+    ]
+    assert [(tab["id"], tab["app_route"]) for tab in collector.collect_home_tabs()] == [
+        ("overview", "/app-v2/?tab=overview"),
+        ("monitor", "/app-v2/?tab=monitor"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model", "settings", "home_tabs", "message"),
+    [
+        (_MODEL.replace("export const settingsRows", "const renamedRows"), _SETTINGS, _HOME_TABS, "settingsRows` not found"),
+        (_MODEL.replace("{ leaf: 'preferences', anchor: 'identity.name', label: 'Assistant name' },", "...extraRows,"), _SETTINGS, _HOME_TABS, "not a plain literal"),
+        (_MODEL.replace("leaf: 'access', anchor", "leaf: 'gone', anchor"), _SETTINGS, _HOME_TABS, "needs a known page"),
+        (_MODEL, _SETTINGS.replace("  access:", "  utilities:"), _HOME_TABS, "missing access; unknown utilities"),
+        (_MODEL, _SETTINGS, _HOME_TABS.replace("  monitor:", "  designer:"), "missing monitor; unknown designer"),
+    ],
+)
+def test_react_inventory_fails_loudly_when_the_client_and_metadata_disagree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: str, settings: str, home_tabs: str, message: str,
+) -> None:
+    import scripts.docs.collect_inventory as collector
+
+    _write_react_client(tmp_path, model, settings, _HOME, home_tabs)
+    monkeypatch.setattr(collector, "ROOT", tmp_path)
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        collector.collect_settings_controls()
+        collector.collect_home_tabs()
 
 
 def test_progressive_tools_and_skills_are_documented_at_public_entry_points() -> None:
@@ -87,8 +221,7 @@ def test_progressive_tools_and_skills_are_documented_at_public_entry_points() ->
     assert "parent task or child Agent" in skills
     assert "/docs/guides/progressive-tools-and-skills" in docs_index
     assert "Progressive external tools" in marketing
-    assert "Auto-select external tools (recommended)" in generated_controls
-    assert "Load all external tools" in generated_controls
+    assert "| Capability loading | external tools | `/app-v2/settings/tools#capability-loading` |" in generated_controls
 
 
 def test_reasoning_controls_are_documented_at_public_entry_points() -> None:
@@ -260,49 +393,6 @@ def test_llms_txt_generation_covers_docs_routes(tmp_path: Path) -> None:
         assert public_route_for_doc(path, docs_root) in llms
 
 
-def test_docs_capture_is_opt_in_and_seed_data_is_safe(tmp_path: Path, monkeypatch) -> None:
-    from row_bot.docs_capture import (
-        is_docs_capture,
-        is_authorized_marketing_capture,
-        is_docs_read_only_real_data_capture,
-        is_docs_real_data_capture,
-        load_docs_capture_demo_state,
-        marketing_capture_knowledge_ids,
-        scan_demo_data_safety,
-        write_docs_capture_demo_state,
-    )
-
-    monkeypatch.delenv("ROW_BOT_DOCS_CAPTURE", raising=False)
-    monkeypatch.delenv("ROW_BOT_DOCS_REAL_DATA", raising=False)
-    assert not is_docs_capture()
-    assert not is_docs_real_data_capture()
-
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    assert is_docs_capture()
-    assert not is_docs_real_data_capture()
-    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
-    assert is_docs_real_data_capture()
-    assert is_docs_read_only_real_data_capture()
-    assert not is_authorized_marketing_capture()
-    monkeypatch.setenv("ROW_BOT_MARKETING_CAPTURE", "1")
-    assert is_authorized_marketing_capture()
-    assert not is_docs_read_only_real_data_capture()
-    monkeypatch.setenv(
-        "ROW_BOT_MARKETING_KNOWLEDGE_IDS",
-        "safe-one,unsafe value,safe-two,safe-one",
-    )
-    assert marketing_capture_knowledge_ids() == ("safe-one", "safe-two")
-    write_docs_capture_demo_state(tmp_path, scenario="full")
-    data = load_docs_capture_demo_state(tmp_path)
-    payload = json.dumps(data, sort_keys=True)
-
-    assert "example.com" in payload
-    assert "sk-" not in payload
-    assert "ghp_" not in payload
-    assert "C:\\Users\\" not in payload
-    assert "/Users/" not in payload
-    assert scan_demo_data_safety(tmp_path) == []
-
 
 def test_screenshot_manifest_is_real_ui_and_safe() -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
@@ -313,17 +403,16 @@ def test_screenshot_manifest_is_real_ui_and_safe() -> None:
     assert len(screenshots) >= 20
     assert len(required) >= 20
     assert all(shot["status"] in {"required", "deferred"} for shot in screenshots.values())
-    assert all(shot.get("alt") for shot in screenshots.values())
-    assert all(not shot.get("route", "").startswith("/docs-mode/surface/") for shot in screenshots.values())
+    assert all(
+        shot.get("alt") and shot.get("title") and shot.get("output") and shot.get("docs_pages")
+        for shot in screenshots.values()
+    )
     assert all("/docs-mode/" not in shot.get("route", "") for shot in screenshots.values())
-    assert all(shot.get("route", "/").startswith("/") for shot in required)
-    assert all(shot.get("capture_selector") for shot in required)
-    assert all(shot.get("expected_text") for shot in required)
+    # A capture target, when present, opens the React client; none may be partial.
+    assert all(capture._capture_target_problems(shot) == [] for shot in screenshots.values())
     assert all(shot.get("source") in {"isolated-demo-data", "isolated-first-launch"} for shot in required)
     expected_dimensions = {"desktop": (3840, 2160), "wide": (3840, 2160), "mobile": (390, 844)}
     assert all(shot.get("viewport") in expected_dimensions for shot in required)
-    assert screenshots["skills-hub"]["route"] == "/?dialog=skills-hub"
-    assert screenshots["mcp-marketplace"]["route"] == "/?dialog=mcp-marketplace"
     home_knowledge = screenshots["home-knowledge"]
     assert home_knowledge["capture_policy"] == "hand-curated"
     assert home_knowledge["dimension_policy"] == "flexible"
@@ -386,7 +475,9 @@ def test_mobile_screenshots_render_at_native_width() -> None:
     styles = (ROOT / "docs-site" / "src" / "css" / "custom.css").read_text(encoding="utf-8")
 
     assert "id.startsWith('mobile-')" in component
-    assert "const SCREENSHOT_REVISION = '4.9.1';" in component
+    version = re.search(r'__version__ = "([^"]+)"',
+                        (ROOT / "src" / "row_bot" / "version.py").read_text(encoding="utf-8")).group(1)
+    assert f"const SCREENSHOT_REVISION = '{version}';" in component
     assert ".png?v=${SCREENSHOT_REVISION}" in component
     assert "rowBotScreenshotMobile" in component
     assert "width={isMobile ? 390 : undefined}" in component
@@ -526,6 +617,42 @@ def test_authoritative_surface_map_has_one_outcome_per_surface() -> None:
             assert surface["screenshot_id"] in screenshots
 
 
+def test_capture_refuses_screenshots_without_a_react_target(monkeypatch) -> None:
+    import scripts.docs.capture_real_ui_screenshots as capture
+
+    def must_not_run(*_args, **_kwargs):
+        raise AssertionError("capture prepared a profile or launched the app")
+
+    monkeypatch.setattr(capture, "_safe_capture_data_dir", must_not_run)
+    monkeypatch.setattr(capture, "_launch_app", must_not_run)
+    retired = {
+        "title": "Providers settings",
+        "output": "settings-providers.png",
+        "route": "/?settings_tab=Providers",
+        "capture_selector": "main",
+        "expected_text": ["Providers"],
+    }
+    react = {**retired, "route": "/app-v2/settings/providers"}
+
+    assert capture._capture_target_problems(react) == []
+    assert capture._capture_target_problems({"title": "No target"}) == []
+    assert capture._capture_target_problems({"route": "/app-v2/?tab=monitor"}) == [
+        "capture target is missing capture_selector",
+        "capture target is missing expected_text",
+    ]
+    with pytest.raises(RuntimeError, match="React capture targets have not been written") as refused:
+        capture.capture(
+            {
+                "settings-providers": retired,
+                "home-monitor": {"title": "Monitor", "output": "home-monitor.png"},
+                "settings-models": {**react, "route": "/app-v2/settings/models"},
+            },
+            scenario="full",
+        )
+    assert "home-monitor, settings-providers." in str(refused.value)
+    assert "settings-models" not in str(refused.value)
+
+
 def test_capture_rejects_the_real_user_data_directory(tmp_path: Path, monkeypatch) -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
 
@@ -617,52 +744,89 @@ def test_authorized_real_capture_does_not_offer_fake_provider_choices(
     assert env["ROW_BOT_DOCS_FAKE_PROVIDERS"] == "0"
 
 
-def test_authorized_real_capture_keeps_model_defaults_read_only(
+
+def test_demo_capture_runs_against_a_display_only_local_runtime(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    import row_bot.models as models
-    import row_bot.vision as vision
+    import urllib.error
+    import urllib.request
 
-    model_path = tmp_path / "model_settings.json"
-    vision_path = tmp_path / "vision_settings.json"
-    model_original = b'{"model":"model:codex:gpt-5.6-sol"}'
-    vision_original = b'{"model":"model:codex:gpt-5.6-sol"}'
-    model_path.write_bytes(model_original)
-    vision_path.write_bytes(vision_original)
-    monkeypatch.setattr(models, "_DATA_DIR", tmp_path)
-    monkeypatch.setattr(models, "_SETTINGS_PATH", model_path)
-    monkeypatch.setattr(vision, "_DATA_DIR", tmp_path)
-    monkeypatch.setattr(vision, "_SETTINGS_PATH", vision_path)
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
+    import scripts.docs.capture_real_ui_screenshots as capture
 
-    models._save_settings({"model": "model:ollama:llama3.1:8b"})
-    vision._save_settings({"model": "model:ollama:llama3.1:8b"})
+    launched: dict[str, object] = {}
 
-    assert model_path.read_bytes() == model_original
-    assert vision_path.read_bytes() == vision_original
+    def fake_popen(*_args, **kwargs):
+        launched.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(capture, "LOG_ROOT", tmp_path / "logs")
+    monkeypatch.setattr(capture.subprocess, "Popen", fake_popen)
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with ExitStack() as stack:
+        capture._launch_app(43123, tmp_path / "profile", stack)
+        host = launched["env"]["OLLAMA_HOST"]
+        assert host.startswith("http://127.0.0.1:")
+        with direct.open(f"{host}/api/tags", timeout=5) as response:
+            listed = [model["name"] for model in json.loads(response.read())["models"]]
+        assert listed == list(capture.DEMO_LOCAL_MODELS)
+        chat = urllib.request.Request(
+            f"{host}/api/chat",
+            data=json.dumps({"model": listed[0], "messages": []}).encode(),
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            direct.open(chat, timeout=5)
+        assert refused.value.code == 503
+
+
+def test_capture_seeds_first_run_screenshots_in_their_own_profile(monkeypatch) -> None:
+    import scripts.docs.capture_real_ui_screenshots as capture
+
+    profiles: dict[str, list[str]] = {}
+
+    def fake_profile(shots, scenario, **_kwargs):
+        profiles[scenario] = sorted(shots)
+        return []
+
+    monkeypatch.setattr(capture, "_capture_profile", fake_profile)
+    monkeypatch.setattr(capture, "_write_report", lambda records, mode: {"records": records})
+    target = {
+        "title": "Demo",
+        "output": "demo.png",
+        "route": "/app-v2/",
+        "capture_selector": "body",
+        "expected_text": ["Row-Bot"],
+    }
+
+    capture.capture(
+        {
+            "first": {**target, "scenario": "first-run"},
+            "home": {**target, "scenario": "configured"},
+            "phone": {**target, "scenario": "mobile"},
+        },
+        scenario="full",
+    )
+
+    assert profiles == {"first-run": ["first"], "full": ["home", "phone"]}
 
 
 def test_authorized_real_capture_uses_stable_anchors_not_demo_text() -> None:
     import scripts.docs.capture_real_ui_screenshots as capture
 
     selected = capture._real_data_shot({
-        "wait_for": '[data-docs-id="home-panel-workflows"]',
+        "route": "/app-v2/?tab=workflows",
+        "capture_selector": '[data-home-tab="workflows"]',
         "expected_text": ["Morning Brief"],
         "actions": [
-            {"click_selector": '[data-docs-id="profile-library-toggle"]'},
+            {"click_selector": 'button[aria-label="Agent profiles"]'},
             {"wait_for_text": "Research Guide"},
-            {"click_text": "filesystem.search"},
         ],
     })
 
-    assert selected["wait_for"] == '[data-docs-id="home-panel-workflows"]'
+    assert selected["capture_selector"] == '[data-home-tab="workflows"]'
     assert selected["expected_text"] == []
-    assert selected["actions"] == [
-        {"click_selector": '[data-docs-id="profile-library-toggle"]'},
-        {"click_selector": '[data-docs-id="tool-trace"]'},
-    ]
+    assert selected["actions"] == [{"click_selector": 'button[aria-label="Agent profiles"]'}]
 
 
 def test_capture_publication_atomically_replaces_an_existing_asset(
@@ -695,124 +859,6 @@ def test_authorized_real_capture_is_review_only_not_a_public_asset() -> None:
     assert "raw_output if real_data else output" in source
 
 
-def test_authorized_real_mobile_detail_selects_a_real_chat_thread(
-    monkeypatch,
-) -> None:
-    import row_bot.docs_capture as capture
-
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
-    monkeypatch.setattr(
-        capture,
-        "_list_real_capture_threads",
-        lambda: [("real-chat", "Private name", "", "", "", "", "chat")],
-    )
-    state = SimpleNamespace(
-        active_designer_project=None,
-        active_developer_workspace_id=None,
-        mobile_view="",
-        mobile_chat_mode="threads",
-        thread_id=None,
-        thread_name=None,
-        thread_model_override="",
-        messages=[],
-    )
-
-    capture.configure_docs_capture_state(
-        state,
-        {
-            "mobile_view": "chat",
-            "thread_id": capture.DEMO_THREAD_ID,
-        },
-        load_messages=lambda thread_id: [{"role": "user", "content": thread_id}],
-    )
-
-    assert state.thread_id == "real-chat"
-    assert state.mobile_chat_mode == "thread"
-    assert state.messages == [{"role": "user", "content": "real-chat"}]
-
-
-def test_authorized_real_chat_capture_uses_the_exact_threads_real_title(
-    monkeypatch,
-) -> None:
-    import row_bot.docs_capture as capture
-
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
-    monkeypatch.setattr(
-        capture,
-        "_list_real_capture_threads",
-        lambda: [
-            ("other-chat", "Private name", "", "", "", "", "chat"),
-            (
-                "public-chat",
-                "Public-safe campaign",
-                "",
-                "",
-                "model:codex:gpt-5.6-sol",
-                "",
-                "chat",
-            ),
-        ],
-    )
-    state = SimpleNamespace(
-        active_designer_project=None,
-        active_developer_workspace_id=None,
-        mobile_view="",
-        thread_id=None,
-        thread_name=None,
-        thread_model_override="",
-        messages=[],
-    )
-
-    capture.configure_docs_capture_state(
-        state,
-        {"docs_surface": "chat-main", "thread_id": "public-chat"},
-        load_messages=lambda _thread_id: [],
-    )
-
-    assert state.thread_id == "public-chat"
-    assert state.thread_name == "Public-safe campaign"
-    assert state.thread_model_override == "model:codex:gpt-5.6-sol"
-
-
-def test_authorized_real_designer_capture_uses_the_projects_real_thread(
-    monkeypatch,
-) -> None:
-    import row_bot.docs_capture as capture
-    from row_bot.designer import storage
-
-    project = SimpleNamespace(
-        id="public-project",
-        name="Public launch direction",
-        thread_id="public-designer-thread",
-    )
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
-    monkeypatch.setattr(storage, "load_project", lambda project_id: project)
-    monkeypatch.setattr(storage, "list_projects", lambda: [])
-    state = SimpleNamespace(
-        active_designer_project=None,
-        active_developer_workspace_id=None,
-        thread_id=None,
-        thread_name=None,
-        messages=[],
-    )
-
-    capture.configure_docs_capture_state(
-        state,
-        {"docs_surface": "designer-editor", "project_id": "public-project"},
-        load_messages=lambda thread_id: [{"role": "assistant", "content": thread_id}],
-    )
-
-    assert state.active_designer_project is project
-    assert state.thread_id == "public-designer-thread"
-    assert state.thread_name == "Public launch direction"
-    assert state.messages == [
-        {"role": "assistant", "content": "public-designer-thread"}
-    ]
-
-
 def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
     buddy = (ROOT / "docs-site" / "docs" / "settings" / "buddy.mdx").read_text(
         encoding="utf-8"
@@ -824,9 +870,6 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
         encoding="utf-8"
     ).casefold()
     readme = (ROOT / "README.md").read_text(encoding="utf-8").casefold()
-    writer = (
-        ROOT / "scripts" / "docs" / "write_public_user_guide_pages.py"
-    ).read_text(encoding="utf-8").casefold()
     combined = "\n".join((buddy, voice_and_buddy))
 
     for phrase in (
@@ -847,94 +890,27 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
         assert phrase in combined
     assert "/docs/settings/buddy" in chat
     assert "buddy desktop overlay" in readme
-    for phrase in (
-        "drag buddy itself",
-        "simple approvals",
-        "complex approvals",
-        "talk and dictate remain",
-        "/docs/settings/buddy",
-    ):
-        assert phrase in writer
     for obsolete in (
         "enable switches decide whether buddy appears",
         "open and close overlay buttons",
         "toggle buddy visibility or reopen the overlay",
     ):
-        assert obsolete not in writer
+        assert obsolete not in combined
 
 
-def test_docs_capture_never_reads_the_keyring(monkeypatch) -> None:
-    import row_bot.secret_store as secret_store
 
-    class FailingBackend:
-        def get_password(self, *_args):
-            raise AssertionError("keyring backend was read")
+def test_react_settings_pages_and_home_tabs_have_docs_routes() -> None:
+    from scripts.docs.collect_inventory import collect_home_tabs, collect_settings
 
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setattr(secret_store, "_backend_override", FailingBackend())
+    # Both collectors raise when the metadata and the React client disagree.
+    pages = collect_settings()
+    tabs = collect_home_tabs()
 
-    assert secret_store.is_available() is False
-    assert secret_store.get_secret("OPENAI_API_KEY") is None
-
-
-def test_authorized_marketing_capture_reads_but_never_writes_keyring(monkeypatch) -> None:
-    import row_bot.secret_store as secret_store
-
-    calls: list[str] = []
-
-    class ReadOnlyBackend:
-        def get_password(self, _service, account):
-            calls.append(f"read:{account}")
-            return "configured-token"
-
-        def set_password(self, *_args):
-            raise AssertionError("marketing capture wrote the keyring")
-
-        def delete_password(self, *_args):
-            raise AssertionError("marketing capture deleted from the keyring")
-
-    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
-    monkeypatch.setenv("ROW_BOT_DOCS_REAL_DATA", "1")
-    monkeypatch.setenv("ROW_BOT_MARKETING_CAPTURE", "1")
-    monkeypatch.setattr(secret_store, "_backend_override", ReadOnlyBackend())
-
-    assert secret_store.is_available() is True
-    assert secret_store.get_secret("access_token", namespace="providers:codex") == (
-        "configured-token"
-    )
-    with pytest.raises(secret_store.SecretStoreError, match="write_disabled"):
-        secret_store.set_secret("access_token", "replacement", namespace="providers:codex")
-    with pytest.raises(secret_store.SecretStoreError, match="delete_disabled"):
-        secret_store.delete_secret("access_token", namespace="providers:codex")
-    assert calls
-
-
-def test_real_home_and_settings_tabs_have_routes() -> None:
-    settings = yaml.safe_load((ROOT / "docs-content" / "metadata" / "settings.yml").read_text(encoding="utf-8"))["tabs"]
-    home = yaml.safe_load((ROOT / "docs-content" / "metadata" / "home_tabs.yml").read_text(encoding="utf-8"))["tabs"]
-    expected_settings = {
-        "Providers",
-        "Models",
-        "Documents",
-        "Tools",
-        "Skills",
-        "System",
-        "Accounts",
-        "Utilities",
-        "Tracker",
-        "Knowledge",
-        "Buddy",
-        "Voice",
-        "Channels",
-        "MCP",
-        "Plugins",
-        "Preferences",
-    }
-    expected_home = {"Workflows", "Designer", "Developer", "Knowledge", "Monitor"}
-    assert set(settings) == expected_settings
-    assert set(home) == expected_home
-    assert all(str(meta.get("docs_route", "")).startswith("/docs/") for meta in settings.values())
-    assert all(str(meta.get("docs_route", "")).startswith("/docs/") for meta in home.values())
+    assert {"providers", "tools", "access", "data"} <= {page["id"] for page in pages}
+    assert {"overview", "workflows", "knowledge", "monitor"} <= {tab["id"] for tab in tabs}
+    assert all(page["description"] and page["docs_route"].startswith("/docs/") for page in pages)
+    assert all(tab["title"] and tab["docs_route"].startswith("/docs/") for tab in tabs)
+    assert all((ROOT / tab["source"]).is_file() for tab in tabs)
 
 
 def test_validator_rejects_fake_docs_screenshot_route(monkeypatch) -> None:

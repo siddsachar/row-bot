@@ -2,7 +2,7 @@
 name: developer_coding
 display_name: Developer Coding
 icon: "code"
-description: Structured workflow for implementing code changes in Developer Studio.
+description: Structured workflow for implementing code changes in a conversation's code folder.
 enabled_by_default: false
 version: "1.0"
 tools:
@@ -15,7 +15,7 @@ author: Row-Bot
 
 # Developer Coding
 
-Use this skill when the user asks Developer Studio to add, fix, refactor, or test code in a repository.
+Use this skill when the user asks, in a conversation with a code folder, to add, fix, refactor, or test code in a repository.
 
 Work in this order:
 

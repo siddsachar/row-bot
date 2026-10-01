@@ -35,12 +35,6 @@ _INSTALLED = False
 _FATAL_LOG_HANDLE = None
 _PERF_MONITOR_TASK: asyncio.Task | None = None
 _PERF_STOP = threading.Event()
-_BENIGN_BROWSER_LAYOUT_MESSAGES = {
-    "ResizeObserver loop completed with undelivered notifications.",
-    "ResizeObserver loop limit exceeded",
-}
-_CLIENT_WARNING_RATE_LIMIT_SECONDS = 60.0
-_client_warning_state: dict[str, dict[str, Any]] = {}
 
 
 def session_id() -> str:
@@ -99,77 +93,6 @@ def mark_shutdown(reason: str = "normal") -> None:
     _write_report("shutdown", "Row-Bot shutdown marker", extra={"reason": reason})
 
 
-def record_client_error(payload: dict[str, Any]) -> pathlib.Path | None:
-    """Persist a browser-side JS error report."""
-    safe_payload = _json_safe(payload)
-    msg = str(safe_payload.get("message") or safe_payload.get("reason") or "client error")
-    kind = str(safe_payload.get("kind") or "client_error")
-    if kind in {"activity", "visibility", "online", "offline"}:
-        logger.debug("Client-side event reported: %s %s", kind, msg)
-        return None
-    if kind == "connection_state":
-        logger.info("Client-side connection state reported: %s", msg)
-        return None
-    classification = classify_client_report(safe_payload)
-    if classification == "browser_layout_warning":
-        rate = _rate_limit_client_warning(classification, safe_payload)
-        log_message = (
-            "Client-side browser layout warning: %s count=%d suppressed=%d"
-        )
-        if rate["log"]:
-            logger.info(log_message, msg, rate["count"], rate["suppressed_count"])
-        else:
-            logger.debug(log_message, msg, rate["count"], rate["suppressed_count"])
-        return None
-    logger.warning("Client-side error reported: %s", msg)
-    return _write_report("client_error", msg, extra={"client": safe_payload})
-
-
-def classify_client_report(payload: dict[str, Any]) -> str:
-    """Classify browser reports before writing crash-style diagnostics."""
-    msg = str(payload.get("message") or payload.get("reason") or "").strip()
-    if msg in _BENIGN_BROWSER_LAYOUT_MESSAGES:
-        return "browser_layout_warning"
-    return "client_error"
-
-
-def _client_warning_fingerprint(classification: str, payload: dict[str, Any]) -> str:
-    parts = [
-        classification,
-        str(payload.get("kind") or ""),
-        str(payload.get("source") or ""),
-        str(payload.get("message") or payload.get("reason") or ""),
-    ]
-    return "\x1f".join(parts)
-
-
-def _rate_limit_client_warning(classification: str, payload: dict[str, Any]) -> dict[str, Any]:
-    now = time.monotonic()
-    fingerprint = _client_warning_fingerprint(classification, payload)
-    state = _client_warning_state.setdefault(
-        fingerprint,
-        {
-            "classification": classification,
-            "first_seen": now,
-            "last_seen": now,
-            "last_logged": 0.0,
-            "count": 0,
-            "suppressed_count": 0,
-        },
-    )
-    state["last_seen"] = now
-    state["count"] = int(state.get("count") or 0) + 1
-    should_log = (
-        int(state.get("count") or 0) == 1
-        or now - float(state.get("last_logged") or 0.0) >= _CLIENT_WARNING_RATE_LIMIT_SECONDS
-    )
-    if should_log:
-        state["last_logged"] = now
-    else:
-        state["suppressed_count"] = int(state.get("suppressed_count") or 0) + 1
-    return {**state, "log": should_log}
-
-
 def start_performance_monitor(
     *,
     lag_warn_s: float = 1.0,
@@ -198,19 +121,6 @@ def stop_performance_monitor() -> None:
 def log_performance_snapshot(label: str) -> None:
     """Log a one-off memory/thread snapshot for an important UI event."""
     _log_memory_snapshot(label=label)
-
-
-def record_ui_callback_error(context: str, exc: BaseException) -> pathlib.Path | None:
-    """Persist a UI callback/task exception with a short context label."""
-    logger.exception("UI callback failed: %s", context)
-    return _write_report(
-        "ui_callback",
-        f"UI callback failed: {context}",
-        exc_type=type(exc).__name__,
-        exc_message=str(exc),
-        stack="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-        extra={"context": context},
-    )
 
 
 def _sys_excepthook(

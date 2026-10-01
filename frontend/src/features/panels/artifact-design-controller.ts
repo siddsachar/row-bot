@@ -87,11 +87,25 @@ export function createControllerDesignSessions(controller: ClientController) {
         element: value.element ? { ...value.element, styles } : null,
       };
     },
+    assetThumbnail: (scope, asset, signal) =>
+      controller.designAssetThumbnail(
+        scope.conversation_id,
+        scope.binding_id,
+        asset,
+        signal,
+      ),
     review: (scope, options, signal) =>
       controller.designReview(
         scope.conversation_id,
         scope.binding_id,
         options,
+        signal,
+      ),
+    suggestBrand: (scope, url, signal) =>
+      controller.suggestArtifactBrand(
+        scope.conversation_id,
+        scope.binding_id,
+        { url },
         signal,
       ),
     draftFix: async (scope, options, signal) =>

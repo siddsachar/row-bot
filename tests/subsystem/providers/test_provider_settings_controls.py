@@ -13,7 +13,7 @@ from row_bot.application import provider_settings_controls as settings
 from row_bot.providers import auth_store, config, credential_controls as controls
 from row_bot.runtime import admissions
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 class MemorySecrets:
@@ -260,6 +260,7 @@ def test_a_later_owner_change_never_reconciles_an_older_uncertain_command_as_cur
     assert len(store.writes) == count
 
 
+@pytest.mark.slow
 def test_actual_second_process_cannot_enter_owned_config_writer(store):
     script = """
 import pathlib, sys

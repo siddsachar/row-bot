@@ -25,27 +25,26 @@ Use Dictate when accuracy and review matter. Use Talk when you want a faster han
 
 ## Optional SenseVoice Setup
 
-Open Settings -> Voice, choose **Local FunASR / SenseVoice**, and use the install action shown for **SenseVoice Small**. Installation is an explicit approximately 940 MB download from ModelScope. Row-Bot verifies the contained snapshot before saving it under the active data directory, and normal transcription then uses that local snapshot with update checks disabled. Startup, readiness checks, and ordinary transcription never download or repair the model automatically.
+Open Settings -> Voice, find **SenseVoice** under **Voice models**, and choose **Install SenseVoice Small**. Then choose it as the Talk or Dictation model under **Speech models**. Installation is an explicit approximately 940 MB download from ModelScope. Row-Bot verifies the contained snapshot before saving it under the active data directory, and normal transcription then uses that local snapshot with update checks disabled. Startup, readiness checks, and ordinary transcription never download or repair the model automatically.
 
 ## Devices And Diagnostics
 
 Select the microphone and output device in Settings -> Voice. Run diagnostics when audio is silent, delayed, or routed to the wrong device.
 
-<Screenshot id="settings-buddy" alt="Row-Bot Buddy settings." caption="Buddy settings control companion visibility, personality, look, motion, and optional custom-look generation." />
+<Screenshot id="settings-buddy" alt="Row-Bot Buddy settings." caption="Buddy settings control visibility, look, personality, bubbles, motion, and new looks." />
 
 ## Buddy Controls
 
 - **Show Buddy** controls companion visibility.
 - **Drag to tear off** moves Buddy itself from its sidebar dock into the native desktop overlay. Releasing over the dock cancels the drag.
-- The overlay follows the selected Chat, Developer, or Designer thread and shares its saved draft, current response, tools, and approval mode.
+- The overlay follows the selected conversation, whether it is a chat, a design or a code folder, and shares its saved draft, current response, tools, and approval mode.
 - Enter sends and Shift+Enter adds a line. **Stop** stops the selected thread's active response.
 - **Simple approvals** can be approved or denied in Buddy. **Complex approvals** open the full thread for review.
 - **Open full thread**, **Collapse/Expand**, **Dock Buddy**, and **Hide Buddy** are in the overlay menu.
 - Tear-off is session-scoped; restarting Row-Bot returns placement to the normal sidebar dock. Browser/server mode does not create a native overlay.
-- **Companion personality** changes the tone of Buddy cues.
-- **Bubble style** changes status presentation.
-- **Look cards** choose bundled or custom appearances.
-- **Generate full Buddy**, **Retry motion**, and **Use still only** manage custom looks.
+- **Personality** changes the tone of Buddy cues, and **Bubbles** changes how status appears.
+- **Look** chooses a bundled or custom appearance; **New look…** makes one with your image model.
+- **Motion** chooses how lively Buddy is: **Calm**, **Normal** or **Lively**.
 
 See [Settings: Buddy](/docs/settings/buddy) for the complete drag, messaging, approval, tray-recovery, and troubleshooting walkthrough.
 

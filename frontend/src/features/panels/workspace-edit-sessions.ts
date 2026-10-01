@@ -196,8 +196,7 @@ export class WorkspaceEditSession {
           ) {
             this.publish({
               uncertain: true,
-              error:
-                'The save response could not be matched to this file. Check its original receipt.',
+              error: "The save's answer didn't match this file. Check again.",
             });
             return;
           }
@@ -228,7 +227,7 @@ export class WorkspaceEditSession {
               uncertain: result.status === 'partial',
               error:
                 result.status === 'partial'
-                  ? 'The save is incomplete. Your draft and recovery copies are retained. Retry this same save to check its original receipt.'
+                  ? "The save didn't finish. Your draft and recovery copies are kept. Retry the save to check what happened."
                   : `The file was not saved (${result.code || result.status}). Refresh its current revision; your draft is retained.`,
             });
           }

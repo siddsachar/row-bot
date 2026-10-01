@@ -285,7 +285,6 @@ _context_catalog_lock = threading.Lock()
 _trending_ollama_cache: list[str] = []
 _trending_fetched: bool = False
 
-DEFAULT_MODEL = "qwen3:14b"
 DEFAULT_CONTEXT_SIZE = 32768
 LOCAL_AUTO_TARGET_CONTEXT = 65_536
 MIN_CONTEXT_SIZE = 16_384
@@ -506,7 +505,36 @@ def _save_context_catalog():
                        _CONTEXT_CATALOG_PATH, exc_info=True)
 
 
-# Initialise from saved settings (fall back to defaults for first run)
+class NoModelChosenError(RuntimeError):
+    """Nothing is preset (decision 9): a model call before any model is chosen."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(message or NO_MODEL_CHOSEN)
+
+
+NO_MODEL_CHOSEN = "No model is chosen yet. Choose a model in Row-Bot, then try again."
+
+
+def require_model_choice(value: str | None) -> str | None:
+    """Return the model reference, or None when no model is chosen."""
+    text = str(value or "").strip()
+    return text or None
+
+
+def initial_model_choice(saved: dict | None) -> str:
+    """The saved chat default, canonicalised; "" when none was ever chosen."""
+    stored = (saved or {}).get("model") if isinstance(saved, dict) else None
+    if not isinstance(stored, str) or not stored.strip():
+        return ""
+    try:
+        from row_bot.providers.selection import model_choice_value
+
+        return model_choice_value(stored)
+    except Exception:
+        return stored
+
+
+# Initialise from saved settings. A first run has no model until one is chosen.
 _saved = _load_settings()
 
 # Load persisted cloud cache so is_cloud_model() works before refresh
@@ -553,12 +581,7 @@ _TOOL_COMPATIBLE_FAMILIES: set[str] = {
     m.split(":")[0] for m in POPULAR_MODELS
 }
 
-try:
-    from row_bot.providers.selection import model_choice_value as _canonical_model_choice_value
-
-    _current_model = _canonical_model_choice_value(_saved.get("model", DEFAULT_MODEL))
-except Exception:
-    _current_model = _saved.get("model", DEFAULT_MODEL)
+_current_model = initial_model_choice(_saved)
 _num_ctx = _coerce_context_size(
     _saved.get("context_size", DEFAULT_CONTEXT_SIZE),
     DEFAULT_CONTEXT_SIZE,
@@ -700,6 +723,8 @@ def get_llm():
     """
     global _llm_instance
     if _llm_instance is None:
+        if not _current_model:
+            raise NoModelChosenError()
         if is_cloud_model(_current_model):
             _llm_instance = _get_cloud_llm(_current_model)
         else:
@@ -743,6 +768,8 @@ def get_llm_for(model_name: str, num_ctx: int | None = None, *, reasoning_plan=N
     For cloud (OpenRouter) models, returns a ``ChatOpenAI`` pointed at
     the OpenRouter API.  Results are cached per (model, ctx) pair.
     """
+    if not require_model_choice(model_name):
+        raise NoModelChosenError()
     if is_cloud_model(model_name):
         return _get_cloud_llm(model_name, reasoning_plan=reasoning_plan)
 
@@ -1174,7 +1201,7 @@ def refresh_observed_local_context_after_load(model_name: str) -> int | None:
 
 
 def get_current_model() -> str:
-    _reset_current_model_if_missing_custom_provider()
+    """The saved chat default, or "" when no model has been chosen yet."""
     return _current_model
 
 
@@ -1489,13 +1516,18 @@ def reset_current_model_if_removed(
     *,
     removed_model_ids: set[str] | None = None,
 ) -> bool:
-    """Reset the saved Brain default if it points at a removed provider/model."""
-    global _current_model, _llm_instance
+    """Forget clients for a removed provider/model; never rewrite the choice.
+
+    Removing a provider does not fall back to another model (decision 9): the
+    saved default stays as chosen, reads as unavailable, and people reconnect or
+    choose another model. Returns whether the default pointed at the removal.
+    """
+    global _llm_instance
     provider_id = str(provider_id or "").strip()
     if not provider_id:
         return False
     try:
-        from row_bot.providers.selection import list_quick_choices, model_choice_value, parse_model_ref
+        from row_bot.providers.selection import parse_model_ref
     except Exception:
         return False
     parsed = parse_model_ref(_current_model)
@@ -1503,45 +1535,12 @@ def reset_current_model_if_removed(
         return False
     current_provider, current_model = parsed
     removed = {str(model_id) for model_id in (removed_model_ids or set()) if str(model_id)}
-    if current_provider != provider_id:
+    if current_provider != provider_id or (removed and current_model not in removed):
         return False
-    if removed and current_model not in removed:
-        return False
-    fallback = ""
-    try:
-        for choice in list_quick_choices("chat"):
-            if choice.get("kind") != "model" or choice.get("active") is False:
-                continue
-            choice_provider = str(choice.get("provider_id") or "")
-            choice_model = str(choice.get("model_id") or "")
-            if choice_provider == provider_id and (not removed or choice_model in removed):
-                continue
-            fallback = model_choice_value(choice_model, provider_id=choice_provider)
-            if fallback:
-                break
-    except Exception:
-        fallback = ""
-    if not fallback:
-        fallback = model_choice_value(DEFAULT_MODEL, provider_id="ollama")
-    _current_model = fallback
     _llm_instance = None
     _override_llm_cache.clear()
-    _save_settings(_context_settings_payload(model=_current_model))
-    return True
-
-
-def _reset_current_model_if_missing_custom_provider() -> None:
-    try:
-        from row_bot.providers.custom import get_custom_endpoint, is_custom_openai_provider
-        from row_bot.providers.selection import parse_model_ref
-    except Exception:
-        return
-    parsed = parse_model_ref(_current_model)
-    if not parsed:
-        return
-    provider_id, _model_id = parsed
-    if is_custom_openai_provider(provider_id) and not get_custom_endpoint(provider_id):
-        reset_current_model_if_removed(provider_id)
+    logger.info("The default model's provider was removed; the default is kept and now unavailable")
+    return False
 
 
 def list_starred_cloud_models() -> list[str]:
@@ -1555,28 +1554,6 @@ def list_starred_cloud_models() -> list[str]:
         return quick_models
     starred = set(get_cloud_config().get("starred_models", []))
     return [m for m in _cloud_model_cache if m in starred]
-
-
-def star_cloud_model(model_id: str) -> None:
-    """Add a model to the starred list."""
-    from row_bot.api_keys import get_cloud_config, set_cloud_config
-    from row_bot.providers.selection import add_quick_choice_for_model
-    starred = list(get_cloud_config().get("starred_models", []))
-    if model_id not in starred:
-        starred.append(model_id)
-        set_cloud_config("starred_models", starred)
-    add_quick_choice_for_model(model_id, source="legacy_starred_cloud")
-
-
-def unstar_cloud_model(model_id: str) -> None:
-    """Remove a model from the starred list."""
-    from row_bot.api_keys import get_cloud_config, set_cloud_config
-    from row_bot.providers.selection import remove_quick_choice_for_model
-    starred = list(get_cloud_config().get("starred_models", []))
-    if model_id in starred:
-        starred.remove(model_id)
-        set_cloud_config("starred_models", starred)
-    remove_quick_choice_for_model(model_id)
 
 
 def get_cloud_model_context(model_name: str) -> int:
@@ -1811,37 +1788,6 @@ def validate_requesty_key(api_key: str) -> bool:
         return isinstance(body_json.get("data"), list)
     except Exception as exc:
         logger.warning("Requesty key validation error: %s", exc)
-        return False
-
-
-def validate_ollama_cloud_key(api_key: str) -> bool:
-    """Validate an Ollama Cloud API key with a tiny authenticated chat probe."""
-    import httpx
-    from row_bot.providers.transports.ollama_cloud import normalize_ollama_cloud_api_key
-
-    clean_key = normalize_ollama_cloud_api_key(api_key)
-    if not clean_key:
-        return False
-
-    try:
-        probe_model = "gpt-oss:20b"
-        resp = httpx.post(
-            f"{OLLAMA_CLOUD_BASE_URL}/api/chat",
-            headers={"Authorization": f"Bearer {clean_key}"},
-            json={
-                "model": probe_model,
-                "messages": [{"role": "user", "content": "ok"}],
-                "stream": False,
-                "options": {"num_predict": 1},
-            },
-            timeout=20,
-        )
-        if resp.status_code == 200:
-            return True
-        logger.warning("Ollama Cloud key validation: %d - %s", resp.status_code, resp.text[:200])
-        return False
-    except Exception as exc:
-        logger.warning("Ollama Cloud key validation error: %s", exc)
         return False
 
 
@@ -2459,18 +2405,6 @@ def _minimax_model_info(
         last_verified_at=last_verified_at,
         source=source,
     )
-
-
-def _minimax_fallback_model_infos():
-    return [
-        _minimax_model_info(
-            model_id,
-            {"max_input_tokens": context_window},
-            source="minimax_static_fallback",
-            source_confidence="documented_minimax_fallback",
-        )
-        for model_id, context_window in _MINIMAX_FALLBACK_MODELS
-    ]
 
 
 def _is_minimax_cache_entry(model_id: str, info: dict) -> bool:
@@ -3123,11 +3057,6 @@ def refresh_cloud_models_detailed() -> dict[str, ProviderCatalogRefreshResult]:
         _llm_instance = None  # lazy-recreate on next get_llm()
 
     return results
-
-
-def refresh_cloud_models() -> int:
-    """Refresh all remote provider catalogs and return the update count."""
-    return sum(result.update_count for result in refresh_cloud_models_detailed().values())
 
 
 def _cloud_model_available_after_refresh(model_name: str) -> bool:

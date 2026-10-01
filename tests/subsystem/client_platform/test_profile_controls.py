@@ -158,3 +158,18 @@ def test_shared_admission_captures_implicit_legacy_pointer_but_explicit_empty_st
     handle = platform.admit_execution("conversation-a", explicit)
     assert explicit["configurable"]["agent_profile_snapshot"] == {}
     platform.finish_execution(handle, status="stopped")
+
+
+def test_chats_list_people_facing_profiles_not_internal_helpers(profile):
+    """U20: "@" and the profile menu list profiles a person picks for a chat."""
+    from row_bot import agent_profiles
+    from row_bot.application.workspace_setup import _people_facing_profiles
+
+    internal = [item["id"] for item in agent_profiles.list_agent_profiles(enabled_only=True)
+                if (item.get("ui_json") or {}).get("group") == "Advanced/Internal"]
+    assert internal, "the built-in helpers are grouped as internal"
+    listed = [item["id"] for item in _people_facing_profiles("")]
+    assert profile["id"] in listed
+    assert not set(internal) & set(listed)
+    # A chat that already uses a helper still sees it.
+    assert internal[0] in [item["id"] for item in _people_facing_profiles(internal[0])]

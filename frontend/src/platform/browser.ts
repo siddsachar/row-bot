@@ -24,6 +24,7 @@ export function createBrowserPlatform(
   function select(
     kind: 'file' | 'folder',
     signal?: AbortSignal,
+    multiple = false,
   ): Promise<CapabilityResult<Selection>> {
     if (signal?.aborted) return Promise.resolve({ status: 'cancelled' });
     if (!activated())
@@ -38,6 +39,8 @@ export function createBrowserPlatform(
       input.webkitdirectory = true;
       input.multiple = true;
     }
+    // Attaching takes several files per pick (U18).
+    if (multiple) input.multiple = true;
     input.hidden = true;
     input.setAttribute(
       'aria-label',
@@ -106,7 +109,8 @@ export function createBrowserPlatform(
         capabilities: capabilityList(),
       },
     }),
-    selectFile: (signal) => select('file', signal),
+    selectFile: (signal, intent) =>
+      select('file', signal, intent?.intent === 'attachment'),
     selectFolder: (signal) => select('folder', signal),
     upload: (conversationId, file, signal) =>
       protect(() => media.upload(conversationId, file, signal)),
@@ -145,18 +149,26 @@ export function createBrowserPlatform(
       });
     },
     managedWindow: async () => unavailable('managed_windows_require_native'),
+    buddyPlacement: async () => unavailable('buddy_placement_requires_native'),
+    publishBuddyTarget: async () => unavailable('buddy_target_requires_native'),
+    readBuddyTarget: async () => unavailable('buddy_target_requires_native'),
+    showMainWindow: async () => unavailable('main_window_requires_native'),
+    moveWindow: () => false,
     openTerminal: async () => unavailable('terminal_requires_native'),
-    save: (reference, name, signal) => {
-      if (!safeDownloadName(name))
-        return Promise.resolve(unavailable('invalid_name'));
-      if (!activated())
-        return Promise.resolve(unavailable('user_gesture_required'));
-      return saveBrowserDownload(
+    openExternalTerminal: async () => unavailable('terminal_requires_native'),
+    save: async (reference, name, signal) => {
+      if (!safeDownloadName(name)) return unavailable('invalid_name');
+      if (!activated()) return unavailable('user_gesture_required');
+      const result = await saveBrowserDownload(
         () => media.download(reference, signal),
         name,
         signal,
         target,
       );
+      // A page can only start a download, never tell that it was saved.
+      return result.status === 'ok'
+        ? { status: 'ok', value: { kind: 'download' } }
+        : result;
     },
   };
 }

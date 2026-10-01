@@ -321,7 +321,7 @@ def test_existing_mcp_effect_owner_must_confirm_read_only(runtime, monkeypatch):
 def test_real_graph_guard_precedes_approval_and_preserves_write_profile_gate(
     runtime, monkeypatch, external, asynchronous
 ):
-    from tests.test_agent_tool_filtering import _prepare_graph
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
 
     agent = _prepare_graph(monkeypatch)
     agent._approval_mode_var.set("approve")
@@ -425,7 +425,9 @@ def test_toolkit_sync_async_keep_approval_once_and_current_profile(
     runtime._current_agent_profile_snapshot_var.set(
         {"tool_policy_json": {"capability": "write_capable"}}
     )
-    assert asyncio.run(bound.ainvoke({"command": "git commit"})) == "executed"
+    assert asyncio.run(bound.ainvoke({"command": "git commit"})) == (
+        "Approval: asked; approved by you\nexecuted"
+    )
     assert calls == ["git commit"] and len(approvals) == 1
     runtime._approval_mode_var.set("block")
     assert "BLOCKED" in asyncio.run(bound.ainvoke({"command": "git push"}))
@@ -473,7 +475,7 @@ def test_retained_profile_denylist_and_malformed_policy_fail_closed(runtime):
 def test_actual_graph_preserves_injected_config_and_callback_signature(
     runtime, monkeypatch, asynchronous
 ):
-    from tests.test_agent_tool_filtering import _prepare_graph
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
 
     agent = _prepare_graph(monkeypatch)
     captured = []
@@ -548,7 +550,7 @@ def test_real_filesystem_composite_reads_but_never_changes_disposable_bytes(
 def test_actual_graph_retains_exact_repeat_admission_once_per_dispatch(
     runtime, monkeypatch, asynchronous
 ):
-    from tests.test_agent_tool_filtering import _prepare_graph
+    from tests.subsystem.agents.test_agent_tool_filtering import _prepare_graph
 
     agent = _prepare_graph(monkeypatch)
     effects, requests = [], []
@@ -593,3 +595,48 @@ def test_actual_graph_retains_exact_repeat_admission_once_per_dispatch(
     assert invoke() != "observed"
     assert effects == ["same"]
     assert requests == [(tool.name, {"query": "same"})] * 2
+
+
+@pytest.mark.parametrize(
+    "mode,answer,expected",
+    [
+        ("approve", True, "Approval: asked; approved by you\nDeleted notes.txt"),
+        ("approve", False, "Approval: asked; denied by you — did not run\nAction cancelled by user."),
+        ("allow_all", None, "Approval: not needed (Auto approval mode)\nDeleted notes.txt"),
+    ],
+)
+def test_gated_results_say_whether_approval_was_needed_and_given(
+    runtime, monkeypatch, mode, answer, expected
+):
+    """The model can tell what happened instead of guessing (B235)."""
+    deleted = []
+
+    def delete(path: str) -> str:
+        deleted.append(path)
+        return f"Deleted {path}"
+
+    def interrupt(_request):
+        if answer is None:
+            raise AssertionError("this action must run without asking")
+        return answer
+
+    tool = StructuredTool.from_function(func=delete, name="workspace_file_delete", description="Delete a file")
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set(mode)
+    monkeypatch.setattr(runtime, "interrupt", interrupt)
+
+    assert tool.invoke({"path": "notes.txt"}) == expected
+    assert deleted == ([] if answer is False else ["notes.txt"])
+
+
+def test_a_gated_structured_result_stays_data(runtime, monkeypatch):
+    tool = StructuredTool.from_function(
+        func=lambda path: '{"status": "success", "path": "notes.txt"}',
+        name="workspace_move_file",
+        description="Move a file",
+    )
+    runtime._wrap_with_interrupt_gate(tool)
+    runtime._approval_mode_var.set("approve")
+    monkeypatch.setattr(runtime, "interrupt", lambda _request: True)
+
+    assert tool.invoke({"path": "notes.txt"}) == '{"status": "success", "path": "notes.txt"}'

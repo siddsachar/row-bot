@@ -1,4 +1,4 @@
-"""Clear conversation requests create one durable resource without Git or a provider."""
+"""Draft code folders and designs in a conversation, without Git or a provider."""
 
 from __future__ import annotations
 
@@ -35,21 +35,15 @@ def creation(service, tmp_path, monkeypatch):
     return service, conversation, root
 
 
-@pytest.mark.parametrize("prompt,expected", [
-    ("Hello, how are you?", None),
-    ("Explain how a landing page works", None),
-    ("Generate an image of a cat", None),
-    ("Build me a landing page", ("workspace", "draft")),
-    ("Design a landing page", ("artifact", "landing")),
-    ("Create a social post", ("artifact", "app_mockup")),
-    ("Make a presentation deck", ("artifact", "deck")),
-    ("Work in my existing repository", None),
-    ("Build the app in repo alpha", None),
-])
-def test_conservative_route(prompt, expected):
-    from row_bot.application.conversation_creation import requested_resource
-
-    assert requested_resource(prompt) == expected
+def _draft(service, conversation):
+    identity = str(uuid4())
+    result = service.execute(owner_id="fixture", idempotency_key=identity, command={
+        "type": "resource.setup", "command_id": identity,
+        "expected_revision": str(service._metadata(conversation)["client_revision"]),
+        "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True},
+    }, target=conversation)
+    assert result["status"] == "completed"
+    return result
 
 
 def test_media_requests_expose_only_one_generation_family():
@@ -68,47 +62,12 @@ def test_media_requests_expose_only_one_generation_family():
     assert media_tool_selection("Edit the cover page", enabled, has_design=True) == enabled
 
 
-def test_draft_creation_is_bound_non_git_and_replayed_once(creation):
-    from row_bot.application.conversation_creation import ensure_for_submission
-    from row_bot.conversation_resources import list_bindings
-    from row_bot.developer.storage import get_workspace, list_workspaces
-
-    service, conversation, root = creation
-    command_id = str(uuid4())
-    first = ensure_for_submission(service, conversation, "Build me a landing page", command_id)
-    assert first and first["status"] == "completed"
-    second = ensure_for_submission(service, conversation, "Build me a landing page", command_id)
-    assert second is None
-    bindings = list_bindings(conversation).bindings
-    assert len(bindings) == 1 and bindings[0].kind == "workspace"
-    workspace = get_workspace(bindings[0].resource_id)
-    assert workspace is not None
-    assert Path(workspace.path).parent == root / "Drafts"
-    assert not (Path(workspace.path) / ".git").exists()
-    assert len(list_workspaces()) == 1
-
-
-def test_partial_auto_setup_retries_the_same_receipt(creation, monkeypatch):
-    from row_bot.application.conversation_creation import ensure_for_submission
-
-    service, conversation, _ = creation
-    submitted = []
-    def partial(**kwargs):
-        submitted.append(kwargs["command"]["command_id"])
-        return {"status": "partial", "command_id": submitted[-1]}
-    monkeypatch.setattr(service, "execute", partial)
-    for _ in range(2):
-        assert ensure_for_submission(service, conversation, "Make a presentation deck",
-                                     str(uuid4()))["status"] == "partial"
-    assert submitted[0] == submitted[1]
-
-
 def test_second_workspace_is_rejected_before_creating_an_orphan(creation):
-    from row_bot.application.conversation_creation import ensure_for_submission, _draft_parent
+    from row_bot.application.conversation_creation import _draft_parent
     from row_bot.application.client_platform import ClientPlatformError
 
     service, conversation, root = creation
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     before = tuple((root / "Drafts").iterdir())
     command_id = str(uuid4())
     with pytest.raises(ClientPlatformError, match="resource_ambiguous"):
@@ -141,58 +100,144 @@ def test_context_fallback_creates_default_draft_without_native_folder_grant(crea
     assert workspace is not None and Path(workspace.path).parent == root / "Drafts"
 
 
-def test_design_creation_is_bound_and_replayed_once(creation):
-    from row_bot.application.conversation_creation import ensure_for_submission
+def _named_draft(service, conversation, name=None, *, identity=None):
+    identity = identity or str(uuid4())
+    payload = {"kind": "workspace", "intent": "create", "draft_workspace": True}
+    if name is not None:
+        payload["draft_name"] = name
+    return service.execute(owner_id="fixture", idempotency_key=identity, command={
+        "type": "resource.setup", "command_id": identity,
+        "expected_revision": str(service._metadata(conversation)["client_revision"]),
+        "payload": payload,
+    }, target=conversation)
+
+
+def _bound_workspace(conversation):
     from row_bot.conversation_resources import list_bindings
-    from row_bot.designer.client_service import read_artifact
+    from row_bot.developer.storage import get_workspace
 
-    service, conversation, _ = creation
-    command_id = str(uuid4())
-    first = ensure_for_submission(service, conversation, "Make a presentation deck", command_id)
-    assert first and first["status"] == "completed"
-    assert ensure_for_submission(service, conversation, "Make a presentation deck", command_id) is None
-    bindings = list_bindings(conversation).bindings
-    assert len(bindings) == 1 and bindings[0].kind == "artifact"
-    project = read_artifact(bindings[0].resource_id)
-    assert project.mode == "deck" and project.thread_id == conversation
+    return get_workspace(list_bindings(conversation).bindings[0].resource_id)
 
 
-@pytest.mark.parametrize("prompt,kind", [
-    ("Build me a landing page", "workspace"),
-    ("Make a presentation deck", "artifact"),
+def test_a_draft_is_named_from_the_request_and_a_taken_name_gets_a_number(creation):
+    from row_bot import threads
+
+    service, conversation, root = creation
+    assert _named_draft(service, conversation, "Tiny date app")["status"] == "completed"
+    workspace = _bound_workspace(conversation)
+    assert Path(workspace.path) == root / "Drafts" / "Tiny date app"
+    assert workspace.name == "Tiny date app"
+    other = threads.create_thread("Other conversation")
+    assert _named_draft(service, other, "Tiny date app")["status"] == "completed"
+    assert _bound_workspace(other).name == "Tiny date app 2"
+    assert sorted(path.name for path in (root / "Drafts").iterdir()) == ["Tiny date app", "Tiny date app 2"]
+
+
+def test_a_draft_without_a_name_is_a_readable_code_folder(creation):
+    from row_bot import threads
+
+    service, conversation, root = creation
+    _named_draft(service, conversation)
+    _named_draft(service, threads.create_thread("Second"))
+    _named_draft(service, threads.create_thread("Third"), "  CON  ")
+    assert sorted(path.name for path in (root / "Drafts").iterdir()) == [
+        "Code folder", "Code folder 2", "Code folder 3"]
+
+
+def test_a_draft_name_becomes_a_portable_folder_name(creation):
+    service, conversation, root = creation
+    _named_draft(service, conversation, '  Tiny/date:\tapp?  ')
+    assert [path.name for path in (root / "Drafts").iterdir()] == ["Tiny date app"]
+
+
+def test_a_saved_but_missing_folder_name_is_not_reused(creation):
+    from row_bot import threads
+    import shutil
+
+    service, conversation, root = creation
+    _named_draft(service, conversation, "Tiny date app")
+    # The folder was removed by hand but is still saved: a new draft must not
+    # collide with that saved identity.
+    shutil.rmtree(root / "Drafts" / "Tiny date app")
+    other = threads.create_thread("Other conversation")
+    assert _named_draft(service, other, "Tiny date app")["status"] == "completed"
+    assert _bound_workspace(other).name == "Tiny date app 2"
+
+
+def test_a_draft_retry_keeps_the_first_name(creation, monkeypatch):
+    from row_bot import conversation_resources
+    from row_bot.application import workspace_setup  # noqa: F401
+
+    service, conversation, root = creation
+    identity = str(uuid4())
+    command = {"type": "resource.setup", "command_id": identity,
+               "expected_revision": str(service._metadata(conversation)["client_revision"]),
+               "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True,
+                           "draft_name": "Tiny date app"}}
+    first = service.execute(owner_id="fixture", idempotency_key=identity, command=command, target=conversation)
+    assert first["status"] == "completed"
+    # The same request again replays its receipt: no second folder.
+    assert service.execute(owner_id="fixture", idempotency_key=identity, command=command,
+                           target=conversation) == first
+    assert [path.name for path in (root / "Drafts").iterdir()] == ["Tiny date app"]
+
+    from row_bot import threads
+    other = threads.create_thread("Other conversation")
+    real_bind = conversation_resources.bind
+    calls = []
+
+    def fail_once(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            raise conversation_resources.ResourceError("resource_limit")
+        return real_bind(*args, **kwargs)
+
+    monkeypatch.setattr(conversation_resources, "bind", fail_once)
+    partial = _named_draft(service, other, "Tiny date app", identity=str(uuid4()))
+    assert partial["status"] == "partial" and partial["resource_id"]
+    assert (root / "Drafts" / "Tiny date app 2").is_dir()
+    # Continuing names nothing again, even though "Tiny date app 2" is now
+    # taken on disk by this very request.
+    continuation = str(uuid4())
+    result = service.execute(owner_id="fixture", idempotency_key=continuation, command={
+        "type": "resource.continue", "command_id": continuation,
+        "expected_revision": str(service._metadata(other)["client_revision"]),
+        "payload": {"setup_command_id": partial["setup_command_id"],
+                    "expected_resource_revision": partial["resource_revision"]},
+    }, target=other)
+    assert result["status"] == "completed"
+    assert _bound_workspace(other).name == "Tiny date app 2"
+    assert sorted(path.name for path in (root / "Drafts").iterdir()) == ["Tiny date app", "Tiny date app 2"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"kind": "workspace", "intent": "create", "draft_name": "Tiny date app"},
+    {"kind": "workspace", "intent": "create", "draft_workspace": True, "draft_name": "x" * 121},
+    {"kind": "workspace", "intent": "create", "draft_workspace": True, "draft_name": ""},
+    {"kind": "workspace", "intent": "create", "folder_grant": "grant", "draft_name": "Tiny date app",
+     "empty_workspace": {"folder_name": "Tiny date app"}},
 ])
-def test_submitted_turn_uses_just_created_binding(creation, monkeypatch, prompt, kind):
-    from row_bot.application import workspace_setup
-    from row_bot.conversation_resources import current_execution_context, list_bindings
-    from row_bot.designer.session import get_active_project
-    from row_bot.developer.tool_context import get_workspace_id
+def test_a_draft_name_is_only_for_a_new_draft(payload):
+    from pydantic import ValidationError
+    from row_bot.api.v1.schemas import Command
 
-    service, conversation, _ = creation
-    monkeypatch.setattr(workspace_setup, "generation_readiness", lambda *_: True)
-    observed = []
+    with pytest.raises(ValidationError):
+        Command.model_validate({"command_id": uuid4(), "client_session_id": uuid4(),
+                                "type": "resource.setup", "expected_revision": "0", "payload": payload})
 
-    def stream(_text, _enabled, _config, *, stop_event):
-        context = current_execution_context()
-        assert context is not None
-        selected = context.resolve(kind)
-        observed.append((selected.resource_id, get_workspace_id(),
-                         get_active_project().id if kind == "artifact" else None))
-        yield "done", None
 
-    service.stream_factory = stream
-    receipt = service._start(conversation, {
-        "submission_id": str(uuid4()), "text": prompt, "attachment_refs": [],
-        "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"},
-        "write_targets": [],
-    }, resume=False, command_id=str(uuid4()))
-    assert receipt["status"] == "accepted"
-    handle = service.registry.get(receipt["execution_id"])
-    assert handle.producer_done.wait(5)
-    bindings = list_bindings(conversation).bindings
-    assert len(bindings) == 1 and bindings[0].kind == kind
-    assert observed == [(bindings[0].resource_id,
-                         bindings[0].resource_id if kind == "workspace" else "",
-                         bindings[0].resource_id if kind == "artifact" else None)]
+def test_a_command_without_a_draft_name_keeps_its_stored_shape():
+    from row_bot.api.v1.schemas import Command
+
+    command = Command.model_validate({
+        "command_id": uuid4(), "client_session_id": uuid4(), "type": "resource.setup",
+        "expected_revision": "0", "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True}})
+    assert "draft_name" not in command.payload
+    named = Command.model_validate({
+        "command_id": uuid4(), "client_session_id": uuid4(), "type": "resource.setup",
+        "expected_revision": "0", "payload": {"kind": "workspace", "intent": "create", "draft_workspace": True,
+                                              "draft_name": "Tiny date app"}})
+    assert named.payload["draft_name"] == "Tiny date app"
 
 
 def test_two_chat_writers_queue_and_cancel_without_releasing_owner(creation):
@@ -254,7 +299,6 @@ def test_child_mutation_requires_its_own_writer_lease(creation, monkeypatch):
 
 
 def test_full_replacement_requires_current_file_hash_inside_captured_run(creation, monkeypatch):
-    from row_bot.application.conversation_creation import ensure_for_submission
     from row_bot.application.conversation_writer import writer_run
     from row_bot.conversation_resources import execution_context, list_bindings
     from row_bot.developer.edits import write_file_to_workspace
@@ -263,7 +307,7 @@ def test_full_replacement_requires_current_file_hash_inside_captured_run(creatio
     import hashlib
 
     service, conversation, _ = creation
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     workspace_id = list_bindings(conversation).bindings[0].resource_id
     path = Path(get_workspace(workspace_id).path) / "index.html"
     with writer_run(conversation, workspace_id, str(uuid4()), Event()) as run_id:
@@ -283,7 +327,6 @@ def test_full_replacement_requires_current_file_hash_inside_captured_run(creatio
 
 def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkeypatch, tmp_path):
     from row_bot.application.attachments import register_attachment
-    from row_bot.application.conversation_creation import ensure_for_submission
     from row_bot.application.conversation_writer import writer_run
     from row_bot.conversation_resources import execution_context, list_bindings
     from row_bot.developer import change_ledger
@@ -292,7 +335,7 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
     from row_bot import agent
 
     service, conversation, _ = creation
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     workspace_id = list_bindings(conversation).bindings[0].resource_id
     root = Path(get_workspace(workspace_id).path)
     monkeypatch.setattr(change_ledger, "DEVELOPER_DIR", tmp_path / "ledger")
@@ -327,7 +370,6 @@ def test_generated_media_import_is_scoped_logged_and_reversible(creation, monkey
 def test_explicit_output_save_is_scoped_idempotent_and_outside_code_folder(creation):
     from row_bot.application.attachments import register_attachment, list_generated_outputs
     from row_bot.application.conversation_media_copy import save_output
-    from row_bot.application.conversation_creation import ensure_for_submission
 
     service, conversation, root = creation
     output = register_attachment(conversation, "generated-image.png", b"\x89PNG\r\n\x1a\nfixture")
@@ -340,7 +382,7 @@ def test_explicit_output_save_is_scoped_idempotent_and_outside_code_folder(creat
     assert saved.read_bytes() == b"\x89PNG\r\n\x1a\nfixture"
     assert save_output(conversation, reference) == name
     # If the configured root itself is a code folder, it must use Developer.
-    ensure_for_submission(service, conversation, "Build me a landing page", str(uuid4()))
+    _draft(service, conversation)
     assert saved.exists()
     from row_bot.thread_cleanup import delete_thread
     assert delete_thread(conversation).deleted is True

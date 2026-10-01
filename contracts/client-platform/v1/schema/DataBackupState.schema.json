@@ -1,0 +1,285 @@
+{
+  "$defs": {
+    "DataBackupJob": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "kind": {
+          "enum": [
+            "backup",
+            "restore"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 260,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "status"
+      ],
+      "title": "DataBackupJob",
+      "type": "object"
+    },
+    "DataBackupSignIn": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "provider",
+            "account",
+            "channel",
+            "mcp",
+            "webhooks"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "DataBackupSignIn",
+      "type": "object"
+    },
+    "DataRestorePending": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "maxLength": 40,
+          "title": "Created At",
+          "type": "string"
+        },
+        "sign_in_again": {
+          "items": {
+            "$ref": "#/$defs/DataBackupSignIn"
+          },
+          "maxItems": 100,
+          "title": "Sign In Again",
+          "type": "array"
+        },
+        "source_name": {
+          "maxLength": 200,
+          "title": "Source Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "created_at",
+        "source_name",
+        "sign_in_again"
+      ],
+      "title": "DataRestorePending",
+      "type": "object"
+    },
+    "DataRestoreResult": {
+      "additionalProperties": false,
+      "properties": {
+        "applied_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applied At"
+        },
+        "kept_aside": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kept Aside"
+        },
+        "sign_in_again": {
+          "items": {
+            "$ref": "#/$defs/DataBackupSignIn"
+          },
+          "maxItems": 100,
+          "title": "Sign In Again",
+          "type": "array"
+        },
+        "source_created_at": {
+          "maxLength": 40,
+          "title": "Source Created At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "source_created_at",
+        "sign_in_again"
+      ],
+      "title": "DataRestoreResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Settings \u203a Data: backups and restores for the local owner (decision 21).",
+  "properties": {
+    "folder": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Folder"
+    },
+    "job": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataBackupJob"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "last_backup_at": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Backup At"
+    },
+    "last_backup_name": {
+      "anyOf": [
+        {
+          "maxLength": 260,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Backup Name"
+    },
+    "local_owner": {
+      "title": "Local Owner",
+      "type": "boolean"
+    },
+    "pending_restore": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataRestorePending"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "restore_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataRestoreResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "local_owner"
+  ],
+  "title": "DataBackupState",
+  "type": "object"
+}

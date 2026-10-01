@@ -35,7 +35,8 @@ def execute_task_command(*, owner_id: str, key: str, command: dict,
     if previous and previous.get("status") == "completed":
         return previous
     payload = command["payload"]
-    creating = command["type"] == "task.create"
+    duplicating = command["type"] == "task.duplicate"
+    creating = command["type"] == "task.create" or duplicating
     deleting = command["type"] == "task.delete"
     delivery = command["type"] == "task.delivery.update"
     graph = command["type"] == "task.graph.update"
@@ -120,7 +121,15 @@ def execute_task_command(*, owner_id: str, key: str, command: dict,
             result = {**progress, "status": "completed", "task_revision": None}
             admissions.complete_command(owner_id, key, result)
             return result
-        if previous and not graph and not settings:
+        if duplicating and not previous:
+            from row_bot.tasks import duplicate_task
+
+            source = get_task_editor(payload["task_id"])
+            if source.revision != payload["task_revision"]:
+                raise TaskControlError("task_revision_conflict")
+            duplicate_task(payload["task_id"], new_task_id=task_id, validate=validate,
+                           record_commit=record_commit)
+        elif previous and not graph and not settings:
             from row_bot.tasks import sync_task_schedule
             sync_task_schedule(task_id, validate=validate)
         elif not previous and settings:

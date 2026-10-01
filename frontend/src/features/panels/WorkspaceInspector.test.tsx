@@ -4,7 +4,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
 import { createWorkspaceEditSessions } from './workspace-edit-sessions';
@@ -14,6 +16,7 @@ import type {
 } from '../../api/types';
 import {
   WorkspaceInspector,
+  checksStatus,
   type WorkspaceInspectorProps,
 } from './WorkspaceInspector';
 
@@ -36,7 +39,14 @@ const fixture: Inspector = {
   dirty: true,
   changed_total: 1003,
   diff_stats: { files: 1003, additions: 10, deletions: 2 },
-  commands: [{ label: 'pytest', kind: 'test', status: 'not_run' }],
+  commands: [
+    {
+      label: 'pytest',
+      kind: 'test',
+      status: 'not_run',
+      command: 'python -m pytest',
+    },
+  ],
   processes: [{ pid: 42, status: 'running' }],
   todos: [],
   error: '',
@@ -100,10 +110,51 @@ function editingLifetime() {
   return { controller, owner, options, editable };
 }
 
+function chooseTab(name: string) {
+  const tab = screen.queryByRole('tab', { name: new RegExp(`^${name}`) });
+  if (tab) fireEvent.mouseDown(tab, { button: 0 });
+}
+
+/** Opens file-1.txt's diff, then reads the file itself in Files. */
+async function openFile(path = 'file-1.txt') {
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: /^Changes/ }), {
+    button: 0,
+  });
+  fireEvent.click(
+    await screen.findByRole('button', { name: `Show changes in ${path}` }),
+  );
+  fireEvent.click(
+    await screen.findByRole('button', { name: `Open ${path} in Files` }),
+  );
+  return screen.findByRole('region', { name: 'File text' });
+}
+
+/** Reads the same file again, as a person would from its diff. */
+function rereadFile(path = 'file-1.txt') {
+  chooseTab('Changes');
+  fireEvent.click(
+    screen.getByRole('button', { name: `Open ${path} in Files` }),
+  );
+}
+
+async function populatePane() {
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Show changes in file-1.txt' }),
+  );
+  await screen.findByRole('region', { name: 'Diff text' });
+  await screen.findByRole('button', {
+    name: 'Show changes in first-change.txt',
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Open file-1.txt in Files' }),
+  );
+  await screen.findByRole('region', { name: 'File text' });
+}
+
 it('retains the actual Inspector draft through hidden rendering and a full panel remount', async () => {
   const { owner, controller, options } = editingLifetime();
   const first = render(<WorkspaceInspector {...options} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
+  await openFile();
   fireEvent.click(await screen.findByRole('button', { name: 'Edit file' }));
   fireEvent.change(
     await screen.findByRole('textbox', { name: 'File contents' }),
@@ -112,21 +163,27 @@ it('retains the actual Inspector draft through hidden rendering and a full panel
   first.rerender(<WorkspaceInspector {...options} visible={false} />);
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   first.rerender(<WorkspaceInspector {...options} visible />);
+  // Files stays selected; the retained editor reopens with its draft.
   expect(
     await screen.findByRole('textbox', { name: 'File contents' }),
   ).toHaveValue('Retained unsaved draft');
   first.unmount();
-  const second = render(
+  render(
     <WorkspaceInspector
       {...options}
       editSessions={owner.forBinding('chat-a', 'binding')}
     />,
   );
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: /^Files/ }), {
+    button: 0,
+  });
   expect(
     await screen.findByRole('textbox', { name: 'File contents' }),
   ).toHaveValue('Retained unsaved draft');
+  expect(
+    screen.getByRole('button', { name: 'Resume edit: file-1.txt' }),
+  ).toBeInTheDocument();
   expect(controller.workspaceEditableFile).toHaveBeenCalledOnce();
-  second.unmount();
   owner.dispose();
 });
 
@@ -139,7 +196,7 @@ it('settles an actual Inspector save after unmount and remounts its completed co
     }),
   );
   const first = render(<WorkspaceInspector {...options} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
+  await openFile();
   fireEvent.click(await screen.findByRole('button', { name: 'Edit file' }));
   fireEvent.change(
     await screen.findByRole('textbox', { name: 'File contents' }),
@@ -154,6 +211,9 @@ it('settles an actual Inspector save after unmount and remounts its completed co
       editSessions={owner.forBinding('chat-a', 'binding')}
     />,
   );
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: /^Files/ }), {
+    button: 0,
+  });
   expect(
     await screen.findByRole('textbox', { name: 'File contents' }),
   ).toHaveValue('Saved while hidden');
@@ -173,6 +233,9 @@ it('settles an actual Inspector save after unmount and remounts its completed co
       editSessions={owner.forBinding('chat-a', 'binding')}
     />,
   );
+  fireEvent.mouseDown(await screen.findByRole('tab', { name: /^Files/ }), {
+    button: 0,
+  });
   expect(
     await screen.findByRole('textbox', { name: 'File contents' }),
   ).toHaveValue('Saved while hidden');
@@ -260,6 +323,7 @@ function props(): WorkspaceInspectorProps {
           reviewed: false,
           reverted: false,
           file_count: 501,
+          undoable: !cursor,
         },
       ],
       next_cursor: cursor ? null : 'sets-next',
@@ -291,17 +355,362 @@ function pending<T>() {
   return { promise, resolve, reject };
 }
 
-async function populatePane() {
-  fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
-  await screen.findByRole('region', { name: 'File text' });
-  fireEvent.click(screen.getByRole('button', { name: 'Show diff file-1.txt' }));
-  await screen.findByRole('region', { name: 'Diff text' });
-  fireEvent.click(screen.getByRole('button', { name: 'Load agent changes' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'First changes' }));
-  await screen.findByRole('button', { name: 'first-change.txt' });
-}
+describe('Developer inspector', () => {
+  it('shows a status strip and opens on Changes when a repository has changes', async () => {
+    const options = props();
+    render(
+      <WorkspaceInspector {...options} renderGit={() => <p>Git owner</p>} />,
+    );
+    const strip = await screen.findByRole('group', {
+      name: 'Repository status',
+    });
+    expect(strip).toHaveTextContent('Fixture workspace');
+    expect(
+      screen.getByRole('button', { name: 'Branch fixture. Open Git' }),
+    ).toBeInTheDocument();
+    expect(strip).toHaveTextContent('1003 changed');
+    expect(strip).toHaveTextContent('Local');
+    expect(screen.getByRole('tab', { name: /^Changes/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('tab', { name: /^Changes/ })).toHaveTextContent(
+      '1003',
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Branch fixture. Open Git' }),
+    );
+    expect(screen.getByRole('tab', { name: /^Git/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
 
-describe('read-only workspace Inspector', () => {
+  it('opens on Changes for agent changes in a folder without Git (U34)', async () => {
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...fixture,
+      is_git: false,
+      changed_total: 0,
+    }));
+    render(<WorkspaceInspector {...options} />);
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /^Changes/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    );
+  });
+
+  it('keeps the tab the person chose when agent changes arrive later', async () => {
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...fixture,
+      is_git: false,
+      changed_total: 0,
+    }));
+    const sets = pending<Awaited<ReturnType<typeof options.changeSets>>>();
+    const original = options.changeSets;
+    options.changeSets = vi.fn(() => sets.promise);
+    render(<WorkspaceInspector {...options} />);
+    await screen.findByRole('tab', { name: /^Files/ });
+    chooseTab('Run');
+    sets.resolve(await original('1', undefined, new AbortController().signal));
+    await waitFor(() => expect(options.changeSets).toHaveBeenCalled());
+    expect(screen.getByRole('tab', { name: /^Run/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('keeps clone, install, network and delete boundaries in the safety popover', async () => {
+    const user = userEvent.setup();
+    const options = props();
+    const unavailable = (code: string) => ({ available: false, code });
+    render(
+      <WorkspaceInspector
+        {...options}
+        repository={
+          {
+            availability: {
+              'developer.repository.clone': unavailable('use_workspace_setup'),
+              'developer.repository.install': unavailable(
+                'use_workspace_process_review',
+              ),
+              'developer.repository.network': unavailable(
+                'use_workspace_process_review',
+              ),
+              'developer.repository.delete': unavailable(
+                'no_recoverable_repository_delete_owner',
+              ),
+            },
+          } as unknown as WorkspaceInspectorProps['repository']
+        }
+      />,
+    );
+    await screen.findByRole('group', { name: 'Repository status' });
+    await user.click(screen.getByRole('button', { name: 'Safety boundaries' }));
+    const popover = await screen.findByRole('dialog', {
+      name: 'Safety boundaries',
+    });
+    expect(popover).toHaveTextContent(
+      'DeleteNot offered here: a delete could not be undone.',
+    );
+    expect(popover).toHaveTextContent(
+      'NetworkRuns only as a reviewed command in the Run tab.',
+    );
+    expect(popover).toHaveTextContent(
+      'CloneClone a repository through Add resource.',
+    );
+    expect(
+      screen.queryByRole('button', { name: /^(clone|install|delete)/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reads the folder afresh whenever it opens', async () => {
+    const options = props();
+    const view = render(<WorkspaceInspector {...options} />);
+    await screen.findByRole('group', { name: 'Repository status' });
+    expect(options.load).toHaveBeenLastCalledWith(
+      true,
+      expect.any(AbortSignal),
+    );
+    view.rerender(<WorkspaceInspector {...options} visible={false} />);
+    view.rerender(<WorkspaceInspector {...options} />);
+    await waitFor(() => expect(options.load).toHaveBeenCalledTimes(2));
+    expect(options.load).toHaveBeenLastCalledWith(
+      true,
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('opens a plain folder on Files and says it is not a repository', async () => {
+    const options = props();
+    options.load = vi.fn(async () => ({
+      ...fixture,
+      is_git: false,
+      branch: '',
+      changed_total: 0,
+      diff_stats: null,
+    }));
+    // No agent changes either: with them it opens on Changes.
+    options.changeSets = vi.fn(async () => ({
+      items: [],
+      next_cursor: null,
+      snapshot_revision: '1',
+      total: 0,
+    }));
+    render(<WorkspaceInspector {...options} />);
+    expect(
+      await screen.findByText('Folder is not a Git repository'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^Files/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Open folder nested' }),
+    ).toBeInTheDocument();
+  });
+
+  it('groups files under the agent change that made them and keeps other changes apart', async () => {
+    const options = props();
+    const onUndo = vi.fn();
+    render(<WorkspaceInspector {...options} onUndo={onUndo} />);
+    const group = await screen.findByRole('region', {
+      name: 'Agent change: First changes',
+    });
+    await waitFor(() =>
+      expect(group).toContainElement(
+        screen.getByRole('button', {
+          name: 'Show changes in first-change.txt',
+        }),
+      ),
+    );
+    expect(group).toHaveTextContent('501 files');
+    expect(group).toHaveTextContent('Not reviewed');
+    expect(
+      screen.getByRole('region', { name: 'Other changes' }),
+    ).toContainElement(
+      screen.getByRole('button', { name: 'Show changes in file-1.txt' }),
+    );
+    expect(options.changeSetFiles).toHaveBeenCalledWith(
+      'set-first',
+      '1',
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(onUndo).not.toHaveBeenCalled();
+  });
+
+  it('undoes an imported change in the panel and asks the agent to undo its own edits', async () => {
+    const user = userEvent.setup();
+    const options = props();
+    const onUndo = vi.fn();
+    const onAsk = vi.fn((_text: string) => true);
+    render(<WorkspaceInspector {...options} onUndo={onUndo} onAsk={onAsk} />);
+    await screen.findByRole('region', { name: 'Agent change: First changes' });
+    await user.click(
+      screen.getByRole('button', { name: 'More actions for First changes' }),
+    );
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Undo First changes' }),
+    );
+    expect(onUndo).toHaveBeenCalledWith('set-first', 'First changes');
+    fireEvent.click(screen.getByRole('button', { name: 'More agent changes' }));
+    await screen.findByRole('region', { name: 'Agent change: Last changes' });
+    await user.click(
+      screen.getByRole('button', { name: 'More actions for Last changes' }),
+    );
+    expect(
+      screen.queryByRole('menuitem', { name: 'Undo Last changes' }),
+    ).toBeNull();
+    await user.click(
+      screen.getByRole('menuitem', {
+        name: 'Ask Row-Bot to undo Last changes',
+      }),
+    );
+    expect(onAsk).toHaveBeenCalledWith(
+      expect.stringContaining('developer_revert_agent_changes'),
+    );
+    expect(onAsk.mock.calls[0][0]).toContain('set-last');
+    expect(
+      screen.getByText('Asked Row-Bot to undo it in the chat.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a diff unified or side by side and remembers the choice', async () => {
+    window.localStorage.removeItem('row-bot.diff-mode.v1');
+    const options = props();
+    options.diff = vi.fn(async () => ({
+      status: 'text' as const,
+      text: '@@ -1,2 +1,2 @@\n keep\n-old line\n+new line',
+      revision: 'diff-1',
+      next_offset: null,
+      truncated: false,
+    }));
+    const view = render(<WorkspaceInspector {...options} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Show changes in file-1.txt' }),
+    );
+    const table = await screen.findByRole('table', {
+      name: 'Changes in file-1.txt',
+    });
+    expect(table).toHaveAttribute('data-mode', 'unified');
+    expect(table).toHaveTextContent('Removed');
+    expect(table).toHaveTextContent('Added');
+    fireEvent.click(screen.getByRole('radio', { name: 'Split' }));
+    expect(
+      screen.getByRole('table', { name: 'Changes in file-1.txt' }),
+    ).toHaveAttribute('data-mode', 'split');
+    expect(window.localStorage.getItem('row-bot.diff-mode.v1')).toBe('split');
+    view.unmount();
+    render(<WorkspaceInspector {...props()} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Show changes in file-1.txt' }),
+    );
+    expect(
+      await screen.findByRole('table', { name: 'Changes in file-1.txt' }),
+    ).toHaveAttribute('data-mode', 'split');
+    window.localStorage.removeItem('row-bot.diff-mode.v1');
+  });
+
+  it('hands the Git tab the changed files and suggested messages', async () => {
+    const options = props();
+    const renderGit = vi.fn<NonNullable<WorkspaceInspectorProps['renderGit']>>(
+      () => <p>Git owner</p>,
+    );
+    render(<WorkspaceInspector {...options} renderGit={renderGit} />);
+    await screen.findByRole('button', {
+      name: 'Show changes in first-change.txt',
+    });
+    chooseTab('Git');
+    expect(screen.getByText('Git owner')).toBeVisible();
+    const context = renderGit.mock.lastCall![0];
+    expect(context).toMatchObject({
+      revision: expect.any(String),
+      isGit: true,
+      branch: 'fixture',
+      changedFiles: [{ path: 'file-1.txt', status: 'M' }],
+    });
+    expect(context.commitSuggestion?.subject).toBe('Update file-1.txt');
+    expect(context.pullRequestSuggestion?.body).toContain('First changes');
+  });
+
+  it('lists detected checks and folder processes without running anything', async () => {
+    const options = props();
+    render(<WorkspaceInspector {...options} />);
+    await screen.findByText('Fixture workspace');
+    chooseTab('Run');
+    const checks = screen.getByRole('list', { name: 'Detected checks' });
+    expect(checks).toHaveTextContent('pytest');
+    expect(checks).toHaveTextContent('python -m pytest');
+    expect(checks).toHaveTextContent('Not run');
+    expect(
+      screen.getByRole('region', { name: 'Workspace process status' }),
+    ).toHaveTextContent('PID 42');
+    const renderRun = vi.fn(() => <p>Process owner</p>);
+    render(<WorkspaceInspector {...props()} renderRun={renderRun} />);
+    await waitFor(() =>
+      expect(renderRun).toHaveBeenCalledWith({
+        checks: [
+          { label: 'pytest', kind: 'test', command: 'python -m pytest' },
+        ],
+      }),
+    );
+  });
+
+  it('summarises check runs into one status', () => {
+    const checks = [
+      { label: 'pytest', kind: 'test', command: 'python -m pytest' },
+      { label: 'lint', kind: 'lint', command: 'npm run lint' },
+    ];
+    const process = (command: string, extra = {}) => ({
+      process_id: command,
+      command_id: command,
+      run_id: 'run',
+      command,
+      state: 'exited' as const,
+      exit_code: 0,
+      quiesced: true,
+      ...extra,
+    });
+    expect(checksStatus([], []).label).toBe('No checks');
+    expect(checksStatus(checks, []).label).toBe('Checks not run');
+    expect(checksStatus(checks, [process('python -m pytest')]).label).toBe(
+      'Some checks passed',
+    );
+    expect(
+      checksStatus(checks, [
+        process('python -m pytest'),
+        process('npm run lint'),
+      ]).tone,
+    ).toBe('success');
+    expect(
+      checksStatus(checks, [
+        process('python -m pytest', { exit_code: 1 }),
+        process('npm run lint'),
+      ]).label,
+    ).toBe('Checks failed');
+    expect(
+      checksStatus(checks, [
+        process('npm run lint', {
+          state: 'running',
+          quiesced: false,
+          exit_code: null,
+        }),
+      ]).pulse,
+    ).toBe(true);
+    // Only the latest run of a check counts.
+    expect(
+      checksStatus(checks, [
+        process('python -m pytest', { exit_code: 1 }),
+        process('python -m pytest'),
+        process('npm run lint'),
+      ]).label,
+    ).toBe('Checks passed');
+  });
+
   it.each([
     ['file', 'resource_binding_revoked'],
     ['summary', 'resource_binding_revoked'],
@@ -322,11 +731,11 @@ describe('read-only workspace Inspector', () => {
         status: code === 'resource_unavailable' ? 404 : 403,
         title: 'private failure detail',
       });
-      fireEvent.click(
-        screen.getByRole('button', {
-          name: lane === 'summary' ? 'Refresh inspector' : 'file-1.txt',
-        }),
-      );
+      if (lane === 'summary')
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Refresh inspector' }),
+        );
+      else rereadFile();
       expect(
         await screen.findByText('Workspace access changed'),
       ).toBeInTheDocument();
@@ -336,27 +745,20 @@ describe('read-only workspace Inspector', () => {
         ),
       ).toBeInTheDocument();
       expect(screen.queryByText('Fixture workspace')).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: / inspector$/ })).toBeNull();
       expect(screen.queryByLabelText('File text')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Diff text')).not.toBeInTheDocument();
       expect(
         screen.queryByLabelText('Workspace files'),
       ).not.toBeInTheDocument();
       expect(
-        screen.queryByRole('button', { name: 'First changes' }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole('button', { name: 'first-change.txt' }),
+        screen.queryByRole('region', { name: 'Agent change: First changes' }),
       ).not.toBeInTheDocument();
       expect(
         screen.queryByText('private failure detail'),
       ).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Retry inspector' }));
-      fireEvent.click(
-        await screen.findByRole('button', { name: 'file-1.txt' }),
-      );
-      expect(await screen.findByLabelText('File text')).toHaveTextContent(
-        'inert fixture',
-      );
+      expect(await openFile()).toHaveTextContent('inert fixture');
     },
   );
 
@@ -364,6 +766,7 @@ describe('read-only workspace Inspector', () => {
     const options = props();
     render(<WorkspaceInspector {...options} />);
     await populatePane();
+    chooseTab('Changes');
     const late =
       pending<Awaited<ReturnType<WorkspaceInspectorProps['diff']>>>();
     vi.mocked(options.diff).mockImplementationOnce(() => late.promise);
@@ -373,19 +776,21 @@ describe('read-only workspace Inspector', () => {
       code: 'resource_binding_revoked',
       status: 403,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'file-1.txt' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open file-1.txt in Files' }),
+    );
     await screen.findByText('Workspace access changed');
     expect(diffSignal?.aborted).toBe(true);
     await act(async () =>
       late.resolve({
         status: 'text',
-        text: 'Late secret diff',
+        text: '+Late secret diff',
         revision: 'late',
         next_offset: null,
         truncated: false,
       }),
     );
-    expect(screen.queryByText('Late secret diff')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Late secret diff/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Diff text')).not.toBeInTheDocument();
   });
 
@@ -394,7 +799,12 @@ describe('read-only workspace Inspector', () => {
     const late = pending<WorkspaceFile>();
     options.file = vi.fn(() => late.promise);
     const view = render(<WorkspaceInspector {...options} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Show changes in file-1.txt' }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open file-1.txt in Files' }),
+    );
     const next = {
       ...props(),
       resourceId: 'workspace-b',
@@ -420,15 +830,15 @@ describe('read-only workspace Inspector', () => {
     render(<WorkspaceInspector {...options} />);
     await populatePane();
     vi.mocked(options.file).mockRejectedValueOnce({ code, status: 503 });
-    fireEvent.click(screen.getByRole('button', { name: 'file-1.txt' }));
+    rereadFile();
     await screen.findByText('File unavailable');
     expect(screen.getByLabelText('File text')).toHaveTextContent(
       'inert fixture',
     );
-    expect(screen.getByLabelText('Diff text')).toHaveTextContent('-old +new');
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'last confirmed workspace state and may be stale',
-    );
+    expect(screen.getByText(/may be out of date/)).toBeInTheDocument();
+    chooseTab('Changes');
+    expect(screen.getByLabelText('Diff text')).toHaveTextContent('old');
+    expect(screen.getByLabelText('Diff text')).toHaveTextContent('new');
   });
 
   it('treats a missing file result as local to the selected file', async () => {
@@ -443,10 +853,11 @@ describe('read-only workspace Inspector', () => {
       next_offset: null,
       size_bytes: 0,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'file-1.txt' }));
-    await screen.findByText('File missing');
+    rereadFile();
+    await screen.findByText('This file is gone');
     expect(screen.queryByLabelText('File text')).not.toBeInTheDocument();
     expect(screen.getByText('Fixture workspace')).toBeInTheDocument();
+    chooseTab('Changes');
     expect(screen.getByLabelText('Diff text')).toBeInTheDocument();
   });
 
@@ -461,7 +872,7 @@ describe('read-only workspace Inspector', () => {
       render(<WorkspaceInspector {...options} />);
       await populatePane();
       vi.mocked(options.file).mockRejectedValueOnce(failure);
-      fireEvent.click(screen.getByRole('button', { name: 'file-1.txt' }));
+      rereadFile();
       await screen.findByText('File unavailable');
       expect(
         screen.queryByText('Workspace access changed'),
@@ -480,8 +891,7 @@ describe('read-only workspace Inspector', () => {
       size_bytes: 1000,
     }));
     render(<WorkspaceInspector {...options} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
-    await screen.findByLabelText('File text');
+    await openFile();
     for (let offset = 1; offset <= 2; offset += 1) {
       fireEvent.click(
         screen.getByRole('button', { name: 'Next file section' }),
@@ -529,8 +939,7 @@ describe('read-only workspace Inspector', () => {
       size_bytes: 1000,
     }));
     render(<WorkspaceInspector {...options} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
-    await screen.findByLabelText('File text');
+    await openFile();
     for (let offset = 1; offset <= 40; offset += 1) {
       fireEvent.click(
         screen.getByRole('button', { name: 'Next file section' }),
@@ -580,8 +989,7 @@ describe('read-only workspace Inspector', () => {
   it('changes page history only after successful reads, including failed forward and backward navigation', async () => {
     const options = props();
     render(<WorkspaceInspector {...options} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
-    await screen.findByLabelText('File text');
+    await openFile();
     vi.mocked(options.file).mockRejectedValueOnce(new Error('transient'));
     fireEvent.click(screen.getByRole('button', { name: 'Next file section' }));
     await screen.findByText('File unavailable');
@@ -620,28 +1028,33 @@ describe('read-only workspace Inspector', () => {
       expect.any(AbortSignal),
     );
   });
-  it('shows truthful policy and paged changes, expands only requested folders and reads bounded file sections', async () => {
+
+  it('pages changes, expands only requested folders, filters loaded files and reads bounded file sections', async () => {
     const options = props();
     render(<WorkspaceInspector {...options} />);
     expect(await screen.findByText('Fixture workspace')).toBeInTheDocument();
-    expect(screen.getByText('pytest · Not run')).toBeInTheDocument();
-    expect(screen.getByText('PID 42 · running')).toBeInTheDocument();
     expect(options.directory).toHaveBeenCalledTimes(1);
     fireEvent.click(
       await screen.findByRole('button', { name: 'More changed files' }),
     );
     expect(
-      await screen.findByRole('button', { name: 'file-1003.txt' }),
+      await screen.findByRole('button', {
+        name: 'Show changes in file-1003.txt',
+      }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'file-1.txt' }),
-    ).not.toBeInTheDocument();
+      screen.getByRole('button', { name: 'Show changes in file-1.txt' }),
+    ).toBeInTheDocument();
+    chooseTab('Files');
     fireEvent.click(screen.getByRole('button', { name: 'Open folder nested' }));
+    expect(
+      screen.getByRole('button', { name: 'Open folder nested' }),
+    ).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(
       await screen.findByRole('button', { name: 'Preview file child.txt' }),
     );
     const fileRegion = await screen.findByRole('region', { name: 'File text' });
-    expect(fileRegion).toHaveTextContent('<script>inert fixture</script>');
+    expect(fileRegion.textContent).toBe('<script>inert fixture</script>');
     expect(fileRegion).toHaveAttribute('tabindex', '0');
     fileRegion.focus();
     expect(fileRegion).toHaveFocus();
@@ -666,9 +1079,20 @@ describe('read-only workspace Inspector', () => {
         'inert fixture',
       ),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Workspace root' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter files' }), {
+      target: { value: 'child' },
+    });
+    expect(
+      screen.getByRole('button', { name: 'Preview file child.txt' }),
+    ).toHaveTextContent('nested/child.txt');
+    expect(
+      screen.queryByRole('button', { name: 'Open folder nested' }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter files' }), {
+      target: { value: '' },
+    });
     fireEvent.click(
-      await screen.findByRole('button', { name: 'More files in this folder' }),
+      screen.getAllByRole('button', { name: 'More files in this folder' })[0],
     );
     expect(
       await screen.findByRole('button', { name: 'Preview file last.txt' }),
@@ -707,7 +1131,7 @@ describe('read-only workspace Inspector', () => {
     expect(next.load).toHaveBeenCalledTimes(calls);
   });
 
-  it('waits for a refreshed snapshot before loading agent changes', async () => {
+  it('reads agent changes only for the snapshot a refresh confirmed', async () => {
     const refreshed = pending<Inspector>();
     const options = props();
     options.load = vi
@@ -716,20 +1140,19 @@ describe('read-only workspace Inspector', () => {
       .mockReturnValueOnce(refreshed.promise);
     render(<WorkspaceInspector {...options} />);
     await screen.findByText('Fixture workspace');
+    await waitFor(() => expect(options.changeSets).toHaveBeenCalledOnce());
+    expect(options.changeSets).toHaveBeenCalledWith(
+      '1',
+      undefined,
+      expect.any(AbortSignal),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Refresh inspector' }));
-    const loadChanges = screen.getByRole('button', {
-      name: 'Load agent changes',
-    });
-    expect(loadChanges).toBeDisabled();
-    fireEvent.click(loadChanges);
-    expect(options.changeSets).not.toHaveBeenCalled();
+    expect(options.changeSets).toHaveBeenCalledOnce();
     await act(async () =>
       refreshed.resolve({ ...fixture, snapshot_revision: '2' }),
     );
-    await waitFor(() => expect(loadChanges).toBeEnabled());
-    fireEvent.click(loadChanges);
-    await waitFor(() => expect(options.changeSets).toHaveBeenCalledOnce());
-    expect(options.changeSets).toHaveBeenCalledWith(
+    await waitFor(() => expect(options.changeSets).toHaveBeenCalledTimes(2));
+    expect(options.changeSets).toHaveBeenLastCalledWith(
       '2',
       undefined,
       expect.any(AbortSignal),
@@ -752,10 +1175,23 @@ describe('read-only workspace Inspector', () => {
           }),
     );
     render(<WorkspaceInspector {...options} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'file-1.txt' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Show changes in file-1.txt' }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open file-1.txt in Files' }),
+    );
+    chooseTab('Changes');
     fireEvent.click(screen.getByRole('button', { name: 'More changed files' }));
     fireEvent.click(
-      await screen.findByRole('button', { name: 'file-1003.txt' }),
+      await screen.findByRole('button', {
+        name: 'Show changes in file-1003.txt',
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Open file-1003.txt in Files',
+      }),
     );
     expect(await screen.findByLabelText('File text')).toHaveTextContent(
       'Current file',
@@ -787,7 +1223,10 @@ describe('read-only workspace Inspector', () => {
     );
     expect(await screen.findByText('Fixture workspace')).toBeInTheDocument();
     expect(screen.queryByText('private path')).not.toBeInTheDocument();
-    expect(screen.getByText('pytest · Not run')).toBeInTheDocument();
+    chooseTab('Run');
+    expect(
+      screen.getByRole('list', { name: 'Detected checks' }),
+    ).toHaveTextContent('Not run');
     expect(options.load).toHaveBeenLastCalledWith(
       true,
       expect.any(AbortSignal),
@@ -798,17 +1237,18 @@ describe('read-only workspace Inspector', () => {
     const options = props();
     render(<WorkspaceInspector {...options} />);
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Show diff file-1.txt' }),
+      await screen.findByRole('button', { name: 'Show changes in file-1.txt' }),
     );
     const diffRegion = await screen.findByRole('region', { name: 'Diff text' });
-    expect(diffRegion).toHaveTextContent('-old +new');
+    expect(diffRegion).toHaveTextContent('old');
+    expect(diffRegion).toHaveTextContent('new');
     expect(diffRegion).toHaveAttribute('tabindex', '0');
     diffRegion.focus();
     expect(diffRegion).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'Next diff section' }));
     await waitFor(() =>
       expect(screen.getByLabelText('Diff text')).toHaveTextContent(
-        '+next change',
+        'next change',
       ),
     );
     expect(options.diff).toHaveBeenLastCalledWith(
@@ -820,7 +1260,7 @@ describe('read-only workspace Inspector', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'First diff section' }));
     await waitFor(() =>
-      expect(screen.getByLabelText('Diff text')).toHaveTextContent('-old +new'),
+      expect(screen.getByLabelText('Diff text')).toHaveTextContent('old'),
     );
   });
 
@@ -828,20 +1268,31 @@ describe('read-only workspace Inspector', () => {
     const options = props();
     render(<WorkspaceInspector {...options} />);
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Load agent changes' }),
-    );
-    fireEvent.click(
       await screen.findByRole('button', { name: 'More agent changes' }),
     );
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Last changes' }),
+    const later = await screen.findByRole('region', {
+      name: 'Agent change: Last changes',
+    });
+    expect(options.changeSetFiles).not.toHaveBeenCalledWith(
+      'set-last',
+      expect.anything(),
+      undefined,
+      expect.anything(),
     );
     fireEvent.click(
-      await screen.findByRole('button', { name: 'More files in change set' }),
+      within(later).getByRole('button', { name: /Last changes/ }),
+    );
+    fireEvent.click(
+      await within(later).findByRole('button', {
+        name: 'More files in this change',
+      }),
     );
     expect(
-      await screen.findByRole('button', { name: 'last-change.txt' }),
+      await screen.findByRole('button', {
+        name: 'Show changes in last-change.txt',
+      }),
     ).toBeInTheDocument();
+    expect(later).toBeInTheDocument();
     expect(options.changeSetFiles).toHaveBeenLastCalledWith(
       'set-last',
       '1',

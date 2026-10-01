@@ -148,6 +148,25 @@ def test_delete_all_requires_exact_catalog_and_reports_cleanup_truthfully(client
     assert cleared == [True] and kg.count_entities() == 0
 
 
+def test_delete_all_of_more_than_a_hundred_entries_completes_and_counts_them_all(client, monkeypatch):
+    """Delete all on a store over 100 entries used to report it couldn't confirm (B283)."""
+    _, kg, context = client
+    monkeypatch.setattr(kg, '_skip_reindex', True)
+    from row_bot import wiki_vault
+    monkeypatch.setattr(wiki_vault, 'clear_wiki_folder', lambda: 0)
+    for index in range(105):
+        kg.save_entity('concept', f'Entry {index:03d}', 'A saved memory.')
+    command, review = reviewed_maintenance(client, 'knowledge.delete_all', [])
+    result = execute_maintenance(client, command, review)
+    assert result['status'] == 'completed'
+    assert result['deleted_count'] == 105 and len(result['deleted']) == 100
+    assert kg.count_entities() == 0
+    api, _, _ = client
+    again = api.read_knowledge_maintenance_command(owner_id=context['owner_id'], command_id=command['command_id'],
+                                                   validate=context['validate'])
+    assert again == result
+
+
 def test_maintenance_stale_review_rejects_before_deletion(client):
     _, kg, _ = client
     row = saved(client)
@@ -191,7 +210,8 @@ def test_edit_one_commit_preserves_private_metadata_and_marks_manual(client):
     assert entity['subject'] == 'Changed'
     props = json.loads(entity['properties'])
     assert props['private'] == 'keep' and props['status'] == 'active' and 'review_reason' not in props
-    assert kg._projection_state()['revision'] == before + 1
+    # One commit: the edit, plus the new subject queueing the articles that link to it.
+    assert kg._projection_state()['revision'] == before + 2
     public = api.read_entity_editor(entity['id'], validate=lambda: None)
     assert 'private' not in json.dumps(public)
 
@@ -207,14 +227,26 @@ def test_lifecycle_canonical_properties_and_journal(client, kind, status, expect
     assert evo.get_journal()[-1]['entity_id'] == original['id']
 
 
-def test_full_row_conflict_including_timestamp_less_recall_preserves_source(client):
+def test_full_row_conflict_including_timestamp_less_change_preserves_source(client):
     _, kg, _ = client
     original = saved(client)
     command = reviewed(client, 'knowledge.edit', original)
-    kg.touch_recalled([original['id']])
+    with sqlite3.connect(kg.DB_PATH) as conn:
+        conn.execute("UPDATE entities SET properties=? WHERE id=?", ('{"status": "archived"}', original['id']))
+    conn.close()
     with pytest.raises(ValueError, match='knowledge_changed'):
         execute(client, command)
     assert kg.get_entity(original['id'])['description'] == 'Original body'
+
+
+def test_recall_after_review_is_not_a_conflicting_change(client):
+    _, kg, _ = client
+    original = saved(client)
+    command = reviewed(client, 'knowledge.edit', original, changes=fields('Edited subject'))
+    kg.touch_recalled([original['id']])
+    execute(client, command)
+    assert kg.get_entity(original['id'])['subject'] == 'Edited subject'
+    assert original['id'] in kg.recall_stamps()
 
 
 def test_stale_row_after_review_before_write_admission_rejected(client, monkeypatch):

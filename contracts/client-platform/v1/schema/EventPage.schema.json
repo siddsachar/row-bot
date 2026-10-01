@@ -145,6 +145,36 @@
       "title": "AgentActivityEvent",
       "type": "object"
     },
+    "ApprovalFolderChoice": {
+      "additionalProperties": false,
+      "description": "A registered code folder a folder card offers (never its path).",
+      "properties": {
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "revision": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "name"
+      ],
+      "title": "ApprovalFolderChoice",
+      "type": "object"
+    },
     "ApprovalRequired": {
       "additionalProperties": false,
       "properties": {
@@ -204,6 +234,17 @@
           "maxLength": 1024,
           "title": "Scope",
           "type": "string"
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApprovalSetup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "status": {
           "const": "waiting_approval",
@@ -316,6 +357,47 @@
         "payload"
       ],
       "title": "ApprovalRequiredEvent",
+      "type": "object"
+    },
+    "ApprovalSetup": {
+      "additionalProperties": false,
+      "description": "An approval that sets up something the work needs (a setup card).\n\n``tool`` turns a tool on; ``folder`` and ``clone`` pause the turn while\nthe person picks a code folder, or where to clone ``repo_url``, through\nAdd resource's picker and setup path (B277).",
+      "properties": {
+        "folders": {
+          "items": {
+            "$ref": "#/$defs/ApprovalFolderChoice"
+          },
+          "maxItems": 8,
+          "title": "Folders",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "tool",
+            "folder",
+            "clone"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "repo_url": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Repo Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "ApprovalSetup",
       "type": "object"
     },
     "AttachmentBlock": {
@@ -1568,6 +1650,77 @@
       "title": "MermaidBlock",
       "type": "object"
     },
+    "Notice": {
+      "additionalProperties": false,
+      "description": "A background notice (application.app_notices): text for people only.",
+      "properties": {
+        "at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "At",
+          "type": "string"
+        },
+        "count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "id": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Id",
+          "type": "integer"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "title": "Message",
+          "type": "string"
+        },
+        "requested": {
+          "title": "Requested",
+          "type": "boolean"
+        },
+        "source": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "startup": {
+          "title": "Startup",
+          "type": "boolean"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "level",
+        "title",
+        "message",
+        "source",
+        "requested",
+        "startup",
+        "count",
+        "at"
+      ],
+      "title": "Notice",
+      "type": "object"
+    },
     "ProjectionReset": {
       "additionalProperties": false,
       "properties": {
@@ -2431,6 +2584,13 @@
           "default": null,
           "title": "Pass Id"
         },
+        "runtime_tool": {
+          "default": "",
+          "maxLength": 64,
+          "pattern": "^(designer_[a-z_]{1,55})?$",
+          "title": "Runtime Tool",
+          "type": "string"
+        },
         "safe_input": {
           "default": "",
           "maxLength": 1024,
@@ -2457,6 +2617,17 @@
           ],
           "default": null,
           "title": "Segment Id"
+        },
+        "specialization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceSpecialization"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "state": {
           "enum": [
@@ -2612,6 +2783,12 @@
           "title": "Display Name",
           "type": "string"
         },
+        "profile_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Profile Id",
+          "type": "string"
+        },
         "run_id": {
           "maxLength": 256,
           "minLength": 1,
@@ -2666,6 +2843,12 @@
           "title": "Agent Runs",
           "type": "array"
         },
+        "binding_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Binding Id",
+          "type": "string"
+        },
         "display_name": {
           "default": "",
           "maxLength": 180,
@@ -2688,7 +2871,10 @@
           "enum": [
             "skill_load",
             "delegated_agent",
-            "media"
+            "media",
+            "resource_created",
+            "resource_bound",
+            "setup_needed"
           ],
           "title": "Kind",
           "type": "string"
@@ -2718,6 +2904,38 @@
           ],
           "default": null,
           "title": "Newly Active"
+        },
+        "resource_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_kind": {
+          "default": "",
+          "enum": [
+            "",
+            "design",
+            "code"
+          ],
+          "title": "Resource Kind",
+          "type": "string"
+        },
+        "settings_page": {
+          "default": "",
+          "enum": [
+            "",
+            "accounts",
+            "channels"
+          ],
+          "title": "Settings Page",
+          "type": "string"
+        },
+        "setup_target": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Setup Target",
+          "type": "string"
         },
         "skill_id": {
           "default": "",
@@ -3003,6 +3221,19 @@
     "TranscriptRow": {
       "additionalProperties": false,
       "properties": {
+        "approval_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Id"
+        },
         "blocks": {
           "items": {
             "discriminator": {
@@ -3089,6 +3320,23 @@
           ],
           "default": null,
           "title": "Message Id"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "enum": [
+                "continuation",
+                "agent_task",
+                "agent_guidance"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
         },
         "render_revision": {
           "anyOf": [
@@ -3553,6 +3801,29 @@
       "maxItems": 4096,
       "title": "Events",
       "type": "array"
+    },
+    "notices": {
+      "items": {
+        "$ref": "#/$defs/Notice"
+      },
+      "maxItems": 64,
+      "title": "Notices",
+      "type": "array"
+    },
+    "notices_epoch": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Notices Epoch"
     },
     "snapshot": {
       "anyOf": [

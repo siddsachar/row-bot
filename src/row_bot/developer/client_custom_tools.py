@@ -172,6 +172,7 @@ def execute_custom_tool(
     # A claimed command is never silently rerun after a lost response.  Any
     # unconfirmed result remains visible through the durable receipt endpoint.
     validate()
+    status, approval = "completed", None
     if action == "inspect":
         try:
             draft = capsules.create_custom_tool_draft(
@@ -210,13 +211,28 @@ def execute_custom_tool(
         result = capsules.setup_custom_tool_python_environment(draft_id)
         summary = str(result.get("message") or ("Python setup complete." if result.get("ok") else "Python setup failed."))[:1024]
     elif action == "test":
-        result = capsules.test_custom_tool_draft_command(
-            draft_id,
-            command_name=str(payload["command_name"]),
-            approval_mode=approval_mode,
-            query=str(payload.get("query") or "")[:1024],
-        )
-        summary = "Command passed." if result.ok else ("Command failed." if result.ran else "Command requires approval or was blocked.")
+        # A command that needs approval runs only after the person approves
+        # exactly that command once (the standard approval card).
+        from row_bot.developer.client_custom_tool_library import approval_needed, approved
+        draft = _draft_for_root(draft_id, root)
+        name = str(payload["command_name"])
+        query = str(payload.get("query") or "")[:1024]
+        chosen = next((item for item in draft.commands
+                       if str(item.get("name", "")).strip().lower() == name.strip().lower()), None)
+        if chosen is None:
+            raise ClientPlatformError("invalid_custom_tool_command")
+        text = capsules.substitute_custom_tool_query(
+            str(chosen.get("command", "")), query, default_query=capsules.DEFAULT_CUSTOM_TOOL_TEST_QUERY)
+        needed = approval_needed(f"draft:{draft.id}", name, text, approval_mode)
+        if needed and not approved(f"draft:{draft.id}", name, text, payload.get("approval_nonce")):
+            status, approval = "approval_required", needed
+            summary = f"{name} needs your approval before it runs."
+        else:
+            result = capsules.test_custom_tool_draft_command(
+                draft_id, command_name=name, approval_mode=approval_mode, query=query,
+                approved_once=needed is not None)
+            summary = ("Command passed." if result.ok else "Command failed." if result.ran
+                       else "The command was blocked by your approval setting.")
     elif action == "enable":
         tool = capsules.enable_created_custom_tool_from_draft(
             draft_id, bool(payload.get("enabled", True))
@@ -236,9 +252,10 @@ def execute_custom_tool(
     validate()
     outcome = {
         "command_id": command["command_id"],
-        "status": "completed",
+        "status": status,
         "summary": summary,
         "snapshot": read_custom_tools(resource_id, conversation_id, validate=validate),
+        "approval": approval,
     }
     return admissions.complete_command(owner_id, command["command_id"], outcome)
 

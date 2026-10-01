@@ -146,9 +146,29 @@
           "title": "Action",
           "type": "string"
         },
+        "alt": {
+          "maxLength": 512,
+          "title": "Alt",
+          "type": "string"
+        },
+        "asset_id": {
+          "maxLength": 128,
+          "title": "Asset Id",
+          "type": "string"
+        },
         "id": {
           "maxLength": 256,
           "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "image",
+            "shape",
+            "layout"
+          ],
+          "title": "Kind",
           "type": "string"
         },
         "styles": {
@@ -167,13 +187,22 @@
           "maxLength": 128,
           "title": "Tag",
           "type": "string"
+        },
+        "text": {
+          "maxLength": 120,
+          "title": "Text",
+          "type": "string"
         }
       },
       "required": [
         "id",
         "tag",
         "styles",
-        "action"
+        "action",
+        "kind",
+        "text",
+        "alt",
+        "asset_id"
       ],
       "title": "DesignElement",
       "type": "object"

@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "description": "A design's published link, shown with Copy, QR and Unpublish.",
+  "properties": {
+    "link_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "local",
+            "remote_access"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Link Kind"
+    },
+    "published": {
+      "title": "Published",
+      "type": "boolean"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Published At"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "url": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Url"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "published",
+    "url",
+    "link_kind",
+    "published_at"
+  ],
+  "title": "ArtifactPublication",
+  "type": "object"
+}

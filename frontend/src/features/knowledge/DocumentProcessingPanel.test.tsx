@@ -98,7 +98,7 @@ it('starts processing in one click with the exact reviewed full scope', async ()
   render(<DocumentProcessingPanel owner={f.owner} onAdmitted={admitted} />);
   expect(f.controller.reviewDocumentProcessing).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Start processing' }));
-  await screen.findByText(/Processing admitted. Documents may still/);
+  await screen.findByText(/Processing started. Documents may still/);
   expect(f.controller.executeDocumentProcessing).toHaveBeenCalledWith('chat', {
     command_id: 'command-1',
     type: 'document.batch.process',
@@ -123,7 +123,10 @@ it('retains exact review and original across remount and conversation navigation
   f.state.selectedConversationId = 'other';
   f.notify();
   render(<DocumentProcessingPanel owner={f.owner} />);
-  expect(screen.getByText('Conversation: chat')).toBeVisible();
+  // The line names the conversation in words and keeps its id on hover.
+  expect(
+    screen.getByText('Conversation: Selected conversation'),
+  ).toHaveAttribute('title', 'chat');
   let running!: Promise<void>;
   act(() => {
     running = f.owner.confirm();

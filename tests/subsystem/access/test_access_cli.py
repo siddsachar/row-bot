@@ -3,9 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from io import StringIO
 import json
-from pathlib import Path
-import subprocess
-import sys
 from urllib.parse import parse_qs, urlsplit
 
 from row_bot.access.cli import (
@@ -62,27 +59,6 @@ def test_parser_exposes_stable_serve_and_access_help(capsys) -> None:
     assert invite.temporary is True
     assert invite.json_output is True
     assert capsys.readouterr().out == ""
-
-
-def test_importing_access_cli_does_not_import_nicegui() -> None:
-    code = (
-        "import sys; "
-        "before=set(sys.modules); "
-        "import row_bot.access.cli; "
-        "after=set(sys.modules)-before; "
-        "raise SystemExit(1 if any(n == 'nicegui' or n.startswith('nicegui.') "
-        "for n in after) else 0)"
-    )
-
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=Path(__file__).resolve().parents[3],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
 
 
 def test_invite_json_emits_secret_link_once_and_persists_only_hashes(tmp_path) -> None:

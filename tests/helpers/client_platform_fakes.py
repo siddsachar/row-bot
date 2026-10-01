@@ -231,7 +231,7 @@ class RecordedProtocolTrace:
             # Opaque proofs are transport artifacts, never executable credentials
             # in a portable fixture. Preserve equality/references, not HMACs.
             return self._identity(value)
-        if key in {"expires_at", "created_at", "updated_at"} and value:
+        if key in {"expires_at", "created_at", "updated_at", "requested_at"} and value:
             return "2030-01-01T00:00:00+00:00"
         if re.fullmatch(r"[0-9a-f]{12}", value):
             return self._identity(value)  # Existing approval owner uses short random IDs.

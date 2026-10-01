@@ -194,8 +194,23 @@ def _active_skill_rows(
     return rows
 
 
+# What the composer's palette shows after a command that takes an argument
+# ("/goal objective"), kept apart from the command's label (U19).
+_USAGE = {"goal": "objective", "reasoning": "level", "profile": "name", "agent": "task",
+          "profiles": "search", "agents": "all"}
+# Channels keep /noskill; the palette leaves it out (Skills removes a skill).
+_PALETTE_HIDDEN = {"noskill"}
+
+
+def _usage_hint(spec: slash_commands.SlashCommandSpec) -> str:
+    if spec.argument_behavior == "none":
+        return ""
+    return _USAGE.get(spec.id) or slash_commands.argument_hint(spec)
+
+
 def _command_rows(manual_skills: list, query: str, limit: int) -> tuple[list[dict], int]:
-    specs = slash_commands.get_command_specs(manual_skills=manual_skills)
+    specs = [spec for spec in slash_commands.get_command_specs(manual_skills=manual_skills)
+             if spec.id not in _PALETTE_HIDDEN]
     all_filtered = slash_commands.filter_command_specs(specs, query, limit=len(specs))
     filtered = all_filtered[:min(limit, _MAX_COMMANDS)]
     return [
@@ -208,7 +223,7 @@ def _command_rows(manual_skills: list, query: str, limit: int) -> tuple[list[dic
             "icon": spec.icon,
             "category": spec.category,
             "argument_mode": spec.argument_behavior,
-            "argument_hint": slash_commands.argument_hint(spec),
+            "argument_hint": _usage_hint(spec),
             "handler_kind": spec.handler_key,
             "skill_id": spec.skill_name or None,
         }

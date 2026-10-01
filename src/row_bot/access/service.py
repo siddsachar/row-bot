@@ -307,6 +307,7 @@ class AccessService:
         *,
         now: datetime | None = None,
         touch: bool = True,
+        address: str | None = None,
     ) -> AuthenticatedSession | None:
         parsed = parse_session_token(token)
         if parsed is None:
@@ -329,7 +330,7 @@ class AccessService:
         if device is None or device.revoked_at is not None:
             return None
         if touch:
-            self.store.touch_session(session.id, now=current)
+            self.store.touch_session(session.id, now=current, address=address)
             session = self.store.get_session(session.id) or session
             device = self.store.get_device(device.id) or device
         return AuthenticatedSession(device=device, session=session)
@@ -340,6 +341,7 @@ class AccessService:
         *,
         now: datetime | None = None,
         touch: bool = True,
+        address: str | None = None,
     ) -> AuthenticatedSession | None:
         """Validate only a reviewed, migrated legacy-mobile ``rbd`` session."""
         parsed = parse_legacy_device_token(token)
@@ -367,7 +369,7 @@ class AccessService:
         ):
             return None
         if touch:
-            self.store.touch_session(session.id, now=current)
+            self.store.touch_session(session.id, now=current, address=address)
             session = self.store.get_session(session.id) or session
             device = self.store.get_device(device.id) or device
         return AuthenticatedSession(device=device, session=session)
@@ -412,6 +414,16 @@ class AccessService:
 
     def list_invitations(self, *, limit: int = 100) -> list[AccessInvitation]:
         return self.store.list_invitations(limit=limit)
+
+    def claimed_device_ids(self, invitation_ids: list[str]) -> dict[str, str]:
+        return self.store.claimed_device_ids(invitation_ids)
+
+    def rename_device(self, device_id: str, display_name: str) -> AccessDevice | None:
+        """Rename an active device. Returns ``None`` when it is gone or revoked."""
+        name = normalize_device_name(display_name)
+        if name is None:
+            raise ValueError("invalid device name")
+        return self.store.rename_device(device_id, name)
 
     def cancel_invitation(
         self,
@@ -472,6 +484,16 @@ class AccessService:
         return invitation, secret
 
 
+def normalize_device_name(value: object) -> str | None:
+    """A device name of 1–80 printable characters, trimmed; else ``None``."""
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
+    if not name or len(name) > 80 or not name.isprintable():
+        return None
+    return name
+
+
 def session_ttl_for(lifetime: SessionLifetime | str) -> timedelta:
     normalized = SessionLifetime(lifetime)
     if normalized is SessionLifetime.TRUSTED:
@@ -525,5 +547,6 @@ __all__ = [
     "TRUSTED_SESSION_RENEWAL_WINDOW",
     "TRUSTED_SESSION_TTL",
     "canonicalize_origin",
+    "normalize_device_name",
     "session_ttl_for",
 ]

@@ -65,6 +65,7 @@ def stores(tmp_path, monkeypatch):
     return module, embedding, root, legacy, paths, active, build
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("segments,legacy", [(1, False), (3, False), (0, True), (3, True)])
 def test_one_query_embedding_per_request_across_compatible_stores(stores, segments, legacy):
     _module, embedding, _root, _legacy, _paths, _active, build = stores
@@ -78,6 +79,7 @@ def test_one_query_embedding_per_request_across_compatible_stores(stores, segmen
     assert embedding.queries == ["query", "query", "different"]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("k", [1, 2, 10])
 def test_by_vector_scores_and_order_match_original_faiss_query_path(stores, k):
     module, embedding, _root, _legacy, paths, _active, build = stores

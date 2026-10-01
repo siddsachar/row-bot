@@ -1,139 +1,202 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { clientError } from '../../api/errors';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  Eraser,
+  Square,
+  SquareArrowOutUpRight,
+  SquareTerminal,
+  X,
+} from 'lucide-react';
 import { useClientSelector, useRuntime } from '../../runtime';
-import { Button, EmptyState } from '../../ui/primitives';
+import {
+  Button,
+  EmptyState,
+  Hint,
+  IconButton,
+  Toolbar,
+} from '../../ui/primitives';
+import { terminalSession } from './terminal-session';
+import './NativeTerminal.css';
 
-const OUTPUT_LIMIT = 256 * 1024;
-
-export default function NativeTerminal({ visible }: { visible: boolean }) {
+/**
+ * The desktop terminal (B248): a real terminal (xterm.js) on the person's
+ * own shell. Keys go straight to the shell, output keeps its colours and
+ * cursor, and the scrollback stays while the dock is closed.
+ */
+export default function NativeTerminal({
+  onClose,
+  focusKey = 0,
+}: {
+  onClose: () => void;
+  /** Each new value moves the keyboard focus into the terminal. */
+  focusKey?: number;
+}) {
   const conversationId = useClientSelector(
     (value) => value.selectedConversationId,
   );
   const { controller, platform } = useRuntime();
-  const [terminalId, setTerminalId] = useState('');
-  const [output, setOutput] = useState('');
-  const [input, setInput] = useState('');
-  const [error, setError] = useState('');
-  const [truncated, setTruncated] = useState(false);
-  const cursor = useRef(0);
-  const outputRef = useRef<HTMLPreElement>(null);
+  const session = terminalSession(controller, platform);
+  const state = useSyncExternalStore(session.subscribe, session.snapshot);
+  const host = useRef<HTMLDivElement>(null);
+  // Only the desktop app can open the person's own terminal app.
+  const [external, setExternal] = useState(false);
+  const [externalError, setExternalError] = useState('');
 
   useEffect(() => {
     let alive = true;
-    let terminal = '';
-    const abort = new AbortController();
-    void platform.openTerminal(conversationId).then(async (result) => {
-      if (!alive) return;
-      if (result.status !== 'ok') {
-        setError(
-          'The interactive terminal requires the trusted desktop window.',
-        );
-        return;
-      }
-      terminal = result.value.terminalId;
-      setTerminalId(terminal);
-      try {
-        await controller.terminalResize(terminal, 120, 30, abort.signal);
-      } catch (cause) {
-        if (alive) setError(clientError(cause).message);
-      }
+    setExternal(false);
+    void platform
+      .discover()
+      .then((result) => {
+        if (alive)
+          setExternal(
+            result.status === 'ok' &&
+              result.value.kind === 'pywebview' &&
+              result.value.capabilities.includes('terminal_external'),
+          );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [platform]);
+
+  useLayoutEffect(() => {
+    const element = host.current!;
+    const detach = session.attach(element);
+    const observer = new ResizeObserver(() => session.layout());
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      detach();
+    };
+  }, [session]);
+
+  // Opened once for the page (later calls keep it); closing the dock keeps it.
+  useEffect(() => {
+    void session.connect(conversationId);
+  }, [session, conversationId]);
+
+  useEffect(() => {
+    if (focusKey) session.focus();
+  }, [session, focusKey]);
+
+  useEffect(() => {
+    session.applyTheme();
+    const observer = new MutationObserver(() => session.applyTheme());
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-accent'],
     });
-    return () => {
-      alive = false;
-      abort.abort();
-      if (terminal)
-        void controller.terminalDisconnect(terminal).catch(() => {});
-    };
-  }, [controller, conversationId, platform]);
+    return () => observer.disconnect();
+  }, [session]);
 
-  useEffect(() => {
-    if (!visible || !terminalId) return;
-    let alive = true;
-    let timer = 0;
-    const abort = new AbortController();
-    const poll = async () => {
-      try {
-        const value = await controller.terminalRead(
-          terminalId,
-          cursor.current,
-          abort.signal,
-        );
-        if (!alive) return;
-        cursor.current = value.cursor;
-        if (value.truncated) setTruncated(true);
-        const next = value.frames.map((frame) => frame.data).join('');
-        if (next)
-          setOutput((previous) => (previous + next).slice(-OUTPUT_LIMIT));
-        timer = window.setTimeout(poll, value.latest > value.cursor ? 0 : 100);
-      } catch (cause) {
-        if (alive) setError(clientError(cause).message);
-      }
-    };
-    void poll();
-    return () => {
-      alive = false;
-      abort.abort();
-      window.clearTimeout(timer);
-    };
-  }, [controller, terminalId, visible]);
-
-  useEffect(() => {
-    const element = outputRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [output]);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!terminalId || !input) return;
-    const value = input;
-    setInput('');
-    try {
-      await controller.terminalInput(terminalId, `${value}\r`);
-    } catch (cause) {
-      setError(clientError(cause).message);
-    }
+  async function openExternal() {
+    setExternalError('');
+    const result = await platform.openExternalTerminal(conversationId);
+    if (result.status === 'unavailable')
+      setExternalError('Row-Bot couldn’t open your terminal app.');
   }
 
-  if (!visible) return null;
-  if (error && !terminalId)
-    return <EmptyState title="Terminal unavailable">{error}</EmptyState>;
+  const reconnect = () => void session.reconnect(conversationId);
+  const unavailable = state.status === 'failed' && !state.started;
   return (
-    <section
-      className="native-terminal stack"
-      aria-label="Interactive terminal"
-    >
-      <div className="button-row">
-        <strong>Interactive terminal</strong>
-        <small>
-          {terminalId ? 'Connected to the local PTY' : 'Connecting…'}
-        </small>
-      </div>
-      {truncated && (
-        <p role="status">
-          Earlier terminal output was dropped to preserve bounds.
+    <section className="native-terminal" aria-label="Terminal">
+      <header className="native-terminal-header">
+        <h2 className="native-terminal-title">
+          <SquareTerminal size={14} aria-hidden />
+          Terminal
+        </h2>
+        {state.status === 'connecting' && (
+          <span className="native-terminal-status" role="status">
+            Connecting…
+          </span>
+        )}
+        <Toolbar label="Terminal actions" className="native-terminal-actions">
+          <Hint label="Stop" shortcut="Ctrl+C">
+            <Button
+              iconOnly
+              variant="ghost"
+              className="icon-action icon-action-sm"
+              aria-label="Stop the running command"
+              aria-keyshortcuts="Control+C"
+              disabled={state.status !== 'open'}
+              onClick={() => session.interrupt()}
+            >
+              <Square size={14} aria-hidden />
+            </Button>
+          </Hint>
+          <IconButton
+            size="sm"
+            label="Clear"
+            disabled={!state.started}
+            onClick={() => session.clear()}
+          >
+            <Eraser size={14} aria-hidden />
+          </IconButton>
+          {external && (
+            <IconButton
+              size="sm"
+              label="Open in your terminal"
+              onClick={() => void openExternal()}
+            >
+              <SquareArrowOutUpRight size={14} aria-hidden />
+            </IconButton>
+          )}
+          <IconButton
+            size="sm"
+            label="Close terminal"
+            shortcut="Ctrl+`"
+            onClick={onClose}
+          >
+            <X size={14} aria-hidden />
+          </IconButton>
+        </Toolbar>
+      </header>
+      {state.status === 'ended' && (
+        <p className="native-terminal-notice" role="status">
+          The terminal session ended.
+          <Button variant="ghost" onClick={reconnect}>
+            Start again
+          </Button>
         </p>
       )}
-      <pre ref={outputRef} className="native-terminal-output" tabIndex={0}>
-        {output || 'Terminal output will appear here.'}
-      </pre>
-      <form
-        className="native-terminal-input"
-        onSubmit={(event) => void submit(event)}
-      >
-        <label htmlFor="native-terminal-command">Terminal input</label>
-        <input
-          id="native-terminal-command"
-          value={input}
-          maxLength={16384}
-          autoComplete="off"
-          disabled={!terminalId}
-          onChange={(event) => setInput(event.currentTarget.value)}
-        />
-        <Button type="submit" disabled={!terminalId || !input}>
-          Send
-        </Button>
-      </form>
-      {error && <p role="alert">{error}</p>}
+      {state.status === 'failed' && state.started && (
+        <p className="native-terminal-notice" role="alert">
+          {state.error}
+          {state.recoverable && (
+            <Button variant="ghost" onClick={reconnect}>
+              Reconnect
+            </Button>
+          )}
+        </p>
+      )}
+      {state.truncated && (
+        <p className="native-terminal-notice" role="status">
+          Some earlier output is no longer shown.
+        </p>
+      )}
+      {externalError && (
+        <p className="native-terminal-notice" role="alert">
+          {externalError}
+        </p>
+      )}
+      {unavailable && (
+        <EmptyState
+          title="Terminal unavailable"
+          action={
+            state.recoverable && <Button onClick={reconnect}>Reconnect</Button>
+          }
+        >
+          {state.error}
+        </EmptyState>
+      )}
+      <div ref={host} className="native-terminal-screen" hidden={unavailable} />
     </section>
   );
 }

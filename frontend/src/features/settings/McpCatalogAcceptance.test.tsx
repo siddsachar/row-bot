@@ -81,8 +81,8 @@ async function accept() {
 it('reads only the exact Test and displays mandatory approval', async () => {
   const props = options();
   render(<McpCatalogAcceptance {...props} />);
-  await screen.findByText('2 matching tested tools.');
-  expect(screen.getByText(/Approval required/)).toBeVisible();
+  await screen.findByText('2 tools found.');
+  expect(screen.getByText(/asks first/)).toBeVisible();
   expect(props.load).toHaveBeenCalledWith(
     {
       server_id: serverId,
@@ -100,7 +100,7 @@ it('one-click acceptance preserves the original exact source', async () => {
   const props = options();
   render(<McpCatalogAcceptance {...props} />);
   await accept();
-  await screen.findByText(/Tested tools accepted/);
+  await screen.findByText(/Tools accepted/);
   expect(props.execute.mock.calls[0][0].payload).toEqual({
     configuration_revision: page.configuration_revision,
     server_id: serverId,
@@ -119,13 +119,13 @@ it('pages replace bounded rows and First uses the changed filter', async () => {
       total: 60,
     });
   render(<McpCatalogAcceptance {...props} />);
-  await screen.findByText('60 matching tested tools.');
+  await screen.findByText('60 tools found.');
   fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
   await screen.findByText('last tool');
   expect(screen.queryByText('get_record')).not.toBeInTheDocument();
   expect(props.load.mock.calls[1][0].cursor).toBe('next');
   fireEvent.change(
-    screen.getByRole('textbox', { name: 'Filter tested tools' }),
+    screen.getByRole('searchbox', { name: 'Filter tested tools' }),
     { target: { value: 'last' } },
   );
   fireEvent.click(screen.getByRole('button', { name: 'First page' }));
@@ -160,9 +160,7 @@ it('requires manual selection when the canonical overlap owner says so', async (
     items: [],
   });
   render(<McpCatalogAcceptance {...props} />);
-  await screen.findByText(
-    /New tools remain disabled until individually enabled/,
-  );
+  await screen.findByText(/New tools stay off until you turn each one on/);
 });
 
 it.each(['unavailable', 'stale', 'recovery_required'])(
@@ -171,7 +169,9 @@ it.each(['unavailable', 'stale', 'recovery_required'])(
     const props = options();
     props.load.mockResolvedValue({ ...page, availability });
     render(<McpCatalogAcceptance {...props} />);
-    await screen.findByText(/Catalog:/);
+    await screen.findByText(
+      /Test it again|needs to finish first|Test the server again/,
+    );
     expect(screen.getByRole('button', { name: 'Accept tools' })).toBeDisabled();
     expect(props.execute).not.toHaveBeenCalled();
   },
@@ -182,7 +182,7 @@ it('retains an uncertain original across remount and never creates another accep
   props.execute.mockRejectedValueOnce(Error('response lost'));
   const rendered = render(<McpCatalogAcceptance {...props} />);
   await accept();
-  await screen.findByText(/original acceptance is unconfirmed/);
+  await screen.findByText(/couldn't confirm the tools were accepted/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
   render(<McpCatalogAcceptance {...props} />);
@@ -190,7 +190,7 @@ it('retains an uncertain original across remount and never creates another accep
   fireEvent.click(
     screen.getByRole('button', { name: 'Check original acceptance' }),
   );
-  await screen.findByText(/Tested tools accepted/);
+  await screen.findByText(/Tools accepted/);
   expect(props.execute.mock.calls[1]).toEqual(original);
 });
 

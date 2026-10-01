@@ -17,6 +17,9 @@ from typing import Any
 
 
 _PUBLIC_REFERENCE = re.compile(r"^[A-Za-z0-9:_-]{1,256}$")
+# Inputs the server started, shown as a short note instead of the person's
+# bubble: a follow-up step, a delegated agent's task and its parent's messages.
+PUBLIC_NOTES = frozenset({"continuation", "agent_task", "agent_guidance"})
 
 
 @dataclass(frozen=True)
@@ -307,6 +310,8 @@ class BlobReader:
         attachments: list[dict[str, Any]] = []
         media: list[dict[str, Any]] = []
         media_error = ""
+        note = ""
+        approval_id = ""
         if "additional_kwargs" in fields:
             metadata = self.fields(
                 fields["additional_kwargs"],
@@ -315,14 +320,28 @@ class BlobReader:
                     "platform_attachments",
                     "platform_media",
                     "platform_media_error",
+                    "platform_note",
+                    "row_bot_ui",
                 },
             )
             if name == "HumanMessage":
                 public_position = metadata.get("platform_public_content")
                 if public_position is not None and self.node(public_position).kind == "str":
                     content_position = public_position
+                if "platform_note" in metadata:
+                    candidate = self.text(metadata["platform_note"], 32)
+                    if candidate in PUBLIC_NOTES:
+                        note = candidate
                 if "platform_attachments" in metadata:
                     attachments = self.safe_attachments(metadata["platform_attachments"])
+            elif name == "AIMessage" and "row_bot_ui" in metadata:
+                # A delegated agent's approval notice in its parent (B162):
+                # the row names the approval, so React answers it in place.
+                ui = self.fields(metadata["row_bot_ui"], {"approval_request_id"})
+                if "approval_request_id" in ui:
+                    candidate = self.text(ui["approval_request_id"], 128)
+                    if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", candidate):
+                        approval_id = candidate
             elif name == "ToolMessage":
                 if "platform_media" in metadata:
                     media, media_error = self.safe_platform_media(metadata["platform_media"])
@@ -334,7 +353,8 @@ class BlobReader:
                 "tool_call_ids": tool_ids, "tool_calls": tool_calls,
                 "tool_calls_position": fields.get("tool_calls"), "tool_ids_lazy": tool_ids_lazy,
                 "tool_call_id": self.text(fields["tool_call_id"]) if "tool_call_id" in fields else "",
-                "attachments": attachments, "media": media, "media_error": media_error}
+                "attachments": attachments, "media": media, "media_error": media_error, "note": note,
+                "approval_id": approval_id}
 
     def _json_string(self, position: int) -> Iterator[bytes]:
         node = self.node(position)
@@ -468,6 +488,10 @@ class BlobReader:
             row["media"] = record["media"]
         if record.get("media_error"):
             row["media_error"] = record["media_error"]
+        if record.get("note"):
+            row["note"] = record["note"]
+        if record.get("approval_id"):
+            row["approval_id"] = record["approval_id"]
         content = bytearray()
         for chunk in self.content_chunks(record):
             if len(content) + len(chunk) > maximum:

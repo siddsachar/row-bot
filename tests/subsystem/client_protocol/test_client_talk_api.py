@@ -67,6 +67,7 @@ def url(api, snapshot, mode='talk', action=''):
     return api.base + mode + '/' + snapshot['handle']['lease_id'] + ('/' + action if action else '')
 
 
+@pytest.mark.slow
 def test_actual_talk_transcription_normal_chat_final_speech_and_exclusive_stop(api):
     barrier = StreamBarrier()
     api.service.stream_factory = ScriptedAgentStream((barrier, ('token', 'Saved voice answer'),
@@ -146,6 +147,7 @@ def test_stale_conversation_context_rejects_before_local_or_remote_start(api):
     assert not api.effects and not api.voice.effects
 
 
+@pytest.mark.slow
 def test_realtime_fallback_duplicates_are_scoped_to_transcript_item_and_new_turn_is_real(api):
     import json
     barrier = StreamBarrier()
@@ -182,6 +184,7 @@ def test_realtime_fallback_duplicates_are_scoped_to_transcript_item_and_new_turn
         assert handle.producer_done.wait(5)
 
 
+@pytest.mark.slow
 def test_realtime_very_fast_owned_run_keeps_lease_and_saved_generation_identity(api):
     api.service.stream_factory = ScriptedAgentStream((('token', 'Fast answer'),
         CheckpointCommit((AIMessage(id='fast-output', content='Fast answer'),), 'fast-output'), ('done', None))).stream

@@ -35,6 +35,8 @@ def test_missing_store_is_passive_and_does_not_create_it(tmp_path, monkeypatch):
         "revision": commands._revision([]),
         "availability": "available",
         "items": [],
+        "installed_count": 0,
+        "attention_count": 0,
         "total": 0,
         "next_cursor": None,
     }
@@ -64,11 +66,14 @@ def test_reads_installed_and_cached_marketplace_without_paths_or_secrets(
         json.dumps(
             {
                 "schema_version": 2,
+                "source": "https://github.com/example-owner/row-bot-plugins",
                 "plugins": [
                     {
                         "id": "sample-plugin",
                         "name": "Sample Plugin",
                         "version": "1.2.0",
+                        "path": "plugins/sample-plugin",
+                        "checksum": "sha256:" + "c" * 64,
                     },
                     {
                         "id": "cached-plugin",
@@ -78,6 +83,8 @@ def test_reads_installed_and_cached_marketplace_without_paths_or_secrets(
                         "verified": True,
                         "permissions": ["network"],
                         "provides": {"skills": 2},
+                        "path": "plugins/cached-plugin",
+                        "checksum": "sha256:" + "d" * 64,
                     },
                 ],
             }
@@ -113,6 +120,38 @@ def test_reads_installed_and_cached_marketplace_without_paths_or_secrets(
     assert "super-secret-value" not in public
     assert "D:/private/work" not in public
     assert "source_ref" not in public and "installed_plugins" not in public
+
+
+def _guide(plugin_modules) -> str:
+    return commands.read_plugin_detail("sample-plugin", validate=_valid)["guide"]
+
+
+def test_plugin_guide_is_the_plain_bounded_readme(plugin_modules):
+    readme = _installed(plugin_modules) / "README.md"
+
+    readme.write_bytes(b"# Setup\n\tStep one\x07 done\x1b[0m\n")
+    assert _guide(plugin_modules) == "# Setup\n\tStep one done[0m\n"
+
+    readme.write_bytes(b"x" * 40_000)
+    assert _guide(plugin_modules) == "x" * 32_768
+
+    readme.write_bytes(b"y" * (256 * 1024))
+    assert _guide(plugin_modules) == "y" * 32_768
+
+    readme.write_bytes(b"z" * (256 * 1024 + 1))
+    assert _guide(plugin_modules) == ""
+
+
+def test_plugin_guide_never_follows_a_linked_readme(plugin_modules, tmp_path):
+    readme = _installed(plugin_modules) / "README.md"
+    private = tmp_path / "private-notes.md"
+    private.write_bytes(b"PRIVATE LOCAL NOTES")
+    try:
+        readme.symlink_to(private)
+    except OSError:
+        pytest.skip("symlinks are not available")
+
+    assert _guide(plugin_modules) == ""
 
 
 def test_catalog_is_bounded_and_cursor_is_revision_bound(plugin_modules):
@@ -476,3 +515,31 @@ def test_reviewed_local_self_test_unlocks_enablement_without_loading_plugin(
     current = commands.read_plugin_detail("sample-plugin", validate=_valid)
     assert current["health"]["status"] == "passed"
     assert current["capabilities"]["enable"]["available"] is True
+
+
+def test_enabled_plugin_that_failed_to_load_is_not_reported_passed(
+    plugin_modules, monkeypatch
+):
+    # A plugin can pass its last explicit test and still fail to load (for
+    # example an unprepared worker environment); the catalog says so.
+    _installed(plugin_modules)
+    state, loader = plugin_modules["state"], plugin_modules["loader"]
+    state.set_plugin_health_result(
+        "sample-plugin", ok=True, checks=[{"label": "Setup", "status": "ok"}]
+    )
+    state.set_plugin_enabled("sample-plugin", True)
+
+    class Failed:
+        plugin_id = "sample-plugin"
+        success = False
+        stale = False
+
+    monkeypatch.setattr(loader, "get_load_results", lambda: [Failed()])
+    item = commands.read_plugin_catalog(validate=_valid)["items"][0]
+    assert item["enabled"] is True
+    assert item["health"] == "load_failed"
+    detail = commands.read_plugin_detail("sample-plugin", validate=_valid)
+    assert detail["health"]["status"] == "load_failed"
+
+    monkeypatch.setattr(loader, "get_load_results", lambda: [])
+    assert commands.read_plugin_catalog(validate=_valid)["items"][0]["health"] == "passed"

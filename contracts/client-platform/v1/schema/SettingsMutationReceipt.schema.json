@@ -17,6 +17,8 @@
           "enum": [
             "not_configured",
             "not_authenticated",
+            "connected",
+            "invalid",
             "configured_unchecked",
             "saved_unchecked",
             "expired",
@@ -24,6 +26,19 @@
           ],
           "title": "Authentication State",
           "type": "string"
+        },
+        "callback_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Callback Url"
         },
         "configured": {
           "title": "Configured",
@@ -455,6 +470,12 @@
         },
         "memory_index": {
           "$ref": "#/$defs/DocumentRuntimeStatus"
+        },
+        "processing_model": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Processing Model",
+          "type": "string"
         }
       },
       "required": [
@@ -1230,6 +1251,51 @@
         "buddy": {
           "$ref": "#/$defs/BuddySettingsSnapshot"
         },
+        "defaults": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "enum": [
+              "voice",
+              "system",
+              "tracker",
+              "knowledge",
+              "documents",
+              "tools",
+              "accounts",
+              "utilities",
+              "preferences"
+            ]
+          },
+          "title": "Defaults",
+          "type": "object"
+        },
         "documents": {
           "$ref": "#/$defs/DocumentSettingsSnapshot"
         },
@@ -1308,6 +1374,19 @@
         "credential": {
           "$ref": "#/$defs/SettingsCredentialState"
         },
+        "last_error": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        },
         "local_owner_control_available": {
           "title": "Local Owner Control Available",
           "type": "boolean"
@@ -1334,7 +1413,13 @@
           "type": "string"
         },
         "runtime_state": {
-          "const": "not_checked",
+          "enum": [
+            "active",
+            "failed",
+            "idle",
+            "not_configured",
+            "not_checked"
+          ],
           "title": "Runtime State",
           "type": "string"
         }
@@ -1701,15 +1786,6 @@
           "const": "cached",
           "title": "Runtime State",
           "type": "string"
-        },
-        "skipped_versions": {
-          "items": {
-            "maxLength": 256,
-            "type": "string"
-          },
-          "maxItems": 128,
-          "title": "Skipped Versions",
-          "type": "array"
         }
       },
       "required": [
@@ -1717,7 +1793,6 @@
         "channel",
         "last_check",
         "last_success",
-        "skipped_versions",
         "runtime_state"
       ],
       "title": "UpdateSettingsSnapshot",
@@ -1805,6 +1880,11 @@
         },
         "sensevoice_path_configured": {
           "title": "Sensevoice Path Configured",
+          "type": "boolean"
+        },
+        "whisper_installed": {
+          "default": false,
+          "title": "Whisper Installed",
           "type": "boolean"
         },
         "whisper_model": {
@@ -2058,6 +2138,17 @@
           "title": "Path State",
           "type": "string"
         },
+        "tidy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WikiTidySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "vault_path": {
           "maxLength": 4096,
           "title": "Vault Path",
@@ -2073,6 +2164,49 @@
         "conversations"
       ],
       "title": "WikiSettingsSnapshot",
+      "type": "object"
+    },
+    "WikiTidySummary": {
+      "additionalProperties": false,
+      "description": "The vault's one-time naming tidy: readable articles, hashed copies moved.",
+      "properties": {
+        "date": {
+          "maxLength": 32,
+          "title": "Date",
+          "type": "string"
+        },
+        "folder": {
+          "maxLength": 512,
+          "title": "Folder",
+          "type": "string"
+        },
+        "moved": {
+          "minimum": 0,
+          "title": "Moved",
+          "type": "integer"
+        },
+        "review": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Review",
+          "type": "array"
+        },
+        "tidied": {
+          "minimum": 0,
+          "title": "Tidied",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "date",
+        "tidied",
+        "moved",
+        "folder"
+      ],
+      "title": "WikiTidySummary",
       "type": "object"
     }
   },

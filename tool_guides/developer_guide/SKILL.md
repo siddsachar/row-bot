@@ -2,7 +2,7 @@
 name: developer_guide
 display_name: Developer Guide
 icon: "code"
-description: Guidance for using Developer Studio tools to inspect, edit, test, and review code workspaces safely.
+description: Guidance for using the Developer tools to inspect, edit, test, and review code folders safely.
 tools:
   - developer
 tags:
@@ -12,7 +12,7 @@ tags:
 
 # Developer Tool Guide
 
-Use the Developer tools whenever the active thread is a Developer Studio code thread. They are scoped to the selected workspace, follow the workspace approval mode, and keep the Developer Inspector in sync.
+Use the Developer tools whenever the active conversation has a code folder. They are scoped to the selected workspace, follow the workspace approval mode, and keep the Developer Inspector in sync.
 
 ## Default Workflow
 
@@ -37,7 +37,7 @@ Avoid silent chains of tools when the user would otherwise have no sense of what
 
 ## Shell Use
 
-Shell is allowed in Developer Studio, but use it deliberately:
+Shell is allowed in a code folder, but use it deliberately:
 
 - Prefer read/search/native Developer tools for repo inspection.
 - Use shell for test runs, build commands, git commands, package-manager commands, generated artifacts, and repo-specific scripts.

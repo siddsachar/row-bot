@@ -7,10 +7,12 @@ import {
 } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import McpPolicyControls, {
+  McpGlobalSwitch,
   createMcpPolicySession,
   type McpPolicyPage,
 } from './McpPolicyControls';
 import type { McpConfigurationReceipt } from './CapabilitySettings';
+import { mcpRevision } from './mcp-revision';
 
 const serverId = 'a'.repeat(64);
 const page: McpPolicyPage = {
@@ -50,10 +52,12 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-function options() {
+function options(scope: string | null = serverId) {
   return {
-    session: createMcpPolicySession(serverId),
-    load: vi.fn().mockResolvedValue(page),
+    session: createMcpPolicySession(scope),
+    load: vi
+      .fn()
+      .mockResolvedValue(scope ? page : { ...page, server_id: null }),
     review: vi.fn().mockImplementation(async (payload) => ({
       configuration_revision: payload.configuration_revision,
       action_digest: 'e'.repeat(64),
@@ -71,31 +75,57 @@ function options() {
     })),
   };
 }
-async function selectPermission(button = 'Disable Server access') {
-  await screen.findByRole('button', { name: button });
-  fireEvent.click(screen.getByRole('button', { name: button }));
+/** Each permission is a switch; flipping it reviews and saves in one step. */
+async function flip(name = 'Server access') {
+  const control = await screen.findByRole('switch', { name });
+  await waitFor(() => expect(control).toBeEnabled());
+  fireEvent.click(control);
 }
+
+it('reads permissions again when another MCP panel saves, and after a conflict retries once', async () => {
+  const props = options();
+  render(<McpPolicyControls {...props} />);
+  await screen.findByText('1 of 2 on');
+  const fresh = { ...page, revision: '9'.repeat(64) };
+  props.load.mockResolvedValue(fresh);
+  act(() => mcpRevision.saved('another panel'));
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  props.review.mockRejectedValueOnce({
+    code: 'revision_conflict',
+    status: 409,
+  });
+  props.load.mockResolvedValue({ ...page, revision: '8'.repeat(64) });
+  await flip();
+  await screen.findByText('Permission saved.');
+  expect(
+    props.review.mock.calls.map((call) => call[0].configuration_revision),
+  ).toEqual(['9'.repeat(64), '8'.repeat(64)]);
+  expect(props.execute).toHaveBeenCalledOnce();
+});
 
 it('only reads saved policy on mount and preserves mandatory approval', async () => {
   const props = options();
   render(<McpPolicyControls {...props} />);
-  await screen.findByText('2 saved tool permissions.');
-  expect(
-    screen.getByRole('button', { name: 'Disable delete_record approval' }),
-  ).toBeDisabled();
-  expect(screen.getByText(/do not connect, test or disconnect/)).toBeVisible();
+  await screen.findByText('1 of 2 on');
+  expect(screen.getByRole('switch', { name: 'Use read' })).toBeChecked();
+  const locked = screen.getByRole('switch', {
+    name: 'Ask before delete_record runs',
+  });
+  expect(locked).toBeChecked();
+  expect(locked).toBeDisabled();
+  expect(screen.getByText('Always asks first')).toBeVisible();
+  expect(screen.getByText('Changes things')).toBeVisible();
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
 });
 
 it.each([
-  ['Disable MCP access', { operation: 'global_enabled', enabled: false }],
   [
-    'Disable Server access',
+    'Server access',
     { operation: 'server_enabled', server_id: serverId, enabled: false },
   ],
   [
-    'Disable read access',
+    'Use read',
     {
       operation: 'tool_enabled',
       server_id: serverId,
@@ -104,7 +134,7 @@ it.each([
     },
   ],
   [
-    'Enable read approval',
+    'Ask before read runs',
     {
       operation: 'tool_approval',
       server_id: serverId,
@@ -113,7 +143,7 @@ it.each([
     },
   ],
   [
-    'Disable Resource access',
+    'Resource access',
     {
       operation: 'utility_enabled',
       server_id: serverId,
@@ -122,7 +152,7 @@ it.each([
     },
   ],
   [
-    'Enable Prompt access',
+    'Prompt access',
     {
       operation: 'utility_enabled',
       server_id: serverId,
@@ -132,35 +162,70 @@ it.each([
   ],
 ] as const)(
   'saves %s with an exact intent in one click',
-  async (button, intent) => {
+  async (name, intent) => {
     const props = options();
     render(<McpPolicyControls {...props} />);
-    await selectPermission(button);
+    await flip(name);
     await screen.findByText(/Permission saved/);
     expect(props.execute.mock.calls[0][0].payload).toEqual({
       configuration_revision: page.revision,
       intent,
     });
-    expect(
-      screen.getByText(/Connection cleanup was not requested/),
-    ).toBeVisible();
+    // The saved permissions are read again with the new revision.
+    await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Permission saved.')).toBeVisible();
     expect(props.session.hasRetained()).toBe(false);
   },
 );
+
+it('"Use MCP servers" turns MCP off with the same reviewed change', async () => {
+  const props = options(null);
+  render(<McpGlobalSwitch {...props} />);
+  const control = await screen.findByRole('switch', {
+    name: 'Use MCP servers',
+  });
+  await waitFor(() => expect(control).toBeChecked());
+  await flip('Use MCP servers');
+  await screen.findByText('Permission saved.');
+  expect(props.execute.mock.calls[0][0].payload).toEqual({
+    configuration_revision: page.revision,
+    intent: { operation: 'global_enabled', enabled: false },
+  });
+});
+
+it('shows the change being saved on its switch, then the saved value', async () => {
+  const props = options();
+  const response = deferred<McpConfigurationReceipt>();
+  props.execute.mockReturnValue(response.promise);
+  render(<McpPolicyControls {...props} />);
+  await flip('Prompt access');
+  await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
+  const control = screen.getByRole('switch', { name: 'Prompt access' });
+  expect(control).toBeChecked();
+  expect(control).toBeDisabled();
+  props.load.mockResolvedValue({ ...page, prompts_enabled: true });
+  await act(async () =>
+    response.resolve({
+      command_id: props.execute.mock.calls[0][0].command_id,
+      status: 'completed',
+      mcp_configuration: { status: 'saved', revision: 'f'.repeat(64) },
+    }),
+  );
+  await waitFor(() => expect(control).toBeEnabled());
+  expect(control).toBeChecked();
+});
 
 it('retains exact uncertain intent and review across remount, without blind re-save', async () => {
   const props = options();
   props.execute.mockRejectedValueOnce(Error('synthetic response lost'));
   const first = render(<McpPolicyControls {...props} />);
-  await selectPermission();
+  await flip();
   await screen.findByText(/Save outcome is uncertain/);
   const original = props.execute.mock.calls[0];
   first.unmount();
   render(<McpPolicyControls {...props} />);
   expect(props.execute).toHaveBeenCalledTimes(1);
-  expect(
-    screen.getByRole('button', { name: 'Disable MCP access' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('switch', { name: 'Server access' })).toBeDisabled();
   expect(
     screen.getByRole('button', { name: 'Discard selected change' }),
   ).toBeDisabled();
@@ -177,7 +242,7 @@ it('retains a pending command through unmount and late success', async () => {
   const pending = deferred<McpConfigurationReceipt>();
   props.execute.mockReturnValue(pending.promise);
   const first = render(<McpPolicyControls {...props} />);
-  await selectPermission();
+  await flip();
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   const original = props.execute.mock.calls[0][0];
   first.unmount();
@@ -201,7 +266,7 @@ it('does not resurrect a saved draft or receipt after authentication purge', asy
   const pending = deferred<McpConfigurationReceipt>();
   props.execute.mockReturnValue(pending.promise);
   render(<McpPolicyControls {...props} />);
-  await selectPermission();
+  await flip();
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   act(() => props.session.dispose());
   await act(async () =>
@@ -234,14 +299,14 @@ it('replaces pages, provides First and refuses oversized or wrong-scope data', a
   render(<McpPolicyControls {...props} />);
   await screen.findByRole('button', { name: 'Next permission page' });
   fireEvent.click(screen.getByRole('button', { name: 'Next permission page' }));
-  await screen.findByRole('button', { name: 'Disable delete_record approval' });
+  await screen.findByRole('switch', { name: 'Ask before delete_record runs' });
   expect(
-    screen.queryByRole('button', { name: 'Disable read access' }),
+    screen.queryByRole('switch', { name: 'Use read' }),
   ).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole('button', { name: 'First permission page' }),
   );
-  await screen.findByRole('button', { name: 'Disable read access' });
+  await screen.findByRole('switch', { name: 'Use read' });
   expect(props.load.mock.calls[2][0].cursor).toBeUndefined();
   fireEvent.click(screen.getByRole('button', { name: 'Refresh permissions' }));
   await screen.findByText(/Saved permissions are unavailable or changed/);
@@ -259,13 +324,12 @@ it('does not enable a stale review or replay rejected commands', async () => {
     status: 'rejected',
   }));
   render(<McpPolicyControls {...props} />);
-  await screen.findByRole('button', { name: 'Disable Server access' });
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Disable Server access' }),
-  );
+  await flip();
   await screen.findByText(/permission could not be validated/);
   expect(props.execute).not.toHaveBeenCalled();
-  await selectPermission();
+  // The switch shows the saved value again, not the change that failed.
+  expect(screen.getByRole('switch', { name: 'Server access' })).toBeChecked();
+  await flip();
   await screen.findByText(/Permission change rejected/);
   expect(props.session.getSnapshot().pending).toBeNull();
   expect(
@@ -274,21 +338,19 @@ it('does not enable a stale review or replay rejected commands', async () => {
 });
 
 it('keeps unknown states explicit and blocks new changes during configuration recovery', async () => {
-  const props = options();
+  const props = options(null);
   props.load.mockResolvedValue({
     ...page,
+    server_id: null,
     availability: 'recovery_required',
     global_enabled: null,
     total: null,
   });
-  render(<McpPolicyControls {...props} />);
+  render(<McpGlobalSwitch {...props} />);
   await screen.findByText(/interrupted configuration save needs recovery/);
-  expect(screen.getByText('MCP access: Unknown.')).toBeVisible();
+  expect(screen.getByText('status unknown')).toBeVisible();
   expect(
-    screen.getByRole('button', { name: 'Enable MCP access' }),
-  ).toBeDisabled();
-  expect(
-    screen.getByRole('button', { name: 'Disable MCP access' }),
+    screen.getByRole('switch', { name: 'Use MCP servers' }),
   ).toBeDisabled();
   expect(props.execute).not.toHaveBeenCalled();
 });

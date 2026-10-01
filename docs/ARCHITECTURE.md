@@ -109,7 +109,8 @@ Context capacity is resolved before each model call and exact input preparation
 is shared across Agent Mode and Chat Only. `models.py` owns the versioned
 capacity policy, `agent.py` assembles, counts, compacts, and emits usage events,
 `threads.py` persists validated summaries, usage snapshots, and presentation
-events, and `ui/chat_components.py` renders the responsive desktop meter.
+events, and the React composer (`frontend/src/features/shell/ContextUsage.tsx`)
+renders the meter.
 
 - **Policy version 3** — `model_settings.json` distinguishes Auto from fixed
   local allocation and represents the provider/custom cap as an optional
@@ -381,7 +382,7 @@ into an unbounded autonomous system.
 
 - **Durable goal state** — `goals.py` persists the current thread goal with objective, status, progress, evidence, blockers, next step, turn count, max turns, active run id, and completion/block verdict metadata
 - **Goal tools** — `tools/goal_tool.py` registers `goal_update` and `goal_status` so agents can report progress, evidence, blockers, or completion through structured state instead of relying only on prose in the transcript
-- **Visible progress** — `ui/goal_ui.py`, the Command Center, and streaming/status surfaces show active goal state, grouped goal activity, and blockers while the user continues working elsewhere
+- **Visible progress** — the conversation's goal card shows the goal's state, the turn count, the verifier's latest reason, Pause, and Stop
 - **Channel support** — channel command/runtime paths carry goal context so work started from Telegram, WhatsApp, Discord, Slack, or SMS can still update the same durable thread goal
 - **Bounded persistence** — goals are local records, not hidden background mandates; users can clear or replace them, and goal completion is based on evidence plus explicit agent status rather than unchecked self-assertion
 - **Orchestration continuation** — a parent orchestration final records one Goal turn, then `after_orchestration_completion()` applies the normal evidence/budget decision and can start the next Goal turn without duplicating the completed answer
@@ -689,13 +690,12 @@ path.
 - **10 voice options** — US and British English, male and female variants
 - **Streaming TTS** — responses are spoken sentence-by-sentence as they stream in
 - **Mic gating** — microphone is automatically muted during TTS playback to prevent echo and feedback loops
-- **Realtime voice runtime** — `voice/realtime_client.py`, `voice/runtime.py`, provider adapters, and UI event presenters coordinate low-latency sessions separately from the classic text-turn pipeline
+- **Realtime voice runtime** — `voice/runtime.py`, `voice/client_realtime.py`, and provider adapters coordinate low-latency sessions separately from the classic text-turn pipeline
 - **Provider abstraction** — realtime voice providers share a base contract for session setup, input/output events, speech status, and shutdown; OpenAI realtime and local-provider scaffolding are represented through the same runtime boundary
 - **Agent bridge** — `voice/agent_bridge.py` maps realtime voice events into Row-Bot agent actions without letting the voice client bypass tool, approval, or runtime readiness policy
 - **Voice actions** — `voice/actions.py` keeps action dispatch explicit so voice sessions can request supported app actions through controlled handlers
-- **Cue and speech policy** — `voice/cue_policy.py`, `voice/cues.py`, `voice/speech_policy.py`, and `voice/output_controller.py` coordinate conversational cues, spoken output timing, interruption, and playback state
-- **UI lifecycle** — `ui/voice_lifecycle.py` and `ui/voice_realtime_events.py` surface session state, provider events, and recovery paths without coupling the chat transcript directly to provider-specific event streams
-- **Browser-local remote path** — `voice/browser_client.py` captures microphone audio only in the authenticated browser, while `voice/browser_local.py` validates/decodes it, runs local Whisper, and returns session-scoped Kokoro output without starting the host device microphone service; non-local browser capture requires HTTPS
+- **Speech policy** — `voice/speech_policy.py` turns a response into short speakable text and points to the app for the rest
+- **Browser-local remote path** — the React client captures microphone audio only in the authenticated browser (Talk and Dictation), while `voice/browser_local.py` validates/decodes it, runs local Whisper, and returns session-scoped Kokoro output without starting the host device microphone service; non-local browser capture requires HTTPS
 
 ---
 
@@ -777,7 +777,7 @@ and telemetry decision is documented in
 - **Point-of-risk policy** — `computer_use/policy.py` classifies routine, consequential, always-confirm, handoff, and blocked actions. Credentials, OTPs, CAPTCHAs, biometrics, UAC/TCC, terminals, password managers, Row-Bot itself, secure desktops, and elevation cannot be automated
 - **Ephemeral privacy** — screenshot bytes are not written to media or checkpoints; typed values are excluded from logs, histories, tool traces, approval payloads, memory, and durable state
 - **Vision fallback** — accessibility information remains primary. When it is insufficient, only the current target-window screenshot can be sent to the configured Vision provider, whose local/cloud disclosure is shown before setup; Vision is bounded to coordinate decisions or one final user-visible check and its free-form prose is not authorization or a Boolean postcondition
-- **Live control UI** — `ui/live_control.py` and `ui/computer_use.py` show sanitized app/state/thumbnail data plus direct Stop, Take over, and Resume actions. Take over cancels queued mutation, pauses the lease, and requires a fresh observation before resume
+- **Live control UI** — the conversation's computer-use card shows the latest picture with Stop and Pause/Resume. Pause hands the computer to you: it cancels queued mutation, pauses the lease, and requires a fresh observation before resume
 - **Readiness and recovery** — Settings normalizes disabled, disclosure, unsupported, not-installed, hash/version mismatch, permission, degraded, ready, and failed states; macOS recovery attributes Accessibility and Screen Recording to the packaged Row-Bot host, links directly to both panes, and supports recheck after quitting and reopening Row-Bot
 - **Lifecycle cleanup** — generation Stop, thread cleanup, tool disablement, uninstall, and application shutdown stop the private client, invalidate targets, cancel queued work, and release the lease
 
@@ -848,7 +848,6 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 ### Workflow Builder UI
 
 - **Simple/Advanced toggle** — simple mode preserves a single-prompt workflow editor; advanced mode exposes the full step builder
-- **Mobile simple editor** — `ui/mobile_workflows.py` provides a full-screen phone editor for safe workflow metadata, prompt steps, schedules, profiles, model overrides, approval policy, persistent threads, channel delivery, and enablement; advanced graph steps are preserved and left for desktop editing
 - **Step builder** — reorder, delete, retarget, and retype steps visually
 - **Variable insertion menu** — context variables and prior-step outputs can be inserted without hand typing placeholders
 - **Flow preview** — Mermaid diagram generated from the step graph with manual refresh
@@ -861,14 +860,6 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 - **Sidebar badge** — pending approvals surface as a badge and quick actions above the thread list
 - **Multi-surface routing** — approvals can be routed through desktop, the mobile Activity surface, Telegram, Discord, Slack, WhatsApp, SMS, and plugin-owned channel paths according to channel capabilities; button-capable adapters render inline controls and text-only adapters require an explicit YES/NO response
 - **Resume integration** — the agent and workflow runtime resume correctly on approve or deny and follow the appropriate branch
-
-### Workflow Console
-
-- **Right-side console** — `ui/command_center.py` exposes running work, active goals, child-agent runs, approvals, upcoming runs, quick launch actions, recent history, and insights in one drawer
-- **Collapsible layout** — console expansion state persists in browser and pywebview; collapsed state shows compact running/approval/insight badges and attention styling when an approval is waiting
-- **Live operational view** — running workflows, goals, child-agent states, background states, and recent outcomes stay visible while you continue chatting elsewhere in the app
-- **Insight actions** — insight cards support pin, dismiss, and apply actions directly from the console
-- **Journal access** — extraction and dream journals are accessible from the same workflow-centric monitoring surfaces
 
 ### Existing Features
 
@@ -923,8 +914,7 @@ Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-
 
 ### Editor & Authoring
 
-- **Full-width editor** — `designer/editor.py` switches the app into a full-width editing mode with page / screen navigator, preview, controls, and assistant side chat
-- **Shared chat primitives** — the designer editor reuses `ui/chat_components.py` so uploads, input behavior, and chat rendering match the main conversation UI
+- **Design panel** — a design opens in a panel beside its conversation (`frontend/src/features/panels/`) with a page strip, preview, and controls; the conversation is the assistant chat
 - **Surgical tool surface** — the designer tool can set, update, add, move, duplicate, and delete pages / screens; move, replace, restyle, and remove individual elements; refine-text-in-place (shorten / expand / simplify / rewrite); insert reusable components; update brand settings; and resize projects
 - **Setup flow** — the creation flow captures mode, format, audience, tone, and source brief before generating an initial draft
 - **Typed image slots** — templates declare expected image slots by semantic role (hero, thumbnail, icon, background, etc.) so generated imagery lands in intentional places with appropriate aspect ratios
@@ -947,7 +937,7 @@ Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-
 
 ### Presentation, Sharing & Export
 
-- **Presenter mode** — `designer/presentation.py` serves Reveal.js-based presenter mode with notes support (deck mode)
+- **Presenter mode** — the React panel presents a deck with speaker notes
 - **Export pipeline** — the exact `browser/runtime.py` Playwright-matched Chromium drives raster, HTML, PDF, PNG, and screenshot-backed PPTX work without a hidden install or `networkidle` dependency; `python-pptx` retains editable PPTX output and `weasyprint` remains available where appropriate
 - **Published share links** — self-contained interactive HTML (with runtime bridge) is mounted under `/published` for direct sharing
 
@@ -1055,7 +1045,7 @@ Row-Bot now has a formal self-inspection and self-management surface: a tool for
 - **`row_bot_status` tool** — read-only introspection across `overview`, `version`, `model`, `agents`, `channels`, `memory`, `skills`, `tools`, `mcp`, `providers`, `insights`, `evolution`, `api_keys`, `identity`, `tasks`, `vision`, `image_gen`, `video_gen`, `voice`, `config`, `logs`, `errors`, `updates`, and `designer`
 - **Live runtime visibility** — the tool can report current model/provider, catalog/cache status, provider readiness, active goals, Agent Profiles, child-agent runs, delegation capacity and work-round progress, active channels, knowledge graph counts, enabled, pinned, and task-loaded skills, globally configured versus child-bound tool groups, configured APIs, task state, voice/image/video settings, and designer project counts
 - **Diagnostics access** — recent warnings, provider/runtime probe failures, status-tray findings, errors, and tracebacks can be summarized without opening log files manually
-- **Home health bar parity** — `ui/status_checks.py` and `ui/status_bar.py` expose compact health checks for Ollama, active model, cloud API, tunnel, OAuth accounts, workflows, goals, agents, knowledge, wiki vault, documents, search, skills, tracker, Buddy, MCP, plugins, Computer Use, network, tools, disk, threads DB, FAISS, Dream Cycle, TTS, and logging
+- **Home health checks** — `status_checks.py` and Home › Monitor expose compact health checks for Ollama, active model, cloud API, tunnel, OAuth accounts, workflows, goals, agents, knowledge, wiki vault, documents, search, skills, tracker, Buddy, MCP, plugins, Computer Use, network, tools, disk, threads DB, FAISS, Dream Cycle, TTS, and logging
 
 ### Controlled Self-Management
 
@@ -1143,7 +1133,7 @@ around that channel.
 - **WhatsApp** — Baileys bridge with QR pairing, inbound/outbound media, rich YouTube previews, Markdown-to-WhatsApp formatting, edit streaming, typing updates, split finals, and approval resume
 - **Discord** — DM-based edit streaming with typing keepalive, message splitting, fresh-send fallback, reactions, interactive approval buttons, slash-command integration, and media support
 - **Slack** — Socket Mode adapter with native stream APIs when supported, edit fallback, bounded retry-after handling, DM threading, Block Kit approvals, reactions, and file uploads
-- **SMS** — Twilio adapter with inbound webhook support, outbound SMS/MMS, tunnel-manager integration for public callbacks, message-safe final splitting, and YES/NO approvals; streaming remains off because SMS has no editable partial-message contract
+- **SMS** — Twilio adapter with inbound webhook support (refused unless Twilio's signature checks against the saved auth token), outbound SMS/MMS, tunnel-manager integration for public callbacks, message-safe final splitting, and YES/NO approvals; streaming remains off because SMS has no editable partial-message contract
 
 ### Delivery & Monitoring
 
@@ -1169,7 +1159,7 @@ A provider-agnostic tunnel layer exposes local webhook ports to the internet whe
 - **Optional app tunneling** — the main Row-Bot UI can be exposed intentionally through a registered managed origin; public ngrok URLs terminate at the authenticated access middleware rather than bypassing owner sessions
 - **Responsive auto-start** — startup reports a visible tunnel stage and moves
   the blocking main-app tunnel start onto a worker thread so slow provider setup
-  cannot stall the NiceGUI event loop
+  cannot stall the server's event loop
 - **Runtime-policy registration** — a tunnel provider must register its exact origin before exposure and unregister it on stop; invalid URLs, missing runtime policy, or registration failure close the new tunnel and fail without broadening access
 - **Tailscale separation** — Tailscale Serve is managed by `access/tailscale.py` as an owner-reviewed private route, not as a generic tunnel provider; only an exact Row-Bot-owned Serve route can augment allowed host/origin/proxy policy
 - **Settings UI** — tunnel provider, auth token, and active-tunnel status live in the System settings surface
@@ -1298,12 +1288,12 @@ Skills Hub is the discovery, import, search, and installation layer for manual s
 - **Pinned skill defaults** — `skills.py` tracks pinned manual skills separately from one-off composer choices so default skills can stay available across sessions without forcing every enabled skill into every prompt
 - **Smart activation** — `skills_activation.py` resolves enabled skills, explicit `/skill` requests, draft suggestions, per-thread/workflow overrides, and persistent per-task automatic selections before prompt assembly
 - **Slash commands** — `slash_commands.py` provides skill-aware chat commands such as using, disabling, or narrowing skills without leaving the conversation
-- **Shared composer controls** — `ui/chat_composer_extras.py` gives main chat, Designer Studio, and Developer Studio a common slash palette, skill picker, skill chips, and draft-suggestion path
+- **Shared composer controls** — the React composer's slash palette, skill picker, and skill chips work the same in every conversation, including those with a design or code panel open
 - **Source adapters** — `skills_hub/` can inspect GitHub repositories, pasted Markdown, direct URLs, well-known skill indexes, and marketplace-style catalogs before installation
 - **Import detection** — pasted or linked content is classified before install so a raw `SKILL.md`, a folder-like package, or a catalog entry can route through the right importer
 - **Installation search index** — local and remote Skills Hub catalog rows are normalized into searchable records with source, tags, description, install state, and provenance metadata; this install-time browsing path is separate from request-time local progressive discovery
 - **Provenance and safety** — installed skills retain origin/source metadata, user overrides take precedence over bundled skills, and user-controlled enablement determines whether manual skill instructions enter the system prompt
-- **Testing coverage** — `tests/test_skill_discovery.py`, `tests/test_capability_search.py`, `tests/test_skills_activation.py`, `tests/test_skill_pinning.py`, `tests/test_slash_commands.py`, Skills Hub suites, and UI/transcript/source tests cover ranking, aliases, references, automatic persistence, parent/child isolation, pinning, import detection, source adapters, search, and composer contracts
+- **Testing coverage** — `tests/subsystem/skills/test_skill_discovery.py`, `tests/subsystem/tools/test_capability_search.py`, `tests/subsystem/skills/test_skills_activation.py`, `tests/subsystem/skills/test_skill_pinning.py`, `tests/subsystem/skills/test_slash_commands.py`, Skills Hub suites, and UI/transcript/source tests cover ranking, aliases, references, automatic persistence, parent/child isolation, pinning, import detection, source adapters, search, and composer contracts
 
 ---
 
@@ -1388,7 +1378,7 @@ Row-Bot includes a guarded Model Context Protocol client that can connect extern
 
 ### Settings UI & Marketplace
 
-- **Settings → MCP** — `ui/mcp_settings.py` provides the user-facing MCP control surface: global enable switch, add server, import config, browse MCP servers, diagnostics, test, refresh, edit, delete, and per-tool controls
+- **Settings → MCP** — the React Settings › MCP page provides the user-facing MCP control surface: global enable switch, add server, import config, browse MCP servers, diagnostics, test, refresh, edit, delete, and per-tool controls
 - **Disabled-until-tested imports** — manual JSON imports and marketplace entries are saved disabled. Users test the server before enabling it
 - **Tool review rows** — after a successful probe, each tool shows name, description, input schema summary, enabled state, destructive badge, approval state, and whether it comes only from saved config or live catalog
 - **Marketplace adapters** — `mcp_client/marketplace.py` can search curated starters plus official-style directories, PulseMCP, Smithery, and Glama, with cache and curated fallback when live results fail or ignore the query
@@ -1408,8 +1398,8 @@ Row-Bot includes a guarded Model Context Protocol client that can connect extern
 
 ### Testing & Release Checks
 
-- **Offline regression suite** — `tests/test_mcp_client.py` covers config fallback, secret masking, safety classification, marketplace fallback/filtering, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling
-- **Opt-in live E2E** — `scripts/mcp_real_world_e2e.py` and `tests/test_mcp_real_world_e2e.py` connect to public MCP servers outside normal CI to validate import, probe, manual tool enablement, dynamic wrapper invocation, and read-only approval classification
+- **Offline regression suite** — `tests/subsystem/mcp/test_mcp_client.py` covers config fallback, secret masking, safety classification, marketplace fallback/filtering, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling
+- **Opt-in live E2E** — `scripts/mcp_real_world_e2e.py` and `tests/e2e/test_mcp_real_world_e2e.py` connect to public MCP servers outside normal CI to validate import, probe, manual tool enablement, dynamic wrapper invocation, and read-only approval classification
 - **Maintainer workflow** — MCP-heavy releases run the offline suite first, then the live public E2E check from the repo root
 
 ---
@@ -1420,8 +1410,8 @@ Row-Bot includes a one-time migration wizard for moving selected data from Herme
 
 ### Flow & UI
 
-- **Preferences launcher** — `ui/settings.py` exposes **Open Migration Wizard** at the bottom of Settings → Preferences. The wizard opens in a maximized dialog so it stays available without occupying a permanent settings tab
-- **Three-step flow** — `ui/migration_wizard.py` guides users through source/target selection, read-only scan/review, and explicit apply
+- **Settings launcher** — Settings › Data holds the import; first-run setup offers it only when a source is detected
+- **Three-step flow** — source/target selection, read-only scan/review, and explicit apply
 - **Provider support** — users choose Hermes Agent or OpenClaw. Defaults point at `~/.hermes` or `~/.openclaw`, but any source and target folder can be selected for disposable test runs
 - **Preview controls** — categories and rows show status, selection state, conflict notes, manual-review notes, archive-only behavior, and report paths after apply
 
@@ -1444,7 +1434,7 @@ Row-Bot includes a one-time migration wizard for moving selected data from Herme
 
 ### Testing
 
-- **Focused suites** — `tests/test_migration_core.py`, `tests/test_migration_detection.py`, `tests/test_migration_planner.py`, `tests/test_migration_apply.py`, and `tests/test_migration_wizard_ui.py` cover model invariants, source detection, dry-run planning, wrong-provider rejection, conflict behavior, backups, reports, redaction, daily memory import, and UI helper logic
+- **Focused suites** — `tests/subsystem/data/test_migration_core.py`, `tests/subsystem/data/test_migration_detection.py`, `tests/subsystem/data/test_migration_planner.py`, and `tests/subsystem/data/test_migration_apply.py` cover model invariants, source detection, dry-run planning, wrong-provider rejection, conflict behavior, backups, reports, redaction, and daily memory import
 - **Realistic fixtures** — `migration/fixtures.py` builds multi-month Hermes and OpenClaw homes with fake secrets, memories, skills, channels, MCP servers, approvals, cron/hooks, plugins, sessions, logs, and archive-only state
 - **Manual E2E path** — disposable targets under `.tmp/migration-fixtures/` are used for click-through validation during migration testing; the fixture root is ignored by git
 
@@ -1485,7 +1475,7 @@ modifying the core codebase.
 - **Native Plugin Center** — one Row-Bot-owned UI renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
 - **Custom Tool bridge** — promoted Custom Tools are registered through the plugin/tool surface as synthetic local tools so normal chat can use them without adding a separate extension mechanism
 - **Public channel API** — channel plugins receive public inbound/outbound dataclasses, attachment helpers, approval resume helpers, pairing/allowlist helpers, and generated webhook URLs through `plugins.api`
-- **Plugin webhooks** — `plugins/webhooks.py` registers namespaced webhook routes under `/plugin-webhooks/{plugin_id}/{name}` and disables them when the owning plugin is disabled, unloaded, uninstalled, or fails load
+- **Plugin webhooks** — `plugins/webhooks.py` registers namespaced webhook routes under `/plugin-webhooks/{plugin_id}/{name}` and disables them when the owning plugin is disabled, unloaded, uninstalled, or fails load; the routes need no Row-Bot session, so each handler authenticates its caller
 - **Bot Framework auth** — `plugins/bot_framework_auth.py` validates Bot Framework JWTs with OpenID/JWKS discovery, issuer/audience checks, and display-safe error reporting for channel plugins
 
 ---
@@ -1523,15 +1513,13 @@ modifying the core codebase.
 - **System tray** — `launcher.py` exposes open and quit controls plus running-state feedback on Windows and macOS; Linux defaults to no tray and can opt into `--tray` when AppIndicator/desktop support is available
 - **Native macOS tray host** — packaged macOS builds include `installer/macos/RowBotTrayHost.m`, a small native status-item host that keeps tray content visible and avoids fragile cross-platform tray fallbacks
 - **Splash screen** — Tk-based loading splash during startup; Tk failures are logged to launcher diagnostics, and the visible console fallback is opt-in for debugging instead of appearing during normal Windows launches
-- **Browser splash readiness** — the temporary NiceGUI startup surface polls
-  the `/readyz` HTTP status contract and reloads on success without depending on
-  a JSON body that the public readiness route does not promise
 - **Startup diagnostics** — `startup_diagnostics.py` runs early in `app.py` and probes fragile optional native packages. Missing optional packages are ignored; installed-but-broken packages such as TorchCodec are logged with recovery steps and patched out of optional Transformers availability checks where safe.
 - **First-launch setup wizard** — starts with model/provider choice, then migration and setup-center steps for Local, Providers, Custom/Self-hosted, memory/docs, workflows, Agent/Profile surfaces, Designer, Developer, channels, voice, and related setup without touching config files by hand
 - **Responsive desktop composer** — container-query breakpoints keep the ordered Model, Thinking, and Approval units, Skills count, context meter, voice state, and stable Send/Stop slot usable below 760 px and 520 px; compact icons retain accessible labels, tooltips, and current-state text
 - **Self-contained installers** — Windows and macOS releases bundle dependencies for one-click setup; Linux uses a one-line bootstrapper that verifies and installs the self-contained XDG tarball into user-owned paths
 - **Packaged runtime validation** — Windows packaging validates embedded Python, bundled Tk, required native DLLs, and startup smoke paths so splash/picker failures are caught before artifact publication
 - **Launcher identity and ports** — the launcher probes `/api/launcher-ping` before reusing port 8080, passes the chosen port through `ROW_BOT_PORT`, and supports explicit `--browser`, `--native`, `--tray`, `--no-tray`, `--server`, `--no-open`, `--port`, and `--host` modes
+- **One launcher per data folder** — the launcher holds `launcher.lock` in the data folder for its lifetime; a second start (a shortcut, the Start menu) asks the running launcher to show Row-Bot through its loopback control server (`/v1/open-window`, a token published in `launcher_state.json` that opens nothing else) and exits, waits for it to finish quitting when it is closing (an update relaunch), and never starts a second server; `--server`/`serve`, `--reset-db`, `--reset-tasks-db` and `--restore-data` refuse while Row-Bot runs
 - **First-run window picker** — launcher-managed native/browser mode selection prefers the Tk picker and fails quickly to a safe default if the helper cannot render, avoiding hidden or blank console prompts on packaged Windows
 - **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.row-bot/row_bot_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
 - **Launcher data recovery commands** — `launcher.py --reset-tasks-db`, `--reset-db`, and `--restore-data` back up SQLite DB families before recreating or restoring known task, memory, and thread databases
@@ -1549,56 +1537,56 @@ modifying the core codebase.
 
 ## Buddy Desktop Overlay
 
-Buddy is a projection of one selected Row-Bot thread, not another agent runtime
-or transcript store. `buddy/overlay.py` owns platform-neutral placement,
-lifecycle, turn-target, approval, snapshot, screen-position, and foreground-app
-types; `ui/buddy.py` owns the sidebar and overlay presentations; and
-`launcher.py` owns the optional native window.
+Buddy is a projection of one Row-Bot conversation, not another agent runtime
+or transcript store. The torn-off desktop Buddy is a small React entry
+(`frontend/buddy-overlay.html` → `frontend/src/overlay/`) served at
+`/app-v2/buddy-overlay`; it shares the typed client controller, the design
+tokens and the attested native platform with the workspace. `buddy/overlay.py`
+owns platform-neutral placement, screen-position and turn-target types;
+`buddy/native_host.py` owns the native window; `launcher.py` composes it.
 
 - **Canonical placement state** — `BuddyPlacementState` represents docked or
-  desktop placement separately from visible and collapsed conditions. Legacy
-  floating/surface config migrates in place, with compatibility mirrors kept in
-  sync for older callers
-- **Session-scoped tear-off** — one terminal drag from the in-app Buddy dock can
-  request a native Windows/macOS overlay. Releasing over the dock cancels, a
-  valid external drop is clamped to the nearest screen work area, and persisted
-  coordinates retain negative multi-monitor positions
-- **Startup and recovery lifecycle** — a new app launch returns desktop
-  placement to the dock without changing an intentional hidden preference;
-  manual show does not wait indefinitely for page readiness, and tray actions
-  can restore either Buddy or the hidden main window
-- **Selected-thread snapshot** — `build_thread_snapshot()` projects the named
-  selected thread, Chat/Developer/Designer surface, generation progress, latest
-  plain-text answer, sanitized error, and one compatible approval without
-  copying tool traces, attachments, images, or private payloads
-- **Turn capture** — Send captures the selected thread, surface, message-list
-  identity, model/tool/approval context, and draft owner at dispatch time. A
-  later main-window selection change cannot retarget the in-flight turn; no
-  selected thread creates one normal Chat thread
-- **Draft continuity** — overlay and full composer use the same per-thread draft
-  APIs and source markers, so switching threads swaps drafts without merging
-  them or overwriting a newer editor value
-- **Scoped Stop and progress** — overlay Stop delegates to the selected thread's
-  normal generation cancellation, current progress wins before output tokens,
-  and the final answer or error remains a read-only projection rather than
-  starting a second turn
-- **Approval projection and handoff** — simple approvals with complete
-  display-safe descriptions can be approved or denied in Buddy; grouped,
-  incomplete, complex, stale, cross-thread, or cross-generation requests open
-  the full thread. The full UI polls shared interrupt state so an approval
-  raised from Buddy is never stranded in another local client
-- **One-shot focus hand-back** — the native foreground tracker excludes Row-Bot
-  windows, stores only display-safe external app metadata, restores a minimized
-  target if needed, and attempts activation once per send without repositioning
-  the external window or retrying a failed activation
-- **Compact presentation contract** — the overlay is an opaque rectangular flex
-  layout with three direct actions plus a menu, fixed bounded dimensions,
-  compact status bubbles, softened approval motion, crossfaded state changes,
-  and quiet idle-video cadence
+  desktop placement separately from the visible condition. Legacy
+  floating/surface config migrates in place
+- **Session-scoped tear-off** — dragging the sidebar avatar out of the window
+  (or Undock) asks the main window's bridge for `buddy_placement: tear_off`.
+  A drop is clamped to the nearest screen work area in DIPs, and persisted
+  coordinates keep negative multi-monitor positions. A fresh launch returns
+  Buddy to the dock without changing an intentional hidden preference
+- **Native host** — `BuddyWindowHost` creates the 380×230 frameless,
+  always-on-top window hidden, attaches its own attested bridge (no pywebview
+  `js_api`), and shows it when the page reports ready or after a 2 s
+  timeout. Windows keeps an opaque host so the window stays hit-testable;
+  macOS uses transparency. Per-monitor-v2 DPI is enabled before any window
+  exists, and physical positions from pywebview are converted to DIPs
+- **Window roles** — the main window may read status, tear off, dock and
+  publish the conversation it shows; the Buddy window may read status, dock,
+  hide, report ready, read the followed conversation and bring the main
+  window forward at a conversation. Each role's bridge refuses every other
+  operation, and the Buddy bridge is bound to exactly its own document
+- **Following the main window** — the main window publishes its selected
+  conversation through its bridge; the host keeps a revisioned target and
+  sends Buddy a content-free change hint. Buddy reads the target on the hint,
+  on focus and every few seconds, ignores stale revisions, and falls back to
+  the most recent conversation
+- **Turns, drafts and approvals** — Send, Stop, Resume and approval
+  decisions are ordinary client intents on the followed conversation, so
+  they keep that conversation's model, tools and approval mode. Drafts are
+  the conversation's server drafts; same-origin windows exchange id-only
+  hints on `BroadcastChannel('row-bot-client')` and re-read on focus
+- **Lease and grants** — each window's document lease is renewed with a
+  fresh attestation from its own session every 20 minutes. When the server
+  refuses a grant because its policy revision moved on (an MCP server
+  connecting, a Settings change) the bridge reports it before any effect and
+  the window re-attests once; a lost document reloads (Buddy) or stays
+  unavailable until the page loads again (main window)
+- **Presentation** — tokens and appearance follow the app setting (System
+  by default); reduced motion disables the activity ring, caret and shimmer.
+  Motion is CSS-only and nothing animates out
 - **Platform boundary** — browser/server mode, Linux browser-first launch,
-  compact mobile presentation, and remote browsers keep Buddy inside Row-Bot;
-  undocking does not add tools, change the selected provider, create a new voice
-  session, or bypass the thread's approval mode
+  compact mobile presentation and remote browsers keep Buddy inside Row-Bot;
+  undocking does not add tools, change the selected provider, create a new
+  voice session, or bypass the conversation's approval mode
 
 ---
 
@@ -1616,8 +1604,8 @@ initial presentation.
   forwarded loopback requests require a session
 - **Request context** — `access/request_context.py` canonicalizes host, origin,
   effective client, forwarding trust, route class, session identity, and
-  presentation into one immutable context used by HTTP, WebSocket, NiceGUI, and
-  server-side UI authorization
+  presentation into one immutable context used by HTTP and WebSocket admission
+  and server-side authorization
 - **Versioned access database** — `AccessStore` uses the existing physical
   `mobile.db` for instance identity, invitations, devices, sessions, and bounded
   audit events; schema upgrades are transactional and preserve compatible
@@ -1637,7 +1625,7 @@ initial presentation.
   server expiry bound both, and logout clears current plus legacy cookie names
 - **Renewal and revocation** — due trusted sessions can extend server and cookie
   expiry through an exact-origin refresh; temporary/early refreshes do not,
-  device revocation cascades to all sessions, and active WebSockets observe
+  device revocation cascades to all sessions, and open event streams observe
   revocation within a bounded interval
 - **Unified middleware gate** — `access/middleware.py` authenticates HTTP and
   WebSocket scopes from one runtime-policy snapshot, distinguishes navigation
@@ -1645,8 +1633,10 @@ initial presentation.
   untrusted forwarded identity
 - **Route policy** — public health/connect assets remain minimal, authenticated
   owner routes share one policy, access mutations require same origin, webhooks
-  retain route-owned secrets, and launcher operations remain direct-loopback
-  only behind a separate ephemeral control secret
+  retain route-owned secrets (task webhooks their secret, `POST /sms` Twilio's
+  signature, `/plugin-webhooks/…` the plugin handler's own check; none needs a
+  session), and launcher operations remain direct-loopback only behind a
+  separate ephemeral control secret
 - **Neutral connect flow** — unauthenticated pages disclose no instance name,
   route inventory, device list, or configured providers; successful claims
   remove invitation material from visible browser history before redirect
@@ -1672,14 +1662,14 @@ initial presentation.
 - **Network provisioning boundary** — trusting an origin does not resolve DNS,
   test reachability, provision TLS, configure a reverse proxy/firewall, or
   change the listen address. HTTP remains unencrypted even when authenticated
-- **Remote Access settings** — `ui/remote_access_settings.py` exposes current
+- **Remote Access settings** — Settings › Devices & remote access exposes current
   browser/logout, invitation creation, trusted-address add/list/confirmed-remove,
   LAN restart flow, reviewed route status and warnings, devices, sessions,
   per-session revoke, device revoke, and explicit Tailscale actions under an
   owner authorization guard
-- **Access CLI** — `row-bot access invite|list|revoke|revoke-all|doctor` works
-  without importing NiceGUI; doctor checks configuration/database/proxy/Tailscale
-  hazards read-only and redacts nested credentials
+- **Access CLI** — `row-bot access invite|list|revoke|revoke-all|doctor`; doctor
+  checks configuration/database/proxy/Tailscale hazards read-only and redacts
+  nested credentials
 - **Owned Tailscale Serve** — `access/tailscale.py` detects only after explicit
   user action, produces a reviewable plan, parses structured status, refuses
   Funnel/conflicting routes, applies one exact loopback target, persists an
@@ -1768,7 +1758,7 @@ the full desktop layout.
 
 ### Mobile Shell
 
-- **Presentation routing** — `ui/mobile.py` selects the compact shell for an authenticated compact invitation or explicit `?mobile=1` presentation request; `AccessContext` carries owner identity independently, and an authenticated owner can return to the full layout
+- **Presentation** — the React client adapts its layout to the viewport; `AccessContext` carries owner identity independently of the layout
 - **Phone-native navigation** — Chat, Activity, Workflows, Knowledge, and Settings render as full-height mobile surfaces without desktop drawers, terminal, Buddy, Developer Studio, or Designer Studio chrome
 - **Shared durable state** — mobile chat uses the normal thread/checkpoint store, parent orchestration stream, file attachments, profile/model/reasoning selection, manual skills, auto-title rules, and generation controls
 - **Conversation list boundary** — internal `agent_child` threads are excluded from Recent chats while their durable activity indicator remains attached to the owning parent conversation
@@ -1790,8 +1780,9 @@ the full desktop layout.
 - **Scheme-aware cookies** — HTTPS uses an instance-isolated Secure
   host-prefixed cookie; LAN HTTP uses a separate HttpOnly cookie without
   pretending the transport is secure; SameSite and server expiry apply to both
-- **HTTP/WebSocket parity** — access middleware runs before NiceGUI and applies
-  the same session and exact-origin gate to page, API, and live socket traffic
+- **One gate for every request** — access middleware runs before every route and
+  applies the same session and exact-origin gate to page, API, and event-stream
+  traffic
 - **Forwarded-header defense** — forwarding metadata is accepted only from an
   explicitly trusted proxy CIDR; untrusted or malformed forwarded loopback
   cannot claim desktop owner identity
@@ -1832,7 +1823,7 @@ the full desktop layout.
 - **Per-thread Agent Profile** — conversations can carry a selected Agent Profile whose instructions and policy are injected into agent and chat-only turns
 - **Goal Mode continuity** — active goals, progress, blockers, and continuation decisions are tied to the thread so long work stays visible across turns
 - **Input-level model and reasoning pickers** — the main chat Model and Thinking selectors live in the chat input area, load exact cached capability state immediately, refresh asynchronously, and keep the top bar focused on thread state
-- **Desktop context meter** — `ui/chat_components.py` renders the event-driven
+- **Context meter** — the React composer renders the event-driven
   complete-next-input estimate, capacity/threshold state, compaction activity,
   and failure guidance beside the desktop composer without widening the compact
   mobile input surface
@@ -1842,11 +1833,9 @@ the full desktop layout.
   Markdown, then prints through the exact Playwright-matched managed Chromium
   with deterministic load completion and no implicit runtime installation
 - **Inline rich rendering** — Plotly charts, Mermaid diagrams, YouTube embeds, syntax-highlighted code, and images render directly in the transcript
-- **Shared chat components** — `ui/chat_components.py` provides the responsive input bar, exact-model reasoning picker, upload flow, and message container for main chat, Designer Studio, and Developer Studio
-- **Bounded transcript rendering** — `ui/transcript.py` chooses a visible window for large threads, exposes load-earlier behavior, and avoids rendering every historic row on initial open
+- **Bounded transcript loading** — the React conversation opens large threads on their latest page and loads earlier messages on request
 - **Checkpoint loading without graph import** — transcript loaders can read checkpoint messages and token usage without constructing the agent graph, reducing blank-thread and large-thread latency
 - **Status monitor panel** — Home health-check pills, diagnosis actions, and quick settings links surface runtime health at a glance
-- **Workflow Console integration** — approvals, active goals, child-agent runs, recent workflow runs, and insight actions are visible without leaving the conversation experience
 - **Agent drawer and profile UI** — parent orchestration groups, child status, profile selection, Profile Library, dependencies, required/detached state, approval, retry, and recovery activity are exposed through dedicated UI surfaces instead of being hidden in transcript text
 - **Compact Agent cards** — direct and delegated children render as compact live lifecycle rows; authoritative run ids are registered at the tool-result boundary, refresh keys ignore heartbeat-only churn, and parent groups retain later waves
 - **Orchestration transcript messages** — approval requests, steering, required joins, async detached completions, and final parent output are inserted at the correct turn boundary, deduplicated across live rendering/reload, and carry UI metadata through LangChain checkpoint conversion
@@ -1936,13 +1925,11 @@ warnings.
 
 ## Stability & Diagnostics
 
-Row-Bot includes a stability layer for the kinds of failures that are hard to catch from normal request logs: UI callback crashes, client-side JavaScript errors, event-loop stalls, memory spikes, and startup/shutdown issues.
+Row-Bot includes a stability layer for the kinds of failures that are hard to catch from normal request logs: unhandled exceptions, event-loop stalls, memory spikes, and startup/shutdown issues.
 
-- **`stability.py`** — centralizes crash reporting, UI callback error reports, client-side error capture, asyncio exception handling, thread/unraisable hooks, memory snapshots, and event-loop lag logging
+- **`stability.py`** — centralizes crash reporting, asyncio exception handling, thread/unraisable hooks, memory snapshots, and event-loop lag logging
 - **Launcher diagnostics** — `launcher.py` writes structured launch timing, splash/picker helper failures, server readiness, window-open decisions, and shutdown/update handoff events to `launcher.log`
-- **Safe timers** — `ui/timer_utils.py` wraps deferred UI callbacks and polling timers so disconnected clients or deleted NiceGUI slots do not crash the app silently
 - **Settings diagnostics** — model settings collection/render phases log timings and memory snapshots, while cached model catalogs and short-lived provider-status caches keep large provider refreshes and OAuth health checks off the critical UI path
-- **UI performance helpers** — `ui/performance.py` provides render generation tokens, timed UI sections, slow-section logging, and safe UI callback/task wrappers used by Settings, Knowledge, chat, and graph surfaces
 - **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, deferred orchestration/Agent Run repair, document supervisor recovery, MCP, plugins, channel migration/autostart, registered tunnel startup, and knowledge graph load without invoking providers during recovery
 - **Channel and tunnel degradation** — Telegram partial starts are cleaned before
   retry or user action, command-menu registration cannot take polling offline,
@@ -2019,7 +2006,7 @@ merge to `main`.
 - **Structured coverage map** — `docs-content/metadata/ui_surfaces.yml` is the authoritative user-facing surface inventory; routes, screenshots or no-image reasons, settings/home/dialog inventories, and how-to metadata feed generation and validation
 - **Isolated real UI capture** — `docs_capture.py`, `seed_real_app_demo_data.py`, and `capture_real_ui_screenshots.py` refuse the normal data directory, disable background autostart/network status checks, suppress model-settings writes during authorized real-data capture, seed neutral display-only provider/channel/plugin/MCP states, and capture stable desktop/mobile/Buddy scenarios
 - **Screenshot review contract** — capture metadata records stable ids, scenarios, viewport, status, and source route; reviewers check every changed image for private data, misleading state, clipping, and legibility before marking it approved
-- **Generation scripts** — `collect_inventory.py`, `generate_mdx.py`, `write_public_user_guide_pages.py`, `generate_llms_txt.py`, and templates turn source/runtime inventories into control-level references, human pages, and machine-readable `llms.txt` / `llms-full.txt`
+- **Generation scripts** — `collect_inventory.py`, `generate_mdx.py`, `generate_llms_txt.py`, and templates turn source/runtime inventories into control-level references and machine-readable `llms.txt` / `llms-full.txt`
 - **Searchable static output** — the Node build runs Pagefind over Docusaurus output and commits the resulting HTML, assets, screenshot copies, search index, sitemap, and machine-readable files under the generated `docs/` paths used by Pages
 - **Canonical marketing routes** — the hand-curated Home, Features, Architecture, Contact, and 404 pages share navigation, metadata, responsive assets, and sitemap ownership; duplicate Docusaurus static shadow copies are excluded
 - **Public-site measurement boundary** — shared marketing JavaScript initializes
@@ -2039,15 +2026,14 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 
 | File | Purpose |
 |------|---------|
-| **`app.py`** + **`ui/`** | NiceGUI application shell, access/request-context routing, full and compact chat surfaces, canonical conversation/bulk-selection views, lazy home tabs, health/status bar, workflow console, Agent drawer/groups, Goal UI, Profile Library, Remote Access, Buddy overlay route, Computer Use setup/live-control surfaces, cross-client interrupt synchronization, settings dialog, docs capture hooks, UI performance helpers, and native-webview integration points |
-| **`access/`** + **`ui/access_context.py`** + **`ui/remote_access_settings.py`** | Single-owner deployment/request policy, HTTP/WebSocket middleware, invitations, devices, sessions, cookies, assigned-interface and trusted-origin routes, live runtime-policy mutation, managed-policy precedence, CLI/doctor, Tailscale Serve ownership, launcher control, access service/store, UI authorization, and full/compact Remote Access controls |
-| **`mobile/`** + **`ui/mobile*.py`** | Compact presentation and legacy access compatibility, PWA endpoints, full-screen shell, chat, browser-local voice hooks, Activity, workflow editor, and phone-safe provider/skill/plugin/settings adapters |
+| **`server.py`** + **`app.py`** | The FastAPI app run by uvicorn: start-up and shutdown hooks, `add_late_route` for the SMS and plugin webhooks, routes, middleware (GZip outside access; the event stream is never compressed or buffered), static mounts, the `/` redirect to `/app-v2/`, and the start-up sequence |
+| **`frontend/`** (repository root) | The React client, the only UI, served at `/app-v2/`: conversation, Home, Settings, design and code panels, and the Buddy overlay |
+| **`access/`** | Single-owner deployment/request policy, HTTP/WebSocket middleware, invitations, devices, sessions, cookies, assigned-interface and trusted-origin routes, live runtime-policy mutation, managed-policy precedence, CLI/doctor, Tailscale Serve ownership, launcher control, access service/store, and authorization |
+| **`mobile/`** | Access-store and access-gate compatibility adapters, owner-session cookies, pairing and session routes, and PWA endpoints |
 | **`brand.py`** + **`runtime_paths.py`** | Row-Bot product identity, public naming constants, runtime path detection, and packaged/source checkout path helpers |
-| **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config/legacy migration, asset validation, Hatch generation, typed docked/desktop lifecycle, multi-monitor placement, selected-thread/surface/approval snapshots, shared drafts, scoped Send/Stop, focus hand-back, in-app dock, and native overlay presentation |
-| **`designer/`** | Designer Studio subsystem: gallery, editor, tooling, storage, exports, presentation mode, publishing, and asset hydration |
-| **`developer/`** | Developer Studio subsystem: workspace links and child-folder registration, folder-scoped writer ownership, Git helpers, durable worktree allocation, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, Custom Tool internals, and UI |
-| **`ui/chat_components.py`** | Responsive shared chat input, exact-model Thinking picker, upload, message-area, active-skill chip, stable Send/Stop slot, and desktop context-meter components reused by main chat, Designer Studio, and Developer Studio |
-| **`ui/chat_composer_extras.py`** | Shared slash palette, skill picker, skill chips, and composer-level Smart Skills controls reused across chat surfaces |
+| **`buddy/`** | Buddy companion event bus, behavior brain, config/legacy migration, asset validation, Hatch generation, typed docked/desktop lifecycle, multi-monitor placement, turn-target capture, in-app dock, and the native desktop Buddy host (the overlay itself is the React `/app-v2/buddy-overlay` entry) |
+| **`designer/`** | Designer Studio subsystem: templates, tooling, client design controls, storage, exports, previews, publishing, and asset hydration |
+| **`developer/`** | Developer Studio subsystem: workspace links and child-folder registration, folder-scoped writer ownership, Git helpers, durable worktree allocation, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, and Custom Tool internals |
 | **`agent.py`** | LangGraph ReAct agent, prompt assembly, Agent Profile injection, authorized progressive tool/skill snapshot construction, tool allowlist handling, fixed-envelope and complete-input preparation/accounting, recoverable rolling compaction, checkpointed budget hooks/finalization and orphan-only repair, runtime readiness routing, chat-only execution, provider/reasoning transcript normalization, separated answer/thinking streams, context events, interrupt handling, cache clearing, and background execution integration |
 | **`agent_budget.py`** + **`agent_settings.py`** | Checkpoint-safe model-iteration budgets, no-progress digests, exactly-once terminal finalization, validated application-wide work/delegation limits, and atomic `agent_settings.json` persistence |
 | **`agent_profiles.py`** + **`agent_context.py`** + **`agent_tool_catalog.py`** | Built-in/user Agent Profile registry, profile persistence, profile context assembly, policy blocks, profile search/selection helpers, and tool catalog metadata for scoped delegation |
@@ -2075,16 +2061,16 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`embedding_config.py`** + **`embedding_providers.py`** | Embedding provider selection, strict cache-only local loading with download-matching snapshot filters, explicit download/repair, shared asynchronous provider state, structured recall fallback, local/cloud backends, vector metadata, and stale-index detection |
 | **`documents.py`** | Document loading/chunking facade, bounded shard build/publication, retrieval compatibility, document records, source retirement, per-document cleanup, and vector reset/rebuild |
 | **`voice/__init__.py`** | Classic local microphone state machine, faster-whisper and selected SenseVoice dispatch, explicit local model loading, and persisted local voice settings |
-| **`voice/`** | Realtime voice runtime, provider contracts and catalog, OpenAI realtime client, browser-local Whisper capture/decoding/transcription/session output, verified FunASR/SenseVoice installation and CPU provider, action dispatch, agent bridge, cue policy, speech policy, and output coordination |
+| **`voice/`** | Realtime voice runtime, provider contracts, OpenAI realtime client, browser-local Whisper decoding/transcription/session output, Talk and Dictation transports, verified FunASR/SenseVoice installation and CPU provider, action dispatch, agent bridge, and speech policy |
 | **`tts.py`** | Kokoro text-to-speech integration, voice catalog, and streaming playback |
 | **`vision.py`** | Camera capture, screen capture, and workspace image analysis via local or provider vision models |
-| **`computer_use/`** + **`tools/computer_use_tool.py`** + **`ui/computer_use.py`** + **`ui/live_control.py`** | Pinned Cua 0.20.0 manifest/private platform-profile client, versioned disclosure/install/readiness, action policy, exclusive target-window service, opaque generation-bound apps/elements, selected/document-aware projection, semantic filtering, function-first editing, bounded delivery/verification/focus recovery, macOS permission recovery, and ephemeral live-control UI |
+| **`computer_use/`** + **`tools/computer_use_tool.py`** | Pinned Cua 0.20.0 manifest/private platform-profile client, versioned disclosure/install/readiness, action policy, exclusive target-window service, opaque generation-bound apps/elements, selected/document-aware projection, semantic filtering, function-first editing, bounded delivery/verification/focus recovery, macOS permission recovery, and the live-control state the React card shows |
 | **`data_reader.py`** | Shared structured-data loader for CSV, TSV, Excel, JSON, and JSONL |
 | **`data_paths.py`** | Shared Row-Bot data-directory and SQLite path resolution for tasks, memory, threads, access/mobile compatibility, diagnostics, backup, and recovery commands |
 | **`docs_capture.py`** | App-side helpers for seeded real UI documentation capture and screenshot automation |
-| **`launcher.py`** | Desktop/server launcher, `serve` and `access` CLI integration, host/port/deployment resolution, native/tray selection, splash/window picker, authenticated child environment, loopback-only restart/shutdown control, main/Buddy native-window lifecycle, DPI/placement/foreground recovery, logging, macOS native tray host, and DB-family recovery commands |
+| **`launcher.py`** | Desktop/server launcher, `serve` and `access` CLI integration, host/port/deployment resolution, native/tray selection, splash/window picker, authenticated child environment, loopback-only restart/shutdown control, main/Buddy native-window lifecycle and attested bridges, DPI/placement recovery, logging, macOS native tray host, and DB-family recovery commands |
 | **`update_handoff.py`** | Detached Windows update handoff helper that waits for Row-Bot processes/ports to exit before starting the installer |
-| **`stability.py`** | UI callback/error capture, asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
+| **`stability.py`** | Asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
 | **`api_keys.py`** + **`secret_store.py`** | API key storage/retrieval, OS-keyring backend, metadata-only local files, legacy plaintext migration, allowlisted read-only server secret files, encrypted persistent server records keyed from a separate mount, and session-only fallback when no secure backend is configured |
 | **`identity.py`** | Assistant name, personality, and self-improvement preference storage with sanitization |
@@ -2094,7 +2080,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`memory_extraction.py`** | Background conversation scan that extracts entities and relations the live agent did not save |
 | **`skills.py`** | Discovery, loading, enablement state, pinned defaults, override, and prompt-building for manual skills and tool guides |
 | **`capability_search.py`** + **`skill_discovery.py`** + **`skills_activation.py`** + **`slash_commands.py`** | Deterministic local capability ranking, unified enabled manual/plugin skill snapshots, safe progressive search/load bridges and reference confinement, persistent capped per-task automatic activation, pinned/manual defaults, explicit skill commands, draft suggestions, disabled-skill handling, and slash-command parsing |
-| **`skills_hub/`** | Skills Hub source adapters, import detection, installers, provenance, scanner, search index, source registry, and UI models |
+| **`skills_hub/`** | Skills Hub source adapters, import detection, installers, provenance, scanner, search index, source registry, and catalog models |
 | **`bundled_skills/`** | 17 built-in manual skills as `SKILL.md` packages |
 | **`tool_guides/`** | 23 built-in tool-specific auto-activation guides |
 | **`tasks.py`** | Workflow engine, SQLite persistence, schema validation/repair, APScheduler scheduling, profile-first workflow migration, pipeline execution, run history, safety mode, delivery routing, thread-owned live-state cleanup with retained audit scrubbing, and shared storage connection used by Agent Profiles/Runs/Goals/Developer worktrees |
@@ -2106,7 +2092,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`tools/developer_tool.py`** + **`tools/custom_tool_builder_tool.py`** | Developer workspace operations plus hardened conversational Custom Tool creation/testing/promotion surface |
 | **`tools/calendar_tool.py`** | Request-scoped Google Calendar services, single-flight OAuth refresh, serialized mutations, bulk create, transient retry, timeout reconciliation, and typed Calendar operations |
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, persisted external loading mode, immutable external capability records, bounded/sanitized manifests, schema-validating search/invoke bridges, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
-| **`plugins/`** | Plugin System v2 runtime, marketplace client, manifest validation, security scanner, Plugin Center UI, public API, channel runtime bridge, webhooks, Bot Framework auth helpers, MCP bridge, devtools, templates, and settings integration |
+| **`plugins/`** | Plugin System v2 runtime, marketplace client, manifest validation, security scanner, health checks, public API, channel runtime bridge, webhooks, Bot Framework auth helpers, MCP bridge, devtools, templates, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client plus managed runtime requirements: config, runtime sessions, marketplace search, Node/uv installation, verified Playwright-matched Browser runtime reuse, safety classification, diagnostics, result normalization, and wrappers that enter progressive or eager external loading; private Cua transport remains outside the external MCP registry |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, guarded apply/report generation, and migration tests |
 | **`deploy/docker/`** + **`deploy/reverse-proxy/`** + **`deploy/systemd/`** | Official hardened server image, Compose release/source/VPS/secret variants, persistent credential-key initialization, Caddy proxy, systemd lifecycle, and operator runbook |

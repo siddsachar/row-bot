@@ -16,6 +16,14 @@ test('full-history search jumps to an exact stable row outside the loaded ten-th
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
+  // Follow the system colour scheme so the theme can change in place below.
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'row-bot.appearance.v1',
+      JSON.stringify({ version: 1, appearance: 'system' }),
+    );
+  });
   await openConversation(page);
   const fixture = await seedLargeLibrary(page);
   expect(fixture.conversation_count).toBeGreaterThan(1000);
@@ -34,21 +42,23 @@ test('full-history search jumps to an exact stable row outside the loaded ten-th
       .evaluateAll((rows) =>
         rows.map((row) => row.getAttribute('data-message-id')),
       );
-  await page
-    .getByRole('button', { name: 'Browse history', exact: true })
-    .click();
-  await expect(
-    page.getByRole('button', { name: 'Earlier messages', exact: true }),
-  ).toBeVisible();
+  // History loads by scrolling up: earlier rows are prepended above the live
+  // window (the button at the top also loads automatically when reached).
+  const earlier = transcript.getByRole('button', {
+    name: 'Earlier messages',
+    exact: true,
+  });
+  await expect(earlier).toBeVisible();
   const latestIds = await rowIds();
-  await page
-    .getByRole('button', { name: 'Earlier messages', exact: true })
-    .click();
+  await earlier.click();
   await expect.poll(rowIds).not.toEqual(latestIds);
   const earlierIds = await rowIds();
-  expect(earlierIds.length).toBeGreaterThan(0);
+  expect(earlierIds.length).toBeGreaterThan(latestIds.length);
+  expect(earlierIds.slice(-latestIds.length)).toEqual(latestIds);
+  await expect(early).toHaveCount(0);
+  // The floating pill returns to the live end and trims the loaded rows.
   await page
-    .getByRole('button', { name: 'Later messages', exact: true })
+    .getByRole('button', { name: 'Latest messages', exact: true })
     .click();
   await expect.poll(rowIds).toEqual(latestIds);
   await page.getByRole('button', { name: 'Find', exact: true }).click();
@@ -90,15 +100,11 @@ test('full-history search jumps to an exact stable row outside the loaded ten-th
   const anchorBefore = await early.evaluate(
     (element) => element.getBoundingClientRect().top,
   );
-  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  const preferences = page.getByRole('dialog', {
-    name: 'Preferences',
-    exact: true,
-  });
-  await preferences
-    .getByRole('combobox', { name: 'Appearance', exact: true })
-    .selectOption('dark');
-  await page.keyboard.press('Escape');
+  // Appearance is a Settings page now; a system theme switch changes the
+  // theme in place, which is what the anchor must survive.
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(early).toBeInViewport();
   expect(
     Math.abs(

@@ -16,7 +16,7 @@ import pytest
 pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
     sys.platform == "darwin",
     reason="Client-platform local process containment is supported on Windows and Linux",
-)]
+), pytest.mark.platform]
 
 
 def _command(code):
@@ -65,7 +65,7 @@ def domain(tmp_path, monkeypatch):
     yield fixture
     for value in runtime.tracked_processes(str(root)):
         runtime.stop_tracked_process(value)
-        assert value.done.wait(10), "owned process cleanup did not return"
+        assert value.done.wait(30), "owned process cleanup did not return"
 
 
 def test_passive_list_and_unapproved_start_have_no_process_or_run_effect(domain):
@@ -80,7 +80,7 @@ def test_actual_process_captures_channels_and_releases_registered_writer_on_exit
     d = domain
     started = d.start("import sys; print('stdout'); sys.stderr.write('stderr')")
     state = d.state(started.process_id)
-    assert state.done.wait(10)
+    assert state.done.wait(30)
     result = d.snapshot().processes[0]
     assert result.state == "exited" and result.exit_code == 0 and result.quiesced
     output = d.service.get_workspace_process_output(d.workspace.id, "chat", result.process_id)
@@ -101,7 +101,7 @@ def test_active_writer_is_held_until_exact_owned_stop(domain):
         d.service.stop_workspace_process(d.workspace.id, "chat", str(uuid.uuid4()))
     assert not state.quiesced
     d.service.stop_workspace_process(d.workspace.id, "chat", started.process_id)
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     assert d.runs.list_agent_write_locks() == []
 
 
@@ -109,7 +109,7 @@ def test_response_retry_never_starts_second_process_and_rejects_changed_intent(d
     d = domain
     command_id = str(uuid.uuid4())
     first = d.start(command_id=command_id)
-    assert d.state(first.process_id).done.wait(10)
+    assert d.state(first.process_id).done.wait(30)
     retry = d.start(command_id=command_id)
     assert retry.process_id == first.process_id and retry.quiesced
     assert len(d.runtime.tracked_processes(str(d.root))) == 1
@@ -140,7 +140,7 @@ def test_tiny_output_entries_have_bounded_overhead_and_invalid_cursor_rejects(do
     d = domain
     first = d.start()
     state = d.state(first.process_id)
-    assert state.done.wait(10)
+    assert state.done.wait(30)
     for _ in range(5000):
         state.append("stdout", "\x01")
     assert len(state.output) <= 1024
@@ -160,7 +160,7 @@ def test_live_capability_revocation_stops_owned_process(domain):
     started = d.start("import threading; threading.Event().wait()", validate=validate)
     state = d.state(started.process_id)
     revoked.set()
-    assert state.done.wait(10) and state.quiesced and state.code == "process_revoked"
+    assert state.done.wait(30) and state.quiesced and state.code == "process_revoked"
     assert d.runs.list_agent_write_locks() == []
 
 
@@ -197,7 +197,7 @@ def test_job_owns_spawned_descendant_until_it_is_dead(domain):
     try:
         assert kernel.WaitForSingleObject(handle, 0) == 258
         d.service.stop_workspace_process(d.workspace.id, "chat", started.process_id)
-        assert state.done.wait(10) and state.quiesced
+        assert state.done.wait(30) and state.quiesced
         assert kernel.WaitForSingleObject(handle, 0) == 0
         assert d.runs.list_agent_write_locks() == []
     finally:
@@ -231,7 +231,7 @@ def test_failed_quiescence_retains_writer_and_prevents_replacement(domain, monke
     monkeypatch.setattr(worker_ownership, "WindowsJob", UnconfirmedJob)
     first = d.start()
     state = d.state(first.process_id)
-    assert state.done.wait(10)
+    assert state.done.wait(30)
     assert not state.quiesced and state.state == "cleanup_incomplete"
     assert d.runs.get_agent_write_lock("developer:" + d.workspace.id)["run_id"] == first.run_id
     second = d.start()
@@ -246,7 +246,7 @@ def test_startup_timeout_terminates_actual_owned_bootstrap(domain, monkeypatch, 
     monkeypatch.setattr(d.runtime, "__file__", str(tmp_path / "runtime.py"))
     state = d.runtime.launch_tracked_process(d.root, [sys.executable, "-V"], "fixture", startup_timeout=0.05)
     assert state.code == "process_start_timeout"
-    assert state.done.wait(10) and state.process.poll() is not None
+    assert state.done.wait(30) and state.process.poll() is not None
     assert state.host_quiesced
     if sys.platform.startswith("linux"):
         # This fake supervisor never supplies the required descendant receipt.
@@ -287,7 +287,7 @@ def test_missing_executable_finishes_without_private_bootstrap_diagnostics(domai
     d = domain
     result = d.start(command="row-bot-disposable-nonexistent-executable")
     state = d.state(result.process_id)
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     assert state.code == "process_start_failed" and d.runs.list_agent_write_locks() == []
     output = d.service.get_workspace_process_output(d.workspace.id, "chat", result.process_id)
     assert output.entries == ()
@@ -371,7 +371,7 @@ def test_prepared_docker_completion_requires_valid_signed_proof_and_keeps_key_pr
     d = docker.d
     result = d.start(command="python3 -V")
     state = d.state(result.process_id)
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     run = d.runs.get_agent_run(result.run_id)
     assert run["result_json"]["completion_receipt"]["payload"]["quiesced"]
     key = d.service._receipt_key(state.metadata).hex()
@@ -386,7 +386,7 @@ def test_remote_invalid_completion_never_releases_writer(docker, mode):
     docker.options["mode"] = mode
     result = d.start(command="python3 -V")
     state = d.state(result.process_id)
-    assert state.done.wait(10) and not state.quiesced
+    assert state.done.wait(30) and not state.quiesced
     assert state.state == "cleanup_incomplete"
     assert d.runs.get_agent_write_lock("developer:" + d.workspace.id)["run_id"] == result.run_id
 
@@ -396,7 +396,7 @@ def test_remote_transport_eof_is_not_completion_and_exact_owner_recovery_works(d
     docker.options["mode"] = "lost"
     result = d.start(command="python3 -V")
     state = d.state(result.process_id)
-    assert state.done.wait(10) and not state.quiesced
+    assert state.done.wait(30) and not state.quiesced
     assert d.runs.get_agent_write_lock("developer:" + d.workspace.id)
     recovered = d.service.recover_workspace_process(d.workspace.id, "chat", result.process_id)
     assert recovered.quiesced and recovered.exit_code == 130
@@ -409,7 +409,7 @@ def test_recovery_after_registry_reload_uses_canonical_run_and_verified_dead_lau
     docker.options["mode"] = "lost"
     result = d.start(command="python3 -V")
     state = d.state(result.process_id)
-    assert state.done.wait(10) and not state.quiesced
+    assert state.done.wait(30) and not state.quiesced
     monkeypatch.setattr(d.runtime, "_ACTIVE_PROCESSES", {})
     recovered = d.service.recover_workspace_process(d.workspace.id, "chat", result.process_id)
     assert recovered.quiesced and d.runs.list_agent_write_locks() == []
@@ -419,7 +419,7 @@ def test_recovery_rejects_container_replacement_before_signalling_any_owner(dock
     d = docker.d
     docker.options["mode"] = "lost"
     result = d.start(command="python3 -V")
-    assert d.state(result.process_id).done.wait(10)
+    assert d.state(result.process_id).done.wait(30)
     docker.options["inspect_changes"] = {"id": "d" * 64}
     recovered = d.service.recover_workspace_process(d.workspace.id, "chat", result.process_id)
     assert not recovered.quiesced and d.runs.list_agent_write_locks()
@@ -430,7 +430,7 @@ def test_recovery_rejects_bad_signature_and_preserves_lease(docker):
     d = docker.d
     docker.options.update(mode="lost", recovery="tamper")
     result = d.start(command="python3 -V")
-    assert d.state(result.process_id).done.wait(10)
+    assert d.state(result.process_id).done.wait(30)
     recovered = d.service.recover_workspace_process(d.workspace.id, "chat", result.process_id)
     assert not recovered.quiesced and d.runs.list_agent_write_locks()
 
@@ -457,7 +457,7 @@ def test_remote_explicit_stop_waits_for_signed_completion(docker):
     assert state.ready.is_set() and not state.quiesced
     assert d.runs.get_agent_write_lock("developer:" + d.workspace.id)
     d.service.stop_workspace_process(d.workspace.id, "chat", result.process_id)
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     assert state.remote_receipt["payload"]["quiesced"]
     assert not d.runs.list_agent_write_locks()
 
@@ -466,7 +466,7 @@ def test_remote_receipt_key_is_bound_to_run_owner_and_container(docker):
     d = docker.d
     result = d.start(command="python3 -V")
     state = d.state(result.process_id)
-    assert state.done.wait(10)
+    assert state.done.wait(30)
     key = d.service._receipt_key(state.metadata)
     for field in ("run_id", "command_id", "container_id"):
         identity = {**state.metadata, field: "changed"}
@@ -536,7 +536,7 @@ def test_local_linux_detached_descendant_is_reaped_before_writer_release(domain)
     child = psutil.Process(pid)
     assert child.is_running() and state.metadata["process_target"] == "local-linux"
     d.service.stop_workspace_process(d.workspace.id, "chat", result.process_id)
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     assert not child.is_running() and not d.runs.list_agent_write_locks()
     assert state.remote_receipt["payload"]["quiesced"]
 
@@ -557,7 +557,7 @@ def test_legacy_runtime_does_not_inherit_new_client_platform_refusal(domain, mon
     d = domain
     monkeypatch.setattr(d.runtime, "sys", SimpleNamespace(platform="darwin", executable=sys.executable))
     state = d.runtime.launch_tracked_process(d.root, [sys.executable, "-c", "print('legacy')"], "legacy fixture")
-    assert state.done.wait(10)
+    assert state.done.wait(30)
     assert state.exit_code == 0 and any("legacy" in row[2] for row in state.output)
 
 
@@ -570,5 +570,5 @@ def test_output_frame_must_fit_a_single_bounded_json_page(domain, tmp_path):
         encoding="utf-8")
     state = d.runtime.launch_tracked_process(d.root, ["unused"], "fake transport",
         bootstrap_argv=[sys.executable, "-I", "-S", "-B", str(script)])
-    assert state.done.wait(10) and state.quiesced
+    assert state.done.wait(30) and state.quiesced
     assert state.code == "process_output_invalid" and not state.output

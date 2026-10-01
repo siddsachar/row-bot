@@ -6,7 +6,8 @@ Injects JavaScript into the preview iframe to enable:
   3. Double-click text to edit inline (contenteditable)
   4. Text edits sent back via postMessage for HTML patching
 
-The parent listener is registered via NiceGUI's ui.run_javascript().
+The React client receives and validates these messages
+(frontend/src/features/panels/artifact-bridge.ts).
 """
 
 from __future__ import annotations
@@ -60,7 +61,8 @@ BRIDGE_JS = r"""
 
     function isEditable(el) {
         if (!el || el.nodeType !== 1) return false;
-        if (plainTextEdits && (el.children.length !== 0 ||
+        // The panel marks the text it can save; every other element only selects.
+        if (plainTextEdits && (el.children.length !== 0 || !el.hasAttribute('data-row-bot-text') ||
             !/^[a-f0-9]{64}$/.test(el.getAttribute('data-row-bot-element-id') || ''))) return false;
         var tag = el.tagName.toLowerCase();
         // Never treat structural roots or media as text-editable.
@@ -83,6 +85,20 @@ BRIDGE_JS = r"""
         return false;
     }
 
+    // How the element looks now, for the panel's controls to start from.
+    var LOOK = ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color',
+                'text-align', 'background-color', 'border-top-left-radius', 'border-top-style',
+                'border-top-width', 'border-top-color', 'opacity', 'width', 'height', 'padding-top',
+                'margin-top', 'row-gap', 'object-fit', 'object-position'];
+
+    function getLook(el) {
+        var computed = window.getComputedStyle(el), look = {};
+        LOOK.forEach(function(key) {
+            look[key] = String(computed.getPropertyValue(key) || '').substring(0, 128);
+        });
+        return look;
+    }
+
     function getElementInfo(el) {
         var rect = el.getBoundingClientRect();
         var assetRoot = el.closest('[data-row-bot-id]');
@@ -96,7 +112,8 @@ BRIDGE_JS = r"""
             assetKind: assetRoot ? assetRoot.getAttribute('data-row-bot-kind') || '' : '',
             elementId: elementRoot ? elementRoot.getAttribute('data-row-bot-element-id') || '' : '',
             xpath: getXPath(el),
-            rect: {x: rect.x, y: rect.y, w: rect.width, h: rect.height}
+            rect: {x: rect.x, y: rect.y, w: rect.width, h: rect.height},
+            style: getLook(el)
         };
     }
 
@@ -240,23 +257,48 @@ BRIDGE_JS = r"""
 BRIDGE_JS = BRIDGE_JS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
+def bridge_script(plain_text: bool = False) -> str:
+    """The exact executable bridge text.
+
+    It is static, so the React client's page policy can allow it by hash
+    (srcdoc frames inherit that policy); the per-preview identity travels in
+    the JSON block right before it, which is data and never executes.
+    """
+    source = BRIDGE_JS.strip()
+    source = source[len("<script>"):-len("</script>")]
+    source = source.replace("window.parent.postMessage(", "sendToOwner(")
+    if plain_text:
+        source = source.replace("var plainTextEdits = false;", "var plainTextEdits = true;", 1)
+    return source.replace("(function() {", "(function() {\n"
+        "const config = document.currentScript && document.currentScript.previousElementSibling;\n"
+        "const identity = config && config.type === 'application/json' ? JSON.parse(config.textContent || '{}') : {};\n"
+        "function sendToOwner(message) { window.parent.postMessage("
+        "Object.assign({}, identity, message), '*'); }\n", 1)
+
+
+def bridge_script_csp_sources() -> str:
+    """Digests of both bridge variants for the client page policy."""
+    import base64
+    import hashlib
+
+    return " ".join("'sha256-" + base64.b64encode(hashlib.sha256(bridge_script(plain).encode("utf-8")).digest())
+                    .decode("ascii") + "'" for plain in (False, True))
+
+
 def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
                      capability: str = "", plain_text: bool = False) -> str:
     """Inject the interaction bridge JS into page HTML.
 
-    Inserts before </body> if present, otherwise appends.
+    Inserts before </body> if present, otherwise appends. Call after any HTML
+    sanitation so the executable text stays byte-identical to its digest.
     """
     if not preview_id or not revision or not capability:
         return html
     identity = json.dumps({"previewId": preview_id, "revision": revision,
-                           "capability": capability}).replace("<", "\\u003c")
-    bridge_js = BRIDGE_JS.replace("window.parent.postMessage(", "sendToOwner(")
-    if plain_text:
-        bridge_js = bridge_js.replace("var plainTextEdits = false;", "var plainTextEdits = true;", 1)
-    bridge_js = bridge_js.replace("(function() {", "(function() {\n"
-        f"const identity = {identity};\n"
-        "function sendToOwner(message) { window.parent.postMessage("
-        "Object.assign({}, identity, message), '*'); }\n", 1)
+                           "capability": capability})
+    identity = identity.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    bridge_js = ('<script type="application/json" data-row-bot-bridge="1">' + identity + "</script>"
+                 '<script data-row-bot-bridge="1">' + bridge_script(plain_text) + "</script>")
     if "</body>" in html.lower():
         # Insert before </body>
         idx = html.lower().rfind("</body>")
@@ -265,64 +307,8 @@ def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PARENT-SIDE MESSAGE LISTENER  (registered once per preview)
+# PARENT-SIDE MESSAGE VALIDATION
 # ═══════════════════════════════════════════════════════════════════════
-
-def get_parent_listener_js(callback_id: str, *, iframe_id: str = "") -> str:
-    """Return JS to register a window message listener that calls back into Python.
-
-    The callback_id is the NiceGUI element ID used for emitting events.
-    """
-    if not iframe_id:
-        return ""  # No ambient global receiver is a safe default.
-    return f"""
-    (function() {{
-        const frameId = {json.dumps(iframe_id)};
-        const callbackId = {json.dumps(callback_id)};
-        window.__rowBotDesignerListeners ||= new Map();
-        const previous = window.__rowBotDesignerListeners.get(frameId);
-        if (previous) previous();
-        let observer = null;
-        function cleanup() {{
-            window.removeEventListener('message', listener);
-            if (observer) observer.disconnect();
-            window.__rowBotDesignerListeners.delete(frameId);
-        }}
-        function listener(e) {{
-            const frame = document.getElementById(frameId);
-            const bridge = getElement(callbackId);
-            if (!frame || !bridge) {{
-                cleanup();
-                return;
-            }}
-            if (e.source !== frame.contentWindow || e.origin !== 'null') return;
-            var data = e.data;
-            if (!data || typeof data !== 'object' || Array.isArray(data)) return;
-            if (data.previewId !== frameId || data.revision !== frame.dataset.previewRevision ||
-                !data.capability || data.capability !== frame.dataset.previewCapability) return;
-            if (!['element-click','text-edit','edit-start','edit-cancel',
-                  'designer-undo-shortcut','designer-redo-shortcut'].includes(data.type)) return;
-            if (Object.keys(data).some(k => !['previewId','revision','capability','type','detail'].includes(k))) return;
-            if (data.detail !== undefined && (!data.detail || typeof data.detail !== 'object' || Array.isArray(data.detail))) return;
-            let size; try {{ size = JSON.stringify(data).length; }} catch (_) {{ return; }}
-            if (size > 16384) return;
-            const event = new Event('bridge_msg', {{bubbles:true}});
-            event.msgType = data.type;
-            event.detail = data.detail || {{}};
-            event.previewId = data.previewId;
-            event.revision = data.revision;
-            event.capability = data.capability;
-            bridge.dispatchEvent(event);
-        }}
-        window.__rowBotDesignerListeners.set(frameId, cleanup);
-        window.addEventListener('message', listener);
-        observer = new MutationObserver(() => {{
-            if (!document.getElementById(frameId) || !getElement(callbackId)) cleanup();
-        }});
-        observer.observe(document.body, {{childList:true, subtree:true}});
-    }})();
-    """
-
 
 def validate_bridge_event(data: object, *, preview_id: str, revision: str,
                           capability: str) -> bool:
@@ -351,11 +337,14 @@ def validate_bridge_event(data: object, *, preview_id: str, revision: str,
                 and detail["xpath"].startswith("/html")
                 and isinstance(detail.get("elementInfo", {}), dict))
     if kind in {"element-click", "edit-start"}:
-        return (set(detail) <= {"tag", "text", "className", "id", "assetId", "assetKind", "elementId", "xpath", "rect"}
+        look = detail.get("style", {})
+        return (set(detail) <= {"tag", "text", "className", "id", "assetId", "assetKind", "elementId", "xpath", "rect",
+                                "style"}
                 and all(isinstance(detail.get(k), str) for k in ("tag", "xpath"))
                 and detail["xpath"].startswith("/html")
-                and all(isinstance(v, str) for k, v in detail.items() if k != "rect")
-                and isinstance(detail.get("rect", {}), dict))
+                and all(isinstance(v, str) for k, v in detail.items() if k not in {"rect", "style"})
+                and isinstance(detail.get("rect", {}), dict)
+                and isinstance(look, dict) and all(isinstance(v, str) for v in look.values()))
     return False
 
 

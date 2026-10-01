@@ -17,7 +17,21 @@ const runtime = vi.hoisted(() => ({
   intent: vi.fn(),
   workspaceFor: vi.fn(async () => ({ writer_status: '' })),
   designSession: { upload: vi.fn() },
+  goals: vi.fn(async (conversation: string) => ({
+    schema_version: 1,
+    scope: 'conversation',
+    conversation_id: conversation,
+    revision: 'goals-1',
+    current_goal_id: null,
+    current_revision: 'none',
+    items: [],
+    total: 0,
+    next_cursor: null,
+  })),
+  reviewGoal: vi.fn(),
+  executeGoal: vi.fn(),
 }));
+vi.mock('../../shell-settled', () => ({ useShellSettled: () => true }));
 
 vi.mock('../../runtime', () => ({
   useRuntime: () => ({
@@ -73,16 +87,13 @@ it('projects bounded Developer and Designer summaries from canonical owners', as
       suggestions={[]}
       ready
       connectionStatus="ready"
-      terminalAvailable={false}
       agents={<p>No delegated agents in this conversation.</p>}
       onAddResource={vi.fn()}
       onOpenResource={onOpenResource}
       onUnbindResource={vi.fn()}
-      onFind={vi.fn()}
       onManageConversation={vi.fn()}
       onManageBrowser={vi.fn()}
       onDeleteConversation={vi.fn()}
-      onOpenTerminal={vi.fn()}
       onOpenSuggestion={vi.fn()}
       onDismissSuggestion={vi.fn()}
     />,
@@ -110,11 +121,14 @@ it('projects bounded Developer and Designer summaries from canonical owners', as
     expect.any(AbortSignal),
   );
   const rail = screen.getByRole('complementary', {
-    name: 'Conversation context',
+    name: 'Conversation details',
   });
-  expect(
-    within(rail).queryByRole('button', { name: 'Interactive terminal' }),
-  ).toBeNull();
+  expect(rail.querySelector('.context-rail-body')).toContainElement(
+    screen.getByRole('heading', { name: 'Working on' }),
+  );
+  expect(rail.querySelector('.context-rail-heading')).not.toBe(
+    rail.querySelector('.context-rail-body'),
+  );
   await userEvent
     .setup()
     .click(within(rail).getByRole('button', { name: 'Conversation actions' }));
@@ -134,16 +148,13 @@ it('keeps unavailable resources visible without querying their owners', async ()
       suggestions={[]}
       ready
       connectionStatus="ready"
-      terminalAvailable={false}
       agents={<p>No delegated agents in this conversation.</p>}
       onAddResource={vi.fn()}
       onOpenResource={vi.fn()}
       onUnbindResource={vi.fn()}
-      onFind={vi.fn()}
       onManageConversation={vi.fn()}
       onManageBrowser={vi.fn()}
       onDeleteConversation={vi.fn()}
-      onOpenTerminal={vi.fn()}
       onOpenSuggestion={vi.fn()}
       onDismissSuggestion={vi.fn()}
     />,
@@ -164,23 +175,23 @@ it('keeps setup quiet and exposes a cancellable checkout wait', () => {
       suggestions={[]}
       ready
       connectionStatus="ready"
-      terminalAvailable={false}
       agents={<p>No agents</p>}
       writerQueued
       onCancelWait={onCancelWait}
       onAddResource={onAddResource}
       onOpenResource={vi.fn()}
       onUnbindResource={vi.fn()}
-      onFind={vi.fn()}
       onManageConversation={vi.fn()}
       onManageBrowser={vi.fn()}
       onDeleteConversation={vi.fn()}
-      onOpenTerminal={vi.fn()}
       onOpenSuggestion={vi.fn()}
       onDismissSuggestion={vi.fn()}
     />,
   );
-  expect(screen.getByRole('heading', { name: 'Working on' })).toBeVisible();
+  // Nothing is bound yet: the section stays out of the way entirely (B7).
+  expect(
+    screen.queryByRole('heading', { name: 'Working on' }),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByText('No coding workspace or design is bound yet.'),
   ).toBeNull();
@@ -216,16 +227,13 @@ it('copies one saved media output into the chosen design without generating agai
       suggestions={[]}
       ready
       connectionStatus="ready"
-      terminalAvailable={false}
       agents={<p>No agents</p>}
       onAddResource={vi.fn()}
       onOpenResource={vi.fn()}
       onUnbindResource={vi.fn()}
-      onFind={vi.fn()}
       onManageConversation={vi.fn()}
       onManageBrowser={vi.fn()}
       onDeleteConversation={vi.fn()}
-      onOpenTerminal={vi.fn()}
       onOpenSuggestion={vi.fn()}
       onDismissSuggestion={vi.fn()}
     />,
@@ -268,22 +276,24 @@ it('saves an output with one scoped command and prepares code import without reg
       suggestions={[]}
       ready
       connectionStatus="ready"
-      terminalAvailable={false}
       agents={<p>No agents</p>}
       onUseOutputInCode={onUseOutputInCode}
       onAddResource={vi.fn()}
       onOpenResource={vi.fn()}
       onUnbindResource={vi.fn()}
-      onFind={vi.fn()}
       onManageConversation={vi.fn()}
       onManageBrowser={vi.fn()}
       onDeleteConversation={vi.fn()}
-      onOpenTerminal={vi.fn()}
       onOpenSuggestion={vi.fn()}
       onDismissSuggestion={vi.fn()}
     />,
   );
   fireEvent.click(screen.getByText('Image output'));
+  // The row points at the inline media instead of loading a second copy (B22).
+  expect(runtime.download).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole('button', { name: 'Show in conversation' }),
+  ).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Use in code folder' }));
   expect(onUseOutputInCode).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -303,4 +313,196 @@ it('saves an output with one scoped command and prepares code import without reg
   expect(
     await screen.findByText('Saved outputs/output-fixture.png'),
   ).toBeVisible();
+});
+
+it('names itself Conversation details and keeps no utilities the header already has (B221, B223)', async () => {
+  render(
+    <ConversationContextRail
+      conversationId="conversation-a"
+      conversationRevision="1"
+      resources={[]}
+      suggestions={[]}
+      ready
+      connectionStatus="ready"
+      agents={null}
+      onAddResource={vi.fn()}
+      onOpenResource={vi.fn()}
+      onUnbindResource={vi.fn()}
+      onManageConversation={vi.fn()}
+      onManageBrowser={vi.fn()}
+      onDeleteConversation={vi.fn()}
+      onOpenSuggestion={vi.fn()}
+      onDismissSuggestion={vi.fn()}
+    />,
+  );
+  const rail = screen.getByRole('complementary', {
+    name: 'Conversation details',
+  });
+  // No visible title: the name is for assistive tech only.
+  expect(
+    within(rail).getByRole('heading', { name: 'Conversation details' }),
+  ).toHaveClass('visually-hidden');
+  expect(within(rail).queryByText('Utilities')).toBeNull();
+  expect(
+    within(rail).queryByRole('button', { name: /find in conversation/i }),
+  ).toBeNull();
+  expect(within(rail).queryByRole('button', { name: /terminal/i })).toBeNull();
+  // Set a goal lives with the goal itself, which always shows.
+  fireEvent.click(
+    await within(rail).findByRole('button', { name: 'Set a goal' }),
+  );
+  expect(
+    await within(rail).findByRole('form', { name: 'Set a goal' }),
+  ).toBeVisible();
+});
+
+it('hides the Agents section while delegated work is empty and draws disclosure affordances', () => {
+  const props = {
+    conversationId: 'conversation-a',
+    conversationRevision: '1',
+    resources: [],
+    suggestions: [],
+    ready: true,
+    connectionStatus: 'ready' as const,
+    agents: <p>Delegated run list</p>,
+    onAddResource: vi.fn(),
+    onOpenResource: vi.fn(),
+    onUnbindResource: vi.fn(),
+    onManageConversation: vi.fn(),
+    onManageBrowser: vi.fn(),
+    onDeleteConversation: vi.fn(),
+    onOpenSuggestion: vi.fn(),
+    onDismissSuggestion: vi.fn(),
+  };
+  const view = render(<ConversationContextRail {...props} agentsEmpty />);
+  const agents = screen.getByText('Agents', { selector: 'summary' });
+  expect(agents).not.toBeVisible();
+  const goal = screen.getByText('Goal', { selector: 'summary' });
+  expect(goal).toBeVisible();
+  expect(goal.querySelector('.disclosure-chevron')).not.toBeNull();
+  view.rerender(<ConversationContextRail {...props} agentsEmpty={false} />);
+  expect(screen.getByText('Agents', { selector: 'summary' })).toBeVisible();
+});
+
+it('opens and promotes the Agents section while delegated agents are live (B30)', () => {
+  const props = {
+    conversationId: 'conversation-a',
+    conversationRevision: '1',
+    resources: [],
+    suggestions: [],
+    ready: true,
+    connectionStatus: 'ready' as const,
+    agents: <p>Delegated run list</p>,
+    agentsEmpty: false,
+    onAddResource: vi.fn(),
+    onOpenResource: vi.fn(),
+    onUnbindResource: vi.fn(),
+    onManageConversation: vi.fn(),
+    onManageBrowser: vi.fn(),
+    onDeleteConversation: vi.fn(),
+    onOpenSuggestion: vi.fn(),
+    onDismissSuggestion: vi.fn(),
+  };
+  const view = render(<ConversationContextRail {...props} agentsLive={0} />);
+  const details = () =>
+    screen.getByText('Delegated run list').closest('details')!;
+  const slot = () => details().closest('.context-agents-slot')!;
+  expect(details().open).toBe(false);
+  expect(slot()).not.toHaveAttribute('data-first');
+
+  // Child agents start: the section opens, shows who works and moves up.
+  view.rerender(
+    <ConversationContextRail {...props} agentsLive={2} agentsWorking={2} />,
+  );
+  expect(details().open).toBe(true);
+  expect(slot()).toHaveAttribute('data-first', 'true');
+  expect(within(details()).getByText('2 working')).toBeVisible();
+
+  // The reader may collapse it; a count change while live does not reopen.
+  fireEvent.click(details().querySelector('summary')!);
+  // jsdom queues the toggle event; deliver it before the next update.
+  fireEvent(details(), new Event('toggle'));
+  expect(details().open).toBe(false);
+  view.rerender(
+    <ConversationContextRail {...props} agentsLive={1} agentsWorking={0} />,
+  );
+  expect(details().open).toBe(false);
+  // Nobody works: the one left waits for the person.
+  expect(within(details()).getByText('1 waiting')).toBeInTheDocument();
+
+  // Work settles, then new work starts: it opens again.
+  view.rerender(<ConversationContextRail {...props} agentsLive={0} />);
+  expect(slot()).not.toHaveAttribute('data-first');
+  view.rerender(<ConversationContextRail {...props} agentsLive={1} />);
+  expect(details().open).toBe(true);
+
+  // Another conversation with live work starts open as well.
+  view.rerender(
+    <ConversationContextRail
+      {...props}
+      conversationId="conversation-b"
+      agentsLive={1}
+    />,
+  );
+  expect(details().open).toBe(true);
+
+  // The reader's choice carries across conversations, but a child
+  // conversation opens it on its own agent, first, as "This agent" (B242).
+  fireEvent.click(details().querySelector('summary')!);
+  fireEvent(details(), new Event('toggle'));
+  view.rerender(
+    <ConversationContextRail
+      {...props}
+      conversationId="conversation-c"
+      agentsLive={0}
+    />,
+  );
+  expect(details().open).toBe(false);
+  view.rerender(
+    <ConversationContextRail
+      {...props}
+      conversationId="child-d"
+      agentsLive={0}
+      childConversation
+    />,
+  );
+  expect(details().open).toBe(true);
+  expect(slot()).toHaveAttribute('data-first', 'true');
+  expect(within(details()).getByText('This agent')).toBeVisible();
+});
+
+it('names each suggested panel action after its panel', () => {
+  const suggestion = {
+    type: 'panel.suggested' as const,
+    conversation_id: 'conversation-a',
+    conversation_revision: '1',
+    descriptor: { panel_kind: 'fake.info', title: 'Synthetic notes' },
+  };
+  const onOpenSuggestion = vi.fn();
+  const onDismissSuggestion = vi.fn();
+  render(
+    <ConversationContextRail
+      conversationId="conversation-a"
+      conversationRevision="1"
+      resources={[]}
+      suggestions={[suggestion]}
+      ready
+      connectionStatus="ready"
+      agents={null}
+      onAddResource={vi.fn()}
+      onOpenResource={vi.fn()}
+      onUnbindResource={vi.fn()}
+      onManageConversation={vi.fn()}
+      onManageBrowser={vi.fn()}
+      onDeleteConversation={vi.fn()}
+      onOpenSuggestion={onOpenSuggestion}
+      onDismissSuggestion={onDismissSuggestion}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open Synthetic notes' }));
+  expect(onOpenSuggestion).toHaveBeenCalledWith(suggestion);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Dismiss Synthetic notes' }),
+  );
+  expect(onDismissSuggestion).toHaveBeenCalledWith(suggestion);
 });

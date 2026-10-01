@@ -1,6 +1,7 @@
 import { FileText, Trash2 } from 'lucide-react';
 import type { DocumentSummaryPage } from '../../api/types';
-import { CompactAction, Field, Select } from '../../ui/primitives';
+import { IconButton, Select, type Tone } from '../../ui/primitives';
+import { absoluteTime, relativeTime } from '../../ui/format';
 import { SavedCatalog, type SavedLoader } from './KnowledgeCatalog';
 
 const statuses: Record<string, string> = {
@@ -15,6 +16,17 @@ const statuses: Record<string, string> = {
   skipped_duplicate: 'Skipped duplicate',
   unknown: 'Unknown',
 };
+/** A document's dot: working (pulses), ready, failed or stopped. */
+const statusTones: Record<string, Tone> = {
+  staging: 'info',
+  queued: 'info',
+  indexing: 'info',
+  extracting: 'info',
+  searchable: 'success',
+  completed: 'success',
+  failed: 'danger',
+};
+const working = new Set(['staging', 'queued', 'indexing', 'extracting']);
 const recordStates: Record<string, string> = {
   removed: 'Removed from search; ingestion history retained',
   saved: 'Saved job and document record',
@@ -37,6 +49,10 @@ function progress(current: number | null, total: number | null) {
   return `${current == null ? 'Unknown' : current.toLocaleString()} / ${total == null ? 'unknown' : total.toLocaleString()}`;
 }
 
+/**
+ * Settings › Documents › Your documents (B258): one row per document with
+ * its status as a dot and words, details on demand and Remove as an icon.
+ */
 export default function DocumentsCatalog({
   load,
   onRemove,
@@ -46,33 +62,59 @@ export default function DocumentsCatalog({
 }) {
   return (
     <SavedCatalog
-      title="Indexed Documents"
+      title="Your documents"
       noun="documents"
       load={load}
-      description="Browse saved document and ingestion records. Status and progress are historical; current searchability is unknown."
+      headless
+      description="Saved document and ingestion records."
       filter={(selected, change) => (
-        <Field label="Saved document status">
-          <Select
-            value={selected}
-            onChange={(event) => change(event.target.value)}
-          >
-            <option value="">All statuses</option>
-            {Object.entries(statuses).map(([value, label]) => (
-              <option value={value} key={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <Select
+          aria-label="Saved document status"
+          value={selected}
+          onChange={(event) => change(event.target.value)}
+        >
+          <option value="">All statuses</option>
+          {Object.entries(statuses).map(([value, label]) => (
+            <option value={value} key={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
       )}
       renderItems={(page) => (
-        <ul className="settings-results">
+        <ul className="settings-results settings-document-results">
           {page.items.map((item) => (
-            <li className="settings-document-result" key={item.id}>
+            <li
+              className="settings-document-result settings-divided"
+              key={item.id}
+            >
+              <span className="settings-row-icon" data-tone="1" aria-hidden>
+                <FileText size={16} aria-hidden />
+              </span>
               <details>
                 <summary>
-                  <FileText size={18} aria-hidden />
-                  <span>{item.name}</span>
+                  <span className="settings-document-name">{item.name}</span>
+                  <span
+                    className="status-indicator"
+                    data-tone={statusTones[item.status]}
+                  >
+                    <span
+                      className="status-indicator-dot"
+                      data-pulse={working.has(item.status) ? 'true' : undefined}
+                      aria-hidden
+                    />
+                    <span>{statuses[item.status] ?? 'Unknown'}</span>
+                  </span>
+                  {item.updated_at ? (
+                    <small>
+                      <time
+                        dateTime={item.updated_at}
+                        title={absoluteTime(item.updated_at)}
+                      >
+                        {relativeTime(item.updated_at)}
+                      </time>
+                    </small>
+                  ) : null}
                 </summary>
                 <div className="settings-document-detail">
                   {item.truncated && (
@@ -81,8 +123,6 @@ export default function DocumentsCatalog({
                   <dl>
                     <dt>Record state</dt>
                     <dd>{recordStates[item.record_state] ?? 'Unknown'}</dd>
-                    <dt>Saved identity</dt>
-                    <dd>{item.id}</dd>
                     <dt>Saved status</dt>
                     <dd>{statuses[item.status] ?? 'Unknown'}</dd>
                     <dt>Saved stage</dt>
@@ -96,18 +136,22 @@ export default function DocumentsCatalog({
                     <dt>Current searchability</dt>
                     <dd>Unknown</dd>
                     <dt>Last saved update</dt>
-                    <dd>{item.updated_at || 'Unknown'}</dd>
+                    <dd>
+                      {item.updated_at
+                        ? absoluteTime(item.updated_at) || item.updated_at
+                        : 'Unknown'}
+                    </dd>
                   </dl>
                 </div>
               </details>
               {onRemove && (
-                <CompactAction
+                <IconButton
+                  size="sm"
                   label={`Remove ${item.name}`}
-                  variant="danger"
                   onClick={() => onRemove(item.id, item.name)}
                 >
-                  <Trash2 size={17} aria-hidden />
-                </CompactAction>
+                  <Trash2 size={15} aria-hidden />
+                </IconButton>
               )}
             </li>
           ))}

@@ -260,7 +260,7 @@ def undo_workspace_change(review: WorkspaceUndoReview, *, command_id: str, confi
 
 def prepare_retained_undo(resource_id: str, conversation_id: str, change_set_id: str, *,
                            validate: Callable[[], None]) -> tuple[WorkspaceUndoReview, str]:
-    """NiceGUI/tool adapter: recover an original review from the existing receipt."""
+    """Tool adapter: recover an original review from the existing receipt."""
     validate()
     client_edits._scope(resource_id, conversation_id)
     owner = "developer-undo:" + conversation_id

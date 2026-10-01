@@ -117,7 +117,14 @@ function options() {
           : source === 'marketplace'
             ? page.items.filter((item) => !item.installed)
             : page.items;
-      return { ...page, items, total: items.length };
+      // The server counts every plugin, whatever the tab shows (B120).
+      return {
+        ...page,
+        items,
+        total: items.length,
+        installed_count: 1,
+        attention_count: 0,
+      };
     }),
     open: vi.fn().mockResolvedValue(detail),
     review: vi.fn().mockImplementation(async (action, payload) => ({
@@ -147,23 +154,24 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
   const props = options();
   render(<PluginSettings {...props} />);
   await screen.findByText('1 matching plugins.');
-  expect(screen.getByLabelText('Plugin source')).toHaveValue('installed');
-  expect(screen.getByLabelText('Plugin source')).not.toBeVisible();
+  expect(screen.getByRole('tab', { name: 'Installed' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   expect(screen.queryByText('Cached Plugin')).not.toBeInTheDocument();
-  expect(screen.getByText('1 tools')).toBeVisible();
-  expect(screen.getByText('1 skills')).toBeVisible();
-  expect(screen.getByText('1 loaded / 0 failed')).toBeVisible();
+  expect(screen.getByText(/1 tool · 1 skill/)).toBeVisible();
+  expect(screen.getByText('1 installed')).toBeVisible();
   expect(props.load).toHaveBeenCalledWith(
     { query: '', source: 'installed' },
     expect.any(AbortSignal),
   );
 
-  fireEvent.click(screen.getByText('Search and filter plugins'));
-  fireEvent.change(screen.getByLabelText('Plugin source'), {
-    target: { value: 'marketplace' },
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+  // Discover is the saved marketplace; it never fetches over the network.
+  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   expect(await screen.findByText('Cached Plugin')).toBeVisible();
+  // Discover shows the saved marketplace, and still "1 installed" (B120).
+  expect(screen.getByText('1 installed')).toBeVisible();
+  expect(screen.getByLabelText('Plugin source')).toHaveValue('marketplace');
   expect(screen.getByText(/Install unavailable/)).toBeVisible();
   expect(props.load).toHaveBeenLastCalledWith(
     { query: '', source: 'marketplace', cursor: undefined },
@@ -176,26 +184,28 @@ it('starts with installed local plugins and keeps the marketplace explicitly pas
 it('runs the saved plugin self-test in one click before enablement', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Test Sample Plugin' }),
-  );
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Sample Plugin',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Test Sample Plugin' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0]).toBe('plugin.test');
   expect(props.execute.mock.calls[0][0].type).toBe('plugin.test');
 });
 
-it('prioritizes owner-style marketplace and reload actions above closed filters', async () => {
+it('keeps search inline and rarer actions in one menu', async () => {
   const props = options();
   render(<PluginSettings {...props} />);
   await screen.findByText('1 matching plugins.');
-  expect(
-    screen.getByRole('button', { name: 'Browse saved marketplace' }),
-  ).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Reload plugins' })).toBeVisible();
-  expect(screen.getByLabelText('Search plugins')).not.toBeVisible();
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Browse saved marketplace' }),
-  );
+  expect(screen.getAllByLabelText('Search plugins')[0]).toBeVisible();
+  const more = screen.getAllByRole('button', {
+    name: 'More plugin actions',
+  })[0];
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Reload plugins' }));
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   expect(await screen.findByText('Cached Plugin')).toBeVisible();
   expect(props.load).toHaveBeenLastCalledWith(
     { query: '', source: 'marketplace', cursor: undefined },
@@ -313,6 +323,93 @@ it('refreshes the enabled switch after the saved command completes', async () =>
   expect(screen.getByText('Plugin change completed.')).toBeVisible();
 });
 
+const installable = {
+  ...capabilities,
+  install: { available: true, code: null },
+};
+
+function marketplaceOnly(
+  props: ReturnType<typeof options>,
+  caps: PluginCatalogPage['items'][number]['capabilities'],
+) {
+  props.load.mockResolvedValue({
+    ...page,
+    items: [{ ...page.items[1], capabilities: caps }],
+    total: 1,
+  });
+}
+
+it('says why a marketplace plugin cannot install instead of offering Install (B266)', async () => {
+  const props = options();
+  marketplaceOnly(props, {
+    ...capabilities,
+    install: { available: false, code: 'plugin_checksum_unavailable' },
+  });
+  const lifecycle = { review: vi.fn(), execute: vi.fn(), receipt: vi.fn() };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  expect(await screen.findByText(/lists no checksum/)).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Install' }),
+  ).not.toBeInTheDocument();
+  expect(lifecycle.review).not.toHaveBeenCalled();
+});
+
+it('shows the installer’s reason when an install fails (B266)', async () => {
+  sessionStorage.clear();
+  const props = options();
+  marketplaceOnly(props, installable);
+  const lifecycle = {
+    review: vi.fn().mockResolvedValue({
+      action: 'install',
+      plugin_id: 'cached-plugin',
+      name: 'Cached Plugin',
+      version: '2.0.0',
+      source:
+        'https://github.com/example/plugins/archive/refs/heads/main.zip (folder plugins/cached-plugin)',
+      checksum: `sha256:${'a'.repeat(64)}`,
+      permissions: [],
+      disclosures: [],
+      revision: 'd'.repeat(64),
+    }),
+    execute: vi.fn().mockImplementation(async (command) => ({
+      command_id: command.command_id,
+      status: 'failed',
+      action: 'install',
+      plugin_id: 'cached-plugin',
+      message:
+        "Couldn't install cached-plugin: Checksum mismatch: expected sha256:a, got sha256:b Refresh the marketplace, then try again.",
+    })),
+    receipt: vi.fn(),
+  };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Install plugin' }),
+  );
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('Checksum mismatch');
+  expect(alert).toHaveTextContent('Refresh the marketplace');
+});
+
+it('says an entry that cannot install is permanent, not "try again" (B266)', async () => {
+  sessionStorage.clear();
+  const props = options();
+  marketplaceOnly(props, installable);
+  const lifecycle = {
+    review: vi
+      .fn()
+      .mockRejectedValue({ status: 409, code: 'plugin_source_unsupported' }),
+    execute: vi.fn(),
+    receipt: vi.fn(),
+  };
+  render(<PluginSettings {...props} lifecycle={lifecycle} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent(/can’t be installed from/);
+  expect(alert).not.toHaveTextContent(/try again/i);
+  expect(lifecycle.execute).not.toHaveBeenCalled();
+});
+
 it('keeps a newly installed marketplace plugin visible for its next action', async () => {
   sessionStorage.clear();
   const props = options();
@@ -320,6 +417,7 @@ it('keeps a newly installed marketplace plugin visible for its next action', asy
   props.load.mockImplementation(async ({ source }) => {
     const item = {
       ...page.items[1],
+      capabilities: installable,
       installed,
       source: installed ? ('installed' as const) : ('marketplace' as const),
     };
@@ -345,18 +443,23 @@ it('keeps a newly installed marketplace plugin visible for its next action', asy
   };
   render(<PluginSettings {...props} lifecycle={lifecycle} />);
   await screen.findByText('0 matching plugins.');
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Browse saved marketplace' }),
-  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Install plugin' }),
+  );
   await waitFor(() =>
     expect(props.load).toHaveBeenLastCalledWith(
       { query: '', source: 'all', cursor: undefined },
       expect.any(AbortSignal),
     ),
   );
+  const more = await screen.findByRole('button', {
+    name: 'More actions for Cached Plugin',
+  });
+  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
   expect(
-    await screen.findByRole('button', { name: 'Uninstall' }),
+    screen.getByRole('menuitem', { name: 'Uninstall Cached Plugin' }),
   ).toBeVisible();
 });
 
@@ -416,4 +519,18 @@ it('rejects oversized pages and detail records from the client boundary', async 
   await screen.findByText(/Saved plugin information is unavailable/);
   expect(screen.queryByText('2 matching plugins.')).not.toBeInTheDocument();
   await waitFor(() => expect(props.open).not.toHaveBeenCalled());
+});
+
+it('says an enabled plugin failed to load instead of calling it enabled', async () => {
+  const props = options();
+  props.load.mockResolvedValue({
+    ...page,
+    total: 1,
+    items: [{ ...page.items[0], enabled: true, health: 'load_failed' }],
+  });
+  render(<PluginSettings {...props} />);
+  await screen.findByText('1 matching plugins.');
+  expect(screen.getByText('Failed to load')).toBeVisible();
+  expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
+  expect(screen.getByText('1 needs attention')).toBeVisible();
 });

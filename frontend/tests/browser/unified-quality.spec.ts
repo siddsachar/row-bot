@@ -20,6 +20,9 @@ import {
   assertControlTextUnclipped,
 } from './unified-helpers';
 
+// A denial ends the turn without asking the model again (B199).
+const DENIED_REPLY = 'The requested action was denied. No action was taken.';
+
 test.use({ serviceWorkers: 'allow' });
 test.beforeEach(async ({ context }) => blockFixtureServiceWorkers(context));
 
@@ -43,10 +46,6 @@ test('real tools and media keep one composer through every colour theme and syst
         )?.quiesced,
     )
     .toBe(true);
-  await page
-    .locator('summary')
-    .filter({ hasText: /^Activity \(/ })
-    .click();
   await expect(
     page.getByRole('img', { name: 'Generated result', exact: true }),
   ).toBeVisible();
@@ -56,8 +55,7 @@ test('real tools and media keep one composer through every colour theme and syst
   try {
     for (const appearance of ['light', 'dark']) {
       for (const accent of ['blue', 'teal', 'violet', 'amber']) {
-        await page.goto('/app-v2/settings/preferences');
-        await page.getByText('Local client controls', { exact: true }).click();
+        await page.goto('/app-v2/settings/appearance');
         await page
           .getByRole('combobox', { name: 'Appearance', exact: true })
           .selectOption(appearance);
@@ -99,8 +97,7 @@ test('real tools and media keep one composer through every colour theme and syst
         observations.push({ appearance, accent });
       }
     }
-    await page.goto('/app-v2/settings/preferences');
-    await page.getByText('Local client controls', { exact: true }).click();
+    await page.goto('/app-v2/settings/appearance');
     await page
       .getByRole('combobox', { name: 'Appearance', exact: true })
       .selectOption('system');
@@ -124,7 +121,8 @@ test('real tools and media keep one composer through every colour theme and syst
         fontSize: getComputedStyle(element).fontSize,
         lineHeight: getComputedStyle(element).lineHeight,
       }));
-    expect(responseReading).toEqual({ fontSize: '16px', lineHeight: '24px' });
+    // Chat reads at the 15/24 reading size; dense chrome uses 14/21.
+    expect(responseReading).toEqual({ fontSize: '15px', lineHeight: '24px' });
     await writeEvidence(
       testInfo,
       'actual-response-reading-type',
@@ -292,7 +290,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await assertControlTextUnclipped(details);
   await details.click();
   const dialog = page.getByRole('dialog', {
-    name: 'Approval details · fixture_action',
+    name: 'Allow Fixture action?',
     exact: true,
   });
   await expect(dialog).toBeVisible();
@@ -301,7 +299,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await expect(details).toBeFocused();
   const beforeDecision = (await fixtureState(page)).calls.length;
   const reject = approval.getByRole('button', {
-    name: 'Reject',
+    name: 'Deny',
     exact: true,
   });
   const approve = approval.getByRole('button', {
@@ -312,9 +310,7 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await assertControlTextUnclipped(reject);
   await screenshot(page, testInfo, 'combined-stress-approval-footer');
   await reject.click();
-  await expect(
-    page.getByText('Synthetic approval rejected.', { exact: true }),
-  ).toHaveCount(1);
+  await expect(page.getByText(DENIED_REPLY, { exact: true })).toHaveCount(1);
   expect((await fixtureState(page)).calls).toHaveLength(beforeDecision + 1);
   await composer(page).fill('Accessible unsent draft');
   await expect(
@@ -329,7 +325,13 @@ test('reduced motion and forced colours preserve a usable single conversation', 
     page.getByRole('status').filter({ hasText: /^Connected$/ }),
   ).toBeVisible();
   await assertControlTextUnclipped(send);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  // Settings is a navigation link; the navigation is collapsed at this width.
+  const settings = page.getByRole('link', { name: 'Settings', exact: true });
+  if (!(await settings.isVisible()))
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  await settings.click();
   await expect(page).toHaveURL(/\/settings\/providers$/);
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
@@ -483,7 +485,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await expect(
           page
             .getByRole('alert')
-            .filter({ hasText: 'Choose a configured model' }),
+            .filter({ hasText: 'Choose a model before sending' }),
         ).toBeVisible();
         await expect(composer(page)).toHaveValue(
           'Synthetic unavailable-model draft',
@@ -509,10 +511,6 @@ test('actual state messages and recovery controls remain readable in light and d
               )?.quiesced,
           )
           .toBe(true);
-        await page
-          .locator('summary')
-          .filter({ hasText: /^Activity \(/ })
-          .click();
         await expect(
           page.getByRole('img', { name: 'Generated result', exact: true }),
         ).toBeVisible();
@@ -526,16 +524,14 @@ test('actual state messages and recovery controls remain readable in light and d
           exact: true,
         });
         await expect(preview.locator('iframe')).toBeVisible();
-        const refreshPreview = preview.getByRole('button', {
-          name: 'Refresh preview',
-          exact: true,
-        });
-        // Opening a freshly created resource may still be applying its saved
-        // revision after the first iframe appears. Intercept only after that
-        // owner-driven refresh settles, otherwise this test holds the request
-        // that must enable the very button it is about to click.
+        // No manual refresh outside an error: switching Preview | Edit reads
+        // the canvas again, and the panel says so while it does.
+        const mode = (name: 'Preview' | 'Edit') =>
+          preview.getByRole('radio', { name, exact: true });
         await expect(preview).toHaveAttribute('aria-busy', 'false');
-        await expect(refreshPreview).toBeEnabled();
+        await expect(
+          preview.getByRole('button', { name: /^Refresh/ }),
+        ).toHaveCount(0);
         const previewPath = `**/api/v1/conversations/${conversation}/artifacts/*/preview*`;
         let release!: () => void;
         const held = new Promise<void>((resolve) => {
@@ -545,33 +541,26 @@ test('actual state messages and recovery controls remain readable in light and d
           await held;
           await route.continue();
         });
-        await refreshPreview.click();
+        await mode('Edit').click();
         await expect(preview).toHaveAttribute('aria-busy', 'true');
-        const refreshExplanation = preview.getByText(
-          'The saved preview is refreshing. Refresh preview is available again once this request settles.',
-          { exact: true },
-        );
-        await expect(refreshExplanation).toBeVisible();
-        await expect(refreshExplanation).toHaveAttribute('role', 'status');
-        await expect(refreshPreview).toHaveAttribute(
-          'aria-describedby',
-          'design-preview-refresh-status',
-        );
+        const updating = preview.getByText('Updating preview…', {
+          exact: true,
+        });
+        await expect(updating).toBeVisible();
+        await expect(updating).toHaveAttribute('role', 'status');
         await screenshot(page, info, `${label}-preview-loading`);
         release();
         await expect(preview).toHaveAttribute('aria-busy', 'false');
-        await expect(refreshExplanation).toHaveCount(0);
-        await expect(refreshPreview).toBeEnabled();
-        await expect(refreshPreview).not.toHaveAttribute('aria-describedby');
+        await expect(updating).toHaveCount(0);
         await page.unroute(previewPath);
+        let next: 'Preview' | 'Edit' = 'Preview';
         for (const [status, code] of [
           [404, 'resource_unavailable'],
           [403, 'resource_binding_revoked'],
         ] as const) {
           const fired = await injectOnce(previewPath, status, code);
-          await preview
-            .getByRole('button', { name: 'Refresh preview', exact: true })
-            .click();
+          await mode(next).click();
+          next = next === 'Preview' ? 'Edit' : 'Preview';
           await expect(
             preview.getByText('Preview unavailable', { exact: true }),
           ).toBeVisible();
@@ -598,7 +587,16 @@ test('actual state messages and recovery controls remain readable in light and d
           exact: true,
         });
         await expect(inspector).toContainText('Folder is not a Git repository');
-        await fileButton.click();
+        // A narrow inspector shows the file in place of the list.
+        const openFile = async () => {
+          const back = page.getByRole('button', {
+            name: 'Back to files',
+            exact: true,
+          });
+          if (await back.isVisible()) await back.click();
+          await fileButton.click();
+        };
+        await openFile();
         await expect(
           page.getByLabel('File text', { exact: true }),
         ).toHaveJSProperty('textContent', fixtureText);
@@ -609,7 +607,7 @@ test('actual state messages and recovery controls remain readable in light and d
           'resource_binding_revoked',
         );
         // Reload the same populated file, so this proves cached content clears.
-        await fileButton.click();
+        await openFile();
         await expect(
           page.getByText('Workspace access changed', { exact: true }),
         ).toBeVisible();
@@ -634,7 +632,7 @@ test('actual state messages and recovery controls remain readable in light and d
         await page.unroute(filePath);
         await retryInspector.click();
         await expect(inspector).toContainText('Folder is not a Git repository');
-        await fileButton.click();
+        await openFile();
         await expect(
           page.getByLabel('File text', { exact: true }),
         ).toHaveJSProperty('textContent', fixtureText);
@@ -654,7 +652,7 @@ test('actual state messages and recovery controls remain readable in light and d
         });
         await composer(page).fill('approval fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
-        let approval = page.locator('.approval-bar');
+        let approval = page.locator('.approval-card');
         await expect(approval).toBeVisible();
         await expect(
           approval.getByLabel('Loading current approval', { exact: true }),
@@ -662,14 +660,14 @@ test('actual state messages and recovery controls remain readable in light and d
         await screenshot(page, info, `${label}-approval-loading`);
         releaseApproval();
         await expect(
-          approval.getByRole('button', { name: 'Reject', exact: true }),
+          approval.getByRole('button', { name: 'Deny', exact: true }),
         ).toBeVisible();
         await page.unroute(approvalPath);
         conversation = await newConversation(page);
         const expired = await injectOnce(approvalPath, 409, 'approval_expired');
         await composer(page).fill('approval fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
-        approval = page.locator('.approval-bar');
+        approval = page.locator('.approval-card');
         await expect(approval.getByRole('alert')).toContainText(
           'This approval expired',
         );
@@ -682,16 +680,16 @@ test('actual state messages and recovery controls remain readable in light and d
         conversation = await newConversation(page);
         await composer(page).fill('approval fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
-        approval = page.locator('.approval-bar');
+        approval = page.locator('.approval-card');
         const reject = approval.getByRole('button', {
-          name: 'Reject',
+          name: 'Deny',
           exact: true,
         });
         await assertControlTextUnclipped(reject);
         await reject.click();
-        await expect(
-          page.getByText('Synthetic approval rejected.', { exact: true }),
-        ).toHaveCount(1);
+        await expect(page.getByText(DENIED_REPLY, { exact: true })).toHaveCount(
+          1,
+        );
         await screenshot(page, info, `${label}-approval-rejected`);
         const commands = `**/api/v1/conversations/${conversation}/commands`;
         let lost = false;
@@ -710,17 +708,32 @@ test('actual state messages and recovery controls remain readable in light and d
         await composer(page).fill('stop fixture');
         await page.getByRole('button', { name: 'Send', exact: true }).click();
         const receipt = page.getByRole('button', {
-          name: 'Check request receipt',
+          name: 'Check message',
+          exact: true,
+        });
+        // A compact composer keeps recovery in its Message actions menu.
+        const messageActions = page.getByRole('button', {
+          name: 'Message actions',
           exact: true,
         });
         await expect.poll(() => lostResponseFinished).toBe(true);
-        await expect(receipt).toBeVisible();
+        await expect(receipt.or(messageActions).first()).toBeVisible();
         expect(lost).toBe(true);
-        await assertControlTextUnclipped(receipt);
+        const inMenu = !(await receipt.isVisible());
+        if (!inMenu) await assertControlTextUnclipped(receipt);
         await screenshot(page, info, `${label}-unknown-response`);
         await page.unroute(commands);
-        await receipt.click();
+        if (inMenu) {
+          await messageActions.click();
+          await page
+            .getByRole('menuitem', {
+              name: 'Check message',
+              exact: true,
+            })
+            .click();
+        } else await receipt.click();
         await expect(receipt).toHaveCount(0);
+        await expect(messageActions).toHaveCount(0);
         await expect
           .poll(async () => (await fixtureState(page)).calls.length)
           .toBe(count + 1);

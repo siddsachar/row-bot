@@ -208,6 +208,11 @@
         "availability": {
           "$ref": "#/$defs/ChannelAvailability"
         },
+        "can_test": {
+          "default": false,
+          "title": "Can Test",
+          "type": "boolean"
+        },
         "capabilities": {
           "items": {
             "type": "string"
@@ -247,6 +252,23 @@
           "title": "Fields",
           "type": "array"
         },
+        "link_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "starting",
+                "scan",
+                "linked"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link State"
+        },
         "paired_identities": {
           "items": {
             "$ref": "#/$defs/PairedChannelIdentity"
@@ -254,6 +276,32 @@
           "maxItems": 128,
           "title": "Paired Identities",
           "type": "array"
+        },
+        "public_address": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Public Address"
+        },
+        "reachability_problem": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reachability Problem"
         },
         "revision": {
           "pattern": "^[0-9a-f]{64}$",
@@ -365,7 +413,9 @@
             "start",
             "stop",
             "pair",
-            "revoke"
+            "revoke",
+            "test",
+            "reset"
           ],
           "type": "string"
         },

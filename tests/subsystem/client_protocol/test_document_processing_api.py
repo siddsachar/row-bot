@@ -20,7 +20,7 @@ from tests.subsystem.client_protocol.test_protocol_security import bootstrap
 pytestmark = [pytest.mark.subsystem, pytest.mark.skipif(
     sys.platform == "darwin",
     reason="Strict document processing requires a descriptor-backed SQLite path bridge",
-)]
+), pytest.mark.platform]
 
 
 @pytest.fixture
@@ -167,6 +167,7 @@ def test_review_identity_and_current_policy_checked_before_service_admission(ser
         assert queue.service.get_batch(batch).status == "paused" and providers["factory"] == []
 
 
+@pytest.mark.slow
 def test_actual_admission_runs_canonical_index_extract_finalize_with_captured_fakes(service, queue, providers, monkeypatch):
     from row_bot import document_jobs, knowledge_graph
     kg = importlib.reload(knowledge_graph)
@@ -199,6 +200,7 @@ def test_actual_admission_runs_canonical_index_extract_finalize_with_captured_fa
         assert "_document_processing" not in result.text
 
 
+@pytest.mark.slow
 def test_original_receipt_and_replay_are_passive_after_pause_and_model_change(service, queue, providers, monkeypatch):
     from row_bot import threads
     from row_bot.application.document_processing import DocumentProcessingPolicy
@@ -218,6 +220,7 @@ def test_original_receipt_and_replay_are_passive_after_pause_and_model_change(se
         assert queue.service.get_batch(batch).status == "paused" and len(providers["start"]) == 1
 
 
+@pytest.mark.slow
 def test_restart_requires_new_authenticated_review_and_preserves_upload_owner(service, queue, providers):
     identifier = conversation()
     with _client(service) as client:
@@ -263,6 +266,7 @@ def test_auth_revocation_after_http_admission_prevents_worker_factory(service, q
         assert client.get(base(identifier) + "/commands/" + command["command_id"], headers=headers).status_code == 401
 
 
+@pytest.mark.slow
 def test_new_authenticated_admission_waits_for_actual_old_worker_scope_exit(service, queue, providers):
     identifier = conversation()
     with _client(service) as client:
@@ -291,6 +295,7 @@ def test_new_authenticated_admission_waits_for_actual_old_worker_scope_exit(serv
         assert queue.service.processing_admission(batch) == current
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("change", ["model", "credential", "profile"])
 def test_in_scope_current_policy_change_denies_embedding_without_legacy_fallback(service, queue, providers, change):
     from row_bot import threads
@@ -314,3 +319,27 @@ def test_in_scope_current_policy_change_denies_embedding_without_legacy_fallback
             with pytest.raises(Exception, match="document_processing_policy_changed|document_processing_denied"):
                 worker.embedding.embed_documents(["must not reach provider"])
         assert providers["embed"] == providers["chat"] == []
+
+
+def test_the_model_chosen_for_documents_wins_over_the_conversations(service, queue, providers):
+    """U45: processing reads the model picked in the queue, not the open conversation's."""
+    import json as _json
+
+    from row_bot.data_paths import get_row_bot_data_dir
+
+    identifier = conversation()
+    chosen = get_row_bot_data_dir() / "document_processing.json"
+    chosen.write_text(_json.dumps({"model": "model:openai:gpt-4o-mini"}), encoding="utf-8")
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        batch, _ = uploaded(client, headers)
+        review, command = reviewed(client, headers, identifier, batch)
+        assert review["chat"]["model_ref"] == "model:openai:gpt-4o-mini"
+        # Choosing another model after the review makes it stale.
+        chosen.write_text(_json.dumps({"model": "model:openai:gpt-4o"}), encoding="utf-8")
+        stale = send(client, headers, identifier, command)
+        assert stale.status_code == 409, stale.text
+        assert providers["factory"] == []
+        chosen.unlink()
+        review, _ = reviewed(client, headers, identifier, batch)
+        assert review["chat"]["model_ref"] == "model:openai:gpt-4o"

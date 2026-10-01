@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code"
+    },
+    "state": {
+      "anyOf": [
+        {
+          "enum": [
+            "starting",
+            "scan",
+            "linked"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "State"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "title": "ChannelLink",
+  "type": "object"
+}

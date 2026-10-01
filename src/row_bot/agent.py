@@ -754,9 +754,34 @@ def _new_agent_graph_input(user_input: str, config: dict, *, agent=None) -> tupl
     normalized["recursion_limit"] = framework_recursion_limit(
         remaining_iterations(budget)
     )
+    submission = str(configurable.get("platform_submission_id") or "")
+    if submission:
+        from row_bot.threads import admitted_human_metadata
+
+        # The graph replaces the admitted input by id; keep what the person
+        # sent on it so the transcript never shows the attachment context.
+        human = HumanMessage(
+            content=user_input, id=submission,
+            additional_kwargs=admitted_human_metadata(str(configurable.get("thread_id") or ""), submission),
+        )
+    else:
+        # A delegated agent's task (or its parent's messages to it) carries its
+        # handoff prompt for the model; the thread shows a short note (B167).
+        task_note = configurable.get("platform_task_note")
+        human = (
+            HumanMessage(
+                content=user_input,
+                additional_kwargs={
+                    "platform_note": str(task_note.get("kind")),
+                    "platform_public_content": str(task_note.get("text") or "")[:8000],
+                },
+            )
+            if isinstance(task_note, dict)
+            and task_note.get("kind") in {"agent_task", "agent_guidance"}
+            else None
+        )
     return normalized, {
-        "messages": [HumanMessage(content=user_input, id=str(configurable["platform_submission_id"]))]
-        if configurable.get("platform_submission_id") else [("human", user_input)],
+        "messages": [human] if human is not None else [("human", user_input)],
         "execution_budget": budget,
     }
 
@@ -846,11 +871,10 @@ def _custom_tool_builder_disabled_response(
     if not _looks_like_custom_tool_creation_request(user_input):
         return None
     return (
-        "Custom Tool Builder is disabled in Settings -> Utilities, so I can't "
+        "Custom Tool Builder is off in Settings -> Tools, so I can't "
         "create a Custom Tool from chat right now. I also won't use read_url or "
-        "shell commands as a workaround for this workflow. Enable Custom Tool "
-        "Builder, or open Developer -> Custom Tools -> New Custom Tool to do it "
-        "through the visual flow."
+        "shell commands as a workaround for this workflow. Turn on Custom Tool "
+        "Builder, or add the tool in Settings -> Tools -> Custom tools."
     )
 
 def _content_to_str(content) -> str:
@@ -1032,9 +1056,13 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return "⚠️ API quota exceeded — please check your billing dashboard."
     if "rate_limit" in s or "rate limit" in s or "429" in s:
-        return "⚠️ Rate limit reached — please wait a moment and try again."
+        # Keep the provider's own wait, so a goal can wait for the reset (B244).
+        wait = re.search(r"(?:try again|retry|resets?)\s+(?:in|after)\s+(?:\d+(?:\.\d+)?\s*[a-z]*\s?)+",
+                         exc_str, re.IGNORECASE)
+        hint = f" The provider says: {wait.group(0).strip()}." if wait else ""
+        return "⚠️ Rate limit reached — please wait a moment and try again." + hint
     if "invalid_api_key" in s or "incorrect api key" in s or "authentication" in s or "unauthorized" in s:
-        return "⚠️ Authentication failed — please verify your API key in Settings → API Keys."
+        return "⚠️ Authentication failed — please verify your API key in Settings → Providers."
     if "billing" in s:
         return "⚠️ Billing limit reached — please review your plan at the provider dashboard."
     if "context_length_exceeded" in s or "context length" in s or "maximum context" in s:
@@ -1095,8 +1123,12 @@ def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
     try:
         from row_bot.notifications import notify
-        notify("Row-Bot – API Error", friendly_msg, sound="error", icon="⚠️",
-               toast_type="negative")
+        # An open conversation already shows its own error with a next step;
+        # background runs (workflows, channels) need the in-app notice.
+        surface = str(_current_runtime_surface_var.get("") or "")
+        notify("Row-Bot – API Error", friendly_msg, sound="error",
+               toast_type="negative", source="model",
+               in_app=surface not in {"normal_chat", "remote_client"})
     except Exception:
         pass
 
@@ -1176,7 +1208,43 @@ def _agent_runtime_system_context() -> str:
         "memory are unavailable because of older transcript messages. "
         f"Approval mode for action-capable tools: {get_approval_mode()}. "
         f"{tool_line}"
+        + _setup_guidance(tool_names)
     )
+
+
+def _setup_guidance(tool_names: list[str]) -> str:
+    """How to get what the work needs without sending people to Settings."""
+    parts: list[str] = []
+    if "conversation_setup" in tool_names:
+        from row_bot.tools.conversation_setup_tool import GUIDANCE
+
+        parts.append(GUIDANCE)
+    if "row_bot_status" in tool_names:
+        try:
+            from row_bot.tools import registry as tool_registry
+            from row_bot.tools.row_bot_status_tool import _tool_display_label
+
+            off = sorted(
+                f"{_tool_display_label(tool)} ({tool.name})"
+                for tool in tool_registry.get_all_tools()
+                if not tool_registry.is_enabled(tool.name)
+            )[:16]
+        except Exception:
+            off = []
+        if off:
+            parts.append(
+                "TOOLS THAT ARE OFF: " + ", ".join(off) + ". If the request needs one of them, call "
+                "row_bot_update_setting with setting 'tool_toggle' and value '<name>:on'; the person "
+                "sees a 'Turn on …' card in the chat and decides. Never tell them to open Settings for this. "
+                "If they choose Not now, it stays off: don't ask again unless they ask."
+            )
+        parts.append(
+            "ACCOUNTS AND CHANNELS: if the work needs an account or channel that is not connected "
+            "(Google for Gmail or Calendar, GitHub, X, or a messaging channel), call request_connection "
+            "so the person gets a Connect card, then stop."
+        )
+    return (" " + " ".join(parts)) if parts else ""
+
 
 
 def _interactive_progress_contract(runtime_surface: str) -> str:
@@ -3564,21 +3632,25 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
 def _wrap_with_interrupt_gate(tool) -> None:
     """Keep sync and async targets behind the same current approval decision."""
     from functools import wraps
+    from row_bot.tools.approval_gate import (
+        APPROVAL_DENIED, APPROVAL_GIVEN, APPROVAL_NOT_NEEDED_AUTO, with_approval,
+    )
 
     label = _DESTRUCTIVE_LABELS.get(tool.name, tool.name)
     # BaseTool's default async implementation delegates to its own _run. Keep
     # that delegate on an unwrapped copy so async calls ask exactly once.
     original = tool.model_copy()
 
-    def refusal(args, kwargs):
+    def refusal(args, kwargs) -> tuple[str | None, str]:
+        """The refusal (None when the call may run) and its result's approval line."""
         decision = decision_for_action(get_approval_mode())
         if decision == "block":
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
                     "tool. Inform the user that this action was skipped "
-                    "and move on.")
+                    "and move on."), ""
         if decision == "allow":
-            return None
+            return None, APPROVAL_NOT_NEEDED_AUTO
         args_str = ", ".join(f"{key}={value!r}" for key, value in kwargs.items())
         if args:
             args_str = repr(args[0]) if len(args) == 1 else repr(args)
@@ -3595,20 +3667,22 @@ def _wrap_with_interrupt_gate(tool) -> None:
             "args": kwargs or (args[0] if args else {}),
             "external_discovery_active": external_discovery_active,
         })
-        return None if approval else "Action cancelled by user."
+        if approval:
+            return None, APPROVAL_GIVEN
+        return with_approval(APPROVAL_DENIED, "Action cancelled by user."), ""
 
     sync_target = getattr(original, "func", None) or original._run
     async_target = getattr(original, "coroutine", None) or original._arun
 
     @wraps(sync_target)
     def gated(*args, **kwargs):
-        blocked = refusal(args, kwargs)
-        return blocked if blocked is not None else sync_target(*args, **kwargs)
+        blocked, approval = refusal(args, kwargs)
+        return blocked if blocked is not None else with_approval(approval, sync_target(*args, **kwargs))
 
     @wraps(async_target)
     async def gated_async(*args, **kwargs):
-        blocked = refusal(args, kwargs)
-        return blocked if blocked is not None else await async_target(*args, **kwargs)
+        blocked, approval = refusal(args, kwargs)
+        return blocked if blocked is not None else with_approval(approval, await async_target(*args, **kwargs))
 
     if getattr(tool, "func", None) is not None:
         tool.func = gated
@@ -4117,6 +4191,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 raise ValueError("The explicitly selected model is unavailable.") from None
     else:
         model_label = get_current_model()
+    if not model_label:
+        # Nothing is preset (decision 9): every consumer refuses the same way.
+        from row_bot.models import NoModelChosenError
+
+        raise NoModelChosenError()
 
     readiness = _ensure_agent_mode_ready(model_label)
     from row_bot.providers.reasoning import canonical_reasoning_model_ref, request_plan_for
@@ -4225,8 +4304,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"capabilities:{discovery_fingerprint}",
         f"skills:{skill_fingerprint}",
     })
-    # Designer tool schemas are scoped to the captured project, not the
-    # project currently visible in the NiceGUI editor.
+    # Designer tool schemas are scoped to the captured project, not whichever
+    # project a client currently shows.
     if "designer" in enabled_tool_names:
         from row_bot.conversation_resources import current_execution_context
         resources = current_execution_context()
@@ -4986,7 +5065,12 @@ def _selected_model_label_from_config(config: dict) -> tuple[str, bool]:
         if str(model_override).startswith("model:") or is_model_local(model_override) or is_cloud_model(model_override):
             return model_override, True
         raise ValueError("The explicitly selected model is unavailable.")
-    return get_current_model(), False
+    current = get_current_model()
+    if not current:
+        from row_bot.models import NoModelChosenError
+
+        raise NoModelChosenError()
+    return current, False
 
 
 def _chat_only_content_from_ui_message(msg: dict) -> str:
@@ -5407,6 +5491,12 @@ def _reasoning_notice_events(thread_id: str):
         logger.debug("Could not read reasoning notices", exc_info=True)
 
 
+NO_MODEL_CHANNEL_REPLY = (
+    "Row-Bot doesn't have a model yet, so it can't answer here. Open Row-Bot on "
+    "your computer and choose how it should think; then send your message again."
+)
+
+
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                   *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
@@ -5451,6 +5541,11 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     runtime_mode = str(configurable.get("runtime_mode") or "agent")
     _model_ov = configurable.get("model_override")
     _tool_allowlist = _runtime_tool_allowlist(configurable)
+    if runtime_surface == "channel" and not str(_model_ov or get_current_model() or "").strip():
+        # A channel message is answered politely instead of failing (decision 9).
+        yield ("token", NO_MODEL_CHANNEL_REPLY)
+        yield ("done", NO_MODEL_CHANNEL_REPLY)
+        return
     model_label, _ = _selected_model_label_from_config(config)
     phase_timings: dict[str, Any] = {
         "generation.generation_id": str(configurable.get("generation_id") or ""),

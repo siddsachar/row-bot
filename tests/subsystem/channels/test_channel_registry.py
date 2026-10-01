@@ -53,8 +53,6 @@ def test_registry_tracks_channel_sources_and_unregisters_plugin_channels() -> No
     assert registry.get_source("fake") == registry.ChannelSource()
     assert registry.get_source("matrix").kind == "plugin"
     assert registry.get_source("matrix").plugin_id == "matrix-plugin"
-    assert registry.allows_custom_ui("fake") is True
-    assert registry.allows_custom_ui("matrix") is False
 
     with pytest.raises(ValueError, match="already registered"):
         registry.register(FakeChannel(name="matrix"))

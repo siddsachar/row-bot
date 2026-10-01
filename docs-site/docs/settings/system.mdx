@@ -1,59 +1,70 @@
 ---
 title: "Settings: System"
-description: "Configure Remote Access, workspace paths, browser and Computer Use behavior, tunnels, logs, and updates."
+description: "Choose Row-Bot's workspace folder and what it may do on this computer (commands, files, browser and computer use), and manage logs."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: System
 
-System settings describe what the app may access, which trusted owner devices may connect, and how it runs on your machine. This is where you adjust Remote Access, workspace boundaries, shell behavior, browser automation, opt-in native Computer Use, tunnels, and diagnostics.
+System settings describe where Row-Bot works on this computer and what it may do there: run commands, work with files, drive a browser, and, if you opt in, operate desktop apps with Computer Use.
 
-<Screenshot id="settings-system" alt="Settings: System in Row-Bot." caption="The System tab contains local runtime choices, workspace access, Remote Access, tunnels, and diagnostic controls." />
-
-<Screenshot id="settings-remote-access" alt="Remote Access controls in Row-Bot System settings." caption="Remote Access keeps private reachability, one-time owner invitations, connected devices, and explicit LAN access in one owner-only section." />
+<Screenshot id="settings-system" alt="Settings: System in Row-Bot." caption="The System page sets the workspace folder, what Row-Bot may do, browser and computer use, and logs." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **System** from the left tab list.
+Open **Settings**, then choose **System** in the **System** group, or search for it with **Find a setting**.
 
-## Controls
+## Workspace
 
-- Workspace and filesystem controls define where Row-Bot may read or write when tools need local files.
-- Shell and command controls affect whether command-running tools are available and how approvals apply.
-- Browser controls select a supported installed Chrome or Edge channel or Row-Bot's exact managed Playwright Chromium revision. Install and Repair are explicit actions; normal startup only checks readiness and never downloads a browser.
-- Computer Use controls keep native application automation separate, off by default, and gated by platform readiness, telemetry disclosure, and a verified optional runtime.
-- Remote Access creates one-time desktop or compact owner invitations, checks or configures an owned Tailscale Serve route, explicitly enables LAN listening, and revokes devices or sessions.
-- Window mode chooses whether Row-Bot opens in its own app window, the system browser, or asks at launch.
-- Tunnel settings are for external callback use cases such as channels that need a public webhook URL.
-- Log and diagnostic controls help support troubleshooting without changing your model setup.
+**Workspace folder** is where Row-Bot keeps its own files on this computer, such as new draft code folders. Choosing a folder needs the Row-Bot desktop app.
+
+## What Row-Bot May Do
+
+Risky actions still ask first, as each conversation's **Approvals** setting decides.
+
+- **Run commands** turns the shell tool on or off. The command palette can flip it too ("turn off shell").
+- **Work with files** controls the file tools.
+- **Browser and computer use** opens their setup:
+  - **Browser** turns the browser tool on and chooses its runtime: a supported installed Chrome or Edge, or Row-Bot's exact managed Playwright Chromium. **Install browser runtime** and Repair are explicit actions; normal start-up only checks readiness and never downloads a browser.
+  - **Desktop apps** sets up **Computer Use (Beta)**, which stays off by default and is gated by platform readiness, its telemetry disclosure, and a verified optional runtime. See [Computer Use](/docs/computer-use/).
+
+## Logs
+
+**Log detail** sets how much Row-Bot writes to its local log. **Open log folder** opens it. Monitor's **Logs** shows the same log inside the app.
+
+## Advanced System Settings
+
+Additional blocked command patterns, app availability for Computer Use, and removing the managed Computer Use runtime live under **Advanced system settings**.
+
+## What Moved
+
+- Connecting a phone or another computer, signed-in devices, network access and the public link (tunnel) are on **Settings › Devices & remote access**. See [Remote Access And Server Mode](/docs/operations/remote-access).
+- **Open in** (app window or browser) is on **Settings › Preferences**.
+- Updates are on **Settings › Updates**.
 
 ## Common Workflow
 
-1. Keep workspace access narrow for everyday use.
-2. Enable shell or browser automation only when you intend to use those tools.
-3. Enable Computer Use only on an interactive Windows or macOS desktop after reviewing its separate setup and safety guide.
-4. Use [Remote Access](/docs/operations/remote-access) only after choosing the narrowest connection route and the presentation layout for the invited owner device.
-5. Use tunnels only for channels or integrations that explicitly require inbound webhooks.
-6. Collect logs from this tab when troubleshooting startup or provider issues.
+1. Keep the workspace folder somewhere you back up.
+2. Turn on commands, files or the browser only when you intend to use those tools.
+3. Turn on Computer Use only on an interactive Windows or macOS desktop after reading its setup and safety guide.
+4. Raise **Log detail** while troubleshooting, then lower it again.
 
 ## What Is Saved
 
-System settings are global for the active Row-Bot data directory. Remote Access stores hashed invitation and session secrets plus revocable owner-device records in the shared access database. Workspace files are not uploaded to Row-Bot; external providers may still receive content when a model or tool request sends it.
+System settings are global for the active Row-Bot data directory. Workspace files are not uploaded to Row-Bot; external providers may still receive content when a model or tool request sends it.
 
 ## Privacy And Safety
 
-Remote reachability never grants access on its own. Every non-local browser needs a Row-Bot session. Treat unused invitation links as passwords, prefer Tailscale or HTTPS over remote LAN HTTP, and revoke lost or retired devices. Every authenticated browser is the same owner; compact and desktop layouts do not change authority. Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services.
+Commands, file access, browser automation and Computer Use widen what Row-Bot can do on this computer. Keep approvals on **Ask** in conversations that use them, and review each request.
 
 ## Control-Level Reference
 
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#system-controls) lists the visible controls found in the current application source, including defaults, allowed values when they are declared inline, dependencies, restart notes, security notes, and source locations.
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#system-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
 
 ## Troubleshooting
 
-- If Row-Bot cannot read a file, check whether it is inside the allowed workspace.
-- If Browser reports a missing or mismatched managed runtime, use Install browser runtime or Repair. Do not copy another Playwright cache into Row-Bot's managed location.
-- If Computer Use is unavailable, open its setup card and follow the reported runtime or operating-system permission recovery step.
-- If a remote URL shows a JSON access error, use the [Remote Access troubleshooting table](/docs/operations/remote-access#troubleshooting) instead of broadly trusting proxy headers or disabling the access gate.
-- If a tunnel URL is unavailable, check the tunnel provider credentials and whether the tunnel is running.
-- If the app opens in the wrong place, change Window mode and restart Row-Bot.
+- If Row-Bot cannot read a file, check whether it is inside the folder it was given and that **Work with files** is on.
+- If Browser reports a missing or mismatched managed runtime, use **Install browser runtime** or Repair. Do not copy another Playwright cache into Row-Bot's managed location.
+- If Computer Use is unavailable, open its setup and follow the reported runtime or operating-system permission step.
+- If choosing the workspace folder does nothing, use the Row-Bot desktop app.

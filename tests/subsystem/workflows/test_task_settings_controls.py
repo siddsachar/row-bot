@@ -6,9 +6,9 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from row_bot.application import task_settings_controls as control
-from tests.test_agent_profiles import _fresh_agent_modules
+from tests.subsystem.agents.test_agent_profiles import _fresh_agent_modules
 
-pytestmark = pytest.mark.subsystem
+pytestmark = [pytest.mark.subsystem, pytest.mark.platform]
 
 
 @pytest.fixture
@@ -123,7 +123,10 @@ def test_explicit_webhook_download_contains_encoded_secret_without_sending(owner
     config = json.loads(payload)
     url = urlsplit(config["relative_url"])
     assert config["method"] == "POST" and url.path == f"/api/webhook/{task_id}"
-    assert parse_qs(url.query) == {"secret": [secret]}
+    # The secret travels in a header, not in the address (B132).
+    assert url.query == "" and config["headers"] == {tasks.WEBHOOK_SECRET_HEADER: secret}
+    legacy = urlsplit(config["relative_url_with_secret"])
+    assert legacy.path == url.path and parse_qs(legacy.query) == {"secret": [secret]}
     assert tasks.get_recent_runs() == []
 
 
