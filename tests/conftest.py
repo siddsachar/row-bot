@@ -10,6 +10,7 @@ import pathlib
 import socket
 import sqlite3
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -308,6 +309,27 @@ def _reset_agent_runtime_context():
     reset = getattr(sys.modules.get("row_bot.agent"), "_set_active_runtime_context", None)
     if callable(reset):  # some tests stand a stub in for the module
         reset()
+
+
+@pytest.fixture(autouse=True)
+def _package_attributes_follow_sys_modules():
+    # Older tests evict row_bot modules from sys.modules by hand and never
+    # re-import them, so the package keeps the evicted module as an attribute.
+    # `import row_bot.x as x` and string-path monkeypatches read that attribute
+    # while the code under test imports a fresh module: the next test on the
+    # worker patched one module and ran another.
+    for name, package in list(sys.modules.items()):
+        if not (name == "row_bot" or name.startswith("row_bot.")) or not hasattr(package, "__path__"):
+            continue
+        for attribute, value in list(vars(package).items()):
+            if type(value) is not types.ModuleType or value.__name__ != f"{name}.{attribute}":
+                continue
+            current = sys.modules.get(value.__name__)
+            if current is None:
+                delattr(package, attribute)
+            elif current is not value:
+                setattr(package, attribute, current)
+    yield
 
 
 @pytest.fixture(autouse=True)
