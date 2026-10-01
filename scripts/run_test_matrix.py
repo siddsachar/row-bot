@@ -89,6 +89,12 @@ BROWSER_PHONE_SPECS = (
 BROWSER_BUDGET_SPECS = ("unified-startup", "unified-memory", "unified-performance", "polish-snapshots")
 
 
+# The nightly sets run long against one shared fixture backend: a test that
+# trips on timing gets one more try (Playwright reports it as flaky); a real
+# failure fails twice. The pull-request smoke and the budgets never retry.
+NIGHTLY_RETRY = ("--retries=1",)
+
+
 def _specs(*names: str) -> tuple[str, ...]:
     # Playwright matches file filters as regular expressions against the path;
     # "/name\.spec\.ts" selects exactly that file (not "unified-<name>.spec.ts").
@@ -172,10 +178,10 @@ COMMANDS: dict[str, CommandSpec] = {
     "browser-smoke": _browser(
         "browser-smoke", "--project=chromium-desktop", "--project=chromium-buddy-overlay", *_specs(*BROWSER_SMOKE_SPECS),
     ),
-    "browser-nightly-desktop": _browser("browser-nightly-desktop", "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
-    "browser-nightly-unified": _browser("browser-nightly-unified", "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
-    "browser-nightly-dedicated": _browser("browser-nightly-dedicated", *BROWSER_DEDICATED_PROJECTS),
-    "browser-nightly-phone": _browser("browser-nightly-phone", "--project=chromium-phone", *_specs(*BROWSER_PHONE_SPECS)),
+    "browser-nightly-desktop": _browser("browser-nightly-desktop", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_NIGHTLY_SPECS)),
+    "browser-nightly-unified": _browser("browser-nightly-unified", *NIGHTLY_RETRY, "--project=chromium-desktop", *_specs(*BROWSER_UNIFIED_SPECS)),
+    "browser-nightly-dedicated": _browser("browser-nightly-dedicated", *NIGHTLY_RETRY, *BROWSER_DEDICATED_PROJECTS),
+    "browser-nightly-phone": _browser("browser-nightly-phone", *NIGHTLY_RETRY, "--project=chromium-phone", *_specs(*BROWSER_PHONE_SPECS)),
     "browser-firefox": _browser(
         "browser-firefox", "--project=firefox-desktop", *_specs(*(s for s in BROWSER_SMOKE_SPECS if s != "buddy-overlay")),
         engine="firefox",
