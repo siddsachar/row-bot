@@ -83,7 +83,8 @@ class Window:
 
 class Harness:
     def __init__(self, *, config: dict[str, Any] | None = None, fail: int = 0,
-                 screens: list[ScreenArea] | None = None, attach_error: bool = False) -> None:
+                 screens: list[ScreenArea] | None = None, attach_error: bool = False,
+                 platform: str = "win32", on_ui_thread: Callable[..., Any] | None = None) -> None:
         self.config: dict[str, Any] = dict(config or {})
         self.windows: list[Window] = []
         self.attached: list[Window] = []
@@ -115,8 +116,9 @@ class Harness:
             attach=attach,
             port=8123,
             log=self.logs.append,
-            platform="win32",
+            platform=platform,
             start_timer=lambda delay, callback: self.timers.append((delay, callback)),
+            on_ui_thread=on_ui_thread,
         )
 
 
@@ -218,6 +220,24 @@ def test_show_hide_dock_move_and_main_close_follow_placement() -> None:
     assert host.main_closing() is True
     assert host.close() is True
 
+
+
+def test_on_macos_restoring_and_moving_a_window_waits_for_the_ui_thread() -> None:
+    """AppKit aborts the app when a window is restored from another thread:
+    tearing Buddy off on a Mac crashed Row-Bot (pywebview's Cocoa restore()
+    and move() call AppKit directly)."""
+    queued: list[tuple[Callable[..., Any], tuple]] = []
+    harness = Harness(platform="darwin", on_ui_thread=lambda function, *args: queued.append((function, args)))
+    host = harness.host
+    host.tear_off(300, 300)
+    window = harness.windows[0]
+    host.tear_off(320, 340)  # reopening an open Buddy moves and restores it
+    assert host.show_main(None) is True
+    assert not any(call[0] in {"restore", "move"} for call in window.calls + harness.main.calls)
+    for function, args in queued:
+        function(*args)
+    assert any(call[0] == "move" for call in window.calls) and ("restore",) in window.calls
+    assert ("restore",) in harness.main.calls
 
 def test_the_followed_conversation_is_validated_and_nudges_only_on_change() -> None:
     harness = Harness()

@@ -102,6 +102,20 @@ def _start_timer(delay: float, callback: Callable[[], None]) -> None:
     threading.Thread(target=run, daemon=True, name="buddy-ready-timeout").start()
 
 
+def _ui_thread_runner(platform: str) -> Callable[..., Any]:
+    """AppKit changes a window only on the main thread: pywebview's Cocoa
+    restore() and move() call it directly from whichever thread asks (show
+    and hide already hop over), which aborts the app on macOS."""
+    if platform == "darwin":
+        try:
+            from PyObjCTools import AppHelper
+        except Exception:
+            pass
+        else:
+            return AppHelper.callAfter
+    return lambda function, *args: function(*args)
+
+
 class BuddyWindowHost:
     """Placement, window lifecycle and the followed conversation."""
 
@@ -120,6 +134,7 @@ class BuddyWindowHost:
         start_timer: Callable[[float, Callable[[], None]], None] = _start_timer,
         ready_timeout: float = READY_TIMEOUT_SECONDS,
         scale: Callable[[], float] = lambda: 1.0,
+        on_ui_thread: Callable[..., Any] | None = None,
     ) -> None:
         self._create_window = create_window
         self._load_config = load_config
@@ -130,6 +145,7 @@ class BuddyWindowHost:
         self._port = int(port)
         self._log = log
         self._platform = platform or sys.platform
+        self._on_ui = on_ui_thread or _ui_thread_runner(self._platform)
         self._start_timer = start_timer
         self._ready_timeout = ready_timeout
         self._scale = scale
@@ -228,9 +244,9 @@ class BuddyWindowHost:
         if existing is not None:
             try:
                 if x is not None and y is not None:
-                    existing.move(int(x), int(y))
+                    self._on_ui(existing.move, int(x), int(y))
                 try:
-                    existing.restore()
+                    self._on_ui(existing.restore)
                 except Exception:
                     pass
                 if state.visible and self.ready:
@@ -300,7 +316,7 @@ class BuddyWindowHost:
             return True
         try:
             try:
-                window.restore()
+                self._on_ui(window.restore)
             except Exception:
                 pass
             window.show()
@@ -324,7 +340,7 @@ class BuddyWindowHost:
             return True
         try:
             try:
-                window.restore()
+                self._on_ui(window.restore)
             except Exception:
                 pass
             window.show()
@@ -422,7 +438,7 @@ class BuddyWindowHost:
             return False
         try:
             try:
-                window.restore()
+                self._on_ui(window.restore)
             except Exception:
                 pass
             window.show()
