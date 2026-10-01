@@ -1,52 +1,60 @@
 ---
-title: "Android And Native Desktop"
-description: "Use the full Row-Bot owner product from Android in a compact layout and understand native-only desktop behaviour."
+title: "Phone And Native Desktop"
+description: "Use the full Row-Bot owner product from a phone, connect it from Settings › Devices & remote access, and understand native-only desktop behaviour."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# Android And Native Desktop
+# Phone And Native Desktop
 
-Row-Bot's mobile layout gives an authenticated Android browser the full owner product in a compact presentation. Chat, Activity, workflows, Knowledge, and complete phone-safe Settings remain available. The native desktop build adds operating-system integration such as window, tray, microphone, file-picker, and updater behaviour. Layout never changes Row-Bot authority or the approval rules of the underlying task.
+A phone connected to your Row-Bot gets the whole owner product in a layout made for a small screen: conversations, Home with Overview, Workflows, Knowledge, Monitor and Insights, approvals, and every Settings page. The native desktop app adds operating-system integration such as the window, tray, microphone, file and folder pickers, the terminal, and the updater. Layout never changes Row-Bot's authority or the approval rules of the underlying task.
 
-<Screenshot id="mobile-chat-list" alt="Android-sized Row-Bot chat list with fictional conversations." caption="Chat starts with recent local threads and a New thread action." />
+<Screenshot id="mobile-chat-list" alt="Phone-sized Row-Bot sidebar with New chat, Home, Agents and fictional conversations." caption="On a phone, the sidebar opens as a drawer with New chat, Home, Agents and your conversations." />
 
-<Screenshot id="mobile-chat-detail" alt="Android-sized Row-Bot chat detail for a fictional launch checklist." caption="The compact thread view keeps transcript, model context, attachments, approvals, and composer controls within the phone layout." />
+<Screenshot id="mobile-chat-detail" alt="Phone-sized Row-Bot conversation for a fictional launch checklist." caption="A conversation on a phone keeps the transcript, approvals and composer controls, with Find, details, export and panels in the header's menu." />
 
-## Pair An Android Device
+## The Phone Layout
 
-1. On an authorized owner device, open **Settings → System → Remote Access**.
-2. Check Tailscale or explicitly enable the narrowest connection route that fits your network.
-3. Select **Invite a device**, then choose **Phone or tablet — Compact layout**.
-4. Choose a trusted 30-day or temporary 12-hour session and a currently reachable connection route.
-5. Create the invitation and open the shown link or QR code on Android.
-6. Review the connection page on Android and press **Connect** before the invitation expires.
-7. Revoke the device or an individual session from Remote Access settings when it is lost, replaced, or no longer trusted.
+Row-Bot switches to the phone layout when the window is narrow, whatever the device.
 
-<Screenshot id="remote-access-invitation" alt="Remote Access invitation configured for a phone or tablet." caption="Phone and computer choices select presentation only. Every connected browser receives full owner access." />
+- A slim top bar opens the sidebar as a drawer and opens the command palette.
+- In a conversation, the header's **⋯** menu holds **Find in conversation**, **Conversation details**, **Share or export**, **Rename conversation**, the conversation's panels, and the command palette.
+- Design and Developer panels open as full-screen sheets.
+- Settings shows a **Settings section** list at the top instead of the side list. It holds every page, in the same six groups as on the desktop: Preferences, Appearance and Buddy; Providers, Models and Voice; Memory, Documents and Tracker; Tools, Skills, Plugins and MCP; Accounts and Channels; System, Devices & remote access, Updates and Data.
 
-The invitation expires after 10 minutes and works once. Opening it does not consume it until the recipient presses **Connect**. The resulting owner session is a separate HttpOnly browser credential and never appears in the URL.
+Features that need this computer, such as the interactive terminal, choosing folders, and native file saving, are available only in the desktop app or a browser on the computer running Row-Bot.
 
-Pairing grants access to your local Row-Bot instance. Do not share an invitation, expose the local server broadly, or use remote LAN HTTP on an untrusted network. Tailscale or an operator-managed HTTPS origin is preferred and is required for browser microphone capture away from localhost. See [Remote Access And Server Mode](/docs/operations/remote-access) for the complete connection and recovery model.
+## Connect A Phone
 
-<Screenshot id="mobile-activity" alt="Android-sized Row-Bot Activity view." caption="Activity keeps goals, delegated agents, approvals, and attention states available away from the desktop layout." />
+1. On the computer running Row-Bot, open **Settings › Devices & remote access** and choose **Connect a phone or computer**. The command palette finds it as "phone".
+2. Choose **How will it reach this computer?**: **Tailscale** (private and encrypted, recommended), **Same Wi-Fi** (at home or the office, over HTTP), **Internet** (from anywhere, through your public link), or another address you set up yourself.
+3. Choose how long it should **Stay signed in**: **30 days** or **12 hours**.
+4. **Scan the code** with the phone's camera, or open the shown address on it.
+5. On the phone, review the connection page and press **Connect** before the code expires.
+6. **Your devices** lists every signed-in phone and computer; sign one out when it is lost, replaced, or no longer trusted.
 
-<Screenshot id="mobile-workflows" alt="Android-sized Row-Bot Workflows view." caption="The mobile workflow view can inspect and run saved automations while preserving delivery and approval policy." />
+<Screenshot id="remote-access-invitation" alt="Connect a phone or computer, with the ways to reach this computer and a QR code." caption="Connecting a phone shows how it will reach this computer, how long it stays signed in, and a one-time code. Every connected device receives full owner access." />
 
-<Screenshot id="mobile-knowledge" alt="Android-sized Row-Bot Knowledge view." caption="Knowledge provides a compact entry point to local memory and graph review." />
+The code expires after 10 minutes and works once. Opening it does not use it up until the phone presses **Connect**. The resulting session is a separate HttpOnly browser credential and never appears in the address.
 
-<Screenshot id="mobile-settings" alt="Android-sized Row-Bot Providers settings." caption="Mobile settings use the same provider categories and credential boundaries as desktop." />
+Connecting grants access to your local Row-Bot instance. Do not share a code, expose the local server broadly, or use Same Wi-Fi HTTP on an untrusted network. Tailscale or an operator-managed HTTPS address is preferred and is required for browser microphone use away from the computer. See [Remote Access And Server Mode](/docs/operations/remote-access) for the complete connection and recovery model.
 
-Mobile Settings includes Providers, Models, Knowledge, Buddy, Voice, System and Remote Access, Tracker, Documents, Tools, Skills, Accounts, Channels, Utilities, MCP, Plugins, and Preferences. Rich Developer Studio and Designer Studio editors remain desktop-layout-oriented and show an explanatory notice in compact presentation.
+<Screenshot id="mobile-activity" alt="Phone-sized Row-Bot Home Overview with Needs you and the live status." caption="Overview on a phone puts Needs you first, with Approve and Deny in place, then live status and recent work." />
+
+<Screenshot id="mobile-workflows" alt="Phone-sized Row-Bot Workflows tab." caption="The Workflows tab on a phone lists saved workflows and runs them in one click, with the same delivery and approval rules." />
+
+<Screenshot id="mobile-knowledge" alt="Phone-sized Row-Bot Knowledge tab." caption="Knowledge on a phone shows the memory graph and library with search and memory details." />
+
+<Screenshot id="mobile-settings" alt="Phone-sized Row-Bot Providers settings with the Settings section list." caption="Settings on a phone has every page; the Settings section list at the top moves between them." />
 
 ## Native-Only Checks
 
-Some states cannot be reproduced faithfully in browser automation: OS microphone prompts, native file pickers, tray menus, updater/restart dialogs, Computer Use takeover, and physical-device network permission. The public guide documents their intent; release review must test them on the target operating system and a physical Android device.
+Some states cannot be reproduced faithfully in browser automation: OS microphone prompts, native file and folder pickers, tray menus, updater and restart dialogs, Computer Use takeover, and physical-device network permission. The public guide documents their intent; release review must test them on the target operating system and a physical phone.
 
 ## Troubleshooting
 
-- If the phone cannot connect, confirm the host, port, access mode, firewall, and network reachability shown on desktop.
-- If an invitation expires or was already consumed, create a new one rather than copying cookies or local credential files.
-- If the connection page opens but the app remains unavailable, confirm the recipient pressed **Connect** and that the device or session was not revoked.
-- If an approval is missing, open Activity and confirm the relevant thread is still active.
-- If the mobile layout opens on desktop, use `?mobile=0` or reopen the normal local address. Switching layout does not require a new session.
+- If the phone cannot connect, check the route you chose on the computer, the port, the firewall, and whether both devices can reach each other.
+- If a code expired or was already used, show a new code rather than copying cookies or local credential files.
+- If the connection page opens but the app stays unavailable, confirm the phone pressed **Connect** and that the device wasn't signed out.
+- If an approval seems missing, open Overview: **Needs you** lists every waiting approval.
+- If the phone layout appears on a computer, widen the window; the layout follows the window's width.

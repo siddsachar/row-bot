@@ -5,20 +5,20 @@ description: "Configure providers, discover models, choose defaults, and pin qui
 
 # Models And Providers
 
-Providers are where models come from. Models are the specific choices you use in Chat, workflows, Designer, Developer, voice, and other Row-Bot surfaces.
+Providers are where models come from. Models are the specific choices you use in conversations, workflows, designs, code folders, voice, and other Row-Bot surfaces.
 
 To understand what leaves the app, when tools run, and where approvals fit, read [How A Request Runs](/docs/concepts/request-lifecycle).
 
 ## Recommended Setup Order
 
-1. Open Settings -> Providers.
+1. Open Settings -> Providers (or answer **How should Row-Bot think?** at first launch).
 2. Connect one provider path.
 3. Refresh provider health.
 4. Open Settings -> Models.
 5. Refresh the catalog.
-6. Choose a default model.
-7. Pin Quick Choices.
-8. Test in Chat.
+6. Choose the **Brain** model, and Vision, Image and Video models if you want those jobs.
+7. Pin the models you use most.
+8. Test in a chat.
 
 ## Choosing A Provider Path
 
@@ -26,7 +26,7 @@ Use local Ollama for local-first privacy and no provider billing. Use an API pro
 
 ## Choosing Models
 
-Keep at least one everyday chat model and one stronger tool-capable model pinned. For Developer, Designer, workflows, and complex tools, choose a model that can handle tool calls and enough context.
+Keep at least one everyday chat model and one stronger tool-capable model pinned. For code folders, designs, workflows, and complex tools, choose a model that can handle tool calls and enough context.
 
 For models with exact reasoning capabilities, Row-Bot exposes a per-thread [Reasoning control](/docs/chat/reasoning-controls) with only the efforts, toggle, or token-budget choices that model supports. Provider default remains available as the compatibility-safe option.
 

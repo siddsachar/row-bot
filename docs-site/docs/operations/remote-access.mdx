@@ -22,18 +22,20 @@ Normal desktop launches remain local-first. They listen on loopback and keep the
 
 ## Configure Remote Access In The App
 
-Open **Settings → System → Remote Access** from any authenticated owner session, including compact mobile Settings.
+Open **Settings › Devices & remote access** from any signed-in owner session, including on a phone. The command palette finds it as "phone" or "connect device".
 
-1. Choose how the other device will reach this Row-Bot instance. Enable **Local network** for a direct assigned interface address, or use an existing Tailscale route.
-2. Select **Invite a device**, then choose the initial desktop or compact layout and session lifetime.
-3. Select a currently available route. For a DNS alias, hostname, or other browser-facing address, expand **Add another trusted address** and enter its exact HTTP or HTTPS origin.
-4. Select **Trust address and create invitation**. Row-Bot saves the address, applies its exact Host/origin admission rule immediately, and creates the origin-bound invitation without a restart.
-5. Open or scan the invitation on the other device.
-6. Review the confirmation page on that device, then press **Connect**.
+1. Choose **Connect a phone or computer**.
+2. Choose **How will it reach this computer?**: **Tailscale** (private and encrypted HTTPS, recommended), **Same Wi-Fi** (a direct address on your network, over HTTP), **Internet** (from anywhere, through your public link), or **Another address** (a DNS alias, hostname or other browser-facing address you set up yourself, entered as its exact HTTP or HTTPS origin).
+3. Choose how long it should **Stay signed in**: **30 days** or **12 hours**.
+4. **Scan the code** on the other device, or open the shown address there. Codes work only once; **Show a new code** replaces an expired one.
+5. Review the confirmation page on that device, then press **Connect**. The page on the computer then says **Connected**, and **Connect another** starts again.
+6. **Your devices** lists every signed-in phone and computer and signs one out.
 
-The route selector refreshes from current state when the invitation is created. Row-Bot refuses a stale or no-longer-reachable selection instead of issuing a misleading link.
+Row-Bot saves a new address, applies its exact Host/origin admission rule immediately, and creates the origin-bound code without a restart. **Same Wi-Fi** first asks to let devices on your network reach Row-Bot, which restarts it to listen on your network. Under **Advanced**, **Network** shows where Row-Bot listens (**This computer only**, or **This computer and my network**) and its **Allowed addresses**, and **Public link** sets up the ngrok tunnel, which opens only when you start it.
 
-Saved trusted addresses remain in `access_routes.json` across restarts and appear in the invitation route selector. Remove one from the same compact section when it is no longer needed; new HTTP and WebSocket requests through that exact address are rejected immediately. Removing the address can interrupt current access through it.
+The choice of routes refreshes from current state when the code is created. Row-Bot refuses a stale or no-longer-reachable selection instead of issuing a misleading link.
+
+Saved trusted addresses remain in `access_routes.json` across restarts and appear among the ways to reach this computer. Remove one from **Allowed addresses** when it is no longer needed; new HTTP and WebSocket requests through that exact address are rejected immediately. Removing the address can interrupt current access through it.
 
 Enter one exact `http://` or `https://` origin with an optional port, such as `http://row-bot.lan:8080` or `https://row-bot.example.com`. Credentials, paths, queries, fragments, wildcards, malformed ports, and non-HTTP(S) schemes are rejected. A non-default port trusts only that exact authority, not another port.
 
@@ -41,7 +43,7 @@ Trusting an address changes only Row-Bot admission and invitation routing. Row-B
 
 Origins supplied through `ROW_BOT_PUBLIC_ORIGINS` are listed as **Managed externally** and cannot be edited in the UI. When `ROW_BOT_ALLOWED_HOSTS` is set, deployment configuration owns Host admission, so trusted-address add/remove controls are read-only and do not override it.
 
-<Screenshot id="remote-access-invitation" alt="Row-Bot device invitation dialog." caption="Desktop and compact choices affect layout only. Every connected browser receives full owner access; the invitation still binds its lifetime and browser-facing origin." />
+<Screenshot id="remote-access-invitation" alt="Connect a phone or computer, with the ways to reach this computer and a QR code." caption="Every connected browser receives full owner access; the one-time code still binds its lifetime and browser-facing origin." />
 
 ## Invitations, Sessions, And Layouts
 
@@ -52,7 +54,7 @@ Origins supplied through `ROW_BOT_PUBLIC_ORIGINS` are listed as **Managed extern
 | Trusted device | A session lasting up to 30 days. An active owner UI checks at startup and every 12 hours, renewing the session to 30 days when it enters the final seven days. |
 | Temporary access | A session lasting up to 12 hours. |
 | Desktop layout | The full owner product in its wide-screen presentation. |
-| Compact layout | The same owner authority in a phone-safe presentation, including complete mobile Settings. Rich Developer and Designer editors show a desktop-layout notice. |
+| Compact layout | The same owner authority in a phone-safe presentation, including every Settings page. Design and Developer panels open as full-screen sheets. |
 
 Row-Bot stores only hashed invitation and session secrets in the versioned access database. Sessions survive normal restarts and can be revoked individually. Revoking a device revokes its sessions.
 
@@ -203,7 +205,7 @@ If every owner session is lost, create a new owner invitation from a trusted ter
 ## Troubleshooting
 
 - **`untrusted_forwarding_headers`**: a proxy supplied forwarding headers from an address Row-Bot does not trust. For a Row-Bot-owned Tailscale route, restart once if the UI reports that restart is required. For an operator proxy, set only its exact connecting address in `ROW_BOT_TRUSTED_PROXY_CIDRS`. Do not fix this by trusting a broad network.
-- **`unexpected_host`**: on a desktop launch, open **Settings â†’ System â†’ Remote Access**, add the exact browser-facing origin, and retry without restarting. In a managed deployment, the host may instead be missing from `ROW_BOT_ALLOWED_HOSTS`, or the proxy may have forwarded a different host.
+- **`unexpected_host`**: on a desktop launch, open **Settings › Devices & remote access**, add the exact browser-facing origin (as **Another address** when connecting a device, or under **Advanced › Network › Allowed addresses**), and retry without restarting. In a managed deployment, the host may instead be missing from `ROW_BOT_ALLOWED_HOSTS`, or the proxy may have forwarded a different host.
 - **Origin or invitation mismatch**: create the invitation for the exact browser-facing scheme, host, and port. Do not reuse an invitation after changing routes.
 - **Tailscale conflict or unowned route**: inspect the existing Serve configuration. Row-Bot will not reset or overwrite it.
 - **Phone reaches the page but cannot use Row-Bot**: reachability is working; create or reclaim the correct invitation and confirm the device was not revoked.

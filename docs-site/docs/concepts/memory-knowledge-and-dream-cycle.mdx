@@ -19,13 +19,13 @@ Row-Bot has several kinds of continuity. They work together, but none is a magic
 
 When extraction is enabled, Row-Bot can identify useful information from eligible conversations or documents and save structured records. Search combines the available lexical, vector, and graph signals to choose candidates relevant to a later request. Recall refreshes useful memories; it does not make every stored item equally likely to appear.
 
-Vector search uses an embedding model, which is separate from the chat model. First launch offers Mixedbread Embed Large v1 as a checked-by-default 675 MB local download. If it is skipped, unavailable, or still loading, Row-Bot continues with bounded lexical and graph fallback instead of silently downloading during a chat. Install, retry, or repair the local model later in [Documents Settings](/docs/settings/documents), then rebuild document and memory vectors after changing models. Cloud embeddings are an explicit alternative that sends indexed text to the selected provider.
+Vector search uses an embedding model, which is separate from the chat model. The recommended local one is Mixedbread Embed Large v1, a 675 MB download you install from Settings › Documents. Until it is installed, or while it is unavailable or still loading, Row-Bot continues with bounded lexical and graph fallback instead of silently downloading during a chat. Install, retry, or repair the local model later in [Documents Settings](/docs/settings/documents), then rebuild document and memory vectors after changing models. Cloud embeddings are an explicit alternative that sends indexed text to the selected provider.
 
 The source record matters. A graph relation or memory should remain traceable to the conversation, document, or process that produced it. Correct the underlying Knowledge record before rebuilding derived indexes or Wiki Vault pages.
 
 ## What Dream Cycle Does
 
-Dream Cycle is idle-time knowledge maintenance. When enabled and due, it can examine the local knowledge set, merge high-confidence duplicates, refresh summaries from available source context, infer strongly supported relationships, and prune stale low-confidence inferred relations. It records a journal so you can review what happened.
+Dream Cycle is idle-time knowledge maintenance. When enabled and due, it can examine the local knowledge set, merge high-confidence duplicates, refresh summaries from available source context, infer strongly supported relationships, and prune stale low-confidence inferred relations. It records its history so you can review what happened in Monitor.
 
 Dream Cycle is not an autonomous second assistant and it does not make external facts true. It should run only during the configured window while the app is idle. Inferred relationships use confidence thresholds, but important knowledge still deserves human review.
 
@@ -35,8 +35,8 @@ Wiki Vault writes a readable view of selected graph material. The graph remains 
 
 ## Configure And Review It
 
-- Review records in [Knowledge](/docs/knowledge/) and investigate changes in [Monitor](/docs/monitor/).
-- Configure extraction, recall, embeddings, graph maintenance, Dream Cycle, and Wiki output in [Knowledge Settings](/docs/settings/knowledge).
+- Review memories in [Knowledge](/docs/knowledge/) (Home › Knowledge) and investigate changes in [Monitor](/docs/monitor/).
+- Turn memory on or off, check graph health and configure Wiki output in [Memory Settings](/docs/settings/knowledge); Dream Cycle's hours are in Settings › Preferences.
 - Configure indexed files in [Documents Settings](/docs/settings/documents).
 - Set up the export folder in [Wiki Vault](/docs/knowledge/wiki-vault) and correct mistakes with [Provenance And Repair](/docs/knowledge/provenance-repair).
 - Back up the related local data as one set using [Operations, Data, And Recovery](/docs/operations/).
