@@ -32,6 +32,7 @@ import os
 import pathlib
 import re
 import threading
+import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -331,7 +332,21 @@ def _write_manifest(manifest: dict, *, validate: Callable[[], None] | None = Non
         os.fsync(handle.fileno())
     if validate is not None:
         validate()
-    os.replace(temporary, _manifest_path())
+    _replace_with_retry(temporary, _manifest_path())
+
+
+def _replace_with_retry(source: pathlib.Path, target: pathlib.Path) -> None:
+    """Windows refuses a replace while another process (often an antivirus
+    scan of the file just written) holds it; a moment later it succeeds. The
+    tidy writes the manifest several times in a row (B256)."""
+    for attempt in range(5):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in {5, 32} or attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _stage(content: str, entity: dict | None = None, *, existing: dict | None = None, validate: Callable[[], None] | None = None) -> dict:

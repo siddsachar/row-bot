@@ -321,3 +321,29 @@ def test_knowledge_editability_and_hybrid_search(wiki_stack: dict[str, Any]) -> 
         "aliases",
         "tags",
     }
+
+
+def test_a_manifest_replace_refused_for_a_moment_by_windows_still_lands(
+    wiki_stack: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows refuses a replace while a scan holds the new file (seen in a full run, B256)."""
+    wiki_vault = wiki_stack["wiki_vault"]
+    kg = wiki_stack["kg"]
+    wiki_vault.set_enabled(True)
+    kg.save_entity("person", "Ada", "A saved memory long enough for an article.")
+    replace = os.replace
+    refused = []
+
+    def busy_once(source, target, *args, **kwargs):
+        if str(target).endswith(".row-bot-ownership.json") and not refused:
+            refused.append(target)
+            error = PermissionError(13, "Access is denied")
+            error.winerror = 5
+            raise error
+        return replace(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(wiki_vault.os, "replace", busy_once)
+    wiki_vault.rebuild_vault()
+    assert refused
+    manifest = wiki_stack["vault"] / "wiki" / ".row-bot-ownership.json"
+    assert json.loads(manifest.read_text(encoding="utf-8"))["files"]
