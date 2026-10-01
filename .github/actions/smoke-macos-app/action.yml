@@ -36,6 +36,9 @@ runs:
           return 1
         }
 
+        # The launcher smoke runs from the bundle's app folder, so every path
+        # here must be absolute.
+        APP_PATH="$(cd "$APP_PATH" && pwd)"
         APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"
         RESOURCES="$APP_PATH/Contents/Resources"
         APP_DIR="$RESOURCES/app"

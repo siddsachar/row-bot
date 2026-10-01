@@ -430,7 +430,7 @@ jobs:
       - name: Smoke the signed macOS app
         uses: ./.github/actions/smoke-macos-app
         with:
-          app-path: installer/build/mac/Row-Bot.app
+          app-path: ${{ github.workspace }}/installer/build/mac/Row-Bot.app
 
       - name: Upload signed macOS DMG
         uses: actions/upload-artifact@v7
