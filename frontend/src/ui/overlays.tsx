@@ -95,10 +95,12 @@ function useOverlayHistoryLevel(level: number, onBack: () => void) {
   };
 }
 
-/** How long a notice stays (Radix holds it while hovered or focused). */
+/** How long a notice stays (Radix holds it while hovered or focused). An Undo
+ * notice goes soon after the change it offers to take back; a warning stays
+ * long enough to read. */
 export const NOTICE_MS = 5000;
+export const ACTION_NOTICE_MS = 6000;
 export const TONED_NOTICE_MS = 8000;
-export const ACTION_NOTICE_MS = 12000;
 
 const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;

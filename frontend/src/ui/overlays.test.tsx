@@ -350,16 +350,17 @@ it('lets notices go away by themselves: 5 s, warnings 8 s, with Undo 12 s', asyn
       vi.advanceTimersByTime(NOTICE_MS + 100);
     });
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();
-    expect(screen.getByText(/didn't load/)).toBeInTheDocument();
-    await act(async () => {
-      vi.advanceTimersByTime(TONED_NOTICE_MS - NOTICE_MS);
-    });
-    expect(screen.queryByText(/didn't load/)).not.toBeInTheDocument();
     expect(screen.getByText('Removed the folder')).toBeInTheDocument();
     await act(async () => {
-      vi.advanceTimersByTime(ACTION_NOTICE_MS - TONED_NOTICE_MS);
+      vi.advanceTimersByTime(ACTION_NOTICE_MS - NOTICE_MS);
     });
+    // An Undo notice goes soon after its change; a warning stays to be read.
     expect(screen.queryByText('Removed the folder')).not.toBeInTheDocument();
+    expect(screen.getByText(/didn't load/)).toBeInTheDocument();
+    await act(async () => {
+      vi.advanceTimersByTime(TONED_NOTICE_MS - ACTION_NOTICE_MS);
+    });
+    expect(screen.queryByText(/didn't load/)).not.toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }
