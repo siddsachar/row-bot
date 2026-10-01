@@ -38,13 +38,18 @@ def _http_client_kwargs(client_params: dict[str, Any], anthropic_proxy: str | No
 class CancellableChatAnthropic(ChatAnthropic):
     """``ChatAnthropic`` with HTTP responses registered for Stop cancellation."""
 
+    def _request_hooks(self, *, asynchronous: bool) -> list[Any]:
+        """httpx request hooks for the SDK clients; none unless a gateway needs them."""
+        return []
+
     @cached_property
     def _client(self) -> anthropic.Client:
         client_params = self._client_params
         return anthropic.Client(
             **client_params,
             http_client=cancellable_http_client(
-                **_http_client_kwargs(client_params, self.anthropic_proxy)
+                event_hooks={"request": self._request_hooks(asynchronous=False)},
+                **_http_client_kwargs(client_params, self.anthropic_proxy),
             ),
         )
 
@@ -54,6 +59,16 @@ class CancellableChatAnthropic(ChatAnthropic):
         return anthropic.AsyncClient(
             **client_params,
             http_client=cancellable_async_http_client(
-                **_http_client_kwargs(client_params, self.anthropic_proxy)
+                event_hooks={"request": self._request_hooks(asynchronous=True)},
+                **_http_client_kwargs(client_params, self.anthropic_proxy),
             ),
         )
+
+
+class OpenCodeChatAnthropic(CancellableChatAnthropic):
+    """Anthropic Messages through OpenCode, which routes each request on its headers."""
+
+    def _request_hooks(self, *, asynchronous: bool) -> list[Any]:
+        from row_bot.providers.opencode import add_opencode_request_headers, add_opencode_request_headers_async
+
+        return [add_opencode_request_headers_async if asynchronous else add_opencode_request_headers]

@@ -525,6 +525,10 @@ class ChatOpenAICompatible(BaseChatModel):
             headers[header_name] = f"Bearer {self.api_key}" if header_name.lower() == "authorization" else self.api_key
         headers.setdefault("Accept", "application/json")
         headers.setdefault("Content-Type", "application/json")
+        if self.endpoint.get("profile") == "opencode":
+            from row_bot.providers.opencode import opencode_request_headers
+
+            headers.update(opencode_request_headers())
         return headers
 
     def _apply_context_override(self, body: dict[str, Any]) -> None:

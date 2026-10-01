@@ -1045,6 +1045,86 @@ def test_phase4_opencode_gemini_runtime_is_blocked(monkeypatch):
         runtime.create_chat_model("model:opencode_zen:gemini-2.5-pro")
 
 
+def _answer_opencode_requests(monkeypatch) -> list[httpx.Request]:
+    """Answer every HTTP request in-process, by protocol, and record what was sent."""
+    sent: list[httpx.Request] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        path = request.url.path
+        if path.endswith("/chat/completions"):
+            body = {"id": "chat-1", "object": "chat.completion", "model": "m", "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": "OK"}, "finish_reason": "stop"},
+            ]}
+        elif path.endswith("/messages"):
+            body = {"id": "msg_1", "type": "message", "role": "assistant", "model": "m",
+                    "content": [{"type": "text", "text": "OK"}], "stop_reason": "end_turn",
+                    "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
+        else:
+            body = {"id": "resp_1", "object": "response", "created_at": 0, "model": "m", "status": "completed",
+                    "output": [{"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+                                "content": [{"type": "output_text", "text": "OK", "annotations": []}]}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    "parallel_tool_calls": True, "tool_choice": "auto", "tools": []}
+        return httpx.Response(200, json=body, request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle_request)
+    return sent
+
+
+def _ask_in_conversations(invoke, conversations: tuple[str, ...]) -> None:
+    import row_bot.agent as agent
+    from langchain_core.messages import HumanMessage
+
+    for thread_id in conversations:
+        agent._set_active_runtime_context(thread_id=thread_id)
+        invoke([HumanMessage(content="Reply with OK")])
+
+
+def _assert_opencode_routing_headers(sent: list[httpx.Request], path: str) -> None:
+    # OpenCode Go refuses a request without a per-conversation x-opencode-session
+    # (HTTP 400 MissingSessionID) and asks clients to name themselves.
+    assert [request.url.path for request in sent] == [path] * 3
+    sessions = [request.headers.get("x-opencode-session") for request in sent]
+    assert sessions[0] and sessions[0] == sessions[1] != sessions[2]
+    # Channel conversation ids embed chat ids and phone numbers; never send them.
+    assert not any("12345" in session or "15550001111" in session for session in sessions)
+    assert all(request.headers["user-agent"].startswith("Row-Bot/") for request in sent)
+    assert all(
+        request.headers.get("authorization") == "Bearer oc-key" or request.headers.get("x-api-key") == "oc-key"
+        for request in sent
+    )
+
+
+_OPENCODE_ROUTES = (
+    ("model:opencode_go:glm-5.1", "/zen/go/v1/chat/completions"),
+    ("model:opencode_go:minimax-m2.7", "/zen/go/v1/messages"),
+    ("model:opencode_zen:gpt-5.5", "/zen/v1/responses"),
+)
+_CONVERSATIONS = ("tg_12345_a", "tg_12345_a", "sms_15550001111_b")
+
+
+@pytest.mark.parametrize(("ref", "path"), _OPENCODE_ROUTES)
+def test_opencode_chat_requests_carry_session_and_client_identity(monkeypatch, ref, path):
+    sent = _answer_opencode_requests(monkeypatch)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, credential_name="api_key": "oc-key")
+
+    _ask_in_conversations(runtime.create_chat_model(ref).invoke, _CONVERSATIONS)
+
+    _assert_opencode_routing_headers(sent, path)
+
+
+@pytest.mark.parametrize(("ref", "path"), _OPENCODE_ROUTES)
+def test_opencode_document_processing_requests_carry_session_and_client_identity(monkeypatch, ref, path):
+    sent = _answer_opencode_requests(monkeypatch)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, credential_name="api_key": "oc-key")
+
+    with runtime.captured_chat_model(runtime.capture_chat_runtime(ref), validate=lambda: None) as model:
+        _ask_in_conversations(model.invoke, _CONVERSATIONS)
+
+    _assert_opencode_routing_headers(sent, path)
+
+
 def test_phase4_missing_opencode_key_uses_opencode_specific_error(monkeypatch):
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, credential_name="api_key": "")
 
