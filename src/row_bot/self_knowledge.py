@@ -89,19 +89,19 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
         "feature": "Web Search",
         "keywords": "search, web, internet, google, news, current events",
         "description": "Search the web via Tavily or DuckDuckGo for real-time information.",
-        "configure": "Settings → Search to choose provider and set API keys.",
+        "configure": "Settings → Tools (Search and knowledge tools) to choose a provider and set API keys.",
     },
     {
         "feature": "Knowledge Graph",
         "keywords": "memory, remember, know, knowledge, graph, entities, relationships",
         "description": "Personal knowledge graph storing memories about people, preferences, facts, events, places, and projects with automatic relationship linking.",
-        "configure": "Settings → Knowledge to view and manage stored entities.",
+        "configure": "Home → Knowledge to browse, search, edit and review memories; Settings → Memory for memory and wiki vault settings.",
     },
     {
         "feature": "Task Automation",
         "keywords": "tasks, schedule, reminders, automation, cron, recurring, daily briefing",
         "description": "Schedule reminders, recurring jobs, monitoring tasks, and multi-step pipelines with 7 trigger types.",
-        "configure": "Open the Tasks tab or ask the assistant to create a task.",
+        "configure": "Home → Workflows, or ask the assistant to create a workflow.",
     },
     {
         "feature": "Voice Input & TTS",
@@ -113,13 +113,13 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
         "feature": "Browser Automation",
         "keywords": "browser, web, click, navigate, fill form, scrape, playwright, chromium",
         "description": "Visible Chromium browser automation — navigate, click, fill forms, extract data. Logins persist across sessions.",
-        "configure": "Settings → System → Browser & Computer Use to enable Browser and explicitly install its runtime if needed.",
+        "configure": "Settings → System → Browser and Computer Use to enable Browser and explicitly install its runtime if needed.",
     },
     {
         "feature": "Computer Use (Beta)",
         "keywords": "computer use, desktop, native app, calculator, notepad, textedit, os dialog, take over",
         "description": "Opt-in native desktop automation using a separate task-scoped Cua Driver session with local Stop, Take over, approvals, and ephemeral target-window screenshots.",
-        "configure": "Settings → System → Browser & Computer Use. Accept the Cua telemetry warning, then explicitly install the pinned driver.",
+        "configure": "Settings → System → Browser and Computer Use. Accept the Cua telemetry warning, then explicitly install the pinned driver.",
     },
     {
         "feature": "Gmail & Calendar",
@@ -203,13 +203,13 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
         "feature": "Insights Engine",
         "keywords": "insights, self-improvement, analysis, suggestions, error patterns, skill proposals",
         "description": "Automated system analysis during the dream cycle. Generates actionable insights about error patterns, skill proposals, tool configuration, knowledge quality, usage patterns, and system health.",
-        "configure": "View insights in the Workflow Console. Dismiss, pin, investigate, or apply suggested changes.",
+        "configure": "Home → Insights. Dismiss, pin, investigate, or apply suggested changes.",
     },
     {
         "feature": "Conversation History",
         "keywords": "history, past conversations, search chat, threads, previous",
         "description": "Full conversation history with search. Find past discussions and continue previous threads.",
-        "configure": "Access via the threads panel or ask to search past conversations.",
+        "configure": "The sidebar lists conversations by date with a type filter; search them with the command palette (Ctrl/Cmd+K), or ask to search past conversations.",
     },
     {
         "feature": "Image Generation",
@@ -221,13 +221,13 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
         "feature": "X / Twitter",
         "keywords": "x, twitter, tweet, post, social media, engage, timeline",
         "description": "Read your X/Twitter timeline, post tweets, and engage with content.",
-        "configure": "Settings → Tools to enable the X tool, then set API credentials.",
+        "configure": "Settings → Accounts to connect X; the X tool is in Settings → Tools.",
     },
     {
-        "feature": "Designer Studio",
+        "feature": "Designs",
         "keywords": "designer, design, slides, presentation, deck, document, one-pager, report, marketing, landing page, hero page, wireframe, mockup, app mockup, prototype, click-through, storyboard, shot list, layout, brand, export, pptx, pdf, html, png, publish link, share link, chart, ai image, ai video, refine text",
         "description": "Create multi-page visual designs across five modes — slide decks, documents, scrollable landing pages, interactive app/UI mockups (phone or desktop), and video storyboards. Live HTML preview, brand theming, AI image and video generation, copy refinement, charts, brand-lint, and export to PDF/HTML/PNG/PPTX. Landing pages and app mockups can be published as interactive click-through bundles via shareable links.",
-        "configure": "Open the Designer tab on the home screen, or ask the assistant to create a design / landing page / app mockup / storyboard.",
+        "configure": "Ask the assistant to create a design (deck, document, landing page, app mockup or storyboard); it opens in the conversation's Design panel. The sidebar's Designs filter lists conversations with designs.",
     },
     {
         "feature": "Wiki Vault",
@@ -406,7 +406,7 @@ def get_dynamic_state() -> str:
         if info is not None:
             parts.append(
                 f"- Update available: v{info.version} ({info.channel} channel) — "
-                f"the user can install via Settings → Preferences → Updates "
+                f"the user can install via Settings → Updates "
                 f"or by asking you to run row_bot_install_update."
             )
     except Exception:

@@ -69,9 +69,13 @@ it('ignores Ctrl+Enter typed in a text field (B134)', async () => {
 
 it('approves with Ctrl+Enter when no text field has focus', async () => {
   await renderCard();
-  await act(async () => {
+  // The shortcut listens once the approval's details have loaded, which can
+  // be a moment after the buttons enable.
+  await waitFor(() => {
     fireEvent.keyDown(document.body, { key: 'Enter', ctrlKey: true });
+    expect(intent).toHaveBeenCalled();
   });
+  expect(intent).toHaveBeenCalledOnce();
   expect(intent).toHaveBeenCalledWith(
     'approval-a',
     'approval.resolve',

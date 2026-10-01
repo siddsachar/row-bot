@@ -36,7 +36,7 @@ def _active_workspace(*, write: bool = False):
     if not workspace_id:
         workspace_id = infer_workspace_id_from_thread(get_thread_id())
     if not workspace_id:
-        raise ValueError("No active Developer workspace. Open a code thread in Developer Studio first.")
+        raise ValueError("No code folder is open in this conversation. Open or create a code folder for it first.")
     workspace = get_workspace(workspace_id)
     if workspace is None:
         raise ValueError("The active Developer workspace could not be found.")
