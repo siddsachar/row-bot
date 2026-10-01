@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 from row_bot.computer_use.service import (
@@ -16,8 +18,11 @@ def test_paired_remote_runtime_surfaces_cannot_acquire_native_computer_use(
     monkeypatch,
     runtime_surface: str,
 ) -> None:
+    # The module the service imports: a test that popped and re-imported it can
+    # leave the package attribute pointing at an older one.
     monkeypatch.setattr(
-        "row_bot.agent.get_active_runtime_context",
+        importlib.import_module("row_bot.agent"),
+        "get_active_runtime_context",
         lambda: {
             "runtime_surface": runtime_surface,
             "background_workflow": False,

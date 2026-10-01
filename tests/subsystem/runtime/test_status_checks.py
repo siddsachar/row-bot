@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import types
 
@@ -8,7 +9,9 @@ def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
     # Its own data folder: the durable document store starts empty, whatever
     # another test on the worker left in the shared one.
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
-    import row_bot.documents as documents
+    # The module the check imports, not a package attribute an earlier test's
+    # re-import may have left pointing at another one.
+    documents = importlib.import_module("row_bot.documents")
     from row_bot.status_checks import check_document_store
 
     processed_path = tmp_path / "processed_files.json"
