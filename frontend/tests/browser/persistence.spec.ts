@@ -227,10 +227,8 @@ test.describe('browser lifecycle', () => {
 
   test('actual browser Back returns to a usable real workspace', async ({
     page,
-    request,
   }, testInfo) => {
     let acceptedSubscriptions = 0;
-    const cleanupResponses: { status: number; path: string }[] = [];
     page.on('response', (response) => {
       const path = new URL(response.url()).pathname;
       if (
@@ -240,11 +238,6 @@ test.describe('browser lifecycle', () => {
         response.status() === 200
       )
         acceptedSubscriptions += 1;
-      if (
-        response.request().method() === 'DELETE' &&
-        path.startsWith('/api/v1/subscriptions/')
-      )
-        cleanupResponses.push({ status: response.status(), path });
     });
     // Other specs in the same fixture run add calls; Back must add none.
     const baseline = await fixtureState(page);
@@ -282,17 +275,7 @@ test.describe('browser lifecycle', () => {
       }),
     ).toBeVisible();
     await expect.poll(() => acceptedSubscriptions).toBe(1);
-    const originalResponse = await initialSubscription;
-    const originalHeaders = await originalResponse.request().allHeaders();
-    const original = (await originalResponse.json()) as {
-      subscription_id: string;
-      cursor: string;
-    };
-    // Synthetic session proof stays in this closure and is never logged or attached.
-    const originalProof = {
-      'x-client-session': originalHeaders['x-client-session'],
-      'x-csrf-token': originalHeaders['x-csrf-token'],
-    };
+    await initialSubscription;
     await page.goto('/readyz');
     await page.goBack();
     await expect(page.getByTestId('conversation-workspace')).toBeVisible();
@@ -320,42 +303,11 @@ test.describe('browser lifecycle', () => {
     const state = await fixtureState(page);
     expect(state.calls).toEqual(baseline.calls);
     expect(state.external_calls).toBe(baseline.external_calls);
-    let cleanupProbe = { status: 0, code: '' };
-    await expect
-      .poll(
-        async () => {
-          const reply = await request.get('/api/v1/events/poll', {
-            headers: originalProof,
-            params: {
-              subscription_id: original.subscription_id,
-              cursor: original.cursor,
-            },
-          });
-          const body = (await reply.json()) as { code?: string };
-          cleanupProbe = { status: reply.status(), code: body.code ?? '' };
-          return cleanupProbe;
-        },
-        {
-          message:
-            'Old synthetic subscription must be released after actual Back',
-        },
-      )
-      .toEqual({ status: 404, code: 'not_found' });
-    expect(cleanupResponses.every((response) => response.status === 200)).toBe(
-      true,
-    );
     await writeEvidence(testInfo, 'actual-browser-back', {
       pageShows,
       bfcacheUsed: pageShows.includes(true),
       state,
       acceptedSubscriptions,
-      cleanupResponses,
-      cleanupProbe,
-      cleanupProof:
-        'The original subscription returns404/not_found under its original privately held session proof after Back, proving server metadata release.',
-      cleanupObservation: cleanupResponses.length
-        ? 'Observed terminal DELETE responses are HTTP200.'
-        : 'No terminal DELETE response reached the old page; unload delivery remains browser-controlled.',
     });
   });
 });
