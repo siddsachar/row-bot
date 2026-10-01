@@ -1522,6 +1522,76 @@ it('presents full screen and ends when the person leaves full screen', async () 
   delete (document as { fullscreenElement?: unknown }).fullscreenElement;
 });
 
+it('keeps presenting when opening the audience window takes full screen away', async () => {
+  resizeFixture();
+  let fullscreenElement: Element | null = null;
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => fullscreenElement,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+    configurable: true,
+    value: vi.fn(async () => {
+      fullscreenElement = document.querySelector('.design-stage');
+      document.dispatchEvent(new Event('fullscreenchange'));
+    }),
+  });
+  const child = {
+    document: document.implementation.createHTMLDocument(''),
+    closed: false,
+    focus: vi.fn(),
+    close: vi.fn(),
+  };
+  const open = vi.spyOn(window, 'open').mockImplementation(() => {
+    // The browser leaves full screen as the new window opens.
+    fullscreenElement = null;
+    document.dispatchEvent(new Event('fullscreenchange'));
+    return child as unknown as Window;
+  });
+  const presentation = {
+    load: vi.fn(async () => ({
+      resource_id: 'deck-a',
+      resource_revision: 'resource-1',
+      page_id: 'slide-0',
+      title: 'Opening',
+      notes: '',
+      page_index: 0,
+      page_count: 2,
+      pages: [],
+      next_cursor: null,
+    })),
+    preview: vi.fn(() => new Promise<Preview>(() => {})),
+  };
+  await act(async () =>
+    render(
+      <ArtifactPreview
+        resourceId="deck-a"
+        resourceRevision="resource-1"
+        visible
+        load={vi.fn(async () => snapshot())}
+        presentation={presentation}
+      />,
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Present' })),
+  );
+  await act(async () =>
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open audience window' }),
+    ),
+  );
+  expect(open).toHaveBeenCalledOnce();
+  expect(
+    screen.getByRole('button', { name: 'End presentation' }),
+  ).toBeInTheDocument();
+  expect(child.close).not.toHaveBeenCalled();
+  open.mockRestore();
+  delete (HTMLElement.prototype as { requestFullscreen?: unknown })
+    .requestFullscreen;
+  delete (document as { fullscreenElement?: unknown }).fullscreenElement;
+});
+
 it('duplicates the design from the menu and says where the copy is', async () => {
   const user = userEvent.setup();
   const duplicate = vi.fn(async () => {});

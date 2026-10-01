@@ -24,6 +24,8 @@ export type ArtifactPresentationPanelProps = {
   fullscreen?: boolean;
   startIndex?: number;
   onEnded?: () => void;
+  /** Called just before the audience window opens: it takes full screen away. */
+  onAudience?: () => void;
 };
 
 export function StaticDesignPage({
@@ -181,11 +183,13 @@ export default function ArtifactPresentationPanel(
     },
     [close],
   );
+  const { onAudience } = props;
   const openAudience = useCallback(async () => {
     if (audience.current && !audience.current.closed) {
       audience.current.focus();
       return true;
     }
+    onAudience?.();
     const child = window.open(
       'about:blank',
       '_blank',
@@ -203,7 +207,7 @@ export default function ArtifactPresentationPanel(
     audience.current = child;
     setAudienceHost(mount);
     return true;
-  }, []);
+  }, [onAudience]);
   return (
     <>
       <ArtifactPresentation
