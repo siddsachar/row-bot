@@ -505,9 +505,23 @@ test('the knowledge graph settles in a same-origin worker and comes back settled
     // Drawn at once, then laid out by a worker this origin serves.
     await expect.poll(() => workers.length).toBe(1);
     expect(new URL(workers[0]).origin).toBe(new URL(page.url()).origin);
-    await expect(graph).toHaveAttribute('data-layout', 'settled', {
-      timeout: 15_000,
-    });
+    // It eases into place calmly: still settling seconds after it is drawn.
+    const settling = await graph.evaluate(
+      (shell) =>
+        new Promise<number>((resolve) => {
+          const began = performance.now();
+          const check = () => {
+            const elapsed = performance.now() - began;
+            if (shell.getAttribute('data-layout') === 'settled')
+              resolve(elapsed);
+            else if (elapsed > 15_000) resolve(Infinity);
+            else requestAnimationFrame(check);
+          };
+          check();
+        }),
+    );
+    expect(settling).toBeGreaterThan(2_000);
+    expect(settling).toBeLessThan(15_000);
     expect(refused).toEqual([]);
     await screenshot(page, info, 'knowledge-graph-settled');
 

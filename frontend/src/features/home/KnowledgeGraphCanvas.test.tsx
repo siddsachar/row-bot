@@ -25,10 +25,14 @@ import { glAlpha, mix } from './knowledge-palette';
 
 type Attributes = Record<string, unknown>;
 type Reducer = (key: string, data: Attributes) => Attributes;
+type BBox = { x: [number, number]; y: [number, number] };
 type FakeRenderer = {
   graph: Graph;
   container: HTMLElement;
   settings: { nodeReducer: Reducer; edgeReducer: Reducer } & Attributes;
+  /** The frame the canvas set, as sigma keeps it; null draws the graph's own box. */
+  customBBox: BBox | null;
+  frames: (BBox | null)[];
   camera: {
     state: { x: number; y: number; ratio: number; angle: number };
     animate: Mock;
@@ -47,7 +51,8 @@ type FakeRenderer = {
 };
 
 // A stand-in for sigma's WebGL renderer: it records what the canvas asks of
-// it and never touches a GPU context.
+// it and never touches a GPU context. Like sigma, it places memories in the
+// canvas's frame when one is set, else in the box around the graph.
 const renderer = vi.hoisted(() => ({
   instances: [] as FakeRenderer[],
   fail: false,
@@ -61,6 +66,8 @@ vi.mock('sigma', () => ({
     refresh = vi.fn();
     resize = vi.fn();
     setSetting = vi.fn();
+    customBBox: BBox | null = null;
+    frames: (BBox | null)[] = [];
 
     constructor(
       readonly graph: Graph,
@@ -94,6 +101,11 @@ vi.mock('sigma', () => ({
       return this.camera;
     }
 
+    setCustomBBox(box: BBox | null) {
+      this.customBBox = box;
+      this.frames.push(box);
+    }
+
     getNodeDisplayData(key: string) {
       if (!this.graph.hasNode(key)) return undefined;
       const { x, y, size } = this.graph.getNodeAttributes(key) as {
@@ -101,13 +113,30 @@ vi.mock('sigma', () => ({
         y: number;
         size: number;
       };
-      return { x, y, size };
+      const box = this.customBBox ?? extentOf(this.graph);
+      const scale = Math.max(box.x[1] - box.x[0], box.y[1] - box.y[0]) || 1;
+      return {
+        x: 0.5 + (x - (box.x[0] + box.x[1]) / 2) / scale,
+        y: 0.5 + (y - (box.y[0] + box.y[1]) / 2) / scale,
+        size,
+      };
     }
   },
 }));
 
+/** The box around the graph's positions, the way sigma frames it. */
+function extentOf(graph: Graph): BBox {
+  const xs = graph.mapNodes((_key, attributes) => attributes.x as number);
+  const ys = graph.mapNodes((_key, attributes) => attributes.y as number);
+  return {
+    x: [Math.min(...xs), Math.max(...xs)],
+    y: [Math.min(...ys), Math.max(...ys)],
+  };
+}
+
 // A stand-in for the layout worker: it keeps what the canvas asks for and
-// answers only when a test says so, running the real ForceAtlas2 iterations.
+// answers only when a test says so, running the real ForceAtlas2 iterations
+// (at most `limit` of them, to stand in for a batch whose time ran out).
 let workers: FakeWorker[] = [];
 
 class FakeWorker {
@@ -132,14 +161,14 @@ class FakeWorker {
     this.terminated = true;
   }
 
-  answer() {
+  answer(limit = Infinity) {
     const request = this.requests[this.requests.length - 1];
     if (request.edges) this.edges = new Float32Array(request.edges);
     const result = settle(
       request.settings,
       new Float32Array(request.nodes),
       this.edges,
-      request.iterations,
+      Math.min(limit, request.iterations),
     );
     const data: LayoutReply = { nodes: request.nodes, ...result };
     act(() => this.onmessage?.(new MessageEvent('message', { data })));
@@ -217,8 +246,87 @@ function fresh(prefix: string) {
   };
 }
 
+/** A graph shaped like a real profile: a user hub, chains of linked
+ * memories and some with no links at all. */
+function crowd(prefix: string, count: number) {
+  const ids = Array.from(
+    { length: count },
+    (_value, index) => `${prefix}-${index}`,
+  );
+  const links: KnowledgeGraphEdge[] = [];
+  for (let index = 1; index < count; index += 1) {
+    if (index % 7 === 0) continue;
+    const other = index % 4 === 1 ? 0 : Math.floor(index / 2);
+    links.push({
+      ...edges[0],
+      id: `${ids[other]}-${ids[index]}`,
+      source_id: ids[other],
+      target_id: ids[index],
+    });
+  }
+  const linked = (id: string) =>
+    links.filter((link) => link.source_id === id || link.target_id === id)
+      .length;
+  return {
+    nodes: ids.map((id, index) =>
+      node(id, {
+        relation_count: linked(id),
+        orphan: linked(id) === 0,
+        is_user: index === 0,
+      }),
+    ),
+    edges: links,
+    visible: new Set(ids),
+  };
+}
+
 const places = (graph: Graph) =>
   graph.mapNodes((key, attributes) => [key, attributes.x, attributes.y]);
+
+/** The x, y pairs of a ForceAtlas2 node matrix (ten values a memory). */
+const pairs = (matrix: ArrayBuffer | Float32Array) =>
+  Array.from(new Float32Array(matrix)).filter(
+    (_value, index) => index % 10 < 2,
+  );
+
+const coordinates = (graph: Graph) =>
+  graph.mapNodes((_key, attributes) => [attributes.x, attributes.y]).flat();
+
+const FRAME_MS = 1000 / 60;
+
+// Frames run only when a test says so, each a sixtieth of a second later.
+type Frames = ReturnType<typeof stubFrames>;
+
+function stubFrames() {
+  const due = new Map<number, FrameRequestCallback>();
+  let handle = 0;
+  let now = 1000;
+  vi.stubGlobal('requestAnimationFrame', (next: FrameRequestCallback) => {
+    handle += 1;
+    due.set(handle, next);
+    return handle;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (cancelled: number) =>
+    due.delete(cancelled),
+  );
+  return {
+    get pending() {
+      return due.size;
+    },
+    get elapsed() {
+      return now - 1000;
+    },
+    run(count = 1, each?: () => void) {
+      for (let frame = 0; frame < count; frame += 1) {
+        now += FRAME_MS;
+        const callbacks = [...due.values()];
+        due.clear();
+        act(() => callbacks.forEach((callback) => callback(now)));
+        each?.();
+      }
+    },
+  };
+}
 
 function stubWebgl(kind: 'webgl2' | 'webgl' | 'none' | 'throws' = 'webgl2') {
   vi.stubGlobal('WebGLRenderingContext', class {});
@@ -320,9 +428,11 @@ describe('KnowledgeGraphCanvas without WebGL', () => {
 
 describe('KnowledgeGraphCanvas with a renderer', () => {
   let resizeObservers: { callback: ResizeObserverCallback }[];
+  let frames: Frames;
 
   beforeEach(() => {
     stubWebgl();
+    frames = stubFrames();
     vi.stubGlobal('Worker', FakeWorker);
     resizeObservers = [];
     vi.stubGlobal(
@@ -507,23 +617,41 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
     ).toBeInTheDocument();
   });
 
-  describe('settling', () => {
-    beforeEach(() => {
-      // Each next batch is asked for on the next frame; run frames at once.
-      vi.stubGlobal('requestAnimationFrame', (next: FrameRequestCallback) => {
-        next(0);
-        return 1;
+  const layoutOf = (container: HTMLElement) =>
+    container
+      .querySelector('.knowledge-network-shell')
+      ?.getAttribute('data-layout');
+
+  /** Runs frames until the memories are at rest and the frame loop stops;
+   * returns how long after the first frame the memories came to rest. */
+  function runToRest(container: HTMLElement, each?: () => void) {
+    let restedAt = layoutOf(container) === 'settled' ? frames.elapsed : NaN;
+    for (
+      let frame = 0;
+      frame < 1200 && (layoutOf(container) !== 'settled' || frames.pending);
+      frame += 1
+    )
+      frames.run(1, () => {
+        each?.();
+        if (Number.isNaN(restedAt) && layoutOf(container) === 'settled')
+          restedAt = frames.elapsed;
       });
-    });
+    return restedAt;
+  }
 
-    const layoutOf = (container: HTMLElement) =>
-      container
-        .querySelector('.knowledge-network-shell')
-        ?.getAttribute('data-layout');
+  /** Answers every layout batch, then lets the graph come to rest. */
+  function settleAll(container: HTMLElement) {
+    const worker = workers[workers.length - 1];
+    while (!worker.terminated) worker.answer();
+    return runToRest(container);
+  }
 
-    it('draws the start at once, then settles in a same-origin worker until it converges', async () => {
-      const { container, sigma } = await renderCanvas(fresh('settles'));
-      const start = places(sigma.graph);
+  const width = (box: BBox | null) =>
+    box ? Math.max(box.x[1] - box.x[0], box.y[1] - box.y[0]) : NaN;
+
+  describe('settling', () => {
+    it('draws the memories bunched up at once, then blooms them out smoothly as the layout streams in', async () => {
+      const { container, sigma } = await renderCanvas(crowd('settles', 120));
       expect(layoutOf(container)).toBe('settling');
       expect(workers).toHaveLength(1);
       const [worker] = workers;
@@ -532,23 +660,75 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       expect(new URL(String(worker.url)).protocol).not.toBe('blob:');
       const [first] = worker.requests;
       expect(first.edges?.byteLength).toBeGreaterThan(0);
-      // The iterations are spread over frames instead of run in one go.
-      expect(first.iterations).toBeLessThan(10);
-
-      worker.answer();
-      expect(places(sigma.graph)).not.toEqual(start);
-      expect(worker.requests).toHaveLength(2);
-      expect(worker.requests[1].edges).toBeUndefined();
-      while (!worker.terminated && worker.requests.length < 500)
-        worker.answer();
-
-      expect(worker.terminated).toBe(true);
-      expect(layoutOf(container)).toBe('settled');
-      const asked = worker.requests.reduce(
-        (sum, request) => sum + request.iterations,
-        0,
+      // The whole layout is asked for, in short batches.
+      expect(first.iterations).toBe(220);
+      expect(first.budget).toBeGreaterThan(0);
+      expect(first.budget).toBeLessThan(50);
+      // The same layout run in one go, to compare the end with.
+      const reference = new Float32Array(first.nodes.slice(0));
+      settle(
+        first.settings,
+        reference,
+        new Float32Array(first.edges!.slice(0)),
+        220,
       );
-      expect(asked).toBeLessThan(220);
+
+      // Drawn at once a quarter of the way out, framed by where the layout
+      // starts, so the graph blooms out from the middle.
+      const start = pairs(first.nodes);
+      const drawn = coordinates(sigma.graph);
+      drawn.forEach((value, index) =>
+        expect(value).toBeCloseTo(start[index] / 4, 4),
+      );
+      const frame = sigma.customBBox!;
+      expect(frame.x[0]).toBeCloseTo(
+        Math.min(...start.filter((_value, index) => index % 2 === 0)),
+        4,
+      );
+      expect(frame.y[1]).toBeCloseTo(
+        Math.max(...start.filter((_value, index) => index % 2 === 1)),
+        4,
+      );
+
+      // A batch whose time ran out asks for the rest at once, and moves
+      // nothing by itself: frames ease the memories toward it.
+      worker.answer(5);
+      expect(worker.requests).toHaveLength(2);
+      expect(worker.requests[1].iterations).toBe(215);
+      expect(worker.requests[1].edges).toBeUndefined();
+      expect(coordinates(sigma.graph)).toEqual(drawn);
+
+      let previous = drawn;
+      const steps: number[] = [];
+      const step = () => {
+        const now = coordinates(sigma.graph);
+        steps.push(
+          Math.max(
+            ...now.map((value, index) => Math.abs(value - previous[index])),
+          ),
+        );
+        previous = now;
+      };
+      frames.run(30, step);
+      expect(layoutOf(container)).toBe('settling');
+      while (!worker.terminated) worker.answer();
+      const restedAfter = runToRest(container, step);
+
+      // No frame jumps: each moves a memory under 3% of the picture, starting
+      // gently and slowing down at the end.
+      const extent = width(frame);
+      expect(Math.max(...steps)).toBeLessThan(extent * 0.03);
+      expect(steps[0]).toBeLessThan(Math.max(...steps) / 5);
+      const moving = steps.filter((value) => value > 0);
+      expect(moving[moving.length - 1]).toBeLessThan(extent / 1000);
+      // At rest a few seconds after it was drawn...
+      expect(restedAfter).toBeGreaterThan(3000);
+      expect(restedAfter).toBeLessThan(6000);
+      // ...exactly where one uninterrupted run puts the memories; then the
+      // frame loop stops and sigma frames the graph itself again.
+      expect(coordinates(sigma.graph)).toEqual(pairs(reference));
+      expect(frames.pending).toBe(0);
+      expect(sigma.customBBox).toBeNull();
       expect(renderer.instances).toHaveLength(1);
     });
 
@@ -564,20 +744,73 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
         (_sigma: FakeRenderer, handle: KnowledgeGraphHandle | null) =>
           handle?.zoom(0.25),
       ],
-    ])('a %s stops the settling where it is', async (name, interrupt) => {
-      const { container, sigma, ref } = await renderCanvas(fresh(name));
-      const [worker] = workers;
-      worker.answer();
-      const moved = places(sigma.graph);
+    ])(
+      'a %s holds the frame still while the memories keep settling',
+      async (name, interrupt) => {
+        const { container, sigma, ref } = await renderCanvas(fresh(name));
+        const [worker] = workers;
+        worker.answer(5);
+        frames.run(10);
 
-      act(() => interrupt(sigma, ref.current));
-      expect(worker.terminated).toBe(true);
-      expect(layoutOf(container)).toBe('settled');
-      // A reply already on its way changes nothing.
-      const asked = worker.requests.length;
-      worker.answer();
-      expect(places(sigma.graph)).toEqual(moved);
-      expect(worker.requests).toHaveLength(asked);
+        act(() => interrupt(sigma, ref.current));
+        const held = sigma.customBBox;
+        const framed = sigma.frames.length;
+        const before = coordinates(sigma.graph);
+        settleAll(container);
+
+        expect(layoutOf(container)).toBe('settled');
+        expect(coordinates(sigma.graph)).not.toEqual(before);
+        expect(coordinates(sigma.graph)).toEqual(
+          pairs(worker.requests[worker.requests.length - 1].nodes),
+        );
+        // The view never shifted under the user, and stays put at rest.
+        expect(sigma.frames.length).toBe(framed);
+        expect(sigma.customBBox).toBe(held);
+        expect(frames.pending).toBe(0);
+      },
+    );
+
+    it('Fit lets a held frame take in the whole graph, then hands it back', async () => {
+      const { container, sigma, ref } = await renderCanvas(fresh('fit'));
+      act(() => sigma.emit('wheelStage'));
+      settleAll(container);
+      const held = sigma.customBBox;
+      expect(held).not.toBeNull();
+
+      act(() => ref.current?.fit());
+      expect(sigma.camera.animatedReset).toHaveBeenCalledWith({
+        duration: 320,
+      });
+      expect(frames.pending).toBe(1);
+      runToRest(container);
+      expect(sigma.customBBox).toBeNull();
+      // The frame glided from the held box to the graph's own box.
+      const glided = sigma.frames.slice(sigma.frames.indexOf(held) + 1, -1);
+      expect(glided.length).toBeGreaterThan(30);
+      const own = extentOf(sigma.graph);
+      const last = glided[glided.length - 1]!;
+      for (const [edge, value] of [
+        [last.x[0], own.x[0]],
+        [last.x[1], own.x[1]],
+        [last.y[0], own.y[0]],
+        [last.y[1], own.y[1]],
+      ])
+        expect(Math.abs(edge - value)).toBeLessThan(width(last) / 500);
+    });
+
+    it('a search pick while the graph settles heads where the memory comes to rest', async () => {
+      const { container, sigma, ref } = await renderCanvas(fresh('pick'));
+      const [worker] = workers;
+      while (!worker.terminated) worker.answer();
+      frames.run(20);
+
+      act(() => ref.current?.focus('pick-a'));
+      const [aim] = sigma.camera.animate.mock.lastCall!;
+      runToRest(container);
+      const rested = sigma.getNodeDisplayData('pick-a')!;
+      expect(aim.x).toBeCloseTo(rested.x, 6);
+      expect(aim.y).toBeCloseTo(rested.y, 6);
+      expect(aim.ratio).toBe(0.45);
     });
 
     it('lays out in one pass before drawing when motion is reduced', async () => {
@@ -596,7 +829,8 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       await waitFor(() => expect(workers).toHaveLength(1));
       const [worker] = workers;
       expect(worker.requests).toHaveLength(1);
-      expect(worker.requests[0].iterations).toBe(220);
+      expect(worker.requests[0]).toMatchObject({ iterations: 220 });
+      expect(worker.requests[0].budget).toBeUndefined();
       expect(renderer.instances).toHaveLength(0);
       expect(screen.getByRole('status')).toHaveTextContent(
         'Drawing the graph…',
@@ -605,11 +839,13 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       worker.answer();
       await waitFor(() => expect(renderer.instances).toHaveLength(1));
       const [sigma] = renderer.instances;
-      const drawn = places(sigma.graph);
+      // Drawn where the layout ends, with nothing left to animate.
+      expect(coordinates(sigma.graph)).toEqual(pairs(worker.requests[0].nodes));
       expect(worker.terminated).toBe(true);
       expect(layoutOf(container)).toBe('settled');
       expect(worker.requests).toHaveLength(1);
-      expect(places(sigma.graph)).toEqual(drawn);
+      expect(frames.pending).toBe(0);
+      expect(sigma.frames).toEqual([]);
     });
 
     it('draws the start when the layout worker cannot run', async () => {
@@ -634,11 +870,71 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       await waitFor(() => expect(workers).toHaveLength(2));
     });
 
+    it('blooms out to where the memories started when the worker fails, keeping nothing', async () => {
+      const graph = fresh('fails');
+      const first = await renderCanvas(graph);
+      const [worker] = workers;
+      const start = pairs(worker.requests[0].nodes);
+      worker.fail();
+      expect(worker.terminated).toBe(true);
+      runToRest(first.container);
+      expect(layoutOf(first.container)).toBe('settled');
+      expect(coordinates(first.sigma.graph)).toEqual(start);
+      expect(frames.pending).toBe(0);
+
+      first.unmount();
+      await renderCanvas(graph);
+      expect(workers).toHaveLength(2);
+    });
+
+    it('leaving mid-settle stops the frames and the worker', async () => {
+      const { unmount } = await renderCanvas(fresh('leave'));
+      const [worker] = workers;
+      worker.answer(5);
+      frames.run(5);
+      expect(frames.pending).toBe(1);
+      unmount();
+      expect(frames.pending).toBe(0);
+      expect(worker.terminated).toBe(true);
+    });
+
+    it('Show all: placed memories settle on from their places while new ones bloom from the middle', async () => {
+      const graph = fresh('more');
+      const first = await renderCanvas(graph);
+      settleAll(first.container);
+      const rested = places(first.sigma.graph);
+
+      first.rerender(
+        <KnowledgeGraphCanvas
+          ref={first.ref}
+          {...first.props}
+          nodes={[...graph.nodes, node('more-new')]}
+          visible={new Set([...graph.visible, 'more-new'])}
+        />,
+      );
+      await waitFor(() => expect(renderer.instances).toHaveLength(2));
+      const second = renderer.instances[1];
+      expect(workers).toHaveLength(2);
+      expect(layoutOf(first.container)).toBe('settling');
+      // The layout starts from where the memories rested...
+      const start = pairs(workers[1].requests[0].nodes);
+      expect(start.slice(0, 8)).toEqual(rested.flatMap(([, x, y]) => [x, y]));
+      // ...they are drawn there, and only the new memory starts bunched up.
+      expect(places(second.graph).slice(0, 4)).toEqual(rested);
+      const [, x, y] = places(second.graph)[4] as [string, number, number];
+      expect(x).toBeCloseTo(start[8] / 4, 4);
+      expect(y).toBeCloseTo(start[9] / 4, 4);
+
+      settleAll(first.container);
+      expect(coordinates(second.graph)).toEqual(
+        pairs(workers[1].requests[workers[1].requests.length - 1].nodes),
+      );
+    });
+
     it('shows where the memories came to rest when the page comes back', async () => {
       const graph = fresh('return');
       const first = await renderCanvas(graph);
-      const [worker] = workers;
-      while (!worker.terminated) worker.answer();
+      settleAll(first.container);
       const rested = places(first.sigma.graph);
       first.unmount();
       renderer.instances = [];
@@ -650,6 +946,7 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
       expect(workers).toHaveLength(1);
       expect(places(second.sigma.graph)).toEqual(rested);
       expect(layoutOf(second.container)).toBe('settled');
+      expect(frames.pending).toBe(0);
     });
   });
 
@@ -667,7 +964,8 @@ describe('KnowledgeGraphCanvas with a renderer', () => {
   });
 
   it('keeps navigation bounded and skips animation when motion is reduced', async () => {
-    const { ref, sigma } = await renderCanvas();
+    const { ref, sigma, container } = await renderCanvas();
+    settleAll(container);
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query.includes('reduce'),
       media: query,
