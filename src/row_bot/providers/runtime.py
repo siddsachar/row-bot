@@ -430,9 +430,10 @@ def captured_chat_model(capture: CapturedChatRuntime, *, validate: Callable[[], 
                 **_reasoning_constructor_kwargs(capture.reasoning_plan, provider=provider))
         elif provider == "openrouter":
             import openrouter
-            from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
+            from row_bot.providers.transports.openrouter_cancellable import (
+                OPENROUTER_APP_ATTRIBUTION, CancellableChatOpenRouter)
             root = openrouter.OpenRouter(api_key=capture.credential, server_url=resolved.base_url,
-                                        client=sync, async_client=asynchronous,retry_config=None)
+                client=sync, async_client=asynchronous, retry_config=None, **OPENROUTER_APP_ATTRIBUTION)
             model = CancellableChatOpenRouter(model_name=resolved.runtime_model,
                 openrouter_api_key=capture.credential, openrouter_api_base=resolved.base_url,
                 max_retries=0, client=root,

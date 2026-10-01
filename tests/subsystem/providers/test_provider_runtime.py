@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import sys
 import socket
 from types import ModuleType, SimpleNamespace
@@ -297,6 +298,73 @@ def test_openrouter_provider_constructor_is_preserved(monkeypatch):
     assert model.openrouter_api_key.get_secret_value() == "openrouter-key"
     assert "reasoning" not in model.model_kwargs
     _assert_sync_client_registered_with_cancellation_scope(model.client.sdk_configuration.client)
+
+
+def _answer_openrouter_requests(monkeypatch) -> list[httpx.Request]:
+    """Answer every OpenRouter request in-process (plain or streamed) and record it."""
+    sent: list[httpx.Request] = []
+    completion = {"id": "c1", "created": 0, "model": "m", "system_fingerprint": "fp"}
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        if json.loads(request.content).get("stream"):
+            chunk = {**completion, "object": "chat.completion.chunk",
+                     "choices": [{"index": 0, "delta": {"content": "OK"}, "finish_reason": "stop"}]}
+            stream = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode()
+            return httpx.Response(200, content=stream, headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={**completion, "object": "chat.completion", "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": "OK"}, "finish_reason": "stop"}]})
+
+    async def answer_async(self, request: httpx.Request) -> httpx.Response:
+        return answer(request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", lambda self, request: answer(request))
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", answer_async)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, credential_name="api_key": "or-key")
+    return sent
+
+
+def _assert_openrouter_requests_credit_row_bot(sent: list[httpx.Request], count: int) -> None:
+    # OpenRouter credits usage, in its public app rankings, to the app these
+    # headers name; LangChain's defaults would credit LangChain instead.
+    assert [request.url.path for request in sent] == ["/api/v1/chat/completions"] * count
+    for request in sent:
+        assert request.headers["http-referer"] == "https://row-bot.ai"
+        assert request.headers["x-openrouter-title"] == "Row-Bot"
+        assert "x-title" not in request.headers
+        assert not any("langchain" in value.lower() for value in request.headers.values())
+
+
+def test_openrouter_chat_requests_credit_row_bot_for_every_call_style(monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    sent = _answer_openrouter_requests(monkeypatch)
+    model = runtime.create_chat_model("anthropic/claude-sonnet-4", provider_id="openrouter")
+    messages = [HumanMessage(content="Reply with OK")]
+
+    async def ask_async():
+        await model.ainvoke(messages)
+        async for _chunk in model.astream(messages):
+            pass
+
+    model.invoke(messages)
+    list(model.stream(messages))
+    asyncio.run(ask_async())
+
+    assert [json.loads(request.content)["stream"] for request in sent] == [False, True, False, True]
+    _assert_openrouter_requests_credit_row_bot(sent, 4)
+
+
+def test_openrouter_document_processing_requests_credit_row_bot(monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    sent = _answer_openrouter_requests(monkeypatch)
+    captured = runtime.capture_chat_runtime("model:openrouter:anthropic/claude-sonnet-4")
+
+    with runtime.captured_chat_model(captured, validate=lambda: None) as model:
+        model.invoke([HumanMessage(content="Reply with OK")])
+
+    _assert_openrouter_requests_credit_row_bot(sent, 1)
 
 
 def test_codex_provider_constructor_is_preserved(monkeypatch):
