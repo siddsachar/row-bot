@@ -316,6 +316,17 @@ test('reduced motion and forced colours preserve a usable single conversation', 
   await expect(
     page.getByRole('status').filter({ hasText: /^Draft saved$/ }),
   ).toBeVisible();
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature: 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED',
+      count: 4,
+      upTo: true,
+      owner: 'unified-quality offline step',
+      fixture:
+        'The browser context goes offline: a read in flight then fails and the client reconnects once it is back online',
+    }),
+  });
   await context.setOffline(true);
   await expect(
     page.getByRole('status').filter({ hasText: /^Connected$/ }),

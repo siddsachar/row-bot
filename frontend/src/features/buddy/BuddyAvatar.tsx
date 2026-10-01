@@ -14,7 +14,7 @@ import './BuddyAvatar.css';
 // retired media URL outlives the commit that dropped it by this long.
 const REVOKE_DELAY_MS = 2000;
 
-function revokeLater(url: string) {
+export function revokeLater(url: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
 }
 

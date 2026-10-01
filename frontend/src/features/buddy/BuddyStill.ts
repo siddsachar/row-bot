@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRuntime } from '../../runtime';
 import { useShellSettled } from '../../shell-settled';
-import { rememberBuddyMedia } from './BuddyAvatar';
+import { rememberBuddyMedia, revokeLater } from './BuddyAvatar';
 import type { BuddyPanelSession } from './BuddyPanel';
 
 const noSession = {
@@ -71,7 +71,8 @@ export function useBuddyStill(conversation: string | null): string {
       .catch(() => undefined);
     return () => {
       abort.abort();
-      if (url) URL.revokeObjectURL(url);
+      // The still may show it until the next one commits.
+      if (url) revokeLater(url);
     };
   }, [conversation, key, loadMedia, packId, revision]);
   return still.key === key ? still.url : '';
