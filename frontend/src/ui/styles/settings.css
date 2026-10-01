@@ -2380,6 +2380,19 @@
 .settings-page-content .profile-library-toolbar {
   margin-bottom: 4px;
 }
+/* The Agent profiles dialog: the search field, Refresh and Create profile
+   share one row; the field gives up the width. */
+.settings-list-toolbar.profile-library-toolbar {
+  flex-wrap: nowrap;
+}
+.settings-list-toolbar.profile-library-toolbar > .settings-inline-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-list-toolbar.profile-library-toolbar > .button {
+  flex: none;
+  white-space: nowrap;
+}
 .settings-page-content section[aria-label='Goals and Agent Profiles'],
 .settings-page-content section[aria-label='Goal settings'],
 .settings-page-content section[aria-label='Agent Profiles'],

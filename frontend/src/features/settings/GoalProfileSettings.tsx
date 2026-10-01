@@ -36,6 +36,7 @@ import {
 import {
   Button,
   Field,
+  IconButton,
   Input,
   Select,
   Tabs,
@@ -1463,8 +1464,11 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
       message: '',
     });
   };
+  // The Agent profiles dialog (profilesOnly) holds the library directly,
+  // with no card inside the dialog.
+  const sectionClass = profilesOnly ? 'stack' : 'settings-section stack';
   const profiles = (
-    <section aria-label="Agent Profiles" className="settings-section stack">
+    <section aria-label="Agent Profiles" className={sectionClass}>
       {!profilesOnly && (
         <>
           <h2>Agent Profiles</h2>
@@ -1504,18 +1508,15 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
               }}
             />
           </label>
-          <Button variant="primary" disabled={locked} onClick={beginCreate}>
-            Create profile
-          </Button>
-          <Button
+          <IconButton
+            label="Refresh profiles"
             disabled={locked}
-            variant="ghost"
-            iconOnly
-            aria-label="Refresh"
-            title="Refresh profiles"
             onClick={() => session.refreshProfiles()}
           >
             <RefreshCw size={16} aria-hidden />
+          </IconButton>
+          <Button variant="primary" disabled={locked} onClick={beginCreate}>
+            Create profile
           </Button>
         </div>
       ) : (
@@ -1631,10 +1632,7 @@ export default function GoalProfileSettings(props: GoalProfileSettingsProps) {
   );
 
   return (
-    <section
-      aria-label="Goals and Agent Profiles"
-      className="settings-section stack"
-    >
+    <section aria-label="Goals and Agent Profiles" className={sectionClass}>
       {profilesOnly ? (
         profiles
       ) : (

@@ -885,6 +885,34 @@ test('profile library manages profiles and starts a selected chat', async ({
     dialog.locator('summary').filter({ hasText: 'Everyday' }),
   ).toBeVisible();
   await expect(dialog.getByText('General Assistant')).toBeVisible();
+  // The library sits on the dialog itself, with no card around it, and
+  // Refresh shares the search field's row.
+  const search = dialog.getByRole('searchbox', { name: 'Search profiles' });
+  expect(
+    await search.evaluate((input) => {
+      const frames: string[] = [];
+      for (
+        let node = input.closest('label')!.parentElement;
+        node && !node.classList.contains('dialog-body');
+        node = node.parentElement
+      ) {
+        const style = getComputedStyle(node);
+        if (
+          style.boxShadow !== 'none' ||
+          parseFloat(style.borderTopWidth) > 0 ||
+          style.backgroundColor !== 'rgba(0, 0, 0, 0)'
+        )
+          frames.push(node.tagName);
+      }
+      return frames;
+    }),
+  ).toEqual([]);
+  const searchBox = (await search.boundingBox())!;
+  const refreshBox = (await dialog
+    .getByRole('button', { name: 'Refresh profiles', exact: true })
+    .boundingBox())!;
+  expect(refreshBox.y).toBeLessThan(searchBox.y + searchBox.height);
+  expect(refreshBox.y + refreshBox.height).toBeGreaterThan(searchBox.y);
   await screenshot(page, info, 'slice4-profile-library');
   await assertNoOverflow(page);
 

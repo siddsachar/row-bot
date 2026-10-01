@@ -350,6 +350,25 @@ it('manages grouped profiles without a conversation and starts a selected profil
   ).toBeInTheDocument();
 });
 
+it('lays the profile library directly on its dialog, with an icon Refresh that reloads it', async () => {
+  const props = options();
+  const { container } = render(
+    <GoalProfileSettings {...props} conversationId={undefined} profilesOnly />,
+  );
+  await screen.findByText('General Assistant');
+  // No card inside the dialog: the library is not framed as a settings
+  // section, twice over, as it was.
+  expect(container.querySelector('.settings-section, .surface')).toBeNull();
+  expect(
+    screen.getByRole('searchbox', { name: 'Search profiles' }),
+  ).toBeVisible();
+  const refresh = screen.getByRole('button', { name: 'Refresh profiles' });
+  expect(refresh.textContent).toBe('');
+  expect(props.loadProfiles).toHaveBeenCalledTimes(1);
+  fireEvent.click(refresh);
+  await waitFor(() => expect(props.loadProfiles).toHaveBeenCalledTimes(2));
+});
+
 it('pins a profile as a sidebar favourite on this device, and only one that can start a chat (B268)', async () => {
   const props = options();
   const disabled = {
