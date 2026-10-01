@@ -327,7 +327,9 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
                     );
                 }}
               >
-                <Toast.Description>{notice.message}</Toast.Description>
+                <Toast.Description className="toast-message">
+                  {notice.message}
+                </Toast.Description>
                 {notice.action && (
                   <Toast.Action altText={notice.action.label} asChild>
                     <Button

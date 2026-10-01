@@ -1393,6 +1393,9 @@ small {
   pointer-events: auto;
   animation: toast-in var(--motion-popover, 160ms) var(--ease-out, ease-out);
   display: flex;
+  /* A grid item: it may be narrower than its longest word (a path, a link),
+     which wraps, so a notice never runs off a zoomed phone screen. */
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1413,6 +1416,10 @@ small {
   .toast {
     animation: none;
   }
+}
+.toast-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 /* Background warnings and errors: a coloured edge plus their own words. */
 .toast[data-tone='warning'] {
