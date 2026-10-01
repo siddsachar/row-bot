@@ -173,3 +173,43 @@ test('settings aliases route to retained unified settings', async ({
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'accounts-setting-retained');
 });
+
+test('the desktop reconnecting pill never covers a floating notice (B231)', async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    // A desktop window whose bridge is lost: every call answers that its
+    // proof lapsed, so the window keeps binding again.
+    Object.assign(window, {
+      __ROW_BOT_NATIVE_CLIENT__: {
+        dispatch: async () => ({
+          status: 'unavailable',
+          reason: 'native_proof_required',
+        }),
+      },
+    });
+  });
+  await page.goto('/app-v2/primitives?fixture=normal');
+  const pill = page.getByText('Desktop features are reconnecting…', {
+    exact: true,
+  });
+  await expect(pill).toBeVisible();
+  await page.getByRole('button', { name: 'Show toast', exact: true }).click();
+  const notice = page
+    .locator('.toast')
+    .filter({ hasText: 'Your example preference is saved' });
+  await expect(notice).toBeVisible();
+  await notice.evaluate((element) =>
+    Promise.all(element.getAnimations().map((motion) => motion.finished)),
+  );
+  const above = (await pill.boundingBox())!;
+  const below = (await notice.boundingBox())!;
+  expect(above.y + above.height).toBeLessThanOrEqual(below.y);
+  await assertNoOverflow(page);
+  await screenshot(page, testInfo, 'desktop-reconnecting-above-notice');
+  await writeEvidence(testInfo, 'desktop-reconnecting-above-notice', {
+    pillBottom: above.y + above.height,
+    noticeTop: below.y,
+  });
+});

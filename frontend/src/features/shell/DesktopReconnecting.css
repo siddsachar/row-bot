@@ -1,12 +1,16 @@
-/* A quiet pill under the top bar while desktop features reconnect (B231). */
+/* A quiet pill under the top bar while desktop features reconnect (B231).
+   One line high, so floating notices can start just below it. */
 .desktop-reconnecting {
   position: fixed;
   z-index: 67;
   top: calc(56px + env(safe-area-inset-top));
   left: 50%;
+  box-sizing: border-box;
   max-width: calc(100vw - 32px);
+  height: 32px;
   margin: 0;
-  padding: 6px 12px;
+  padding: 0 12px;
+  overflow: hidden;
   transform: translateX(-50%);
   color: var(--text-secondary);
   background: var(--surface-raised);
@@ -14,11 +18,20 @@
   border-radius: 999px;
   box-shadow: var(--shadow-modal);
   font-size: 13px;
+  line-height: 30px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 /* Kept in the page (not display: none) so screen readers announce it. */
 .desktop-reconnecting:empty {
+  height: 0;
   padding: 0;
   border: 0;
   box-shadow: none;
+}
+/* While it shows, floating notices start below it, never under it. */
+body:has(.desktop-reconnecting:not(:empty)) .notification-layer {
+  top: calc(56px + 32px + 8px + env(safe-area-inset-top));
+  max-height: calc(100dvh - 112px);
 }
