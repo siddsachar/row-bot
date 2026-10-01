@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import ApprovalCard from './ApprovalCard';
 
@@ -35,7 +41,10 @@ beforeEach(() => {
 
 async function renderCard() {
   render(<ApprovalCard id="approval-a" />);
-  await screen.findByRole('button', { name: 'Approve' });
+  // The buttons show at once, disabled until the approval has loaded.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled(),
+  );
 }
 
 it('ignores Ctrl+Enter typed in a text field (B134)', async () => {
