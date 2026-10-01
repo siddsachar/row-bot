@@ -139,7 +139,7 @@ function failure(error: unknown) {
   if (code === 'editing_record_too_large')
     return {
       denied: false,
-      text: 'This saved record exceeds the panel limit. It remains available in Designer Studio.',
+      text: 'This saved record is too large to edit here. Ask Row-Bot to change it in the conversation instead.',
     };
   return {
     denied: false,

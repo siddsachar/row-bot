@@ -1046,7 +1046,7 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         try:
             if _developer_context_var.get(""):
                 return (
-                    "I reached the Developer Studio step budget for this turn. "
+                    "I reached the coding step budget for this turn. "
                     "Your workspace state, todos, and diffs are preserved; ask me to continue "
                     "and I can pick up from the current checkpoint."
                 )
