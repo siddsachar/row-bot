@@ -255,10 +255,15 @@ test('composer menus stay in the viewport and only one popover shows at a time (
   await draft.fill('/');
   const palette = page.getByRole('listbox', { name: 'Slash commands' });
   await expect(palette).toBeVisible();
-  await page.getByRole('button', { name: 'Approvals' }).click();
+  const approvals = page.getByRole('button', { name: 'Approvals' });
+  await approvals.click();
   await expect(page.getByRole('menu')).toBeVisible();
   await expect(palette).toHaveCount(0);
   await page.keyboard.press('Escape');
+  // As with the picker: the menu hands focus back to its trigger once it has
+  // closed, so focus the composer only after that.
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(approvals).toBeFocused();
   await draft.focus();
   await expect(palette).toBeVisible();
   await draft.fill('');
