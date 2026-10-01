@@ -1,6 +1,7 @@
 """Resumed workflow cancellation uses the same actual process producer owner."""
 from __future__ import annotations
 
+import importlib
 import threading
 
 from tests.fixtures.tasks import fresh_tasks_module
@@ -8,7 +9,10 @@ from tests.fixtures.tasks import fresh_tasks_module
 
 def test_f_r02_resumed_workflow_stop_reaches_scope_and_retains_owner(tmp_path, monkeypatch):
     tasks = fresh_tasks_module(tmp_path, monkeypatch)
-    from row_bot import agent, threads
+    from row_bot import threads
+    # The module the workflow imports at call time: patching an older module
+    # object let the real resume run (no model chosen) in a full run.
+    agent = importlib.import_module("row_bot.agent")
     from row_bot.cancellation import current_cancellation_scope
     from row_bot.runtime import executions
     registry = executions.GenerationRuntimeRegistry()
