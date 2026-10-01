@@ -26,6 +26,15 @@ function EditorDialogBody({
       onMutation?.();
     priorRevision.current = revision;
   }, [revision, onMutation]);
+  // A completed save changed the memory even before the saved entry is
+  // reloaded: what shows it elsewhere reads it again.
+  const receipt = state.receipt;
+  const seenReceipt = useRef(receipt);
+  useEffect(() => {
+    if (receipt === seenReceipt.current) return;
+    seenReceipt.current = receipt;
+    if (receipt?.status === 'completed') onMutation?.();
+  }, [receipt, onMutation]);
   return (
     <div className="stack">
       <KnowledgeEditor session={session} heading={false} />

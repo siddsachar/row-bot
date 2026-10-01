@@ -737,15 +737,15 @@ export default function KnowledgeHome({
     const id = selectedNode.id;
     setChanging(true);
     try {
-      if (
-        await onLifecycle(
-          id,
-          selectedValue.revision,
-          action,
-          selectedValue.subject || selectedNode.subject,
-        )
-      )
-        await readDetail(id);
+      await onLifecycle(
+        id,
+        selectedValue.revision,
+        action,
+        selectedValue.subject || selectedNode.subject,
+      );
+      // Show the memory as it is now, also after a refusal: it may have
+      // changed since it was read.
+      await readDetail(id);
     } finally {
       setChanging(false);
     }
