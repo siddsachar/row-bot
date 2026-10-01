@@ -1042,6 +1042,10 @@ test('Knowledge adds memory, searches the library, retains editor drafts, and co
   await editor.getByRole('button', { name: /reload saved entry$/i }).click();
   await dialog.getByRole('button', { name: 'Close knowledge editor' }).click();
   await expect(dialog).toHaveCount(0);
+  // The memory's detail shows what was saved.
+  await expect(
+    inspector.getByText('Synthetic retained modal draft', { exact: true }),
+  ).toBeVisible();
   // Archive and restore are reviewed by the server and applied in one step.
   await inspector
     .getByRole('button', { name: 'Archive memory', exact: true })

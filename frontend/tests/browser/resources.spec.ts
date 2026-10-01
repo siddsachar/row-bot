@@ -276,6 +276,18 @@ for (const [mode, label] of [
             'The fixture saves interaction pages behind the panel: a lifecycle read for the revision before answers 409 and the panel reads the new one',
         }),
       });
+      info.annotations.push({
+        type: 'expected-console-error',
+        description: JSON.stringify({
+          signature:
+            'Failed to load resource: the server responded with a status of 404 (Not Found)',
+          count: 1,
+          upTo: true,
+          owner: 'resources interaction-page fixture',
+          fixture:
+            'The fixture replaces the pages behind the panel: an editing read for a replaced page answers 404 and the panel reads the new one',
+        }),
+      });
       const seeded = await page.request.post(
         `/__p4_fixture/artifacts/${state.conversation.resource_bindings[0].resource_id}/interaction-pages`,
         {
@@ -450,6 +462,12 @@ for (const [mode, label] of [
     await region
       .getByRole('button', { name: 'Close inspector', exact: true })
       .click();
+    // The canvas shows the saved brand first: a revision that arrives while
+    // presenting ends that presentation (and its audience window).
+    await expect(region.locator('iframe.design-frame')).toHaveAttribute(
+      'srcdoc',
+      /--primary: #654321;/,
+    );
     // Present starts at once from the current page.
     await designAction(page, region, 'Present');
     const slide = region.locator('iframe[title^="Presentation:"]');
@@ -562,6 +580,18 @@ const LOGO_PNG =
 test('Design inline edits in a row keep the selection, and colour, font and logo choices save (B245, B246)', async ({
   page,
 }, info) => {
+  info.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature:
+        'Failed to load resource: the server responded with a status of 409 (Conflict)',
+      count: 3,
+      upTo: true,
+      owner: 'Design panel lifecycle read',
+      fixture:
+        'Saves in a row move the revision on: a lifecycle read for the revision before answers 409 and the panel reads the new one',
+    }),
+  });
   await newConversation(page);
   await page.getByRole('button', { name: 'Add resource', exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'Add resource', exact: true });

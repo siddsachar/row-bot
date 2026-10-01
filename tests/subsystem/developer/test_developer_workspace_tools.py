@@ -7,38 +7,23 @@ import sys
 from types import SimpleNamespace
 
 
-def _fresh_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
-    for name in [
-        "threads",
-        "developer.storage",
-        "developer.inspector_snapshot",
-        "developer.tool_context",
-        "developer.agent_context",
-        "developer.change_ledger",
-        "developer.edits",
-        "developer.sandbox_runtime",
-        "developer.executables",
-        "tools.developer_tool",
-    ]:
-        sys.modules.pop(name, None)
-    import row_bot.developer.storage as storage
-    import row_bot.developer.tool_context as tool_context
-    import row_bot.developer.edits as edits
-    import row_bot.developer.change_ledger as change_ledger
-    import row_bot.developer.executables as executables
-    import row_bot.developer.sandbox_runtime as sandbox_runtime
-    import row_bot.tools.developer_tool as developer_tool
+# In import order: edits must bind the reloaded change_ledger's FileChange.
+_FRESH_MODULES = (
+    "row_bot.developer.executables",
+    "row_bot.developer.storage",
+    "row_bot.developer.tool_context",
+    "row_bot.developer.change_ledger",
+    "row_bot.developer.edits",
+    "row_bot.developer.sandbox_runtime",
+    "row_bot.tools.developer_tool",
+)
 
-    importlib.reload(executables)
-    return (
-        importlib.reload(storage),
-        importlib.reload(tool_context),
-        importlib.reload(edits),
-        importlib.reload(change_ledger),
-        importlib.reload(sandbox_runtime),
-        importlib.reload(developer_tool),
+
+def _fresh_modules(tmp_path, reload_for_data_dir):
+    _executables, storage, tool_context, change_ledger, edits, sandbox_runtime, developer_tool = reload_for_data_dir(
+        tmp_path / "data", *_FRESH_MODULES
     )
+    return storage, tool_context, edits, change_ledger, sandbox_runtime, developer_tool
 
 
 def _init_repo(path):
@@ -48,8 +33,8 @@ def _init_repo(path):
     subprocess.run(["git", "-C", str(path), "config", "user.name", "Test User"], check=True)
 
 
-def test_developer_native_tools_read_search_and_status(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_native_tools_read_search_and_status(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("Hello Developer\n", encoding="utf-8")
@@ -82,8 +67,8 @@ def test_developer_runtime_classifies_quoted_tool_commands_as_safe():
     assert classify_command_action("curl https://example.com") == "run_network"
 
 
-def test_developer_patch_records_and_reverts_agent_change(tmp_path, monkeypatch):
-    storage, tool_context, _edits, change_ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_patch_records_and_reverts_agent_change(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, change_ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("Hello\n", encoding="utf-8")
@@ -112,8 +97,8 @@ def test_developer_patch_records_and_reverts_agent_change(tmp_path, monkeypatch)
         tool_context.reset_context(tokens)
 
 
-def test_developer_write_file_records_agent_change(tmp_path, monkeypatch):
-    storage, tool_context, _edits, change_ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_write_file_records_agent_change(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, change_ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -133,10 +118,11 @@ def test_developer_write_file_records_agent_change(tmp_path, monkeypatch):
 def test_developer_ordinary_write_policy_allows_ask_and_auto_but_blocks_block(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     storage, _tool_context, edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(
         tmp_path,
-        monkeypatch,
+        reload_for_data_dir,
     )
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -170,10 +156,11 @@ def test_developer_ordinary_write_policy_allows_ask_and_auto_but_blocks_block(
 def test_developer_ordinary_patch_in_ask_mode_does_not_request_approval(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
     storage, _tool_context, edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(
         tmp_path,
-        monkeypatch,
+        reload_for_data_dir,
     )
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -203,8 +190,9 @@ def test_developer_ordinary_patch_in_ask_mode_does_not_request_approval(
 def test_developer_non_git_workspace_writes_and_surfaces_changed_path(
     tmp_path,
     monkeypatch,
+    reload_for_data_dir,
 ):
-    storage, tool_context, _edits, change_ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+    storage, tool_context, _edits, change_ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     folder = tmp_path / "budget-calc"
     folder.mkdir()
     import row_bot.developer.git as developer_git
@@ -245,8 +233,8 @@ def test_developer_non_git_workspace_writes_and_surfaces_changed_path(
         tool_context.reset_context(tokens)
 
 
-def test_developer_write_file_uses_docker_shadow_when_enabled(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_write_file_uses_docker_shadow_when_enabled(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -287,8 +275,8 @@ def test_developer_write_file_uses_docker_shadow_when_enabled(tmp_path, monkeypa
     assert not (repo / "sandbox_only.txt").exists()
 
 
-def test_developer_apply_patch_uses_docker_shadow_when_enabled(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_apply_patch_uses_docker_shadow_when_enabled(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("before\n", encoding="utf-8")
@@ -338,8 +326,8 @@ def test_developer_apply_patch_uses_docker_shadow_when_enabled(tmp_path, monkeyp
     assert (repo / "README.md").read_text(encoding="utf-8") == "before\n"
 
 
-def test_developer_tool_exposes_write_and_command_tools(tmp_path, monkeypatch):
-    _storage, _tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_tool_exposes_write_and_command_tools(tmp_path, monkeypatch, reload_for_data_dir):
+    _storage, _tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     tool_names = {tool.name for tool in developer_tool.DeveloperTool().as_langchain_tools()}
     assert "developer_write_file" in tool_names
     assert "developer_run_command" in tool_names
@@ -351,8 +339,8 @@ def test_developer_tool_exposes_write_and_command_tools(tmp_path, monkeypatch):
     assert "developer_fast_forward_merge" in tool_names
 
 
-def test_status_reports_developer_enabled_for_new_install_when_active(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_status_reports_developer_enabled_for_new_install_when_active(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     sys.modules.pop("tools.row_bot_status_tool", None)
     import row_bot.tools.row_bot_status_tool as row_bot_status_tool
 
@@ -431,8 +419,8 @@ def test_custom_tool_request_allows_builder_when_enabled(monkeypatch):
     ) is None
 
 
-def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     import row_bot.developer.inspector_snapshot as inspector_snapshot
 
     repo = tmp_path / "repo"
@@ -447,8 +435,8 @@ def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
     assert first.version == second.version
 
 
-def test_developer_patch_rejects_path_traversal(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_patch_rejects_path_traversal(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, _sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -471,8 +459,8 @@ def test_developer_patch_rejects_path_traversal(tmp_path, monkeypatch):
         tool_context.reset_context(tokens)
 
 
-def test_developer_workspace_persists_execution_settings(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_workspace_persists_execution_settings(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -491,8 +479,8 @@ def test_developer_workspace_persists_execution_settings(tmp_path, monkeypatch):
     assert reloaded.sandbox_image == "example/dev:latest"
 
 
-def test_developer_executable_resolver_finds_standard_windows_installs(tmp_path, monkeypatch):
-    _storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_executable_resolver_finds_standard_windows_installs(tmp_path, monkeypatch, reload_for_data_dir):
+    _storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     import row_bot.developer.executables as executables
 
     def fake_which(_name):
@@ -517,8 +505,8 @@ def test_developer_executable_resolver_finds_standard_windows_installs(tmp_path,
     assert executables.resolve_github_cli().endswith(r"GitHub CLI\gh.exe")
 
 
-def test_developer_executable_resolver_finds_macos_gui_installs(tmp_path, monkeypatch):
-    _storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_executable_resolver_finds_macos_gui_installs(tmp_path, monkeypatch, reload_for_data_dir):
+    _storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     import row_bot.developer.executables as executables
 
     def fake_which(_name):
@@ -540,8 +528,8 @@ def test_developer_executable_resolver_finds_macos_gui_installs(tmp_path, monkey
     assert executables.resolve_podman() == "/opt/homebrew/bin/podman"
 
 
-def test_docker_runtime_reports_installed_but_engine_inaccessible(tmp_path, monkeypatch):
-    _storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_runtime_reports_installed_but_engine_inaccessible(tmp_path, monkeypatch, reload_for_data_dir):
+    _storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
 
     monkeypatch.setattr(sandbox_runtime, "resolve_docker", lambda: r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
     monkeypatch.setattr(sandbox_runtime, "resolve_podman", lambda: "")
@@ -568,8 +556,8 @@ def test_docker_runtime_reports_installed_but_engine_inaccessible(tmp_path, monk
     assert "permission denied" in probe.message
 
 
-def test_docker_runtime_reports_stopped_docker_desktop_clearly(tmp_path, monkeypatch):
-    _storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_runtime_reports_stopped_docker_desktop_clearly(tmp_path, monkeypatch, reload_for_data_dir):
+    _storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
 
     monkeypatch.setattr(sandbox_runtime, "resolve_docker", lambda: r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
     monkeypatch.setattr(sandbox_runtime, "resolve_podman", lambda: "")
@@ -598,8 +586,8 @@ def test_docker_runtime_reports_stopped_docker_desktop_clearly(tmp_path, monkeyp
     assert "file specified" not in probe.message
 
 
-def test_docker_sandbox_missing_runtime_does_not_run_or_touch_repo(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_sandbox_missing_runtime_does_not_run_or_touch_repo(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("before\n", encoding="utf-8")
@@ -620,8 +608,8 @@ def test_docker_sandbox_missing_runtime_does_not_run_or_touch_repo(tmp_path, mon
     assert (repo / "README.md").read_text(encoding="utf-8") == "before\n"
 
 
-def test_docker_sandbox_missing_image_fails_before_container_run(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_sandbox_missing_image_fails_before_container_run(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -655,8 +643,8 @@ def test_docker_sandbox_missing_image_fails_before_container_run(tmp_path, monke
     assert calls["run"] == 0
 
 
-def test_docker_sandbox_status_requires_configured_image(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_sandbox_status_requires_configured_image(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -684,8 +672,8 @@ def test_docker_sandbox_status_requires_configured_image(tmp_path, monkeypatch):
     assert "not available locally" in status.message
 
 
-def test_docker_network_off_blocks_network_commands_before_docker(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_network_off_blocks_network_commands_before_docker(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -708,8 +696,8 @@ def test_docker_network_off_blocks_network_commands_before_docker(tmp_path, monk
     assert '"returncode": null' in result
 
 
-def test_docker_network_off_blocks_package_installs_before_docker(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_network_off_blocks_package_installs_before_docker(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -733,8 +721,8 @@ def test_docker_network_off_blocks_package_installs_before_docker(tmp_path, monk
     assert '"returncode": null' in result
 
 
-def test_docker_sandbox_recreates_container_when_network_policy_changes(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_sandbox_recreates_container_when_network_policy_changes(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -773,8 +761,8 @@ def test_docker_sandbox_recreates_container_when_network_policy_changes(tmp_path
     assert "none" in calls["run"][0]
 
 
-def test_developer_write_file_in_docker_mode_requires_verified_sandbox(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_developer_write_file_in_docker_mode_requires_verified_sandbox(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     workspace = storage.add_or_update_local_workspace(str(repo))
@@ -800,8 +788,8 @@ def test_developer_write_file_in_docker_mode_requires_verified_sandbox(tmp_path,
     assert not (repo / "sandbox_only.txt").exists()
 
 
-def test_docker_sandbox_records_pending_patch_without_touching_host(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_sandbox_records_pending_patch_without_touching_host(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("before\n", encoding="utf-8")
@@ -850,8 +838,8 @@ def test_docker_sandbox_records_pending_patch_without_touching_host(tmp_path, mo
     assert docker_state["execs"] == 1
 
 
-def test_docker_sandbox_reuses_persistent_container(tmp_path, monkeypatch):
-    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_docker_sandbox_reuses_persistent_container(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("before\n", encoding="utf-8")
@@ -892,8 +880,8 @@ def test_docker_sandbox_reuses_persistent_container(tmp_path, monkeypatch):
     assert docker_state["execs"] == 2
 
 
-def test_import_sandbox_changes_applies_patch_to_host_workspace(tmp_path, monkeypatch):
-    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, monkeypatch)
+def test_import_sandbox_changes_applies_patch_to_host_workspace(tmp_path, monkeypatch, reload_for_data_dir):
+    storage, tool_context, _edits, _ledger, sandbox_runtime, developer_tool = _fresh_modules(tmp_path, reload_for_data_dir)
     repo = tmp_path / "repo"
     _init_repo(repo)
     (repo / "README.md").write_text("before\n", encoding="utf-8")

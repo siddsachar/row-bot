@@ -81,7 +81,10 @@ it('shows the selected pack’s still and follows a change of pack (B271)', asyn
   );
   await act(async () => mock.set({ selectedPack: pack('moss') }));
   expect(await screen.findByText('blob:still-2')).toBeVisible();
-  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:still-1');
+  await vi.waitFor(
+    () => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:still-1'),
+    { timeout: 3000 },
+  );
   // Nothing was read again: the sidebar's Buddy owns the session.
   await act(async () => new Promise((done) => setTimeout(done, 0)));
   expect(mock.session.load).not.toHaveBeenCalled();
