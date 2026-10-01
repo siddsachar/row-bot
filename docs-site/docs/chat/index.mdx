@@ -1,63 +1,94 @@
 ---
 title: "Chat"
-description: "Use Row-Bot chat, composer controls, model choices, attachments, tools, approvals, and history."
+description: "Use Row-Bot conversations: the composer, models, attachments, tools, approvals in place, the details card, names, and the conversation library."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Chat
 
-Chat is the main place to ask Row-Bot for help. A chat thread can stay simple, or it can use models, memory, documents, tools, approvals, attachments, skills, voice, workflows, and specialist profiles.
+A conversation is the main place to work with Row-Bot. It can stay a simple chat, or use memory, documents, tools, approvals, attachments, skills, voice, agents, goals, designs and code folders.
 
-<Screenshot id="chat-main" alt="Row-Bot chat view with conversation and composer controls." caption="The chat view shows the active conversation, model context, tool-result history, and message composer controls." />
+<Screenshot id="chat-main" alt="Row-Bot conversation with the transcript, composer controls and the details card." caption="A conversation shows the transcript with speaker marks, the composer with its model and approval controls, and the details card beside it." />
 
-## UI Walkthrough
+## Start A Conversation
 
-- **Thread header** shows the current thread title and actions such as rename, profile selection, model state, and export when available.
-- **Transcript** contains user messages, assistant responses, tool results, charts, images, reasoning sections, and status messages.
-- **Composer** is where you type the next request. Use plain language and include the outcome you want.
-- **Send** submits the composer text to the selected model.
-- **Stop** appears while Row-Bot is responding and asks the current run to stop.
-- **Regenerate or retry controls** appear when a response can be run again.
-- **Model picker** chooses the model for this thread. See [Model Picker](/docs/chat/model-picker).
-- **Thinking control** appears beside the model only when that exact model exposes supported reasoning choices. See [Reasoning Controls](/docs/chat/reasoning-controls).
-- **Approval mode** controls how sensitive actions are reviewed for this thread.
-- **Attachments and context controls** add files or local context to the current request.
-- **Skills and slash commands** help start structured tasks when available. Enabled skills can also be selected progressively for the current task.
-- **Voice buttons** use Dictate or Talk when voice is configured.
-- **Tool traces** show what tools Row-Bot used and what came back.
-- **Approval prompts** pause gated actions until you approve or reject them. When a child agent needs approval, the prompt appears in the parent thread too.
+- Choose **New chat** in the sidebar (⌘⇧O / Ctrl+Shift+O), or type into the Ask box on [Home › Overview](/docs/home/overview).
+- Use the **▾** beside **New chat**, a favourite agent in the sidebar, or **Chat with …** in the command palette to start with an agent profile.
+
+A new conversation is named from the first words of your first message straight away, then gets a short name of its own after the first reply. Click the name in the header to rename it; a name you choose is kept.
+
+## The Conversation
+
+- **Header**: the conversation's name, **Find** to search it, **Share or export**, and **Conversation details** (⌘. / Ctrl+.).
+- **Transcript**: your messages and Row-Bot's replies, each with a small speaker mark (your Buddy's picture for Row-Bot), plus tool steps, how long Row-Bot thought, charts, images, generated media, approval cards and the agents a turn started.
+- **Composer**: type the next request. Enter sends and Shift+Enter adds a line. **Send** becomes **Stop** while Row-Bot replies.
+
+## Composer Controls
+
+- **Model** chooses the model for this conversation. See [Model Picker](/docs/chat/model-picker).
+- **Thinking** appears beside the model only when that exact model exposes supported reasoning choices. See [Reasoning Controls](/docs/chat/reasoning-controls).
+- **Approvals** sets how actions are reviewed in this conversation: **Ask** (approve each consequential action), **Block**, or **Auto**.
+- The **+** menu (**Add files and more**) holds **Attach file**, **Add resource…** (a design or code folder), **Skills…**, **Agent profile**, and **Mode**: **Agent** uses tools and agents, **Chat only** answers without tools.
+- **Skill chips** above the composer show the skills in use, including default ones; × removes one from this conversation.
+- **Voice** buttons use Dictate or Talk when voice is set up.
+
+## Attachments
+
+Attach files with **+ › Attach file**, by dropping them on the conversation, or by pasting. Each file shows as a small tile above the text: pictures show a preview, other files their type, name and size. Tiles show upload progress and offer **Retry** if an upload fails. You can keep adding files while others upload; **Send** waits for them. Click a tile to preview it, or × to remove it.
+
+## The Details Card
+
+**Conversation details** sits beside the conversation on a wide screen. It shows:
+
+- **Working on**: the designs and code folders bound to this conversation. Choose one to open its panel, or unbind it from its **⋯** menu. **Add resource** binds another.
+- **Outputs**: images and videos the conversation made, linked to where they appear.
+- **Goal**: the conversation's goal and its progress, or **Set a goal**. See [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
+- **Agents**: the agents this conversation started, each with its status, **Message** and **Stop**.
+
+Its **⋯** menu offers **Manage conversation**, **Manage browser** and **Delete conversation**.
+
+## Approvals
+
+When Row-Bot needs your decision, an approval card appears in the conversation with **Approve** and **Deny**. Approvals wait until you answer, and they also show in the sidebar's attention indicator, on Overview and in Buddy, so you can decide from wherever you are. See [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal).
 
 ## Beginner Workflow
 
-1. Start a new thread.
+1. Start a new chat.
 2. Choose a model that is ready for chat.
 3. Ask one clear question or task.
 4. Attach files only when the task needs them.
-5. Review any approval prompt before allowing Row-Bot to act.
-6. Rename the thread when it becomes useful enough to keep.
+5. Review any approval before allowing Row-Bot to act.
 
 ## Power Workflow
 
-1. Choose an Agent Profile for the kind of work.
+1. Start a chat with the agent profile for the kind of work.
 2. Pick a stronger tool-capable model.
-3. Attach documents or enable retrieval only for relevant context.
-4. Let Row-Bot use tools, but approve file writes, browser actions, shell commands, account actions, channel sends, MCP calls, and plugin tools deliberately.
-5. Export or continue the thread after the work is complete.
+3. Bind the design or code folder you are working on.
+4. Set a goal when the work needs several turns.
+5. Let Row-Bot use tools, but approve file writes, browser actions, shell commands, account actions, channel sends, MCP calls, and plugin tools deliberately.
 
 ## Continue From The Buddy Overlay
 
-In the native Windows and macOS apps, drag Buddy from the sidebar onto the desktop for a compact view of the selected thread. Its composer shares that thread's saved draft, model, tools, approval mode, and active response. Simple approvals can appear in the overlay; open the full thread for complex approvals, attachments, transcript history, tool traces, model controls, Talk, or Dictate. See [Settings: Buddy](/docs/settings/buddy).
+In the native Windows and macOS apps, drag Buddy from the sidebar onto the desktop for a compact view of the selected conversation. Its composer shares that conversation's saved draft, model, tools, approval mode, and active response. Simple approvals can appear in the overlay; open the full thread for complex approvals, attachments, transcript history, tool traces, model controls, Talk, or Dictate. See [Settings: Buddy](/docs/settings/buddy).
 
-## Manage Conversation History
+## Find, Export, And Clean Up
 
-Open **Show all** from the conversation sidebar to filter Chat, Design, Code, or Workflow conversations. Choose **Select** for checkbox-based cleanup, then select individual conversations or use **Select all** for the current filter. The action bar shows the exact cross-filter selection count before you confirm deletion. **Delete all** applies only to the currently visible filter.
+<Screenshot id="chat-export" alt="Row-Bot Conversation actions dialog with the name, pin and export controls." caption="Share or export opens the conversation's actions: rename it, pin it, or export it as Markdown or PDF." />
 
-Deleting a conversation stops its active work and removes its Row-Bot-managed messages, drafts, attachments, media, tool sessions, workflow state, and Agent state. A linked Designer project is detached from the deleted conversation. Developer worktrees with changes and sandboxes with unimported work are kept and reported so deletion does not discard source work. Export anything you need before confirming because conversation deletion cannot be undone.
+- **Share or export** in the header opens the conversation's actions: change its **Name**, **Pin** it to the top of the sidebar, or **Export** it as **Markdown** or **PDF**, then **Save export** to choose where the file goes.
+- A sidebar row's **⋯** menu exports or deletes one conversation too.
+- **Conversation library**, at the end of the sidebar's list, lists every conversation.
+
+<Screenshot id="conversation-library" alt="Row-Bot conversation library with search, the type filter and selected conversations." caption="The conversation library searches titles and messages, filters by type, and acts on a selection from the bar at the top." />
+
+In the library, **Search titles and messages**, filter by type (All, Chats, Designs, Code, Workflows), and select conversations. The selection bar at the top pins or unpins them, exports them as Markdown or PDF, or deletes them; **Clear selection** (Esc) starts again. Exported files go to Row-Bot's Exports folder; **Show in folder** opens it.
+
+Deleting a conversation stops its running work, then removes its messages, drafts, attachments, media, tool sessions, workflow state and agent state after you confirm. Bound designs and code folders remain. Developer worktrees with changes and sandboxes with unimported work are kept and reported, so deletion does not discard source work. Export anything you need before confirming because deletion cannot be undone.
 
 ## What Is Saved
 
-Thread names, messages, selected model overrides, per-model reasoning selections, approval mode, profile selection, attachments copied into Row-Bot-managed storage, and tool results are saved locally. Some external providers may receive prompt content when you choose their models.
+Conversation names, messages, model choices, per-model reasoning selections, approval mode, profile, attachments copied into Row-Bot-managed storage, and tool results are saved locally. External providers receive prompt content only when you choose their models.
 
 ## Privacy And Safety
 
@@ -67,7 +98,7 @@ Local model runs can stay on your machine. Hosted models, web search, browser ac
 
 - If Row-Bot cannot answer with the current model, choose a more capable model in the picker.
 - If the Thinking control is missing or a saved choice resets, read [Reasoning Controls](/docs/chat/reasoning-controls#troubleshooting).
-- If attachments are ignored, confirm the files finished uploading and are relevant to the prompt.
-- If a tool is unavailable, check Settings, the current Agent Profile, and approval mode.
+- If attachments are ignored, check that their tiles finished uploading and that they are relevant to the prompt.
+- If a tool is unavailable, check the composer's **Mode**, the conversation's agent profile, approval mode, and Settings.
 - If an external tool is enabled but not selected automatically, use a more specific request or review [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills).
-- If a run is stuck, press Stop, then retry with a narrower prompt.
+- If a reply is stuck, press **Stop**, then retry with a narrower prompt.
