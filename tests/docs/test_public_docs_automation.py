@@ -870,9 +870,6 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
         encoding="utf-8"
     ).casefold()
     readme = (ROOT / "README.md").read_text(encoding="utf-8").casefold()
-    writer = (
-        ROOT / "scripts" / "docs" / "write_public_user_guide_pages.py"
-    ).read_text(encoding="utf-8").casefold()
     combined = "\n".join((buddy, voice_and_buddy))
 
     for phrase in (
@@ -893,20 +890,12 @@ def test_buddy_overlay_public_docs_cover_the_complete_user_workflow() -> None:
         assert phrase in combined
     assert "/docs/settings/buddy" in chat
     assert "buddy desktop overlay" in readme
-    for phrase in (
-        "drag buddy itself",
-        "simple approvals",
-        "complex approvals",
-        "talk and dictate remain",
-        "/docs/settings/buddy",
-    ):
-        assert phrase in writer
     for obsolete in (
         "enable switches decide whether buddy appears",
         "open and close overlay buttons",
         "toggle buddy visibility or reopen the overlay",
     ):
-        assert obsolete not in writer
+        assert obsolete not in combined
 
 
 

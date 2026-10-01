@@ -78,11 +78,11 @@ surfaces:
     title: Interactive terminal docked under a conversation
     app_route: /app-v2/conversations/<conversation id>
     state: terminal dock open
-    scenario: configured
+    scenario: native-manual
     docs_page: /docs/chat/tools-approvals-and-terminal
-    screenshot_id: terminal-dock
-    capture_type: automated
+    capture_type: manual
     status: ready
+    no_image_reason: The terminal opens only in the Row-Bot desktop app; automated capture runs in a browser and must not start a real shell, so the page describes it in words.
     source_files: [frontend/src/features/panels/terminal-dock.tsx, frontend/src/features/panels/NativeTerminal.tsx]
   chat_approval:
     title: Approve or deny in place

@@ -65,8 +65,7 @@ Node 24.15.0, `npm ci --ignore-scripts`), and the build scripts stage it into
    gate read `src/row_bot/version.py`, so they need no edit.
 
    Then sweep the human-facing text: `RELEASE_NOTES.md`, `README.md`, the
-   version sentence on `docs-site/docs/index.mdx` (and the matching line in
-   `scripts/docs/write_public_user_guide_pages.py`), and regenerate the docs
+   version sentence on `docs-site/docs/index.mdx`, and regenerate the docs
    reference pages. Leave historical release notes alone. The landing page's
    download links move only after the release is published (step 10 of Build
    and publish).
