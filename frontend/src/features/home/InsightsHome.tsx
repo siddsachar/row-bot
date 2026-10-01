@@ -485,6 +485,25 @@ export default function InsightsHome({
                     )}
                   </div>
                   <p className="insight-summary">{insight.body}</p>
+                  {(insight.found_at || insight.out_of_date) && (
+                    // B124: when it was found, and whether it still applies.
+                    <p className="insight-found">
+                      {insight.found_at && (
+                        <time
+                          dateTime={insight.found_at}
+                          title={absoluteTime(insight.found_at)}
+                        >
+                          Found {relativeTime(insight.found_at)}
+                        </time>
+                      )}
+                      {insight.out_of_date && (
+                        <span className="insight-out-of-date">
+                          <AlertTriangle size={13} aria-hidden />
+                          {insight.out_of_date}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <div className="insight-actions-line">
                     <button
                       type="button"
@@ -563,18 +582,28 @@ export default function InsightsHome({
                                 Open support destination
                               </a>
                             )}
+                            {!terminal && !proposal.executable && (
+                              // B124: nothing to apply; never "applied".
+                              <p className="home-caption">
+                                Review only: Row-Bot can't make this change.
+                                Make it yourself if you agree, then reject the
+                                proposal.
+                              </p>
+                            )}
                             {!terminal && (
                               <>
-                                <Button
-                                  variant="primary"
-                                  className="small"
-                                  disabled={locked}
-                                  onClick={() =>
-                                    void run('apply', insight.id, proposal.id)
-                                  }
-                                >
-                                  Apply proposal
-                                </Button>
+                                {proposal.executable && (
+                                  <Button
+                                    variant="primary"
+                                    className="small"
+                                    disabled={locked}
+                                    onClick={() =>
+                                      void run('apply', insight.id, proposal.id)
+                                    }
+                                  >
+                                    Apply proposal
+                                  </Button>
+                                )}
                                 <Button
                                   className="small"
                                   disabled={locked}

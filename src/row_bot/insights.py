@@ -117,8 +117,12 @@ def add_insight(
     source: str = "",
     affected_surface: str = "",
     evidence_refs: Optional[list[str]] = None,
+    found_with_model: str = "",
 ) -> Optional[dict]:
     """Add a new insight, deduplicating against existing ones.
+
+    ``found_with_model`` is the chat model in use when it was found, so
+    Insights can say when it may no longer apply (B124).
 
     Returns the insight dict if added/merged, or None if rejected as duplicate.
     """
@@ -163,6 +167,10 @@ def add_insight(
             existing["body"] = body  # use latest description
             if severity == "critical" or (severity == "warning" and existing["severity"] == "info"):
                 existing["severity"] = severity
+            # Seen again: it holds now, under the model in use now.
+            existing["seen_at"] = datetime.now(timezone.utc).isoformat()
+            if found_with_model:
+                existing["found_with_model"] = found_with_model
             logger.info("Merged insight into existing: %s", existing["id"])
             _save_store(store)
             _ensure_linked_proposals(existing)
@@ -188,6 +196,7 @@ def add_insight(
         "affected_surface": affected_surface,
         "evidence_refs": evidence_refs or [],
         "skill_draft": skill_draft,
+        "found_with_model": found_with_model,
     }
 
     insights.append(insight)
@@ -274,6 +283,11 @@ def set_last_analysis(timestamp: Optional[str] = None) -> None:
 
 # ── Maintenance ──────────────────────────────────────────────────────────────
 
+def last_seen(insight: dict) -> str:
+    """When an insight was last found to hold (ISO time): re-found or created."""
+    return str(insight.get("seen_at") or insight.get("created") or "")
+
+
 def auto_prune() -> int:
     """Dismiss insights older than AUTO_PRUNE_DAYS with status 'new'.
 
@@ -283,7 +297,7 @@ def auto_prune() -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=AUTO_PRUNE_DAYS)).isoformat()
     pruned = 0
     for insight in store["insights"]:
-        if insight["status"] == "new" and insight.get("created", "") < cutoff:
+        if insight["status"] == "new" and last_seen(insight) < cutoff:
             insight["status"] = "dismissed"
             pruned += 1
     if pruned:

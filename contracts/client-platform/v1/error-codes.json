@@ -203,6 +203,7 @@
     "history_unavailable": 409,
     "idempotency_expired": 409,
     "idempotency_mismatch": 409,
+    "insight_proposal_draft_only": 409,
     "insight_proposal_finished": 409,
     "insight_proposal_unavailable": 404,
     "insight_receipt_unavailable": 404,

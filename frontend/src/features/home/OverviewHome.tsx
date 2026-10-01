@@ -1062,9 +1062,10 @@ export default function OverviewHome({
       (parseTimestamp(right.updated_at)?.getTime() ?? 0) -
       (parseTimestamp(left.updated_at)?.getTime() ?? 0),
   )[0];
+  // An insight that may no longer apply is not the one to lead with (B124).
+  const current = insights?.items.filter((item) => !item.out_of_date) ?? [];
   const insight =
-    insights?.items.find((item) => item.status === 'pinned') ??
-    insights?.items[0];
+    current.find((item) => item.status === 'pinned') ?? current[0];
 
   // One plain sentence that changes with the state.
   const lead = attention

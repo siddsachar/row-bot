@@ -3757,6 +3757,8 @@ class InsightProposalView(WireModel):
     id: str = Field(max_length=128)
     title: str = Field(max_length=256)
     proposal_type: str = Field(max_length=64)
+    # Applying can carry it out; review-only kinds offer no Apply (B124).
+    executable: bool
     status: str = Field(max_length=64)
     risk: str = Field(max_length=64)
     rationale: str = Field(max_length=2048)
@@ -3775,6 +3777,9 @@ class InsightView(WireModel):
     category: str = Field(max_length=64)
     severity: str = Field(max_length=32)
     status: str = Field(max_length=32)
+    # When it was found (ISO time), and why it may no longer apply, or "" (B124).
+    found_at: str = Field(max_length=64)
+    out_of_date: str = Field(max_length=160)
     proposals: list[InsightProposalView] = Field(max_length=8)
 
 

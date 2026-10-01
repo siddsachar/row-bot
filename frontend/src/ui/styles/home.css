@@ -3671,6 +3671,22 @@ button.overview-stat:hover {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+/* B124: when an insight was found, and a note when it may no longer apply. */
+.insight-found {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.insight-out-of-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--status-warning-text);
+}
 .insight-actions-line {
   display: flex;
   flex-wrap: wrap;

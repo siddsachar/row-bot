@@ -1298,7 +1298,10 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
         result["errors"].append(f"JSON parse error: {exc}")
         return result
 
-    # Store each insight
+    # Store each insight, with the model in use: it may stop applying (B124).
+    from row_bot.models import get_current_model
+
+    model = get_current_model()
     for item in items[:5]:  # Cap at 5 per cycle
         try:
             added = insights.add_insight(
@@ -1312,6 +1315,7 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
                 confidence=float(item.get("confidence", 0.5)),
                 source_cycle=cycle_id,
                 skill_draft=item.get("skill_draft"),
+                found_with_model=model,
             )
             if added:
                 if added.get("_merged"):

@@ -2263,6 +2263,10 @@ const CATALOG: Record<string, Entry> = {
   ],
   invalid_wiki_command: ["That wiki action isn't valid.", 'review', WIKI],
   invalid_wiki_query: ["That wiki search isn't valid.", 'review'],
+  insight_proposal_draft_only: [
+    "Row-Bot can't make this kind of change. Make it yourself if you agree, then reject the proposal.",
+    'none',
+  ],
   insight_proposal_finished: [
     'This suggestion was already applied or dismissed.',
     'none',

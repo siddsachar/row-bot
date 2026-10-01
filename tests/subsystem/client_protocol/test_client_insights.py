@@ -231,3 +231,72 @@ def test_a_dismissed_insight_can_be_restored_once(isolated_insights):
     # Only a dismissed insight is restored; a shown one is left alone.
     with pytest.raises(ClientPlatformError, match="insight_unavailable"):
         act("restore")
+
+
+def _apply(proposal_id="proposal-test"):
+    snapshot = owner.read_insights(validate=lambda: None)
+    return owner.execute_insight(
+        {"command_id": str(uuid4()), "revision": snapshot["revision"], "action": "apply",
+         "insight_id": "ins-test", "proposal_id": proposal_id, "reason": ""},
+        owner_id="owner", validate=lambda: None,
+    )
+
+
+@pytest.mark.parametrize("kind", ["consolidate_skills", "settings_change", "memory_correction"])
+def test_a_review_only_proposal_offers_no_apply_and_is_never_reported_applied(isolated_insights, kind):
+    """B124: Row-Bot can't carry out these kinds, so applying one is refused
+    in words instead of saying "Proposal applied." for a change that never happened."""
+    _current, proposal, calls = isolated_insights
+    assert owner.read_insights(validate=lambda: None)["items"][0]["proposals"][0]["executable"] is True
+    proposal.update(proposal_type=kind)
+    view = owner.read_insights(validate=lambda: None)["items"][0]["proposals"][0]
+    assert view["executable"] is False
+    with pytest.raises(ClientPlatformError, match="insight_proposal_draft_only"):
+        _apply()
+    assert calls == []
+
+
+@pytest.mark.parametrize(("kind", "message", "summary"), [
+    ("create_skill", "Skill created: Weekly digest", "Skill created: Weekly digest."),
+    ("patch_skill", "Skill patched: Weekly digest", "Skill patched: Weekly digest."),
+    ("investigate", "Investigation thread created: fixture-thread", "Investigation draft ready to open."),
+    ("send_feedback", "Feedback report prepared: C:\\Users\\Fixture\\report.md\nSubmit here: https://example.test",
+     "Feedback report saved on this computer. Nothing was sent; copy it to send it yourself."),
+])
+def test_applying_says_what_happened_for_its_kind(isolated_insights, monkeypatch, kind, message, summary):
+    """B124: the receipt names what the proposal did (a feedback report is
+    saved, never sent), not a generic "Proposal applied."; no private path."""
+    _current, proposal, _calls = isolated_insights
+    proposal.update(proposal_type=kind)
+    monkeypatch.setattr(evolution, "apply_proposal", lambda *_args, **_kwargs: {"ok": True, "message": message})
+    result = _apply()
+    assert result["status"] == "completed"
+    assert result["summary"] == summary
+    assert "Fixture" not in result["summary"]
+
+
+def test_an_insight_says_when_it_may_no_longer_apply(isolated_insights, monkeypatch):
+    """B124: an insight found while another model was in use, or a new one
+    found more than two weeks ago, says it may be out of date."""
+    from datetime import datetime, timedelta, timezone
+    import importlib
+
+    current, _proposal, _calls = isolated_insights
+    models = importlib.import_module("row_bot.models")
+    monkeypatch.setattr(models, "get_current_model", lambda: "gpt-5.6-sol")
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    old = (datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+
+    def item():
+        return owner.read_insights(validate=lambda: None)["items"][0]
+
+    current.update(created=recent, found_with_model="gpt-5.6-sol")
+    assert item()["found_at"] == recent
+    assert item()["out_of_date"] == ""
+    current.update(found_with_model="qwen3.8:27b")
+    assert item()["out_of_date"] == "Found while another model was in use, so it may no longer apply."
+    current.update(created=old, found_with_model="gpt-5.6-sol")
+    assert item()["out_of_date"] == "Found more than two weeks ago, so it may no longer apply."
+    # Pinned is the person's choice to keep it: age alone doesn't flag it.
+    current.update(status="pinned")
+    assert item()["out_of_date"] == ""

@@ -270,6 +270,44 @@ def test_create_skill_proposal_requires_apply_before_mutation(evolution_env):
     assert run["result"] == "success"
 
 
+def test_a_review_only_proposal_is_never_marked_applied(evolution_env):
+    """B124: a kind Row-Bot can't carry out (here the skill-overlap review)
+    stays a proposal: applying it changes nothing and says so."""
+    ev = evolution_env.evolution
+    proposal = ev.create_proposal(
+        insight_ids=[],
+        proposal_type="consolidate_skills",
+        title="Review overlap: Alpha and Beta",
+        rationale="Two manual skills overlap.",
+        payload={"skill_names": ["alpha_skill", "beta_skill"], "score": 0.8},
+    )
+
+    result = ev.apply_proposal(proposal["id"], require_approval=False, approved_by_user=True)
+
+    assert result["ok"] is False and result["draft_only"] is True
+    assert ev.get_proposal(proposal["id"])["status"] == proposal["status"]
+    assert ev.list_action_runs(proposal_id=proposal["id"]) == []
+
+
+def test_insights_remember_the_model_they_were_found_with(evolution_env):
+    """B124: an insight keeps the chat model in use when it was found (and
+    last seen again), so Insights can say when it may be out of date."""
+    insights = evolution_env.insights
+    first = insights.add_insight(
+        category="system_health", title="Context fills after one message",
+        body="The default model has a small context.", found_with_model="qwen3.8:27b",
+    )
+    assert first["found_with_model"] == "qwen3.8:27b"
+    again = insights.add_insight(
+        category="system_health", title="Context fills after one message",
+        body="Seen again.", found_with_model="gpt-5.6-sol",
+    )
+    saved = insights.get_insight_by_id(first["id"])
+    assert again["id"] == first["id"]
+    assert saved["found_with_model"] == "gpt-5.6-sol"
+    assert saved["seen_at"] >= saved["created"]
+
+
 def test_patch_skill_proposal_uses_bounded_diff_backup_and_rollback_ref(evolution_env):
     ev = evolution_env.evolution
     skills = evolution_env.skills

@@ -15,6 +15,7 @@ const proposal: InsightProposalView = {
   id: 'proposal-test',
   title: 'Improve a skill',
   proposal_type: 'create_skill',
+  executable: true,
   status: 'ready',
   risk: 'low',
   rationale: 'The synthetic skill is missing.',
@@ -33,6 +34,8 @@ const insight: InsightView = {
   category: 'skill_proposal',
   severity: 'warning',
   status: 'new',
+  found_at: '',
+  out_of_date: '',
   proposals: [proposal],
 };
 
@@ -187,6 +190,52 @@ it('shows feedback actions only for the applicable proposal state', async () => 
   expect(support).toHaveAttribute('href', 'https://example.test/support');
   expect(support).toHaveAttribute('target', '_blank');
   expect(support).toHaveAttribute('rel', 'noopener noreferrer');
+});
+
+it('offers no Apply for a review-only proposal and says when an insight may be out of date (B124)', async () => {
+  const review: InsightView = {
+    ...insight,
+    found_at: '2026-09-28T09:00:00Z',
+    out_of_date:
+      'Found while another model was in use, so it may no longer apply.',
+    proposals: [
+      {
+        ...proposal,
+        title: 'Review overlap',
+        proposal_type: 'consolidate_skills',
+        executable: false,
+      },
+    ],
+  };
+  const { controller, executeInsight } = controllerFor(withItems(review));
+  render(<InsightsHome controller={controller} />);
+  await screen.findByRole('heading', { name: 'Synthetic finding' });
+  const item = row('Synthetic finding');
+  expect(
+    within(item).getByText(
+      'Found while another model was in use, so it may no longer apply.',
+    ),
+  ).toBeVisible();
+  expect(item.querySelector('time')).toHaveAttribute(
+    'datetime',
+    '2026-09-28T09:00:00Z',
+  );
+
+  fireEvent.click(
+    within(item).getByRole('button', { name: 'Review merge skills' }),
+  );
+  const details = proposalDetails('Review overlap · Merge skills · Ready');
+  fireEvent.click(within(details).getByText(/Review overlap/));
+  expect(
+    within(details).queryByRole('button', { name: 'Apply proposal' }),
+  ).toBeNull();
+  expect(details).toHaveTextContent(
+    "Review only: Row-Bot can't make this change. Make it yourself if you agree, then reject the proposal.",
+  );
+  expect(
+    within(details).getByRole('button', { name: 'Reject proposal' }),
+  ).toBeEnabled();
+  expect(executeInsight).not.toHaveBeenCalled();
 });
 
 it('toggles the Why detail for one insight at a time', async () => {

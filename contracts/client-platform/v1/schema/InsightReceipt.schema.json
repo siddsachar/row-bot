@@ -45,6 +45,10 @@
     "InsightProposalView": {
       "additionalProperties": false,
       "properties": {
+        "executable": {
+          "title": "Executable",
+          "type": "boolean"
+        },
         "feedback_body": {
           "maxLength": 4000,
           "title": "Feedback Body",
@@ -105,6 +109,7 @@
         "id",
         "title",
         "proposal_type",
+        "executable",
         "status",
         "risk",
         "rationale",
@@ -130,9 +135,19 @@
           "title": "Category",
           "type": "string"
         },
+        "found_at": {
+          "maxLength": 64,
+          "title": "Found At",
+          "type": "string"
+        },
         "id": {
           "maxLength": 128,
           "title": "Id",
+          "type": "string"
+        },
+        "out_of_date": {
+          "maxLength": 160,
+          "title": "Out Of Date",
           "type": "string"
         },
         "proposals": {
@@ -172,6 +187,8 @@
         "category",
         "severity",
         "status",
+        "found_at",
+        "out_of_date",
         "proposals"
       ],
       "title": "InsightView",

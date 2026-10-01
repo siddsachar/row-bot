@@ -334,6 +334,7 @@ _STATUS.update(
         "insight_unavailable": 404,
         "insight_proposal_unavailable": 404,
         "insight_proposal_finished": 409,
+        "insight_proposal_draft_only": 409,
         "insight_receipt_unavailable": 404,
         "invalid_plugin_lifecycle_command": 422,
         "plugin_marketplace_unavailable": 409,

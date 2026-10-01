@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 
@@ -11,6 +12,14 @@ from row_bot.runtime import admissions
 
 
 _ACTIONS = frozenset({"pin", "unpin", "dismiss", "restore", "generate", "review_skills", "apply", "reject"})
+# What applying did, in words, where the owner's own message isn't for people
+# (a thread id, a private path). B124: never a bare "Proposal applied."
+_APPLIED = {
+    "investigate": "Investigation draft ready to open.",
+    "send_feedback": "Feedback report saved on this computer. Nothing was sent; copy it to send it yourself.",
+}
+# A new insight not found again for this long may no longer apply.
+_OUT_OF_DATE_AFTER = timedelta(days=14)
 
 
 def _text(value: object, maximum: int) -> str:
@@ -18,12 +27,12 @@ def _text(value: object, maximum: int) -> str:
 
 
 def _proposal_view(value: dict) -> dict:
+    from row_bot import evolution
+
     preview = value.get("preview") if isinstance(value.get("preview"), dict) else {}
     proposal_id = _text(value.get("id"), 128)
     open_thread_id = ""
     if value.get("proposal_type") == "investigate" and value.get("status") in {"applied", "verified"}:
-        from row_bot import evolution
-
         runs = evolution.list_action_runs(proposal_id=proposal_id, limit=1)
         refs = runs[0].get("result_refs", []) if runs else []
         if refs and isinstance(refs[0], str):
@@ -40,6 +49,8 @@ def _proposal_view(value: dict) -> dict:
         "id": proposal_id,
         "title": _text(value.get("title"), 256),
         "proposal_type": _text(value.get("proposal_type"), 64),
+        # Review-only kinds offer no Apply (B124).
+        "executable": value.get("proposal_type") in evolution.EXECUTABLE_PROPOSAL_TYPES,
         "status": _text(value.get("status"), 64),
         "risk": _text(value.get("risk"), 64),
         "rationale": _text(value.get("rationale"), 2048),
@@ -51,11 +62,34 @@ def _proposal_view(value: dict) -> dict:
     }
 
 
+def _out_of_date(value: dict, current_model: Callable[[], str], now: datetime) -> str:
+    """Why an insight may no longer apply, in words, or "" (B124)."""
+    found_with = str(value.get("found_with_model") or "")
+    if found_with:
+        model = current_model()
+        if model and model != found_with:
+            return "Found while another model was in use, so it may no longer apply."
+    if value.get("status") == "new":
+        from row_bot.insights import last_seen
+
+        try:
+            seen = datetime.fromisoformat(last_seen(value))
+        except ValueError:
+            return ""
+        if seen.tzinfo is None:
+            seen = seen.replace(tzinfo=timezone.utc)
+        if now - seen > _OUT_OF_DATE_AFTER:
+            return "Found more than two weeks ago, so it may no longer apply."
+    return ""
+
+
 def read_insights(*, validate: Callable[[], None]) -> dict:
     from row_bot import evolution, insights
+    from row_bot.models import get_current_model
 
     validate()
     items = []
+    now = datetime.now(timezone.utc)
     for value in insights.get_active_insights()[:100]:
         if not isinstance(value, dict):
             continue
@@ -71,6 +105,8 @@ def read_insights(*, validate: Callable[[], None]) -> dict:
                 "category": _text(value.get("category"), 64),
                 "severity": _text(value.get("severity"), 32),
                 "status": _text(value.get("status"), 32),
+                "found_at": _text(value.get("created"), 64),
+                "out_of_date": _out_of_date(value, get_current_model, now),
                 "proposals": [_proposal_view(item) for item in proposals],
             }
         )
@@ -152,6 +188,8 @@ def execute_insight(
             raise ClientPlatformError("insight_proposal_unavailable")
         if proposal.get("status") in {"applied", "verified", "rejected", "failed"}:
             raise ClientPlatformError("insight_proposal_finished")
+        if action == "apply" and proposal.get("proposal_type") not in evolution.EXECUTABLE_PROPOSAL_TYPES:
+            raise ClientPlatformError("insight_proposal_draft_only")
     admissions.claim_command(
         owner_id, command["command_id"], wire, target, exclusive_target=True
     )
@@ -179,7 +217,11 @@ def execute_insight(
             proposal_id, require_approval=False, approved_by_user=True
         )
         succeeded = bool(result.get("ok"))
-        summary = "Proposal applied." if succeeded else "Proposal failed; inspect its status."
+        message = _text(result.get("message"), 256).strip().rstrip(".")
+        summary = (
+            _APPLIED.get(str(proposal.get("proposal_type")))
+            or (f"{message}." if message else "Done.")
+        ) if succeeded else "Proposal failed; inspect its status."
     validate()
     outcome = {
         "command_id": command["command_id"],
