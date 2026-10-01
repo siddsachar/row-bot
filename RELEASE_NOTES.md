@@ -401,6 +401,11 @@ Changes** below before upgrading.
   Row-Bot now names itself and sends the session id OpenCode Go requires on
   every model route. The id is a private value per conversation, never the
   conversation's own id. OpenCode Zen requests carry the same headers.
+- **OpenRouter attribution** - OpenRouter requests, from chat and document
+  processing alike, now identify Row-Bot as the app (its website address and
+  name, as OpenRouter asks apps to) instead of LangChain, which lets OpenRouter
+  show Row-Bot in its public app rankings. No user, prompt or account data is
+  added.
 - **Dependency security updates** - anyio 4.14.2 (fixing a critical
   advisory), soupsieve 2.10, and image-size 2.0.4 in the client toolchain.
 
