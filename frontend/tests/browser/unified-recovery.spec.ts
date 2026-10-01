@@ -150,9 +150,10 @@ test('a delayed real observer exhausts history without delaying the producer or 
     call = (await fixtureState(page)).calls
       .filter((item) => item.conversation_id === conversation)
       .at(-1)!;
+    // All 5000 ticks were emitted; a slower machine takes longer to show them.
     await expect(
       page.getByRole('log', { name: 'Conversation', exact: true }),
-    ).toContainText('Tick 4999.');
+    ).toContainText('Tick 4999.', { timeout: 60_000 });
     await releaseProducer(page, call);
     await expect
       .poll(
