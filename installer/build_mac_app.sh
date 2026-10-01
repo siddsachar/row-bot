@@ -342,6 +342,9 @@ fi
 # Mac kills the process that loads it ("Code Signature Invalid"). A signed
 # build signs every library below; an unsigned build signs each one ad hoc.
 info "Stripping debug symbols from shared libraries..."
+# Debug-symbol bundles (PyObjC's test suite ships *.dSYM folders whose DWARF
+# files end in .so) are never loaded; they only add size.
+find "$APP_BUNDLE" -type d -name '*.dSYM' -prune -exec rm -rf {} +
 find "$APP_BUNDLE" \( -name '*.so' -o -name '*.dylib' \) -print0 | while IFS= read -r -d '' lib; do
     if strip -x "$lib" 2>/dev/null && [ -z "$CODESIGN_IDENTITY" ]; then
         codesign --force --sign - "$lib"
