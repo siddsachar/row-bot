@@ -275,7 +275,7 @@ def default_docs_capture_demo_state() -> dict[str, Any]:
         "agents": [
             {
                 "id": "docs-agent-parent",
-                "thread_id": DEMO_THREAD_ID,
+                "thread_id": "docs-agent-coordinator",
                 "display_name": "Launch coordinator",
                 "kind": "subagent",
                 "status": "running",
