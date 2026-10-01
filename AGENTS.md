@@ -124,7 +124,8 @@ Use `scripts/run_test_matrix.py` as the executable source of truth; CI runs its
 tiers.
 
 - While iterating: focused `uv run python -m pytest <files>` and, for the
-  client, `npm --prefix frontend exec vitest run <files>`.
+  client, `npm --prefix frontend test -- <files>` (paths relative to
+  `frontend/`; `npm exec` would run vitest from the checkout root).
 - Small focused change: `uv run python scripts/run_test_matrix.py fast`
   (static checks and contracts, under 2 minutes).
 - The tests for what changed, by convention:
