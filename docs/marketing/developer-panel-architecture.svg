@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="title desc" font-family="'Segoe UI', Inter, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif">
+<title id="title">Row-Bot Developer Panel Architecture</title>
+<desc id="desc">A request in the chat or Add resource binds a code folder; developer tools read, edit, run and use Git under the conversation&#x27;s approval mode; the Developer panel shows changes, files, checks and Git; the terminal dock opens your own shell.</desc>
+<defs>
+<pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#121c28" stroke-width="1"/></pattern>
+<linearGradient id="coreFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#11213a"/><stop offset="1" stop-color="#0c1624"/></linearGradient>
+<filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="6"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4f93dc"/></marker>
+<marker id="arrowStart" viewBox="0 0 10 10" refX="1.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f93dc"/></marker>
+</defs>
+<rect width="1024" height="1024" fill="#090e15"/>
+<rect width="1024" height="1024" fill="url(#grid)"/>
+<text x="512.0" y="56.0" font-size="32" font-weight="600" fill="#e8edf4" text-anchor="middle">Row-Bot Developer Panel Architecture</text>
+<text x="512.0" y="86.0" font-size="15.5" font-weight="400" fill="#8fc0f2" text-anchor="middle">Code folders are bound to a conversation and reviewed beside it.</text>
+<path d="M180.0,286.0 L180.0,302.0 L340.0,302.0 L340.0,316.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M512.0,286.0 L512.0,316.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M844.0,286.0 L844.0,302.0 L684.0,302.0 L684.0,316.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M256.0,479.0 L278.0,479.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#arrowStart)" marker-end="url(#arrow)"/>
+<path d="M744.0,479.0 L766.0,479.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#arrowStart)" marker-end="url(#arrow)"/>
+<path d="M340.0,640.0 L340.0,656.0 L180.0,656.0 L180.0,670.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M512.0,640.0 L512.0,670.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M684.0,640.0 L684.0,656.0 L844.0,656.0 L844.0,670.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M180.0,850.0 L180.0,878.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<path d="M512.0,850.0 L512.0,878.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<path d="M844.0,850.0 L844.0,878.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="24" y="108" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="38" y="122" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="140.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">1</text>
+<text x="74.0" y="141.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Bring a folder</text>
+<circle cx="45.0" cy="169.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="174.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">“Use my Hello-World folder”</text>
+<circle cx="45.0" cy="196.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="201.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">“Clone https://github.com/…”</text>
+<circle cx="45.0" cy="223.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="228.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Add resource › Code folder</text>
+<circle cx="45.0" cy="250.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="255.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Card: Open · Undo</text>
+<rect x="356" y="108" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="370" y="122" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="383.0" y="140.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">2</text>
+<text x="406.0" y="141.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Workspace</text>
+<circle cx="377.0" cy="169.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="174.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Folder or Git repository</text>
+<circle cx="377.0" cy="196.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="201.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Branch, changes and worktree</text>
+<circle cx="377.0" cy="223.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="228.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Local or Docker Sandbox</text>
+<circle cx="377.0" cy="250.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="255.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Approvals: Ask · Auto · Block</text>
+<rect x="688" y="108" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="702" y="122" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="715.0" y="140.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">3</text>
+<text x="738.0" y="141.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Developer tools</text>
+<circle cx="709.0" cy="169.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="174.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Read, search and edit files</text>
+<circle cx="709.0" cy="196.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="201.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Patch preview and apply</text>
+<circle cx="709.0" cy="223.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="228.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Run checks and commands</text>
+<circle cx="709.0" cy="250.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="255.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Git: status, diff, commit</text>
+<rect x="24" y="318" width="232" height="322" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="38" y="332" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="350.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">4</text>
+<text x="74.0" y="351.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Approvals in place</text>
+<circle cx="45.0" cy="379.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="384.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Install and network</text>
+<circle cx="45.0" cy="415.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="420.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Delete</text>
+<circle cx="45.0" cy="451.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="456.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Commit and push</text>
+<circle cx="45.0" cy="487.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="492.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Pull requests</text>
+<circle cx="45.0" cy="523.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="528.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Exact command shown</text>
+<circle cx="45.0" cy="559.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="564.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Allow in this chat</text>
+<rect x="768" y="318" width="232" height="322" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="782" y="332" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="795.0" y="350.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">5</text>
+<text x="818.0" y="351.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Terminal dock</text>
+<circle cx="789.0" cy="379.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="384.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Your own shell</text>
+<circle cx="789.0" cy="415.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="420.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Colours and history</text>
+<circle cx="789.0" cy="451.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="456.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Tab completion</text>
+<circle cx="789.0" cy="487.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="492.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Stop with Ctrl+C</text>
+<circle cx="789.0" cy="523.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="528.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Scrollback kept</text>
+<circle cx="789.0" cy="559.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="564.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Open in your terminal</text>
+<rect x="24" y="672" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="38" y="686" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="704.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">6</text>
+<text x="74.0" y="705.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Execution modes</text>
+<circle cx="45.0" cy="733.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="738.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Local: your environment</text>
+<circle cx="45.0" cy="760.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="765.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Docker Sandbox: shadow copy</text>
+<circle cx="45.0" cy="787.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="792.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Import gate before changes land</text>
+<circle cx="45.0" cy="814.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="819.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Sandbox network: off · ask · on</text>
+<rect x="356" y="672" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="370" y="686" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="383.0" y="704.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">7</text>
+<text x="406.0" y="705.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">GitHub and pull requests</text>
+<circle cx="377.0" cy="733.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="738.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">GitHub CLI detection</text>
+<circle cx="377.0" cy="760.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="765.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Connect GitHub card</text>
+<circle cx="377.0" cy="787.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="792.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Push asks first</text>
+<circle cx="377.0" cy="814.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="819.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">PR prepared from the work</text>
+<rect x="688" y="672" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="702" y="686" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="715.0" y="704.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">8</text>
+<text x="738.0" y="705.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Custom Tool Builder</text>
+<circle cx="709.0" cy="733.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="738.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Source → Inspect → Test → Enable</text>
+<circle cx="709.0" cy="760.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="765.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">From a folder or repository</text>
+<circle cx="709.0" cy="787.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="792.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Commands use approval cards</text>
+<circle cx="709.0" cy="814.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="819.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Settings › Tools › Custom tools</text>
+<rect x="274" y="312" width="476" height="334" rx="20" fill="none" stroke="#4f93dc" stroke-opacity="0.22" stroke-width="6" filter="url(#soft)"/>
+<rect x="280" y="318" width="464" height="322" rx="16" fill="url(#coreFill)" stroke="#4f93dc" stroke-width="2"/>
+<text x="512.0" y="360.0" font-size="26" font-weight="600" fill="#e8edf4" text-anchor="middle">Developer panel</text>
+<text x="512.0" y="384.0" font-size="14" font-weight="400" fill="#8fc0f2" text-anchor="middle">Beside the conversation that works on the folder</text>
+<rect x="300" y="404.0" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="424.3" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Changes</text>
+<text x="708.0" y="423.8" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">diffs and agent change sets</text>
+<rect x="300" y="441.7" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="462.0" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Files</text>
+<text x="708.0" y="461.5" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">tree and preview</text>
+<rect x="300" y="479.3" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="499.7" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Run</text>
+<text x="708.0" y="499.2" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">checks, commands, processes</text>
+<rect x="300" y="517.0" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="537.3" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Git</text>
+<text x="708.0" y="536.8" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">branch, commit, push, PR</text>
+<rect x="300" y="554.7" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="575.0" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Safety boundaries</text>
+<text x="708.0" y="574.5" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">allowed, asks, blocked</text>
+<rect x="300" y="592.3" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="612.7" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Custom tools</text>
+<text x="708.0" y="612.2" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">reuse the folder’s commands</text>
+<rect x="24" y="880" width="976" height="124" rx="14" fill="#0c141e" stroke="#26405c" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="38" y="894" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="912.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">9</text>
+<text x="74.0" y="913.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Agents and trust boundary</text>
+<rect x="42.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="54.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">Parallel children</text>
+<text x="54.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">separate folders or worktrees</text>
+<rect x="278.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="290.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">One writer per folder</text>
+<text x="290.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">overlapping writers wait</text>
+<rect x="514.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="526.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">Repository code</text>
+<text x="526.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">untrusted until reviewed</text>
+<rect x="750.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="762.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">No hidden remotes</text>
+<text x="762.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">every remote stays visible</text>
+<text x="1000.0" y="1012.0" font-size="11" font-weight="400" fill="#7d8b9c" text-anchor="end">row-bot.ai</text>
+</svg>

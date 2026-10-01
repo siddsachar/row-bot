@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="title desc" font-family="'Segoe UI', Inter, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif">
+<title id="title">Row-Bot Design Panel Architecture</title>
+<desc id="desc">A request in the chat, Add resource or Home creates a design; design tools draft and edit it; the Design panel previews, edits, reviews, presents, shares and exports it; projects stay local.</desc>
+<defs>
+<pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#121c28" stroke-width="1"/></pattern>
+<linearGradient id="coreFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#11213a"/><stop offset="1" stop-color="#0c1624"/></linearGradient>
+<filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="6"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4f93dc"/></marker>
+<marker id="arrowStart" viewBox="0 0 10 10" refX="1.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f93dc"/></marker>
+</defs>
+<rect width="1024" height="1024" fill="#090e15"/>
+<rect width="1024" height="1024" fill="url(#grid)"/>
+<text x="512.0" y="56.0" font-size="32" font-weight="600" fill="#e8edf4" text-anchor="middle">Row-Bot Design Panel Architecture</text>
+<text x="512.0" y="86.0" font-size="15.5" font-weight="400" fill="#8fc0f2" text-anchor="middle">Designs are created in a conversation and edited beside it.</text>
+<path d="M180.0,286.0 L180.0,302.0 L340.0,302.0 L340.0,316.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M512.0,286.0 L512.0,316.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M844.0,286.0 L844.0,302.0 L684.0,302.0 L684.0,316.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M256.0,479.0 L278.0,479.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#arrowStart)" marker-end="url(#arrow)"/>
+<path d="M744.0,479.0 L766.0,479.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-start="url(#arrowStart)" marker-end="url(#arrow)"/>
+<path d="M340.0,640.0 L340.0,656.0 L180.0,656.0 L180.0,670.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M512.0,640.0 L512.0,670.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M684.0,640.0 L684.0,656.0 L844.0,656.0 L844.0,670.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M180.0,850.0 L180.0,878.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<path d="M512.0,850.0 L512.0,878.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<path d="M844.0,850.0 L844.0,878.0" fill="none" stroke="#4f93dc" stroke-width="1.8" stroke-linejoin="round" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="24" y="108" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="38" y="122" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="140.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">1</text>
+<text x="74.0" y="141.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Ask in the conversation</text>
+<circle cx="45.0" cy="169.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="174.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">“Make a five-slide deck about…”</text>
+<circle cx="45.0" cy="196.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="201.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Add resource › Design</text>
+<circle cx="45.0" cy="223.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="228.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Home › Overview › New design</text>
+<circle cx="45.0" cy="250.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="255.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Card: Open · Rename · Undo</text>
+<rect x="356" y="108" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="370" y="122" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="383.0" y="140.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">2</text>
+<text x="406.0" y="141.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Design kinds</text>
+<circle cx="377.0" cy="169.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="174.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Deck, document, landing page</text>
+<circle cx="377.0" cy="196.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="201.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">App mockup, storyboard</text>
+<circle cx="377.0" cy="223.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="228.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">16:9, 4:3, 1:1, A4, 9:16 phone</text>
+<circle cx="377.0" cy="250.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="255.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Every page re-fits on resize</text>
+<rect x="688" y="108" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="702" y="122" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="715.0" y="140.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">3</text>
+<text x="738.0" y="141.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Brand</text>
+<circle cx="709.0" cy="169.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="174.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Colours, fonts and logo</text>
+<circle cx="709.0" cy="196.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="201.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Brand from a website</text>
+<circle cx="709.0" cy="223.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="228.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Templates</text>
+<circle cx="709.0" cy="250.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="255.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Brand checks</text>
+<rect x="24" y="318" width="232" height="322" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="38" y="332" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="350.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">4</text>
+<text x="74.0" y="351.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Design tools</text>
+<circle cx="45.0" cy="379.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="384.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Create and draft</text>
+<circle cx="45.0" cy="412.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="417.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Live progress</text>
+<circle cx="45.0" cy="445.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="450.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Targeted edits</text>
+<circle cx="45.0" cy="478.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="483.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Add or delete pages</text>
+<circle cx="45.0" cy="511.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="516.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Resize and re-fit</text>
+<circle cx="45.0" cy="544.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="549.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Duplicate</text>
+<circle cx="45.0" cy="577.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="582.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Review and fix</text>
+<rect x="768" y="318" width="232" height="322" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="782" y="332" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="795.0" y="350.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">5</text>
+<text x="818.0" y="351.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Media and data</text>
+<circle cx="789.0" cy="379.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="384.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Generated images</text>
+<circle cx="789.0" cy="415.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="420.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Image editing</text>
+<circle cx="789.0" cy="451.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="456.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Video (provider)</text>
+<circle cx="789.0" cy="487.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="492.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Charts</text>
+<circle cx="789.0" cy="523.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="528.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Uploaded references</text>
+<circle cx="789.0" cy="559.0" r="2.6" fill="#4f93dc"/>
+<text x="799.0" y="564.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Local asset ids</text>
+<rect x="24" y="672" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="38" y="686" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="704.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">6</text>
+<text x="74.0" y="705.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Sandboxed preview</text>
+<circle cx="45.0" cy="733.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="738.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Self-contained HTML and CSS</text>
+<circle cx="45.0" cy="760.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="765.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Sandboxed frame</text>
+<circle cx="45.0" cy="787.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="792.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Declarative interactions</text>
+<circle cx="45.0" cy="814.0" r="2.6" fill="#4f93dc"/>
+<text x="55.0" y="819.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Generated scripts constrained</text>
+<rect x="356" y="672" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="370" y="686" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="383.0" y="704.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">7</text>
+<text x="406.0" y="705.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Present, share, export</text>
+<circle cx="377.0" cy="733.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="738.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Present full screen</text>
+<circle cx="377.0" cy="760.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="765.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Publish a link with a QR code</text>
+<circle cx="377.0" cy="787.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="792.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Send to a channel or X post</text>
+<circle cx="377.0" cy="814.0" r="2.6" fill="#4f93dc"/>
+<text x="387.0" y="819.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">PDF · PNG · PowerPoint · HTML</text>
+<rect x="688" y="672" width="312" height="178" rx="14" fill="#0e1722" stroke="#26405c" stroke-width="1.5"/>
+<rect x="702" y="686" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="715.0" y="704.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">8</text>
+<text x="738.0" y="705.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Quality guardrails</text>
+<circle cx="709.0" cy="733.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="738.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Overflow and clipping checks</text>
+<circle cx="709.0" cy="760.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="765.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Contrast and readability</text>
+<circle cx="709.0" cy="787.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="792.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Fixed-canvas bounds</text>
+<circle cx="709.0" cy="814.0" r="2.6" fill="#4f93dc"/>
+<text x="719.0" y="819.0" font-size="14.5" font-weight="400" fill="#b4c1d1" text-anchor="start">Safe asset handling</text>
+<rect x="274" y="312" width="476" height="334" rx="20" fill="none" stroke="#4f93dc" stroke-opacity="0.22" stroke-width="6" filter="url(#soft)"/>
+<rect x="280" y="318" width="464" height="322" rx="16" fill="url(#coreFill)" stroke="#4f93dc" stroke-width="2"/>
+<text x="512.0" y="360.0" font-size="26" font-weight="600" fill="#e8edf4" text-anchor="middle">Design panel</text>
+<text x="512.0" y="384.0" font-size="14" font-weight="400" fill="#8fc0f2" text-anchor="middle">Beside the conversation that owns the design</text>
+<rect x="300" y="404.0" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="424.3" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Preview | Edit</text>
+<text x="708.0" y="423.8" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">select any element</text>
+<rect x="300" y="441.7" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="462.0" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Ask Row-Bot</text>
+<text x="708.0" y="461.5" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">“change this…” in place</text>
+<rect x="300" y="479.3" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="499.7" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Edit text in place</text>
+<text x="708.0" y="499.2" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">double-click, saves as you go</text>
+<rect x="300" y="517.0" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="537.3" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Pages and size</text>
+<text x="708.0" y="536.8" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">page strip, zoom, device width</text>
+<rect x="300" y="554.7" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="575.0" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">History</text>
+<text x="708.0" y="574.5" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">Undo, Redo, Versions</text>
+<rect x="300" y="592.3" width="424" height="29.7" rx="9" fill="#12233a" stroke="#2b4d74" stroke-width="1"/>
+<text x="316.0" y="612.7" font-size="15.5" font-weight="600" fill="#e8edf4" text-anchor="start">Review</text>
+<text x="708.0" y="612.2" font-size="13.5" font-weight="400" fill="#7d8b9c" text-anchor="end">Fix or Fix all safe issues</text>
+<rect x="24" y="880" width="976" height="124" rx="14" fill="#0c141e" stroke="#26405c" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="38" y="894" width="26" height="26" rx="7" fill="#1d4f86" stroke="#4f93dc" stroke-width="1"/><text x="51.0" y="912.5" font-size="14" font-weight="600" fill="#e8edf4" text-anchor="middle">9</text>
+<text x="74.0" y="913.0" font-size="18" font-weight="600" fill="#e8edf4" text-anchor="start">Local storage</text>
+<rect x="42.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="54.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">Design project</text>
+<text x="54.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">pages, brand, assets, versions</text>
+<rect x="278.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="290.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">Bound to its conversation</text>
+<text x="290.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">listed in Conversation details</text>
+<rect x="514.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="526.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">Exports</text>
+<text x="526.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">the workspace Exports folder</text>
+<rect x="750.0" y="932" width="228.0" height="58" rx="9" fill="#111c29" stroke="#203750" stroke-width="1"/>
+<text x="762.0" y="954.0" font-size="14.5" font-weight="600" fill="#e8edf4" text-anchor="start">Published links</text>
+<text x="762.0" y="974.0" font-size="13" font-weight="400" fill="#7d8b9c" text-anchor="start">unpublish at any time</text>
+<text x="1000.0" y="1012.0" font-size="11" font-weight="400" fill="#7d8b9c" text-anchor="end">row-bot.ai</text>
+</svg>
