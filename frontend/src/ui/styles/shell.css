@@ -596,11 +596,14 @@
     --nav-buddy-size: 64px;
   }
 }
-/* Very short (a small window, 200% zoom): the footer scrolls with the list
-   instead of covering it, so every row can be scrolled into view. */
-@container navigation-pane (max-height: 480px) {
-  .nav-footer {
-    position: static;
+/* A very short sidebar pane (a small window, zoomed): the footer scrolls
+   with the list instead of covering it, so every row can be scrolled into
+   view. Desktop widths only: a phone's drawer keeps its pinned footer. */
+@media (min-width: 768px) {
+  @container navigation-pane (max-height: 480px) {
+    .nav-footer {
+      position: static;
+    }
   }
 }
 .navigation {

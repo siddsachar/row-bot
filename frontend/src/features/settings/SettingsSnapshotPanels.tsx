@@ -3539,9 +3539,8 @@ function SignInFileButton({
         ref={input}
         type="file"
         accept=".json,application/json"
-        className="visually-hidden"
-        tabIndex={-1}
-        aria-hidden
+        // Opened by its button; never a visible (1px) control of its own.
+        hidden
         onChange={(event) => {
           onFile(event.target.files?.[0]);
           event.target.value = '';
