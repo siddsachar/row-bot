@@ -587,6 +587,9 @@ def _capture_one(
             animations="disabled",
             full_page=False,
             mask=masks,
+            # A mask hides a value no capture may publish (a local path); its
+            # colour can match the field it covers.
+            **({"mask_color": str(shot["mask_color"])} if shot.get("mask_color") else {}),
         )
         validation_output = raw_output
         if not real_data:
