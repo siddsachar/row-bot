@@ -2,10 +2,11 @@ import { assertNoOverflow, expect, screenshot, test } from './evidence';
 import { openFixture, type FixtureWindow } from './fixture';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 
-test('the sidebar leads with New chat and Agents and fits a large nameless Buddy above Settings (B225, B268)', async ({
+test('the sidebar leads with New chat, keeps Home in its header and Agents under the conversations, and fits a large nameless Buddy above Settings (B225, B268)', async ({
   context,
   page,
 }, info) => {
+  const desktop = info.project.use.viewport!.width >= 1024;
   await blockFixtureServiceWorkers(context);
   const headers = {
     'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
@@ -28,24 +29,52 @@ test('the sidebar leads with New chat and Agents and fits a large nameless Buddy
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   // New chat is the one primary button; ▾ holds the agents.
-  await expect(
-    nav.getByRole('button', { name: 'New chat', exact: true }),
-  ).toBeVisible();
+  const newChat = nav.getByRole('button', { name: 'New chat', exact: true });
+  await expect(newChat).toBeVisible();
   await expect(
     nav.getByRole('button', { name: 'New chat with an agent…', exact: true }),
   ).toBeVisible();
+  // Home is an icon in the header row, above New chat (beside Search and
+  // collapse on desktop), and current only while Home shows.
+  const home = nav.getByRole('link', { name: 'Home', exact: true });
+  await expect(home).toBeVisible();
+  await expect(home).not.toHaveAttribute('aria-current', 'page');
+  const homeBox = (await home.boundingBox())!;
+  expect(homeBox.y + homeBox.height).toBeLessThanOrEqual(
+    (await newChat.boundingBox())!.y + 1,
+  );
+  if (desktop)
+    for (const name of ['Workspace commands', 'Toggle navigation']) {
+      const box = (await nav
+        .getByRole('button', { name, exact: true })
+        .boundingBox())!;
+      expect(Math.abs(box.y - homeBox.y)).toBeLessThanOrEqual(1);
+    }
+  // Agents follow the conversations, Show all and the library link, still
+  // in the scrolling list above Buddy's footer.
   const agents = nav.getByRole('region', { name: 'Agents', exact: true });
+  await agents.scrollIntoViewIfNeeded();
   await expect(
     agents.getByRole('group', { name: 'Favourite agents', exact: true }),
   ).toBeVisible();
   await expect(
     agents.getByRole('button', { name: /^All agents \(\d+\)/ }),
   ).toBeVisible();
-  // Buddy: a large avatar, its name only in the tooltip, Settings below.
+  const libraryBox = (await nav
+    .getByRole('link', { name: 'Conversation library', exact: true })
+    .boundingBox())!;
+  const agentsBox = (await agents.boundingBox())!;
+  expect(agentsBox.y).toBeGreaterThanOrEqual(
+    libraryBox.y + libraryBox.height - 1,
+  );
   const buddy = nav.getByRole('complementary', {
     name: 'Buddy companion',
     exact: true,
   });
+  expect(agentsBox.y + agentsBox.height).toBeLessThanOrEqual(
+    (await buddy.boundingBox())!.y + 1,
+  );
+  // Buddy: a large avatar, its name only in the tooltip, Settings below.
   const avatar = buddy.getByRole('button', {
     name: 'Buddy settings',
     exact: true,
@@ -74,6 +103,74 @@ test('the sidebar leads with New chat and Agents and fits a large nameless Buddy
   }
   await assertNoOverflow(page);
   await screenshot(page, info, 'b225-b268-sidebar');
+
+  // Home opens Home and is then marked current (the phone drawer closes).
+  await home.click();
+  await expect(page).toHaveURL(/\/app-v2\/?$/);
+  await expect(
+    page.getByRole('heading', { name: 'Home', exact: true }),
+  ).toBeVisible();
+  if (!desktop) {
+    await expect(nav).toHaveCount(0);
+    await page
+      .getByRole('button', { name: 'Toggle navigation', exact: true })
+      .click();
+  }
+  await expect(home).toHaveAttribute('aria-current', 'page');
+  await screenshot(page, info, 'sidebar-home-current');
+});
+
+test('at 200% zoom the sidebar header keeps Home beside Search and collapse, and Agents scroll clear of the footer (B225, B268)', async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.use.viewport!.width < 1024,
+    'A zoomed desktop sidebar pane; the phone drawer is checked above.',
+  );
+  await openFixture(page);
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '2';
+  });
+  const nav = page.getByRole('navigation', {
+    name: 'Workspace navigation',
+    exact: true,
+  });
+  const header = await Promise.all(
+    [
+      nav.getByRole('link', { name: 'Home', exact: true }),
+      nav.getByRole('button', { name: 'Workspace commands', exact: true }),
+      nav.getByRole('button', { name: 'Toggle navigation', exact: true }),
+    ].map((control) =>
+      control.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const pane = element.closest('nav')!.getBoundingClientRect();
+        return {
+          top: rect.top,
+          inside: rect.left >= pane.left && rect.right <= pane.right + 1,
+        };
+      }),
+    ),
+  );
+  for (const control of header) {
+    expect(control.inside).toBe(true);
+    expect(Math.abs(control.top - header[0].top)).toBeLessThanOrEqual(1);
+  }
+  await screenshot(page, info, 'sidebar-200-header');
+  const allAgents = nav.getByRole('button', { name: /^All agents/ });
+  await allAgents.scrollIntoViewIfNeeded();
+  // Nothing (the footer included) covers it once it is scrolled to.
+  expect(
+    await allAgents.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return element.contains(
+        document.elementFromPoint(
+          rect.x + rect.width / 2,
+          rect.y + rect.height / 2,
+        ),
+      );
+    }),
+  ).toBe(true);
+  await screenshot(page, info, 'sidebar-200-agents');
 });
 
 test('grouped sidebar keeps pin, menu, cursor, and child navigation reachable', async ({

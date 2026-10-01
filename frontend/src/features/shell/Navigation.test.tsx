@@ -88,7 +88,6 @@ async function setup(
   prepare?: (transport: FixtureTransport) => void,
 ) {
   const onOpenConversation = vi.fn();
-  const onOpenHome = vi.fn();
   const onNewChat = vi.fn();
   const transport = new FixtureTransport({ conversationCount: count });
   prepare?.(transport);
@@ -105,7 +104,6 @@ async function setup(
         <OverlayProvider>
           <Navigation
             onOpenConversation={onOpenConversation}
-            onOpenHome={onOpenHome}
             onNewChat={onNewChat}
           />
         </OverlayProvider>
@@ -117,7 +115,6 @@ async function setup(
     transport,
     list,
     onOpenConversation,
-    onOpenHome,
     onNewChat,
   };
 }
@@ -362,6 +359,28 @@ it('makes New chat the one primary button, with a ▾ for a chat with an agent (
   expect(
     await screen.findByRole('dialog', { name: 'Agent profiles' }),
   ).toBeInTheDocument();
+});
+
+it('orders the sidebar: Home in the header, New chat, the conversations and their library, then Agents above the footer', async () => {
+  const { nav } = await setupAgents();
+  const order = [
+    within(nav).getByRole('link', { name: 'Home' }),
+    within(nav).getByRole('button', { name: 'New chat' }),
+    within(nav).getByRole('region', { name: 'Conversations' }),
+    within(nav).getByRole('link', { name: 'Conversation library' }),
+    within(nav).getByRole('region', { name: 'Agents' }),
+    within(nav).getByRole('link', { name: 'Settings' }),
+  ];
+  order
+    .slice(1)
+    .forEach((element, index) =>
+      expect(
+        order[index].compareDocumentPosition(element) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy(),
+    );
+  // Home's row is gone: the header icon is the only Home.
+  expect(within(nav).getAllByRole('link', { name: 'Home' })).toHaveLength(1);
 });
 
 it('starts a chat with a favourite agent in one click and opens the library from the Agents section (B268)', async () => {
@@ -703,25 +722,43 @@ it('keeps confirmed selection visible when refreshing the list no longer include
   expect(screen.queryByText('Your conversations will appear here.')).toBeNull();
 });
 
-it('opens Home without a creation, Stop, selection change or draft mutation', async () => {
-  const { controller, transport, onOpenHome, onNewChat } = await setup(
+it('opens Home from its header icon without a creation, Stop, selection change or draft mutation', async () => {
+  const user = userEvent.setup();
+  const { controller, transport, onNewChat } = await setup(
     2,
     '/conversations/conversation-a',
   );
   await act(async () => controller.selectConversation('conversation-a'));
   const before = controller.getSnapshot();
   const commands = transport.counters.commands;
-  fireEvent.click(screen.getByRole('link', { name: 'Home' }));
-  expect(screen.getByLabelText('Current route')).toHaveTextContent('/');
+  // An icon in the header, not a row: named, first in the tab order, and
+  // not current while a conversation shows.
+  const home = screen.getByRole('link', { name: 'Home' });
+  expect(home.textContent).toBe('');
+  expect(home).not.toHaveAttribute('aria-current');
+  await user.tab();
+  expect(home).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole('button', { name: 'New chat' })).toHaveFocus();
+  await user.click(home);
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
+  expect(home).toHaveAttribute('aria-current', 'page');
+  expect(rows()[0]).not.toHaveAttribute('aria-current');
+  expect(controller.getSnapshot()).toBe(before);
+  expect(transport.counters.commands).toBe(commands);
+  expect(onNewChat).not.toHaveBeenCalled();
+});
+
+it('opens Home from the logo too, a pointer shortcut outside the tab order', async () => {
+  await setup(2, '/conversations/conversation-a');
+  const logo = screen.getByText('Row-Bot').closest('a')!;
+  expect(logo).toHaveAttribute('tabindex', '-1');
+  fireEvent.click(logo);
+  expect(screen.getByLabelText('Current route')).toHaveTextContent(/^\/$/);
   expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute(
     'aria-current',
     'page',
   );
-  expect(rows()[0]).not.toHaveAttribute('aria-current');
-  expect(controller.getSnapshot()).toBe(before);
-  expect(transport.counters.commands).toBe(commands);
-  expect(onOpenHome).toHaveBeenCalledTimes(1);
-  expect(onNewChat).not.toHaveBeenCalled();
 });
 
 it('delegates sidebar New chat and navigates Settings to the persistent shell', async () => {
@@ -739,11 +776,8 @@ it('delegates sidebar New chat and navigates Settings to the persistent shell', 
   expect(transport.counters.commands).toBe(0);
 });
 
-it('groups primary actions and conversations, with no developer utilities for users (B267)', async () => {
+it('lists the conversations with no developer utilities for users (B267)', async () => {
   await setup(2);
-  expect(
-    screen.getByRole('group', { name: 'Primary workspace actions' }),
-  ).toBeVisible();
   expect(screen.getByRole('region', { name: 'Conversations' })).toBeVisible();
   expect(screen.queryByText('About and developer utilities')).toBeNull();
   expect(screen.queryByRole('link', { name: 'Component gallery' })).toBeNull();

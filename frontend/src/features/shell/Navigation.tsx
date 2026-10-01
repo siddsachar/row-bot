@@ -287,7 +287,6 @@ function activityLabel(
 /** Live store subscription also updates the compact modal's mounted content. */
 export default function Navigation({
   onOpenConversation,
-  onOpenHome,
   onNewChat,
   onStartProfileChat,
   creatingChat = false,
@@ -295,12 +294,11 @@ export default function Navigation({
   headerActions,
 }: {
   onOpenConversation?: () => void;
-  onOpenHome?: () => void;
   onNewChat?: () => void;
   onStartProfileChat?: (profile: ProfileSummary) => void;
   creatingChat?: boolean;
   showBuddy?: boolean;
-  /** Desktop header icon actions (commands, collapse). */
+  /** Desktop header icon actions after Home (commands, collapse). */
   headerActions?: ReactNode;
 }) {
   const state = useClientState();
@@ -309,8 +307,8 @@ export default function Navigation({
   const overlay = useOverlay();
   const navigate = useNavigate();
   const location = useLocation();
-  // Navigate before closing, as Home does: closing the compact drawer pops its
-  // same-URL history entry, and a pop that lands after the push undoes it.
+  // Navigate before closing: closing the compact drawer pops its same-URL
+  // history entry, and a pop that lands after the push undoes it.
   const openRoute = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => {
     if (
       event.button !== 0 ||
@@ -724,10 +722,31 @@ export default function Navigation({
   return (
     <nav className="navigation" aria-label="Workspace navigation">
       <header className="nav-header">
-        <Brand />
-        {headerActions && (
-          <div className="nav-header-actions">{headerActions}</div>
-        )}
+        {/* The logo is a pointer shortcut to Home; keyboard and assistive
+            technology reach Home through its button beside it. */}
+        <Link
+          className="nav-brand"
+          to="/"
+          tabIndex={-1}
+          aria-hidden
+          onClick={openRoute('/')}
+        >
+          <Brand />
+        </Link>
+        <div className="nav-header-actions">
+          <Hint label="Home">
+            <Link
+              className="button ghost icon-button icon-action icon-action-sm"
+              to="/"
+              aria-label="Home"
+              aria-current={location.pathname === '/' ? 'page' : undefined}
+              onClick={openRoute('/')}
+            >
+              <Home size={16} aria-hidden />
+            </Link>
+          </Hint>
+          {headerActions}
+        </div>
       </header>
       {/* The sidebar's one primary action; ▾ starts a chat with an agent
           (B268). Its shortcut shows on hover and focus. */}
@@ -782,99 +801,6 @@ export default function Navigation({
           </Menu>
         )}
       </div>
-      <div
-        className="nav-primary-actions"
-        role="group"
-        aria-label="Primary workspace actions"
-      >
-        <Link
-          className="button ghost nav-row nav-home"
-          to="/"
-          aria-current={location.pathname === '/' ? 'page' : undefined}
-          onClick={(event) => {
-            if (
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
-            )
-              return;
-            event.preventDefault();
-            navigate('/');
-            onOpenHome?.();
-            overlay.close();
-          }}
-        >
-          <Home size={16} aria-hidden />
-          <span className="nav-row-label">Home</span>
-        </Link>
-      </div>
-      {/* Agents: favourite profiles start a chat in one click; the library
-          holds the rest. Runs belong to their conversation, so none show
-          here (B268). */}
-      {profileSession && (
-        <section className="nav-agents" aria-labelledby={`${agentsId}-heading`}>
-          <div className="nav-section-header">
-            <Button
-              id={`${agentsId}-heading`}
-              className="nav-heading"
-              variant="ghost"
-              aria-expanded={agentsOpen}
-              aria-controls={agentsId}
-              onClick={toggleAgents}
-            >
-              {agentsOpen ? (
-                <ChevronDown size={14} aria-hidden />
-              ) : (
-                <ChevronRight size={14} aria-hidden />
-              )}
-              Agents
-            </Button>
-          </div>
-          <div id={agentsId} className="nav-agents-body" hidden={!agentsOpen}>
-            {agentsOpen && (
-              <>
-                {favourites.length > 0 && (
-                  <div
-                    className="nav-agent-favourites"
-                    role="group"
-                    aria-label="Favourite agents"
-                  >
-                    {favourites.slice(0, FAVOURITE_COUNT).map((profile) => (
-                      <IconButton
-                        key={profile.id}
-                        label={`New chat with ${profile.display_name}`}
-                        disabled={profileChatDisabled}
-                        onClick={() => startProfileChat(profile)}
-                      >
-                        <AgentAvatar
-                          seed={agentSeed(profile.id, profile.id)}
-                          size={22}
-                        />
-                      </IconButton>
-                    ))}
-                  </div>
-                )}
-                <Button
-                  variant="ghost"
-                  className="nav-all-agents"
-                  aria-label={allAgentsLabel(profiles)}
-                  onClick={(event) => openLibrary(event.currentTarget)}
-                >
-                  All agents
-                  {profiles && (
-                    <span className="nav-all-agents-count" aria-hidden>
-                      {profiles.length}
-                    </span>
-                  )}
-                  <ChevronRight size={14} aria-hidden />
-                </Button>
-              </>
-            )}
-          </div>
-        </section>
-      )}
       <div className="nav-section-header">
         <Button
           id={sectionHeadingId}
@@ -1043,6 +969,71 @@ export default function Navigation({
           </>
         )}
       </section>
+      {/* Agents, under the conversations: favourite profiles start a chat
+          in one click; the library holds the rest. Runs belong to their
+          conversation, so none show here (B268). */}
+      {profileSession && (
+        <section className="nav-agents" aria-labelledby={`${agentsId}-heading`}>
+          <div className="nav-section-header">
+            <Button
+              id={`${agentsId}-heading`}
+              className="nav-heading"
+              variant="ghost"
+              aria-expanded={agentsOpen}
+              aria-controls={agentsId}
+              onClick={toggleAgents}
+            >
+              {agentsOpen ? (
+                <ChevronDown size={14} aria-hidden />
+              ) : (
+                <ChevronRight size={14} aria-hidden />
+              )}
+              Agents
+            </Button>
+          </div>
+          <div id={agentsId} className="nav-agents-body" hidden={!agentsOpen}>
+            {agentsOpen && (
+              <>
+                {favourites.length > 0 && (
+                  <div
+                    className="nav-agent-favourites"
+                    role="group"
+                    aria-label="Favourite agents"
+                  >
+                    {favourites.slice(0, FAVOURITE_COUNT).map((profile) => (
+                      <IconButton
+                        key={profile.id}
+                        label={`New chat with ${profile.display_name}`}
+                        disabled={profileChatDisabled}
+                        onClick={() => startProfileChat(profile)}
+                      >
+                        <AgentAvatar
+                          seed={agentSeed(profile.id, profile.id)}
+                          size={22}
+                        />
+                      </IconButton>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  variant="ghost"
+                  className="nav-all-agents"
+                  aria-label={allAgentsLabel(profiles)}
+                  onClick={(event) => openLibrary(event.currentTarget)}
+                >
+                  All agents
+                  {profiles && (
+                    <span className="nav-all-agents-count" aria-hidden>
+                      {profiles.length}
+                    </span>
+                  )}
+                  <ChevronRight size={14} aria-hidden />
+                </Button>
+              </>
+            )}
+          </div>
+        </section>
+      )}
       <footer className="nav-footer" aria-label="Workspace destinations">
         <AttentionIndicator
           load={controller.attention}

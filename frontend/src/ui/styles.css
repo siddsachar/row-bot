@@ -4517,14 +4517,6 @@ details[open] > summary > .settings-disclosure-chevron {
   gap: 8px;
   border-inline-end: 1px solid var(--border-subtle);
 }
-.nav-primary-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.nav-primary-actions .button {
-  justify-content: center;
-}
 .nav-search {
   justify-content: flex-start;
   width: 100%;
@@ -5016,10 +5008,6 @@ details[open] > summary > .settings-disclosure-chevron {
 /* Container width follows CSS zoom as well as split-pane width. */
 .workspace {
   container-type: inline-size;
-}
-.nav-primary-actions .button {
-  padding-inline: 6px;
-  white-space: nowrap;
 }
 @container (max-width: 250px) {
   .app-header .brand,
