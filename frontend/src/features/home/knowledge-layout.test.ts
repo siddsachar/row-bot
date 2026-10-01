@@ -1,6 +1,6 @@
 import Graph from 'graphology';
 import { graphToByteArrays } from 'graphology-layout-forceatlas2/helpers.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { settle, type LayoutSettings } from './knowledge-layout';
 
 const settings: LayoutSettings = {
@@ -46,6 +46,22 @@ describe('settle', () => {
       done += settle(settings, batched.nodes, batched.edges, batch).iterations;
     expect(done).toBe(30);
     expect(Array.from(batched.nodes)).toEqual(Array.from(whole.nodes));
+  });
+
+  it('ends a batch once its time is up, without changing the picture', () => {
+    const whole = matrices(40);
+    settle(settings, whole.nodes, whole.edges, 30);
+    // Each iteration takes 10 ms here: a 25 ms batch runs three of them.
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (clock += 10));
+    const timed = matrices(40);
+    let done = 0;
+    while (done < 30) {
+      const batch = settle(settings, timed.nodes, timed.edges, 30 - done, 25);
+      expect(batch.iterations).toBe(Math.min(3, 30 - done));
+      done += batch.iterations;
+    }
+    expect(Array.from(timed.nodes)).toEqual(Array.from(whole.nodes));
   });
 
   it('stops early once a whole iteration barely moves anything', () => {

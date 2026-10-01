@@ -9,6 +9,9 @@ export type LayoutRequest = {
   edges?: ArrayBuffer;
   settings: LayoutSettings;
   iterations: number;
+  /** Milliseconds a batch may run; it ends after the iteration that uses
+   * them up. */
+  budget?: number;
 };
 
 export type LayoutReply = {
@@ -24,16 +27,18 @@ const NODE_VALUES = 10;
 const SETTLED_MOVEMENT = 5e-4;
 
 /**
- * Runs up to `iterations` ForceAtlas2 iterations in place and stops early
- * once the layout settles. Every run of the same graph ends in the same
- * picture, however the iterations are batched.
+ * Runs up to `iterations` ForceAtlas2 iterations in place, within `budget`
+ * milliseconds, and stops early once the layout settles. Every run of the
+ * same graph ends in the same picture, however the iterations are batched.
  */
 export function settle(
   settings: LayoutSettings,
   nodes: Float32Array,
   edges: Float32Array,
   iterations: number,
+  budget = Infinity,
 ): { iterations: number; converged: boolean } {
+  const started = performance.now();
   const order = nodes.length / NODE_VALUES;
   const before = new Float32Array(order * 2);
   for (let done = 1; done <= iterations; done += 1) {
@@ -60,6 +65,8 @@ export function settle(
     const extent = Math.max(right - left, bottom - top);
     if (moved / order <= extent * SETTLED_MOVEMENT)
       return { iterations: done, converged: true };
+    if (performance.now() - started >= budget)
+      return { iterations: done, converged: false };
   }
   return { iterations, converged: false };
 }

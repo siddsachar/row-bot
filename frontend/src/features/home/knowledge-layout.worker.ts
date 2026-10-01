@@ -16,6 +16,7 @@ self.onmessage = ({ data }: MessageEvent<LayoutRequest>) => {
     new Float32Array(data.nodes),
     edges,
     data.iterations,
+    data.budget,
   );
   const reply: LayoutReply = { nodes: data.nodes, ...result };
   self.postMessage(reply, { transfer: [data.nodes] });
