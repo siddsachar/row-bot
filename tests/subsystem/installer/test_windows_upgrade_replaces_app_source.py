@@ -31,7 +31,9 @@ def _deleted_paths(section: str) -> list[str]:
 
 
 def test_an_upgrade_clears_the_shipped_source_before_copying_the_new_one() -> None:
-    assert "{app}\\app\\src" in _deleted_paths("InstallDelete")
+    deleted = _deleted_paths("InstallDelete")
+    assert "{app}\\app\\src" in deleted
+    assert "{app}\\app\\static" in deleted
 
 
 def test_install_and_uninstall_only_delete_inside_the_install_folder() -> None:
