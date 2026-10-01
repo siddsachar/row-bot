@@ -48,6 +48,7 @@ import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
 import { DocumentProcessingPanel } from '../knowledge/DocumentProcessingPanel';
 import ChannelSettings from './ChannelSettings';
+import { SETTINGS_CHANGED } from '../shell/palette-switches';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
 import { resolveSettingsConversation } from './SettingsConversationPicker';
@@ -164,6 +165,12 @@ export default function SettingRoute() {
   const [settingsSnapshotLoading, setSettingsSnapshotLoading] = useState(true);
   const [settingsSnapshotError, setSettingsSnapshotError] = useState('');
   const [settingsSnapshotReload, setSettingsSnapshotReload] = useState(0);
+  // A switch turned from ⌘K: show it as saved.
+  useEffect(() => {
+    const changed = () => setSettingsSnapshotReload((value) => value + 1);
+    window.addEventListener(SETTINGS_CHANGED, changed);
+    return () => window.removeEventListener(SETTINGS_CHANGED, changed);
+  }, []);
   const [knowledgeRefresh, setKnowledgeRefresh] = useState(0);
   const [devicesReload, setDevicesReload] = useState(0);
   // A removal in progress (retained by its owner) keeps its Danger zone open.

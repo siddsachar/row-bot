@@ -69,6 +69,11 @@ export function useTheme() {
   return context;
 }
 
+/** The theme where a ThemeProvider exists (⌘K's appearance actions). */
+export function useOptionalTheme() {
+  return useContext(ThemeContext);
+}
+
 /** The theme actually applied ("light" or "dark"), following system changes. */
 export function useResolvedTheme(): 'light' | 'dark' {
   const read = () =>

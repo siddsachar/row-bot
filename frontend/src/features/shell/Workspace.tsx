@@ -79,6 +79,13 @@ import {
 import { PanelSubscriptions } from '../panels/subscriptions';
 import { bindVisualViewportState, useWorkspaceLayout } from './layout';
 import CommandPalette, { type PaletteCommand } from './CommandPalette';
+import {
+  SETTINGS_CHANGED,
+  saveSwitch,
+  settingsSwitches,
+  type PaletteSwitch,
+} from './palette-switches';
+import { clientError } from '../../api/errors';
 import Navigation, { NavigationRail } from './Navigation';
 import { ContextHostContext, useContextHostOwner } from './context-host';
 import Home from './Home';
@@ -731,6 +738,32 @@ export default function Workspace() {
         overlay.notify('That result is no longer available. Search again.'),
       );
   }
+  /**
+   * A settings switch turned from ⌘K, saved as its Settings page saves it;
+   * the notice offers Undo, and an open Settings page reads it again.
+   */
+  async function applySwitch(target: PaletteSwitch, on: boolean) {
+    const state = on ? 'on' : 'off';
+    try {
+      if ((await saveSwitch(controller, target, on)) === 'partial') {
+        overlay.notify(
+          `Row-Bot couldn't confirm that ${target.label} turned ${state}. Check it in Settings.`,
+          'warning',
+        );
+        return;
+      }
+      window.dispatchEvent(new Event(SETTINGS_CHANGED));
+      overlay.notify(`${target.label} turned ${state}`, undefined, {
+        label: 'Undo',
+        onAction: () => void applySwitch({ ...target, on }, !on),
+      });
+    } catch (cause) {
+      overlay.notify(
+        `Couldn't turn ${state} ${target.label}. ${clientError(cause).message}`,
+        'danger',
+      );
+    }
+  }
   function openCommands(from?: HTMLElement | null) {
     const opener =
       from ??
@@ -976,6 +1009,16 @@ export default function Workspace() {
           }}
           onOpenSearchHit={openSearchHit}
           onOpenSetting={go}
+          loadSwitches={async (signal) =>
+            settingsSwitches(
+              await controller.settingsSnapshot(signal),
+              (target, on) => {
+                overlay.close();
+                void applySwitch(target, on);
+              },
+            )
+          }
+          onClose={() => overlay.close()}
           loadWorkflows={async (signal) =>
             (
               await controller.savedTasks('', undefined, undefined, signal)
