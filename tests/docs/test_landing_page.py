@@ -373,8 +373,8 @@ def test_architecture_contact_and_not_found_progressive_contracts() -> None:
     assert "event.key === 'Escape'" in JS
     assert "lightboxBackground.forEach" in JS
     assert "github.com/siddsachar/row-bot/blob/main/docs/ARCHITECTURE.md" in architecture
-    assert "Row-Bot's 4.9 control plane" in architecture
-    assert "current 4.9 runtime and security contracts" in architecture
+    assert "Row-Bot's 5.0 control plane" in architecture
+    assert "current 5.0 runtime and security contracts" in architecture
     assert "conversations, documents, memory, workflows, and project assets" in architecture
     assert "Complete next-input metering" in architecture
     assert "exact trusted addresses" in architecture
