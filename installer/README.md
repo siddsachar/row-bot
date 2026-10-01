@@ -40,7 +40,7 @@ manifest, and then runs the tarball's bundled `install.sh`. For a pinned
 version, pass it as an argument:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.9.1
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- X.Y.Z
 ```
 
 The bootstrapper installs published GitHub Release assets. It is not a way to
@@ -49,27 +49,31 @@ published.
 
 Linux release tarballs are built with `installer/build_linux_app.sh`. The script mirrors
 the macOS python-build-standalone approach, but emits a user-installable XDG
-tarball instead of a native app bundle:
+tarball instead of a native app bundle. It stages the React client from
+`frontend/dist`, so build that first with Node 24.15.0 (release and Installer
+Verify jobs do this through `.github/actions/build-client`):
 
 ```bash
+npm --prefix frontend ci --ignore-scripts
+npm --prefix frontend run build
 ./installer/build_linux_app.sh
-./installer/build_linux_app.sh 4.9.1
+./installer/build_linux_app.sh X.Y.Z
 ```
 
 From a source checkout, this root-level wrapper is also supported for support
 snippets and maintainer hotfixes:
 
 ```bash
-bash build_linux_app.sh 4.9.1
+bash build_linux_app.sh X.Y.Z
 ```
 
 To test an unreleased Linux fix locally, build the tarball from the checkout and
 install the tarball it produced:
 
 ```bash
-bash installer/build_linux_app.sh 4.9.1
-tar -xzf dist/Row-Bot-4.9.1-Linux-*.tar.gz
-cd Row-Bot-4.9.1-Linux-*
+bash installer/build_linux_app.sh X.Y.Z
+tar -xzf dist/Row-Bot-X.Y.Z-Linux-*.tar.gz
+cd Row-Bot-X.Y.Z-Linux-*
 ./install.sh
 ~/.local/bin/row-bot
 ```
@@ -94,7 +98,7 @@ bootstrap a real acceptance browser only with an explicit
 that command's one-time link in CI logs or package artifacts.
 
 If the launcher starts a process but the app never becomes ready, inspect
-`~/.row-bot/row-bot_app.log` and `~/.row-bot/row-bot_app.log.prev`. The launcher prints
+`~/.row-bot/row_bot_app.log` and `~/.row-bot/row_bot_app.log.prev`. The launcher prints
 the app log tail and targeted recovery hints for common native dependency
 failures, and `ROW_BOT_STARTUP_TIMEOUT=180 ~/.local/bin/row-bot` can be used on
 slow first-run systems.
@@ -133,29 +137,35 @@ report unavailable until the platform libraries are installed.
 
 ## Windows Installer
 
-## Architecture
+### Architecture
 
 The installer bundles the embedded Python runtime, pre-installed Python packages, and app source code. Python packages are installed from `requirements.txt`, which is a generated locked export from `pyproject.toml` and `uv.lock`. Repair and upgrade installs replace the embedded Python directory before copying the new payload so manually installed or corrupted packages cannot linger inside Row-Bot's bundled runtime. Kokoro TTS model files are auto-downloaded on first use. Ollama and Playwright Chromium are handled by the build/runtime flow, and Ollama is optional because Row-Bot can run entirely with provider models. The optional Cua Driver used by Computer Use is not bundled: Row-Bot downloads the pinned platform asset only after the user reads its telemetry disclosure and explicitly chooses Install or Repair, verifies SHA-256, and keeps it in the private Row-Bot data directory.
 
 | Bundled in .exe | Downloaded or created outside install |
 |----------------|--------------------------------------|
 | Python 3.13 embeddable runtime | Ollama installer is optional for local models |
-| App source code, authenticated access/server package, Remote Access UI, automatic Agent orchestration, Agent Profiles, Goal Mode, checkpointed Agent budgets and settings, child-agent runner, generation cancellation, provider-aware reasoning controls, exact context/compaction policy, native OpenCode routing, local Whisper and SenseVoice runtimes, durable document ingestion and sharded retrieval, Computer Use integration and pinned manifest, cache-only embedding fallback, responsive desktop/mobile owner UI, channel streaming, tools, providers, plugins, MCP client, migration wizard, UI, Designer, Developer Studio, bundled skills/tool guides, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use; SenseVoice Small is an explicit approximately 940 MB ModelScope download |
+| App source code, authenticated access/server package, Remote Access UI, automatic Agent orchestration, Agent Profiles, Goal Mode, checkpointed Agent budgets and settings, child-agent runner, generation cancellation, provider-aware reasoning controls, exact context/compaction policy, native OpenCode routing, local Whisper and SenseVoice runtimes, durable document ingestion and sharded retrieval, Computer Use integration and pinned manifest, cache-only embedding fallback, responsive desktop/mobile owner UI, channel streaming, tools, providers, plugins, MCP client, migration wizard, the React client (built from `frontend/` at package time), Design and Developer panels, bundled skills/tool guides, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use; SenseVoice Small is an explicit approximately 940 MB ModelScope download |
 | Python packages from locked `requirements.txt` export and its matching Playwright Chromium when the platform build supports bundling | A missing source-install Browser runtime is installed only after the user's explicit Browser Automation install/repair action; Browser startup never downloads it |
 | Computer Use policy, private client, installer metadata, and platform checks | Pinned Cua Driver 0.20.0 is downloaded only after the version-2 disclosure and explicit user consent |
 
-## Prerequisites
+### Prerequisites
 
-1. **Inno Setup 6** â€” free installer compiler
+1. **Inno Setup 6** — free installer compiler
    Download: https://jrsoftware.org/isdl.php
    Ensure `ISCC.exe` is installed (default: `C:\Program Files (x86)\Inno Setup 6\`)
 
-2. **Internet connection** â€” the build script downloads Python embeddable and get-pip.py
+2. **Internet connection** — the build script downloads Python embeddable and get-pip.py
 
-3. **Icon file** â€” `row-bot.ico` in the project root
+3. **Python 3.13.2 with tkinter** on `PATH` as `python` — the build copies Tcl/Tk from it, so its
+   version must match `-PythonVersion` exactly
+
+4. **Node 24.15.0 and a built client** — run `npm --prefix frontend ci --ignore-scripts` and
+   `npm --prefix frontend run build` first; the build script stages and verifies `frontend/dist`
+
+5. **Icon file** — `row-bot.ico` in the project root
    If you don't have one, remove the `SetupIconFile` and `IconFilename` lines in `row_bot_setup.iss`.
 
-## Build Steps
+### Build Steps
 
 ```powershell
 # From the project root:
@@ -163,159 +173,110 @@ The installer bundles the embedded Python runtime, pre-installed Python packages
 ```
 
 This will:
-1. Download Python 3.13 embeddable package (~15 MB)
-2. Download `get-pip.py` (~2.5 MB)
-3. Compile everything into `dist\Row-Bot-4.9.1-Windows-x64.exe`
+1. Download the Python 3.13 embeddable package (~15 MB) and `get-pip.py` (~2.5 MB)
+2. Bundle tkinter and Tcl/Tk from the matching system Python and check that they import
+3. Install the locked packages from `requirements.txt` and verify the runtime dependencies
+4. Stage the React client from `frontend/dist` into a fresh folder and verify it strictly
+5. Install Playwright Chromium when it can (otherwise Browser Automation waits for the user's Install or Repair)
+6. Compile everything into `dist\Row-Bot-X.Y.Z-Windows-x64.exe`
 
-### Options
+#### Options
 
 ```powershell
-# Use a different Python version:
-.\installer\build_installer.ps1 -PythonVersion "3.12.8"
+# Pin the embedded Python patch version (default 3.13.2; the system Python must be the same version):
+.\installer\build_installer.ps1 -PythonVersion "3.13.2"
 
 # Skip downloads if build/ already has the files:
 .\installer\build_installer.ps1 -SkipDownloads
 ```
 
-## What Gets Installed
+### What Gets Installed
 
 On the end user's machine:
 
 ```
-C:\Program Files\Row-Bot\            # Installation directory
-â”œâ”€â”€ launch_row_bot.bat                # Main launcher (starts Ollama + Row-Bot)
-â”œâ”€â”€ launch_row_bot.vbs                # Hidden-console wrapper (shortcuts point here)
-â”œâ”€â”€ python\                         # Embedded Python runtime
-â”‚   â”œâ”€â”€ python.exe
-â”‚   â”œâ”€â”€ python313.dll
-â”‚   â”œâ”€â”€ Lib\site-packages\          # All pip packages installed here
-â”‚   â””â”€â”€ ...
-â””â”€â”€ app\                            # Application source code
-    â”œâ”€â”€ app.py                       # FastAPI server (serves the React client)
-    â”œâ”€â”€ agent.py                    # ReAct agent
-    â”œâ”€â”€ memory.py                   # Long-term memory DB + FAISS vector search
-    â”œâ”€â”€ memory_extraction.py        # Background memory extraction from conversations
-    â”œâ”€â”€ knowledge_graph.py          # Knowledge graph (triple store + NetworkX + FAISS)
-    â”œâ”€â”€ wiki_vault.py               # Obsidian-compatible markdown vault export
-    â”œâ”€â”€ dream_cycle.py              # Nightly knowledge refinement daemon
-    â”œâ”€â”€ document_extraction.py      # Document knowledge extraction (map-reduce LLM pipeline)
-    â”œâ”€â”€ models.py                   # Compatibility facade for local + provider model management
-    â”œâ”€â”€ documents.py                # Document ingestion
-    â”œâ”€â”€ threads.py                  # Thread/conversation persistence
-    â”œâ”€â”€ api_keys.py                 # API key management
-    â”œâ”€â”€ secret_store.py             # OS credential-store wrapper
-    â”œâ”€â”€ voice/                      # Local Whisper/SenseVoice and provider voice coordination
-    â”œâ”€â”€ tts.py                      # Text-to-speech (Kokoro TTS)
-    â”œâ”€â”€ startup_diagnostics.py      # Optional native dependency startup probes
-    â”œâ”€â”€ vision.py                   # Camera/screen capture
-    â”œâ”€â”€ data_reader.py              # Pandas-based structured data reader
-    â”œâ”€â”€ tasks.py                    # Task engine + APScheduler
-    â”œâ”€â”€ prompts.py                  # Centralized LLM prompts
-    â”œâ”€â”€ notifications.py             # Unified notification system
-    â”œâ”€â”€ launcher.py                 # System tray + native window + splash screen
-    â”œâ”€â”€ server.py                   # FastAPI app, start-up/shutdown hooks, late routes
-    â”œâ”€â”€ sounds/                     # Notification sound effects
-    â”‚   â”œâ”€â”€ workflow.wav
-    â”‚   â””â”€â”€ timer.wav
-    â”œâ”€â”€ channels/                   # Multi-channel messaging framework
-    â”‚   â”œâ”€â”€ __init__.py
-    â”‚   â”œâ”€â”€ base.py
-    â”‚   â”œâ”€â”€ config.py
-    â”‚   â”œâ”€â”€ media.py
-    â”‚   â”œâ”€â”€ registry.py
-    â”‚   â”œâ”€â”€ telegram.py
-    â”‚   â””â”€â”€ tool_factory.py
-    â”œâ”€â”€ requirements.txt
-    â”œâ”€â”€ row-bot.ico
-    â”œâ”€â”€ static/                     # Vendored JS libraries, fonts, and Designer runtime assets
-    â”œâ”€â”€ tools/                      # Core tool modules, Developer tool, and Custom Tool builder
-    â”‚   â”œâ”€â”€ __init__.py
-    â”‚   â”œâ”€â”€ base.py
-    â”‚   â”œâ”€â”€ registry.py
-    â”‚   â”œâ”€â”€ web_search_tool.py
-    â”‚   â”œâ”€â”€ ...
-    â”‚   â””â”€â”€ youtube_tool.py
-    â”œâ”€â”€ providers/                  # Provider config, auth metadata, catalog cache, runtime, Quick Choices
-    â”œâ”€â”€ mobile/                     # Mobile pairing, access gate, PWA routes, session storage
-    â”œâ”€â”€ mcp_client/                 # External MCP server client/runtime
-    â”œâ”€â”€ migration/                  # Hermes/OpenClaw migration wizard backend
-    â”œâ”€â”€ developer/                  # Developer Studio, Git helpers, Docker sandbox, Custom Tools
-    â”œâ”€â”€ designer/                   # Designer Studio projects, templates, exports, and publishing
-    â”œâ”€â”€ bundled_skills/             # Built-in manual skills
-    â”œâ”€â”€ tool_guides/                # Auto-activation tool guides
-    â””â”€â”€ plugins/                    # Plugin system & marketplace
-        â”œâ”€â”€ __init__.py
-        â”œâ”€â”€ api.py
-        â”œâ”€â”€ installer.py
-        â”œâ”€â”€ loader.py
-        â”œâ”€â”€ manifest.py
-        â”œâ”€â”€ marketplace.py
-        â”œâ”€â”€ registry.py
-        â”œâ”€â”€ sandbox.py
-        â””â”€â”€ state.py
+C:\Program Files\Row-Bot\              # Installation directory
+├── launch_row_bot.bat                  # Sets up the bundled runtime and starts launcher.py
+├── launch_row_bot.vbs                  # Hidden-console wrapper (shortcuts point here)
+├── python\                             # Embedded Python 3.13 runtime
+│   ├── python.exe
+│   ├── Lib\site-packages\              # Locked packages from requirements.txt
+│   ├── tcl\                            # Tcl/Tk for the splash screen and first-run chooser
+│   └── playwright-browsers\            # Bundled Chromium, when the build could install it
+└── app\
+    ├── app.py, launcher.py             # Thin root wrappers
+    ├── pyproject.toml, uv.lock, requirements.txt, row-bot.ico
+    ├── scripts\verify_runtime_dependencies.py
+    ├── src\row_bot\                    # The application package: FastAPI server, agents, tools,
+    │   │                               # providers, channels, MCP, plugins, Designer, Developer, ...
+    │   └── static\client-v2\           # The React client, built from frontend/ at package time
+    ├── static\                         # Vendored JS libraries, fonts, Buddy and Designer runtime assets
+    ├── sounds\                         # Notification sounds
+    ├── bundled_skills\                 # Built-in skills
+    └── tool_guides\                    # Auto-activation tool guides
 
 %USERPROFILE%\.row-bot\               # User data directory (auto-created at runtime)
-â”œâ”€â”€ threads.db                      # Conversation history & checkpoints
-â”œâ”€â”€ memory.db                       # Long-term memories (knowledge graph entities & relations)
-â”œâ”€â”€ memory_vectors/                 # FAISS index for semantic memory search
-â”œâ”€â”€ memory_extraction_state.json    # Tracks last extraction run
-â”œâ”€â”€ dream_journal.json              # Dream Cycle operation log
-â”œâ”€â”€ api_keys.json                   # API key metadata only; raw keys use the OS credential store when available
-â”œâ”€â”€ plugin_secrets.json             # Plugin API-key metadata only; raw keys use the OS credential store when available
-â”œâ”€â”€ providers.json                  # Provider metadata, status, Quick Choices, and masked fingerprints
-â”œâ”€â”€ model_catalog_cache.json         # Cached provider/Ollama model catalog rows
-â”œâ”€â”€ embedding_config.json            # Selected local/cloud embedding provider
-â”œâ”€â”€ cloud_config.json               # Legacy cloud model favorites/settings compatibility
-â”œâ”€â”€ app_config.json                 # Onboarding / first-run state
-â”œâ”€â”€ tools_config.json               # Tool enable/disable state
-â”œâ”€â”€ model_settings.json             # Selected model & context size
-â”œâ”€â”€ tts_settings.json               # Selected TTS voice
-â”œâ”€â”€ vision_settings.json            # Vision model & camera selection
-â”œâ”€â”€ voice_settings.json             # Talk, Dictate, local STT, and speech-output preferences
-â”œâ”€â”€ processed_files.json            # Tracked indexed documents
-â”œâ”€â”€ tasks.db                        # Task definitions, schedules, run history & delivery config
-â”œâ”€â”€ channels_config.json            # Channel settings
-â”œâ”€â”€ mobile.db                       # Hashed mobile pairing/device credentials, scopes, revocation, access events
-â”œâ”€â”€ channel_secrets.json             # Channel credential metadata only; raw secrets use OS keyring when available
-â”œâ”€â”€ plugin_state.json               # Installed plugin state & settings
-â”œâ”€â”€ shell_history.json              # Shell command history per thread
-â”œâ”€â”€ skills_config.json              # Skill enable/disable state
-â”œâ”€â”€ user_config.json                # Avatar emoji & ring color preferences
-â”œâ”€â”€ row-bot_app.log                   # Application log
-â”œâ”€â”€ developer/                       # Developer workspace links, Custom Tools, drafts, sandboxes
-â”œâ”€â”€ vector_store/                   # FAISS index for uploaded documents
-â”‚   â””â”€â”€ embedding_metadata.json      # Vector-index embedding provider metadata
-â”œâ”€â”€ gmail/                          # Gmail OAuth tokens
-â”œâ”€â”€ calendar/                       # Calendar OAuth tokens
-â”œâ”€â”€ browser_profile/                # Playwright persistent browser profile
-â”œâ”€â”€ wiki/                           # Obsidian-compatible markdown vault export
-â”œâ”€â”€ cache/sensevoice/               # Explicitly installed verified SenseVoice snapshot
-â””â”€â”€ kokoro/                         # Kokoro TTS model & voice data (auto-downloaded)
+├── threads.db                      # Conversation history & checkpoints
+├── memory.db                       # Long-term memories (knowledge graph entities & relations)
+├── memory_vectors/                 # FAISS index for semantic memory search
+├── memory_extraction_state.json    # Tracks last extraction run
+├── dream_journal.json              # Dream Cycle operation log
+├── api_keys.json                   # API key metadata only; raw keys use the OS credential store when available
+├── plugin_secrets.json             # Plugin API-key metadata only; raw keys use the OS credential store when available
+├── providers.json                  # Provider metadata, status, Quick Choices, and masked fingerprints
+├── model_catalog_cache.json         # Cached provider/Ollama model catalog rows
+├── embedding_config.json            # Selected local/cloud embedding provider
+├── cloud_config.json               # Legacy cloud model favorites/settings compatibility
+├── app_config.json                 # Onboarding / first-run state
+├── tools_config.json               # Tool enable/disable state
+├── model_settings.json             # Selected model & context size
+├── tts_settings.json               # Selected TTS voice
+├── vision_settings.json            # Vision model & camera selection
+├── voice_settings.json             # Talk, Dictate, local STT, and speech-output preferences
+├── processed_files.json            # Tracked indexed documents
+├── tasks.db                        # Task definitions, schedules, run history & delivery config
+├── channels_config.json            # Channel settings
+├── mobile.db                       # Hashed mobile pairing/device credentials, scopes, revocation, access events
+├── channel_secrets.json             # Channel credential metadata only; raw secrets use OS keyring when available
+├── plugin_state.json               # Installed plugin state & settings
+├── shell_history.json              # Shell command history per thread
+├── skills_config.json              # Skill enable/disable state
+├── user_config.json                # Avatar emoji & ring color preferences
+├── row_bot_app.log                   # Application log
+├── developer/                       # Developer workspace links, Custom Tools, drafts, sandboxes
+├── vector_store/                   # FAISS index for uploaded documents
+│   └── embedding_metadata.json      # Vector-index embedding provider metadata
+├── gmail/                          # Gmail OAuth tokens
+├── calendar/                       # Calendar OAuth tokens
+├── browser_profile/                # Playwright persistent browser profile
+├── wiki/                           # Obsidian-compatible markdown vault export
+├── cache/sensevoice/               # Explicitly installed verified SenseVoice snapshot
+└── kokoro/                         # Kokoro TTS model & voice data (auto-downloaded)
 ```
 
 Ollama is installed system-wide via its official installer.
 
 > **Note:** User data is stored outside `Program Files` in `~/.row-bot/` to avoid write-permission issues. Override the location by setting the `ROW_BOT_DATA_DIR` environment variable.
 
-## Install Flow
+### Install Flow
 
 The Inno Setup installer runs these steps:
 
-1. **Extract files** â€” embedded Python, pre-installed packages, app source, assets, and launch scripts
-2. **Create shortcuts** â€” Start Menu and optionally Desktop
+1. **Extract files** — embedded Python, pre-installed packages, app source, assets, and launch scripts
+2. **Create shortcuts** — Start Menu and optionally Desktop
 3. **Optionally launch Row-Bot**
 
-On repair/upgrade, Inno Setup deletes `{app}\python` and `{app}\app\src` before extraction, so no module a release removed stays behind. User data in `%USERPROFILE%\.row-bot` is not touched.
+On repair/upgrade, Inno Setup deletes `{app}\python`, `{app}\app\src` and `{app}\app\static` before extraction, so no module a release removed stays behind. User data in `%USERPROFILE%\.row-bot` is not touched.
 
 The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirements.txt` so repair helpers and support diagnostics can identify the exact dependency set that produced the bundled runtime.
 
-## End-User Experience
+### End-User Experience
 
-1. Run `Row-Bot-4.9.1-Windows-x64.exe`
-2. Follow the wizard â€” the app payload is already bundled; optional model/runtime assets download only when a feature needs them
+1. Run `Row-Bot-X.Y.Z-Windows-x64.exe`
+2. Follow the wizard — the app payload is already bundled; optional model/runtime assets download only when a feature needs them
 3. Launch Row-Bot from Start Menu or Desktop shortcut
 4. The system tray icon appears; the React app opens on the first available local port, normally `http://localhost:8080/app-v2/`
-5. First launch shows a setup wizard â€” choose **Local** (download an Ollama model), **Providers** (enter an API key and pick a provider model), or **Custom/Self-hosted** (enter an OpenAI-compatible endpoint such as LM Studio, fetch models, and pick a default)
+5. First launch asks **How should Row-Bot think?** — **On this computer** (an Ollama model), **With my subscription** (ChatGPT, Claude or Grok), or **With an API key** — and Setup Center lists what is left to set up. OpenAI-compatible endpoints such as LM Studio are added under Settings › Providers › Custom endpoints
 
 ## Notes
 
@@ -373,4 +334,4 @@ The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirement
 - **Optional native package recovery**: built-in TTS uses Kokoro ONNX and does not require TorchCodec. If a user-approved shell command installs a broken optional native package into the embedded Python runtime, startup diagnostics and the launcher log emit recovery hints, and repair/upgrade replaces the embedded runtime.
 - **Task DB recovery**: `launcher.py --reset-tasks-db` backs up `tasks.db`, `tasks.db-wal`, and `tasks.db-shm` under the resolved Row-Bot data directory, recreates a clean task schema, and prints the exact paths. `launcher.py --reset-db` backs up known local SQLite stores (`tasks.db`, `memory.db`, `threads.db` families). `launcher.py --restore-data [backup-dir]` restores known SQLite files from a recovery backup or from the latest backup when no directory is supplied.
 - **Launcher**: Uses `launcher.py` (system tray icon + native window + splash screen) instead of running the server directly. The tray icon shows app status (running/stopped) and provides graceful shutdown.
-- **Uninstall**: Registered with Windows Add/Remove Programs. The uninstaller removes the installation directory but does **not** delete user data in `~/.row-bot/` â€” users can remove it manually if desired.
+- **Uninstall**: Registered with Windows Add/Remove Programs. The uninstaller removes the installation directory but does **not** delete user data in `~/.row-bot/` — users can remove it manually if desired.
