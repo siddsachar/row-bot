@@ -1593,13 +1593,18 @@ test('Models catalog recovers an expired page cursor only when requested', async
   await models
     .getByRole('combobox', { name: 'Provider' })
     .selectOption('openai');
-  // Emptied, the catalog keeps at most the Brain's own saved model (B226).
-  await expect(models.getByText(/^Showing [01] of [01] models$/)).toBeVisible();
-  const kept = models.locator('.settings-model-row-list > li');
-  if (await kept.count()) {
-    await expect(kept).toHaveCount(1);
-    await expect(kept.first()).toContainText('Default');
-  } else await expect(models.getByText('No matching models')).toBeVisible();
+  // Emptied, the catalog keeps only models a job uses or you pinned (B226).
+  await expect(models.getByText(/^Showing \d of \d models$/)).toBeVisible();
+  const kept = await models.locator('.settings-model-row-list > li').all();
+  for (const row of kept)
+    await expect(
+      row
+        .getByText('Default', { exact: true })
+        .or(row.getByRole('button', { name: /^Unpin / }))
+        .first(),
+    ).toBeVisible();
+  if (!kept.length)
+    await expect(models.getByText('No matching models')).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, info, 'saved-models-empty');
   await accessibility(page, info, 'saved-models-empty');
@@ -2112,6 +2117,11 @@ test.describe('Knowledge settings', () => {
       .getByRole('button', { name: 'Show everything', exact: true })
       .click();
     await page.keyboard.press('Escape');
+    // Closed, the filters give focus back to their button: search after that.
+    await expect(filters).toBeHidden();
+    await expect(
+      page.getByRole('button', { name: 'Filters', exact: true }),
+    ).toBeFocused();
 
     // Search reads the whole library: these words sit past the part of the
     // description the map loads.
