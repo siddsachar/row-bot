@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.contract
 def test_record_f_p12_exact_model_thinking_http_roundtrip(
     platform, client, monkeypatch, tmp_path
 ):
-    from row_bot import skills, skills_activation, threads
+    from row_bot import skills, skills_activation, threads, vision_runtime
     from row_bot.api.v1.schemas import ConversationWorkspace
     from row_bot.plugins import state as plugin_state
     from row_bot.providers import reasoning
@@ -43,6 +44,9 @@ def test_record_f_p12_exact_model_thinking_http_roundtrip(
         },
     )
     monkeypatch.setattr(plugin_state, "get_cached_plugin_enablement", lambda: None)
+    # Vision off: whether the fixture model sees images would otherwise follow
+    # whatever capability caches this worker's earlier tests left behind.
+    monkeypatch.setattr(vision_runtime, "get_vision_service", lambda: SimpleNamespace(enabled=False))
 
     current = {MODEL: reasoning.ReasoningCapabilities(
         supported_efforts=("low", "high"), request_style="openai", revision="synthetic-effort-1")}
