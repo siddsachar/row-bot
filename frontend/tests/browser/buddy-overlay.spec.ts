@@ -167,6 +167,18 @@ for (const appearance of ['light', 'dark'] as const) {
       testInfo,
       `overlay-approval-axe-${appearance}`,
     );
+    testInfo.annotations.push({
+      type: 'expected-console-error',
+      description: JSON.stringify({
+        signature:
+          'Failed to load resource: the server responded with a status of 409 (Conflict)',
+        count: 1,
+        upTo: true,
+        owner: 'buddy-overlay approval fixture',
+        fixture:
+          'Approving in Buddy settles the approval while the main window may still read its details: that read answers 409 and the window drops it',
+      }),
+    });
     await approve.click();
     await expect(
       overlay.getByText('Synthetic approval resumed.', { exact: false }),

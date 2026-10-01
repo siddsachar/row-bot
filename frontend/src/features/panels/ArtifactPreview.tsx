@@ -631,12 +631,14 @@ export default function ArtifactPreview({
       if (!!stage.current && document.fullscreenElement === stage.current) {
         enteredFullscreen.current = true;
         setFullscreen(true);
-      } else if (enteredFullscreen.current) {
-        enteredFullscreen.current = false;
-        setFullscreen(false);
-        setPresenting(false);
-        requestAnimationFrame(() => presentButton.current?.focus());
+        return;
       }
+      setFullscreen(false);
+      // Leaving full screen ends presenting, unless the audience window took it.
+      if (!enteredFullscreen.current) return;
+      enteredFullscreen.current = false;
+      setPresenting(false);
+      requestAnimationFrame(() => presentButton.current?.focus());
     };
     document.addEventListener('fullscreenchange', changed);
     // Full screen may already have started before this listener existed.
@@ -1541,6 +1543,10 @@ export default function ArtifactPreview({
               startIndex={current.page_index}
               // Back to where presenting started.
               onEnded={() => stopPresenting(true)}
+              // The presenter carries on in the panel.
+              onAudience={() => {
+                enteredFullscreen.current = false;
+              }}
             />
           ) : (
             <>

@@ -30,6 +30,18 @@ test('real artifact stays unchanged for sixty seconds and one hundred reopen cyc
     'PB08/PB09 owned counters and forced-GC calibration are desktop Chromium; resource interactions run all viewports.',
   );
   test.setTimeout(300_000);
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature:
+        "Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the 'allow-scripts' permission is not set.",
+      count: 400,
+      upTo: true,
+      owner: 'unified-panels timer instrumentation',
+      fixture:
+        'page.addInitScript runs in every frame; Chromium refuses it in the script-free design previews this test reopens a hundred times',
+    }),
+  });
   await page.addInitScript(() => {
     const timeouts = new Set<number>();
     const intervals = new Set<number>();
