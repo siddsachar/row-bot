@@ -8,9 +8,12 @@ import type {
 } from './types';
 import { protect, unavailable } from './types';
 
-/** The first wait before binding again; it doubles up to a minute. */
+/**
+ * The first wait before binding again; it doubles up to 15 s, so a window
+ * binds soon after its host can bind it again, however long that took.
+ */
 export const REBIND_RETRY_MS = 2000;
-const REBIND_RETRY_MAX_MS = 60_000;
+const REBIND_RETRY_MAX_MS = 15_000;
 
 export type DesktopHost = Window & {
   __ROW_BOT_NATIVE_CLIENT__?: NativeEndpoint;
@@ -107,17 +110,21 @@ export function createDesktopPlatform(
     if (!ready() && endpoint) void bind(endpoint);
   });
 
+  let wait = retryMs;
+  // Ends the current wait between attempts early.
+  let wake: (() => void) | null = null;
   const rebind = () => {
     native = null;
     become('reconnecting');
-    if (rebinding) return;
+    if (rebinding) {
+      // A native operation is wanted now: try now.
+      wake?.();
+      return;
+    }
     rebinding = true;
+    wait = retryMs;
     void (async () => {
-      for (
-        let wait = retryMs;
-        !ready();
-        wait = Math.min(wait * 2, REBIND_RETRY_MAX_MS)
-      ) {
+      while (!ready()) {
         try {
           await host.pywebview?.api?.native_client_rebind?.();
         } catch {
@@ -125,11 +132,30 @@ export function createDesktopPlatform(
         }
         const endpoint = host.__ROW_BOT_NATIVE_CLIENT__;
         if (ready() || (endpoint && (await bind(endpoint)))) break;
-        await new Promise((resolve) => host.setTimeout(resolve, wait));
+        const delay = wait;
+        wait = Math.min(wait * 2, REBIND_RETRY_MAX_MS);
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            host.clearTimeout(timer);
+            wake = null;
+            resolve();
+          };
+          const timer = host.setTimeout(done, delay);
+          wake = done;
+        });
       }
       rebinding = false;
     })();
   };
+  // A window shown or focused again (after sleep, or hidden behind Buddy,
+  // where its timers crawl) tries at once and backs off from the start.
+  const retryNow = () => {
+    if (!rebinding || host.document.visibilityState === 'hidden') return;
+    wait = retryMs;
+    wake?.();
+  };
+  host.addEventListener('focus', retryNow);
+  host.document.addEventListener('visibilitychange', retryNow);
 
   async function run<T>(
     operation: (platform: ClientPlatform) => Promise<CapabilityResult<T>>,

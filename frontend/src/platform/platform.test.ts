@@ -1163,6 +1163,62 @@ describe('desktop windows never run the browser versions silently (B231, B238)',
     expect(await chosen.buddyPlacement('status')).toEqual(status);
   });
 
+  // The host refuses every binding until `healthy`; the window starts lost.
+  const outage = async (host: Host) => {
+    vi.useFakeTimers();
+    let healthy = false;
+    host.__ROW_BOT_NATIVE_CLIENT__ = {
+      dispatch: vi.fn().mockResolvedValue(lapsed),
+    };
+    const rebind = rebindingHost(host, () => ({
+      dispatch: vi.fn(async () => (healthy ? info : lapsed)),
+    }));
+    const chosen = await selectClientPlatform(
+      media(),
+      nativeAdapter,
+      asWindow(host),
+      async () => 'b'.repeat(32),
+    );
+    return { chosen, rebind, recover: () => (healthy = true) };
+  };
+
+  it.each(['focus', 'visibilitychange'] as const)(
+    'binds again at once on %s instead of waiting out its backoff (B231)',
+    async (event) => {
+      const host = desktopWindow();
+      const page = document.implementation.createHTMLDocument('desktop');
+      Object.defineProperty(page, 'visibilityState', { value: 'visible' });
+      Object.assign(host, { document: page });
+      const { chosen, rebind, recover } = await outage(host);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(chosen.nativeConnection?.get()).toBe('reconnecting');
+      const attempts = rebind.mock.calls.length;
+      recover();
+      (event === 'focus' ? host : page).dispatchEvent(new Event(event));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(chosen.nativeConnection?.get()).toBe('ready');
+      expect(rebind).toHaveBeenCalledTimes(attempts + 1);
+    },
+  );
+
+  it('binds again at once when a native operation is wanted while reconnecting', async () => {
+    const { chosen, recover } = await outage(desktopWindow());
+    await vi.advanceTimersByTimeAsync(20_000);
+    recover();
+    expect(await chosen.buddyPlacement('status')).toEqual(reconnecting);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chosen.nativeConnection?.get()).toBe('ready');
+  });
+
+  it('binds within 15 s of the host recovering, however long it was lost', async () => {
+    const { chosen, recover } = await outage(desktopWindow());
+    await vi.advanceTimersByTimeAsync(125_000);
+    expect(chosen.nativeConnection?.get()).toBe('reconnecting');
+    recover();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(chosen.nativeConnection?.get()).toBe('ready');
+  });
+
   it('attaches through the browser file input while reconnecting; a folder pick says so', async () => {
     const host = desktopWindow();
     host.__ROW_BOT_NATIVE_CLIENT__ = {
