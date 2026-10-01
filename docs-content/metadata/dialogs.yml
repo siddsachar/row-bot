@@ -5,13 +5,20 @@ dialogs:
     screenshot_id: setup-center
   export:
     source: frontend/src/features/settings/ConversationActions.tsx
-    docs_route: /docs/chat/tools-approvals-and-terminal
-    screenshot_id: chat-main
+    docs_route: /docs/chat/
+    screenshot_id: chat-export
   approval:
     source: frontend/src/features/shell/ApprovalCard.tsx
-    docs_route: /docs/privacy-safety/
+    docs_route: /docs/chat/tools-approvals-and-terminal
     screenshot_id: chat-approval
-    status: deferred
+  agents:
+    source: frontend/src/features/shell/agent-profiles.tsx
+    docs_route: /docs/profiles-goals-agents/
+    screenshot_id: agents-dialog
+  command-palette:
+    source: frontend/src/features/shell/CommandPalette.tsx
+    docs_route: /docs/app-shell/navigation
+    screenshot_id: command-palette
   plugin-marketplace:
     source: frontend/src/features/settings/PluginSettings.tsx
     docs_route: /docs/integrations/plugins

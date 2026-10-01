@@ -3,17 +3,17 @@
 # there needs exactly one entry here (collect_inventory.py fails otherwise).
 pages:
   preferences:
-    description: Set the assistant's name and personality, self-improvement, window
-      mode, and the Dream Cycle.
+    description: Set the assistant's name and personality, learning new skills, how
+      Row-Bot opens, and the overnight Dream Cycle.
     docs_route: /docs/settings/preferences
     screenshot_id: settings-preferences
   appearance:
-    description: Choose the theme, accent colour, density, and transparency, or reset
-      the panel layout.
+    description: Choose this device's theme, accent colour, density, and transparency,
+      or reset the panel sizes.
     docs_route: /docs/settings/preferences
   buddy:
-    description: Configure companion visibility, drag-to-undock overlay messaging,
-      approvals, look, custom looks, and motion.
+    description: Configure companion visibility, look, new looks, personality, bubbles,
+      and motion, and the drag-to-undock desktop overlay.
     docs_route: /docs/settings/buddy
     screenshot_id: settings-buddy
     dependencies: Desktop overlay behaviour depends on native-window support.
@@ -24,8 +24,8 @@ pages:
     security: Credentials are stored through the configured secret store; values are
       not shown in this reference.
   models:
-    description: Choose the default, vision, and image models, and pin models from the
-      catalog.
+    description: Choose which model does each job (Brain, Vision, Image, Video), the
+      reading limit and limits for long work, and pin models from the catalog.
     docs_route: /docs/settings/models
     screenshot_id: settings-models
   voice:
@@ -36,12 +36,13 @@ pages:
     dependencies: Voice extras, provider credentials, and OS audio permissions may be
       required.
   knowledge:
-    description: Review the memory graph and configure Wiki vault export.
+    description: Turn memory on or off, check graph health, configure the wiki vault,
+      and delete all knowledge. Memories themselves are managed in Home › Knowledge.
     docs_route: /docs/settings/knowledge
     screenshot_id: settings-knowledge
   documents:
-    description: Upload documents and choose the embedding engine used for document
-      search.
+    description: Choose where search runs and its model, maintain the search index, and
+      upload documents.
     docs_route: /docs/settings/documents
     screenshot_id: settings-documents
   tracker:
@@ -51,7 +52,7 @@ pages:
     screenshot_id: settings-tracker
   tools:
     description: Configure progressive external-tool loading, retrieval compression,
-      search and knowledge tools, built-in utility tools, and Custom Tools.
+      search and knowledge tools, built-in tools, and custom tools.
     docs_route: /docs/settings/tools
     screenshot_id: settings-tools
   skills:
@@ -66,7 +67,7 @@ pages:
       installed.
     security: Review source, permissions, and provided capabilities before enabling.
   mcp:
-    description: Add, import, enable, and troubleshoot external MCP servers and their
+    description: Add, browse, import, connect, and troubleshoot MCP servers and their
       managed runtimes.
     docs_route: /docs/settings/mcp
     screenshot_id: settings-mcp
@@ -89,8 +90,8 @@ pages:
     security: Starting an adapter can receive or deliver real messages; review targets
       first.
   system:
-    description: Configure the workspace folder, shell access, browser and Computer
-      Use, file operations, and logging.
+    description: Configure the workspace folder, what Row-Bot may do (commands, files,
+      browser and Computer Use), and logging.
     docs_route: /docs/settings/system
     screenshot_id: settings-system
     security: Filesystem, shell, browser, and Computer Use controls can widen local
@@ -106,5 +107,6 @@ pages:
     description: Choose the update channel and check for new versions.
     docs_route: /docs/operations/
   data:
-    description: Back up and restore Row-Bot data, or import from another assistant.
+    description: Back up and restore Row-Bot data, import from another assistant, and
+      run irreversible clean-up.
     docs_route: /docs/operations/
