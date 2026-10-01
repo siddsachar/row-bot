@@ -1,10 +1,14 @@
 import { act, render, screen } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { NativeConnection } from '../../platform';
 import { createFakePlatform } from '../../platform/fake';
-import DesktopReconnecting from './DesktopReconnecting';
+import DesktopReconnecting, {
+  RECONNECTING_NOTICE_DELAY_MS,
+} from './DesktopReconnecting';
 
-it('says desktop features are reconnecting only while they are (B231)', () => {
+afterEach(() => vi.useRealTimers());
+
+const desktop = () => {
   let connection: NativeConnection = 'ready';
   const listeners = new Set<() => void>();
   const platform = {
@@ -17,19 +21,44 @@ it('says desktop features are reconnecting only while they are (B231)', () => {
       },
     },
   };
+  const become = (next: NativeConnection) =>
+    act(() => {
+      connection = next;
+      listeners.forEach((listener) => listener());
+    });
+  return { platform, become };
+};
+
+it('says desktop features are reconnecting only while they still are after a moment (B231)', () => {
+  vi.useFakeTimers();
+  const { platform, become } = desktop();
   render(<DesktopReconnecting platform={platform} />);
   const status = screen.getByRole('status');
   expect(status).toBeEmptyDOMElement();
-  act(() => {
-    connection = 'reconnecting';
-    listeners.forEach((listener) => listener());
-  });
+  become('reconnecting');
+  act(() => vi.advanceTimersByTime(RECONNECTING_NOTICE_DELAY_MS));
   expect(status).toHaveTextContent('Desktop features are reconnecting…');
-  act(() => {
-    connection = 'ready';
-    listeners.forEach((listener) => listener());
-  });
+  become('ready');
   expect(status).toBeEmptyDOMElement();
+});
+
+it('never shows for a window that binds again within the moment', () => {
+  vi.useFakeTimers();
+  const { platform, become } = desktop();
+  render(<DesktopReconnecting platform={platform} />);
+  const status = screen.getByRole('status');
+  become('reconnecting');
+  act(() => vi.advanceTimersByTime(RECONNECTING_NOTICE_DELAY_MS - 1));
+  expect(status).toBeEmptyDOMElement();
+  become('ready');
+  act(() => vi.advanceTimersByTime(RECONNECTING_NOTICE_DELAY_MS));
+  expect(status).toBeEmptyDOMElement();
+  // A later loss waits its own moment again.
+  become('reconnecting');
+  act(() => vi.advanceTimersByTime(RECONNECTING_NOTICE_DELAY_MS - 1));
+  expect(status).toBeEmptyDOMElement();
+  act(() => vi.advanceTimersByTime(1));
+  expect(status).toHaveTextContent('Desktop features are reconnecting…');
 });
 
 it('says nothing in a browser', () => {
