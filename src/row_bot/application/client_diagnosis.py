@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 LOCAL_JOB = "system_health_local"
 NETWORK_JOB = "system_health_network"
 MODEL_JOB = "system_health_model"
+CHANNELS_JOB = "system_health_channels"
 # The first runs wait for start-up to settle.
 _LOCAL_AFTER_START = timedelta(seconds=30)
 _NETWORK_AFTER_START = timedelta(minutes=5)
@@ -348,6 +349,17 @@ def recheck_after_failed_turn(model_ref: str) -> None:
 
 def _recheck_local_model() -> None:
     _record(_results((status_checks.check_ollama,), network=True))
+
+
+def recheck_channels() -> None:
+    """A channel was started or stopped (from Monitor's fix or Settings):
+    check the channels again now, so their kept result and its fix follow."""
+    if _scheduler is not None:
+        _scheduler.add_job(_recheck_channels, id=CHANNELS_JOB, replace_existing=True)
+
+
+def _recheck_channels() -> None:
+    _record(_results((status_checks.check_channels,), network=False))
 
 
 def attention_problems() -> list[dict[str, str]]:

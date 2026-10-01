@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import importlib
 import json
 import os
 from pathlib import Path
@@ -372,14 +373,19 @@ def test_start_transport_loss_is_uncertain_and_original_never_replays(
 
 
 def test_successful_start_and_stop_delegate_once_and_update_autostart(
-    environment,
+    environment, monkeypatch,
 ) -> None:
+    # Monitor's kept channel checks follow each start and stop (Phase 18).
+    rechecks: list[str] = []
+    monkeypatch.setattr(importlib.import_module("row_bot.application.client_diagnosis"),
+                        "recheck_channels", lambda: rechecks.append("channels"))
     channel, owners = environment
     start, start_review = command(environment, "start")
     started = asyncio.run(execute(environment, start, start_review))
     assert started["status"] == "completed" and started["channel"]["running"] is True
     assert channel.start_calls == 1
     assert owners["config_owner"].writes == [("slack", "auto_start", True)]
+    assert rechecks == ["channels"]
 
     stop, stop_review = command(environment, "stop")
     stopped = asyncio.run(execute(environment, stop, stop_review))
@@ -387,6 +393,7 @@ def test_successful_start_and_stop_delegate_once_and_update_autostart(
     assert channel.stop_calls == 1
     assert owners["config_owner"].writes[-1] == ("slack", "auto_start", False)
     assert owners["registry_owner"].deliver_calls == 0
+    assert rechecks == ["channels", "channels"]
 
 
 def test_pair_and_revoke_use_canonical_auth_without_exposing_raw_identity(

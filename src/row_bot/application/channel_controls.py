@@ -126,6 +126,13 @@ def _channel(registry_owner: Any, channel_id: str) -> Any:
     return value
 
 
+def _recheck_channels() -> None:
+    """Monitor's kept channel checks follow a start or stop (Phase 18)."""
+    from row_bot.application.client_diagnosis import recheck_channels
+
+    recheck_channels()
+
+
 def _safe_call(callback: Callable[[], Any], default: Any) -> Any:
     try:
         return callback()
@@ -877,11 +884,13 @@ async def execute_channel_command(
             elif owners[1] is not None:
                 owners[1].set(channel_id, "auto_start", True)
             _safe_call(owners[0].clear_agent_cache_if_loaded, None)
+            _safe_call(_recheck_channels, None)
         elif operation == "stop":
             await channel.stop()
             if owners[1] is not None:
                 owners[1].set(channel_id, "auto_start", False)
             _safe_call(owners[0].clear_agent_cache_if_loaded, None)
+            _safe_call(_recheck_channels, None)
         elif operation == "test":
             # One message to the person's own account, on this explicit
             # action only; an uncertain original is never sent again.

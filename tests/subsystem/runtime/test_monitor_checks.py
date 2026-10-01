@@ -197,6 +197,34 @@ def test_account_sign_in_checks_follow_the_switch(profile, monkeypatch):
     assert calls == ["accounts", "github"]
 
 
+def test_a_channel_started_or_stopped_is_checked_again_now(profile, monkeypatch):
+    """Phase 18: after Monitor's Restart (or Settings' Start and Stop) the kept
+    channel result and its fix follow at once, not at the next 15-minute run."""
+    state = {"status": "warn", "detail": "Stopped"}
+
+    def channels():
+        return [CheckResult("Telegram", state["status"], state["detail"], checked_at=T0_S,
+                            settings_tab="Channels")]
+
+    monkeypatch.setattr(status_checks, "check_channels", channels)
+    monkeypatch.setattr(status_checks, "LOCAL_CHECKS", (channels,))
+    client_diagnosis.run_local_checks()
+    assert _by_id(client_diagnosis.read_system_health(now=T0_S))["channel:telegram"]["fix"]["kind"] == (
+        "restart_channel")
+
+    client_diagnosis.recheck_channels()  # before start-up: nothing to schedule on
+    scheduler = FakeScheduler()
+    client_diagnosis.schedule_health_checks(scheduler, now=T0)
+    state.update(status="ok", detail="Running")
+    client_diagnosis.recheck_channels()
+    job = scheduler.jobs[client_diagnosis.CHANNELS_JOB]
+    assert job.trigger is None  # once, now
+    job.func()
+
+    telegram = _by_id(client_diagnosis.read_system_health(now=T0_S))["channel:telegram"]
+    assert (telegram["status"], telegram["detail"], telegram["fix"]) == ("ok", "Running", None)
+
+
 def test_each_kept_warning_or_error_carries_its_one_fix(profile, monkeypatch):
     """Phase 18: Monitor, Overview and the attention list offer one fix per
     problem: restart a stopped channel, renew an account sign-in, choose a
