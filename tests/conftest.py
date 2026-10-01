@@ -299,6 +299,18 @@ def _reset_test_data_env_between_tests():
 
 
 @pytest.fixture(autouse=True)
+def _reset_agent_runtime_context():
+    # stream_agent sets the run's context (runtime surface, thread, tools) on
+    # the calling thread: a worker thread per run in the app, the one shared
+    # thread in tests. A test that streamed as a workflow left Computer Use
+    # refusing every later test on its worker.
+    yield
+    agent = sys.modules.get("row_bot.agent")
+    if agent is not None:
+        agent._set_active_runtime_context()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_desktop_notification_outputs(monkeypatch):
     # Exercise notification state/toasts normally while keeping deterministic
     # tests from showing OS alerts or playing sounds on the developer's desktop.
