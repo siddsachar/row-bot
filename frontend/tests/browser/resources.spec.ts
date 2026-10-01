@@ -648,9 +648,10 @@ test('Design inline edits in a row keep the selection, and colour, font and logo
   await expect(
     logo.getByRole('radio', { name: 'No logo', exact: true }),
   ).toHaveAttribute('aria-checked', 'true');
+  // Upload once the font change has settled, as its button allows.
   await expect(
     controls.getByRole('button', { name: 'Upload logo…', exact: true }),
-  ).toBeVisible();
+  ).toBeEnabled();
   await controls.getByLabel('Logo file', { exact: true }).setInputFiles({
     name: 'bake-sale-logo.png',
     mimeType: 'image/png',

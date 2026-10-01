@@ -238,6 +238,11 @@ it('reads the design again quietly when it moved on before the panel caught up',
   const view = render(<ArtifactDesignControls {...current} />);
   await waitFor(() => expect(current.onReload).toHaveBeenCalledOnce());
   expect(screen.queryByRole('alert')).toBeNull();
+  // Until the panel catches up the controls stay busy: nothing is sent with
+  // the version they last read (B246).
+  expect(
+    screen.getByRole('region', { name: 'Design controls' }),
+  ).toHaveAttribute('aria-busy', 'true');
   view.rerender(<ArtifactDesignControls {...current} resourceRevision="r2" />);
   await screen.findByText('Heading');
   expect(screen.queryByRole('alert')).toBeNull();
@@ -909,6 +914,49 @@ it('uploads a logo and makes it the logo once the design has it', async () => {
       'element-a',
     ),
   );
+});
+
+it('reads the design again itself after an upload moves it on, then makes it the logo (B246)', async () => {
+  let revision = 'r1';
+  const base = live(heading);
+  const current = {
+    ...base,
+    load: vi.fn(
+      async (options: Parameters<DesignControlsProps['load']>[0]) => ({
+        ...(await base.load(options)),
+        resource_revision: revision,
+      }),
+    ),
+    upload: vi.fn(async () => {
+      revision = 'r9';
+      return { resource_revision: 'r9', asset_id: 'asset-new' };
+    }),
+  };
+  const view = render(<ArtifactDesignControls {...current} view="brand" />);
+  await screen.findByRole('button', { name: 'Upload logo…' });
+  const file = new File(['synthetic'], 'brand.png', { type: 'image/png' });
+  await act(async () =>
+    fireEvent.change(screen.getByLabelText('Logo file'), {
+      target: { files: [file] },
+    }),
+  );
+  // An added picture changes no page: the panel is asked to read it again,
+  // and nothing is changed on the version from before the upload.
+  await waitFor(() => expect(current.onReload).toHaveBeenCalledOnce());
+  expect(current.apply).not.toHaveBeenCalled();
+  view.rerender(
+    <ArtifactDesignControls {...current} view="brand" resourceRevision="r9" />,
+  );
+  await waitFor(() =>
+    expect(current.apply).toHaveBeenCalledWith(
+      'brand',
+      expect.objectContaining({ logo_asset_id: 'asset-new' }),
+      'r9',
+      'first',
+      'element-a',
+    ),
+  );
+  expect(screen.queryByText(/belongs to another page/)).toBeNull();
 });
 
 const shelves = {

@@ -160,10 +160,13 @@ export default function ArtifactLogoPicker({
         >
           <Upload size={15} aria-hidden />
         </IconButton>
+        {/* Disabled with its button: a file chosen while a change saves
+            would carry the design version from before it. */}
         <input
           ref={file}
           type="file"
           hidden
+          disabled={disabled}
           aria-label="Logo file"
           accept=".png,.jpg,.jpeg,.webp,.gif,.svg"
           onChange={(event) => {

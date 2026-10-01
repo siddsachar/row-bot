@@ -348,6 +348,10 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
     session.set('error', '');
     if (!visible) return;
     session.set('loading', true);
+    // The design moved on before the canvas: stay busy until the canvas
+    // catches up (this reads again then), so nothing is sent with the older
+    // version (a logo's follow-up change conflicted, B246).
+    let catchingUp = false;
     void load({
       page_id: pageId,
       element_id: selectedElementId,
@@ -361,6 +365,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         if (value.resource_revision !== resourceRevision) {
           // The design moved on (usually by one's own edit) before the
           // canvas did: read it again, and these controls follow.
+          catchingUp = true;
           current.current.onReload();
           return;
         }
@@ -384,7 +389,7 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
         }
       })
       .finally(() => {
-        if (active) session.set('loading', false);
+        if (active && !catchingUp) session.set('loading', false);
       });
     return () => {
       active = false;
@@ -498,8 +503,13 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
       setNotice(use === 'logo' ? 'Logo added.' : 'Image added.');
       if (result.resource_revision === current.current.resourceRevision)
         setReload((value) => value + 1);
-      // The design moved on: controls wait until its new version is read.
-      else session.set('loading', true);
+      else {
+        // The design moved on: controls wait until its new version is read.
+        // An added picture changes no page, so the panel reads it again
+        // itself (otherwise the controls waited for good after a logo, B246).
+        session.set('loading', true);
+        current.current.onReload();
+      }
     } catch {
       if (current.current.resourceId === sourceId)
         setError(
@@ -770,14 +780,15 @@ export default function ArtifactDesignControls(props: DesignControlsProps) {
   useEffect(() => {
     const used = pending.current;
     const saved = session.getSnapshot().brand;
-    if (!used || !state || !saved || saving) return;
+    // Only a reload after the upload releases the new picture: a change made
+    // before it belongs to the older version and blocks the controls (B246).
+    if (!used || !state || !saved || saving || loading) return;
     pending.current = null;
     if (used.use === 'logo')
       changeBrand({ ...saved, logo_asset_id: used.asset }, 0);
     else void apply('image', { asset_id: used.asset });
-    // Only a reload after the upload releases the new picture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, saving]);
+  }, [state, saving, loading]);
   const element = state?.element ?? null;
   // Fonts that need no download, for the font pickers.
   const fonts = useDesignCatalog(
