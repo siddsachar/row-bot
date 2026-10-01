@@ -72,6 +72,29 @@ def test_public_text_cursor_pins_message_and_checkpoint_and_api_does_not_expose_
         read_text(service, conversation, "first", cursor=first["next_cursor"])
 
 
+
+def test_search_excerpt_is_cut_between_words_with_an_ellipsis(service):
+    from langchain_core.messages import HumanMessage
+    from row_bot import threads
+    from row_bot.application.conversation_search import search
+
+    conversation = threads.create_thread("Release notes", seed_default_skills=False)
+    before = "A self-hosted server operations background with plenty of words " * 3
+    after = " stacked inside a dark modern setting, with more words after it" * 6
+    assert threads.append_checkpoint_messages(conversation, [
+        HumanMessage(id="notes", content=before + "hardened container modules" + after),
+    ])
+    hit = next(item for item in search(service, "hardened container")["items"] if item["message_id"] == "notes")
+    excerpt = hit["excerpt"]
+    assert excerpt.startswith("…") and excerpt.endswith("…")
+    assert "hardened container modules" in excerpt
+    first, last = excerpt[1:].split(" ")[0], excerpt[:-1].split(" ")[-1]
+    assert first in before.split(" ") and last in after.split(" ")
+    short = threads.create_thread("Short", seed_default_skills=False)
+    assert threads.append_checkpoint_messages(short, [HumanMessage(id="short", content="Only a hardened container here")])
+    hit = next(item for item in search(service, "hardened container")["items"] if item["message_id"] == "short")
+    assert hit["excerpt"] == "Only a hardened container here"
+
 @pytest.mark.slow
 def test_server_pin_and_resource_groups_find_old_conversations_beyond_first_thousand(resource_service, tmp_path):
     from row_bot import threads
