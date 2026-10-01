@@ -397,6 +397,10 @@ Changes** below before upgrading.
 - **Windows file locks** - provider settings, the wiki manifest and the
   document index retry while Windows briefly holds a file that was just
   written.
+- **OpenCode Go** - requests no longer fail with "missing x-opencode-session":
+  Row-Bot now names itself and sends the session id OpenCode Go requires on
+  every model route. The id is a private value per conversation, never the
+  conversation's own id. OpenCode Zen requests carry the same headers.
 - **Dependency security updates** - anyio 4.14.2 (fixing a critical
   advisory), soupsieve 2.10, and image-size 2.0.4 in the client toolchain.
 
