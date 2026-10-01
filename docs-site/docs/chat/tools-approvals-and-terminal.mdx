@@ -53,14 +53,14 @@ Approving lets Row-Bot continue that action. Denying stops that action and retur
 
 <Screenshot id="terminal-dock" alt="Row-Bot conversation with the interactive terminal docked underneath." caption="The terminal docks under the conversation across its width, with Stop, Clear, Open in your terminal and Close." />
 
-On this computer, a conversation can open a real interactive terminal docked at the bottom of the window. Open or close it with the terminal button in the header, **Open panel › Interactive terminal**, the command palette (**Toggle terminal**), or Ctrl+`.
+In the Row-Bot desktop app, a conversation can open a real interactive terminal docked at the bottom of the window. Open or close it with the terminal button in the header, **Open panel › Interactive terminal**, the command palette (**Toggle terminal**), or Ctrl+`.
 
 - Type straight into it: colours, line editing, command history (the arrow keys) and Tab completion work as in your own terminal, and interactive programs answer.
 - **Stop** (Ctrl+C) interrupts the running command, **Clear** clears the screen, **Open in your terminal** opens your own terminal app, and **Close** hides the dock. Closing and reopening keeps the session and its scrollback.
 - Drag the divider to resize it; the height is remembered on this device. In a phone-sized window it opens as a full-screen sheet instead.
 - After the shell exits, **Start again** opens a new one.
 
-The terminal is for you: what you type runs as your own commands on this computer. Commands Row-Bot runs as tools still follow workspace boundaries, tool availability and approval mode, and appear in the conversation's tool steps. The terminal is available in the desktop app and in a browser on this computer, not from another device.
+The terminal is for you: what you type runs as your own commands on this computer. Commands Row-Bot runs as tools still follow workspace boundaries, tool availability and approval mode, and appear in the conversation's tool steps. The terminal needs the Row-Bot desktop app: in a browser on this computer the dock says so, and other devices don't offer it.
 
 ## Common Workflow
 
@@ -75,5 +75,5 @@ The terminal is for you: what you type runs as your own commands on this compute
 
 - If no approval appears, the action may be read-only, allowed by the conversation's **Auto** mode, or blocked before running.
 - If a tool result is confusing, ask Row-Bot to explain the last tool call.
-- If the terminal button is missing, open a conversation in the desktop app or a browser on this computer.
+- If the terminal says it needs the Row-Bot desktop app, open the conversation there; the button is not offered on other devices.
 - If you denied by mistake, ask Row-Bot to try again and review the next approval.
