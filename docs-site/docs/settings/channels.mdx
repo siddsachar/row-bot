@@ -9,25 +9,25 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Channels let Row-Bot receive or send messages through external apps. Use them when you want Row-Bot available outside the desktop window or when workflows should deliver results somewhere specific.
 
-<Screenshot id="settings-channels" alt="Settings: Channels in Row-Bot." caption="The Channels tab configures messaging connectors, credentials, tunnel use, pairing, and start/stop controls." />
+<Screenshot id="settings-channels" alt="Settings: Channels in Row-Bot." caption="The Channels page configures messaging connectors, credentials, tunnel use, pairing, and start and stop controls." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Channels** from the left tab list.
+Open **Settings**, then choose **Channels** in the **Connections** group, or search for it with **Find a setting**.
 
 ## Controls
 
 - Each channel expands into credential fields, status, and controls.
 - Save stores that channel's settings.
 - Start and Stop control the channel runtime.
-- Tunnel settings connect the channel to an externally reachable webhook when required.
+- Tunnel settings connect the channel to an externally reachable webhook when required. The tunnel itself is the public link in **Settings › Devices & remote access**.
 - DM Pairing Code helps approve a user before private-message access is allowed.
 - Paired Users shows who is approved and allows revocation.
 - Setup Guide explains provider-specific prerequisites.
 
 ## Common Workflow
 
-1. Configure tunnel credentials in System if the channel needs a webhook.
+1. Set up the public link in **Settings › Devices & remote access** if the channel needs a webhook.
 2. Add the channel's required token, URL, or account details.
 3. Save, then Start the channel.
 4. Pair or approve users before trusting inbound private messages.
@@ -47,6 +47,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If a channel will not start, check required fields and tunnel status.
+- If a channel will not start, check required fields and tunnel status. If it stopped, Monitor offers **Restart** for it.
 - If messages do not arrive, verify webhook URLs and platform permissions.
 - If a user should no longer have access, revoke them from Paired Users.

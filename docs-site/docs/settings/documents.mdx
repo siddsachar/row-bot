@@ -9,30 +9,30 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Documents let Row-Bot search files you add to its local document library. This is different from attaching a file to one chat: indexed documents become reusable context for future questions. Mixedbread Embed Large v1 is the recommended local embedding model; it is separate from the chat model and normal use loads it only from Row-Bot's private cache.
 
-<Screenshot id="settings-documents" alt="Settings: Documents in Row-Bot." caption="The Documents tab controls uploads, embedding models, indexed document state, and vector rebuild actions." />
+<Screenshot id="settings-documents" alt="Settings: Documents in Row-Bot." caption="The Documents page sets where search runs and its model, shows index health with its download, retry, repair and rebuild actions, and lists your documents." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Documents** from the left tab list.
+Open **Settings**, then choose **Documents** in the **Knowledge** group, or search for it with **Find a setting**.
 
 ## Controls
 
-- Upload documents adds files to Row-Bot-managed storage for indexing.
-- Embedding provider and model controls choose how document chunks become searchable vectors.
-- Download model installs the selected local model, Retry local load retries a cached model, and Repair local model deliberately replaces a broken cache entry.
-- Dimension override is for advanced embedding models that need a specific vector size.
-- Batch size controls how much indexing work happens at once.
-- Auto-unload local embedding resources releases local model memory after heavy document work.
-- Indexed Documents lists what Row-Bot has processed and whether each item is ready.
-- Rebuild document vectors repeats indexing when you change embedding settings.
-- Rebuild memory vectors refreshes memory search with the current embedding settings.
+- **Search runs** chooses where search works: **This computer** (your documents never leave it) or **Cloud** (document text goes to the embedding provider). Switching to Cloud asks first.
+- **Search model** chooses the embedding model. Mixedbread Embed Large v1 is the recommended local one.
+- **Free memory when idle** releases the local search model's memory after heavy document work.
+- **Index health and maintenance** shows the state of your document vectors and memory index:
+  - **Dimension override** is for advanced embedding models that need a specific vector size.
+  - **Document vectors** and **Memory index** each offer **Rebuild**, which recreates them with the current search settings.
+  - **Search model files** offers **Download** to install the selected local model, **Retry** to load an already cached copy again, and **Repair** to replace a damaged download. Download and Repair need network access.
+- **Upload documents** adds files to Row-Bot-managed storage for indexing.
+- **Your documents** lists what Row-Bot has processed, with each document's status and progress, and can remove a document after review.
 
 ## Common Workflow
 
-1. Keep the checked first-launch download, or choose Local runtime model and use Download model before adding a large document library.
+1. Under **Search model files**, choose **Download** before adding a large document library.
 2. Upload a small test document and wait until it is indexed.
-3. Ask Chat a question that should require the document.
-4. Rebuild vectors only when you change embedding model settings or suspect stale search results.
+3. Ask a question in a chat that should require the document.
+4. Rebuild vectors only when you change the search model or suspect stale results.
 
 ## What Is Saved
 
@@ -49,6 +49,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 ## Troubleshooting
 
 - If search misses obvious content, rebuild vectors and check the embedding provider.
-- If the local model is missing, use Download model. Use Retry local load for a cached model or Repair local model for a damaged download.
-- If local indexing is slow, lower batch size or enable auto-unload.
+- If the local model is missing, use **Download** under **Search model files**. Use **Retry** for a cached model or **Repair** for a damaged download.
+- If local indexing uses too much memory, turn on **Free memory when idle**.
 - If a document contains private material, remove it from the document library before sharing screenshots or logs.

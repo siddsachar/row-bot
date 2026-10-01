@@ -1,45 +1,66 @@
 ---
 title: "Settings: Models"
-description: "Choose defaults, pin Quick Choices, review model catalogs, and set Agent runtime limits."
+description: "Choose which model does each job (Brain, Vision, Image, Video), set the reading limit and limits for long work, and pin models from the catalog."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Models
 
-Models are the specific brains exposed by a provider. The Models tab decides which model Row-Bot should use by default and which choices appear quickly in chat and specialist surfaces.
+The Models page decides which model does each job. Providers supply the models (see [Settings: Providers](/docs/settings/providers)); this page picks between them.
 
-<Screenshot id="settings-models" alt="Settings: Models in Row-Bot." caption="The Models tab manages defaults, Quick Choices, catalog refreshes, and model readiness details." />
+<Screenshot id="settings-models" alt="Settings: Models in Row-Bot." caption="The Models page lists each job with its model picker, then limits for long work and the model catalog." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Models** from the left tab list.
+Open **Settings**, then choose **Models** in the **Models** group, or search for it with **Find a setting**.
 
-## Controls
+## Jobs
 
-- Default model controls choose what new chats use when a thread has no override.
-- Quick Choices are pinned models shown in the chat picker for fast switching.
-- Catalog refresh asks connected providers and local runtimes what models are available now.
-- Compatibility labels separate ordinary chat models from tool-capable, vision-capable, reasoning, embedding, voice, or media models.
-- Provider filters and search help find a specific model when many are available.
-- Warnings explain when a model is visible but not recommended for tool-heavy Agent Mode.
-- Agent runtime and delegation controls set work rounds, nesting depth, per-parent and app-wide child capacity, and an optional active-time limit for new runs.
+Each job has its own picker, using the same grouped, searchable list as the composer's model picker (provider, how it is paid for, and whether it is available):
+
+- **Brain** is the default model for new conversations and background work. A conversation can still choose its own model in the composer.
+- **Vision** reads images, screenshots and your camera. Leave it as **Same as Brain** if your Brain model can see, or choose another model. Choose a **Camera** here too.
+- **Image** makes and edits pictures.
+- **Video** makes short clips and animates pictures.
+
+Turn Vision, Image or Video off when you don't want that job done at all.
+
+## Reading Limit
+
+**Reading limit** sets how much text the Brain model reads at once. **Automatic** uses what the model supports; **Limit…** sets a smaller number of tokens, useful for local models on smaller computers.
+
+## Limits For Long Work
+
+These limits apply to new runs; work in progress keeps the limits it started with. **Recommended limits** restores the defaults.
+
+| Limit | Meaning |
+| --- | --- |
+| **Steps per run** | Model-and-tool rounds one run may take. |
+| **Helper levels** | How deep delegation goes; 1 lets helpers work but not start helpers of their own. |
+| **Helpers at a time, per agent** | Delegated agents one agent runs at once; more wait in line. |
+| **Helpers at a time, in total** | Delegated agents running across the whole app. |
+| **Helper time limit (seconds)** | How long one helper may work; 0 means no limit, and time waiting in line doesn't count. |
+| **Goal turn limit** | The turn limit new goals start with; 0, the default, means no limit. Each goal can change it. |
+
+## Catalog
+
+The **Catalog** lists every model your providers offer. Search it, filter by provider and job, and pin the models you use often so they appear first in every picker. **Refresh catalog** asks your providers what is available now.
 
 ## Common Workflow
 
-1. Refresh the catalog after connecting a provider.
-2. Pin one everyday chat model and one stronger tool-capable model.
-3. Use provider-qualified names when two providers expose models with similar names.
-4. Return to Chat and pick the pinned model from the model picker.
-5. Keep the recommended Agent runtime limits unless you have a measured reason to change them; active runs retain the snapshot they started with.
+1. Connect a provider, then choose your **Brain** model.
+2. Choose Vision, Image and Video models if you want those jobs.
+3. Pin one everyday model and one stronger tool-capable model.
+4. Keep the recommended limits unless you have a measured reason to change them.
 
 ## What Is Saved
 
-Default and pinned models are global preferences. A thread can still carry its own model override when you select a model inside that thread.
+Job models, limits and pins are global preferences. A conversation keeps its own model when you choose one in it.
 
 ## Privacy And Safety
 
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
+A hosted model receives the prompts, images or files its job sends it. Choose local models for jobs that should stay on your computer.
 
 ## Control-Level Reference
 
@@ -47,6 +68,7 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If the picker is empty, connect a provider first.
-- If a model is missing, refresh the catalog and check whether the provider is disabled.
-- If a small local model fails before answering, choose a larger context window or a more capable model.
+- If a picker is empty, connect a provider first.
+- If a model is missing, refresh the catalog and check whether its provider is connected.
+- If a model shows as unavailable, read its reason; reconnecting its provider usually fixes it.
+- If a small local model fails before answering, lower the reading limit or choose a more capable model.

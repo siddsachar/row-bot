@@ -9,11 +9,11 @@ import Screenshot from '@site/src/components/Screenshot';
 
 Buddy is Row-Bot's visual companion. It starts in the sidebar and, in the native Windows and macOS apps, can be dragged out into a compact always-on-top desktop overlay. The overlay is a smaller view of the thread selected in Row-Bot: it uses that thread's model, tools, approval mode, saved draft, and conversation rather than starting a separate assistant.
 
-<Screenshot id="settings-buddy" alt="Settings: Buddy in Row-Bot." caption="The Buddy tab controls companion visibility, personality, look, motion, and optional custom-look generation." />
+<Screenshot id="settings-buddy" alt="Settings: Buddy in Row-Bot." caption="The Buddy page controls companion visibility, personality, look, motion, and optional custom-look generation." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Buddy** from the left tab list.
+Open **Settings**, then choose **Buddy** in the **General** group, or search for it with **Find a setting**.
 
 ## Undock Buddy Onto The Desktop
 
@@ -30,7 +30,7 @@ The title at the top of the overlay identifies the thread that will receive your
 
 - Type into **Message this thread...**. Enter sends; Shift+Enter adds a line.
 - The full composer and overlay share the saved draft for each thread. Switching threads loads that thread's draft without merging it into another conversation.
-- Sending captures the thread and Chat, Developer, or Designer context shown at that moment, so changing the main-window selection during a run does not silently retarget the request.
+- Sending captures the thread and the Chat, Code, or Design context shown at that moment, so changing the main-window selection during a run does not silently retarget the request.
 - After sending, the overlay shows current progress, the latest response, or an error. If a response was interrupted (for example by a restart), **Resume** continues it.
 - Use **Stop** to stop the selected thread's active response. The overlay does not retry the turn by itself.
 - Attachments, transcript history, tool traces, model selection, and microphone controls remain in the full Row-Bot thread. Use **Open full thread** when you need them.
@@ -56,12 +56,16 @@ Buddy never creates a separate approval policy. It projects the selected thread'
 
 ## Appearance Controls
 
-- **Companion personality** changes the tone of Buddy status cues.
-- **Bubble style** changes how visual status appears.
-- **Look cards** choose a bundled or custom Buddy appearance.
-- **Concept** and **Style notes** describe a custom look for **Generate full Buddy**.
-- **Use still only** keeps the current art without animated motion.
-- **Retry motion** rebuilds motion for an existing look.
+The Buddy page follows the conversation you have open, because Buddy uses that conversation's profile and approvals; open a conversation first if it asks.
+
+- **Show Buddy** shows or hides the companion.
+- **Look** chooses a bundled or custom Buddy appearance. **New look…** makes one with your image model; **Refresh looks** reads them again.
+- **Personality** changes the tone of Buddy's status cues.
+- **Bubbles** changes how visual status appears.
+- **Motion** chooses how lively Buddy is: **Calm**, **Normal** or **Lively**.
+- **Advanced Buddy settings** holds Buddy's **Name**, optional **Style notes** for new looks, and **Compact size**.
+
+Buddy's picture is also the speaker mark beside Row-Bot's replies in conversations.
 
 ## Common Workflow
 
@@ -69,7 +73,7 @@ Buddy never creates a separate approval policy. It projects the selected thread'
 2. Drag Buddy out of the sidebar and confirm the same name appears in the overlay header.
 3. Type a short message, review any approval, and use **Open full thread** when you need the complete transcript or tool details.
 4. Use **Dock Buddy** when you want it back in the sidebar.
-5. Generate a custom look only after providers and media models are ready; use still-only mode if motion is unavailable or distracting.
+5. Make a new look only after an image model is ready in Settings › Models; choose **Calm** motion if animation is distracting.
 
 ## What Is Saved
 
@@ -92,4 +96,4 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 - If the overlay shows the wrong conversation, select the intended thread in Row-Bot and verify the overlay title before sending.
 - If an approval needs more context, choose **Review** or **Details** and decide in the full thread.
 - Restart Row-Bot to reset desktop placement to the sidebar dock. Then enable **Show Buddy** if a saved hidden preference keeps it out of view.
-- If custom generation fails, check provider readiness and try still-only mode.
+- If making a new look fails, check that an image model is chosen and its provider is connected.

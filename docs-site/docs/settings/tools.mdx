@@ -1,19 +1,19 @@
 ---
 title: "Settings: Tools"
-description: "Configure progressive external-tool loading, retrieval compression, and search and knowledge tools."
+description: "Configure progressive external-tool loading, retrieval compression, search and knowledge tools, built-in tools, and custom tools."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Tools
 
-Tools settings control how Row-Bot exposes enabled external capabilities to the model and configure its search and retrieval helpers.
+Tools settings control how Row-Bot exposes enabled external capabilities to the model, its search and retrieval helpers, the small built-in tools it can use, and the custom tools you add.
 
-<Screenshot id="settings-tools" alt="Settings: Tools in Row-Bot." caption="The Tools tab includes progressive capability loading, retrieval compression, and search and knowledge tool controls." />
+<Screenshot id="settings-tools" alt="Settings: Tools in Row-Bot." caption="The Tools page includes progressive capability loading, retrieval compression, search and knowledge tools, built-in tools and custom tools." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Tools** from the left tab list.
+Open **Settings**, then choose **Tools** in the **Capabilities** group, or search for it with **Find a setting**.
 
 ## Capability Loading
 
@@ -24,9 +24,16 @@ Both modes preserve tool enablement, provider compatibility, Agent Profile restr
 
 ## Other Controls
 
-- **Retrieval Compression** controls how search results are filtered before they reach the model.
-- **Search & Knowledge Tools** enables or disables configured research and reference tools such as arXiv, DuckDuckGo, web search, Wikipedia, Wolfram Alpha, and YouTube.
-- Provider-specific setup fields store the credentials required by optional search services.
+- **Retrieval compression** controls how search results are filtered before they reach the model.
+- **Search & Knowledge Tools** enables or disables configured research and reference tools such as arXiv, DuckDuckGo, web search, Wikipedia, Wolfram Alpha, and YouTube. Provider-specific setup fields store the credentials required by optional search services.
+
+## Built-In Tools
+
+**Built-in tools** are small tools for everyday tasks, such as the calculator, weather, charts and the URL reader. Each has its own switch, and the heading counts how many are on. These used to be a separate Utilities page. Developer tools are among them; the command palette can turn them on ("turn on developer tools").
+
+## Custom Tools
+
+**Custom tools** turns a folder's scripts into tools Row-Bot can run. **Add from a folder** (in the desktop app) inspects the folder and drafts the tool; this sends short excerpts of the folder to your chosen model, which may cost money with a paid provider. You can also ask Row-Bot in a chat to make a tool from a repository, or use the Custom Tool Builder in a code folder's Developer panel. Review a custom tool's commands before turning it on.
 
 ## Recommended Workflow
 

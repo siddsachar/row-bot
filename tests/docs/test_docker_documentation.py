@@ -123,7 +123,7 @@ def test_public_guide_covers_embedding_setup_and_multiple_instances() -> None:
 
     for phrase in (
         "Mixedbread Embed Large v1",
-        "checked-by-default 675 MB download",
+        "675 MB download",
         "Settings → Documents",
         'Screenshot id="settings-documents"',
         "## Multiple Isolated Instances",
@@ -141,19 +141,20 @@ def test_embedding_download_is_documented_for_every_install_type() -> None:
     for phrase in (
         "desktop, source, and official Docker install",
         "Mixedbread Embed Large v1",
-        "checked-by-default 675 MB download",
-        "Download model",
-        "Retry local load",
-        "Repair local model",
+        "675 MB download",
+        "Settings › Documents",
+        "**Search model files** offers **Download**",
+        "**Retry**",
+        "**Repair**",
         "bounded lexical and graph fallback",
         'Screenshot id="settings-documents"',
     ):
         assert phrase in first_launch
     for phrase in (
         "separate from the chat model",
-        "Download model",
-        "Retry local load",
-        "Repair local model",
+        "**Search model files** offers **Download**",
+        "**Retry**",
+        "**Repair**",
         "cloud embedding provider is opt-in",
     ):
         assert phrase in documents

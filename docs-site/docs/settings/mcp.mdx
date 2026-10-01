@@ -1,46 +1,59 @@
 ---
 title: "Settings: MCP"
-description: "Add, test, import, browse, enable, and troubleshoot external MCP servers."
+description: "Add, browse, import, connect, test and troubleshoot MCP servers and their runtimes in Settings › MCP."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: MCP
 
-MCP, the Model Context Protocol, lets Row-Bot use tools provided by another local or remote server. Treat MCP servers like extensions: only connect servers you trust and understand.
+MCP, the Model Context Protocol, lets Row-Bot use tools provided by another program on this computer or a server online. Treat MCP servers like extensions: only connect servers you trust and understand.
 
-<Screenshot id="settings-mcp" alt="Settings: MCP in Row-Bot." caption="The MCP tab manages external MCP tool servers, global enablement, per-server settings, tests, imports, and diagnostics." />
+<Screenshot id="settings-mcp" alt="Settings: MCP in Row-Bot." caption="The MCP page puts the MCP switches and runtimes first, then your saved servers with their status and Connect or Disconnect." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **MCP** from the left tab list.
+Open **Settings**, then choose **MCP** in the **Capabilities** group, or search for it with **Find a setting**.
 
-## Controls
+## Switches And Runtimes
 
-- Enable MCP is the global on/off switch for external MCP tools.
-- Add Server opens fields for name, transport, command, arguments, or URL.
-- Import Config accepts a server configuration from another source.
-- Browse MCP Servers searches directories for server candidates.
-- Diagnostics opens a health view for troubleshooting.
-- Per-server enablement decides whether a configured server can provide tools.
-- Test checks a server before you rely on it.
-- Edit, refresh, and delete manage saved server definitions.
-- Approval and advanced options decide how MCP tools interact with Row-Bot's safety policy.
+- **Use MCP servers** is the overall switch for MCP.
+- **Offer MCP tools in chats** decides whether conversations can use MCP tools.
+- **Runtimes (Node.js, uv)** shows whether the runtimes many servers need are installed, and installs a managed copy when you ask.
+
+## Your Servers
+
+Each saved server shows where it runs (on this computer or online) and its status: **Connected**, **Couldn't connect**, or **On · not connected**. Its main button does the next sensible thing: **Connect**, **Turn on & connect**, or **Disconnect**. Its **⋯** menu offers:
+
+- **Details**, a drawer with the server's connection, its tools and their permissions;
+- **Test connection**;
+- **Edit settings…** and **Rename…**;
+- **Remove server…**, which deletes its settings and saved keys and stops its connection.
+
+## Add A Server
+
+**Add a server** opens three ways to add one:
+
+- **Browse** searches a directory of servers and fills in the details for you.
+- **Manual** asks for the name, the type (a command on this computer, or a URL), the command and arguments or the address, and any headers or keys.
+- **Paste JSON** imports a configuration from another app.
+
+A new server stays turned off until you connect it, so you can check it first.
 
 ## Common Workflow
 
-1. Leave MCP disabled until at least one trusted server is configured.
-2. Add or import a server, then save it disabled first if you are unsure.
-3. Test the server and inspect the available tools.
-4. Enable the server only when you are comfortable with what those tools can access.
+1. Add or import a trusted server; it is saved turned off.
+2. Install a runtime if the server needs one.
+3. Choose **Connect**, then open **Details** to review its tools and permissions.
+4. Leave the server off, or remove it, if its tools can reach more than you want.
 
 ## What Is Saved
 
-MCP server definitions are local settings. A server may still access files, accounts, or networks according to its own implementation, so review its command or URL.
+MCP server definitions are local settings, and their keys use secret storage. A server may still access files, accounts, or networks according to its own implementation, so review its command or URL.
 
 ## Privacy And Safety
 
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
+An MCP tool call sends the data that call needs to that server, which may be online. Consequential MCP tools still ask for approval.
 
 ## Control-Level Reference
 
@@ -48,6 +61,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If a server test fails, check command, arguments, URL, and local dependencies.
-- If tools do not appear in Chat, confirm the global and server toggles are both enabled.
-- If a tool asks for risky access, reject the approval and inspect the server config.
+- If a server shows **Couldn't connect**, use **Test connection**, then check its command, arguments, URL and runtime.
+- If tools do not appear in chats, check **Use MCP servers**, **Offer MCP tools in chats** and the server's own status.
+- If a tool asks for risky access, deny the approval and review the server's **Details**.

@@ -1,44 +1,58 @@
 ---
 title: "Settings: Preferences"
-description: "Customize assistant identity, launch behavior, background intelligence, updates, and migration."
+description: "Set the assistant's name and personality, learning new skills, how Row-Bot opens, the overnight Dream Cycle, and this device's appearance."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Preferences
 
-Preferences are personal choices for how Row-Bot should address you, how it should behave at launch, and which background features should be active.
+Preferences are personal choices: how Row-Bot introduces itself, how it opens, and when it tidies memory overnight. **Appearance**, the page after it in the **General** group, sets how Row-Bot looks on this device.
 
-<Screenshot id="settings-preferences" alt="Settings: Preferences in Row-Bot." caption="The Preferences tab controls user identity, assistant personality, launch behavior, background intelligence, updates, and migration helpers." />
+<Screenshot id="settings-preferences" alt="Settings: Preferences in Row-Bot." caption="Preferences groups Identity, Opening Row-Bot and the overnight tidy-up." />
 
 ## Where To Find It
 
-Open **Settings**, then choose **Preferences** from the left tab list.
+Open **Settings**, then choose **Preferences** in the **General** group, or search for it with **Find a setting**.
 
-## Controls
+## Identity
 
-- Name helps Row-Bot address you naturally.
-- Personality changes the assistant's default tone.
-- Launch and window preferences decide how the app opens.
-- Background intelligence controls affect optional automatic review or organization features.
-- Dream cycle timing controls when background organization may run.
-- Update controls decide how Row-Bot checks or reports available versions.
-- Migration helpers support users moving from earlier app data.
+- **Name** is the assistant's name.
+- **Personality** sets the assistant's default tone; a preview shows how it sounds.
+- **Learn new skills** lets Row-Bot write and refine skills from your work. Turn it off to keep the skill library exactly as you set it.
 
-## Common Workflow
+## Opening Row-Bot
 
-1. Set your name and preferred assistant tone first.
-2. Choose a launch mode that fits how you use the desktop app.
-3. Enable background features only when you want Row-Bot organizing or reviewing local data outside direct chat turns.
-4. Use migration helpers only when moving from an older installation or renamed data set.
+**Open in** chooses whether Row-Bot opens in its own app window, in your browser, or asks each time.
+
+## Overnight Tidy-Up
+
+**Dream Cycle** tidies memory while you are away: it merges duplicates, enriches thin memories and infers missing links. Choose the **Hours** it may run (start and end hour). Its runs appear in Monitor's **History**, and Home › Knowledge can run it at any time.
+
+## Appearance
+
+**Settings › Appearance** applies to this device only, so a phone and a computer can look different:
+
+- **Appearance**: **System** (follows your device), **Light** or **Dark**.
+- **Colour theme**: **Blue**, **Teal**, **Violet** or **Amber**.
+- **Density**: **Comfortable** or **Compact**.
+- **Reduce transparency** turns off the glass effect.
+- **Workspace layout › Panel sizes** restores panel sizes without changing conversations or the look.
+
+A preview shows the result as you choose. In the command palette, "dark mode", "light mode" and "follow the system appearance" change it in one step.
+
+## What Moved
+
+- **Updates** (the update channel and checking for new versions) is its own page in the **System** group. See [Operations, Data, And Recovery](/docs/operations/#update-repair-and-uninstall).
+- **Import from another assistant** (Hermes Agent or OpenClaw) is on **Settings › Data**, with back up and restore. See [Operations, Data, And Recovery](/docs/operations/#back-up).
 
 ## What Is Saved
 
-Preferences are global local settings. They affect new chats and app behavior, while existing threads can still have their own model, profile, or approval choices.
+Preferences are global local settings. Appearance is saved on each device. Existing conversations keep their own model, profile and approval choices.
 
 ## Privacy And Safety
 
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
+These settings stay on your computer. Dream Cycle works on local memory and uses your chosen model when it needs one, which may be a hosted provider.
 
 ## Control-Level Reference
 
@@ -46,6 +60,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- If the app opens unexpectedly, adjust launch preferences and restart.
-- If background activity appears in Monitor, review Preferences and Knowledge settings.
-- If migration looks incomplete, do not delete old data until you confirm the new app has what you need.
+- If the app opens in the wrong place, change **Open in** and restart Row-Bot.
+- If Dream Cycle never runs, check that it is on and that its hours include times your computer is awake.
+- If the look differs between devices, that is expected: Appearance is saved per device.
