@@ -34,8 +34,10 @@ PLUGIN_LOGS_DIR = DATA_DIR / "plugin_logs"
 STALE_PLUGINS_DIR = DATA_DIR / "stale_plugins"
 STALE_PLUGIN_REPORT = "stale_plugins.json"
 
-# Timeout for plugin register() calls (seconds)
-REGISTER_TIMEOUT = 5.0
+# Timeout for plugin register() calls (seconds). It covers starting the
+# plugin's own interpreter as well, which a cold Windows start (a virus scan
+# of the new python.exe) can stretch well past 5 s.
+REGISTER_TIMEOUT = 15.0
 
 # Plugin code may import this public API and ordinary third-party/local modules.
 # Row-Bot internals stay behind PluginAPI so plugins cannot bypass lifecycle,
