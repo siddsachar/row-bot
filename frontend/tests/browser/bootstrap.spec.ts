@@ -238,6 +238,18 @@ test('real host recovers after browser offline without replaying producer comman
   expect(await page.evaluate(() => '__ROW_BOT_FIXTURE__' in window)).toBe(
     false,
   );
+  // A read the page happens to make during the outage (the composer, the
+  // queue) fails as any request would offline.
+  testInfo.annotations.push({
+    type: 'expected-console-error',
+    description: JSON.stringify({
+      signature: 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED',
+      count: 4,
+      upTo: true,
+      owner: 'Real host offline recovery',
+      fixture: 'context.setOffline(true) for the outage window',
+    }),
+  });
   await context.setOffline(true);
   try {
     await expect(page.locator('.connection-status')).toHaveText(
