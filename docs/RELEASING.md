@@ -228,7 +228,8 @@ Row-Bot 5.0.0 removes the NiceGUI interface. The React client is the only UI:
 the server is plain FastAPI/uvicorn, `/` redirects to `/app-v2/`, and the
 `--legacy-ui` and `--client-v2` launcher flags are accepted but do nothing (they
 log that they are deprecated and open the React client). NiceGUI and its
-dependencies are no longer installed.
+dependencies are no longer installed. What React took over is recorded in
+[`docs/NICEGUI_RETIREMENT.md`](NICEGUI_RETIREMENT.md).
 
 - In-app updates from 4.x keep working: the asset names and the SHA256
   manifest marker are unchanged.
