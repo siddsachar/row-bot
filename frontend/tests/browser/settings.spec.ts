@@ -55,6 +55,15 @@ async function findDocumentRow(
   return row;
 }
 
+/** On a phone a memory's detail is a full-width drawer over the toolbar. */
+async function closeDetailOnPhone(page: Page, detail: Locator) {
+  if ((page.viewportSize()?.width ?? 1280) >= 768) return;
+  await detail
+    .getByRole('button', { name: 'Close memory detail', exact: true })
+    .click();
+  await expect(detail).toHaveCount(0);
+}
+
 async function chooseFromMenu(scope: Locator, trigger: string, item: string) {
   await scope.getByRole('button', { name: trigger, exact: true }).click();
   await scope.page().getByRole('menuitem', { name: item, exact: true }).click();
@@ -1040,6 +1049,7 @@ test('Knowledge adds memory, searches the library, retains editor drafts, and co
   await expect(
     page.getByText('Phase 4 knowledge 002 archived.', { exact: true }),
   ).toBeVisible();
+  await closeDetailOnPhone(page, inspector);
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page
     .getByRole('dialog', { name: 'Memory filters', exact: true })
@@ -1050,9 +1060,13 @@ test('Knowledge adds memory, searches the library, retains editor drafts, and co
     name: 'Knowledge entities',
     exact: true,
   });
-  await expect(
-    list.getByRole('button', { name: 'Phase 4 knowledge 002', exact: true }),
-  ).toBeVisible();
+  const archived = list.getByRole('button', {
+    name: 'Phase 4 knowledge 002',
+    exact: true,
+  });
+  await expect(archived).toBeVisible();
+  // Closed on a phone above: open its detail again.
+  if (!(await inspector.isVisible())) await archived.click();
   await inspector
     .getByRole('button', { name: 'Restore memory', exact: true })
     .click();
@@ -2162,6 +2176,7 @@ test.describe('Knowledge settings', () => {
     await expect(edit).toBeFocused();
 
     // Activity: what recall used and what changed.
+    await closeDetailOnPhone(page, inspector);
     await page.getByRole('radio', { name: 'Activity', exact: true }).click();
     const recalls = page.getByRole('region', {
       name: 'Recall decisions',
