@@ -337,6 +337,23 @@ export async function accessibility(
   name: string,
   options: { opaquePreview?: boolean } = {},
 ): Promise<void> {
+  // Scan what stays on screen: a card still fading in (Overview's staggered
+  // entrance) measures as low contrast. Endless animations (spinners) are
+  // left running, and the wait is bounded.
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.effect?.getComputedTiming().iterations !== Infinity,
+          )
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]),
+  );
   const builder = new AxeBuilder({ page }).withTags([
     'wcag2a',
     'wcag2aa',
