@@ -138,9 +138,13 @@ const LIVE_RUN_STATUSES = new Set([
 ]);
 const FOLLOW_MS = 2000;
 
-// What a run starts with, as the row's tags (B254).
+// What a run starts with, as the row's tags (B254), named as the run shows
+// it ("builtin:row_bot_research" is "Research").
 function profileTag(id: string) {
-  return humanizeToken(id.replace(/^builtin:/, ''));
+  return (
+    humanizeToken(id.replace(/^builtin:/, '').replace(/^row_bot_/, '')) ||
+    'Default'
+  );
 }
 function approvalTag(mode: string) {
   if (mode === 'approve') return 'Asks before actions';
