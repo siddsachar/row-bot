@@ -135,6 +135,20 @@
           "result_sha256": "00344446d1e9bb4624e7ed4cbbfadfc0972d905372d3fb4fa3d7f2e2a1003369",
           "result_duration_seconds": 4.583
         }
+      },
+      "hevc_alpha": {
+        "format": "mov",
+        "codec": "HEVC with alpha (hvc1)",
+        "used_by": "Apple WebKit (Safari, and every browser on iOS and iPadOS), which plays WebM but drops its alpha",
+        "source": "Decoded losslessly from the reviewed WebM states (libvpx-vp9, alpha kept) to ProRes 4444, then encoded on macOS 26 with AVFoundation's HEVC-with-alpha encoder at 900 kbit/s and alpha quality 0.75",
+        "states": {
+          "idle": "70f1d8af2409024e19faea645a0a111535b5b1ac9d530ac906a40577eea6ca01",
+          "thinking": "4d569fd3147420475b01d686012e37c901bdf7ba18536cff80b3851f493afe65",
+          "working": "d4ab8f1c385d7314a72f1bd00f4b46c2fd4ea3b6a8a16994f95047e08771e126",
+          "approval": "aacd5fc2f59fd11bf11fd9eb7069e85407300655d6641bb2aec3ff9b696e3349",
+          "success": "dc2e749d51e7c1c2656eb8ea972c9892a10b1b23d4c530f83e608c89603e0feb",
+          "error": "abce1770ce873306d0d725007fc23871600993a83632f06e9dfec83d58093d03"
+        }
       }
     }
   },

@@ -28,6 +28,18 @@
     const SOURCES = Object.fromEntries(STATES.map(state => [state, `media/landing-story/buddy/${state}.webp`]));
     const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const saveData = Boolean(navigator.connection?.saveData);
+    // Safari and every iOS browser (Apple WebKit) play WebM but drop its alpha
+    // channel, so Buddy would sit in a dark box; they get HEVC with alpha.
+    const appleWebKit = /AppleWebKit/.test(navigator.userAgent || '')
+        && !/(Chrome|Chromium|Edg|OPR)\//.test(navigator.userAgent || '');
+
+    const HEVC_ALPHA_TYPE = 'video/mp4; codecs="hvc1"';
+
+    function alphaSource(media, video = media) {
+        const hevc = media.dataset.srcHevc;
+        if (hevc && appleWebKit && video.canPlayType?.(HEVC_ALPHA_TYPE)) return hevc;
+        return media.dataset.src;
+    }
     const controller = document.querySelector('[data-story-controller]');
     const stage = document.querySelector('[data-buddy-stage]');
     const control = document.querySelector('[data-buddy-control]');
@@ -116,7 +128,11 @@
         if (!video.getAttribute('poster') && video.dataset.poster) video.poster = video.dataset.poster;
         let hasSource = Boolean(video.getAttribute('src'));
         video.querySelectorAll('source').forEach(source => {
-            if (!source.getAttribute('src') && source.dataset.src) source.src = source.dataset.src;
+            if (!source.getAttribute('src') && source.dataset.src) {
+                const src = alphaSource(source, video);
+                if (src === source.dataset.srcHevc) source.type = HEVC_ALPHA_TYPE;
+                source.src = src;
+            }
             if (source.getAttribute('src')) hasSource = true;
         });
         if (!hasSource) return false;
@@ -190,7 +206,7 @@
         if (!target || !buddyMotionAllowed()) return;
         if (!restart && ((target.classList.contains('is-active') && !target.paused) || buddyPlayPending === state)) return;
         if (!target.getAttribute('src') && target.dataset.src) {
-            target.src = target.dataset.src;
+            target.src = alphaSource(target);
             target.load();
         }
         pauseBuddyVideos();
