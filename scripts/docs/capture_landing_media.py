@@ -37,10 +37,12 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import deque
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
@@ -49,9 +51,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.docs.capture_real_ui_screenshots import (  # noqa: E402
+    _DemoOllamaHandler,
     _free_port,
     _launch_app,
-    _start_demo_ollama,
     _wait_ping,
 )
 
@@ -68,7 +70,11 @@ SHIP_THREAD = "landing-ship"
 DIGEST_THREAD = "landing-digest-runs"
 DESIGN_ID = "landing-launch-page"
 SHIP_APPROVAL_ID = "1a4d1a000001"
-LOCAL_MODEL = "model:ollama:qwen3:8b"
+# The local model the footage shows, as the owner runs it, used by every local
+# conversation and workflow. Display-only: nothing runs. (The picker sorts its
+# local models by name, so a second one would be listed above it.)
+LOCAL_MODELS = ("qwen3.8:27b",)
+LOCAL_MODEL = f"model:ollama:{LOCAL_MODELS[0]}"
 HOSTED_MODEL = "model:codex:gpt-5.6-sol"
 CO_OP = "Riverbend Community Solar"
 # The capture's clock: conversations, runs and the approval are dated around a
@@ -465,7 +471,7 @@ _ENTITIES = [
     ("s_model", "skill", "Savings modelling", "Share price, credits and payback."),
     ("s_grant", "skill", "Grant writing", "Structure, budget and benefit."),
     ("s_events", "skill", "Event planning", "Venues, rotas and flyers."),
-    ("k_local", "self_knowledge", "Research runs on qwen3:8b", "On this computer, with sources kept."),
+    ("k_local", "self_knowledge", f"Research runs on {LOCAL_MODELS[0]}", "On this computer, with sources kept."),
     ("k_hosted", "self_knowledge", "Hosted models only when chosen", "A frontier model joins only when picked."),
     ("k_drafts", "self_knowledge", "Drafts stay on this computer", "Nothing is sent without approval."),
 ]
@@ -698,6 +704,16 @@ def _seed_design() -> None:
     bind(CREATE_THREAD, "artifact", DESIGN_ID, expected_revision=snapshot.revision, role="primary")
 
 
+def _seed_model_catalog() -> None:
+    """The picker's local models, read from the display-only runtime, as Quick Choices."""
+    from row_bot.providers.model_catalog_cache import refresh_model_catalog_cache
+    from row_bot.providers.selection import add_quick_choice_for_model
+
+    refresh_model_catalog_cache(reason="landing_demo", force=True, provider_id="ollama")
+    for model_id in LOCAL_MODELS:
+        add_quick_choice_for_model(model_id, provider_id="ollama")
+
+
 def _bind_profile(data_dir: Path, ollama_host: str = "") -> None:
     os.environ["ROW_BOT_DATA_DIR"] = str(data_dir)
     if ollama_host:
@@ -721,7 +737,7 @@ def seed_profile(data_dir: Path, ollama_host: str, anchor: datetime) -> None:
     _seed_knowledge(anchor)
     _seed_design()
     _seed_ship_goal(anchor)
-    demo._seed_model_catalog()
+    _seed_model_catalog()
     errors = scan_demo_data_safety(data_dir)
     if errors:
         raise SystemExit("\n".join(errors))
@@ -761,6 +777,43 @@ def add_ship_approval(data_dir: Path, anchor: datetime) -> None:
 
 
 # The app and the browser --------------------------------------------------------
+
+class _LandingOllamaHandler(_DemoOllamaHandler):
+    """The docs capture's display-only local runtime, listing the landing footage's models."""
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server naming
+        if self.path.startswith("/api/tags"):
+            self._reply(200, {"models": [self._model(name) for name in LOCAL_MODELS]})
+        else:
+            super().do_GET()
+
+    def do_POST(self) -> None:  # noqa: N802 - http.server naming
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            request = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            request = {}
+        name = str(request.get("model") or request.get("name") or "")
+        if self.path.startswith("/api/show") and name in LOCAL_MODELS:
+            details = self._model(name)["details"]
+            family = details["family"]
+            self._reply(200, {
+                "details": details,
+                "model_info": {"general.architecture": family, f"{family}.context_length": 32768},
+                "capabilities": ["completion", "tools"],
+            })
+        else:
+            self._reply(503, {"error": "the landing capture never runs a model"})
+
+
+def _start_demo_ollama(stack: ExitStack) -> str:
+    """Serve the display-only local runtime on loopback for the app's lifetime."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _LandingOllamaHandler)
+    threading.Thread(target=server.serve_forever, name="landing-demo-ollama", daemon=True).start()
+    stack.callback(server.server_close)
+    stack.callback(server.shutdown)
+    return f"http://127.0.0.1:{server.server_address[1]}"
+
 
 class App:
     """The real app on the isolated profile; stopped when the stack closes."""
@@ -1253,7 +1306,7 @@ def _record_automate(page, base: str, d: Director, rec: Recorder) -> list[tuple[
     page.get_by_text("Readiness is checked when it runs").first.wait_for(timeout=15_000)
     rec.mark("b0")
     d.wait(150)
-    d.to(page.get_by_text("qwen3:8b - Ollama Local").first, ms=650)
+    d.to(page.get_by_text(f"{LOCAL_MODELS[0]} - Ollama Local").first, ms=650)
     d.wait(1000)
     d.click(page.get_by_role("button", name="Save settings"), ms=600)
     page.get_by_text("4 workflows").first.wait_for(timeout=15_000)
@@ -1414,9 +1467,9 @@ PRODUCTION = {
         "co-op); no real user data, accounts, names or paths"
     ),
     "models": (
-        "No model ran. The local runtime is the docs capture's display-only stand-in on loopback (it lists "
-        "qwen3:8b and runs nothing); GPT-5.6 Sol via ChatGPT / Codex is display-only: the harness tells the "
-        "client it is connected, and nothing is connected or called"
+        "No model ran. The local runtime is the docs capture's display-only stand-in on loopback: it lists "
+        f"{LOCAL_MODELS[0]}, the local model the owner runs, and runs nothing. GPT-5.6 Sol via ChatGPT / Codex "
+        "is display-only: the harness tells the client it is connected, and nothing is connected or called"
     ),
     "outward_actions": "None: the harness answers the Ship clip's Approve request itself, so no email is sent",
     "pointer": "Drawn by the harness to show where the scripted clicks land",
@@ -1465,8 +1518,12 @@ def _file_record(path: Path) -> tuple[str, int]:
     return hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_size
 
 
-def write_records() -> None:
-    """Hash the published media into the manifest and the recording receipt."""
+def write_records(*, approve: bool = False) -> None:
+    """Hash the published media into the manifest and the recording receipt.
+
+    New media wait for the owner's review (``pending_review``); ``approve``
+    records the owner's approval of the media as published now.
+    """
     import imageio_ffmpeg
 
     timings = json.loads((SCRATCH / "timings.json").read_text(encoding="utf-8"))
@@ -1521,8 +1578,9 @@ def write_records() -> None:
             entry.update(clip_fallback=f"clips/{scene}.mp4", clip_fallback_sha256=clips[scene]["mp4_sha256"])
         entry["alt"] = alt
         assets.append(entry)
-    manifest.update(story_id=STORY_ID, run_id=run_id, review_status="pending_review", reviewed_at=None,
-                    production=PRODUCTION, assets=assets)
+    reviewed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if approve else None
+    manifest.update(story_id=STORY_ID, run_id=run_id, review_status="approved" if approve else "pending_review",
+                    reviewed_at=reviewed_at, production=PRODUCTION, assets=assets)
     first = ("schema", "story_id", "run_id", "review_status", "reviewed_at", "recording_receipt", "production")
     ordered = {key: manifest[key] for key in first}
     ordered.update({key: value for key, value in manifest.items() if key not in ordered})
@@ -1554,6 +1612,8 @@ def main() -> int:
     parser.add_argument("--serve", action="store_true", help="seed and start the app for a manual look")
     parser.add_argument("--records", action="store_true",
                         help="only rewrite the manifest and recording receipt from the published media")
+    parser.add_argument("--approve", action="store_true",
+                        help="with --records: record the owner's approval of the published media")
     parser.add_argument("--seed", metavar="DATA_DIR", help=argparse.SUPPRESS)
     parser.add_argument("--add-approval", metavar="DATA_DIR", help=argparse.SUPPRESS)
     parser.add_argument("--ollama-host", default="", help=argparse.SUPPRESS)
@@ -1567,7 +1627,7 @@ def main() -> int:
     elif args.serve:
         serve()
     elif args.records:
-        write_records()
+        write_records(approve=args.approve)
     else:
         print(json.dumps(capture(args.scenes), indent=2))
         write_records()
