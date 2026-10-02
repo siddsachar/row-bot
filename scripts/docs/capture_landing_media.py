@@ -534,9 +534,9 @@ _RELATIONS = [
 
 
 def _entity_id(key: str) -> str:
-    # Fixed ids give the graph the same starting layout on every capture; this
-    # seed spreads the co-op's neighbours with the fewest overlapping labels.
-    return hashlib.sha256(f"a1-{key}".encode()).hexdigest()[:12]
+    # Fixed ids give the graph the same layout on every capture; this seed
+    # spreads the co-op's labelled neighbours without overlapping labels.
+    return hashlib.sha256(f"v28-{key}".encode()).hexdigest()[:12]
 
 
 def _seed_knowledge(anchor: datetime) -> None:
@@ -550,8 +550,11 @@ def _seed_knowledge(anchor: datetime) -> None:
                            properties={"provenance": "landing demo fixture"}, source="landing-demo",
                            entity_id=_entity_id(key))
         for source, target, relation in _RELATIONS:
+            # Fixed relation ids too: the graph reads its edges in id order, and
+            # that order steers the layout.
             kg.add_relation(_entity_id(source), _entity_id(target), relation, confidence=0.95,
-                            properties={"provenance": "landing demo fixture"}, source="landing-demo")
+                            properties={"provenance": "landing demo fixture"}, source="landing-demo",
+                            relation_id=_entity_id(f"{source}>{target}"))
     finally:
         kg._skip_reindex = previous
     moment = (anchor - timedelta(minutes=26)).isoformat()

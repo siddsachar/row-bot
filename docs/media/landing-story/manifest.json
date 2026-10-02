@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "story_id": "react-workbench-v1",
-  "run_id": "20261001T235533Z-a8496a",
+  "run_id": "20261002T005634Z-ff892d",
   "review_status": "pending_review",
   "reviewed_at": null,
   "recording_receipt": "recording-receipt.json",
@@ -18,17 +18,17 @@
     {
       "scene_id": "hero-app",
       "still": "screenshots/research.webp",
-      "sha256": "4585c45098592e199d285d529a047b98fc7d360139ba6f1701271bd06e241a64",
+      "sha256": "21f0ddffcbaa7a70b75de21b468990e11048f8a530fcca47d53a4d4f6fa99e17",
       "alt": "Row-Bot's Knowledge graph after local-model research, with the co-op's memory and its connections highlighted."
     },
     {
       "scene_id": "research-local",
       "still": "screenshots/research.webp",
-      "sha256": "4585c45098592e199d285d529a047b98fc7d360139ba6f1701271bd06e241a64",
+      "sha256": "21f0ddffcbaa7a70b75de21b468990e11048f8a530fcca47d53a4d4f6fa99e17",
       "clip": "clips/research.webm",
-      "clip_sha256": "5850043b84f08ac432866a75ae31ee47c19f7282d47e7902a1527f77db80a7a6",
+      "clip_sha256": "feb49208f17db4f0cf27f9f6105b284f7bec55a59a75d23a3c9b560d6a5845ad",
       "clip_fallback": "clips/research.mp4",
-      "clip_fallback_sha256": "e94cff6f0a4f5fecaf26d7921fe038444cbee1498fda7fa6c4885ee1910b0f5c",
+      "clip_fallback_sha256": "61befcaf273639da3fd48f2b896030e6b7f582077da1059307d274f4c8e02f03",
       "alt": "A local-model conversation with its source trace, followed by the Knowledge graph settling into connected memories."
     },
     {
@@ -44,9 +44,9 @@
     {
       "scene_id": "knowledge-control",
       "still": "screenshots/research.webp",
-      "sha256": "4585c45098592e199d285d529a047b98fc7d360139ba6f1701271bd06e241a64",
+      "sha256": "21f0ddffcbaa7a70b75de21b468990e11048f8a530fcca47d53a4d4f6fa99e17",
       "clip": "clips/research.webm",
-      "clip_sha256": "5850043b84f08ac432866a75ae31ee47c19f7282d47e7902a1527f77db80a7a6",
+      "clip_sha256": "feb49208f17db4f0cf27f9f6105b284f7bec55a59a75d23a3c9b560d6a5845ad",
       "alt": "A Row-Bot knowledge graph of 103 connected memories, with one memory's connections labelled."
     },
     {
@@ -60,11 +60,11 @@
     {
       "scene_id": "workflow-repeat",
       "still": "screenshots/automate.webp",
-      "sha256": "93ca6bab849d60f74660efd4f45c44476596a8d1d8ef3279b0a61a81f1aba3ad",
+      "sha256": "cd8daaa6d007af7695a4cbb446820a1c01638903de7e3a3c8ddcf51a135eb11b",
       "clip": "clips/automate.webm",
-      "clip_sha256": "5abdcaeae51a18c6b176b5ee51fc32504e2868ab3b81f8a72490a8222032c878",
+      "clip_sha256": "d9e0df5fcf22ec45a55c0ace86b4c4f11966c7b20f3c428031e9e30470c318f9",
       "clip_fallback": "clips/automate.mp4",
-      "clip_fallback_sha256": "cfab173c70bef5b7530552f300bcd3dcdfade9a7e999cb007c4642c42aae845d",
+      "clip_fallback_sha256": "348147c8ad5f91b276249f470746029173d0f102643ce74ab125ad1e3f8a10a2",
       "alt": "Workflow delivery kept in the app with no outside channels, a workflow's local model saved, then its retained run history."
     },
     {
