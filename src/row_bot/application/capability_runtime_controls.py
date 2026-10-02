@@ -12,7 +12,7 @@ import sys
 from uuid import UUID
 
 from row_bot.application import capability_configuration_controls as configuration
-from row_bot.mcp_client import config
+from row_bot.mcp_client import config, targets
 from row_bot.runtime import admissions
 
 
@@ -63,6 +63,7 @@ def _cleanup_revision(server_id: str, runtime_id: str) -> str:
     return configuration._digest(["mcp-owned-cleanup", server_id, runtime_id])
 
 
+@targets.owner
 def read_mcp_runtime_state(server_id: str, *, expected_runtime_id: str | None = None,
                            validate: Callable[[], None] = lambda: None) -> McpRuntimeState:
     validate()
@@ -134,6 +135,7 @@ def _review(revision: str, server_id: str, operation: str, runtime_id: str | Non
             "runtime_id": runtime_id, "action_digest": admissions.keyed_digest(action)}, name, server
 
 
+@targets.owner
 def review_mcp_runtime_command(resource_revision: str, server_id: str, operation: str,
                                expected_runtime_id: str | None, *, validate: Callable[[], None]) -> dict:
     """Review an explicit connection effect; this performs no runtime import/IO."""
@@ -218,6 +220,7 @@ def _record_completion(server_id: str, runtime_owner) -> None:
             {"command_id": row["command_id"], "_mcp_runtime": completed})
 
 
+@targets.owner
 def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
                                 validate: Callable[[], None], validate_review: Callable[[dict], None],
                                 validate_admitted_review: Callable[[dict, str], None] | None = None,
@@ -322,7 +325,7 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
             validate_review(current)
 
     def checkpoint(runtime_id: str) -> None:
-        progress["_mcp_runtime"] = {"runtime_id": runtime_id, "operation": operation}
+        progress["_mcp_runtime"] = {"runtime_id": runtime_id, "operation": operation, "command": command}
         if operation == "test":
             progress["_mcp_runtime"].update(server_id=server_id,
                 configuration_digest=config.read_saved_configuration().digest)
@@ -347,7 +350,7 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
         return outcome(stopped["state"], expected_id, stopped["session_quiesced"], terminal=terminal,
                        code=None if terminal else "mcp_cleanup_incomplete")
     try:
-        launched = runtime.launch_server_owned(name, server, before_start=checkpoint, validate=authority,
+        launched = runtime.launch_server_owned(name, server, before_start=targets.bind(checkpoint), validate=targets.bind(authority),
             temporary=operation == "test", before_release=lambda owned: _record_completion(server_id, owned))
     except Exception:
         identity = progress.get("_mcp_runtime", {}).get("runtime_id")
@@ -365,3 +368,23 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
         return outcome(launched.state, launched.runtime_id, True, terminal=True,
                        code="mcp_connection_failed" if launched.state in {"failed", "dependency_missing"} else None)
     return outcome(launched.state, launched.runtime_id, False, terminal=False, code="mcp_runtime_unconfirmed")
+
+
+def reconcile_mcp_runtime_operation(*, owner_id: str, command_id: str, validate: Callable[[], None]) -> dict:
+    """Inspect the already admitted runtime; never authorize a new launch."""
+    validate()
+    metadata = admissions.read_command_metadata(owner_id, command_id)
+    if metadata is None or metadata["type"] != "mcp.runtime.control":
+        raise CapabilityRuntimeError("not_found")
+    result = admissions.read_command_receipt(owner_id, command_id) or {}
+    if metadata["status"] not in {"completed", "rejected"}:
+        command = result.get("_mcp_runtime", {}).get("command")
+        if command:
+            def no_new_effect(_review: dict) -> None:
+                raise CapabilityRuntimeError("mcp_runtime_unconfirmed")
+            result = execute_mcp_runtime_command(owner_id=owner_id, key=metadata["key"], command=command,
+                validate=validate, validate_review=no_new_effect, target=command.get("mcp_target"))
+    settled = result.get("status") in {"completed", "rejected"}
+    return {"command_id": command_id, "settled": settled,
+        "message": "Original connection operation confirmed." if settled else
+            "The original connection is still running or unconfirmed. No connection was repeated; check again or stop its owned runtime in Advanced settings."}

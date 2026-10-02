@@ -15,6 +15,14 @@ tabs. The loader refuses plugins that import UI frameworks such as `nicegui`,
 renders plugin metadata, permissions, settings, secrets, auth, health checks,
 tools, channels, skills, logs, updates, and enablement.
 
+## Integrations and portable packages
+
+The common surface is Settings → Integrations. Native v2 remains supported without
+relaxing its manifest or import gates. Agent Plugins 1.0.0 uses a separate declarative
+skills/MCP adapter; foreign host code is never imported. See [Integrations author
+guidance](INTEGRATIONS.md) for source pins, stable child identities, protected MCP
+authentication, scoped overrides, update publication and one-version recovery.
+
 ## Manifest v2
 
 Each plugin directory contains `plugin.json` with `schema_version: 2`.

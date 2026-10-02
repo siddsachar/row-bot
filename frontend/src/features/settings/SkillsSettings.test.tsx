@@ -347,24 +347,13 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
-it('keeps public discovery explicit in its own tab', async () => {
+it('keeps advanced editing local when discovery is not supplied', async () => {
   render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
-
   await screen.findByText('✨ Sample skill');
-  const installed = screen.getByRole('tab', { name: /^Installed/ });
-  const discover = screen.getByRole('tab', { name: 'Discover' });
-  expect(installed).toHaveAttribute('aria-selected', 'true');
-  fireEvent.click(discover);
-  expect(discover).toHaveAttribute('aria-selected', 'true');
   expect(
-    screen.getByText('Public skill sources are unavailable.'),
-  ).toBeVisible();
-  // The installed list stays mounted behind its tab.
-  expect(screen.getByText('✨ Sample skill')).not.toBeVisible();
-  fireEvent.click(installed);
-  expect(
-    screen.getByText('Import a skill').closest('details'),
-  ).not.toHaveAttribute('open');
+    screen.queryByRole('tab', { name: 'Discover' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Create skill' })).toBeVisible();
 });
 
 it('opens, edits, duplicates, and confirms destructive deletion', async () => {

@@ -1,41 +1,12 @@
 ---
 title: "Plugins"
-description: "Install, enable, configure, update, remove, and troubleshoot Row-Bot plugins."
+description: "Set up and maintain plugins in Integrations."
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Plugins
 
-Plugins add optional capabilities to Row-Bot: tools, skills, apps, settings, and integration surfaces. Install them only from sources you trust, because they can run code inside the local app environment.
+Packages now live in **Settings → Integrations**. Inspect a native Row-Bot package or portable Agent Plugins 1.0.0 package before adding it. Native configuration, protected secret fields, preparation and health checks remain in the package details. Portable skills and MCP connections appear as children of one parent.
 
-<Screenshot id="settings-plugins" alt="Row-Bot Plugins settings." caption="Plugins settings list installed plugins, marketplace entry points, configuration, enablement, and Custom Tool promotion." />
+Enabling a package does not bypass tool approvals or profiles. Test and accept a portable MCP child’s tools separately. Foreign host entry points and hooks are not executed. Updates preserve package identity and settings, keep one previous managed file revision, and expose explicit recovery. Remove preserves data and credentials; **Delete saved data** removes only that package’s retained state.
 
-## Setup Workflow
-
-1. Open Settings -> Plugins.
-2. Review installed plugins and marketplace options.
-3. Read the plugin description and requested configuration.
-4. Install or enable the plugin.
-5. Configure required fields.
-6. Test with a low-risk prompt.
-7. Disable, update, or remove the plugin when needed.
-
-## Controls
-
-- **Installed plugin cards** show version and status.
-- **Enable/disable** controls whether plugin capabilities are active.
-- **Configure** opens plugin-specific settings.
-- **Update/remove** manage the local installation.
-- **Plugin marketplace** opens plugin discovery and install previews; every download is checked against its published checksum.
-- **Custom Tools** can be promoted after review so they behave like reusable app capabilities.
-
-## Safety
-
-Plugins can add tools that read files, call services, or create outputs. Keep approval mode active for risky actions and disable plugins you do not actively use.
-
-## Troubleshooting
-
-- If a plugin does not load, inspect its manifest and dependency message.
-- If plugin tools are missing, confirm the plugin is enabled.
-- If a plugin causes errors, disable it, restart Row-Bot if needed, then review configuration.
+See [Integrations](/docs/settings/integrations) for the complete workflow and compatibility limits.

@@ -12,7 +12,7 @@ from uuid import UUID
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_policy_controls as policy
-from row_bot.mcp_client import config
+from row_bot.mcp_client import config, targets
 from row_bot.mcp_client.conflicts import requires_manual_tool_selection
 from row_bot.mcp_client.safety import is_destructive_tool
 from row_bot.runtime import admissions
@@ -185,6 +185,7 @@ def _document(saved, server_id, captured):
     return document, (name,), manual
 
 
+@targets.owner
 def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: str,
                             query: str = "", cursor: str | None = None, limit: int = 25,
                             validate: Callable[[], None] = lambda: None) -> McpTestedCatalogPage:
@@ -238,6 +239,7 @@ def _intent(server_id, test_command_id):
     return {"operation": "accept_catalog", "server_id": server_id, "test_command_id": test_command_id}
 
 
+@targets.owner
 def review_mcp_catalog_command(*, owner_id: str, configuration_revision: str, server_id: str,
                                test_command_id: str, validate: Callable[[], None]) -> dict:
     validate()
@@ -257,6 +259,7 @@ def review_mcp_catalog_command(*, owner_id: str, configuration_revision: str, se
             "tool_count": len(captured["tools"]), "manual_selection_required": manual, "saved_disabled": None}
 
 
+@targets.owner
 def execute_mcp_catalog_command(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],
                                 validate_review: Callable[[dict], None]) -> dict:
     validate()

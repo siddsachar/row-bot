@@ -1,4 +1,49 @@
 {
+  "$defs": {
+    "McpPluginTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "plugin",
+          "title": "Kind",
+          "type": "string"
+        },
+        "plugin_id": {
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "server_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Server Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "plugin_id",
+        "server_key"
+      ],
+      "title": "McpPluginTarget",
+      "type": "object"
+    },
+    "McpStandaloneTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "standalone",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "McpStandaloneTarget",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "configuration_revision": {
@@ -10,6 +55,21 @@
       "pattern": "^[0-9a-f]{64}$",
       "title": "Server Id",
       "type": "string"
+    },
+    "target": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpStandaloneTarget"
+        },
+        {
+          "$ref": "#/$defs/McpPluginTarget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target"
     },
     "test_command_id": {
       "format": "uuid",

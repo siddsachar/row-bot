@@ -121,6 +121,9 @@ class PluginManifest:
     auth: dict[str, Any] = field(default_factory=dict)
     health_checks: list[dict[str, Any]] = field(default_factory=list)
     path: Path | None = None
+    package_format: str = "row-bot-v2"
+    source_identity: str = ""
+    diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def tool_count(self) -> int:
@@ -143,7 +146,7 @@ class PluginManifest:
         return len(self.provides.skills)
 
 
-def parse_manifest(plugin_dir: Path) -> PluginManifest:
+def parse_manifest(plugin_dir: Path, *, source_identity: str = "") -> PluginManifest:
     """Parse and validate ``plugin.json`` from *plugin_dir*."""
 
     manifest_path = plugin_dir / "plugin.json"
@@ -159,6 +162,9 @@ def parse_manifest(plugin_dir: Path) -> PluginManifest:
     if not isinstance(raw, dict):
         raise ManifestError(f"plugin.json must be a JSON object, got {type(raw).__name__}")
 
+    if "$schema" in raw:
+        from row_bot.plugins.portable import parse_portable_manifest
+        return parse_portable_manifest(plugin_dir, raw, source_identity=source_identity)
     return _validate(raw, plugin_dir)
 
 

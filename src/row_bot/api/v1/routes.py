@@ -1011,6 +1011,8 @@ _STATUS.update(
 )
 
 
+_STATUS.update(dict.fromkeys(('integration_inventory_limit', 'invalid_integration_query', 'integration_import_type_required', 'integration_preview_expired', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
+
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).
 _KNOWN_CODES = frozenset(
@@ -1313,6 +1315,15 @@ def create_router(
         )
         security.rate(current, lane)
         return current
+
+    async def integration_owner(request: Request) -> str:
+        """Durable principal identity; every effect still validates its session."""
+        context = await _context(request)
+        if context.is_local_owner:
+            return security.instance_id
+        if not context.device_id:
+            raise ProtocolError("authentication_required", 401)
+        return security.instance_id + ":device:" + context.device_id
 
     async def call(method: Callable, *args: Any, **kwargs: Any) -> Any:
         return await asyncio.to_thread(method, *args, **kwargs)
@@ -4377,6 +4388,59 @@ def create_router(
         if not (context.is_local_owner and context.direct_loopback):
             raise ProtocolError("owner_local_only", 403)
 
+    @router.get("/settings/integrations")
+    async def integrations(request: Request, query: str = "", kind: str = "all", source: str = "all", cursor: str | None = None, limit: int = 50) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_integrations import read_integrations
+        result = await call(read_integrations, query=query, kind=kind, source=source, cursor=cursor, limit=limit, validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationPage, result)
+
+    @router.get("/settings/integrations/{integration_id}")
+    async def integration_detail(integration_id: str, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_integrations import read_integration
+        result = await call(read_integration, integration_id, validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationItem, result)
+
+    @router.post("/settings/integrations/search")
+    async def integrations_search(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.IntegrationSearchRequest, 4096)
+        from row_bot.application.client_integrations import search_integrations
+        result = await call(search_integrations, owner_id=await integration_owner(request), **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationPage, result)
+
+    @router.post("/settings/integrations/preview")
+    async def integrations_preview(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.IntegrationPreviewRequest, 8192)
+        if body.local:
+            await plugin_lifecycle_authority(request)
+        from row_bot.application.client_integrations import preview_integration
+        result = await call(preview_integration, owner_id=await integration_owner(request), **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationPreview, result)
+
+    @router.post("/settings/integrations/operations/{kind}/{command_id}/reconcile")
+    async def integration_reconcile(kind: str, command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        if kind == "plugin":
+            await plugin_lifecycle_authority(request)
+            from row_bot.application.client_plugin_lifecycle import reconcile_plugin_operation as reconcile
+        elif kind == "skill":
+            from row_bot.application.client_skill_hub import reconcile_skill_hub_operation as reconcile
+        elif kind == "mcp":
+            from row_bot.runtime import admissions
+            metadata = await call(admissions.read_command_metadata, security.instance_id, str(command_id))
+            if metadata and metadata["type"] == "mcp.runtime.control":
+                from row_bot.application.capability_runtime_controls import reconcile_mcp_runtime_operation as reconcile
+            else:
+                from row_bot.application.capability_configuration_controls import reconcile_mcp_configuration_operation as reconcile
+        else:
+            raise ProtocolError("not_found", 404)
+        result = await call(reconcile, owner_id=security.instance_id if kind == "mcp" else await integration_owner(request), command_id=str(command_id),
+            validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationOperationResult, result)
+
     @router.post("/settings/plugins/lifecycle/review")
     async def plugin_lifecycle_review(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
@@ -4389,6 +4453,7 @@ def create_router(
             body.action,
             body.plugin_id,
             validate=dispatch_validation(request, current),
+            **({"owner_id": await integration_owner(request), "preview_id": body.preview_id} if body.preview_id else {}),
         )
         return await respond(request, dto.PluginLifecycleReview, result)
 
@@ -4401,7 +4466,7 @@ def create_router(
         result = await call(
             read_plugin_lifecycle_receipt,
             str(command_id),
-            owner_id=current.id,
+            owner_id=await integration_owner(request),
             validate=dispatch_validation(request, current),
         )
         return await respond(request, dto.PluginLifecycleReceipt, result)
@@ -4420,7 +4485,7 @@ def create_router(
         result = await call(
             execute_plugin_lifecycle,
             body.model_dump(mode="json"),
-            owner_id=current.id,
+            owner_id=await integration_owner(request),
             validate=dispatch_validation(request, current),
         )
         return await respond(request, dto.PluginLifecycleReceipt, result)
@@ -4552,7 +4617,7 @@ def create_router(
         try:
             result = await call(
                 search_public_skills,
-                owner_id=current.id,
+                owner_id=await integration_owner(request),
                 query=body.query,
                 source=body.source,
                 refresh=body.refresh,
@@ -4574,7 +4639,7 @@ def create_router(
         try:
             result = await call(
                 preview_public_skill,
-                owner_id=current.id,
+                owner_id=await integration_owner(request),
                 revision=body.revision,
                 entry_id=body.entry_id,
             )
@@ -4596,7 +4661,7 @@ def create_router(
         try:
             result = await call(
                 install_previewed_skill,
-                owner_id=current.id,
+                owner_id=await integration_owner(request),
                 command_id=str(body.command_id),
                 preview_id=body.preview_id,
                 content_hash=body.content_hash,
@@ -4620,7 +4685,7 @@ def create_router(
         try:
             result = await call(
                 read_skill_install_receipt,
-                owner_id=current.id,
+                owner_id=await integration_owner(request),
                 command_id=str(command_id),
             )
         except SkillHubCommandError as exc:
@@ -4649,12 +4714,14 @@ def create_router(
         try:
             result = await call(
                 execute_public_skill_maintenance,
-                owner_id=current.id,
+                owner_id=await integration_owner(request),
                 command_id=str(body.command_id),
                 name=body.name,
                 expected_revision=body.expected_revision,
                 action=body.action,
                 confirmed=body.confirmed,
+                preview_id=body.preview_id,
+                content_hash=body.content_hash,
                 validate=dispatch_validation(request, current),
             )
         except SkillHubCommandError as exc:
@@ -4674,7 +4741,7 @@ def create_router(
         try:
             result = await call(
                 read_skill_maintenance_receipt,
-                owner_id=current.id,
+                owner_id=await integration_owner(request),
                 command_id=str(command_id),
             )
         except SkillHubCommandError as exc:
@@ -6893,7 +6960,10 @@ def create_router(
 
     @router.get("/settings/mcp/configuration")
     async def mcp_configuration(
-        request: Request, query: str = "", cursor: str | None = None, limit: int = 25
+        request: Request,
+        *,
+        plugin_id: str | None = None,
+        server_key: str | None = None, query: str = "", cursor: str | None = None, limit: int = 25
     ) -> JSONResponse:
         current = await session(request)
         from row_bot.application.capability_configuration_controls import (
@@ -6906,6 +6976,7 @@ def create_router(
             cursor=cursor,
             limit=limit,
             validate=dispatch_validation(request, current),
+            **({"target": {"kind": "plugin", "plugin_id": plugin_id, "server_key": server_key}} if plugin_id or server_key else {}),
         )
         return await respond(request, dto.McpConfigurationPage, asdict(result))
 
@@ -6921,9 +6992,106 @@ def create_router(
         )
         return await respond(request, dto.McpDirectoryResult, result)
 
+    @router.post("/settings/mcp/packages/preview")
+    async def mcp_package_preview(request: Request) -> JSONResponse:
+        require_native_local(request, await _context(request))
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpPackageRequest, 4096)
+        from row_bot.application.mcp_runtime_installation import inspect_mcp_package
+        result = await call(inspect_mcp_package, owner_id=await integration_owner(request),
+            **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
+        result["nonce"] = security.approval_nonce(current, "settings:mcp-package:" + body.server_id,
+            result["configuration_revision"], result["action_digest"])
+        return await respond(request, dto.McpPackageReview, result)
+
+    @router.post("/settings/mcp/packages/commands")
+    async def mcp_package_command(request: Request) -> JSONResponse:
+        require_native_local(request, await _context(request))
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpPackageCommand, 8192)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.mcp_runtime_installation import prepare_mcp_package
+        def reviewed(value: dict) -> None:
+            security.consume_nonce(current, "settings:mcp-package:" + body.server_id,
+                value["configuration_revision"], value["action_digest"], body.nonce, str(body.command_id))
+        result = await call(prepare_mcp_package, owner_id=await integration_owner(request),
+            **body.model_dump(mode="json", exclude={"client_session_id", "nonce"}),
+            validate=dispatch_validation(request, current), validate_review=reviewed)
+        return await respond(request, dto.CommandReceipt, result)
+
+    @router.post("/settings/mcp/auth/review")
+    async def mcp_auth_review(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpAuthReviewRequest, 16384)
+        from row_bot.application.client_mcp_auth import review_auth
+        result = await call(review_auth, **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
+        result["nonce"] = security.approval_nonce(current, "settings:mcp-auth:" + body.server_id,
+            result["configuration_revision"], result["action_digest"])
+        return await respond(request, dto.McpAuthReview, result)
+
+    @router.post("/settings/mcp/auth/commands")
+    async def mcp_auth_command(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.McpAuthCommand, 131072)
+        if str(body.client_session_id) != current.id:
+            raise ProtocolError("invalid_command", 422)
+        if request.headers.get("idempotency-key", "") != str(body.command_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_mcp_auth import execute_auth, callback_uri
+        context = await _context(request)
+        server_address = request.scope.get("server")
+        local_origin = None
+        if context.direct_loopback and context.is_local_owner and server_address:
+            host, port = server_address
+            if host in {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"} and isinstance(port, int) and 0 < port <= 65535:
+                local_origin = f"{request.scope.get('scheme', 'http')}://127.0.0.1:{port}"
+        redirect = callback_uri(local_origin=local_origin,
+            public_origins=tuple(request.scope.get("row_bot_public_origins", ()))) if body.action == "start" and body.mode == "oauth" else ""
+        def reviewed(value: dict) -> None:
+            security.consume_nonce(current, "settings:mcp-auth:" + body.server_id, value["configuration_revision"],
+                value["action_digest"], body.nonce, str(body.command_id))
+        result = await call(execute_auth, **body.model_dump(mode="json", exclude={"client_session_id", "nonce"}),
+            owner_id=await integration_owner(request), redirect_uri=redirect, validate=dispatch_validation(request, current), validate_review=reviewed)
+        return await respond(request, dto.McpAuthStatus, result)
+
+    @router.get("/settings/mcp/auth/commands/{command_id}")
+    async def mcp_auth_status(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_mcp_auth import auth_status
+        result = await call(auth_status, owner_id=await integration_owner(request), command_id=str(command_id), validate=dispatch_validation(request, current))
+        return await respond(request, dto.McpAuthStatus, result)
+
+    @router.post("/settings/mcp/auth/commands/{command_id}/cancel")
+    async def mcp_auth_cancel(command_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        from row_bot.application.client_mcp_auth import cancel_auth
+        result = await call(cancel_auth, owner_id=await integration_owner(request), command_id=str(command_id), validate=dispatch_validation(request, current))
+        return await respond(request, dto.McpAuthStatus, result)
+
+    @router.get("/settings/mcp/auth/callback")
+    async def mcp_auth_callback(request: Request) -> Response:
+        from row_bot.application.client_mcp_auth import accept_callback
+        from row_bot.mcp_client.auth import McpAuthError
+        values = request.query_params
+        try:
+            if any(len(values.getlist(key)) > 1 for key in ("state", "code", "error")):
+                raise McpAuthError("mcp_auth_callback_invalid")
+            await call(accept_callback, state=values.get("state", ""), code=values.get("code", ""), error=values.get("error", ""))
+            message, status = "Authorization received. Return to Row-Bot Integrations to see the result.", 200
+        except McpAuthError:
+            message, status = "This authorization is expired or invalid. Return to Row-Bot Integrations and start sign-in again.", 400
+        return Response(message, status_code=status, media_type="text/plain",
+            headers={**HEADERS, "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"})
+
     @router.get("/settings/mcp/catalog")
     async def mcp_tested_catalog(
         request: Request,
+        *,
+        plugin_id: str | None = None,
+        server_key: str | None = None,
         server_id: str,
         test_command_id: UUID,
         query: str = "",
@@ -6944,6 +7112,7 @@ def create_router(
             cursor=cursor,
             limit=limit,
             validate=dispatch_validation(request, current),
+            **({"target": {"kind": "plugin", "plugin_id": plugin_id, "server_key": server_key}} if plugin_id or server_key else {}),
         )
         return await respond(request, dto.McpTestedCatalogPage, asdict(result))
 
@@ -6972,6 +7141,9 @@ def create_router(
     @router.get("/settings/mcp/policy")
     async def mcp_policy(
         request: Request,
+        *,
+        plugin_id: str | None = None,
+        server_key: str | None = None,
         server_id: str | None = None,
         query: str = "",
         cursor: str | None = None,
@@ -6987,6 +7159,7 @@ def create_router(
             cursor=cursor,
             limit=limit,
             validate=dispatch_validation(request, current),
+            **({"target": {"kind": "plugin", "plugin_id": plugin_id, "server_key": server_key}} if plugin_id or server_key else {}),
         )
         return await respond(request, dto.McpPolicyPage, asdict(result))
 
@@ -7024,6 +7197,7 @@ def create_router(
             body.configuration_revision,
             body.intent.model_dump(mode="json", exclude_unset=True),
             validate=dispatch_validation(request, current),
+            target=body.target.model_dump() if body.target else None,
         )
         result["nonce"] = security.approval_nonce(
             current,
@@ -7068,7 +7242,7 @@ def create_router(
         return await respond(request, dto.McpChatReview, result)
 
     @router.get("/settings/mcp/runtime/{server_id}")
-    async def mcp_runtime_state(server_id: str, request: Request) -> JSONResponse:
+    async def mcp_runtime_state(server_id: str, request: Request, plugin_id: str | None = None, server_key: str | None = None) -> JSONResponse:
         current = await session(request)
         from row_bot.application.capability_runtime_controls import (
             read_mcp_runtime_state,
@@ -7078,6 +7252,7 @@ def create_router(
             read_mcp_runtime_state,
             server_id,
             validate=dispatch_validation(request, current),
+            **({"target": {"kind": "plugin", "plugin_id": plugin_id, "server_key": server_key}} if plugin_id or server_key else {}),
         )
         return await respond(request, dto.McpRuntimeState, asdict(result))
 

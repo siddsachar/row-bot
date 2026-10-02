@@ -43,7 +43,10 @@ it('offers fixes that lead somewhere real', () => {
     if (!action) continue;
     kinds.add(action.kind);
     if (action.kind === 'open_setting') {
-      const leaf = action.href.replace(/^\/settings\//, '').split('#')[0];
+      const leaf = new URL(
+        action.href,
+        'https://local.invalid',
+      ).pathname.replace(/^\/settings\//, '');
       expect(leaves.has(leaf as never), `${code} → ${action.href}`).toBe(true);
       expect(action.label, code).toMatch(/^Open [A-Z]/);
     }

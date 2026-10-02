@@ -323,239 +323,204 @@ def prepare_plugin_environment(
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+def _owned_package(plugin_id: str) -> pathlib.Path:
+    from row_bot.package_files import contained_path
+    _preparation_id(plugin_id)
+    return contained_path(PLUGINS_DIR, plugin_id)
+
+
+def _prepare_package(plugin_id: str, staged: pathlib.Path, *, source_dir, source_ref,
+                     archive_url, archive_path, expected_checksum):
+    from row_bot.package_files import check_package_tree
+    from row_bot.plugins.manifest import parse_manifest
+    if source_dir:
+        check_package_tree(source_dir)
+        shutil.copytree(source_dir, staged, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+    elif archive_url:
+        _download_plugin_archive(plugin_id, staged, archive_url, archive_path)
+    else:
+        _download_plugin(plugin_id, staged)
+    check_package_tree(staged)
+    error = _verify_checksum(staged, expected_checksum)
+    if error:
+        raise ValueError("plugin_checksum_mismatch")
+    manifest = parse_manifest(staged, source_identity=source_ref)
+    if manifest.id != plugin_id:
+        raise ValueError("plugin_manifest_invalid")
+    if manifest.package_format == "row-bot-v2":
+        from row_bot.plugins.loader import _security_scan
+        if _security_scan(staged):
+            raise ValueError("plugin_security_check_failed")
+    return manifest
+
+
 @_environment_serialized
 def install_plugin(
-    plugin_id: str,
-    *,
-    source_dir: pathlib.Path | None = None,
-    source: str | None = None,
-    source_ref: str = "",
-    archive_url: str = "",
-    archive_path: str = "",
-    expected_checksum: str | None = None,
+    plugin_id: str, *, source_dir: pathlib.Path | None = None,
+    source: str | None = None, source_ref: str = "", archive_url: str = "",
+    archive_path: str = "", expected_checksum: str | None = None,
+    operation_id: str = "", source_pin: str = "", _updating: bool = False,
+    validate=lambda: None,
 ) -> InstallResult:
-    """Install a plugin.
+    """Prepare exact bytes outside the inventory, then publish under its owner.
 
-    If *source_dir* is provided, copies from that directory (local install).
-    Otherwise, downloads from the marketplace repo: the *archive_path* folder
-    of a repository archive, else the one plugin folder with this id. A
-    download needs *expected_checksum*; without one nothing is downloaded.
+    Native remote checksums remain mandatory. A portable preview supplies the
+    reviewed tree digest; it is consistency evidence, not publisher authenticity.
     """
-    dest = PLUGINS_DIR / plugin_id
-    if dest.exists():
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message=f"Plugin '{plugin_id}' is already installed. Use update instead.",
-            code="plugin_already_installed",
-        )
-    if not source_dir and not (expected_checksum or "").strip():
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message="The marketplace lists no checksum for this plugin, so it wasn't downloaded.",
-            code="plugin_checksum_unavailable",
-        )
-
+    from row_bot.plugins import state
+    from row_bot.plugins.devtools import compute_plugin_checksum
+    from row_bot.package_files import contained_path
+    operation_id = operation_id or str(uuid.uuid4())
     try:
+        dest = _owned_package(plugin_id)
+        previous_state = state.get_plugin_package_state(plugin_id)
+        if previous_state.get("pending"):
+            return InstallResult(False, plugin_id, "An interrupted publication needs recovery before another install.", code="plugin_publication_pending")
+        if dest.exists() != _updating:
+            return InstallResult(False, plugin_id, "Plugin is already installed; use Update." if dest.exists() else "Plugin is not installed; use Add.", code="plugin_already_installed" if dest.exists() else "plugin_not_installed")
+        if not source_dir and not (expected_checksum or "").strip():
+            return InstallResult(False, plugin_id, "The marketplace lists no checksum; nothing was downloaded.", code="plugin_checksum_unavailable")
         PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
-
-        if source_dir:
-            # Local install (copy directory)
-            if not source_dir.is_dir():
-                return InstallResult(
-                    success=False, plugin_id=plugin_id,
-                    message=f"Source directory not found: {source_dir}",
-                    code="plugin_source_unavailable",
-                )
-            shutil.copytree(source_dir, dest)
-        elif archive_url:
-            _download_plugin_archive(plugin_id, dest, archive_url, archive_path)
-        else:
-            # Download from repo
-            _download_plugin(plugin_id, dest)
-
-        checksum_error = _verify_checksum(dest, expected_checksum)
-        if checksum_error:
-            shutil.rmtree(dest, ignore_errors=True)
-            return InstallResult(
-                success=False, plugin_id=plugin_id,
-                message=checksum_error,
-                code="plugin_checksum_mismatch",
-            )
-
-        # Validate manifest exists and conforms to the v2 contract.
-        try:
-            from row_bot.plugins.manifest import parse_manifest
-
-            manifest = parse_manifest(dest)
-        except Exception as exc:
-            shutil.rmtree(dest, ignore_errors=True)
-            return InstallResult(
-                success=False, plugin_id=plugin_id,
-                message=f"Installed plugin manifest is invalid: {exc}",
-                code="plugin_manifest_invalid",
-            )
-        if manifest.id != plugin_id:
-            shutil.rmtree(dest, ignore_errors=True)
-            return InstallResult(
-                success=False, plugin_id=plugin_id,
-                message=(
-                    f"Manifest id '{manifest.id}' does not match requested "
-                    f"plugin id '{plugin_id}'"
-                ),
-                code="plugin_manifest_invalid",
-            )
-        version = manifest.version
-
-        # Security scan
-        from row_bot.plugins.loader import _security_scan
-        sec_err = _security_scan(dest)
-        if sec_err:
-            shutil.rmtree(dest, ignore_errors=True)
-            return InstallResult(
-                success=False, plugin_id=plugin_id,
-                message=f"Security check failed: {sec_err}",
-                code="plugin_security_check_failed",
-            )
-
-        from row_bot.plugins import state as plugin_state
-
-        install_source = source or ("local" if source_dir else "marketplace")
-        install_ref = source_ref or (str(source_dir) if source_dir else archive_url or DEFAULT_REPO_URL)
-        plugin_state.mark_plugin_installed(
-            plugin_id,
-            version=version,
-            source=install_source,
-            source_ref=install_ref,
-        )
-
-        logger.info("Plugin '%s' v%s installed to %s", plugin_id, version, dest)
-        return InstallResult(
-            success=True, plugin_id=plugin_id, version=version,
-            message=(
-                f"Installed '{plugin_id}' v{version} and kept it off. "
-                "Configure, test, then enable it in Plugin Center."
-            ),
-        )
-
+        staging_root = contained_path(DATA_DIR, "plugin_staging")
+        staging_root.mkdir(exist_ok=True)
+        install_ref = source_ref or (str(source_dir.resolve()) if source_dir else archive_url or DEFAULT_REPO_URL)
+        with tempfile.TemporaryDirectory(prefix="publish-", dir=staging_root) as tmp:
+            staged = pathlib.Path(tmp) / "package"
+            manifest = _prepare_package(plugin_id, staged, source_dir=source_dir, source_ref=install_ref,
+                archive_url=archive_url, archive_path=archive_path, expected_checksum=expected_checksum)
+            digest = compute_plugin_checksum(staged)
+            validate()
+            if state.get_plugin_package_state(plugin_id) != previous_state:
+                raise ValueError("plugin_changed")
+            if _updating and previous_state.get("digest") and compute_plugin_checksum(dest) != previous_state["digest"]:
+                raise ValueError("plugin_changed")
+            previous = contained_path(DATA_DIR, "plugin_revisions/" + plugin_id + "/previous")
+            old_package = {k: v for k, v in previous_state.items() if k not in {"previous", "pending"}}
+            candidate = {"format": manifest.package_format, "source_identity": install_ref,
+                "source": source or ("local" if source_dir else "marketplace"),
+                "version": manifest.version, "digest": digest, "adapter_version": 1, "pin": source_pin,
+                "operation_id": operation_id, "upstream_name": manifest.name,
+                "children": {"skills": [v["name"] for v in manifest.provides.skills],
+                             "mcp": [v["id"] for v in manifest.provides.mcp_servers]},
+                "previous": old_package if _updating else {}, "removed": False}
+            before = staged.stat()
+            pending = {"operation_id": operation_id, "candidate": candidate,
+                       "file_identity": [before.st_dev, before.st_ino]}
+            # A pending marker is outside upstream bytes and precedes publication.
+            state.set_plugin_package_state(plugin_id, {**previous_state, "pending": pending})
+            if _updating:
+                previous.parent.mkdir(parents=True, exist_ok=True)
+                if previous.exists():
+                    shutil.rmtree(previous)
+                dest.rename(previous)
+            try:
+                staged.rename(dest)
+            except BaseException:
+                if _updating and previous.exists() and not dest.exists():
+                    previous.rename(dest)
+                state.set_plugin_package_state(plugin_id, previous_state)
+                raise
+            state.publish_plugin_package(plugin_id, candidate, updating=_updating)
+        return InstallResult(True, plugin_id, "Updated plugin; configuration and access choices were preserved." if _updating else "Added plugin and kept it off. Configure, test, then enable it in Integrations.", version=manifest.version)
     except Exception as exc:
-        # Cleanup on failure
+        # Do not delete a published tree or its last good predecessor on a state
+        # failure. The pending inode/digest cut makes recovery explicit.
+        logger.warning("Plugin publication failed for %s (%s)", plugin_id, type(exc).__name__)
+        code = str(exc) if str(exc) in {"plugin_checksum_mismatch", "plugin_manifest_invalid", "plugin_security_check_failed"} else "plugin_install_failed"
+        from row_bot.plugins.manifest import ManifestError
+        message = ("plugin.json is missing or invalid." if isinstance(exc, ManifestError) else
+                   "Checksum mismatch; the reviewed files were not published." if code == "plugin_checksum_mismatch" else
+                   "The archive has no folder at the reviewed package path." if isinstance(exc, FileNotFoundError) else
+                   "Publication did not complete. Inspect the installed revision and use recovery if offered.")
+        return InstallResult(False, plugin_id, message, code=code)
+
+
+@_environment_serialized
+def update_plugin(plugin_id: str, **kwargs) -> InstallResult:
+    """Stage and validate before replacing the working revision."""
+    return install_plugin(plugin_id, _updating=True, **kwargs)
+
+
+@_environment_serialized
+def recover_plugin_publication(plugin_id: str) -> InstallResult:
+    """Observe and finish metadata only; never reacquire, execute, or enable."""
+    from row_bot.plugins import state
+    from row_bot.plugins.devtools import compute_plugin_checksum
+    from row_bot.package_files import contained_path
+    dest = _owned_package(plugin_id)
+    package = state.get_plugin_package_state(plugin_id)
+    pending = package.get("pending", {})
+    if not pending:
+        return InstallResult(True, plugin_id, "No incomplete publication.")
+    candidate = pending["candidate"]
+    if dest.exists():
+        info = dest.stat()
+        if [info.st_dev, info.st_ino] == pending["file_identity"] and compute_plugin_checksum(dest) == candidate["digest"]:
+            state.publish_plugin_package(plugin_id, candidate, updating=bool(candidate["previous"]))
+            return InstallResult(True, plugin_id, "Recovered the published package metadata.", version=candidate["version"])
+        if package.get("digest") and compute_plugin_checksum(dest) == package["digest"]:
+            state.set_plugin_package_state(plugin_id, {k: v for k, v in package.items() if k != "pending"})
+            return InstallResult(True, plugin_id, "The previous package remains installed.")
+    previous = contained_path(DATA_DIR, "plugin_revisions/" + plugin_id + "/previous")
+    if not dest.exists() and previous.exists() and compute_plugin_checksum(previous) == package.get("digest"):
+        previous.rename(dest)
+        state.set_plugin_package_state(plugin_id, {k: v for k, v in package.items() if k != "pending"})
+        return InstallResult(True, plugin_id, "Restored the interrupted previous package.")
+    return InstallResult(False, plugin_id, "Publication remains uncertain. Inspect local package files before retrying.", code="plugin_publication_uncertain")
+
+
+@_environment_serialized
+def restore_plugin(plugin_id: str, *, operation_id: str = "", validate=lambda: None) -> InstallResult:
+    """Explicit previous-code recovery; persistent data and current secrets stay."""
+    from row_bot.plugins import state
+    from row_bot.package_files import contained_path
+    package = state.get_plugin_package_state(plugin_id)
+    old = package.get("previous", {})
+    if not old or package.get("pending"):
+        return InstallResult(False, plugin_id, "No proven previous revision is available.", code="plugin_recovery_unavailable")
+    previous = contained_path(DATA_DIR, "plugin_revisions/" + plugin_id + "/previous")
+    return update_plugin(plugin_id, source_dir=previous, source=old.get("source", "local"),
+        source_ref=old.get("source_identity", ""), source_pin=old.get("pin", ""), expected_checksum=old.get("digest"), operation_id=operation_id, validate=validate)
+
+
+@_environment_serialized
+def uninstall_plugin(plugin_id: str, *, purge_data: bool = False, operation_id: str = "") -> InstallResult:
+    """Withdraw only owned capabilities; retain data/credentials by default."""
+    from row_bot.plugins import registry, state
+    from row_bot.package_files import contained_path
+    try:
+        dest = _owned_package(plugin_id)
+        state.set_plugin_enabled(plugin_id, False)
+        registry.unregister_plugin(plugin_id)
+        from row_bot.mcp_client import runtime
+        runtime.disconnect_plugin_servers(plugin_id)
         if dest.exists():
-            shutil.rmtree(dest, ignore_errors=True)
-        logger.error("Install failed for '%s': %s", plugin_id, exc, exc_info=True)
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message=f"Install failed: {exc}",
-            code="plugin_install_failed",
-        )
-
-
-@_environment_serialized
-def update_plugin(
-    plugin_id: str,
-    *,
-    source_dir: pathlib.Path | None = None,
-    source: str | None = None,
-    source_ref: str = "",
-    archive_url: str = "",
-    archive_path: str = "",
-    expected_checksum: str | None = None,
-) -> InstallResult:
-    """Update an installed plugin.
-
-    Backs up the current version, installs the new one, and rolls back
-    on failure.
-    """
-    dest = PLUGINS_DIR / plugin_id
-    if not dest.exists():
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message=f"Plugin '{plugin_id}' is not installed",
-            code="plugin_not_installed",
-        )
-
-    # Never remove a pre-existing backup from another interrupted update.
-    # A unique sibling lets an interrupted operation be inspected and restored.
-    from uuid import uuid4
-
-    backup = dest.with_name(f"{plugin_id}.bak-{uuid4().hex}")
-    try:
-        # Backup current version
-        shutil.move(str(dest), str(backup))
-
-        # Install new version
-        result = install_plugin(
-            plugin_id,
-            source_dir=source_dir,
-            source=source,
-            source_ref=source_ref,
-            archive_url=archive_url,
-            archive_path=archive_path,
-            expected_checksum=expected_checksum,
-        )
-
-        if result.success:
-            # Remove backup
-            shutil.rmtree(backup, ignore_errors=True)
-            return result
+            shutil.rmtree(dest)
+        package = state.get_plugin_package_state(plugin_id)
+        if purge_data:
+            # Only references in this parent's child overrides are owned here.
+            from row_bot.mcp_client.auth import delete_credentials
+            record = state._environment_state_document().get(plugin_id, {})
+            for child in record.get("mcp", {}).values():
+                ref = child.get("auth", {}).get("credential_ref")
+                if ref:
+                    delete_credentials(ref)
+            data = contained_path(DATA_DIR, "plugin_data/" + plugin_id)
+            if data.exists():
+                shutil.rmtree(data)
+            state.remove_plugin_state(plugin_id)
+            state.set_plugin_package_state(plugin_id, {"removed": True, "purged": True,
+                "operation_id": operation_id, "retained_data": False})
         else:
-            # Rollback
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.move(str(backup), str(dest))
-            return InstallResult(
-                success=False, plugin_id=plugin_id,
-                message=f"Update failed, rolled back: {result.message}",
-                code=result.code,
-            )
-
+            state.set_plugin_package_state(plugin_id, {**package, "removed": True,
+                "operation_id": operation_id, "retained_data": True})
+        previous = contained_path(DATA_DIR, "plugin_revisions/" + plugin_id + "/previous")
+        if previous.exists():
+            shutil.rmtree(previous)
+        return InstallResult(True, plugin_id, "Removed plugin. Saved data and credentials retained." if not purge_data else "Removed plugin and its saved data/credentials.")
     except Exception as exc:
-        # Attempt rollback
-        if backup.exists():
-            if dest.exists():
-                shutil.rmtree(dest, ignore_errors=True)
-            shutil.move(str(backup), str(dest))
-        logger.error("Update failed for '%s': %s", plugin_id, exc, exc_info=True)
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message=f"Update failed: {exc}",
-            code="plugin_update_failed",
-        )
-
-
-@_environment_serialized
-def uninstall_plugin(plugin_id: str) -> InstallResult:
-    """Uninstall a plugin — remove files and clean state."""
-    dest = PLUGINS_DIR / plugin_id
-    if not dest.exists():
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message=f"Plugin '{plugin_id}' is not installed",
-        )
-
-    try:
-        # Unregister from runtime
-        from row_bot.plugins import registry as reg
-        reg.unregister_plugin(plugin_id)
-
-        # Remove state and secrets
-        from row_bot.plugins import state
-        state.remove_plugin_state(plugin_id)
-
-        # Remove files
-        shutil.rmtree(dest)
-
-        logger.info("Plugin '%s' uninstalled", plugin_id)
-        return InstallResult(
-            success=True, plugin_id=plugin_id,
-            message=f"Plugin '{plugin_id}' uninstalled successfully",
-        )
-
-    except Exception as exc:
-        logger.error("Uninstall error for '%s': %s", plugin_id, exc, exc_info=True)
-        return InstallResult(
-            success=False, plugin_id=plugin_id,
-            message=f"Uninstall error: {exc}",
-        )
+        logger.warning("Plugin removal incomplete for %s (%s)", plugin_id, type(exc).__name__)
+        return InstallResult(False, plugin_id, "Removal is incomplete. Owned capabilities were withdrawn; inspect retained data.", code="plugin_remove_incomplete")
 
 
 def is_installed(plugin_id: str) -> bool:
@@ -596,7 +561,8 @@ def _download_plugin_archive(
 
     logger.info("Downloading plugin '%s' from %s", plugin_id, archive_url)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="plugin-acquire-", dir=DATA_DIR) as tmp:
         zip_path = pathlib.Path(tmp) / "repo.zip"
         _download_to_file(archive_url, zip_path)
 
@@ -651,19 +617,26 @@ def _download_to_file(ref: str, dest: pathlib.Path) -> None:
 
 def _safe_extract_zip(zf: zipfile.ZipFile, dest: pathlib.Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    dest_resolved = dest.resolve()
     members = zf.infolist()
     if len(members) > 2048 or sum(member.file_size for member in members) > 128 * 1024 * 1024:
         raise ValueError("Plugin archive exceeds the extraction limit")
+    from row_bot.package_files import relative_package_path, contained_path
+    seen = set()
     for member in members:
-        target = (dest / member.filename).resolve()
-        try:
-            target.relative_to(dest_resolved)
-        except ValueError:
-            raise ValueError(f"Unsafe zip member path: {member.filename}")
-        if member.create_system == 3 and (member.external_attr >> 16) & 0o170000 == 0o120000:
-            raise ValueError(f"Plugin archive contains a symbolic link: {member.filename}")
-        zf.extract(member, dest)
+        relative_package_path(member.orig_filename.rstrip("/"))
+        name = relative_package_path(member.filename.rstrip("/"))
+        if name.casefold() in seen:
+            raise ValueError("Plugin archive contains duplicate or case-colliding paths")
+        seen.add(name.casefold())
+        if stat.S_ISLNK(member.external_attr >> 16):
+            raise ValueError("Plugin archive contains a symbolic link")
+        target = contained_path(dest, name)
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as source, target.open("xb") as stream:
+                shutil.copyfileobj(source, stream)
 
 
 def _find_extracted_plugin_dir(extract_dir: pathlib.Path, plugin_id: str) -> pathlib.Path:

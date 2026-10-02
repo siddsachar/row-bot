@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "item_id": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Item Id",
+      "type": "string"
+    },
+    "kind": {
+      "default": "plugin",
+      "enum": [
+        "plugin",
+        "skill",
+        "mcp"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "local": {
+      "default": false,
+      "title": "Local",
+      "type": "boolean"
+    },
+    "reference": {
+      "default": "",
+      "maxLength": 2048,
+      "title": "Reference",
+      "type": "string"
+    },
+    "revision": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Revision",
+      "type": "string"
+    }
+  },
+  "title": "IntegrationPreviewRequest",
+  "type": "object"
+}

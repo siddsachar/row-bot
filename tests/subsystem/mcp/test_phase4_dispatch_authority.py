@@ -112,7 +112,7 @@ def test_prepared_plugin_launch_does_not_inherit_unrelated_host_credentials(monk
     from row_bot.mcp_client import runtime
     from row_bot.plugins import mcp, worker
     launch = SimpleNamespace(plugin_id="fixture", declared_env={"PLUGIN_SCOPED_SECRET": "synthetic-scoped"})
-    monkeypatch.setattr(mcp, "resolve_prepared_plugin_mcp_launch", lambda *_: launch)
+    monkeypatch.setattr(mcp, "resolve_prepared_plugin_mcp_launch", lambda *_, **_kw: launch)
     monkeypatch.setattr(worker, "_run_directory", lambda _: tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "unrelated-synthetic-secret")
     monkeypatch.setenv("ROW_BOT_PRIVATE_TEST_VALUE", "private-synthetic")

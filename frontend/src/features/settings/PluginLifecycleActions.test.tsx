@@ -73,7 +73,7 @@ it('shows what the server says about a plugin before installing it (B144)', asyn
   expect(onChanged).toHaveBeenCalledOnce();
 });
 
-it('requires a confirmation for irreversible uninstall', async () => {
+it('requires confirmation and explains retained data before package removal', async () => {
   const review = vi.fn(async () => ({
     action: 'remove',
     plugin_id: 'synthetic-plugin',
@@ -83,7 +83,7 @@ it('requires a confirmation for irreversible uninstall', async () => {
     checksum: '',
     permissions: [],
     disclosures: [
-      'Removal deletes plugin files, settings, and secret metadata. This cannot be undone.',
+      'Removal withdraws all package children. Saved data and credentials are preserved.',
     ],
     revision: 'a'.repeat(64),
   }));
@@ -106,14 +106,14 @@ it('requires a confirmation for irreversible uninstall', async () => {
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
-  const dialog = await screen.findByRole('dialog', { name: /Uninstall/ });
-  expect(dialog).toHaveTextContent('deletes its files');
-  expect(dialog).toHaveTextContent('cannot be undone');
+  const dialog = await screen.findByRole('dialog', { name: /Remove/ });
+  expect(dialog).toHaveTextContent('removes package files');
+  expect(dialog).toHaveTextContent('Saved data and credentials are preserved');
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(execute).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Uninstall' }));
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Uninstall plugin' }),
+    await screen.findByRole('button', { name: 'Remove package' }),
   );
   await waitFor(() => expect(execute).toHaveBeenCalledOnce());
   expect(execute.mock.calls[0][0]).toMatchObject({ action: 'remove' });

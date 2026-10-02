@@ -26,8 +26,7 @@ from row_bot.data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = get_row_bot_data_dir()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = get_row_bot_data_dir(create=False)
 
 _STATE_PATH = DATA_DIR / "plugin_state.json"
 _SECRETS_PATH = DATA_DIR / "plugin_secrets.json"
@@ -61,6 +60,7 @@ def _atomic_json(path: pathlib.Path, data: dict, restricted: bool = False) -> No
             continue
         if stat.S_ISLNK(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
             raise OSError("State path is not an owned regular path")
+    path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -137,6 +137,120 @@ def set_plugin_environment_state(plugin_id: str, value: dict[str, Any], *, expec
 
 # ── State I/O ────────────────────────────────────────────────────────────────
 @_locked_state
+def get_plugin_package_state(plugin_id: str) -> dict[str, Any]:
+    """Passive package/ownership metadata, without loading or migrating secrets."""
+    record = _environment_state_document().get(plugin_id, {})
+    value = record.get("package", {}) if isinstance(record, dict) else None
+    if not isinstance(value, dict):
+        raise ValueError("plugin_package_state_unavailable")
+    return copy.deepcopy(value)
+
+
+@_locked_state
+def set_plugin_package_state(plugin_id: str, value: dict[str, Any]) -> None:
+    """Publish package provenance atomically, preserving credentials and policy."""
+    global _state
+    data = _environment_state_document()
+    data.setdefault(plugin_id, {})["package"] = copy.deepcopy(value)
+    _atomic_json(_STATE_PATH, data)
+    if _loaded:
+        _state = data
+
+
+@_locked_state
+def publish_plugin_package(plugin_id: str, package: dict[str, Any], *, updating: bool) -> None:
+    """Commit a validated package without resetting update policy or secrets."""
+    global _state
+    data = _environment_state_document()
+    record = data.setdefault(plugin_id, {})
+    if not updating:
+        record["enabled"] = False
+    record["package"] = copy.deepcopy(package)
+    record.pop("health", None)
+    record["installed"] = {"version": package["version"], "source": package["source"],
+        "source_ref": package["source_identity"], "installed_at": datetime.now(timezone.utc).isoformat()}
+    _atomic_json(_STATE_PATH, data)
+    if _loaded:
+        _state = data
+
+
+@_locked_state
+def get_mcp_child_overrides(plugin_id: str, server_key: str) -> dict:
+    """Read bounded child setup facts without initializing secrets or runtime."""
+    record = _environment_state_document().get(plugin_id, {})
+    values = record.get("mcp", {}).get(server_key, {})
+    if type(values) is not dict or len(json.dumps(values)) > 256 * 1024:
+        raise ValueError("plugin_mcp_state_unavailable")
+    return copy.deepcopy(values)
+
+
+@_locked_state
+def read_mcp_child_configuration(target: dict):
+    from row_bot.mcp_client.config import read_saved_document, SavedMcpConfiguration
+    from row_bot.plugins.mcp import read_plugin_mcp_child
+    from row_bot.plugins.installer import get_plugin_source_revision
+    import hashlib
+
+    saved = read_saved_document(_STATE_PATH, configuration=False)
+    plugin_id = target["plugin_id"]
+    record = saved.document.get(plugin_id, {})
+    cfg = read_plugin_mcp_child(plugin_id, target["server_key"])
+    revision = get_plugin_source_revision(plugin_id)
+    digest = hashlib.sha256(json.dumps([saved.digest, revision], sort_keys=True).encode()).hexdigest()
+    document = {"version": 1, "enabled": record.get("enabled") is True,
+        "servers": {cfg["name"]: cfg}, "_parent_revision": revision,
+        "_client_publication": saved.document.get("_client_publication", {})}
+    return SavedMcpConfiguration(document, digest, saved.exists, saved.identity, str(_STATE_PATH), saved.digest)
+
+
+@_locked_state
+def publish_mcp_child_configuration(target: dict, document: dict, *, expected_digest: str,
+        command_id: str, persist_recovery, validate, recovery=None):
+    """Publish overrides through the same metadata-safe edit proof as MCP config."""
+    from row_bot.developer.edits import publish_text_revision
+    from row_bot.mcp_client.config import McpConfigurationError, clear_agent_cache_if_loaded
+    global _state
+    before = read_mcp_child_configuration(target)
+    if before.digest != expected_digest or before.document["enabled"] != document["enabled"]:
+        raise McpConfigurationError("revision_conflict")
+    validate_mcp_child_change(before.document, document)
+    servers = document["servers"]
+    name = next(iter(servers))
+    allowed = {"enabled", "tools", "auth", "label", "env", "headers", "managed_launch"}
+    values = {key: copy.deepcopy(value) for key, value in servers[name].items() if key in allowed}
+    if len(json.dumps(values)) > 256 * 1024:
+        raise McpConfigurationError("mcp_configuration_too_large")
+    data = _environment_state_document()
+    data.setdefault(target["plugin_id"], {}).setdefault("mcp", {})[target["server_key"]] = values
+    data["_client_publication"] = document["_client_publication"]
+    def authority():
+        validate()
+        from row_bot.plugins.installer import _tree_revision, _source_for_preparation
+        if _tree_revision(_source_for_preparation(target["plugin_id"]), source=True) != before.document["_parent_revision"]:
+            raise McpConfigurationError("revision_conflict")
+    publish_text_revision(_STATE_PATH.parent, _STATE_PATH.name, json.dumps(data, ensure_ascii=True, indent=2) + "\n",
+        expected_digest=before.storage_digest, command_id=command_id, persist_recovery=persist_recovery,
+        validate=authority, recovery=recovery, max_bytes=8 * 1024 * 1024)
+    if _loaded:
+        _state = data
+    clear_agent_cache_if_loaded()
+    return read_mcp_child_configuration(target)
+
+
+def validate_mcp_child_change(before: dict, document: dict) -> None:
+    from row_bot.mcp_client.config import McpConfigurationError
+    if before["enabled"] != document["enabled"]:
+        raise McpConfigurationError("plugin_child_parent_owned")
+    old_servers, servers = before["servers"], document.get("servers", {})
+    if servers.keys() != old_servers.keys():
+        raise McpConfigurationError("plugin_child_owned")
+    name = next(iter(servers))
+    allowed = {"enabled", "tools", "auth", "label", "env", "headers", "managed_launch"}
+    if any(servers[name].get(key) != value for key, value in old_servers[name].items() if key not in allowed):
+        raise McpConfigurationError("plugin_child_source_immutable")
+
+
+@_locked_state
 def reload():
     """Force re-read of state from disk. Call before load_plugins()."""
     global _loaded
@@ -188,7 +302,9 @@ def _write_json(path: pathlib.Path, data: dict, restricted: bool = False):
 @_locked_state
 def is_plugin_enabled(plugin_id: str) -> bool:
     _ensure_loaded()
-    return _state.get(plugin_id, {}).get("enabled", False)
+    from row_bot.plugins.hermes_catalog import activation_block
+    record = _state.get(plugin_id, {})
+    return bool(record.get("enabled", False)) and not activation_block(record)
 
 
 @_locked_state
@@ -205,6 +321,9 @@ def get_cached_plugin_enablement() -> dict[str, bool | None] | None:
 @_locked_state
 def set_plugin_enabled(plugin_id: str, enabled: bool) -> None:
     _ensure_loaded()
+    from row_bot.plugins.hermes_catalog import activation_block
+    if enabled and activation_block(_state.get(plugin_id, {})):
+        raise ValueError("package_source_removed")
     _state.setdefault(plugin_id, {})["enabled"] = enabled
     _save_state()
     if not enabled:

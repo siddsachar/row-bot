@@ -31,7 +31,8 @@ def test_streamable_http_transport_connects_with_fake_sdk(monkeypatch) -> None:
 
     calls: list[tuple[str, dict]] = []
 
-    def fake_http_client(url: str, *, headers: dict):
+    def fake_http_client(url: str, *, headers: dict, httpx_client_factory):
+        assert callable(httpx_client_factory)
         calls.append((url, headers))
         return FakeAsyncContext(("read", "write", "session"))
 
@@ -55,7 +56,8 @@ def test_sse_transport_connects_with_fake_sdk(monkeypatch) -> None:
 
     calls: list[tuple[str, dict]] = []
 
-    def fake_sse_client(url: str, *, headers: dict):
+    def fake_sse_client(url: str, *, headers: dict, httpx_client_factory):
+        assert callable(httpx_client_factory)
         calls.append((url, headers))
         return FakeAsyncContext(("read", "write"))
 

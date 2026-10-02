@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: 474215a1520358dc -->
+<!-- inventory-hash: df3a022cfb12b359 -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -119,40 +119,22 @@ Group: Capabilities. Open in Row-Bot: `/app-v2/settings/tools`. Guide: [/docs/se
 | Built-in tools | utilities calculator weather charts url reader | `/app-v2/settings/tools#built-in-tools` | `frontend/src/features/settings/model.ts#built-in-tools` |
 | Custom tools | own tools scripts repository folder commands builder | `/app-v2/settings/tools#custom-tools` | `frontend/src/features/settings/model.ts#custom-tools` |
 
-## Skills Controls
+## Integrations Controls
 
-Group: Capabilities. Open in Row-Bot: `/app-v2/settings/skills`. Guide: [/docs/settings/skills](/docs/settings/skills).
+Group: Capabilities. Open in Row-Bot: `/app-v2/settings/integrations`. Guide: [/docs/settings/integrations](/docs/settings/integrations).
 
-| Setting | Search keywords | Open in Row-Bot | Source |
-| --- | --- | --- | --- |
-| Installed skills |  | `/app-v2/settings/skills#skill-library` | `frontend/src/features/settings/model.ts#skill-library` |
-| Discover public skills | hub browse | `/app-v2/settings/skills#public-skills` | `frontend/src/features/settings/model.ts#public-skills` |
+Dependencies: MCP and native plugins require their declared runtimes; portable host extensions are unsupported.
 
-## Plugins Controls
-
-Group: Capabilities. Open in Row-Bot: `/app-v2/settings/plugins`. Guide: [/docs/settings/plugins](/docs/settings/plugins).
-
-Dependencies: Plugin-provided dependencies remain disabled until reviewed and installed.
-
-Security: Review source, permissions, and provided capabilities before enabling.
+Security: Imports start off; review source, credentials, dependencies and tested tools before enabling.
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Installed plugins |  | `/app-v2/settings/plugins#installed-plugins` | `frontend/src/features/settings/model.ts#installed-plugins` |
-| Plugin marketplace | discover browse | `/app-v2/settings/plugins#plugin-marketplace` | `frontend/src/features/settings/model.ts#plugin-marketplace` |
-
-## MCP Controls
-
-Group: Capabilities. Open in Row-Bot: `/app-v2/settings/mcp`. Guide: [/docs/settings/mcp](/docs/settings/mcp).
-
-Dependencies: The MCP extra and a compatible external server are required.
-
-Security: External servers can expose consequential tools; keep new servers disabled until tested.
-
-| Setting | Search keywords | Open in Row-Bot | Source |
-| --- | --- | --- | --- |
-| MCP servers | add server import config | `/app-v2/settings/mcp#mcp-servers` | `frontend/src/features/settings/model.ts#mcp-servers` |
-| Runtimes (Node.js, uv) | node python uv | `/app-v2/settings/mcp#mcp-runtimes` | `frontend/src/features/settings/model.ts#mcp-runtimes` |
+| Installed skills |  | `/app-v2/settings/integrations?tab=my&type=skill#skill-library` | `frontend/src/features/settings/model.ts#skill-library` |
+| Discover public skills | hub browse | `/app-v2/settings/integrations?tab=discover&type=skill&source=clawhub#public-skills` | `frontend/src/features/settings/model.ts#public-skills` |
+| Installed plugins |  | `/app-v2/settings/integrations?tab=my&type=plugin#installed-plugins` | `frontend/src/features/settings/model.ts#installed-plugins` |
+| Plugin marketplace | discover browse | `/app-v2/settings/integrations?tab=discover&type=plugin&source=native#plugin-marketplace` | `frontend/src/features/settings/model.ts#plugin-marketplace` |
+| MCP servers | add server import config | `/app-v2/settings/integrations?tab=my&type=mcp#mcp-servers` | `frontend/src/features/settings/model.ts#mcp-servers` |
+| Runtimes (Node.js, uv) | node python uv | `/app-v2/settings/integrations?tab=my&type=mcp#mcp-runtimes` | `frontend/src/features/settings/model.ts#mcp-runtimes` |
 
 ## Accounts Controls
 

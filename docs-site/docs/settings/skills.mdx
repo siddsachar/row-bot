@@ -1,55 +1,12 @@
 ---
 title: "Settings: Skills"
-description: "Enable, disable, pin, browse, and review Smart Skills."
+description: "Manage skills through Integrations while keeping specialized controls."
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Skills
 
-Skills are instruction packs that teach Row-Bot how to handle a type of work. They do not run by themselves; they shape how Row-Bot plans, uses tools, and explains a task. Enabled skills may be searched and loaded automatically for a matching task.
+Skills now live in **Settings → Integrations**. Filter **My integrations** by Skills, or use **Discover** with ClawHub or skills.sh. Open a skill to review its complete file list and scanner findings before adding it off. Availability and pinning stay in its details. Local creation, import and proposals remain under **Advanced configuration and existing editors**.
 
-<Screenshot id="settings-skills" alt="Settings: Skills in Row-Bot." caption="The Skills page shows installed skills, pinning controls, public skill search, and per-skill state." />
+Public updates require a fresh file review. One prior managed revision can be restored; edited local skills are never silently overwritten. Skill instructions do not grant tool access, credentials or approvals. Automatic selection and per-task activation remain unchanged.
 
-## Where To Find It
-
-Open **Settings**, then choose **Skills** in the **Capabilities** group, or search for it with **Find a setting**.
-
-## Controls
-
-- Enable and disable controls decide whether Row-Bot may use a skill.
-- Pinning keeps useful skills easy to find and can make them more likely to be suggested.
-- **Browse public skills** searches GitHub, ClawHub and LobeHub, or a source URL. Open a skill to read its files before **Install skill**; **Available in chats** (on by default) decides whether conversations may use it once installed.
-- Skill details show purpose, source, status, and whether the skill is safe to activate.
-- Search and filters help find skills by task, source, or installed state.
-- Automatically loaded skills appear as an active chip in the task that selected them.
-
-## Common Workflow
-
-1. Browse or search for a skill that matches the work.
-2. Open the detail view before enabling unfamiliar skills.
-3. Enable the skill, then start a chat or workflow that names the task.
-4. Disable skills you no longer want Row-Bot to consider.
-
-## What Is Saved
-
-Skill enablement and pins are local Row-Bot preferences. Automatic selections are stored independently for each parent task or child Agent and are restored when that task reopens. Row-Bot retains up to five automatically selected skills per task; pinned skills are separate.
-
-## Privacy And Safety
-
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
-
-A loaded skill cannot grant tools, credentials, approvals, or broader workspace access. The active Agent Profile and runtime policy still decide which tools are actually bound.
-
-## Control-Level Reference
-
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#skills-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
-
-## Troubleshooting
-
-- If Row-Bot ignores a skill, check that it is enabled and relevant to the prompt.
-- If a skill came from outside the app, review its instructions before enabling it.
-- If skills make responses too specialized, unpin or disable the extras.
-- If a skill appears in one task but not another, that is expected for automatic per-task activation.
-
-See [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills) for automatic selection, child isolation, and tool boundaries.
+See [Integrations](/docs/settings/integrations) and [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills).

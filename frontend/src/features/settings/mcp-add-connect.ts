@@ -127,9 +127,13 @@ async function policyChange(api: TurnOnApi, intent: McpPolicyIntent) {
  * Turns MCP and one server on, each the same reviewed change as its switch;
  * "Add and connect" and "Turn on & connect" (B262) both use it.
  */
-export async function turnOnServer(api: TurnOnApi, serverId: string) {
+export async function turnOnServer(
+  api: TurnOnApi,
+  serverId: string,
+  parentOwned = false,
+) {
   const policy = await api.policy({ server_id: serverId, query: '' });
-  if (policy.global_enabled !== true)
+  if (policy.global_enabled !== true && !parentOwned)
     await policyChange(api, { operation: 'global_enabled', enabled: true });
   if (policy.server_enabled !== true)
     await policyChange(api, {

@@ -1,50 +1,12 @@
 ---
 title: "Settings: Plugins"
-description: "Manage installed plugins, marketplace installs, configuration, and promoted Custom Tools."
+description: "Manage plugins through Integrations while keeping specialized controls."
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Plugins
 
-Plugins add local bundles of tools, skills, apps, or integrations. They can make Row-Bot more capable, but they should be treated as code that runs with local app permissions.
+Packages now live in **Settings → Integrations**. Inspect a native Row-Bot package or portable Agent Plugins 1.0.0 package before adding it. Native configuration, protected secret fields, preparation and health checks remain in the package details. Portable skills and MCP connections appear as children of one parent.
 
-<Screenshot id="settings-plugins" alt="Settings: Plugins in Row-Bot." caption="The Plugins page lists installed plugins, marketplace actions, enablement, configuration, and Custom Tool promotion paths." />
+Enabling a package does not bypass tool approvals or profiles. Test and accept a portable MCP child’s tools separately. Foreign host entry points and hooks are not executed. Updates preserve package identity and settings, keep one previous managed file revision, and expose explicit recovery. Remove preserves data and credentials; **Delete saved data** removes only that package’s retained state.
 
-## Where To Find It
-
-Open **Settings**, then choose **Plugins** in the **Capabilities** group, or search for it with **Find a setting**.
-
-## Controls
-
-- Installed plugin cards show version, status, and available actions.
-- Enable and disable controls decide whether plugin capabilities are active.
-- Configure opens plugin-specific settings when provided.
-- Update and remove actions manage local plugin installations.
-- **Plugin marketplace** browses plugins to install, with an install preview. Every download is checked against its published checksum before it is installed.
-- Custom Tools promotion turns reviewed local tools into reusable plugin-like capabilities.
-
-## Common Workflow
-
-1. Install plugins only from sources you trust.
-2. Read the plugin description and requested fields before enabling it.
-3. Configure required settings, then test with a low-risk prompt.
-4. Disable or remove plugins you no longer use.
-
-## What Is Saved
-
-Installed plugins and plugin settings are local files. Plugin secrets should use secret storage when the plugin supports it.
-
-## Privacy And Safety
-
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
-
-## Control-Level Reference
-
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#plugins-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
-
-## Troubleshooting
-
-- If a plugin does not load, check its manifest and dependency messages.
-- If plugin tools do not appear, confirm the plugin is enabled and restart if instructed.
-- If a plugin behaves unexpectedly, disable it first, then inspect its configuration.
+See [Integrations](/docs/settings/integrations) for the complete workflow and compatibility limits.

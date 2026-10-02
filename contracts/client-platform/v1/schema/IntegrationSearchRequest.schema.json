@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Query",
+      "type": "string"
+    },
+    "refresh": {
+      "default": false,
+      "title": "Refresh",
+      "type": "boolean"
+    },
+    "sources": {
+      "items": {
+        "enum": [
+          "recommended",
+          "hermes",
+          "hermes_mcp",
+          "clawhub",
+          "skills_sh",
+          "official",
+          "native"
+        ],
+        "type": "string"
+      },
+      "maxItems": 7,
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "title": "IntegrationSearchRequest",
+  "type": "object"
+}

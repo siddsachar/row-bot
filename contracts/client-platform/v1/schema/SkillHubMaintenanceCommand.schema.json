@@ -4,7 +4,9 @@
     "action": {
       "enum": [
         "check",
+        "review_update",
         "update",
+        "restore",
         "uninstall"
       ],
       "title": "Action",
@@ -20,6 +22,12 @@
       "title": "Confirmed",
       "type": "boolean"
     },
+    "content_hash": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Content Hash",
+      "type": "string"
+    },
     "expected_revision": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Expected Revision",
@@ -29,6 +37,12 @@
       "maxLength": 160,
       "minLength": 1,
       "title": "Name",
+      "type": "string"
+    },
+    "preview_id": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Preview Id",
       "type": "string"
     }
   },

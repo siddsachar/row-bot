@@ -7,7 +7,7 @@ quarantined without affecting existing tool toggles.
 from __future__ import annotations
 
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.mcp_client.logging import log_event
+from row_bot.mcp_client import targets
 
 DATA_DIR = get_row_bot_data_dir(create=False)
 CONFIG_PATH = DATA_DIR / "mcp_servers.json"
@@ -55,6 +56,8 @@ class SavedMcpConfiguration:
     digest: str
     exists: bool
     identity: str = ""
+    storage_path: str = ""
+    storage_digest: str = ""
 
 
 @contextmanager
@@ -68,7 +71,7 @@ def configuration_recovery_required(*, excluding: tuple[str, str] | None = None)
     """Consult only bounded canonical receipts; uncertainty never means empty."""
     from row_bot.runtime import admissions
     try:
-        pending = admissions.read_unfinished_target_commands("settings:mcp", limit=32)
+        pending = admissions.read_unfinished_target_commands(targets.admission_target(), limit=32)
     except admissions.AdmissionError:
         raise McpConfigurationError("mcp_configuration_recovery_unavailable") from None
     return pending["overflow"] or any(
@@ -90,14 +93,21 @@ def _strict_object(pairs):
 
 
 def read_saved_configuration() -> SavedMcpConfiguration:
+    if targets.current():
+        from row_bot.plugins.state import read_mcp_child_configuration
+        return read_mcp_child_configuration(targets.current())
+    return read_saved_document(CONFIG_PATH)
+
+
+def read_saved_document(path, *, configuration: bool = True) -> SavedMcpConfiguration:
     """Read bounded saved bytes without imports, cache refresh or directory creation.
 
     The shared native guard pins Windows ancestors and supplies a descriptor
     for POSIX relative no-follow opens. Config source digests are private.
     """
     from row_bot.file_ownership import directory_identity, guard_directory
-    path = CONFIG_PATH.absolute()
-    with _CONFIG_LOCK:
+    path = path.absolute()
+    with _CONFIG_LOCK if configuration else nullcontext():
         try:
             if not path.parent.exists():
                 return SavedMcpConfiguration(_safe_copy(DEFAULT_CONFIG), "missing", False)
@@ -133,7 +143,9 @@ def read_saved_configuration() -> SavedMcpConfiguration:
                 raise ValueError
             document = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object,
                                   parse_constant=invalid_constant)
-            if (type(document) is not dict or type(document.get("servers", {})) is not dict
+            if type(document) is not dict:
+                raise ValueError
+            if configuration and (type(document.get("servers", {})) is not dict
                     or type(document.get("version", 1)) is not int or document.get("version", 1) != 1
                     or len(document.get("servers", {})) > 10000
                     or any(type(server) is not dict for server in document.get("servers", {}).values())):
@@ -150,6 +162,10 @@ def publish_saved_configuration(document: dict[str, Any], *, expected_digest: st
                                 recovery=None) -> SavedMcpConfiguration:
     """Publish exact JSON through the existing metadata-safe file owner."""
     global _config_cache
+    if targets.current():
+        from row_bot.plugins.state import publish_mcp_child_configuration
+        return publish_mcp_child_configuration(targets.current(), document, expected_digest=expected_digest,
+            command_id=command_id, persist_recovery=persist_recovery, validate=validate, recovery=recovery)
     from row_bot.developer.edits import publish_text_revision
     data = json.dumps(document, ensure_ascii=True, allow_nan=False, indent=2) + "\n"
     if len(data.encode("utf-8")) > SAVED_CONFIG_BYTE_LIMIT:
@@ -240,6 +256,12 @@ def normalize_server_config(name: str, raw: dict[str, Any] | None) -> dict[str, 
         "tools": dict(raw.get("tools") or {}),
         "source": dict(raw.get("source") or {}),
     }
+    for key in ("auth", "label", "environment_mode", "plugin_data", "plugin_prepared", "managed_launch"):
+        if key in raw:
+            cfg[key] = copy.deepcopy(raw[key])
+    if "auth" in cfg:
+        from row_bot.mcp_client.auth import validate_metadata
+        cfg["auth"] = validate_metadata(cfg["auth"])
     tools_cfg = cfg["tools"]
     tools_cfg["enabled"] = dict(tools_cfg.get("enabled") or {})
     tools_cfg["require_approval"] = list(tools_cfg.get("require_approval") or [])

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -30,7 +29,7 @@ class MemoryKeyring:
 
 
 @pytest.fixture
-def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, object]]:
+def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reload_for_data_dir) -> Iterator[dict[str, object]]:
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
 
     import row_bot.secret_store as secret_store
@@ -38,15 +37,8 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
     secret_store._set_backend_for_tests(MemoryKeyring())
 
-    modules = {
-        "state": importlib.reload(state),
-        "registry": importlib.reload(registry),
-        "loader": importlib.reload(loader),
-        "installer": importlib.reload(installer),
-        "marketplace": importlib.reload(marketplace),
-        "devtools": importlib.reload(devtools),
-        "webhooks": importlib.reload(webhooks),
-    }
+    names = ("state", "registry", "loader", "installer", "marketplace", "devtools", "webhooks")
+    modules = dict(zip(names, reload_for_data_dir(tmp_path / "data", *("row_bot.plugins." + name for name in names))))
     modules["registry"]._reset()
     modules["state"]._reset()
     modules["loader"]._reset()

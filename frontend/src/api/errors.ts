@@ -41,10 +41,22 @@ const ACCOUNTS = open('accounts', 'Accounts');
 const GITHUB = open('accounts', 'GitHub account', 'github');
 const GOOGLE = open('accounts', 'Google account', 'google');
 const CHANNELS = open('channels', 'Channels');
-const PLUGINS = open('plugins', 'Plugins', 'installed-plugins');
-const MCP = open('mcp', 'MCP servers', 'mcp-servers');
-const RUNTIMES = open('mcp', 'Runtimes', 'mcp-runtimes');
-const SKILLS = open('skills', 'Skills', 'skill-library');
+const PLUGINS = open(
+  'integrations?tab=my&type=plugin',
+  'Integrations',
+  'installed-plugins',
+);
+const MCP = open('integrations?tab=my&type=mcp', 'Integrations', 'mcp-servers');
+const RUNTIMES = open(
+  'integrations?tab=my&type=mcp',
+  'Runtimes',
+  'mcp-runtimes',
+);
+const SKILLS = open(
+  'integrations?tab=my&type=skill',
+  'Integrations',
+  'skill-library',
+);
 const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');
 const DREAM = open('preferences', 'Dream Cycle', 'dream-cycle');
@@ -60,6 +72,267 @@ const CANT_DO_FROM_HERE: Entry = [
 ];
 
 const CATALOG: Record<string, Entry> = {
+  integration_inventory_limit: [
+    'The saved inventory is too large to show completely. Use the specialized editor to inspect it.',
+    'review',
+    MCP,
+  ],
+  invalid_integration_query: [
+    'Choose a valid integration type and search again.',
+    'review',
+    MCP,
+  ],
+  integration_import_type_required: [
+    'Choose whether this link contains a skill, MCP connection, or package.',
+    'review',
+    MCP,
+  ],
+  integration_preview_expired: [
+    'This inspection expired. Inspect the source again before adding it.',
+    'review',
+    MCP,
+  ],
+  invalid_mcp_auth: [
+    'Check the authentication method, secret binding, and account label.',
+    'review',
+    MCP,
+  ],
+  invalid_mcp_target: [
+    'This connection is unavailable. Open its current integration details.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_busy: [
+    'Several sign-ins are pending. Cancel an unused sign-in before starting another.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_callback_invalid: [
+    'This sign-in callback is no longer valid. Return to Integrations and start again.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_callback_unavailable: [
+    'Sign-in needs the local desktop callback or one approved HTTPS server origin. Configure access before retrying.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_configuration_changed: [
+    'Connection settings changed. Cancel the old sign-in and review the current connection.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_connection_unavailable: [
+    'The connection was removed or changed. Reload Integrations.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_denied: [
+    'Sign-in was declined. Start again when you want to authorize this connection.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_expired: [
+    'Sign-in expired. Cancel the old step and start again.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_flow_unavailable: [
+    'The original sign-in is unavailable. Check the connection before starting again.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_not_completed: [
+    'The service did not complete sign-in. Check its MCP authentication requirements.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_state_invalid: [
+    'The service returned an invalid sign-in request. Review its authentication setup.',
+    'review',
+    MCP,
+  ],
+  mcp_oauth_http_required: [
+    'Browser OAuth requires an HTTP MCP endpoint. Use an explicit environment binding for this process.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_endpoint_invalid: [
+    'The sign-in endpoint must use public HTTPS. Check the service documentation.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_issuer_mismatch: [
+    'The sign-in issuer did not match the service metadata. No credentials were granted.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_origin_mismatch: [
+    'The sign-in request changed destination. Review the service endpoint before retrying.',
+    'review',
+    MCP,
+  ],
+  mcp_auth_redirect_refused: [
+    'The service redirected an authenticated request. Use its documented MCP endpoint.',
+    'review',
+    MCP,
+  ],
+  mcp_credentials_endpoint_changed: [
+    'The endpoint changed after credentials were saved. Sign in again for the new destination.',
+    'review',
+    MCP,
+  ],
+  mcp_credentials_too_large: [
+    'These credentials exceed protected storage limits. Check the service setup.',
+    'review',
+    MCP,
+  ],
+  mcp_credentials_unavailable: [
+    'Protected credentials are unavailable. Unlock local secret storage or sign in again.',
+    'review',
+    MCP,
+  ],
+  invalid_credential_reference: [
+    'This saved credential reference is invalid. Sign in again.',
+    'review',
+    MCP,
+  ],
+  mcp_durable_storage_required: [
+    'Enable a protected local secret store before saving MCP credentials.',
+    'review',
+    MCP,
+  ],
+  mcp_sign_in_required: [
+    'Sign in to this connection before testing it.',
+    'review',
+    MCP,
+  ],
+  mcp_package_recipe_unsupported: [
+    'This command needs manual setup. Managed preparation supports self-contained npm archives or complete shrinkwraps without install scripts.',
+    'review',
+    MCP,
+  ],
+  mcp_package_install_scripts_unsupported: [
+    'This package runs installation scripts. It needs a separate dependency review and cannot use automatic preparation.',
+    'review',
+    MCP,
+  ],
+  mcp_package_locked_dependencies_required: [
+    'The package has unpinned dependencies. Use a self-contained release or a complete npm shrinkwrap.',
+    'review',
+    MCP,
+  ],
+  mcp_package_integrity_required: [
+    'The package does not provide the required SHA-512 integrity pin.',
+    'review',
+    MCP,
+  ],
+  mcp_package_integrity_changed: [
+    'The reviewed package bytes changed. Inspect the package again.',
+    'review',
+    MCP,
+  ],
+  mcp_package_invalid: [
+    'The package metadata or archive is invalid. Check the publisher release.',
+    'review',
+    MCP,
+  ],
+  mcp_package_node_required: [
+    'Prepare the Node runtime before connecting this package.',
+    'review',
+    MCP,
+  ],
+  mcp_package_preparation_required: [
+    'Inspect and prepare this exact npm package before testing it.',
+    'review',
+    MCP,
+  ],
+  mcp_package_preview_capacity: [
+    'Too many package inspections are open. Finish a pending setup or retry after it expires.',
+    'review',
+    MCP,
+  ],
+  mcp_package_preview_expired: [
+    'The package inspection expired. Inspect its requirements again.',
+    'review',
+    MCP,
+  ],
+  mcp_package_source_invalid: [
+    'Managed npm packages must come from the public npm registry with an integrity pin.',
+    'review',
+    MCP,
+  ],
+  mcp_package_too_large: [
+    'This package exceeds the bounded installation size.',
+    'review',
+    MCP,
+  ],
+  package_link_or_collision: [
+    'The archive contains linked or conflicting paths and cannot be imported.',
+    'review',
+    MCP,
+  ],
+  unsafe_package_path: [
+    'A package path escapes its allowed folder. Choose a valid package.',
+    'review',
+    MCP,
+  ],
+  hermes_recipe_unsupported: [
+    'This Hermes recipe requires unsupported bootstrap, authentication, or launch behavior. Nothing was executed.',
+    'review',
+    MCP,
+  ],
+  package_download_too_large: [
+    'This package exceeds the download size limit.',
+    'review',
+    MCP,
+  ],
+  package_preview_changed: [
+    'The inspected package changed. Inspect it again before adding it.',
+    'review',
+    MCP,
+  ],
+  package_preview_expired: [
+    'This package inspection expired. Inspect the source again.',
+    'review',
+    MCP,
+  ],
+  package_source_not_supported: [
+    'Choose a public GitHub package, a supported catalog entry, or an authorized local package.',
+    'review',
+    MCP,
+  ],
+  package_source_removed: [
+    'The publisher removed this source. Existing local files are preserved.',
+    'review',
+    MCP,
+  ],
+  plugin_child_owned: [
+    'Manage this connection through its parent package.',
+    'review',
+    MCP,
+  ],
+  plugin_child_parent_owned: [
+    'Turn the parent package on or off in its details. Child setup cannot change the parent.',
+    'review',
+    MCP,
+  ],
+  plugin_child_source_immutable: [
+    'Package launch details belong to the publisher. Import a separate custom connection to change them.',
+    'review',
+    MCP,
+  ],
+  plugin_mcp_state_unavailable: [
+    'The package connection settings are unavailable. Inspect the parent package and its recovery actions.',
+    'review',
+    MCP,
+  ],
+  plugin_package_state_unavailable: [
+    'The package state is unavailable. Inspect recovery before making another change.',
+    'review',
+    MCP,
+  ],
+
   // Accounts and sign-in
   account_busy: [
     'Another account step is still running. Wait for it to finish, then try again.',

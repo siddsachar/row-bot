@@ -17,7 +17,7 @@ from row_bot.data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = get_row_bot_data_dir()
+DATA_DIR = get_row_bot_data_dir(create=False)
 _CACHE_PATH = DATA_DIR / "marketplace_cache.json"
 
 CACHE_TTL_SECONDS = 3600

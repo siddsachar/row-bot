@@ -300,12 +300,14 @@ function skillSourceLabel(skill: SkillSummary) {
 }
 
 export default function SkillsSettings({
+  integrationId,
   session,
   io,
   hub,
   hubMaintenance,
   ownerKey = '',
 }: {
+  integrationId?: string;
   session: SkillsSettingsSession;
   io: SkillsSettingsIO;
   hub?: PublicSkillHubIO;
@@ -413,6 +415,23 @@ export default function SkillsSettings({
       session.endRead(abort);
     }
   };
+
+  useEffect(() => {
+    if (
+      !integrationId ||
+      !state.page ||
+      state.busy ||
+      state.detail?.skill.id === integrationId
+    )
+      return;
+    if (integrationId === 'create') {
+      session.update({
+        editor: { mode: 'create', name: '', fields: blankFields() },
+        detail: null,
+      });
+    } else void open(integrationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integrationId, state.page]);
 
   const requestReview = async (
     action: SkillAction,
@@ -907,76 +926,134 @@ export default function SkillsSettings({
       aria-label="Skills settings"
       aria-busy={Boolean(state.busy)}
     >
-      <SettingsSummary>
-        {state.page?.availability === 'available' && (
-          <span
-            className="settings-summary-group"
-            role="group"
-            aria-label="Displayed skill totals"
-          >
-            {narrowed ? (
-              <SummaryChip>{state.page.total ?? 'Some'} matching</SummaryChip>
-            ) : (
-              <>
-                <SummaryChip tone="success">
-                  {shownAvailable} available{shown}
-                </SummaryChip>
-                <SummaryChip>
-                  {shownPinned} pinned{shown}
-                </SummaryChip>
-                <SummaryChip>
-                  {shownCustom} custom{shown}
-                </SummaryChip>
-                {!complete && (
+      {!integrationId && (
+        <>
+          <SettingsSummary>
+            {state.page?.availability === 'available' && (
+              <span
+                className="settings-summary-group"
+                role="group"
+                aria-label="Displayed skill totals"
+              >
+                {narrowed ? (
                   <SummaryChip>
-                    {state.page.total ?? 'Unknown'} total
+                    {state.page.total ?? 'Some'} matching
                   </SummaryChip>
-                )}
-              </>
-            )}
-          </span>
-        )}
-      </SettingsSummary>
-      <SettingsTabs
-        label="Skills"
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          {
-            id: 'installed',
-            label: 'Installed',
-            meta: state.page?.total ?? undefined,
-            content: installed,
-          },
-          {
-            id: 'discover',
-            label: 'Discover',
-            content: (
-              <div data-setting-anchor="public-skills">
-                {hub ? (
-                  <PublicSkillHub
-                    io={hub}
-                    ownerKey={ownerKey}
-                    onInstalled={() => {
-                      void load();
-                      setHubReload((value) => value + 1);
-                    }}
-                  />
                 ) : (
-                  <p className="muted">Public skill sources are unavailable.</p>
+                  <>
+                    <SummaryChip tone="success">
+                      {shownAvailable} available{shown}
+                    </SummaryChip>
+                    <SummaryChip>
+                      {shownPinned} pinned{shown}
+                    </SummaryChip>
+                    <SummaryChip>
+                      {shownCustom} custom{shown}
+                    </SummaryChip>
+                    {!complete && (
+                      <SummaryChip>
+                        {state.page.total ?? 'Unknown'} total
+                      </SummaryChip>
+                    )}
+                  </>
                 )}
-              </div>
-            ),
-          },
-        ]}
-      />
-
+              </span>
+            )}
+          </SettingsSummary>
+          <SettingsTabs
+            label="Skills"
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              {
+                id: 'installed',
+                label: 'Installed',
+                meta: state.page?.total ?? undefined,
+                content: installed,
+              },
+              ...(hub
+                ? [
+                    {
+                      id: 'discover' as const,
+                      label: 'Discover',
+                      content: (
+                        <div data-setting-anchor="public-skills">
+                          {hub ? (
+                            <PublicSkillHub
+                              io={hub}
+                              ownerKey={ownerKey}
+                              onInstalled={() => {
+                                void load();
+                                setHubReload((value) => value + 1);
+                              }}
+                            />
+                          ) : (
+                            <p className="muted">
+                              Public skill sources are unavailable.
+                            </p>
+                          )}
+                        </div>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </>
+      )}
+      {integrationId && hubMaintenance && (
+        <PublicSkillMaintenance
+          io={hubMaintenance}
+          ownerKey={ownerKey}
+          skillName={integrationId}
+          onChanged={() => void load()}
+        />
+      )}
+      {integrationId && state.message && <p role="status">{state.message}</p>}
+      {integrationId && state.pending && (
+        <Button onClick={() => void recover()}>
+          Check original skill change
+        </Button>
+      )}
       {state.detail && (
         <Surface elevated>
           <h2>
             {state.detail.skill.icon} {state.detail.skill.display_name}
           </h2>
           <p>{state.detail.skill.description}</p>
+          {integrationId && (
+            <div className="button-row">
+              <Toggle
+                label="Available in chats"
+                checked={state.detail.skill.available}
+                disabled={locked || state.detail.skill.tool_guide}
+                onChange={() =>
+                  void requestReview('skill.preference', {
+                    revision,
+                    name: state.detail!.skill.id,
+                    preference: 'availability',
+                    value: !state.detail!.skill.available,
+                  })
+                }
+              />
+              <Button
+                disabled={locked || state.detail.skill.tool_guide}
+                aria-pressed={state.detail.skill.pinned}
+                onClick={() =>
+                  void requestReview('skill.preference', {
+                    revision,
+                    name: state.detail!.skill.id,
+                    preference: 'pin_defaults',
+                    value: !state.detail!.skill.pinned,
+                  })
+                }
+              >
+                {state.detail.skill.pinned
+                  ? 'Unpin default'
+                  : 'Pin for new work'}
+              </Button>
+            </div>
+          )}
           <pre className="text-preview settings-skill-instructions">
             {state.detail.skill.instructions}
           </pre>

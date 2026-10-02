@@ -889,3 +889,27 @@ def test_save_disabled_creates_exact_argv_once_and_omitted_edit_values_are_retai
     )
     assert config.get_servers()["Synthetic"]["env"] == {"ORDINARY": "synthetic-secret"}
     assert "synthetic-secret" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("replace_equal_bytes", [False, True])
+def test_recovery_by_retained_id_requires_owned_publication(owner, monkeypatch, replace_equal_bytes):
+    from row_bot.runtime import admissions
+    persist = admissions.command_progress
+    def fail_completion(owner_id, key, result):
+        if result.get("status") == "completed":
+            raise OSError("lost completion")
+        return persist(owner_id, key, result)
+    monkeypatch.setattr(admissions, "command_progress", fail_completion)
+    value = command()
+    with pytest.raises(OSError, match="lost completion"):
+        execute(value)
+    content = config.CONFIG_PATH.read_bytes()
+    if replace_equal_bytes:
+        replacement = owner / "other.json"
+        replacement.write_bytes(content)
+        os.replace(replacement, config.CONFIG_PATH)
+    monkeypatch.setattr(admissions, "command_progress", persist)
+    monkeypatch.setattr(config, "publish_saved_configuration", lambda *a, **k: pytest.fail("repeated save"))
+    checked = controls.reconcile_mcp_configuration_operation(owner_id="synthetic-owner", command_id=value["command_id"], validate=lambda: None)
+    assert checked["settled"] is not replace_equal_bytes
+    assert config.CONFIG_PATH.read_bytes() == content

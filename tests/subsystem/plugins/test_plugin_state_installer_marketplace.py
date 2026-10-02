@@ -149,7 +149,7 @@ def test_installer_local_install_update_uninstall_and_rollback(
     install_info = _saved(plugin_modules["state"], "install-plugin").get("installed", {})
     assert install_info["source"] == "marketplace"
     assert install_info["source_ref"] == "plugins/install-plugin"
-    assert plugin_modules["state"].is_plugin_enabled("install-plugin") is False
+    assert plugin_modules["state"].is_plugin_enabled("install-plugin") is True
     assert _saved(plugin_modules["state"], "install-plugin").get("health", {}) == {}
 
     unsafe_source = write_plugin(
@@ -165,7 +165,7 @@ def test_installer_local_install_update_uninstall_and_rollback(
     uninstall = installer.uninstall_plugin("install-plugin")
     assert uninstall.success is True
     assert installer.is_installed("install-plugin") is False
-    assert installer.uninstall_plugin("missing-plugin").success is False
+    assert installer.uninstall_plugin("install-plugin").success is True
 
 
 def test_installer_rejects_local_source_without_manifest(

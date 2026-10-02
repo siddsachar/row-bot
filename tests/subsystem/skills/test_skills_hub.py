@@ -244,8 +244,8 @@ def test_replace_with_backup_behavior(tmp_path, monkeypatch):
 
     assert result.success
     assert "New instructions." in skills.get_skill("replace_skill").instructions
-    backups = list((skills.DATA_DIR / "skill_versions" / "replace_skill").glob("hub-replace-*"))
-    assert backups
+    previous = skills.DATA_DIR / "skill_versions" / "replace_skill" / "previous" / "SKILL.md"
+    assert "Instructions for replace_skill." in previous.read_text(encoding="utf-8")
 
 
 def test_update_hash_detection_and_update(tmp_path, monkeypatch):

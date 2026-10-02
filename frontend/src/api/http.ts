@@ -727,6 +727,7 @@ export class HttpTransport implements ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: wire.McpTarget,
   ) {
     return wire.getMcpPolicy(
       this.base,
@@ -735,6 +736,7 @@ export class HttpTransport implements ClientTransport {
       query,
       cursor,
       signal,
+      target,
     );
   }
   mcpTestedCatalog(
@@ -743,6 +745,7 @@ export class HttpTransport implements ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: wire.McpTarget,
   ) {
     return wire.getMcpTestedCatalog(
       this.base,
@@ -752,6 +755,7 @@ export class HttpTransport implements ClientTransport {
       query,
       cursor,
       signal,
+      target,
     );
   }
   reviewMcpCatalog(body: wire.McpCatalogRequest, signal?: AbortSignal) {
@@ -1152,13 +1156,76 @@ export class HttpTransport implements ClientTransport {
   revokeSubscriptionFlows(signal?: AbortSignal) {
     return wire.revokeSubscriptionFlows(this.base, this.session(), signal);
   }
-  mcpConfiguration(query: string, cursor?: string, signal?: AbortSignal) {
+  reconcileIntegrationOperation(
+    kind: 'skill' | 'plugin' | 'mcp',
+    command: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.reconcileIntegrationOperation(
+      this.base,
+      this.session(),
+      kind,
+      command,
+      signal,
+    );
+  }
+  integrations(
+    options: {
+      query?: string;
+      kind?: string;
+      source?: string;
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ) {
+    return wire.getIntegrations(this.base, this.session(), options, signal);
+  }
+  integration(integration: string, signal?: AbortSignal) {
+    return wire.getIntegration(this.base, this.session(), integration, signal);
+  }
+  searchIntegrations(
+    body: wire.IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.searchIntegrations(this.base, this.session(), body, signal);
+  }
+  previewIntegration(
+    body: wire.IntegrationPreviewRequest,
+    signal?: AbortSignal,
+  ) {
+    return wire.previewIntegration(this.base, this.session(), body, signal);
+  }
+  reviewMcpAuth(body: wire.McpAuthReviewRequest, signal?: AbortSignal) {
+    return wire.reviewMcpAuth(this.base, this.session(), body, signal);
+  }
+  mcpAuthStatus(command: string, signal?: AbortSignal) {
+    return wire.getMcpAuth(this.base, this.session(), command, signal);
+  }
+  cancelMcpAuth(command: string, signal?: AbortSignal) {
+    return wire.cancelMcpAuth(this.base, this.session(), command, signal);
+  }
+  previewMcpPackage(body: wire.McpPackageRequest, signal?: AbortSignal) {
+    return wire.previewMcpPackage(this.base, this.session(), body, signal);
+  }
+  sendMcpPackage(body: wire.McpPackageCommand, signal?: AbortSignal) {
+    return wire.sendMcpPackage(this.base, this.session(), body, signal);
+  }
+  sendMcpAuth(body: wire.McpAuthCommand, signal?: AbortSignal) {
+    return wire.sendMcpAuth(this.base, this.session(), body, signal);
+  }
+  mcpConfiguration(
+    query: string,
+    cursor?: string,
+    signal?: AbortSignal,
+    target?: wire.McpTarget,
+  ) {
     return wire.getMcpConfiguration(
       this.base,
       this.session(),
       query,
       cursor,
       signal,
+      target,
     );
   }
   searchMcpDirectory(query: string, signal?: AbortSignal) {
@@ -1169,8 +1236,14 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
-  mcpRuntime(server: string, signal?: AbortSignal) {
-    return wire.getMcpRuntime(this.base, this.session(), server, signal);
+  mcpRuntime(server: string, signal?: AbortSignal, target?: wire.McpTarget) {
+    return wire.getMcpRuntime(
+      this.base,
+      this.session(),
+      server,
+      signal,
+      target,
+    );
   }
   reviewMcpRuntime(body: wire.McpRuntimeReviewRequest, signal?: AbortSignal) {
     return wire.reviewMcpRuntime(this.base, this.session(), body, signal);

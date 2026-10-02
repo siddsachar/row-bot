@@ -1,0 +1,351 @@
+{
+  "$defs": {
+    "IntegrationItem": {
+      "additionalProperties": false,
+      "properties": {
+        "account_label": {
+          "maxLength": 128,
+          "title": "Account Label",
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Actions",
+          "type": "array"
+        },
+        "auth_status": {
+          "enum": [
+            "none",
+            "configured",
+            "expired"
+          ],
+          "title": "Auth Status",
+          "type": "string"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/IntegrationItem"
+          },
+          "maxItems": 256,
+          "title": "Children",
+          "type": "array"
+        },
+        "compatibility": {
+          "enum": [
+            "supported",
+            "partial",
+            "unsupported",
+            "not_inspected"
+          ],
+          "title": "Compatibility",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 2048,
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "evidence": {
+          "maxLength": 512,
+          "title": "Evidence",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "skill",
+            "mcp",
+            "plugin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "license": {
+          "maxLength": 256,
+          "title": "License",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "owner_ref": {
+          "maxLength": 256,
+          "title": "Owner Ref",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Id"
+        },
+        "pin": {
+          "maxLength": 128,
+          "title": "Pin",
+          "type": "string"
+        },
+        "platforms": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Platforms",
+          "type": "array"
+        },
+        "publisher": {
+          "maxLength": 160,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "revision": {
+          "maxLength": 128,
+          "title": "Revision",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "source_url": {
+          "maxLength": 2048,
+          "title": "Source Url",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "off",
+            "setup",
+            "attention",
+            "missing_runtime",
+            "disconnected",
+            "retained",
+            "recovery",
+            "discover"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpStandaloneTarget"
+            },
+            {
+              "$ref": "#/$defs/McpPluginTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "owner_ref",
+        "parent_id",
+        "name",
+        "description",
+        "source",
+        "publisher",
+        "source_url",
+        "version",
+        "pin",
+        "license",
+        "compatibility",
+        "reasons",
+        "platforms",
+        "evidence",
+        "installed",
+        "enabled",
+        "status",
+        "revision",
+        "actions",
+        "auth_status",
+        "account_label",
+        "children",
+        "target"
+      ],
+      "title": "IntegrationItem",
+      "type": "object"
+    },
+    "IntegrationSourceStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "fetched_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fetched At"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 32,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "status",
+        "message",
+        "fetched_at"
+      ],
+      "title": "IntegrationSourceStatus",
+      "type": "object"
+    },
+    "McpPluginTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "plugin",
+          "title": "Kind",
+          "type": "string"
+        },
+        "plugin_id": {
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "server_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Server Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "plugin_id",
+        "server_key"
+      ],
+      "title": "McpPluginTarget",
+      "type": "object"
+    },
+    "McpStandaloneTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "standalone",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "McpStandaloneTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/IntegrationItem"
+      },
+      "maxItems": 96,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/IntegrationSourceStatus"
+      },
+      "maxItems": 24,
+      "title": "Sources",
+      "type": "array"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items",
+    "total",
+    "next_cursor",
+    "sources"
+  ],
+  "title": "IntegrationPage",
+  "type": "object"
+}

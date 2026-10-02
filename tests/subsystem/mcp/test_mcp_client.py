@@ -313,8 +313,8 @@ class McpClientFoundationTests(unittest.TestCase):
             result = marketplace.search_marketplace_with_status("filesystem", sources=["pulsemcp"], limit=10)
 
         self.assertEqual(result.mode, "live")
-        self.assertEqual(result.source_counts, {"curated": 1, "pulsemcp": 1})
-        self.assertEqual(len(result.entries), 2)
+        self.assertEqual(result.source_counts, {"curated": 1, "pulsemcp": 2})
+        self.assertEqual(len(result.entries), 3)
         self.assertEqual(result.entries[0].id, "modelcontextprotocol-filesystem")
         self.assertEqual(result.entries[1].id, "example-filesystem")
         self.assertEqual(result.entries[1].name, "Example Filesystem MCP")

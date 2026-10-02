@@ -1,0 +1,110 @@
+---
+title: "Settings: Integrations"
+description: "Discover, inspect, set up, update, and remove skills, MCP connections, and packages."
+---
+
+# Settings: Integrations
+
+Open **Settings → Integrations**. **My integrations** reads local state without
+contacting catalogs, starting servers, executing plugins, or opening a browser.
+**Discover** starts with local recommendations and cached results. Choose a source
+and **Search public source** when you want to contact it. Old Skills, Plugins and
+MCP links still open the appropriate filtered view.
+
+## Add and use an integration
+
+1. Select a result and **Inspect integration**, or use **Add integration** with a
+   skill link, public GitHub package, authorized local package, or MCP endpoint.
+2. Read its source, exact version or digest, included files, compatibility,
+   credentials, runtime requirements and data destinations. Inspection does not
+   execute downloaded code. A digest identifies bytes; it does not certify a publisher.
+3. Confirm adding it. New public skills, packages and connections start off.
+4. Open its details. A skill can be made available, pinned, edited or copied. Native
+   plugins retain their settings, secret fields, health checks and private worker setup.
+   Package children appear under their parent rather than as independent installs.
+5. For MCP, prepare required runtimes, sign in or save a specifically bound API key,
+   **Test connection**, accept the tested tools, then **Turn on and connect**.
+   A child test leaves its parent and siblings off. The parent must be enabled before
+   the child's tools are available. Existing approvals and Agent Profile restrictions apply.
+
+Use separate connection names and account labels such as Work and Personal for
+separate accounts. Credentials belong to each connection, not to the general
+Accounts page. Sign-in does not enable tools. A failed tool test can be retried
+without signing in again.
+
+**Advanced configuration and existing editors** retains local skill creation,
+proposals, JSON MCP import, rename and custom launch settings, MCP chat access,
+and the global MCP switch. Turning MCP on globally can expose other connections
+already marked on; the review explains that effect.
+
+## Supported sources
+
+- ClawHub imports the complete reviewed version, including resources and binary
+  files, with archive limits and scanner findings. An explicit public GitHub handoff
+  must identify an exact commit and directory. Missing files never fall back to a
+  different source silently.
+- Hermes discovery inspects catalog pins and exact subdirectories. Portable
+  **Agent Plugins 1.0.0** packages support declarative skills and MCP. Foreign
+  hooks, entry points and host extensions are never executed. A broken component
+  has its own diagnostic while valid siblings remain usable.
+- Hermes optional-MCP recipes support a bounded HTTP or pinned npm subset. Git
+  bootstraps, arbitrary setup commands, foreign OAuth clients and unsupported
+  recipes remain unavailable. Installing Hermes or OpenClaw is unnecessary.
+- The official MCP Registry uses its v0.1 catalog envelope and preserves publisher
+  identity. Removed/deprecated entries cannot masquerade as ready imports.
+
+The starters are the bundled **Local text tools** package (two skills, checklist
+and a dependency-free local Node server), the existing **Hello Tool** native
+example at a repository pin, and **Notion MCP**. Their details distinguish source
+review and deterministic tests from live-account or clean-machine evidence.
+The local text server reads only supplied text and has no network or telemetry.
+Skill instructions still use the conversation's chosen model. Notion requests go
+to Notion under its service terms.
+
+## Authentication and runtime setup
+
+OAuth uses the MCP SDK, PKCE, expiring one-use state, protected credential storage
+and endpoint binding. Desktop callbacks use the server's actual loopback address
+and port. Browser/server deployments need exactly one configured approved HTTPS
+origin; an arbitrary Host header cannot supply the callback. If it is unavailable,
+configure access before restarting sign-in. Cancel expired or interrupted flows.
+
+API keys are bound explicitly to a header or process environment variable and
+are never displayed after saving. A durable OS keyring or encrypted file store is
+required; plaintext fallback is refused. Disconnecting removes this connection's
+credentials and stops its running transport.
+
+Managed npm preparation downloads integrity-pinned bytes without running npm or
+install scripts. It accepts self-contained releases or complete npm shrinkwraps.
+Unpinned transitive dependencies and install bootstraps require separate review
+and manual setup. Node and uv remain shared managed runtimes; package removal
+does not uninstall them. Processes are not an OS sandbox: review the publisher's
+file, network and telemetry behavior before execution.
+
+## Updates, recovery and removal
+
+Updates stage and validate files before replacing the active version. Skills
+with local edits are preserved; duplicate or export them before updating.
+Managed updates retain one previous file revision for **Restore previous version**.
+Stable package IDs, settings, credential references, selected tools, profiles and
+persistent data survive updates. Changed endpoints need fresh sign-in; changed
+tools or dependencies need new review. File rollback does not reverse data
+migrations, external writes, or every Python runtime generation.
+
+After an interrupted action, use **Check original operation**. It reads retained
+command state and publication evidence without downloading or running the action
+again. Proven publication can be reconciled; an uncertain result stays explicit.
+Package **Recover publication** finishes a provable file/state transition. Do not
+repeat an unconfirmed destructive action blindly.
+
+Turning a package off withdraws all of its children. Removing it preserves saved
+data and credentials by default; **Delete saved data** is a separate reviewed
+cleanup. Removing a standalone MCP connection stops that connection and deletes
+only its own credential reference. Unrelated skills, connections and runtimes remain.
+
+## Verification limits
+
+Default tests use isolated files, fake catalogs, fake transports and protected
+storage fakes. Live Notion authorization/refresh, a current external Hermes package,
+ClawHub resources, macOS/Linux callbacks and clean-machine installer recovery need
+separate authorized checks. Catalog labels do not claim those checks have passed.

@@ -67,6 +67,7 @@ const sidebars: SidebarsConfig = {
         'settings/tracker',
         'settings/documents',
         'settings/tools',
+        'settings/integrations',
         'settings/skills',
         'settings/accounts',
         'settings/channels',

@@ -1114,17 +1114,20 @@ class SkillHubMaintenanceCommand(WireModel):
     command_id: UUID
     name: str = Field(min_length=1, max_length=160)
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    action: Literal["check", "update", "uninstall"]
+    action: Literal["check", "review_update", "update", "restore", "uninstall"]
     confirmed: bool = False
+    preview_id: str = Field(default="", max_length=64)
+    content_hash: str = Field(default="", max_length=64)
 
 
 class SkillHubMaintenanceReceipt(WireModel):
     schema_version: Literal[1]
     command_id: UUID
-    action: Literal["check", "update", "uninstall"]
+    action: Literal["check", "review_update", "update", "restore", "uninstall"]
     success: bool
     message: str = Field(max_length=300)
     record: SkillHubInstalledRecord | None
+    update_preview: SkillHubPreview | None = None
 
 
 class GitHubAccessReceipt(WireModel):
@@ -1807,6 +1810,116 @@ class SubscriptionOptionsReview(SubscriptionOptionsRequest):
     nonce: str = Field(min_length=1, max_length=128)
 
 
+class McpStandaloneTarget(WireModel):
+    kind: Literal["standalone"]
+
+
+class McpPluginTarget(WireModel):
+    kind: Literal["plugin"]
+    plugin_id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    server_key: str = Field(min_length=1, max_length=256)
+
+
+McpTarget = McpStandaloneTarget | McpPluginTarget
+
+
+class McpSecretBinding(WireModel):
+    kind: Literal["env", "header"]
+    name: str = Field(min_length=1, max_length=128)
+    key: str = Field(min_length=1, max_length=64)
+    prefix: Literal["", "Bearer ", "Basic "] = ""
+
+
+class McpAuthReviewRequest(WireModel):
+    server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target: McpTarget | None = None
+    action: Literal["start", "disconnect"]
+    mode: Literal["oauth", "api_key"] = "oauth"
+    label: str = Field(default="", max_length=128)
+    bindings: list[McpSecretBinding] = Field(default_factory=list, max_length=16)
+
+
+class McpAuthReview(McpAuthReviewRequest):
+    action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    disclosures: list[str] = Field(max_length=4)
+    nonce: str = Field(min_length=1, max_length=128)
+
+
+class McpAuthCommand(McpAuthReviewRequest):
+    command_id: UUID
+    client_session_id: UUID
+    nonce: str = Field(min_length=1, max_length=128)
+    values: dict[str, str] | None = Field(default=None, max_length=16)
+    client: dict[str, Any] | None = Field(default=None, max_length=20)
+
+
+class McpAuthStatus(WireModel):
+    command_id: UUID
+    server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal["starting", "waiting", "signed_in", "cancelled", "expired", "failed", "uncertain", "disconnected"]
+    message: str = Field(max_length=1024)
+    authorization_url: str | None = Field(default=None, max_length=8192)
+
+
+class IntegrationItem(WireModel):
+    id: str = Field(min_length=1, max_length=512)
+    kind: Literal["skill", "mcp", "plugin"]
+    owner_ref: str = Field(max_length=256)
+    parent_id: str | None = Field(max_length=512)
+    name: str = Field(max_length=256)
+    description: str = Field(max_length=2048)
+    source: str = Field(max_length=80)
+    publisher: str = Field(max_length=160)
+    source_url: str = Field(max_length=2048)
+    version: str = Field(max_length=128)
+    pin: str = Field(max_length=128)
+    license: str = Field(max_length=256)
+    compatibility: Literal["supported", "partial", "unsupported", "not_inspected"]
+    reasons: list[str] = Field(max_length=16)
+    platforms: list[str] = Field(max_length=12)
+    evidence: str = Field(max_length=512)
+    installed: bool
+    enabled: bool
+    status: Literal["ready", "off", "setup", "attention", "missing_runtime", "disconnected", "retained", "recovery", "discover"]
+    revision: str = Field(max_length=128)
+    actions: list[str] = Field(max_length=32)
+    auth_status: Literal["none", "configured", "expired"]
+    account_label: str = Field(max_length=128)
+    children: list[IntegrationItem] = Field(max_length=256)
+    target: McpTarget | None
+
+
+class IntegrationSourceStatus(WireModel):
+    source: str = Field(max_length=80)
+    status: str = Field(max_length=32)
+    message: str = Field(max_length=512)
+    fetched_at: float | None
+
+
+class IntegrationPage(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[IntegrationItem] = Field(max_length=96)
+    total: int = Field(ge=0)
+    next_cursor: str | None = Field(max_length=256)
+    sources: list[IntegrationSourceStatus] = Field(max_length=24)
+
+
+class IntegrationSearchRequest(WireModel):
+    query: str = Field(default="", max_length=256)
+    sources: list[Literal["recommended", "hermes", "hermes_mcp", "clawhub", "skills_sh", "official", "native"]] = Field(default_factory=lambda: ["recommended"], max_length=7)
+    refresh: bool = False
+
+
+class IntegrationPreviewRequest(WireModel):
+    revision: str = Field(default="", max_length=64)
+    item_id: str = Field(default="", max_length=512)
+    kind: Literal["plugin", "skill", "mcp"] = "plugin"
+    reference: str = Field(default="", max_length=2048)
+    local: bool = False
+
+
 class McpRequirementSummary(WireModel):
     id: Literal["node", "uv", "playwright-chrome", "other"]
     label: str = Field(max_length=96)
@@ -1902,6 +2015,7 @@ class McpConfigurationIntent(WireModel):
 
 
 class McpConfigurationReviewRequest(WireModel):
+    target: McpTarget | None = None
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     intent: McpConfigurationIntent
 
@@ -3169,12 +3283,14 @@ class PluginReceipt(WireModel):
 
 
 class PluginLifecycleReviewRequest(WireModel):
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
+    action: Literal["install", "update", "remove", "refresh", "prepare", "restore", "recover", "purge"]
     plugin_id: str = Field(default="", max_length=128)
+
+    preview_id: str = Field(default="", max_length=64)
 
 
 class PluginLifecycleReview(WireModel):
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
+    action: Literal["install", "update", "remove", "refresh", "prepare", "restore", "recover", "purge"]
     plugin_id: str = Field(max_length=128)
     name: str = Field(max_length=256)
     version: str = Field(max_length=64)
@@ -3188,15 +3304,17 @@ class PluginLifecycleReview(WireModel):
 class PluginLifecycleCommand(WireModel):
     command_id: UUID
     client_session_id: UUID
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
+    action: Literal["install", "update", "remove", "refresh", "prepare", "restore", "recover", "purge"]
     plugin_id: str = Field(default="", max_length=128)
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    preview_id: str = Field(default="", max_length=64)
 
 
 class PluginLifecycleReceipt(WireModel):
     command_id: UUID
     status: Literal["completed", "failed", "uncertain"]
-    action: Literal["install", "update", "remove", "refresh", "prepare"]
+    action: Literal["install", "update", "remove", "refresh", "prepare", "restore", "recover", "purge"]
     plugin_id: str = Field(max_length=128)
     message: str = Field(max_length=1024)
 
@@ -4086,6 +4204,7 @@ class McpTestedCatalogPage(WireModel):
 
 
 class McpCatalogRequest(WireModel):
+    target: McpTarget | None = None
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     test_command_id: UUID
@@ -4233,6 +4352,7 @@ class McpUtilityPolicyIntent(WireModel):
 
 
 class McpPolicyRequest(WireModel):
+    target: McpTarget | None = None
     configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     intent: (
         McpGlobalPolicyIntent
@@ -4288,6 +4408,7 @@ class McpRuntimeState(WireModel):
 
 
 class McpRuntimeReviewRequest(WireModel):
+    target: McpTarget | None = None
     resource_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     operation: Literal["connect", "test", "disconnect"]
@@ -7726,3 +7847,92 @@ class LazyContent(WireModel):
     data: str = Field(max_length=87384)
     has_more: bool
     next_cursor: Cursor | None
+
+
+class McpPackageRequest(WireModel):
+    server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    configuration_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target: McpTarget | None = None
+
+
+class McpPackageReview(McpPackageRequest):
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    integrity: str = Field(max_length=256)
+    digest: str = Field(max_length=128)
+    dependencies: int = Field(ge=0, le=128)
+    license: str = Field(max_length=256)
+    disclosures: list[str] = Field(max_length=16)
+    action_digest: str = Field(max_length=128)
+    nonce: str = Field(max_length=256)
+
+
+class McpPackageCommand(McpPackageRequest):
+    command_id: UUID
+    client_session_id: UUID
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    digest: str = Field(max_length=128)
+    nonce: str = Field(max_length=256)
+
+
+class PackageDiagnostic(WireModel):
+    component: str = Field(max_length=256)
+    reason: str = Field(max_length=1024)
+
+
+class PortableSkillPreview(WireModel):
+    name: str = Field(max_length=128)
+    description: str = Field(max_length=1024)
+
+
+class PortableServerPreview(WireModel):
+    key: str = Field(max_length=256)
+    transport: str = Field(max_length=32)
+    command: str = Field(max_length=2048)
+    args: list[str] = Field(max_length=128)
+    url: str = Field(max_length=2048)
+
+
+class PortablePackagePreview(WireModel):
+    preview_id: str = Field(max_length=64)
+    plugin_id: str = Field(max_length=128)
+    name: str = Field(max_length=256)
+    description: str = Field(max_length=1000)
+    version: str = Field(max_length=128)
+    license: str = Field(max_length=256)
+    publisher: str = Field(max_length=160)
+    format: str = Field(max_length=64)
+    compatibility: Literal["supported", "partial"]
+    diagnostics: list[PackageDiagnostic] = Field(max_length=128)
+    source: str = Field(max_length=2048)
+    pin: str = Field(max_length=128)
+    tree_digest: str = Field(max_length=80)
+    archive_digest: str = Field(max_length=80)
+    adapter_version: int
+    skills: list[PortableSkillPreview] = Field(max_length=128)
+    servers: list[PortableServerPreview] = Field(max_length=128)
+    permissions: list[str] = Field(max_length=64)
+    evidence: str = Field(max_length=512)
+
+
+class IntegrationMcpPreview(WireModel):
+    name: str = Field(max_length=128)
+    import_json: str = Field(max_length=131072)
+    requires_auth: bool
+    notes: list[str] = Field(max_length=16)
+    source_url: str = Field(max_length=2048)
+
+
+class IntegrationPreview(WireModel):
+    kind: Literal["plugin", "skill", "mcp", "native"]
+    plugin: PortablePackagePreview | None = None
+    skill: SkillHubPreview | None = None
+    mcp: IntegrationMcpPreview | None = None
+    plugin_id: str | None = Field(default=None, max_length=128)
+
+
+class IntegrationOperationResult(WireModel):
+    command_id: UUID
+    settled: bool
+    message: str = Field(max_length=1024)

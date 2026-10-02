@@ -2275,13 +2275,96 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.testLiveProviderRuntime(provider, signal);
     });
-  mcpConfiguration = (query: string, cursor?: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.mcpConfiguration?.(query, cursor, signal));
+  reconcileIntegrationOperation = (
+    kind: 'skill' | 'plugin' | 'mcp',
+    command: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.reconcileIntegrationOperation?.(kind, command, signal),
+    );
+  integrations = (
+    options: {
+      query?: string;
+      kind?: string;
+      source?: string;
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.integrations?.(options, signal));
+  integration = (integration: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.integration?.(integration, signal));
+  searchIntegrations = (
+    body: import('./types').IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.searchIntegrations?.(body, signal));
+  previewIntegration = (
+    body: import('./types').IntegrationPreviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.previewIntegration?.(body, signal));
+  reviewMcpAuth = (
+    body: import('./types').McpAuthReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewMcpAuth?.(body, signal));
+  mcpAuthStatus = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.mcpAuthStatus?.(command, signal));
+  cancelMcpAuth = (command: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.cancelMcpAuth?.(command, signal));
+  previewMcpPackage = (
+    body: import('./types').McpPackageRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.previewMcpPackage?.(body, signal));
+  executeMcpAuth = async (
+    body: Omit<import('./types').McpAuthCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').McpAuthCommand>(
+      'McpAuthCommand',
+      { ...body, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.sendMcpAuth)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.sendMcpAuth(command, signal);
+    });
+    if (result.command_id !== body.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  executeMcpPackage = async (
+    body: Omit<import('./types').McpPackageCommand, 'client_session_id'>,
+  ) => {
+    const handshake = this.state.handshake;
+    if (!handshake) throw clientError({ code: 'authentication_required' });
+    const command = validateWire<import('./types').McpPackageCommand>(
+      'McpPackageCommand',
+      { ...body, client_session_id: handshake.client_session_id },
+    );
+    const result = await this.authenticatedResult((signal) => {
+      if (!this.transport.sendMcpPackage)
+        throw clientError({ code: 'unsupported_command' });
+      return this.transport.sendMcpPackage(command, signal);
+    });
+    if (result.command_id !== body.command_id)
+      throw clientError({ code: 'protocol_incompatible' });
+    return result;
+  };
+  mcpConfiguration = (
+    query: string,
+    cursor?: string,
+    signal?: AbortSignal,
+    target?: import('./types').McpTarget,
+  ) =>
+    this.query(() =>
+      this.transport.mcpConfiguration?.(query, cursor, signal, target),
+    );
   searchMcpDirectory = (query: string, signal?: AbortSignal) =>
     this.query(() => this.transport.searchMcpDirectory?.(query, signal));
   mcpPolicy = (
     query: { server_id: string | null; query: string; cursor?: string },
     signal?: AbortSignal,
+    target?: import('./types').McpTarget,
   ) =>
     this.query(() =>
       this.transport.mcpPolicy?.(
@@ -2289,6 +2372,7 @@ export class ClientController {
         query.query,
         query.cursor,
         signal,
+        target,
       ),
     );
   /** "Enable in chat" for external MCP tools (B130). */
@@ -2342,6 +2426,7 @@ export class ClientController {
       cursor?: string;
     },
     signal?: AbortSignal,
+    target?: import('./types').McpTarget,
   ) =>
     this.query(() =>
       this.transport.mcpTestedCatalog?.(
@@ -2350,6 +2435,7 @@ export class ClientController {
         query.query,
         query.cursor,
         signal,
+        target,
       ),
     );
   reviewMcpCatalog = (body: unknown, signal?: AbortSignal) => {
@@ -2376,7 +2462,11 @@ export class ClientController {
         | 'mcp.configuration.control'
         | 'mcp.catalog.accept';
       payload:
-        | { configuration_revision: string; intent: unknown }
+        | {
+            configuration_revision: string;
+            intent: unknown;
+            target?: import('./types').McpTarget;
+          }
         | import('./types').McpCatalogRequest;
     },
     review: { nonce?: string },
@@ -2830,10 +2920,11 @@ export class ClientController {
     action: import('./types').PluginLifecycleReviewRequest['action'],
     pluginId = '',
     signal?: AbortSignal,
+    previewId?: string,
   ) => {
     const body = validateWire<import('./types').PluginLifecycleReviewRequest>(
       'PluginLifecycleReviewRequest',
-      { action, plugin_id: pluginId },
+      { action, plugin_id: pluginId, preview_id: previewId ?? '' },
     );
     return this.query(() =>
       this.transport.reviewPluginLifecycle?.(body, signal),
@@ -3341,8 +3432,11 @@ export class ClientController {
     });
     return this.documentProcessingResult(result, original.command_id);
   };
-  mcpRuntime = (server: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.mcpRuntime?.(server, signal));
+  mcpRuntime = (
+    server: string,
+    signal?: AbortSignal,
+    target?: import('./types').McpTarget,
+  ) => this.query(() => this.transport.mcpRuntime?.(server, signal, target));
   documentQueue = (
     options: { kind: 'batches' | 'jobs'; batch_id?: string; cursor?: string },
     signal?: AbortSignal,

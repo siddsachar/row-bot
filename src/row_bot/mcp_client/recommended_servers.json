@@ -182,11 +182,30 @@
     "transport": "streamable_http",
     "requires_auth": true,
     "recommended": true,
-    "capabilities": ["knowledge_base", "documents", "workspace"],
-    "overlaps_native": ["documents"],
-    "last_reviewed": "2026-04-27",
-    "notes": ["External workspace knowledge is separate from Row-Bot Memory."],
-    "install": {"transport": "streamable_http", "url": "https://mcp.notion.com/mcp"}
+    "capabilities": [
+      "knowledge_base",
+      "documents",
+      "workspace"
+    ],
+    "overlaps_native": [
+      "documents"
+    ],
+    "last_reviewed": "2026-10-02",
+    "notes": [
+      "Requires a Notion workspace and browser OAuth sign-in. No local package installation.",
+      "Requests and selected workspace data go to Notion. Hosted service data collection follows Notion terms; Row-Bot adds no telemetry.",
+      "Windows/macOS/Linux clients use a loopback or approved HTTPS callback. Test the connection and review tool access before enabling it."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.notion.com/mcp"
+    },
+    "metadata": {
+      "integration_starter": true,
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Official setup documentation reviewed; deterministic SDK OAuth coverage. Disposable live account and platform callbacks pending."
+    }
   },
   {
     "id": "figma-mcp",

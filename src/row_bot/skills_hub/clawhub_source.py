@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import io
+import json
 import pathlib
+import re
 import stat
+import urllib.error
 import urllib.parse
 import zipfile
 from typing import Any
@@ -28,6 +31,10 @@ MAX_ZIP_TOTAL_BYTES = 5_000_000
 MAX_ZIP_FILE_BYTES = 1_000_000
 
 
+class ClawHubSourceBlocked(ValueError):
+    """An explicit publisher moderation decision, distinct from a network failure."""
+
+
 class ClawHubSource(SkillSource):
     id = "clawhub"
     display_name = "ClawHub"
@@ -44,10 +51,7 @@ class ClawHubSource(SkillSource):
 
     def search(self, query: str, limit: int = 24) -> list[SkillHubEntry]:
         params = urllib.parse.urlencode({"q": query or "", "limit": str(limit)})
-        try:
-            entries = parse_clawhub_payload(fetch_json(f"{API_ROOT}/skills/search?{params}"))
-        except Exception:
-            entries = self.browse(limit=max(limit, 100)).entries
+        entries = parse_clawhub_payload(fetch_json(f"{API_ROOT}/search?{params}"))
         return search_entries(entries, query, limit=limit)
 
     def can_resolve(self, value: str) -> bool:
@@ -56,11 +60,15 @@ class ClawHubSource(SkillSource):
 
     def resolve(self, value: str) -> SourceResult:
         parsed = urllib.parse.urlparse(value)
-        slug = parsed.path.strip("/").split("/")[-1]
+        parts = parsed.path.strip("/").split("/")
+        slug = parts[-1]
         if not slug:
             return SourceResult([], self.id, "empty", "ClawHub URL does not include a skill slug.")
-        data = fetch_json(f"{API_ROOT}/skills/{urllib.parse.quote(slug)}")
-        entry = _entry_from_clawhub_item(data.get("skill", data) if isinstance(data, dict) else {})
+        owner = parts[0] if len(parts) in {2, 3} and parts[0] != "skills" else ""
+        data = _detail(slug, owner)
+        raw = dict(data.get("skill", data))
+        raw["owner"] = data.get("owner", {})
+        entry = _entry_from_clawhub_item(raw)
         return SourceResult([entry] if entry else [], self.id, "live" if entry else "empty")
 
     def inspect(self, entry: SkillHubEntry) -> SkillBundle:
@@ -81,54 +89,85 @@ class ClawHubSource(SkillSource):
             return bundle
         if install_ref.startswith("http") and install_ref.lower().endswith(".zip"):
             return bundle_from_clawhub_zip(fetch_bytes(install_ref), install_ref=install_ref)
-        slug = install_ref.removeprefix("clawhub:").strip("/")
-        raw_url = f"{API_ROOT}/skills/{urllib.parse.quote(slug)}/file?path=SKILL.md"
-        try:
-            markdown = fetch_text(raw_url)
-            if markdown.strip():
-                return bundle_from_marketplace_markdown(
-                    source=self.id,
-                    install_ref=f"clawhub:{slug}",
-                    root_name=slugify(slug or "clawhub_skill"),
-                    text=markdown,
-                    name=slug or "clawhub_skill",
-                    metadata={
-                        "trust_level": "high-risk community",
-                        "risk": "high",
-                        "source_warning": _warning(),
-                        "raw_url": raw_url,
-                    },
-                )
-        except Exception:
-            pass
-        zip_url = f"{API_ROOT}/download?slug={urllib.parse.quote(slug)}"
-        try:
-            return bundle_from_clawhub_zip(fetch_bytes(zip_url), install_ref=zip_url)
-        except Exception:
-            pass
-        data = fetch_json(f"{API_ROOT}/skills/{urllib.parse.quote(slug)}")
-        detail = data.get("skill", data) if isinstance(data, dict) else {}
-        if not isinstance(detail, dict):
-            raise ValueError("ClawHub detail response is not a mapping")
-        markdown_url = str(detail.get("skillMdUrl") or detail.get("skill_md_url") or detail.get("rawUrl") or "").strip()
-        if markdown_url:
-            return self.fetch(markdown_url)
-        zip_url = str(detail.get("zipUrl") or detail.get("downloadUrl") or detail.get("archiveUrl") or "").strip()
-        if zip_url:
-            return self.fetch(zip_url)
-        markdown = str(detail.get("skillMd") or detail.get("markdown") or detail.get("content") or "").strip()
-        if markdown:
-            name = str(detail.get("name") or detail.get("title") or slug or "clawhub_skill")
-            return bundle_from_marketplace_markdown(
-                source=self.id,
-                install_ref=f"clawhub:{slug}",
-                root_name=slugify(name),
-                text=markdown,
-                name=name,
-                description=str(detail.get("description") or detail.get("summary") or ""),
-                metadata={"trust_level": "high-risk community", "risk": "high", "source_warning": _warning()},
-            )
-        raise ValueError("ClawHub entry does not expose skill markdown or a ZIP bundle")
+        reference, _, version = install_ref.removeprefix("clawhub:").removeprefix("@").partition("@")
+        owner, separator, slug = reference.partition("/")
+        if not separator:
+            owner, slug = "", owner
+        detail = _detail(slug, owner)
+        skill = detail.get("skill", detail)
+        moderation = detail.get("moderation") or {}
+        if not isinstance(moderation, dict):
+            raise ValueError("Invalid ClawHub moderation response")
+        if (skill.get("deletedAt") or skill.get("moderationStatus") in {"blocked", "removed", "malicious"}
+                or moderation.get("isMalwareBlocked") is True or moderation.get("verdict") == "malicious"):
+            raise ClawHubSourceBlocked("ClawHub has removed or moderation-blocked this skill. Its local files are retained, but it cannot be turned on.")
+        latest = detail.get("latestVersion") or skill.get("latestVersion") or {}
+        version = version or (latest.get("version", "") if isinstance(latest, dict) else latest)
+        if not isinstance(version, str) or not version or len(version) > 128:
+            raise ValueError("ClawHub did not provide an installable version")
+        author = _owner(detail) or owner
+        pinned = f"clawhub:{author + '/' if author else ''}{slug}@{version}"
+        params = {"slug": slug, "version": version}
+        if author:
+            params["owner"] = author
+        url = f"{API_ROOT}/download?" + urllib.parse.urlencode(params)
+        data = fetch_bytes(url)
+        if data.lstrip().startswith(b"{"):
+            bundle = _github_handoff(json.loads(data), install_ref=pinned)
+        else:
+            bundle = bundle_from_clawhub_zip(data, install_ref=pinned)
+        bundle.metadata.update({"version": version, "slug": slug, "author": author,
+            "url": f"https://clawhub.ai/{author}/skills/{slug}" if author else f"https://clawhub.ai/skills/{slug}"})
+        return bundle
+
+
+def _owner(raw: dict[str, Any]) -> str:
+    publisher = raw.get("owner") or raw.get("publisher") or {}
+    value = raw.get("ownerHandle") or (publisher.get("handle", "") if isinstance(publisher, dict) else "")
+    if not isinstance(value, str) or value and not re.fullmatch(r"[a-zA-Z0-9_-]{1,160}", value):
+        raise ValueError("Invalid ClawHub publisher")
+    return value.lower()
+
+
+def _detail(slug: str, owner: str) -> dict[str, Any]:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,160}", slug) or owner and not re.fullmatch(r"[a-zA-Z0-9_-]{1,160}", owner):
+        raise ValueError("Invalid ClawHub reference")
+    url = f"{API_ROOT}/skills/{urllib.parse.quote(slug, safe='')}"
+    if owner:
+        url += "?" + urllib.parse.urlencode({"owner": owner})
+    try:
+        value = fetch_json(url)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 409:
+            raise ValueError("This ClawHub slug has multiple publishers. Use its publisher-qualified ClawHub URL.") from None
+        raise
+    if not isinstance(value, dict) or not isinstance(value.get("skill", value), dict):
+        raise ValueError("ClawHub detail response is not a mapping")
+    if owner and _owner(value) != owner.lower():
+        raise ValueError("ClawHub returned a different publisher")
+    return value
+
+
+def _github_handoff(value: Any, *, install_ref: str) -> SkillBundle:
+    """Accept only the documented public, immutable GitHub source descriptor."""
+    from row_bot.package_files import relative_package_path
+
+    if not isinstance(value, dict) or value.get("sourceRef") != "public-github":
+        raise ValueError("Invalid ClawHub GitHub handoff")
+    repo, commit, path = (value.get(key, "") for key in ("repo", "commit", "path"))
+    if not isinstance(repo, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        raise ValueError("Invalid ClawHub GitHub repository")
+    if not isinstance(commit, str) or not re.fullmatch(r"[a-fA-F0-9]{40}", commit):
+        raise ValueError("ClawHub GitHub handoff is not pinned")
+    if path:
+        relative_package_path(path)
+    canonical = f"https://codeload.github.com/{repo}/zip/{commit}"
+    if value.get("archiveUrl") not in {canonical, f"https://github.com/{repo}/archive/{commit}.zip"}:
+        raise ValueError("ClawHub GitHub archive does not match its pin")
+    bundle = bundle_from_clawhub_zip(fetch_bytes(canonical), install_ref=install_ref, subdirectory=path)
+    bundle.metadata.update({"repository": repo, "ref": commit, "path": path,
+        "upstream_content_hash": str(value.get("contentHash", ""))[:256]})
+    return bundle
 
 
 def parse_clawhub_payload(data: Any) -> list[SkillHubEntry]:
@@ -148,14 +187,31 @@ def parse_clawhub_payload(data: Any) -> list[SkillHubEntry]:
     return entries
 
 
-def bundle_from_clawhub_zip(data: bytes, *, install_ref: str) -> SkillBundle:
+def bundle_from_clawhub_zip(data: bytes, *, install_ref: str, subdirectory: str = "") -> SkillBundle:
+    from row_bot.package_files import relative_package_path
+
     files: list[SkillFile] = []
     total = 0
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        members = [member for member in archive.infolist() if not member.is_dir()]
+        all_members = archive.infolist()
+        if len(all_members) > 8192 or sum(m.file_size for m in all_members) > 64 * 1024 * 1024:
+            raise ValueError("ClawHub archive exceeds the extraction limit")
+        seen: set[str] = set()
+        for member in all_members:
+            # zipfile normalizes backslashes on Windows; inspect the original
+            # central-directory spelling before platform normalization.
+            relative_package_path(member.orig_filename.rstrip("/"))
+            name = relative_package_path(member.filename.rstrip("/"))
+            if name.casefold() in seen or _zip_member_is_symlink(member):
+                raise ValueError("ClawHub archive contains a link or duplicate path")
+            seen.add(name.casefold())
+        members = [member for member in all_members if not member.is_dir()]
+        root_prefix = _common_root_prefix([member.filename for member in members])
+        if subdirectory:
+            root_prefix += relative_package_path(subdirectory) + "/"
+            members = [member for member in members if member.filename.startswith(root_prefix)]
         if len(members) > MAX_ZIP_FILES:
             raise ValueError(f"ClawHub ZIP has too many files ({len(members)} > {MAX_ZIP_FILES})")
-        root_prefix = _common_root_prefix([member.filename for member in members])
         for member in members:
             rel_path = _safe_zip_member_path(member.filename, root_prefix=root_prefix)
             if not rel_path:
@@ -180,28 +236,32 @@ def bundle_from_clawhub_zip(data: bytes, *, install_ref: str) -> SkillBundle:
 
 
 def _entry_from_clawhub_item(raw: dict[str, Any]) -> SkillHubEntry | None:
-    name = str(raw.get("name") or raw.get("title") or raw.get("id") or raw.get("slug") or "").strip()
+    name = str(raw.get("displayName") or raw.get("name") or raw.get("title") or raw.get("slug") or raw.get("id") or "").strip()
     if not name:
         return None
     slug = str(raw.get("slug") or raw.get("id") or slugify(name)).strip()
-    detail_url = str(raw.get("url") or raw.get("detailUrl") or f"https://clawhub.ai/skills/{slug}")
+    author = _owner(raw)
+    reference = author + "/" + slug if author else slug
+    canonical = raw.get("canonicalUrl") or raw.get("url") or raw.get("detailUrl")
+    detail_url = urllib.parse.urljoin("https://clawhub.ai/", str(canonical or (f"/{author}/skills/{slug}" if author else f"/skills/{slug}")))
     skill_url = str(raw.get("skillMdUrl") or raw.get("skill_md_url") or raw.get("rawUrl") or "").strip()
     zip_url = str(raw.get("zipUrl") or raw.get("downloadUrl") or raw.get("archiveUrl") or "").strip()
-    install_ref = skill_url or zip_url or f"clawhub:{slug}"
+    install_ref = f"clawhub:{reference}"
     tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
     return SkillHubEntry(
-        id=f"clawhub:{slug}",
+        id=install_ref,
         name=name,
         description=str(raw.get("description") or raw.get("summary") or ""),
         source="clawhub",
         source_id="clawhub.ai",
         install_ref=install_ref,
         url=detail_url,
-        author=str(raw.get("author") or raw.get("publisher") or ""),
+        author=author or str(raw.get("author") or ""),
         tags=[str(tag) for tag in tags],
         trust_level="high-risk community",
         metadata={
             "slug": slug,
+            "owner": author,
             "detail_url": detail_url,
             "skill_url": skill_url,
             "zip_url": zip_url,
@@ -213,13 +273,12 @@ def _entry_from_clawhub_item(raw: dict[str, Any]) -> SkillHubEntry | None:
 
 
 def _safe_zip_member_path(filename: str, *, root_prefix: str) -> str:
-    clean = str(filename or "").replace("\\", "/").lstrip("/")
+    from row_bot.package_files import relative_package_path
+
+    clean = relative_package_path(filename)
     if root_prefix and clean.startswith(root_prefix):
         clean = clean[len(root_prefix):]
-    pure = pathlib.PurePosixPath(clean)
-    if not clean or any(part in {"", ".", ".."} for part in pure.parts):
-        raise ValueError(f"Unsafe ClawHub ZIP path: {filename}")
-    return str(pure)
+    return relative_package_path(clean)
 
 
 def _zip_member_is_symlink(member: zipfile.ZipInfo) -> bool:
@@ -232,7 +291,7 @@ def _common_root_prefix(paths: list[str]) -> str:
     if not first_parts:
         return ""
     first = first_parts[0]
-    if first and all(part == first for part in first_parts):
+    if first and len(first_parts) == len(paths) and all(part == first for part in first_parts):
         return first + "/"
     return ""
 

@@ -27,7 +27,10 @@ const CONFIRM: Record<Confirmable, { title: string; label: string }> = {
   install: { title: 'Install', label: 'Install plugin' },
   update: { title: 'Update', label: 'Update plugin' },
   prepare: { title: 'Prepare', label: 'Prepare plugin' },
-  remove: { title: 'Uninstall', label: 'Uninstall plugin' },
+  remove: { title: 'Remove', label: 'Remove package' },
+  restore: { title: 'Restore previous version', label: 'Restore' },
+  recover: { title: 'Recover publication', label: 'Recover' },
+  purge: { title: 'Delete saved data', label: 'Delete saved data' },
 };
 
 /**
@@ -151,7 +154,7 @@ export function usePluginLifecycle(
         title={`${words.title} ${plugin.name}?`}
         description={
           reviewed.kind === 'remove'
-            ? 'This deletes its files, settings, and secret metadata.'
+            ? 'This removes package files and withdraws its children. Saved data and credentials are preserved.'
             : 'Check what it is and what it may do before it runs.'
         }
         ariaLabel={`${words.title} ${plugin.name}`}

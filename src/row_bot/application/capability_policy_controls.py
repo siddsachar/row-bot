@@ -11,7 +11,7 @@ import json
 import re
 
 from row_bot.application import capability_configuration_controls as configuration
-from row_bot.mcp_client import config
+from row_bot.mcp_client import config, targets
 from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool
 
 Error = configuration.CapabilityConfigurationError
@@ -106,6 +106,7 @@ def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
     return rows
 
 
+@targets.owner
 def read_mcp_policy(*, server_id: str | None = None, query: str = "", cursor: str | None = None,
                     limit: int = 25, validate: Callable[[], None] = lambda: None) -> McpPolicyPage:
     """Read the whole saved tool scope before returning one bounded safe page."""
@@ -185,6 +186,8 @@ def _next_policy_document(saved, intent):
         raise Error("invalid_command")
     document = copy.deepcopy(saved.document)
     if operation == "global_enabled":
+        if targets.current():
+            raise Error("plugin_child_parent_owned")
         document["enabled"] = intent["enabled"]
         return document, ()
     _identity(intent["server_id"])
@@ -228,6 +231,7 @@ def _next_policy_document(saved, intent):
     return document, (name,)
 
 
+@targets.owner
 def review_mcp_policy_command(configuration_revision: str, intent: dict, *, validate: Callable[[], None]) -> dict:
     from row_bot.runtime import admissions
     validate()
@@ -244,6 +248,7 @@ def review_mcp_policy_command(configuration_revision: str, intent: dict, *, vali
         "server_ids": [configuration._server_id(name) for name in names], "saved_disabled": None}
 
 
+@targets.owner
 def execute_mcp_policy_command(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],
                                validate_review: Callable[[dict], None]) -> dict:
     """Save authorization only; original retries reuse the existing proof owner."""

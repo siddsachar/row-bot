@@ -78,16 +78,9 @@ def _count_sources(entries: list[MarketplaceEntry]) -> dict[str, int]:
 
 def _dedupe_entries(entries: list[MarketplaceEntry]) -> list[MarketplaceEntry]:
     dedup: dict[str, MarketplaceEntry] = {}
-    seen_names: set[str] = set()
     for entry in entries:
         if not _is_useful_entry(entry):
             continue
-        name_key = re.sub(r"[^a-z0-9]+", " ", entry.name.lower()).strip()
-        if name_key:
-            name_key = f"{entry.source}:{name_key}"
-            if name_key in seen_names:
-                continue
-            seen_names.add(name_key)
         dedup.setdefault(f"{entry.source}:{entry.id}", entry)
     return list(dedup.values())
 
@@ -236,40 +229,67 @@ def _save_cache(entries: list[MarketplaceEntry]) -> None:
 
 
 def _official_registry_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    # Generic Registry API endpoints can evolve; try conservative paths and
-    # degrade silently to the next source/cache if unavailable.
-    encoded = urllib.parse.urlencode({"search": query, "limit": str(limit)})
-    candidates = [
-        f"https://registry.modelcontextprotocol.io/v0/servers?{encoded}",
-        f"https://registry.modelcontextprotocol.io/api/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.official_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data if isinstance(data, list) else data.get("items", [])) if isinstance(data, (dict, list)) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
+    """Normalize the v0.1 envelope, bounded pagination and explicit recipes."""
+    entries, cursor, seen = [], "", set()
+    for _ in range(4):
+        params = {"search": query, "limit": str(min(50, limit)), "version": "latest"}
+        if cursor:
+            params["cursor"] = cursor
+        data = _fetch_json("https://registry.modelcontextprotocol.io/v0.1/servers?" + urllib.parse.urlencode(params))
+        if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
+            raise ValueError("invalid_registry_response")
+        for envelope in data["servers"][:100]:
+            if not isinstance(envelope, dict) or not isinstance(envelope.get("server"), dict):
                 continue
-            name = str(item.get("name") or item.get("id") or "").strip()
-            if not name:
+            item = envelope["server"]
+            official = envelope.get("_meta", {}).get("io.modelcontextprotocol.registry/official", {})
+            name, version = item.get("name"), item.get("version")
+            if not isinstance(name, str) or not isinstance(version, str) or not name or len(name) > 200 or len(version) > 128:
                 continue
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or ""),
-                source="official",
-                url=str(item.get("homepage") or item.get("repository") or item.get("url") or "https://registry.modelcontextprotocol.io/"),
-                publisher=str(item.get("publisher") or ""),
-                classification="official-registry",
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    return []
+            status = official.get("status", "active")
+            install, notes, requires_auth = None, [], False
+            if status != "active":
+                notes.append("Registry status: " + str(status)[:80] + ". New installation is unavailable.")
+            else:
+                for remote in item.get("remotes", [])[:16]:
+                    if not isinstance(remote, dict):
+                        continue
+                    url = str(remote.get("url", ""))
+                    parsed = urllib.parse.urlsplit(url)
+                    if (remote.get("type") not in {"streamable-http", "sse"} or parsed.scheme != "https"
+                            or not parsed.hostname or parsed.username or parsed.password or any(c in url for c in "{}")):
+                        continue
+                    requires_auth = any(header.get("isSecret") or header.get("isRequired") for header in remote.get("headers", []) if isinstance(header, dict))
+                    install = {"transport": remote["type"].replace("-", "_"), "url": url}
+                    if remote.get("headers"):
+                        notes.append("Configure the publisher's required headers with connection-scoped secret bindings.")
+                    break
+                if install is None:
+                    for package in item.get("packages", [])[:16]:
+                        if (not isinstance(package, dict) or package.get("registryType") != "npm"
+                                or package.get("transport", {}).get("type") != "stdio"
+                                or package.get("runtimeArguments") or package.get("packageArguments")):
+                            continue
+                        identifier, package_version = package.get("identifier", ""), package.get("version", "")
+                        if not re.fullmatch(r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+", identifier) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", package_version):
+                            continue
+                        install = {"transport": "stdio", "command": "npx", "args": [identifier + "@" + package_version]}
+                        requires_auth = bool(package.get("environmentVariables"))
+                        notes.append("Prepare reviewed dependencies first. Only self-contained npm archives or complete npm shrinkwraps without install scripts are supported.")
+                        break
+            repository = item.get("repository", {})
+            entries.append(MarketplaceEntry(id=name + "@" + version, name=str(item.get("title") or name)[:128],
+                description=str(item.get("description", ""))[:800], source="official", publisher=name.split("/", 1)[0],
+                url=str(repository.get("url", "")) if isinstance(repository, dict) else "", classification="official-registry",
+                transport=install.get("transport", "") if install else "", requires_auth=requires_auth,
+                install=install, notes=notes, metadata={"version": version, "status": status, "canonical_name": name}))
+            if len(entries) >= limit:
+                return entries
+        cursor = data.get("metadata", {}).get("nextCursor", "")
+        if not isinstance(cursor, str) or not cursor or len(cursor) > 2048 or cursor in seen:
+            break
+        seen.add(cursor)
+    return entries
 
 
 def _pulsemcp_search(query: str, limit: int) -> list[MarketplaceEntry]:
@@ -424,9 +444,13 @@ def _glama_search(query: str, limit: int) -> list[MarketplaceEntry]:
     return []
 
 
-def search_marketplace_with_status(query: str = "", *, sources: list[str] | None = None, limit: int = 24) -> MarketplaceSearchResult:
+def search_marketplace_with_status(query: str = "", *, sources: list[str] | None = None, limit: int = 24, cached_only: bool = False) -> MarketplaceSearchResult:
     """Search MCP directories and report whether results are live or fallback."""
     normalized_query = (query or "").strip().lower()
+    if cached_only:
+        entries = _dedupe_entries(CURATED_STARTER_CATALOG + _load_cache())
+        entries = [entry for entry in entries if not sources or entry.source in sources or entry.source == "curated"]
+        return MarketplaceSearchResult(_filter_relevant(entries, normalized_query)[:limit], "cache", normalized_query)
     if not normalized_query:
         result = [entry for entry in CURATED_STARTER_CATALOG if entry.recommended][:limit]
         return MarketplaceSearchResult(
@@ -501,6 +525,7 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
     conflicts = [conflict.as_dict() for conflict in conflicts_for_entry(entry)]
     return {
         "enabled": False,
+        "environment_mode": "minimal",
         "transport": install.get("transport") or entry.transport or "stdio",
         "command": install.get("command", ""),
         "args": install.get("args", []),

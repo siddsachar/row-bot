@@ -53,7 +53,8 @@ def test_public_docs_inventory_has_core_sections() -> None:
     controls = inventory["settings_controls"]
     assert {row["page_id"] for row in controls} <= {page["id"] for page in inventory["settings"]}
     assert all(
-        row["app_route"] == f"/app-v2/settings/{row['page_id']}#{row['anchor']}"
+        urlsplit(row["app_route"]).path == f"/app-v2/settings/{row['page_id']}"
+        and urlsplit(row["app_route"]).fragment == row["anchor"]
         and row["source"] == f"frontend/src/features/settings/model.ts#{row['anchor']}"
         for row in controls
     )

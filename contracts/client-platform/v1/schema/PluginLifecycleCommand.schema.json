@@ -7,7 +7,10 @@
         "update",
         "remove",
         "refresh",
-        "prepare"
+        "prepare",
+        "restore",
+        "recover",
+        "purge"
       ],
       "title": "Action",
       "type": "string"
@@ -26,6 +29,12 @@
       "default": "",
       "maxLength": 128,
       "title": "Plugin Id",
+      "type": "string"
+    },
+    "preview_id": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Preview Id",
       "type": "string"
     },
     "revision": {

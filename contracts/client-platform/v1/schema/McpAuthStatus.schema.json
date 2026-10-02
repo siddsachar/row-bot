@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "authorization_url": {
+      "anyOf": [
+        {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorization Url"
+    },
+    "command_id": {
+      "format": "uuid",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 1024,
+      "title": "Message",
+      "type": "string"
+    },
+    "server_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Server Id",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "starting",
+        "waiting",
+        "signed_in",
+        "cancelled",
+        "expired",
+        "failed",
+        "uncertain",
+        "disconnected"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command_id",
+    "server_id",
+    "state",
+    "message"
+  ],
+  "title": "McpAuthStatus",
+  "type": "object"
+}

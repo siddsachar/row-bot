@@ -6,7 +6,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  useParams,
+  useSearchParams,
+  useLocation,
+} from 'react-router-dom';
 import { useClientState, useRuntime } from '../../runtime';
 import type { SettingsSnapshot } from '../../api/types';
 import { clientError } from '../../api/errors';
@@ -51,6 +57,7 @@ import ChannelSettings from './ChannelSettings';
 import { SETTINGS_CHANGED } from '../shell/palette-switches';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
+import IntegrationsPage from '../integrations/IntegrationsPage';
 import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
@@ -109,6 +116,7 @@ function AgentProfilesMoved() {
 export default function SettingRoute() {
   const { setting = 'preferences' } = useParams();
   const [search] = useSearchParams();
+  const location = useLocation();
   const leaf = resolveSetting(setting);
   const {
     controller,
@@ -239,13 +247,16 @@ export default function SettingRoute() {
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
-    const target = settingsHref(setting) ?? leaf.href;
-    const [path, hash] = target.split('#');
+    const target = settingsHref(setting, location.hash) ?? leaf.href;
+    const [pathQuery, hash] = target.split('#');
+    const [path, defaults] = pathQuery.split('?');
+    const merged = new URLSearchParams(defaults);
+    search.forEach((value, key) => merged.set(key, value));
     return (
       <Navigate
         to={{
           pathname: path,
-          search: search.size ? `?${search.toString()}` : '',
+          search: merged.size ? `?${merged.toString()}` : '',
           hash: hash ? `#${hash}` : '',
         }}
         replace
@@ -290,6 +301,125 @@ export default function SettingRoute() {
       </ErrorState>
     )
   ) : null;
+  const integrationEditor = (
+    kind: 'skill' | 'plugin' | 'mcp',
+    item?: import('../../api/types').IntegrationItem,
+    onChanged?: (removed?: boolean) => Promise<void>,
+  ) => {
+    if (kind === 'plugin' && pluginOwner?.get())
+      return (
+        <PluginSettings
+          integrationId={item?.owner_ref}
+          session={pluginOwner.get()!}
+          load={({ query, source, cursor }, signal) =>
+            controller.plugins(query, source, cursor, signal)
+          }
+          open={controller.plugin}
+          review={(action, payload, signal) =>
+            controller.reviewPlugin(
+              String(payload.plugin_id ?? ''),
+              action,
+              payload,
+              signal,
+            )
+          }
+          execute={async (command, review) => {
+            const result = await controller.executePlugin(
+              String(command.payload.plugin_id),
+              {
+                ...command,
+                payload: { ...command.payload, review_id: review.review_id },
+              },
+            );
+            if (result.status === 'completed') await onChanged?.();
+            return result;
+          }}
+          lifecycle={{
+            review: (action, pluginId) =>
+              controller.reviewPluginLifecycle(action, pluginId),
+            execute: (command) => controller.executePluginLifecycle(command),
+            receipt: (commandId) =>
+              controller.pluginLifecycleReceipt(commandId),
+          }}
+        />
+      );
+    if (kind === 'skill' && skillsOwner?.get())
+      return (
+        <SkillsSettings
+          integrationId={item?.owner_ref}
+          session={skillsOwner.get()!}
+          ownerKey={session}
+          hub={
+            item
+              ? {
+                  search: controller.searchSkillHub,
+                  preview: controller.previewSkillHub,
+                  install: controller.installSkillHub,
+                  receipt: controller.skillHubInstallReceipt,
+                }
+              : undefined
+          }
+          hubMaintenance={{
+            installed: controller.skillHubInstalled,
+            action: async (command, signal) => {
+              const result = await controller.skillHubMaintenance(
+                command,
+                signal,
+              );
+              await controller.reconcileIntegrationOperation(
+                'skill',
+                command.command_id,
+                signal,
+              );
+              if (result.success)
+                await onChanged?.(command.action === 'uninstall');
+              return result;
+            },
+            receipt: async (id, signal) => {
+              await controller.reconcileIntegrationOperation(
+                'skill',
+                id,
+                signal,
+              );
+              const result = await controller.skillHubMaintenanceReceipt(
+                id,
+                signal,
+              );
+              if (result.success)
+                await onChanged?.(result.action === 'uninstall');
+              return result;
+            },
+          }}
+          io={{
+            list: controller.skills,
+            detail: controller.skill,
+            proposals: controller.skillProposals,
+            review: controller.reviewSkill,
+            execute: async (command) => {
+              const result = await controller.executeSkill(command);
+              if (result.status === 'completed')
+                await onChanged?.(result.action === 'skill.delete');
+              return result;
+            },
+            receipt: async (id, signal) => {
+              const result = await controller.skillReceipt(id, signal);
+              if (result.status === 'completed')
+                await onChanged?.(result.action === 'skill.delete');
+              return result;
+            },
+          }}
+        />
+      );
+    if (kind === 'mcp' && capabilitySettingsOwner?.get())
+      return (
+        <McpSettings
+          capability={capabilitySettingsOwner.get()!}
+          chat={mcpChatOwner?.get() ?? null}
+          connections={mcpConnectionsOwner?.get() ?? null}
+        />
+      );
+    return <p>Settings are unavailable. Reconnect to continue.</p>;
+  };
   return (
     <SettingsShell key={session} leaf={leaf}>
       <section
@@ -486,13 +616,12 @@ export default function SettingRoute() {
             initialProvider={search.get('provider') ?? ''}
             openExternal={(url) => void platform.openExternal(url)}
           />
-        ) : leaf.id === 'mcp' && capabilitySettingsOwner?.get() ? (
-          // B262: the switches and runtimes first, then the servers (their
-          // details open in a drawer).
-          <McpSettings
-            capability={capabilitySettingsOwner.get()!}
-            chat={mcpChatOwner?.get() ?? null}
-            connections={mcpConnectionsOwner?.get() ?? null}
+        ) : leaf.id === 'integrations' ? (
+          <IntegrationsPage
+            renderDetail={(item, onChanged) =>
+              integrationEditor(item.kind, item, onChanged)
+            }
+            renderAdvanced={(kind) => integrationEditor(kind)}
           />
         ) : leaf.id === 'tools' ? (
           <>
@@ -570,59 +699,6 @@ export default function SettingRoute() {
               })
             }
             loadLink={controller.channelLink}
-          />
-        ) : leaf.id === 'plugins' && pluginOwner?.get() ? (
-          <PluginSettings
-            session={pluginOwner.get()!}
-            load={({ query, source, cursor }, signal) =>
-              controller.plugins(query, source, cursor, signal)
-            }
-            open={controller.plugin}
-            review={(action, payload, signal) =>
-              controller.reviewPlugin(
-                String(payload.plugin_id ?? ''),
-                action,
-                payload,
-                signal,
-              )
-            }
-            execute={(command, review) =>
-              controller.executePlugin(String(command.payload.plugin_id), {
-                ...command,
-                payload: { ...command.payload, review_id: review.review_id },
-              })
-            }
-            lifecycle={{
-              review: (action, pluginId) =>
-                controller.reviewPluginLifecycle(action, pluginId),
-              execute: (command) => controller.executePluginLifecycle(command),
-              receipt: (commandId) =>
-                controller.pluginLifecycleReceipt(commandId),
-            }}
-          />
-        ) : leaf.id === 'skills' && skillsOwner?.get() ? (
-          <SkillsSettings
-            session={skillsOwner.get()!}
-            ownerKey={session}
-            hub={{
-              search: controller.searchSkillHub,
-              preview: controller.previewSkillHub,
-              install: controller.installSkillHub,
-              receipt: controller.skillHubInstallReceipt,
-            }}
-            hubMaintenance={{
-              installed: controller.skillHubInstalled,
-              action: controller.skillHubMaintenance,
-              receipt: controller.skillHubMaintenanceReceipt,
-            }}
-            io={{
-              list: controller.skills,
-              detail: controller.skill,
-              proposals: controller.skillProposals,
-              review: controller.reviewSkill,
-              execute: (command) => controller.executeSkill(command),
-              receipt: controller.skillReceipt,
-            }}
           />
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-snapshot-page settings-documents-flow">
@@ -895,7 +971,6 @@ function McpSettings({
         }
         review={controller.reviewMcpConfiguration}
         execute={controller.executeMcpConfiguration}
-        searchDirectory={controller.searchMcpDirectory}
         onConnection={(id, name) => connections?.select(id, name)}
         onRemoved={() => connections?.close()}
         runtime={

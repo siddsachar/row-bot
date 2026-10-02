@@ -133,6 +133,57 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
 
 /** The sole network boundary. Fixtures implement this same interface. */
 export interface ClientTransport {
+  reconcileIntegrationOperation?(
+    kind: 'skill' | 'plugin' | 'mcp',
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationOperationResult>;
+  integrations?(
+    options: {
+      query?: string;
+      kind?: string;
+      source?: string;
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationPage>;
+  integration?(
+    integration: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationItem>;
+  searchIntegrations?(
+    body: Wire.IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationPage>;
+  previewIntegration?(
+    body: Wire.IntegrationPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationPreview>;
+  reviewMcpAuth?(
+    body: Wire.McpAuthReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpAuthReview>;
+  mcpAuthStatus?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpAuthStatus>;
+  cancelMcpAuth?(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpAuthStatus>;
+  previewMcpPackage?(
+    body: Wire.McpPackageRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpPackageReview>;
+  sendMcpPackage?(
+    body: Wire.McpPackageCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.CommandReceipt>;
+  sendMcpAuth?(
+    body: Wire.McpAuthCommand,
+    signal?: AbortSignal,
+  ): Promise<Wire.McpAuthStatus>;
+
   conversationActions?(
     conversation: string,
     signal?: AbortSignal,
@@ -1044,6 +1095,7 @@ export interface ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: Wire.McpTarget,
   ): Promise<Wire.McpTestedCatalogPage>;
   reviewMcpCatalog?(
     body: Wire.McpCatalogRequest,
@@ -1054,6 +1106,7 @@ export interface ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: Wire.McpTarget,
   ): Promise<Wire.McpPolicyPage>;
   reviewMcpPolicy?(
     body: Wire.McpPolicyRequest,
@@ -1067,6 +1120,7 @@ export interface ClientTransport {
   mcpRuntime?(
     server: string,
     signal?: AbortSignal,
+    target?: Wire.McpTarget,
   ): Promise<Wire.McpRuntimeState>;
   reviewMcpRuntime?(
     body: Wire.McpRuntimeReviewRequest,
@@ -1206,6 +1260,7 @@ export interface ClientTransport {
     query: string,
     cursor?: string,
     signal?: AbortSignal,
+    target?: Wire.McpTarget,
   ): Promise<Wire.McpConfigurationPage>;
   searchMcpDirectory?(
     query: string,

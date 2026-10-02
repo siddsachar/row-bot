@@ -21,6 +21,11 @@ from row_bot.skills_hub.models import (
 from tests.subsystem.client_protocol.test_protocol_security import bootstrap, client_app
 
 
+@pytest.fixture(autouse=True)
+def isolated_receipts(tmp_path, reload_for_data_dir):
+    reload_for_data_dir(tmp_path, "row_bot.tasks")
+
+
 def _entry() -> SkillHubEntry:
     return SkillHubEntry(
         id="fixture:sample",
@@ -444,8 +449,9 @@ def test_uninstall_uses_expected_record_and_cannot_delete_another_skill(
     monkeypatch.setattr(hub.provenance, "get_record", lambda name: saved.get(name))
     removed = []
 
-    def uninstall(name, *, expected_record):
+    def uninstall(name, *, expected_record, operation_id):
         assert name == "sample" and expected_record == record
+        assert operation_id == "delete-1"
         removed.append(name)
         saved.pop(name)
         return InstallResult(True, "Skill uninstalled.", skill_name=name)

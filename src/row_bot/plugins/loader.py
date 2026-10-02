@@ -227,12 +227,24 @@ def refresh_plugin_runtime(
     *,
     discover_mcp: bool = True,
     clear_agent: bool = True,
+    plugin_id: str | None = None,
 ) -> list[LoadResult]:
     """Reload plugin runtime state and dependent agent/MCP caches."""
 
-    _unregister_loaded_plugins()
-    results = load_plugins()
-    if discover_mcp:
+    if plugin_id is None:
+        _unregister_loaded_plugins()
+        results = load_plugins()
+    else:
+        from row_bot.plugins.devtools import iter_linked_plugin_dirs
+        from row_bot.mcp_client.runtime import disconnect_plugin_servers
+
+        disconnect_plugin_servers(plugin_id)
+        _cleanup_plugin_runtime(plugin_id)
+        plugin_state.reload()
+        root = iter_linked_plugin_dirs().get(plugin_id, PLUGINS_DIR / plugin_id)
+        results = [_load_single_plugin(root)] if root.is_dir() else []
+        _load_results[:] = [r for r in _load_results if r.plugin_id != plugin_id] + results
+    if discover_mcp and plugin_id is None:
         try:
             from row_bot.mcp_client.runtime import discover_enabled_servers
 
@@ -355,6 +367,10 @@ def classify_stale_legacy_plugin(plugin_dir: pathlib.Path) -> str | None:
             if "thoth" in raw.lower():
                 return "legacy Thoth manifest"
         if isinstance(data, dict) and data:
+            if "$schema" in data:
+                # Portable (including unsupported versions) is classified by
+                # the declarative parser, never quarantined as legacy native.
+                return None
             if "min_thoth_version" in data:
                 return "legacy min_thoth_version manifest"
             provides = data.get("provides")
@@ -499,7 +515,7 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
         )
 
     # Step 4: Security scan
-    sec_err = _security_scan(plugin_dir)
+    sec_err = _security_scan(plugin_dir) if manifest.package_format == "row-bot-v2" else None
     if sec_err:
         return LoadResult(plugin_id=plugin_id, success=False,
                           manifest=manifest, error=sec_err)
@@ -520,7 +536,7 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
                 if _registration_draining(old_api):
                     raise WorkerError("worker_busy")
             _registrations[plugin_id] = api
-        if (plugin_dir / "plugin_main.py").is_file():
+        if manifest.package_format == "row-bot-v2" and (plugin_dir / "plugin_main.py").is_file():
             _call_register_with_timeout(plugin_dir, api)
         elif manifest.provides.native_tools or manifest.provides.channels:
             raise WorkerError("worker_registration_required")
@@ -542,7 +558,8 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
     # Step 6: Discover skills from skills/ directory
     # Step 7: Register with plugin registry
     try:
-        skills = _discover_plugin_skills(plugin_dir)
+        skills = (manifest.provides.skills if manifest.package_format != "row-bot-v2"
+                  else _discover_plugin_skills(plugin_dir))
         for skill in skills:
             api.register_skill(skill)
 
@@ -567,7 +584,7 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
 
     return LoadResult(
         plugin_id=plugin_id, success=True, manifest=manifest,
-        warnings=warnings,
+        warnings=warnings + [item["reason"] for item in manifest.diagnostics],
     )
 
 

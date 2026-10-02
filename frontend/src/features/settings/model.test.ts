@@ -39,9 +39,7 @@ describe('settings navigation metadata', () => {
       'Documents',
       'Tracker',
       'Tools',
-      'Skills',
-      'Plugins',
-      'MCP',
+      'Integrations',
       'Accounts',
       'Channels',
       'System',
@@ -95,6 +93,12 @@ describe('settings navigation metadata', () => {
     expect(settingsHref('utilities')).toBe('/settings/tools#built-in-tools');
     expect(settingsHref('migration')).toBe('/settings/data#migration');
     expect(settingsHref('wiki')).toBe('/settings/knowledge#wiki-vault');
+    expect(settingsHref('skills', 'public-skills')).toBe(
+      '/settings/integrations?tab=discover&type=skill&source=clawhub#public-skills',
+    );
+    expect(settingsHref('plugins')).toBe(
+      '/settings/integrations?tab=my&type=plugin',
+    );
     expect(settingsHref('providers')).toBe('/settings/providers');
     expect(resolveSetting('unknown')).toBeUndefined();
     for (const redirect of Object.values(settingsRedirects))
@@ -127,7 +131,7 @@ describe('settings navigation metadata', () => {
     expect(searchSettingsRows('')).toEqual([]);
     // A page name narrows a row search but never lists a whole page.
     expect(searchSettingsRows('mcp runtime').map(settingsRowHref)).toEqual([
-      '/settings/mcp#mcp-runtimes',
+      '/settings/integrations?tab=my&type=mcp#mcp-runtimes',
     ]);
     expect(searchSettingsRows('mcp').map((row) => row.anchor)).toEqual([
       'mcp-servers',
@@ -136,6 +140,10 @@ describe('settings navigation metadata', () => {
       '/settings/system#logging.level',
     ]);
     for (const row of settingsRows)
-      expect(resolveSetting(row.leaf)?.id).toBe(row.leaf);
+      expect(resolveSetting(row.leaf)?.id).toBe(
+        ['skills', 'plugins', 'mcp'].includes(row.leaf)
+          ? 'integrations'
+          : row.leaf,
+      );
   });
 });

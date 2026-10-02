@@ -409,3 +409,25 @@ def test_admitted_approval_expiry_after_handshake_blocks_discovery(owner, monkey
     result = execute(request(), validate_admitted_review=admitted)
     assert result["status"] == "completed" and result["mcp_runtime"]["state"] == "failed"
     assert result["mcp_runtime"]["session_quiesced"] is True and calls == ["connect"]
+
+
+def test_recovery_by_retained_id_completes_without_repeating_test(owner, monkeypatch):
+    runtime, calls = owner
+    persist = controls._persist_progress
+    def fail_completion(owner_id, key, result):
+        if result.get("status") == "completed":
+            raise OSError("lost completion")
+        return persist(owner_id, key, result)
+    monkeypatch.setattr(controls, "_persist_progress", fail_completion)
+    command = request()
+    with pytest.raises(OSError, match="lost completion"):
+        execute(command)
+    monkeypatch.setattr(controls, "_persist_progress", persist)
+    monkeypatch.setattr(runtime, "launch_server_owned", lambda *a, **k: pytest.fail("repeated launch"))
+    with pytest.raises(controls.CapabilityRuntimeError, match="not_found"):
+        controls.reconcile_mcp_runtime_operation(owner_id="different", command_id=command["command_id"], validate=lambda: None)
+    checked = controls.reconcile_mcp_runtime_operation(owner_id="synthetic-owner", command_id=command["command_id"], validate=lambda: None)
+    assert checked["settled"] and calls == ["connect", "list_tools"]
+    from row_bot.runtime import admissions
+    receipt = admissions.read_command_receipt("synthetic-owner", command["command_id"])
+    assert receipt["mcp_runtime"]["state"] == "tested"

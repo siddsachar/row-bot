@@ -493,6 +493,14 @@ def collect_settings_controls() -> list[dict[str, Any]]:
     for row in model["rows"]:
         page = pages[row["leaf"]]
         anchor = str(row["anchor"])
+        app_route = page["app_route"]
+        context = row.get("context")
+        if context in {"skills", "plugins", "mcp"}:
+            kind = {"skills": "skill", "plugins": "plugin", "mcp": "mcp"}[context]
+            discover = anchor in {"public-skills", "plugin-marketplace", "mcp-marketplace"}
+            app_route += "?tab=" + ("discover" if discover else "my") + "&type=" + kind
+            if discover:
+                app_route += "&source=" + {"skills": "clawhub", "plugins": "native", "mcp": "official"}[context]
         rows.append(
             {
                 "id": f"{page['id']}-{slugify(anchor)}",
@@ -502,7 +510,7 @@ def collect_settings_controls() -> list[dict[str, Any]]:
                 "label": str(row["label"]),
                 "anchor": anchor,
                 "keywords": str(row.get("keywords") or ""),
-                "app_route": f"{page['app_route']}#{anchor}",
+                "app_route": f"{app_route}#{anchor}",
                 "docs_route": page["docs_route"],
                 "source": f"{model['source']}#{anchor}",
             }

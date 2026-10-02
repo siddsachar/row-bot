@@ -7,6 +7,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type {
+  SkillHubPreview,
   SkillHubInstalledPage,
   SkillHubInstalledRecord,
   SkillHubMaintenanceCommand,
@@ -66,11 +67,13 @@ export default function PublicSkillMaintenance({
   io,
   ownerKey,
   reload = 0,
+  skillName,
   onChanged,
 }: {
   io: PublicSkillMaintenanceIO;
   ownerKey: string;
   reload?: number;
+  skillName?: string;
   onChanged?: () => void;
 }) {
   const [page, setPage] = useState<SkillHubInstalledPage | null>(null);
@@ -81,6 +84,10 @@ export default function PublicSkillMaintenance({
   const [notice, setNotice] = useState('');
   const [lostReceipt, setLostReceipt] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [updateReview, setUpdateReview] = useState<{
+    record: SkillHubInstalledRecord;
+    preview: SkillHubPreview;
+  } | null>(null);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -106,7 +113,7 @@ export default function PublicSkillMaintenance({
 
   async function act(
     record: SkillHubInstalledRecord,
-    action: 'check' | 'update' | 'uninstall',
+    action: 'check' | 'review_update' | 'update' | 'restore' | 'uninstall',
   ) {
     if (busy || pending) return;
     const id = crypto.randomUUID();
@@ -115,7 +122,13 @@ export default function PublicSkillMaintenance({
       name: record.name,
       expected_revision: record.revision,
       action,
-      confirmed: action === 'uninstall',
+      confirmed: ['uninstall', 'update', 'restore'].includes(action),
+      ...(action === 'update' && updateReview
+        ? {
+            preview_id: updateReview.preview.preview_id,
+            content_hash: updateReview.preview.content_hash,
+          }
+        : {}),
     };
     setConfirm(null);
     setPending(id);
@@ -123,7 +136,11 @@ export default function PublicSkillMaintenance({
     setBusy(true);
     setError('');
     try {
-      accept(await io.action(command));
+      const result = await io.action(command);
+      accept(result);
+      if (action === 'review_update' && result.update_preview)
+        setUpdateReview({ record, preview: result.update_preview });
+      else if (action === 'update') setUpdateReview(null);
     } catch (cause) {
       setError(clientError(cause).message);
     } finally {
@@ -204,60 +221,92 @@ export default function PublicSkillMaintenance({
       )}
       {!!page?.items.length && (
         <ul className="settings-row-list" aria-label="Installed public skills">
-          {page.items.map((record) => (
-            <li key={record.name}>
-              <div className="settings-row-list-text">
-                <strong>{record.name}</strong>
-                <small>
-                  {sourceLabels[record.source] ?? record.source} ·{' '}
-                  {record.enabled ? 'Available' : 'Off'} ·{' '}
-                  {record.file_count === 1
-                    ? '1 file'
-                    : `${record.file_count} files`}{' '}
-                  · updated{' '}
-                  <time
-                    dateTime={record.updated_at}
-                    title={absoluteTime(record.updated_at)}
+          {page.items
+            .filter((record) => !skillName || record.name === skillName)
+            .map((record) => (
+              <li key={record.name}>
+                <div className="settings-row-list-text">
+                  <strong>{record.name}</strong>
+                  <small>
+                    {sourceLabels[record.source] ?? record.source} ·{' '}
+                    {record.enabled ? 'Available' : 'Off'} ·{' '}
+                    {record.file_count === 1
+                      ? '1 file'
+                      : `${record.file_count} files`}{' '}
+                    · updated{' '}
+                    <time
+                      dateTime={record.updated_at}
+                      title={absoluteTime(record.updated_at)}
+                    >
+                      {relativeTime(record.updated_at)}
+                    </time>
+                  </small>
+                </div>
+                <span className="settings-provider-actions">
+                  <CompactAction
+                    label={`Check update for ${record.name}`}
+                    disabled={busy || Boolean(pending)}
+                    onClick={() => void act(record, 'check')}
                   >
-                    {relativeTime(record.updated_at)}
-                  </time>
-                </small>
-              </div>
-              <span className="settings-provider-actions">
-                <CompactAction
-                  label={`Check update for ${record.name}`}
-                  disabled={busy || Boolean(pending)}
-                  onClick={() => void act(record, 'check')}
-                >
-                  <SearchCheck size={16} aria-hidden="true" />
-                </CompactAction>
-                <Menu
-                  label={`More actions for ${record.name}`}
-                  iconOnly
-                  variant="ghost"
-                  className="icon-action icon-action-sm"
-                  disabled={busy || Boolean(pending)}
-                  actions={[
-                    {
-                      label: `Update ${record.name}`,
-                      icon: <Upload size={16} />,
-                      onSelect: () => void act(record, 'update'),
-                    },
-                    {
-                      label: `Uninstall ${record.name}`,
-                      icon: <Trash2 size={16} />,
-                      danger: true,
-                      onSelect: () => setConfirm(record),
-                    },
-                  ]}
-                >
-                  <MoreHorizontal size={16} aria-hidden />
-                </Menu>
-              </span>
-            </li>
-          ))}
+                    <SearchCheck size={16} aria-hidden="true" />
+                  </CompactAction>
+                  <Menu
+                    label={`More actions for ${record.name}`}
+                    iconOnly
+                    variant="ghost"
+                    className="icon-action icon-action-sm"
+                    disabled={busy || Boolean(pending)}
+                    actions={[
+                      {
+                        label: `Update ${record.name}`,
+                        icon: <Upload size={16} />,
+                        onSelect: () => void act(record, 'review_update'),
+                      },
+                      {
+                        label: `Restore previous ${record.name}`,
+                        onSelect: () => void act(record, 'restore'),
+                      },
+                      {
+                        label: `Uninstall ${record.name}`,
+                        icon: <Trash2 size={16} />,
+                        danger: true,
+                        onSelect: () => setConfirm(record),
+                      },
+                    ]}
+                  >
+                    <MoreHorizontal size={16} aria-hidden />
+                  </Menu>
+                </span>
+              </li>
+            ))}
         </ul>
       )}
+      <ModalTask
+        open={Boolean(updateReview)}
+        onOpenChange={(open) => {
+          if (!open) setUpdateReview(null);
+        }}
+        title="Review skill update"
+        description="Replace only unchanged managed files; retain one previous version."
+      >
+        <p>{updateReview?.preview.skill_name}</p>
+        <ul>
+          {updateReview?.preview.files.map((file) => (
+            <li key={file}>{file}</li>
+          ))}
+        </ul>
+        {updateReview?.preview.scan.findings.map((finding, index) => (
+          <p key={index}>{finding.message}</p>
+        ))}
+        <Button
+          disabled={busy || updateReview?.preview.scan.blocked}
+          onClick={() => {
+            if (updateReview) void act(updateReview.record, 'update');
+          }}
+        >
+          Update reviewed files
+        </Button>
+      </ModalTask>
       <ModalTask
         open={confirm !== null}
         onOpenChange={(open) => {

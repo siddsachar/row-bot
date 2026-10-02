@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "McpPluginTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "plugin",
+          "title": "Kind",
+          "type": "string"
+        },
+        "plugin_id": {
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "server_key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Server Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "plugin_id",
+        "server_key"
+      ],
+      "title": "McpPluginTarget",
+      "type": "object"
+    },
+    "McpStandaloneTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "standalone",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "McpStandaloneTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action_digest": {
+      "maxLength": 128,
+      "title": "Action Digest",
+      "type": "string"
+    },
+    "configuration_revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Revision",
+      "type": "string"
+    },
+    "dependencies": {
+      "maximum": 128,
+      "minimum": 0,
+      "title": "Dependencies",
+      "type": "integer"
+    },
+    "digest": {
+      "maxLength": 128,
+      "title": "Digest",
+      "type": "string"
+    },
+    "disclosures": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Disclosures",
+      "type": "array"
+    },
+    "integrity": {
+      "maxLength": 256,
+      "title": "Integrity",
+      "type": "string"
+    },
+    "license": {
+      "maxLength": 256,
+      "title": "License",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "nonce": {
+      "maxLength": 256,
+      "title": "Nonce",
+      "type": "string"
+    },
+    "preview_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Preview Id",
+      "type": "string"
+    },
+    "server_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Server Id",
+      "type": "string"
+    },
+    "target": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpStandaloneTarget"
+        },
+        {
+          "$ref": "#/$defs/McpPluginTarget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target"
+    },
+    "version": {
+      "maxLength": 128,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "configuration_revision",
+    "preview_id",
+    "name",
+    "version",
+    "integrity",
+    "digest",
+    "dependencies",
+    "license",
+    "disclosures",
+    "action_digest",
+    "nonce"
+  ],
+  "title": "McpPackageReview",
+  "type": "object"
+}

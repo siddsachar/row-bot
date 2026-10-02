@@ -55,25 +55,11 @@ pages:
       search and knowledge tools, built-in tools, and custom tools.
     docs_route: /docs/settings/tools
     screenshot_id: settings-tools
-  skills:
-    description: Review installed skills and discover public skills.
-    docs_route: /docs/settings/skills
-    screenshot_id: settings-skills
-  plugins:
-    description: Manage installed plugins and browse the plugin marketplace.
-    docs_route: /docs/settings/plugins
-    screenshot_id: settings-plugins
-    dependencies: Plugin-provided dependencies remain disabled until reviewed and
-      installed.
-    security: Review source, permissions, and provided capabilities before enabling.
-  mcp:
-    description: Add, browse, import, connect, and troubleshoot MCP servers and their
-      managed runtimes.
-    docs_route: /docs/settings/mcp
-    screenshot_id: settings-mcp
-    dependencies: The MCP extra and a compatible external server are required.
-    security: External servers can expose consequential tools; keep new servers
-      disabled until tested.
+  integrations:
+    description: Discover, inspect, authenticate, configure, update and remove skills, packages and MCP connections.
+    docs_route: /docs/settings/integrations
+    security: Imports start off; review source, credentials, dependencies and tested tools before enabling.
+    dependencies: MCP and native plugins require their declared runtimes; portable host extensions are unsupported.
   accounts:
     description: Connect the GitHub, Google, and X accounts used by tools and setup
       flows.

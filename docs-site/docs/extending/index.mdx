@@ -21,14 +21,6 @@ For the conceptual differences between tools, Skills, plugins, MCP, channels, an
 | Channel | A messaging adapter for receiving or delivering work. | Verify account, recipients, pairing, tunnel, and delivery defaults before starting. |
 | Account | Authorisation for GitHub, Google, X, or another service used by tools. | Review requested scopes and disconnect unused accounts. |
 
-<Screenshot id="skills-hub" alt="Offline Row-Bot Public Skills Hub with two fictional skills." caption="Skills import into the local library off by default so you can inspect them before enabling." />
-
-<Screenshot id="plugin-marketplace" alt="Offline Row-Bot Plugin Marketplace with fictional entries." caption="Marketplace cards expose publisher, verification, capabilities, permissions, and install review before any plugin is added." />
-
-<Screenshot id="mcp-add-server" alt="Row-Bot Add MCP Server dialog." caption="New MCP servers start as explicit configurations; keep them disabled until transport, command or URL, environment, and tool risk are understood." />
-
-<Screenshot id="mcp-marketplace" alt="Row-Bot Browse MCP Servers marketplace with bundled starter servers." caption="The MCP browser makes source, overlap, authentication, transport, and risk visible before you import a disabled server definition." />
-
 ## Safe Evaluation Sequence
 
 1. Read the extension description and source.
@@ -40,3 +32,5 @@ For the conceptual differences between tools, Skills, plugins, MCP, channels, an
 7. Disable or remove extensions that are no longer maintained or needed.
 
 Third-party dependency telemetry is not Row-Bot telemetry. Review and accept any dependency behaviour before installation, and never allow it to receive Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the explicit feature you chose.
+
+Manage these capabilities together in [Settings → Integrations](/docs/settings/integrations). Discover and inspect an entry, review its complete files and permissions, then finish setup before turning it on. Existing editors remain in Advanced configuration.

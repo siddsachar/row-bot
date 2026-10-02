@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
@@ -54,6 +54,14 @@ it('Settings › MCP puts the switches and runtimes first, then the servers (B26
     getSnapshot: () => state,
     subscribe: () => () => {},
     settingsSnapshot: () => new Promise(() => {}),
+    integrations: vi.fn().mockResolvedValue({
+      schema_version: 1,
+      revision,
+      items: [],
+      total: 0,
+      next_cursor: null,
+      sources: [],
+    }),
     mcpPolicy: vi.fn(async () => ({
       schema_version: 1,
       revision,
@@ -127,6 +135,14 @@ it('Settings › MCP puts the switches and runtimes first, then the servers (B26
         </Routes>
       </MemoryRouter>
     </RuntimeContext.Provider>,
+  );
+  fireEvent.click(
+    await screen.findByText('Advanced configuration and existing editors'),
+  );
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Custom MCP configuration and chat access',
+    }),
   );
   const useMcp = await screen.findByRole('switch', { name: 'Use MCP servers' });
   const chat = screen.getByRole('switch', { name: 'Offer MCP tools in chats' });

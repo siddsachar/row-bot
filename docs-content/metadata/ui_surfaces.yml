@@ -366,12 +366,12 @@ surfaces:
     source_files: [frontend/src/features/settings/ToolCatalog.tsx, frontend/src/features/settings/CustomToolsSettings.tsx]
   settings_skills:
     title: Skills settings
-    app_route: /app-v2/settings/skills
+    app_route: /app-v2/settings/integrations?tab=my&type=skill
     state: built-in and local skills only
     scenario: configured
     docs_page: /docs/settings/skills
-    screenshot_id: settings-skills
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/SkillsSettings.tsx, src/row_bot/skills.py]
   settings_accounts:
@@ -396,22 +396,22 @@ surfaces:
     source_files: [frontend/src/features/settings/ChannelSettings.tsx, src/row_bot/channels/registry.py]
   settings_mcp:
     title: MCP settings
-    app_route: /app-v2/settings/mcp
+    app_route: /app-v2/settings/integrations?tab=my&type=mcp
     state: sample servers configured and disabled
     scenario: configured
     docs_page: /docs/settings/mcp
-    screenshot_id: settings-mcp
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/CapabilitySettings.tsx, frontend/src/features/settings/McpConnections.tsx]
   settings_plugins:
     title: Plugins settings
-    app_route: /app-v2/settings/plugins
+    app_route: /app-v2/settings/integrations?tab=my&type=plugin
     state: inert local demonstration plugin
     scenario: configured
     docs_page: /docs/settings/plugins
-    screenshot_id: settings-plugins
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/PluginSettings.tsx]
   settings_preferences:
@@ -426,42 +426,42 @@ surfaces:
     source_files: [frontend/src/features/settings/Preferences.tsx]
   skills_hub:
     title: Browse Skills marketplace
-    app_route: /app-v2/settings/skills#public-skills
+    app_route: /app-v2/settings/integrations?tab=discover&type=skill&source=clawhub
     state: bundled catalogue only, network disabled
     scenario: configured
     docs_page: /docs/skills/
-    screenshot_id: skills-hub
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/PublicSkillHub.tsx, src/row_bot/application/client_skill_hub.py]
   plugin_marketplace:
     title: Plugin Marketplace
-    app_route: /app-v2/settings/plugins#plugin-marketplace
+    app_route: /app-v2/settings/integrations?tab=discover&type=plugin&source=native
     state: bundled catalogue only, no install
     scenario: configured
     docs_page: /docs/integrations/plugins
-    screenshot_id: plugin-marketplace
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/PluginSettings.tsx, src/row_bot/plugins/marketplace.py]
   mcp_add_server:
     title: Add MCP server dialog
-    app_route: /app-v2/settings/mcp#mcp-servers
+    app_route: /app-v2/settings/integrations?tab=my&type=mcp
     state: blank disabled configuration, no connection attempt
     scenario: configured
     docs_page: /docs/integrations/mcp
-    screenshot_id: mcp-add-server
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/CapabilitySettings.tsx, frontend/src/features/settings/mcp-add-connect.ts]
   mcp_marketplace:
     title: Browse MCP server marketplace
-    app_route: /app-v2/settings/mcp#mcp-servers
+    app_route: /app-v2/settings/integrations?tab=discover&type=mcp&source=official
     state: bundled curated starter catalogue only, no directory request or import
     scenario: configured
     docs_page: /docs/integrations/mcp
-    screenshot_id: mcp-marketplace
-    capture_type: automated
+    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    capture_type: manual
     status: ready
     source_files: [frontend/src/features/settings/CapabilitySettings.tsx, src/row_bot/mcp_client/marketplace.py]
   mobile_chat_list:
@@ -604,3 +604,13 @@ surfaces:
     capture_type: manual
     status: ready
     source_files: [installer, src/row_bot/updater.py]
+  settings_integrations:
+    title: Integrations
+    app_route: /app-v2/settings/integrations
+    state: local inventory and explicit source discovery
+    scenario: configured
+    docs_page: /docs/settings/integrations
+    no_image_reason: Use isolated browser verification evidence; no live account screenshot is required.
+    capture_type: manual
+    status: ready
+    source_files: [frontend/src/features/integrations/IntegrationsPage.tsx, src/row_bot/application/client_integrations.py]

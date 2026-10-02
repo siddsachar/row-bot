@@ -56,7 +56,7 @@ def _fake_admissions(monkeypatch) -> dict:
 
 
 @pytest.fixture
-def lifecycle(monkeypatch):
+def lifecycle(monkeypatch, plugin_modules):
     item = {
         "plugin_id": "synthetic-plugin",
         "name": "Synthetic plugin",
@@ -76,7 +76,7 @@ def lifecycle(monkeypatch):
     monkeypatch.setattr(owner, "_entry", lambda plugin_id: entry)
     calls = []
     monkeypatch.setattr(installer, "install_plugin", lambda plugin_id, **kwargs: calls.append((plugin_id, kwargs)) or SimpleNamespace(success=True))
-    monkeypatch.setattr(loader, "refresh_plugin_runtime", lambda _reason: None)
+    monkeypatch.setattr(loader, "refresh_plugin_runtime", lambda _reason, **kwargs: None)
     _fake_admissions(monkeypatch)
     return item, entry, calls
 
@@ -101,7 +101,7 @@ def remote_marketplace(plugin_modules, tmp_path, monkeypatch):
         shutil.copyfile(archive, dest)
 
     monkeypatch.setattr(installer_module, "_download_to_file", download)
-    monkeypatch.setattr(loader, "refresh_plugin_runtime", lambda _reason: [])
+    monkeypatch.setattr(loader, "refresh_plugin_runtime", lambda _reason, **kwargs: [])
     monkeypatch.setattr(plugin_commands, "environment_needed", lambda _plugin_id: False)
     _fake_admissions(monkeypatch)
 
@@ -245,11 +245,13 @@ def test_install_is_explicit_and_replay_does_not_download(lifecycle):
     }
     receipt = owner.execute_plugin_lifecycle(command, owner_id="owner", validate=lambda: None)
     assert receipt["status"] == "completed"
+    assert callable(calls[0][1].pop("validate"))
     assert calls == [(entry.id, {
         "source": "marketplace", "source_ref": entry.archive_url,
         "source_dir": None,
         "archive_url": entry.archive_url, "archive_path": "",
         "expected_checksum": entry.checksum,
+        "operation_id": command["command_id"],
     })]
     assert owner.execute_plugin_lifecycle(command, owner_id="owner", validate=lambda: None) == receipt
     assert len(calls) == 1
@@ -383,7 +385,8 @@ def test_an_entry_that_cannot_install_is_refused_with_its_own_code(workspace_api
     assert response.json()["code"] == code and response.json()["retryable"] is False
 
 
-def test_interrupted_lifecycle_receipt_does_not_claim_success(monkeypatch):
+@pytest.mark.parametrize("unreadable", [False, True])
+def test_interrupted_lifecycle_receipt_does_not_claim_success(monkeypatch, plugin_modules, unreadable):
     command_id = str(uuid4())
     monkeypatch.setattr(owner.admissions, "read_command_metadata", lambda *_args: {
         "type": "plugin.lifecycle.install", "status": "admitting",
@@ -392,6 +395,10 @@ def test_interrupted_lifecycle_receipt_does_not_claim_success(monkeypatch):
         "command_id": command_id, "status": "accepted",
         "action": "install", "plugin_id": "synthetic-plugin",
     })
+    if unreadable:
+        def unavailable(_plugin_id):
+            raise ValueError("environment_state_unavailable")
+        monkeypatch.setattr(plugin_modules["state"], "get_plugin_package_state", unavailable)
     receipt = owner.read_plugin_lifecycle_receipt(
         command_id, owner_id="owner", validate=lambda: None
     )

@@ -210,6 +210,7 @@ export type PluginSettingsSession = ReturnType<
   typeof createPluginSettingsSession
 >;
 export type PluginSettingsProps = {
+  integrationId?: string;
   session: PluginSettingsSession;
   load: (
     query: {
@@ -246,6 +247,7 @@ function initialSettings(detail: PluginDetail) {
 }
 
 export default function PluginSettings({
+  integrationId,
   session,
   load,
   open,
@@ -310,10 +312,14 @@ export default function PluginSettings({
       .finally(() => session.endRead(abort));
   }, [load, session]);
 
-  const select = async (pluginId: string) => {
+  const select = async (pluginId: string, preserveMessage = false) => {
     if (locked) return null;
     const abort = session.beginRead();
-    session.update({ busy: 'detail', reviewed: null, message: '' });
+    session.update({
+      busy: 'detail',
+      reviewed: null,
+      message: preserveMessage ? state.message : '',
+    });
     try {
       const detail = await open(pluginId, abort.signal);
       if (
@@ -343,6 +349,20 @@ export default function PluginSettings({
       session.endRead(abort);
     }
   };
+
+  useEffect(() => {
+    if (
+      !integrationId ||
+      state.busy ||
+      state.pending ||
+      !state.page ||
+      state.selected?.plugin_id === integrationId
+    )
+      return;
+    void select(integrationId, state.selected === null);
+    // Selection is URL-owned; settings changes stay in the existing session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integrationId, state.page]);
 
   const requestReview = async (action: PluginAction) => {
     const current = session.getSnapshot();
@@ -632,52 +652,62 @@ export default function PluginSettings({
       aria-label="Plugin Center"
       className="settings-section settings-plugins-page"
     >
-      <SettingsSummary>
-        <SummaryChip>{installedCount} installed</SummaryChip>
-        {failedCount > 0 && (
-          <SummaryChip tone="danger">
-            {failedCount} need{failedCount === 1 ? 's' : ''} attention
-          </SummaryChip>
-        )}
-      </SettingsSummary>
-      <SettingsTabs
-        label="Plugins"
-        value={tab}
-        onChange={(next) => {
-          if (next === tab || locked) return;
-          const source = next === 'installed' ? 'installed' : 'marketplace';
-          session.update({ source, reviewed: null });
-          void refresh(undefined, source);
-        }}
-        tabs={[
-          {
-            id: 'installed',
-            label: 'Installed',
-            content: (
-              <div className="stack" data-setting-anchor="installed-plugins">
-                {tab === 'installed' && toolbar}
-                {tab === 'installed' && list}
-              </div>
-            ),
-          },
-          {
-            id: 'discover',
-            label: 'Discover',
-            content: (
-              <div className="stack" data-setting-anchor="plugin-marketplace">
-                {lifecycle && (
-                  <PluginLifecycleActions
-                    api={lifecycle}
-                    onChanged={() => void refresh(undefined, 'all')}
-                  />
-                )}
-                {tab === 'discover' && toolbar}
-                {tab === 'discover' && list}
-              </div>
-            ),
-          },
-        ]}
-      />
+      {!integrationId && (
+        <>
+          <SettingsSummary>
+            <SummaryChip>{installedCount} installed</SummaryChip>
+            {failedCount > 0 && (
+              <SummaryChip tone="danger">
+                {failedCount} need{failedCount === 1 ? 's' : ''} attention
+              </SummaryChip>
+            )}
+          </SettingsSummary>
+          <SettingsTabs
+            label="Plugins"
+            value={tab}
+            onChange={(next) => {
+              if (next === tab || locked) return;
+              const source = next === 'installed' ? 'installed' : 'marketplace';
+              session.update({ source, reviewed: null });
+              void refresh(undefined, source);
+            }}
+            tabs={[
+              {
+                id: 'installed',
+                label: 'Installed',
+                content: (
+                  <div
+                    className="stack"
+                    data-setting-anchor="installed-plugins"
+                  >
+                    {tab === 'installed' && toolbar}
+                    {tab === 'installed' && list}
+                  </div>
+                ),
+              },
+              {
+                id: 'discover',
+                label: 'Discover',
+                content: (
+                  <div
+                    className="stack"
+                    data-setting-anchor="plugin-marketplace"
+                  >
+                    {lifecycle && (
+                      <PluginLifecycleActions
+                        api={lifecycle}
+                        onChanged={() => void refresh(undefined, 'all')}
+                      />
+                    )}
+                    {tab === 'discover' && toolbar}
+                    {tab === 'discover' && list}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </>
+      )}
       {state.selected && (
         <section aria-label={`Manage ${state.selected.name}`}>
           <h3>{state.selected.name}</h3>

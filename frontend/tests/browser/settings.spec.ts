@@ -109,6 +109,13 @@ async function openSettingsRouteFromHome(
   page: Page,
   route: { linkName: string; path: string; headingName: string },
 ) {
+  const integrationEditor = route.path.endsWith('/mcp');
+  if (integrationEditor)
+    route = {
+      linkName: 'Integrations',
+      path: '/app-v2/settings/integrations',
+      headingName: 'Integrations',
+    };
   const navigation = page.getByRole('navigation', {
     name: 'Workspace navigation',
     exact: true,
@@ -140,6 +147,7 @@ async function openSettingsRouteFromHome(
     await expect(page.locator('.settings-pane-header h2')).toHaveText(
       route.headingName,
     );
+    if (integrationEditor) await showIntegrationEditor(page, 'mcp');
     return;
   }
 
@@ -156,6 +164,27 @@ async function openSettingsRouteFromHome(
       exact: true,
     });
   await activateRoute(page, routeLink, route);
+  if (integrationEditor) await showIntegrationEditor(page, 'mcp');
+}
+
+async function showIntegrationEditor(page: Page, kind: 'mcp' | 'skill') {
+  await page
+    .getByText('Advanced configuration and existing editors', { exact: true })
+    .click();
+  await page
+    .getByRole('button', {
+      name:
+        kind === 'mcp'
+          ? 'Custom MCP configuration and chat access'
+          : 'Create, import, pin and maintain skills',
+      exact: true,
+    })
+    .click();
+}
+
+async function openIntegrationEditor(page: Page, kind: 'mcp' | 'skill') {
+  await page.goto('/app-v2/settings/integrations?type=' + kind);
+  await showIntegrationEditor(page, kind);
 }
 
 async function openDocumentsFromHome(page: Page) {
@@ -200,9 +229,7 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'documents',
     'tracker',
     'tools',
-    'skills',
-    'plugins',
-    'mcp',
+    'integrations',
     'accounts',
     'channels',
     'system',
@@ -317,9 +344,14 @@ test('Owner-review narrow Settings keeps representative owners behind one access
   ).toBeHidden();
   await expect(picker).toBeVisible();
   expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  for (const id of ['providers', 'documents', 'mcp', 'preferences'] as const) {
+  for (const id of [
+    'providers',
+    'documents',
+    'integrations',
+    'preferences',
+  ] as const) {
     if ((await picker.inputValue()) !== id) await picker.selectOption(id);
-    const label = id === 'mcp' ? 'MCP' : id[0].toUpperCase() + id.slice(1);
+    const label = id[0].toUpperCase() + id.slice(1);
     await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
     await expect(heading).toHaveText(label);
     await assertNoOverflow(page);
@@ -373,18 +405,8 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     name: 'Plugin Center',
     exact: true,
   });
-  // Search is inline; Enter searches at once.
-  const pluginSearch = plugins.getByRole('searchbox', {
-    name: 'Search plugins',
-    exact: true,
-  });
-  await pluginSearch.fill('Synthetic settings');
-  await pluginSearch.press('Enter');
-  await plugins
-    .getByRole('button', {
-      name: 'Manage Synthetic settings plugin',
-      exact: true,
-    })
+  await page
+    .getByRole('button', { name: 'Synthetic settings plugin', exact: true })
     .click();
   const region = plugins.getByRole('combobox', {
     name: /^Region(?: |$)/,
@@ -402,8 +424,11 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     await accessibility(page, info, `plugins-saved-${appearance}`);
   }
 
-  await page.goto('/app-v2/settings/skills');
-  const skills = page.getByRole('region', { name: 'Skills', exact: true });
+  await openIntegrationEditor(page, 'skill');
+  const skills = page.getByRole('region', {
+    name: 'Skills settings',
+    exact: true,
+  });
   // The public skill hub has its own Search; submit the installed-skill search.
   const skillSearch = skills.getByLabel('Search skills', { exact: true });
   await skillSearch.fill('Synthetic browser skill');
@@ -888,7 +913,7 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
     expect(response.ok()).toBe(true);
     return response.json();
   };
-  await page.goto('/app-v2/settings/mcp');
+  await openIntegrationEditor(page, 'mcp');
   // Runtimes are one status row at the top of the MCP page (B262).
   const runtime = page.getByRole('group', {
     name: 'Node.js runtime',
@@ -1642,7 +1667,7 @@ test('MCP tested tools retain their review and accept the saved catalog without 
   expect(
     (await page.request.post('/__p4_fixture/mcp-catalog', { headers })).ok(),
   ).toBe(true);
-  await page.goto('/app-v2/settings/mcp');
+  await openIntegrationEditor(page, 'mcp');
   // A server's details open in a drawer from its name (B262).
   await page
     .getByRole('button', {
@@ -1717,7 +1742,7 @@ test('MCP runtime reviews survive navigation and explicitly test connect disconn
     },
   });
   expect(seed.ok()).toBe(true);
-  await page.goto('/app-v2/settings/mcp');
+  await openIntegrationEditor(page, 'mcp');
   await page
     .getByRole('button', {
       name: 'Synthetic lifecycle details',
@@ -1790,7 +1815,7 @@ test('MCP saved permissions preserve mandatory approval and apply explicit revie
     },
   });
   expect(seeded.ok()).toBe(true);
-  await page.goto('/app-v2/settings/mcp');
+  await openIntegrationEditor(page, 'mcp');
   // "Use MCP servers" is the page's first switch; each change is reviewed by
   // the server and saved in one step (B262).
   const useMcp = page.getByRole('switch', {
@@ -1934,7 +1959,7 @@ test('Document removal retains its review and original partial cleanup until exp
 test('MCP settings retain reviewed private fields and save add edit rename import disabled', async ({
   page,
 }, info) => {
-  await page.goto('/app-v2/settings/mcp');
+  await openIntegrationEditor(page, 'mcp');
   const editor = page.getByRole('region', {
     name: 'MCP configuration',
     exact: true,

@@ -60,7 +60,7 @@ function Harness() {
           <p data-setting-anchor="layout">Reset layout row</p>
         </SettingsAdvanced>
       )}
-      {leaf.id === 'skills' && <DiscoverTabs />}
+      {leaf.id === 'integrations' && <DiscoverTabs />}
       <Where />
     </SettingsShell>
   );

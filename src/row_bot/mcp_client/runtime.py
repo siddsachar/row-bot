@@ -551,6 +551,8 @@ class McpServerRuntime:
             self._ready.set()
 
     async def _connect(self) -> None:
+        from row_bot.mcp_client.auth import transport_options
+        launch_cfg, auth_options = transport_options(self.name, self.cfg, validate=self._validate_launch)
         transport = str(self.cfg.get("transport") or "stdio")
         self.exit_stack = AsyncExitStack()
         if transport == "stdio":
@@ -560,20 +562,42 @@ class McpServerRuntime:
             if not command:
                 raise RuntimeError("stdio MCP server requires a command")
             from row_bot.plugins.mcp import resolve_prepared_plugin_mcp_launch
-            launch = resolve_prepared_plugin_mcp_launch(self.name, self.cfg)
+            launch = resolve_prepared_plugin_mcp_launch(self.name, self.cfg,
+                for_setup=getattr(self, "_temporary_setup", False) and self._launch_validate is not None)
             self._prepared_plugin_launch = launch
             if launch is not None:
                 from row_bot.plugins.worker import _run_directory, _worker_environment
                 env = _worker_environment(_run_directory(launch.plugin_id))
                 env.update(launch.declared_env)
             else:
-                env = os.environ.copy()
+                env = ({key: value for key, value in os.environ.items() if key.upper() in
+                        {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "LANG", "LC_ALL"}}
+                       if self.cfg.get("environment_mode") == "minimal" else os.environ.copy())
                 env.update({str(k): str(v) for k, v in dict(self.cfg.get("env") or {}).items()})
                 env = apply_managed_runtime_env(self.cfg, env)
+                if self.cfg.get("plugin_data"):
+                    from row_bot.data_paths import get_row_bot_data_dir
+                    from row_bot.package_files import contained_path
+                    plugin_id = self.cfg.get("source", {}).get("plugin_id", "")
+                    data = contained_path(get_row_bot_data_dir(create=False), "plugin_data/" + plugin_id)
+                    if str(data) != self.cfg["plugin_data"]:
+                        raise RuntimeError("plugin_data_owner_changed")
+                    data.mkdir(parents=True, exist_ok=True)
             command = _resolve_stdio_command(command, env)
+            args = [str(arg) for arg in self.cfg.get("args") or []]
+            if self.cfg.get("environment_mode") == "minimal" or self.cfg.get("managed_launch"):
+                from row_bot.mcp_client.packages import resolve_launch
+                package_launch = resolve_launch(self.cfg)
+                if package_launch:
+                    command, args = package_launch
+            # Prepared workers retain their isolated HOME and runtime paths.
+            # Only explicitly reviewed credential bindings augment that environment.
+            secret_env = {item["name"] for item in self.cfg.get("auth", {}).get("bindings", [])
+                if item.get("kind") == "env"}
+            env.update({str(k): str(v) for k, v in launch_cfg.get("env", {}).items() if k in secret_env})
             params = StdioServerParameters(
                 command=command,
-                args=[str(arg) for arg in self.cfg.get("args") or []],
+                args=args,
                 env=env,
                 cwd=self.cfg.get("cwd") or None,
             )
@@ -585,7 +609,7 @@ class McpServerRuntime:
             if not url:
                 raise RuntimeError("HTTP MCP server requires a URL")
             read_stream, write_stream, _ = await self.exit_stack.enter_async_context(
-                streamablehttp_client(url, headers=dict(self.cfg.get("headers") or {}))
+                streamablehttp_client(url, headers=dict(launch_cfg.get("headers") or {}), **auth_options)
             )
         elif transport == "sse":
             if sse_client is None:
@@ -594,7 +618,7 @@ class McpServerRuntime:
             if not url:
                 raise RuntimeError("SSE MCP server requires a URL")
             read_stream, write_stream = await self.exit_stack.enter_async_context(
-                sse_client(url, headers=dict(self.cfg.get("headers") or {}))
+                sse_client(url, headers=dict(launch_cfg.get("headers") or {}), **auth_options)
             )
         else:
             raise RuntimeError(f"Unsupported MCP transport: {transport}")
@@ -818,6 +842,18 @@ def stop_server(name: str) -> None:
     _stop_server(name, expected_runtime_id=None, wait_seconds=5)
 
 
+def disconnect_plugin_servers(plugin_id: str) -> None:
+    """Withdraw only this package's live MCP owners, preserving cleanup proof."""
+    with _runtime_lock:
+        owned = [(name, server.runtime_id) for name, server in _servers.items()
+                 if server.cfg.get("source", {}).get("kind") == "plugin"
+                 and server.cfg["source"].get("plugin_id") == plugin_id]
+    for name, runtime_id in owned:
+        result = stop_server_owned(name, runtime_id)
+        if result["state"] != "stopped":
+            raise RuntimeError("plugin_mcp_cleanup_incomplete")
+
+
 def _stop_server(name: str, *, expected_runtime_id: str | None, wait_seconds: float) -> McpServerRuntime | None:
     with _runtime_lock:
         runtime = _servers.get(name)
@@ -884,6 +920,7 @@ def launch_server_owned(name: str, cfg: dict[str, Any], *, before_start: Callabl
     validate()
     runtime = McpServerRuntime(name, copy.deepcopy(cfg))
     runtime._launch_validate = validate
+    runtime._temporary_setup = temporary
     runtime._before_release = before_release
     runtime._release_confirmed = before_release is None
     with _runtime_lock:

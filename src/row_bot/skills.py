@@ -411,10 +411,20 @@ def is_enabled(name: str) -> bool:
     return _enabled.get(name, False)
 
 
+def _require_activation_allowed(name: str) -> None:
+    from row_bot.skills_hub.provenance import get_record
+
+    record = get_record(name)
+    if record is not None and record.metadata.get("source_blocked"):
+        raise ValueError("skill_unavailable")
+
+
 @_serialized
 def set_enabled(name: str, value: bool):
     """Enable or disable a skill and persist."""
     global _pinned
+    if value:
+        _require_activation_allowed(name)
     _enabled[name] = value
     if not value:
         _pinned = [pinned_name for pinned_name in _pinned if pinned_name != name]
@@ -443,6 +453,7 @@ def set_pinned(name: str, value: bool) -> None:
     if is_tool_guide(skill):
         raise ValueError(f"Tool guides cannot be pinned: {skill_name}")
     if value:
+        _require_activation_allowed(skill_name)
         _enabled[skill_name] = True
         _pinned = _ordered_unique([*_pinned, skill_name])
     else:
@@ -928,6 +939,8 @@ def update_client_skill_preference(name: str, action: str, value: bool, *, expec
     item = snapshot['items'].get(name)
     if not item or is_tool_guide(item['skill']) or action not in {'availability', 'pin_defaults'} or type(value) is not bool:
         raise ValueError('invalid_skill_action')
+    if value:
+        _require_activation_allowed(name)
     enabled, pinned = dict(snapshot['enabled']), list(snapshot['pinned'])
     if action == 'availability':
         enabled[name] = value
@@ -943,6 +956,8 @@ def update_client_skill_preference(name: str, action: str, value: bool, *, expec
     data = json.dumps(config, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
     def authority():
         validate()
+        if value:
+            _require_activation_allowed(name)
         # File publication owns the config CAS; skill source identity must
         # remain current before retiring that config name.
         current = read_client_skills()

@@ -2151,5 +2151,23 @@ def main() -> None:
     runpy.run_module("row_bot.app", run_name="__main__")
 
 
+@app.post("/__p4_fixture/integration-skills")
+def p4_integration_skills(x_fixture_token: str = Header(default="")) -> dict:
+    """Exercise full skill publication through a deterministic public source."""
+    predecessor._authorize(x_fixture_token)
+    from row_bot.application import client_skill_hub as hub
+    from row_bot.skills_hub.models import CatalogSearchResult, SkillHubEntry, SkillFile, SourceResult
+    from row_bot.skills_hub.sources import bundle_from_files
+    entry = SkillHubEntry(id="clawhub:browser-writing", name="Browser writing", description="Synthetic writing skill with resources",
+        source="clawhub", source_id="clawhub", install_ref="clawhub:browser-writing")
+    bundle = bundle_from_files(source="clawhub", install_ref=entry.install_ref, root_name="browser-writing", files=[
+        SkillFile.from_text("SKILL.md", "---\nname: browser-writing\ndescription: Synthetic writing instructions\n---\nRead references/checklist.txt before writing."),
+        SkillFile.from_text("references/checklist.txt", "Use clear sentences.\n")])
+    hub.catalog.search_skills = lambda *a, **k: CatalogSearchResult(entries=[entry], mode="cache", query="writing",
+        source_statuses=[SourceResult(entries=[entry], source_id="clawhub", status="cached")])
+    hub.catalog.inspect_entry = lambda *a, **k: bundle
+    return {"ready": True}
+
+
 if __name__ == "__main__":
     main()

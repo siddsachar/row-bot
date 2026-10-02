@@ -10,6 +10,8 @@ from collections.abc import Callable
 from hashlib import sha256
 import json
 import logging
+import os
+import threading
 from uuid import uuid4
 
 from row_bot.application.client_platform import ClientPlatformError
@@ -17,7 +19,9 @@ from row_bot.runtime import admissions
 
 
 _LOG = logging.getLogger(__name__)
-_ACTIONS = frozenset({"install", "update", "remove", "refresh", "prepare"})
+_ACTIONS = frozenset({"install", "update", "remove", "refresh", "prepare", "restore", "recover", "purge"})
+_LIFECYCLE_LOCK = threading.RLock()
+_ACTIVE: set[str] = set()
 
 _PREPARE_DISCLOSURES = [
     "Row-Bot creates a private Python environment for this plugin in its data folder, then loads the plugin.",
@@ -84,13 +88,37 @@ def _log_refusal(action: str, plugin_id: str, code: str) -> None:
 
 
 def review_plugin_lifecycle(
-    action: str, plugin_id: str, *, validate: Callable[[], None]
+    action: str, plugin_id: str, *, validate: Callable[[], None], owner_id: str = "", preview_id: str = ""
 ) -> dict:
     try:
+        if preview_id:
+            return _review_source(action, plugin_id, owner_id, preview_id, validate)
         return _review(action, plugin_id, validate=validate)
     except ClientPlatformError as exc:
         _log_refusal(action, plugin_id, exc.code)
         raise
+
+
+def _review_source(action: str, plugin_id: str, owner_id: str, preview_id: str, validate: Callable[[], None]) -> dict:
+    from row_bot.plugins.hermes_catalog import get_preview
+    from row_bot.plugins import installer, state
+    validate()
+    preview = get_preview(owner_id, preview_id)
+    if action not in {"install", "update"} or plugin_id != preview.plugin_id:
+        raise ClientPlatformError("invalid_plugin_lifecycle_command")
+    if installer.is_installed(plugin_id) != (action == "update"):
+        raise ClientPlatformError("plugin_lifecycle_changed")
+    current = state.get_plugin_package_state(plugin_id)
+    data = {"action": action, "plugin_id": plugin_id, "name": preview.summary["name"], "version": preview.summary["version"],
+        "source": preview.summary["source"], "checksum": preview.digest, "permissions": preview.summary["permissions"],
+        "disclosures": ["Add copies the reviewed package and keeps it off. Enablement is separate.",
+            "Only supported declared components are available. Foreign hooks and host entry points never execute.",
+            "Skill instructions and MCP processes can access local files and declared services when used; processes are not an OS sandbox.",
+            "The tree digest binds this review to these bytes; it is not independent publisher authentication.",
+            "Runtime downloads, credentials, and tools require their own setup reviews."],
+        "revision": sha256(json.dumps([preview_id, preview.digest, preview.pin, preview.source_identity, current], sort_keys=True).encode()).hexdigest()}
+    validate()
+    return data
 
 
 def _review(action: str, plugin_id: str, *, validate: Callable[[], None]) -> dict:
@@ -114,11 +142,15 @@ def _review(action: str, plugin_id: str, *, validate: Callable[[], None]) -> dic
     else:
         items, _catalog_revision = plugin_commands._catalog(validate)
         item = next((row for row in items if row["plugin_id"] == plugin_id), None)
+        package = _package_revision(plugin_id)
+        if item is None and (action == "purge" and package.get("removed") or action == "recover" and package.get("pending")):
+            item = {"plugin_id": plugin_id, "name": package.get("upstream_name", plugin_id),
+                "version": package.get("version", ""), "permissions": [], "installed": False, "capabilities": {}}
         if item is None:
             raise ClientPlatformError("plugin_not_found")
         if action == "install" and item["installed"]:
             raise ClientPlatformError("plugin_already_installed")
-        if action in {"update", "remove", "prepare"} and not item["installed"]:
+        if action in {"update", "remove", "prepare", "restore"} and not item["installed"]:
             raise ClientPlatformError("plugin_not_installed")
         if action == "prepare" and not item["capabilities"].get("prepare", {}).get("available"):
             raise ClientPlatformError("plugin_environment_ready")
@@ -153,14 +185,21 @@ def _review(action: str, plugin_id: str, *, validate: Callable[[], None]) -> dic
                 if action in {"install", "update"}
                 else list(_PREPARE_DISCLOSURES)
                 if action == "prepare"
-                else ["Removal deletes plugin files, settings, and secret metadata. This cannot be undone."]
+                else ["Restore replaces local package code with its previous revision; current data and credentials are preserved. External changes cannot be undone."] if action == "restore"
+                else ["Recover reconciles a prior publication without downloading or executing code."] if action == "recover"
+                else ["Removal withdraws the package and all its children. Saved data and credentials are retained unless you choose Delete saved data."]
             ),
         }
     data["revision"] = sha256(
-        json.dumps([data, reviewed_tree], sort_keys=True, ensure_ascii=False).encode("utf-8")
+        json.dumps([data, reviewed_tree, _package_revision(plugin_id)], sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
     validate()
     return data
+
+
+def _package_revision(plugin_id: str) -> dict:
+    from row_bot.plugins.state import get_plugin_package_state
+    return get_plugin_package_state(plugin_id) if plugin_id else {}
 
 
 def execute_plugin_lifecycle(
@@ -169,6 +208,15 @@ def execute_plugin_lifecycle(
     owner_id: str,
     validate: Callable[[], None],
 ) -> dict:
+    # Serializes local callers. Admissions excludes other owner processes.
+    with _LIFECYCLE_LOCK:
+        try:
+            return _execute_plugin_lifecycle(command, owner_id=owner_id, validate=validate)
+        finally:
+            _ACTIVE.discard(command["command_id"])
+
+
+def _execute_plugin_lifecycle(command: dict, *, owner_id: str, validate: Callable[[], None]) -> dict:
     from row_bot.plugins import installer, marketplace
 
     action = command["action"]
@@ -182,13 +230,33 @@ def execute_plugin_lifecycle(
         "action": action,
         "plugin_id": plugin_id,
         "revision": command["revision"],
+        "preview_id": command.get("preview_id", ""),
     }
     existing = admissions.read_command_metadata(owner_id, command["command_id"])
     if existing is not None:
         if existing["target"] != target or existing["type"] != wire["type"]:
             raise ClientPlatformError("idempotency_mismatch")
-        return admissions.claim_command(owner_id, command["command_id"], wire, target)
-    reviewed = review_plugin_lifecycle(action, plugin_id, validate=validate)
+        try:
+            return admissions.claim_command(owner_id, command["command_id"], wire, target)
+        except admissions.AdmissionError as error:
+            if str(error) != "operation_uncertain":
+                raise
+            result = read_plugin_lifecycle_receipt(command["command_id"], owner_id=owner_id, validate=validate)
+            if not _original_alive(owner_id, command["command_id"]):
+                admissions.complete_command(owner_id, command["command_id"], result)
+            return result
+    # An explicit recovery review may settle interrupted bookkeeping. It never
+    # resumes a live owner or silently repeats an installation.
+    if action == "recover":
+        pending = admissions.read_unfinished_target_commands(target)
+        if pending["overflow"]:
+            raise ClientPlatformError("operation_pending")
+        for row in pending["items"]:
+            if row["owner_id"] != owner_id or _original_alive(owner_id, row["command_id"]):
+                raise ClientPlatformError("operation_pending")
+            original = read_plugin_lifecycle_receipt(row["command_id"], owner_id=owner_id, validate=validate)
+            admissions.complete_command(owner_id, row["command_id"], original)
+    reviewed = review_plugin_lifecycle(action, plugin_id, validate=validate, owner_id=owner_id, preview_id=command.get("preview_id", ""))
     if command["revision"] != reviewed["revision"]:
         _log_refusal(action, plugin_id, "plugin_lifecycle_changed")
         raise ClientPlatformError("plugin_lifecycle_changed")
@@ -204,16 +272,21 @@ def execute_plugin_lifecycle(
             "plugin_id": plugin_id,
             "version": reviewed["version"],
             "status": "accepted",
+            "_process": {"pid": os.getpid(), "birth": __import__("psutil").Process().create_time()},
         },
     )
+    _ACTIVE.add(command["command_id"])
     validate()
     if action == "refresh":
         index = marketplace.fetch_index(force_refresh=True)
         success = bool(index.plugins)
         message = f"Marketplace has {len(index.plugins)} plugin(s)." if success else "Marketplace is unavailable; the saved catalog remains available."
-    elif action == "remove":
-        outcome = installer.uninstall_plugin(plugin_id)
+    elif action in {"remove", "purge"}:
+        outcome = installer.uninstall_plugin(plugin_id, purge_data=action == "purge", operation_id=command["command_id"])
         success, message = outcome.success, "Plugin removed." if outcome.success else "Plugin removal failed; inspect the local installation."
+    elif action in {"restore", "recover"}:
+        outcome = installer.restore_plugin(plugin_id, operation_id=command["command_id"], validate=validate) if action == "restore" else installer.recover_plugin_publication(plugin_id)
+        success, message = outcome.success, outcome.message
     elif action == "prepare":
         success, code = _prepare(plugin_id, command["command_id"])
         message = (
@@ -222,9 +295,16 @@ def execute_plugin_lifecycle(
             else f"Row-Bot couldn't prepare {reviewed['name']} ({code or 'environment_preparation_failed'})."
         )
     else:
-        entry = _entry(plugin_id)
-        origin = _origin(entry)
-        kwargs = {
+        if command.get("preview_id"):
+            from row_bot.plugins.hermes_catalog import get_preview
+            preview = get_preview(owner_id, command["preview_id"])
+            kwargs = {"source": "portable" if preview.summary["format"] != "row-bot-v2" else "local",
+                "source_ref": preview.source_identity, "source_dir": preview.root,
+                "expected_checksum": preview.digest, "source_pin": preview.pin, "operation_id": command["command_id"]}
+        else:
+            entry = _entry(plugin_id)
+            origin = _origin(entry)
+            kwargs = {
             "source": "marketplace",
             "source_ref": str(origin.local_dir) if origin.local_dir else _described(origin),
             "source_dir": origin.local_dir,
@@ -232,11 +312,12 @@ def execute_plugin_lifecycle(
             "archive_path": origin.archive_path,
             # A local folder is checked too when the index lists a checksum (B208).
             "expected_checksum": entry.checksum or None,
-        }
+            "operation_id": command["command_id"],
+            }
         outcome = (
-            installer.install_plugin(plugin_id, **kwargs)
+            installer.install_plugin(plugin_id, **kwargs, validate=validate)
             if action == "install"
-            else installer.update_plugin(plugin_id, **kwargs)
+            else installer.update_plugin(plugin_id, **kwargs, validate=validate)
         )
         success = outcome.success
         if success:
@@ -256,10 +337,13 @@ def execute_plugin_lifecycle(
                 prepared, code = _prepare(plugin_id, str(uuid4()))
                 if not prepared:
                     message += f" Its environment isn't ready ({code}); use Prepare."
-    if success and action in {"install", "update", "remove", "prepare"}:
+    if success and action in {"install", "update", "remove", "prepare", "restore", "recover", "purge"}:
         from row_bot.plugins import loader
 
-        loader.refresh_plugin_runtime(f"plugin {action}")
+        try:
+            loader.refresh_plugin_runtime(f"plugin {action}", plugin_id=plugin_id)
+        except Exception:
+            message += " Files were published, but runtime refresh needs attention. Reload the affected package."
     validate()
     result = {
         "command_id": command["command_id"],
@@ -269,6 +353,18 @@ def execute_plugin_lifecycle(
         "message": message,
     }
     return admissions.complete_command(owner_id, command["command_id"], result)
+
+
+def _original_alive(owner_id: str, command_id: str) -> bool:
+    import psutil
+    saved = admissions.read_command_receipt(owner_id, command_id) or {}
+    process = saved.get("_process", {})
+    if process.get("pid") == os.getpid():
+        return command_id in _ACTIVE
+    try:
+        return psutil.Process(process["pid"]).create_time() == process["birth"]
+    except (KeyError, TypeError, psutil.Error):
+        return False
 
 
 def read_plugin_lifecycle_receipt(
@@ -282,6 +378,21 @@ def read_plugin_lifecycle_receipt(
     if result is None:
         raise ClientPlatformError("plugin_lifecycle_receipt_unavailable")
     if metadata["status"] == "admitting":
+        from row_bot.plugins import installer
+        from row_bot.plugins.devtools import compute_plugin_checksum
+        try:
+            package = _package_revision(result.get("plugin_id", ""))
+            destination = installer._owned_package(result["plugin_id"]) if result.get("plugin_id") else None
+            proven = package.get("operation_id") == command_id and not package.get("pending")
+            published = proven and ((package.get("removed") and destination is not None and not destination.exists())
+                or (destination is not None and destination.exists() and compute_plugin_checksum(destination) == package.get("digest")))
+        except (OSError, ValueError, KeyError, TypeError):
+            # Missing or unreadable evidence cannot turn an interrupted write into success.
+            published = False
+        validate()
+        if published:
+            return {"command_id": command_id, "status": "completed", "action": result["action"],
+                "plugin_id": result["plugin_id"], "message": "The original package publication is confirmed. Runtime setup may still need attention."}
         return {
             "command_id": command_id,
             "status": "uncertain",
@@ -291,3 +402,15 @@ def read_plugin_lifecycle_receipt(
         }
     validate()
     return result
+
+
+def reconcile_plugin_operation(*, owner_id: str, command_id: str, validate: Callable[[], None]) -> dict:
+    """Explicitly settle bookkeeping; an uncertain package still needs recovery."""
+    validate()
+    with _LIFECYCLE_LOCK:
+        result = read_plugin_lifecycle_receipt(command_id, owner_id=owner_id, validate=validate)
+        if _original_alive(owner_id, command_id):
+            raise ClientPlatformError("operation_pending")
+        validate()
+        admissions.complete_command(owner_id, command_id, result)
+        return {"command_id": command_id, "settled": True, "message": result["message"]}

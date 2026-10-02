@@ -20,7 +20,7 @@ from uuid import UUID
 
 import psutil
 
-from row_bot.mcp_client import requirements
+from row_bot.mcp_client import requirements, config
 from row_bot.runtime import admissions
 
 logger = logging.getLogger(__name__)
@@ -253,6 +253,59 @@ def recover_runtime_installations() -> None:
                             row["type"].rsplit(".", 1)[-1], settled["installation"]["stage"])
             except Exception as error:
                 logger.warning("Could not recover a %s runtime install (%s)", runtime_id, type(error).__name__)
+
+
+def _package_server(server_id: str):
+    from row_bot.application import capability_configuration_controls as configuration
+    from row_bot.mcp_client import config
+    saved = config.read_saved_configuration()
+    name = next((name for name in saved.document.get("servers", {}) if configuration._server_id(name) == server_id), None)
+    if name is None:
+        raise RuntimeInstallationError("not_found")
+    return saved, name, saved.document["servers"][name]
+
+
+def inspect_mcp_package(*, owner_id: str, server_id: str, configuration_revision: str, target: dict | None = None,
+        validate: Callable[[], None] = lambda: None) -> dict:
+    """Inspect pinned npm bytes under the existing managed-requirement owner."""
+    from row_bot.application import capability_configuration_controls as configuration
+    from row_bot.mcp_client import targets, packages
+    with targets.scope(target):
+        validate()
+        saved, _, cfg = _package_server(server_id)
+        if configuration._revision(saved) != configuration_revision:
+            raise RuntimeInstallationError("revision_conflict")
+        result = packages.inspect(owner_id, cfg)
+        validate()
+        if configuration._revision(_package_server(server_id)[0]) != configuration_revision:
+            raise RuntimeInstallationError("revision_conflict")
+        intent = {"operation": "prepare", "server_id": server_id, "preview_id": result["preview_id"], "digest": result["digest"]}
+        return {**result, "configuration_revision": configuration_revision, "server_id": server_id,
+            "target": target, "action_digest": admissions.keyed_digest({"revision": configuration_revision, "intent": intent})}
+
+
+def prepare_mcp_package(*, owner_id: str, command_id: str, server_id: str, configuration_revision: str,
+        preview_id: str, digest: str, target: dict | None = None, validate: Callable[[], None] = lambda: None, validate_review: Callable[[dict], None] = lambda review: None) -> dict:
+    """Publish the reviewed launch reference using MCP's durable config owner."""
+    import copy
+    from row_bot.application import capability_configuration_controls as configuration
+    from row_bot.mcp_client import targets, packages
+    with targets.scope(target):
+        def next_document(saved: config.SavedMcpConfiguration, intent: dict) -> tuple[dict, tuple[str, ...]]:
+            name = next((n for n in saved.document.get("servers", {}) if configuration._server_id(n) == server_id), None)
+            if name is None:
+                raise RuntimeInstallationError("not_found")
+            document = copy.deepcopy(saved.document)
+            cfg = document["servers"][name]
+            cfg["managed_launch"] = packages.reviewed_launch(owner_id, preview_id, cfg, digest)
+            cfg["environment_mode"] = "minimal"
+            return document, (name,)
+        command = {"command_id": command_id, "type": "mcp.package.prepare", "mcp_target": targets.current(),
+            "payload": {"configuration_revision": configuration_revision, "intent": {
+                "operation": "prepare", "server_id": server_id, "preview_id": preview_id, "digest": digest}}}
+        return configuration._execute_saved_change(owner_id=owner_id, key=command_id, command=command,
+            validate=validate, validate_review=validate_review, command_type="mcp.package.prepare",
+            next_document=next_document, saved_disabled=None)
 
 
 class McpRuntimeInstallationService:

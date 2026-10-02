@@ -185,6 +185,18 @@ def test_linked_or_hardlinked_manifest_fails_closed(plugin_modules, tmp_path):
         commands.read_plugin_catalog(validate=_valid)
 
 
+def test_unproven_hardlinked_state_fails_closed(plugin_modules, tmp_path):
+    _installed(plugin_modules)
+    state = plugin_modules["state"]
+    state.set_plugin_enabled("sample-plugin", False)
+    try:
+        os.link(state._STATE_PATH, tmp_path / "unowned-state.json")
+    except OSError:
+        pytest.skip("Hard links are unavailable on this filesystem")
+    with pytest.raises(commands.PluginCommandError, match="plugin_catalog_unavailable"):
+        commands.read_plugin_catalog(validate=_valid)
+
+
 def test_review_rejects_unsupported_lifecycle_and_requires_saved_health(
     plugin_modules, monkeypatch
 ):
@@ -431,7 +443,7 @@ def test_reviewed_enable_and_disable_use_existing_runtime_revocation_owner(
     monkeypatch.setattr(
         loader,
         "refresh_plugin_runtime",
-        lambda reason: refreshes.append(reason) or [Loaded()],
+        lambda reason, **kwargs: refreshes.append(reason) or [Loaded()],
     )
     detail = commands.read_plugin_detail("sample-plugin", validate=_valid)
     request = {"plugin_id": "sample-plugin", "revision": detail["revision"]}
