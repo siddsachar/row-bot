@@ -1247,12 +1247,12 @@ it('names the profile and approvals a run uses on the row, with Auto approvals s
   );
   await screen.findByText('Careful');
   const careful = within(row('Careful'));
-  expect(careful.getByText('Row bot default')).toBeVisible();
+  expect(careful.getByText('Default')).toBeVisible();
   expect(careful.getByText('Asks before actions')).not.toHaveAttribute(
     'data-attention',
   );
   const trusted = within(row('Trusted'));
-  expect(trusted.getByText('Row bot research')).toBeVisible();
+  expect(trusted.getByText('Research')).toBeVisible();
   expect(trusted.getByText('Auto approvals')).toHaveAttribute(
     'data-attention',
     'true',
