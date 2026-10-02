@@ -83,6 +83,11 @@ def test_reviewed_manifest_hashes_every_public_story_asset() -> None:
     for state, expected_hash in manifest["buddy"]["motion"]["states"].items():
         video = MEDIA / "buddy" / f"{state}.webm"
         assert hashlib.sha256(video.read_bytes()).hexdigest() == expected_hash
+    hevc_states = manifest["buddy"]["motion"]["hevc_alpha"]["states"]
+    assert hevc_states.keys() == manifest["buddy"]["motion"]["states"].keys()
+    for state, expected_hash in hevc_states.items():
+        video = MEDIA / "buddy" / f"{state}.mov"
+        assert hashlib.sha256(video.read_bytes()).hexdigest() == expected_hash
     idle_edit = manifest["buddy"]["motion"]["edits"]["idle"]
     assert idle_edit["source_sha256"] == "f1d4b3ade0d97361163bfd7cb5832b94197671ef922da119b8b0b698187718ca"
     assert idle_edit["result_sha256"] == manifest["buddy"]["motion"]["states"]["idle"]

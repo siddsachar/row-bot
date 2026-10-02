@@ -39,7 +39,7 @@ function element(dataset = {}) {
     };
 }
 
-function makeRuntime({reducedMotion = false, saveData = false, search = '', intro = false} = {}) {
+function makeRuntime({reducedMotion = false, saveData = false, search = '', intro = false, userAgent = '', hevcAlpha = false} = {}) {
     const controller = element();
     if (intro) controller.classList.add('is-intro');
     controller.offsetHeight = 4400;
@@ -90,7 +90,8 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
         return video;
     });
     const buddyVideos = ['idle', 'thinking', 'working', 'approval', 'success', 'error'].map(state => {
-        const video = element({buddyMotion: state});
+        const video = element({buddyMotion: state, src: `${state}.webm`, srcHevc: `${state}.mov`});
+        video.canPlayType = type => (hevcAlpha && type === 'video/mp4; codecs="hvc1"' ? 'probably' : '');
         video.currentTime = 0;
         video.readyState = 1;
         video.seeking = false;
@@ -180,7 +181,7 @@ function makeRuntime({reducedMotion = false, saveData = false, search = '', intr
     const context = {
         window: runtimeWindow,
         document,
-        navigator: {connection: {saveData}},
+        navigator: {connection: {saveData}, userAgent},
         IntersectionObserver: FakeIntersectionObserver,
         URLSearchParams,
         console,
@@ -480,6 +481,22 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     idleFrames.shift()(0, {mediaTime: .18});
     idleFrames.shift()(0, {mediaTime: .22});
     assert.equal(idleVideo.classList.contains('is-active'), true);
+
+    // Safari drops WebM alpha, so Apple WebKit plays the HEVC-with-alpha cut;
+    // Chromium browsers (which also say AppleWebKit) keep the WebM.
+    const safari = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
+    const chrome = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+    const motionSource = async options => {
+        const page = makeRuntime(options);
+        await flush();
+        page.api.setScene('automate');
+        page.runTimers(1000);
+        await flush();
+        return page.buddyVideos.find(video => video.dataset.buddyMotion === 'idle').src;
+    };
+    assert.equal(await motionSource({userAgent: safari, hevcAlpha: true}), 'idle.mov');
+    assert.equal(await motionSource({userAgent: chrome, hevcAlpha: true}), 'idle.webm');
+    assert.equal(await motionSource({userAgent: safari, hevcAlpha: false}), 'idle.webm');
 })().catch(error => {
     console.error(error);
     process.exitCode = 1;
