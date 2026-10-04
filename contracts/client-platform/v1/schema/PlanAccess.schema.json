@@ -56,6 +56,11 @@
   },
   "additionalProperties": false,
   "properties": {
+    "manual": {
+      "default": false,
+      "title": "Manual",
+      "type": "boolean"
+    },
     "preset": {
       "enum": [
         "read_only",

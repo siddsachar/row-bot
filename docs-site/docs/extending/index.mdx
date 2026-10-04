@@ -52,4 +52,4 @@ This section is for developers working on Row-Bot or building against its local 
 - Unknown effects always ask.
 - Annotations only make a tool stricter; `readOnlyHint` is the one exception and never outweighs a change verb in the name.
 
-Policies saved before `run_without_asking` existed have no entries in it, so their routine changes keep asking. See [MCP](/docs/integrations/mcp) for the user-facing description.
+Policies saved before `run_without_asking` existed have no entries in it, so their routine changes keep asking. A server that overlaps a native capability, or is marked high risk, needs manual tool selection: `PlanAccess.manual` is true, presets apply to none of its tools, and only explicit per-tool overrides turn tools on. See [MCP](/docs/integrations/mcp) for the user-facing description.

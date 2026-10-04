@@ -146,9 +146,7 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     steps.append(_step("test", "done" if checked or intent == "access" else "pending", "Check the connection"))
     steps.append(_step("access", "done" if checked and intent != "access" else "pending", f"Choose what {name} can do",
                        access={"preset": presets.current(cfg.get("tools") or {}) if accepted else presets.DEFAULT,
-                               "tools": [], "tools_digest": ""}))
-    if intent == "access" and _manual(row["target"], row["owner_ref"]):
-        steps[-1].update(state="unsupported", message=f"Choose {name}'s tools one by one in its settings.")
+                               "tools": [], "tools_digest": "", "manual": False}))
     steps.append(_step("enable", "pending" if intent == "access" else "done" if row["lifecycle"] == "installed"
                        and row["readiness"] == "ready" else "pending", "Save access" if intent == "access" else "Turn on " + name))
     if intent == "access":  # Saving access changes access only; setup still to do needs its own consent.
@@ -882,7 +880,7 @@ def current_access(row: dict) -> dict | None:
     saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {})
     tools, manual = _tools(None, record), _manual(record["target"], record["server_id"])
     return {"preset": presets.current(saved) if saved.get("catalog") else presets.DEFAULT, "tools_digest": _digest([tools, manual]),
-            "tools": [_tool_view(t, presets.actual(saved, t["name"])) for t in tools[:256]]}
+            "tools": [_tool_view(t, presets.actual(saved, t["name"])) for t in tools[:256]], "manual": manual}
 
 
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
@@ -893,16 +891,18 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
     kept = set(saved.get("accepted_names") or [])
 
     def state(tool: dict) -> str:
-        if manual:
-            return "off"
-        return chosen.get(tool["name"]) or (presets.actual(saved, tool["name"]) if tool["name"] in kept
-                                            else presets.tool_state(record["preset"], tool))
-    step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]]}
+        if tool["name"] in chosen:
+            return chosen[tool["name"]]
+        if tool["name"] in kept:
+            return presets.actual(saved, tool["name"])
+        return "off" if manual else presets.tool_state(record["preset"], tool)  # Chosen one by one: off until chosen.
+    step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]],
+                      "manual": manual}
     if ctx.tools_digest == digest:
         step["message"] = ""
         return "done"
     step["message"] = ("The tools changed. Review them again." if ctx.tools_digest else
-                       "This app's tools stay off until you choose them in its settings." if manual else
+                       "Its tools overlap with Row-Bot's own, so each stays off until you turn it on." if manual else
                        "Review what this app can do, then allow it.")
     return "access"
 

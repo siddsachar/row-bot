@@ -186,15 +186,13 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
             enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] in {"unknown", "mutation"})
     tools["require_approval"] = sorted(approvals)
     added = [row["name"] for row in captured["tools"] if row["name"] not in enabled]
-    if preset is not None and manual:
-        enabled.update(dict.fromkeys(added, False))  # Manual selection: the user turns each tool on.
-    elif preset is not None:
-        # An access preset applies only to tools this acceptance adds; explicit choices apply to any accepted tool.
+    if preset is not None:
+        if manual:  # Manual selection: each tool stays off unless the user turns it on.
+            enabled.update(dict.fromkeys(added, False))
+        # A preset applies only to tools this acceptance adds (none when chosen one by one);
+        # explicit choices apply to any accepted tool.
         try:
-            presets.apply(tools, preset, added, {k: v for k, v in (overrides or {}).items() if k in added})
-            for tool_name, state in (overrides or {}).items():
-                if tool_name not in added and tool_name in tools["accepted_names"]:
-                    presets.set_state(tools, tool_name, state, catalog[tool_name])
+            presets.apply(tools, preset, [] if manual else added, overrides)
         except ValueError:
             raise Error("approval_required") from None
     return document, (name,), manual

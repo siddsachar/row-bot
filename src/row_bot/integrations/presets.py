@@ -59,11 +59,16 @@ def set_state(tools: dict, name: str, state: str, row: dict) -> None:
 
 
 def apply(tools: dict, preset: str, names: list[str] | None = None, overrides: dict | None = None) -> None:
-    """Set the saved policy of the named accepted tools (all of them by default), then the user's overrides."""
-    catalog = tools.get("catalog") or {}
-    for name in names if names is not None else list(tools.get("accepted_names") or catalog):
+    """Apply a preset to the named accepted tools (all of them by default); the user's explicit
+    choices apply to any accepted tool."""
+    catalog, overrides = tools.get("catalog") or {}, overrides or {}
+    accepted = list(tools.get("accepted_names") or catalog)
+    named = accepted if names is None else names
+    for name in named:
         row = catalog.get(name, {})
-        set_state(tools, name, (overrides or {}).get(name) or tool_state(preset, row), row)
+        set_state(tools, name, overrides.get(name) or tool_state(preset, row), row)
+    for name in sorted(set(overrides) & set(accepted) - set(named)):
+        set_state(tools, name, overrides[name], catalog.get(name, {}))
 
 
 def actual(tools: dict, name: str) -> str:

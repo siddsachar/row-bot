@@ -716,3 +716,56 @@ it('checks an unfinished change again when no plan owns it, and never starts a n
   );
   expect(controller.reviewInstallPlan).not.toHaveBeenCalled();
 });
+
+it('lets each tool be chosen one by one when its app overlaps Row-Bot, with no preset to pick', async () => {
+  const onAllow = vi.fn();
+  render(
+    <AccessSheet
+      open
+      change={false}
+      name="Notion"
+      busy={false}
+      onCancel={() => undefined}
+      onAllow={onAllow}
+      access={{
+        preset: 'ask',
+        manual: true,
+        tools_digest: digest,
+        tools: [
+          {
+            name: 'search',
+            title: 'Search',
+            effect: 'read_only',
+            state: 'off',
+          },
+          {
+            name: 'delete_page',
+            title: 'Delete page',
+            effect: 'mutation',
+            state: 'off',
+            always_asks: true,
+          },
+        ],
+      }}
+    />,
+  );
+  const dialog = await screen.findByRole('dialog', {
+    name: "Here's what Notion can do",
+  });
+  expect(within(dialog).queryByRole('radio')).toBeNull();
+  expect(
+    within(dialog).getByText(/each\s+stays off until you turn it on/),
+  ).toBeVisible();
+  fireEvent.change(
+    within(dialog).getByRole('combobox', { name: 'What Search may do' }),
+    {
+      target: { value: 'use' },
+    },
+  );
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Allow' }));
+  expect(onAllow).toHaveBeenCalledWith({
+    preset: 'ask',
+    tools_digest: digest,
+    overrides: { search: 'use', delete_page: 'off' },
+  });
+});

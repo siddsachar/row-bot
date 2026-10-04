@@ -8041,6 +8041,7 @@ class PlanAccess(WireModel):
     preset: Literal["read_only", "ask", "full", "custom"]
     tools: list[PlanTool] = Field(max_length=256)
     tools_digest: str = Field(max_length=64)
+    manual: bool = False  # Its tools overlap Row-Bot's own: each is chosen one by one, no preset.
 
 
 class PlanStep(WireModel):

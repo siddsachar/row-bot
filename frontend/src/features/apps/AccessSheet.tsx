@@ -86,11 +86,11 @@ export default function AccessSheet({
   >({});
   useEffect(() => {
     if (open && access) {
-      const custom = access.preset === 'custom';
+      const kept = access.preset === 'custom' || access.manual;
       setPreset(access.preset === 'custom' ? 'ask' : access.preset);
-      // A custom policy keeps every tool as it is until the person changes one.
+      // A custom policy, or tools chosen one by one, stay as they are until the person changes one.
       setOverrides(
-        custom
+        kept
           ? Object.fromEntries(
               access.tools.map((tool) => [tool.name, tool.state]),
             )
@@ -99,6 +99,7 @@ export default function AccessSheet({
     }
   }, [open, access]);
   const tools = access?.tools ?? [];
+  const manual = Boolean(access?.manual);
   const title = change
     ? `Change what ${name} can do`
     : `Here's what ${name} can do`;
@@ -112,36 +113,43 @@ export default function AccessSheet({
       }}
     >
       <div className="stack access-sheet">
-        <fieldset className="access-presets">
-          <legend className="visually-hidden">Access</legend>
-          {PRESETS.map(([id, label, description]) => (
-            <label
-              key={id}
-              className="access-preset"
-              data-selected={preset === id}
-            >
-              <input
-                type="radio"
-                name="access-preset"
-                value={id}
-                checked={preset === id}
-                onChange={() => setPreset(id)}
-                data-initial-focus={preset === id ? true : undefined}
-              />
-              <span>
-                <strong>{label}</strong>
-                <small>{description}</small>
-              </span>
-            </label>
-          ))}
-        </fieldset>
+        {manual ? (
+          <p className="settings-help" role="status">
+            {name}&apos;s tools overlap with what Row-Bot already does, so each
+            stays off until you turn it on below.
+          </p>
+        ) : (
+          <fieldset className="access-presets">
+            <legend className="visually-hidden">Access</legend>
+            {PRESETS.map(([id, label, description]) => (
+              <label
+                key={id}
+                className="access-preset"
+                data-selected={preset === id}
+              >
+                <input
+                  type="radio"
+                  name="access-preset"
+                  value={id}
+                  checked={preset === id}
+                  onChange={() => setPreset(id)}
+                  data-initial-focus={preset === id ? true : undefined}
+                />
+                <span>
+                  <strong>{label}</strong>
+                  <small>{description}</small>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
         {tools.length ? (
           <ToolGroups tools={tools} />
         ) : (
           <p className="settings-help">It has no tools to choose yet.</p>
         )}
         {tools.length > 0 && (
-          <Disclosure summary="Customise">
+          <Disclosure summary="Customise" defaultOpen={manual}>
             <ul className="access-tools">
               {tools.map((tool) => (
                 <li key={tool.name} className="access-tool-choice">
@@ -161,7 +169,7 @@ export default function AccessSheet({
                       setOverrides(next);
                     }}
                   >
-                    <option value="">As chosen above</option>
+                    {!manual && <option value="">As chosen above</option>}
                     {!tool.always_asks && (
                       <option value="use">Use without asking</option>
                     )}

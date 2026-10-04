@@ -378,14 +378,14 @@ function Detail({
             >
               {about.access.tools.filter((tool) => tool.state !== 'off').length}{' '}
               of {about.access.tools.length} actions on ·{' '}
-              {
-                {
-                  read_only: 'Read only',
-                  ask: 'Ask before changes',
-                  full: 'Full access',
-                  custom: 'Custom',
-                }[about.access.preset]
-              }
+              {about.access.manual
+                ? 'Chosen one by one'
+                : {
+                    read_only: 'Read only',
+                    ask: 'Ask before changes',
+                    full: 'Full access',
+                    custom: 'Custom',
+                  }[about.access.preset]}
             </StatusLine>
             <ToolGroups tools={about.access.tools} />
           </div>
