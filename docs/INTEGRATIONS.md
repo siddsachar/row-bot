@@ -151,12 +151,26 @@ outside this continuation. Landing media refresh remains with the landing task.
 
 The domain package composes the owners above; it never replaces them.
 
-- `apps.py` and `apps.json`: curated app identities. A record attaches only through a
-  reviewed reference (curated recipe, Registry namespace, endpoint host, package or
-  repository). Anything else is a community entry. To add an app, add one record.
-- `sources.py`: one adapter per catalog with server-side eligibility. To add a
-  source, add one adapter and register it; clients read the list from
-  `GET /api/v1/integrations/sources`.
+- `apps.py` and `apps.json`: curated app identities (98 featured, ranked), each with
+  jobs, synonyms, example prompts, links, auth, vendor domains and GitHub orgs, and
+  the vendor documentation that confirmed it. A record attaches only through a
+  reviewed reference (curated recipe, Registry namespace or exact server, endpoint
+  host, package or repository). Anything else is a community entry. The vendor badge
+  comes only from rules: a Registry namespace that is a vendor domain reversed or
+  `io.github.<vendor org>`, or a vendor endpoint. Shared hosting domains can never be
+  vendor domains. To add an app, add one record.
+- `index.py`: the local Registry mirror, a SQLite FTS5 index in `catalogs/` under the
+  data folder. Start-up builds it from the shipped snapshot; an update builds a new
+  generation and swaps one pointer. Searching only reads it.
+- `catalogs.py`: explicit catalog updates (one background job per source that
+  declares `network: explicit`) and the optional schedule, off by default.
+- `icons.py`: bundled marks (`icons.json`, licence per mark), letter avatars, and
+  Registry rasters cached only during an update (re-encoded PNG; SVG refused).
+- `sources.py`: one adapter per catalog with server-side eligibility, the ranking key
+  and source-neutral dedup. To add a source, add one adapter and register it; clients
+  read the list from `GET /api/v1/integrations/sources`. `skills.json` is the featured
+  skills library: references to pinned folders in official and maintainer
+  repositories, with each licence checked; nothing third-party is bundled.
 - `facts.py`: typed owner facts and status v2. `lifecycle` and `readiness` come with
   every `blocker` and exactly one `next_action`. Static facts are indexed by owner
   fingerprints. Live runtime state, requirements and unfinished changes are applied
@@ -188,8 +202,10 @@ The domain package composes the owners above; it never replaces them.
   recognised change as destructive, Full access currently differs from Ask before
   changes only for browser-interaction tools. Approvals at invocation are unchanged.
 - `safe.py`: the one catalog fetcher, link cleaner, preview cache and file writer.
-  - Fetches are https only, with no environment proxies.
-  - Hosts are either reviewed or must resolve to public addresses only.
+  - Fetches are https only. Reviewed hosts use the system or environment proxy when
+    one is set; every other host connects directly, never through a proxy.
+  - A direct connection is made only to a checked public address. Through a proxy the
+    address cannot be checked, so the reviewed host list is the guard.
   - Every redirect hop is rechecked, and credentials never cross hosts.
   - Responses are size-capped, never decompressed, and the whole fetch has a
     deadline. NAT64 and IPv4-compatible forms of private addresses are refused.

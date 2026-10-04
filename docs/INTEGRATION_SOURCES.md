@@ -8,9 +8,10 @@ facts. Nothing here establishes live-account compatibility.
 
 | Source | Contract and current discovery policy |
 | --- | --- |
-| Vendor recommendations | Local metadata in `recommended_servers.json`. Notion and Linear hosted endpoints have dated vendor setup evidence; live account checks remain pending. Developer fixtures are explicit `examples` or imports, never normal recommendations. |
+| Vendor recommendations | Local metadata in `recommended_servers.json`: 46 recipes, including 27 vendor-hosted endpoints whose URL and sign-in method were checked against vendor documentation on 4 October 2026. Sign-in is declared only where any client can sign in or an API key header is documented; the rest say sign-in arrives later. Live account checks remain pending. Developer fixtures are explicit `examples` or imports, never normal recommendations. |
+| Featured skills | Local `skills.json`: 40 skills referenced at pinned commits in 17 official and maintainer repositories, each under an OSI licence checked at that commit (proprietary, unlicensed and share-alike skills were left out). Opens Skills Discover; adding one reads the pinned folder from GitHub after consent. |
 | Official MCP Registry | A full local mirror of every latest v0.1 record, shipped as a compressed snapshot and indexed on this computer. Search sends no request. Only an explicit **Update catalogs** (or a schedule the user turns on) reads the Registry, as `updated_since` deltas. Preview and new configuration publication recheck the exact name/version and recipe against current status. |
-| ClawHub skills | Documented public v1 search/list/detail/download. Complete pinned bundles and publisher identity remain owned by Skills Hub. Installation rechecks current moderation and the exact version. |
+| ClawHub skills | Documented public v1 search/list/detail/download. Complete pinned bundles and publisher identity remain owned by Skills Hub. Installation rechecks current moderation and the exact version. Summaries are shown as plain text; downloads, stars and the official flag pass through as publisher signals. |
 | GitHub skills | Existing bounded maintainer repository roots through the GitHub owner and documented repository contents/tree APIs. Explicit imports preserve subdirectories/revisions. No arbitrary repository search or upstream install CLI. |
 | Hermes packages / MCP recipes | Existing pinned catalog and recipe adapters. Ordinary sources, not format authorities. Fresh package inspection/publication rejects unavailable, removed or changed catalog identities. The exact reviewed catalog migration redirect remains the only exception. |
 | Row-Bot native marketplace | Saved marketplace metadata only. Its existing reviewed refresh and install lifecycle remain canonical. |
@@ -64,6 +65,25 @@ be reviewed (for example more than 16 declared remotes) stay listed with a reaso
 and no recipe, so they can never be imported. SVG icons are dropped at
 normalization. Registry metadata is CC0; that does not license packages or imply
 endorsement.
+
+## Updating catalogs and measuring coverage
+
+`POST /api/v1/integrations/sources/{id}/update` starts one background update of a
+source that declares `network: explicit` (the Registry, Hermes packages and MCP
+recipes, ClawHub and GitHub skills); `GET /api/v1/integrations/sources` reports its
+state. The Registry update pages `updated_since` deltas from the mirror's watermark
+(with `If-None-Match` when an ETag was saved; a full resync when the mirror is over
+180 days old), builds a new index generation and swaps it in; any failure keeps the
+previous index. It also caches up to 200 new Registry icons per update. An optional
+schedule (`GET`/`PUT /api/v1/integrations/catalog-schedule`, daily, weekly or monthly)
+is off by default; only while it is on does a scheduler job run the same updates.
+
+Skill listings that share a content hash, an upstream folder or the opening of a long
+declared description are one skill: the official, then most used, copy leads and
+every copy stays an attribution.
+
+`scripts/integration_coverage.py` reports, per catalog entry, whether its install plan
+is complete or the exact reason it is not, offline and in a throwaway data folder.
 
 ## Network, proxies and their limit
 
