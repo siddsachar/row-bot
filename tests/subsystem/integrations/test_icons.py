@@ -103,6 +103,7 @@ def test_every_bundled_mark_is_plain_path_data_with_a_recorded_licence():
     ("https://tracker.example.test/pixel.png?u=1", "com.notion", False),
     ("https://notion.com.evil.test/logo.png", "com.notion", False),
     ("https://avatars.githubusercontent.com/u/1", "io.github.someone", True),
+    ("https://someone.github.io/logo.png", "io.github.someone", False),  # Pages can redirect anywhere.
     ("https://example.test/logo.png", "io.github.someone", False),
 ])
 def test_registry_icons_are_fetched_only_from_their_publishers_own_domain(url, namespace, allowed):

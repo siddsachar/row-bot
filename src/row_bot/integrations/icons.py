@@ -138,8 +138,8 @@ def publisher_host(url: str, namespace: str) -> bool:
     from urllib.parse import urlsplit
     host = (urlsplit(url).hostname or "").lower()
     namespace = namespace.lower()
-    if namespace.startswith("io.github."):
-        domains = ("githubusercontent.com", "github.com", "github.io")
+    if namespace.startswith("io.github."):  # Not github.io: Pages sites are the account's own hosts.
+        domains = ("githubusercontent.com", "github.com")
     else:
         domains = (".".join(reversed(namespace.split("."))),)
     return any(host == domain or host.endswith("." + domain) for domain in domains)
@@ -147,8 +147,8 @@ def publisher_host(url: str, namespace: str) -> bool:
 
 def _download(url: str) -> bytes:
     from row_bot.integrations.safe import fetch
-    # A generic agent: publishers' hosts learn nothing about the app from the request.
-    return fetch(url, hosts=None, max_bytes=MAX_BYTES, timeout=10, redirects=2, refused="icon_refused", too_large="icon_refused",
+    # No redirects (a redirect could leave the publisher's domain) and a generic agent.
+    return fetch(url, hosts=None, max_bytes=MAX_BYTES, timeout=10, redirects=0, refused="icon_refused", too_large="icon_refused",
                  headers={"User-Agent": "Mozilla/5.0", "Accept": "image/png,image/jpeg,image/gif"})
 
 

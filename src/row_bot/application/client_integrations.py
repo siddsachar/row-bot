@@ -277,7 +277,10 @@ def update_source(source_id: str) -> dict:
 def catalog_schedule(change: dict | None = None) -> dict:
     """The optional update schedule (off by default); ``change`` saves the user's choice."""
     from row_bot.integrations import catalogs
-    return catalogs.set_schedule(**change) if change is not None else catalogs.schedule()
+    try:
+        return catalogs.set_schedule(**change) if change is not None else catalogs.schedule()
+    except ValueError as exc:
+        raise ClientPlatformError("invalid_integration_query") from exc
 
 
 def list_apps(query: str = "") -> dict:
