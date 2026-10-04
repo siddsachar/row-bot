@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after path bootstrap
 
 MODELS = {name: getattr(schemas, name) for name in (
-    "IntegrationSourceView", "IntegrationSourceList", "AccessPresetView", "AccessPresetList", "AppRef", "IntegrationBlocker",
+    "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
+    "AppRef", "AppView", "AppList", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
     "PlanStartRequest", "PlanContinueRequest",
@@ -104,6 +105,11 @@ MODELS = {name: getattr(schemas, name) for name in (
 # drives OpenAPI and is checked against the actual router in the contract tests.
 OPERATIONS = (
     ('get', '/integrations/sources', None, 'IntegrationSourceList'),
+    ('post', '/integrations/sources/{source_id}/update', None, 'IntegrationSourceView'),
+    ('get', '/integrations/catalog-schedule', None, 'CatalogSchedule'),
+    ('put', '/integrations/catalog-schedule', 'CatalogSchedule', 'CatalogSchedule'),
+    ('get', '/integrations/apps', None, 'AppList'),
+    ('get', '/integrations/icons/{icon_id}', None, 'bytes'),
     ('get', '/integrations/presets', None, 'AccessPresetList'),
     ('get', '/integrations/items', None, 'IntegrationEntryPage'),
     ('post', '/integrations/items/search', 'IntegrationSearchRequest', 'IntegrationEntryPage'),
@@ -1167,6 +1173,23 @@ export type McpTarget = McpStandaloneTarget | McpPluginTarget | null;
 const targetQuery = (target?: McpTarget) => target?.kind === 'plugin' ? {plugin_id:target.plugin_id,server_key:target.server_key} : {};
 export const getIntegrationSources = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<IntegrationSourceList> =>
   jsonRequest(base, '/integrations/sources', 'IntegrationSourceList', proof, 'GET', undefined, undefined, signal);
+export const updateIntegrationSource = (base: string, proof: SessionProof, source: string, signal?: AbortSignal): Promise<IntegrationSourceView> =>
+  jsonRequest(base, `/integrations/sources/${id(source)}/update`, 'IntegrationSourceView', proof, 'POST', undefined, undefined, signal);
+export const getCatalogSchedule = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CatalogSchedule> =>
+  jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'GET', undefined, undefined, signal);
+export const setCatalogSchedule = (base: string, proof: SessionProof, body: CatalogSchedule, signal?: AbortSignal): Promise<CatalogSchedule> =>
+  jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'PUT', validateWire('CatalogSchedule', body), undefined, signal);
+export const getApps = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AppList> =>
+  jsonRequest(base, '/integrations/apps', 'AppList', proof, 'GET', undefined, undefined, signal);
+export async function readAppIcon(base: string, proof: SessionProof, icon: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${base}/api/v1/integrations/icons/${id(icon)}`, {
+    credentials: 'same-origin', cache: 'default', headers: proofHeaders(proof), signal,
+  });
+  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
+  const data = await response.blob();
+  if (data.size > 262144) throw new Error('protocol_incompatible');
+  return data;
+}
 export const getAccessPresets = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AccessPresetList> =>
   jsonRequest(base, '/integrations/presets', 'AccessPresetList', proof, 'GET', undefined, undefined, signal);
 export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>

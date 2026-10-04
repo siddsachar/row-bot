@@ -677,12 +677,13 @@ async def _run_startup_sequence():
         )
 
     # Apps & Skills: build the local Registry mirror when it is missing or a release
-    # shipped a newer snapshot. Local work only; searching never builds it.
+    # shipped a newer snapshot (local work; searching never builds it), and schedule
+    # catalog updates only if the user turned that on.
     try:
-        from row_bot.integrations import index as catalog_index
-        _schedule_background_task(asyncio.to_thread(catalog_index.ensure), name="integration-catalog-index")
+        from row_bot.integrations import catalogs
+        _schedule_background_task(asyncio.to_thread(catalogs.start), name="integration-catalogs")
     except Exception as exc:
-        logger.warning("Catalog index start-up skipped (non-fatal): %s", exc)
+        logger.warning("Catalog start-up skipped (non-fatal): %s", exc)
 
     _set("Recovering Agent runs...")
     try:

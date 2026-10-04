@@ -253,7 +253,41 @@ def preview_integration(*, owner_id: str, revision: str = "", item_id: str = "",
 # --- Typed /integrations API -------------------------------------------------
 
 def list_sources() -> dict:
-    return {"schema_version": 1, "items": [source.view() for source in catalog.SOURCES.values()]}
+    from row_bot.integrations import catalogs
+    return {"schema_version": 1, "items": [{**source.view(), "catalog": catalogs.state(source.id)}
+                                           for source in catalog.SOURCES.values()]}
+
+
+def update_source(source_id: str) -> dict:
+    """Start the explicit update of one catalog; the client polls the source list."""
+    from row_bot.integrations import catalogs
+    try:
+        catalogs.update(source_id)
+    except ValueError as exc:
+        raise ClientPlatformError("not_found") from exc
+    return next(item for item in list_sources()["items"] if item["id"] == source_id)
+
+
+def catalog_schedule(change: dict | None = None) -> dict:
+    """The optional update schedule (off by default); ``change`` saves the user's choice."""
+    from row_bot.integrations import catalogs
+    return catalogs.set_schedule(**change) if change is not None else catalogs.schedule()
+
+
+def list_apps() -> dict:
+    """Every app identity, featured first; local data only."""
+    from row_bot.integrations import apps
+    known = sorted(apps.catalog()[0].values(), key=lambda app: (app.featured_rank or 1_000_000, app.name.casefold()))
+    return {"schema_version": 1, "items": [app.view() for app in known]}
+
+
+def read_icon(icon_id: str) -> tuple[bytes, str]:
+    """An icon from bundled marks, letter avatars or the update-time cache; never fetched here."""
+    from row_bot.integrations import icons
+    try:
+        return icons.render(icon_id)
+    except ValueError as exc:
+        raise ClientPlatformError("not_found") from exc
 
 
 def list_presets() -> dict:

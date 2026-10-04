@@ -207,6 +207,18 @@ def lookup(entry_id: str):
     return entry if entry and entry.id == entry_id else None
 
 
+def icon_urls(index: dict | None = None) -> list[str]:
+    """Declared raster icons to cache during an update: app records and vendor-verified ones
+    first, then the freshest."""
+    index = index or current()
+    db = _connect(folder() / index["file"])
+    try:
+        return [url for (url,) in db.execute("SELECT json_extract(row, '$.metadata.icon') AS url FROM entries "
+                                             "WHERE url IS NOT NULL ORDER BY app = '', NOT verified, updated DESC, name")]
+    finally:
+        db.close()
+
+
 def _words(query: str) -> list[str]:
     words = re.findall(r"\w+", query.casefold())
     return [word for word in words if len(word) > 1] or words

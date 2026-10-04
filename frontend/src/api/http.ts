@@ -1205,6 +1205,14 @@ export class HttpTransport implements ClientTransport {
   integrationSources(signal?: AbortSignal) {
     return wire.getIntegrationSources(this.base, this.session(), signal);
   }
+  updateIntegrationSource(source: string, signal?: AbortSignal) {
+    return wire.updateIntegrationSource(
+      this.base,
+      this.session(),
+      source,
+      signal,
+    );
+  }
   previewIntegration(
     body: wire.IntegrationPreviewRequest,
     signal?: AbortSignal,

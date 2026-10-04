@@ -49,7 +49,11 @@ class Found:
 
 
 class Source:
-    """``search`` returns entries; ``lookup`` resolves one locally for detail and plans."""
+    """``search`` returns entries; ``lookup`` resolves one locally for detail and plans.
+
+    A source with ``network = "explicit"`` also has ``update``: the only time it contacts
+    its catalog outside an explicit online search. It returns a small summary or raises,
+    and a failed update keeps what the source had before."""
     id = kind = label = message = ""
     access = "local"
     eligibility = "eligible"
@@ -70,6 +74,9 @@ class Source:
 
     def lookup(self, reference: str) -> dict | None:
         return None
+
+    def update(self, cancelled: Callable[[], bool]) -> dict:
+        raise ValueError("not_updatable")
 
 
 def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsupported: str = "", verified: bool = False,
@@ -169,6 +176,31 @@ class Registry(_McpCatalog):
             snapshot_version="v0.1", snapshot_digest=current.get("digest", ""), truncated=total > len(results)))
         return found
 
+    def update(self, cancelled: Callable[[], bool]) -> dict:
+        """Records changed since the mirror's watermark (all of them when it is old), merged into
+        a new index generation; then new Registry icons. Failure leaves the mirror as it was."""
+        from datetime import datetime, timedelta, timezone
+        from row_bot.integrations import index
+        from row_bot.mcp_client import registry_snapshot
+        current = index.ensure()
+        try:
+            mark = datetime.fromisoformat(current["watermark"].replace("Z", "+00:00"))
+            fresh = datetime.now(timezone.utc) - mark < timedelta(days=180)
+        except ValueError:
+            fresh = False
+        since = (mark - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ") if fresh else ""
+        result = registry_snapshot.sync(since=since, etag=current.get("etag", "") if since else "", cancelled=cancelled)
+        if not result["not_modified"]:
+            rows = {e.metadata["canonical_name"]: e for e in index.rows(current)} if since else {}
+            rows.update((e.metadata["canonical_name"], e) for e in result["entries"])
+            for name in result["deleted"]:
+                rows.pop(name, None)
+            current = index.build(rows.values(), captured_at=current["captured_at"], etag=result["etag"],
+                                  watermark=max(current["watermark"], result["watermark"]), updated_at=time.time(),
+                                  cancelled=cancelled)
+        cached = icons.cache_remote(index.icon_urls(current), cancelled=cancelled)
+        return {"changed": len(result["entries"]) + len(result["deleted"]), "entries": current["count"], "icons": cached["cached"]}
+
 
 class HermesMcp(Source):
     id, kind, label, access, network = "hermes_mcp", "mcp", "Hermes MCP recipes", "public", "explicit"
@@ -186,6 +218,13 @@ class HermesMcp(Source):
                     {"kind": "hermes_mcp", "name": name, "pin": catalog["pin"]})
         found.statuses.append(self.status(status=catalog["status"], message=catalog["message"], fetched_at=catalog.get("fetched_at")))
         return found
+
+    def update(self, cancelled: Callable[[], bool]) -> dict:
+        from row_bot.plugins import hermes_mcp
+        catalog = hermes_mcp.read_catalog(refresh=True, cancelled=cancelled)
+        if catalog["status"] != "live":
+            raise ValueError("source_unavailable")
+        return {"entries": len(catalog.get("names", []))}
 
 
 class Hermes(Source):
@@ -217,6 +256,13 @@ class Hermes(Source):
     def lookup(self, reference: str) -> dict | None:
         from row_bot.plugins import hermes_catalog
         return next((e for e in hermes_catalog.read_catalog()["entries"] if e["id"] == reference), None)
+
+    def update(self, cancelled: Callable[[], bool]) -> dict:
+        from row_bot.plugins import hermes_catalog
+        catalog = hermes_catalog.read_catalog(refresh=True, cancelled=cancelled)
+        if catalog["status"] != "live":
+            raise ValueError("source_unavailable")
+        return {"entries": len(catalog["entries"])}
 
 
 class Native(Source):
@@ -292,6 +338,13 @@ class Skills(Source):
         found.statuses += [self.status(status=str(s["status"]), message=str(s.get("message", "")), fetched_at=s.get("fetched_at"),
                                        truncated=result.get("has_more", False)) for s in result.get("source_statuses", [])]
         return found
+
+    def update(self, cancelled: Callable[[], bool]) -> dict:
+        from row_bot.skills_hub.source_registry import default_registry
+        result = default_registry().refresh(self.id, cancelled=cancelled)
+        if result.status not in {"live", "partial"} or not result.entries:
+            raise ValueError("source_unavailable")
+        return {"entries": len(result.entries)}
 
 
 class Unavailable(Source):

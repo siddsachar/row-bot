@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "guidelines": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Guidelines",
+      "type": "string"
+    },
+    "license": {
+      "maxLength": 64,
+      "title": "License",
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 512,
+      "title": "Source",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 128,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "license",
+    "source"
+  ],
+  "title": "IconLicense",
+  "type": "object"
+}

@@ -4486,6 +4486,43 @@ def create_router(
         from row_bot.application.client_integrations import list_sources
         return await respond(request, dto.IntegrationSourceList, list_sources())
 
+    @router.post("/integrations/sources/{source_id}/update")
+    async def integration_source_update(source_id: str, request: Request) -> JSONResponse:
+        """An explicit catalog update; it runs in the background and the source list reports it."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_integrations import update_source
+        return await respond(request, dto.IntegrationSourceView, await call(update_source, source_id), status_code=202)
+
+    @router.get("/integrations/catalog-schedule")
+    async def integration_catalog_schedule(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_integrations import catalog_schedule
+        return await respond(request, dto.CatalogSchedule, await call(catalog_schedule))
+
+    @router.put("/integrations/catalog-schedule")
+    async def integration_catalog_schedule_change(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.CatalogSchedule, 1024)
+        from row_bot.application.client_integrations import catalog_schedule
+        return await respond(request, dto.CatalogSchedule, await call(catalog_schedule, body.model_dump(mode="json")))
+
+    @router.get("/integrations/apps")
+    async def integration_apps(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_integrations import list_apps
+        return await respond(request, dto.AppList, await call(list_apps))
+
+    @router.get("/integrations/icons/{icon_id}")
+    async def integration_icon(icon_id: str, request: Request) -> Response:
+        """Local icon bytes only (bundled marks, letter avatars, rasters cached by an update)."""
+        current = await session(request, lane="view")
+        from row_bot.application.client_integrations import read_icon
+        data, media_type = await call(read_icon, icon_id)
+        security.session(await _context(request), current.id, current.csrf)
+        return Response(data, media_type=media_type, headers={**HEADERS, "Content-Disposition": "inline",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Cache-Control": "private, max-age=86400"})
+
     @router.get("/integrations/presets")
     async def integration_presets(request: Request) -> JSONResponse:
         await session(request)

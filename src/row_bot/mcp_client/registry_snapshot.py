@@ -113,7 +113,7 @@ def _retry_after(exc: Exception, attempt: int) -> float | None:
 
 
 def sync(*, since: str = "", etag: str = "", cancelled: Callable[[], bool] = lambda: False,
-         get: Callable[[str, dict, dict], bytes] = _get, sleep: Callable[[float], None] = time.sleep,
+         get: Callable[[str, dict, dict], bytes] | None = None, sleep: Callable[[float], None] | None = None,
          pause: float = 0.25, max_pages: int = 600, deadline: float = 900) -> dict:
     """Every latest Registry record, or those updated since a watermark (deleted ones included).
 
@@ -122,6 +122,7 @@ def sync(*, since: str = "", etag: str = "", cancelled: Callable[[], bool] = lam
     """
     from row_bot.mcp_client.marketplace import registry_entries
     import httpx
+    get, sleep = get or _get, sleep or time.sleep
     params = {"limit": "100", "version": "latest", **({"updated_since": since} if since else {})}
     entries: dict[str, MarketplaceEntry] = {}
     deleted: set[str] = set()

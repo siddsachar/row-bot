@@ -117,6 +117,7 @@ function fixture(
 ) {
   const controller = {
     integrationSources: vi.fn().mockResolvedValue(sourceList),
+    updateIntegrationSource: vi.fn(),
     integrations: vi.fn().mockResolvedValue({ ...page, items: [installed] }),
     integration: vi.fn().mockResolvedValue(installed),
     plugin: vi.fn().mockResolvedValue({
@@ -438,6 +439,45 @@ it('retains pagination, query and incompatible filter without a public refetch o
     expect.any(AbortSignal),
   );
   expect(c.searchIntegrations).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  [{ state: 'done' }, 'Updated.'],
+  [
+    { state: 'failed', error: 'source_unavailable' },
+    "This catalog couldn't be updated.",
+  ],
+])('updates one catalog only when asked: %o', async (catalog, message) => {
+  const sources = [
+    {
+      source: 'clawhub',
+      status: 'cached' as const,
+      message: 'Public v1',
+      fetched_at: 1,
+      eligibility: 'eligible' as const,
+      access: 'public' as const,
+    },
+  ];
+  const c = fixture(
+    '/settings/integrations?type=skill&tab=discover&view=catalogs',
+    { ...page, sources },
+  );
+  const updated = {
+    ...sourceList.items[2],
+    catalog: {
+      updated_at: 2,
+      checked_at: 2,
+      error: '',
+      entries: 5,
+      ...catalog,
+    },
+  };
+  c.updateIntegrationSource.mockResolvedValue(updated);
+  const button = await screen.findByRole('button', { name: 'Update ClawHub' });
+  expect(c.updateIntegrationSource).not.toHaveBeenCalled();
+  fireEvent.click(button);
+  expect(await screen.findByText(message, { exact: false })).toBeVisible();
+  expect(c.updateIntegrationSource).toHaveBeenCalledWith('clawhub');
 });
 
 it('persists source disable choices and leaves ineligible sources unavailable', async () => {

@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRuntime } from '../../runtime';
-import type { IntegrationSourceStatus } from '../../api/types';
+import type {
+  IntegrationSourceStatus,
+  IntegrationSourceView,
+} from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, Field, Toggle } from '../../ui/primitives';
 import {
@@ -10,6 +13,50 @@ import {
   type Kind,
   type Source,
 } from './discovery';
+// An explicit update downloads the latest listings; it runs on the server and is polled here.
+function UpdateCatalog({ source, label }: { source: string; label: string }) {
+  const { controller } = useRuntime();
+  const [state, setState] = useState<'idle' | 'updating' | 'done' | 'failed'>(
+    'idle',
+  );
+  const mounted = useRef(true);
+  useEffect(() => () => void (mounted.current = false), []);
+  const update = async () => {
+    setState('updating');
+    try {
+      let view: IntegrationSourceView | undefined =
+        await controller.updateIntegrationSource(source);
+      while (mounted.current && view?.catalog?.state === 'updating') {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const list = await controller.integrationSources();
+        view = list?.items.find((item) => item.id === source);
+      }
+      if (mounted.current)
+        setState(view?.catalog?.state === 'done' ? 'done' : 'failed');
+    } catch {
+      if (mounted.current) setState('failed');
+    }
+  };
+  return (
+    <>
+      <Button
+        onClick={() => void update()}
+        disabled={state === 'updating'}
+        aria-label={`Update ${label}`}
+      >
+        {state === 'updating' ? 'Updating…' : 'Update'}
+      </Button>
+      {state === 'done' && <p role="status">Updated.</p>}
+      {state === 'failed' && (
+        <p role="alert">
+          This catalog couldn&apos;t be updated. Its saved listings are still
+          available.
+        </p>
+      )}
+    </>
+  );
+}
+
 export default function Catalogs({
   kind,
   disabled,
@@ -46,9 +93,8 @@ export default function Catalogs({
       <Button onClick={onBack}>Back to integrations</Button>
       <h2>Catalogs</h2>
       <p>
-        Choose catalogs for this device. Opening this view only reads local
-        metadata. Search sends your query to enabled public catalogs; snapshots
-        stay local.
+        Choose catalogs for this device. Search sends your query to enabled
+        public catalogs; Update downloads a catalog&apos;s latest listings.
       </p>
       {(error || sourcesError) && (
         <p role="alert">
@@ -97,6 +143,17 @@ export default function Catalogs({
           </p>
           {source.truncated && (
             <p>Bounded catalog sample; more entries may exist upstream.</p>
+          )}
+          {known.some(
+            (view) =>
+              view.id === source.source &&
+              view.network === 'explicit' &&
+              view.eligibility === 'eligible',
+          ) && (
+            <UpdateCatalog
+              source={source.source}
+              label={sourceName(source.source)}
+            />
           )}
           {source.snapshot_digest && (
             <details>

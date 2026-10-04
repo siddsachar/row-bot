@@ -163,6 +163,10 @@ export interface ClientTransport {
   integrationSources?(
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationSourceList>;
+  updateIntegrationSource?(
+    source: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationSourceView>;
   previewIntegration?(
     body: Wire.IntegrationPreviewRequest,
     signal?: AbortSignal,

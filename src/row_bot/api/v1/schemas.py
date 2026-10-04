@@ -8003,6 +8003,20 @@ NextActionKind = Literal["connect", "add", "install", "continue_setup", "sign_in
 PlanIntent = Literal["connect", "add", "turn_on", "fix", "access"]
 
 
+class CatalogUpdate(WireModel):
+    """The last explicit (or scheduled) update of a source that can be updated."""
+    state: Literal["never", "updating", "done", "failed"]
+    updated_at: float | None
+    checked_at: float | None
+    error: str = Field(max_length=64)
+    entries: int | None = Field(ge=0)
+
+
+class CatalogSchedule(WireModel):
+    enabled: bool
+    interval_days: Literal[1, 7, 30]
+
+
 class IntegrationSourceView(WireModel):
     id: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
     kinds: list[IntegrationKind] = Field(min_length=1, max_length=3)
@@ -8012,6 +8026,7 @@ class IntegrationSourceView(WireModel):
     network: Literal["none", "explicit"]
     enabled: bool
     message: str = Field(max_length=512)
+    catalog: CatalogUpdate | None = None
 
 
 class IntegrationSourceList(WireModel):

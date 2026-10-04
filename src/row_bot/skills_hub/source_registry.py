@@ -257,6 +257,17 @@ class SkillSourceRegistry:
             selected.append(source)
         return selected
 
+    def refresh(self, source_id: str, *, cancelled: Callable[[], bool] | None = None) -> SourceResult:
+        """An explicit catalog update: read the source's browse list now and save it."""
+        source = self.source(source_id)
+        if source is None or not getattr(source, "supports_browse", False):
+            raise ValueError("not_updatable")
+        limit = SOURCE_INDEX_LIMIT if getattr(source, "search_from_browse", False) else BROWSE_PER_SOURCE
+        result = _call_source(source, "browse", "", limit, cancelled=cancelled)
+        if result.entries and not (cancelled is not None and cancelled()):
+            _write_source_cache(result, "browse", "")
+        return result
+
     def _run_sources(
         self,
         sources: list[object],

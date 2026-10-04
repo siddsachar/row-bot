@@ -130,9 +130,9 @@ def _download(url: str) -> bytes:
 
 
 def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda: False,
-                 download: Callable[[str], bytes] = _download, pause: float = 0.1, deadline: float = 180) -> dict:
+                 download: Callable[[str], bytes] | None = None, pause: float = 0.1, deadline: float = 180) -> dict:
     """Download, check and cache up to ``PER_UPDATE`` new raster icons. Only an update calls this."""
-    cached = failed = 0
+    download, cached, failed = download or _download, 0, 0
     stop = time.monotonic() + deadline
     target = folder(create=True)
     used = sum(item.stat().st_size for item in target.glob("*.png"))

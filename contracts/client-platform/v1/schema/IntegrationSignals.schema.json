@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "downloads": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Downloads"
+    },
+    "official": {
+      "default": false,
+      "title": "Official",
+      "type": "boolean"
+    },
+    "stars": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stars"
+    }
+  },
+  "title": "IntegrationSignals",
+  "type": "object"
+}

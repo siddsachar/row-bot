@@ -1,4 +1,70 @@
 {
+  "$defs": {
+    "CatalogUpdate": {
+      "additionalProperties": false,
+      "description": "The last explicit (or scheduled) update of a source that can be updated.",
+      "properties": {
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked At"
+        },
+        "entries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entries"
+        },
+        "error": {
+          "maxLength": 64,
+          "title": "Error",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "never",
+            "updating",
+            "done",
+            "failed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "state",
+        "updated_at",
+        "checked_at",
+        "error",
+        "entries"
+      ],
+      "title": "CatalogUpdate",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "access": {
@@ -10,6 +76,17 @@
       ],
       "title": "Access",
       "type": "string"
+    },
+    "catalog": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CatalogUpdate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "eligibility": {
       "enum": [
