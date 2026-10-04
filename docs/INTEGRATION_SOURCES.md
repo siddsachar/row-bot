@@ -74,9 +74,13 @@ recipes, ClawHub and GitHub skills); `GET /api/v1/integrations/sources` reports 
 state. The Registry update pages `updated_since` deltas from the mirror's watermark
 (with `If-None-Match` when an ETag was saved; a full resync when the mirror is over
 180 days old), builds a new index generation and swaps it in; any failure keeps the
-previous index. It also caches up to 200 new Registry icons per update. An optional
-schedule (`GET`/`PUT /api/v1/integrations/catalog-schedule`, daily, weekly or monthly)
-is off by default; only while it is on does a scheduler job run the same updates.
+previous index. It also caches up to 200 new Registry icons per update, only from each
+publisher's own domain (its namespace's domain, or GitHub's content hosts for
+`io.github` namespaces), with a generic User-Agent; PNG, JPEG and GIF are decoded and
+re-encoded, and a failed icon is not asked for again for 30 days. An optional schedule
+(`GET`/`PUT /api/v1/integrations/catalog-schedule`, daily, weekly or monthly, for all or
+chosen catalogs) is off by default; only while it is on does a scheduler job run the
+same updates.
 
 Skill listings that share a content hash, an upstream folder or the opening of a long
 declared description are one skill: the official, then most used, copy leads and
@@ -129,12 +133,15 @@ Ranking is deterministic, one key for every source (and the same order inside th
 Registry index): an exact name or app name; a featured app or a vendor-verified
 record; every query word in the name, publisher, app name, synonyms or jobs;
 featured order; an installable plan with known authentication; freshness (90 days,
-a year); source-provided popularity; then source precedence and stable ties. The
+a year); source-provided popularity; then source precedence and stable ties (a merged
+deployment is led by its most reviewed source, then its vendor-verified record). The
 empty query lists featured app records only, never an alphabetical dump; the
 Registry returns its top 200 matches and reports `truncated` beyond that. There is
 no LLM and no popularity-as-safety score. The vendor badge comes only from rules: a
-Registry namespace that is a vendor domain reversed or `io.github.<vendor org>`, or
-a vendor endpoint host.
+Registry namespace that is a vendor domain reversed or `io.github.<vendor org>`, or,
+for reviewed recipes and the user's own configurations, a vendor endpoint host. A
+Registry record attaches to an app and earns the badge through its namespace alone,
+because any publisher can point a record at a vendor's endpoint.
 Pagination uses the retained merged result, not another public search. Cursors
 bind owner, query, type, source set and incompatible filter for 20 minutes;
 expired cursors require a new search. Source adapters retain their bounded fetch

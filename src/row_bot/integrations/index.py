@@ -73,7 +73,7 @@ def epoch(day: str) -> int:
 def derive(entry: MarketplaceEntry) -> dict:
     """What ranking needs about one record: its app, vendor verification, setup tier and freshness."""
     metadata = entry.metadata or {}
-    refs = apps.registry_refs(metadata.get("canonical_name", "")) + apps.recipe_refs(entry.install)
+    refs = apps.registry_refs(metadata.get("canonical_name", ""))  # The namespace only; see sources._McpCatalog.row.
     app = apps.match(refs)
     installable = bool(entry.install) and metadata.get("status") == "active"
     # Authentication is known for local servers, and for hosted ones whose app documents it.
@@ -127,13 +127,22 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
                     raise ValueError("catalog_index_corrupt")
             finally:
                 db.close()
+            with open(building, "rb+") as stream:
+                os.fsync(stream.fileno())
             if cancelled():
                 raise ValueError("integration_search_cancelled")
             os.replace(building, root / name)
             value = {"schema": SCHEMA, "file": name, "apps": apps.digest(), "captured_at": captured_at, "watermark": watermark,
                      "etag": etag, "digest": digest.hexdigest(), "count": len(by_name), "updated_at": updated_at,
                      "built_at": time.time()}
-            write_atomic(root / "registry.json", json.dumps(value, indent=2))
+            for attempt in range(5):  # A search may hold the pointer open for a moment (Windows).
+                try:
+                    write_atomic(root / "registry.json", json.dumps(value, indent=2))
+                    break
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
         except BaseException:
             for leftover in (building, root / name):
                 try:
@@ -169,6 +178,8 @@ def ensure() -> dict:
         except (OSError, ValueError, EOFError, lzma.LZMAError):
             shipped = None
         # Keep a mirror that is newer than the release snapshot (or is that snapshot).
+        if current and not _intact(folder() / current["file"]):
+            current = None  # Torn by a crash or damaged: rebuilt from the release snapshot.
         if current and (shipped is None or current["digest"] == shipped["digest"]
                         or registry_snapshot.instant(current["watermark"]) > registry_snapshot.instant(shipped["watermark"])):
             if current["apps"] == apps.digest():
@@ -180,6 +191,17 @@ def ensure() -> dict:
             raise ValueError("catalog_snapshot_unavailable")
         snapshot = registry_snapshot.read_snapshot()
         return build(snapshot["entries"], captured_at=snapshot["captured_at"], watermark=snapshot["watermark"])
+
+
+def _intact(path: Path) -> bool:
+    try:
+        db = _connect(path)
+        try:
+            return db.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return False
 
 
 def current() -> dict:
@@ -218,19 +240,21 @@ def lookup(entry_id: str) -> MarketplaceEntry | None:
 
 
 def icon_urls(index: dict | None = None) -> list[str]:
-    """Declared raster icons to cache during an update: app records and vendor-verified ones
-    first, then the freshest."""
+    """Declared raster icons to cache during an update, only those served from their publisher's
+    own domain: app records and vendor-verified ones first, then the freshest."""
+    from row_bot.integrations.icons import publisher_host
     index = index or current()
     db = _connect(folder() / index["file"])
     try:
-        return [url for (url,) in db.execute("SELECT icon FROM entries WHERE icon IS NOT NULL "
-                                             "ORDER BY app = '', NOT verified, updated DESC, name")]
+        found = db.execute("SELECT icon, name FROM entries WHERE icon IS NOT NULL "
+                           "ORDER BY app = '', NOT verified, updated DESC, name").fetchall()
     finally:
         db.close()
+    return [url for url, name in found if publisher_host(url, name.split("/", 1)[0])]
 
 
 def _words(query: str) -> list[str]:
-    words = re.findall(r"\w+", query.casefold())
+    words = [word for word in re.findall(r"\w+", query.casefold()) if re.search(r"[^\W_]", word)]
     return [word for word in words if len(word) > 1] or words
 
 

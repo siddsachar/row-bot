@@ -100,16 +100,19 @@ def _run(source: sources.Source, cancelled: Callable[[], bool]) -> None:
 
 
 def schedule() -> dict:
+    """The user's choice: on or off (off by default), how often, and which catalogs (None: all)."""
     saved = _read().get("schedule") or {}
-    interval = saved.get("interval_days")
-    return {"enabled": saved.get("enabled") is True, "interval_days": interval if interval in INTERVALS else 7}
+    interval, chosen = saved.get("interval_days"), saved.get("sources")
+    return {"enabled": saved.get("enabled") is True, "interval_days": interval if interval in INTERVALS else 7,
+            "sources": [key for key in chosen if key in updatable()] if isinstance(chosen, list) else None}
 
 
-def set_schedule(*, enabled: bool, interval_days: int) -> dict:
+def set_schedule(*, enabled: bool, interval_days: int, sources: list[str] | None = None) -> dict:
     """The user's choice; the scheduler job exists only while it is on."""
-    if interval_days not in INTERVALS:
+    if interval_days not in INTERVALS or (sources is not None and set(sources) - set(updatable())):
         raise ValueError("invalid_catalog_schedule")
-    _write(lambda value: value.update(schedule={"enabled": bool(enabled), "interval_days": interval_days}))
+    _write(lambda value: value.update(schedule={"enabled": bool(enabled), "interval_days": interval_days,
+                                                "sources": sorted(set(sources)) if sources is not None else None}))
     _register()
     return schedule()
 
@@ -128,7 +131,8 @@ def run_due(now: Callable[[], float] = time.time) -> list[str]:
     chosen = schedule()
     if not chosen["enabled"]:
         return []
-    due = [key for key in updatable()
+    chosen_sources = chosen["sources"] if chosen["sources"] is not None else list(updatable())
+    due = [key for key in chosen_sources
            if now() - ((state(key) or {}).get("checked_at") or 0) >= chosen["interval_days"] * 86400]
     for key in due:
         update(key, wait=True)

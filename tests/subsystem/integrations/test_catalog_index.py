@@ -127,3 +127,27 @@ def test_search_stays_under_100ms_over_60000_records(local, monkeypatch):
         index.search(query)
         timings.append(time.perf_counter() - started)
     assert statistics.quantiles(timings, n=20)[-1] < 0.1, max(timings)
+
+
+def test_a_record_pointing_at_a_vendor_endpoint_never_borrows_its_app_or_badge(local, monkeypatch):
+    impostor = listing("io.github.evil/notion", "Notion (official)", url="https://mcp.notion.com/mcp")
+    vendor = listing("com.notion/mcp", "Notion", url="https://mcp.notion.com/mcp")
+    found = index.derive(impostor)
+    assert found["app"] == "" and not found["verified"]
+    use_registry(monkeypatch, local, [impostor, vendor])
+    (row,) = api.search_integrations(owner_id="owner", sources=["official"], query="notion")["items"]
+    assert row["id"] == "mcp:official:com.notion/mcp@1.0.0"  # The vendor's record leads the merged deployment.
+    assert {a["item_id"] for a in row["attributions"]} == {row["id"], "mcp:official:io.github.evil/notion@1.0.0"}
+
+
+def test_a_torn_index_is_rebuilt_from_the_release_snapshot(local, monkeypatch):
+    use_registry(monkeypatch, local, [listing("org.a/one", "One")])
+    broken = index.current()["file"]
+    (local / "catalogs" / broken).write_bytes(b"SQLite format 3\x00" + b"\x00" * 64)
+    index._READY.clear()
+    assert index.ensure()["file"] != broken and index.search("one")[0]
+
+
+def test_symbols_alone_are_not_search_terms(local, monkeypatch):
+    use_registry(monkeypatch, local, [listing("org.a/github-tools", "GitHub tools")])
+    assert index.search("github __")[1] == 1 and index.search("__ --")[1] >= 0

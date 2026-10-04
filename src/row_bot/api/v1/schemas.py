@@ -8015,6 +8015,8 @@ class CatalogUpdate(WireModel):
 class CatalogSchedule(WireModel):
     enabled: bool
     interval_days: Literal[1, 7, 30]
+    # The catalogs to update (ids from GET /integrations/sources); null means every updatable one.
+    sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
 
 
 class IntegrationSourceView(WireModel):

@@ -59,7 +59,7 @@ def test_a_delta_update_merges_removes_and_swaps_the_mirror(local, monkeypatch):
     use_registry(monkeypatch, local, entries("org.a/one", "org.b/two"), watermark="2026-10-01T00:00:00Z")
     before = index.current()
     calls = []
-    registry_pages(monkeypatch, [{"servers": [envelope("org.c/three", icon="https://cdn.example.test/three.png"),
+    registry_pages(monkeypatch, [{"servers": [envelope("org.c/three", icon="https://cdn.c.org/three.png"),
                                               envelope("org.b/two", status="deleted")], "metadata": {}}], calls)
     monkeypatch.setattr(icons, "_download", lambda url: png())
     state = catalogs.update("official", wait=True)
@@ -154,7 +154,7 @@ def test_the_schedule_is_off_by_default_and_runs_only_due_sources(local, monkeyp
             jobs.pop(job)
     monkeypatch.setattr(tasks, "_get_scheduler", Scheduler)
     monkeypatch.setattr(tasks, "_scheduler", Scheduler())
-    assert catalogs.schedule() == {"enabled": False, "interval_days": 7}
+    assert catalogs.schedule() == {"enabled": False, "interval_days": 7, "sources": None}
     started = []
     monkeypatch.setattr(catalogs, "update", lambda source, **k: started.append(source))
     assert catalogs.run_due() == [] and started == []
@@ -167,6 +167,12 @@ def test_the_schedule_is_off_by_default_and_runs_only_due_sources(local, monkeyp
     assert jobs[catalogs.JOB][1]["trigger"] == "interval"
     catalogs._write(lambda value: value.setdefault("sources", {}).update(official={"checked_at": 1_790_000_000}))
     assert "official" not in catalogs.run_due(now=lambda: 1_790_003_600) and "hermes" in started
+    started.clear()
+    catalogs.set_schedule(enabled=True, interval_days=1, sources=["official"])  # Only the catalogs the user chose.
+    catalogs._write(lambda value: value["sources"].update(official={"checked_at": 1}))
+    assert catalogs.run_due(now=lambda: 1_790_003_600) == ["official"] and started == ["official"]
+    with pytest.raises(ValueError, match="invalid"):
+        catalogs.set_schedule(enabled=True, interval_days=1, sources=["glama"])
     catalogs.set_schedule(enabled=False, interval_days=1)
     assert jobs == {} and catalogs.run_due() == []
 

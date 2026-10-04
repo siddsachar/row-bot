@@ -92,10 +92,10 @@ def test_catalog_updates_start_only_on_request_and_the_schedule_is_opt_in(servic
         assert response.status_code == 202 and response.json()["id"] == "official" and started == ["official"]
         monkeypatch.setattr(catalogs, "update", lambda source, **k: (_ for _ in ()).throw(ValueError("not_updatable")))
         assert client.post(BASE + "/sources/recommended/update", headers=headers).status_code == 404
-        assert client.get(BASE + "/catalog-schedule", headers=headers).json() == {"enabled": False, "interval_days": 7}
+        assert client.get(BASE + "/catalog-schedule", headers=headers).json() == {"enabled": False, "interval_days": 7, "sources": None}
         assert client.put(BASE + "/catalog-schedule", headers=headers, json={"enabled": True, "interval_days": 2}).status_code == 422
         saved = client.put(BASE + "/catalog-schedule", headers=headers, json={"enabled": True, "interval_days": 30})
-        assert saved.json() == {"enabled": True, "interval_days": 30} == catalogs.schedule()
+        assert saved.json() == {"enabled": True, "interval_days": 30, "sources": None} == catalogs.schedule()
 
 
 def test_apps_and_icons_are_served_from_local_data_only(service, isolated, monkeypatch):

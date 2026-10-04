@@ -152,8 +152,10 @@ class _McpCatalog(Source):
 
     def row(self, entry) -> tuple[dict, dict]:
         metadata = entry.metadata or {}
-        refs = (["curated:" + entry.id.lower()] if self.id == "recommended" else apps.registry_refs(metadata.get("canonical_name", "")))
-        refs += apps.recipe_refs(entry.install)
+        # A Registry record attaches and earns the badge only through its namespace, which the Registry
+        # verifies; any publisher can point a record at a vendor's endpoint. Reviewed recipes use both.
+        refs = (["curated:" + entry.id.lower()] + apps.recipe_refs(entry.install) if self.id == "recommended"
+                else apps.registry_refs(metadata.get("canonical_name", "")))
         app = apps.match(refs)
         supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")))
         known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not (entry.install or {}).get("url") or bool(
@@ -532,8 +534,8 @@ def rank(rows: list[dict], query: str) -> list[dict]:
                      precedence=precedence(row), name=row["name"], ident=row["id"])
     merged: dict[str, dict] = {}
     shown: list[dict] = []
-    # The most reviewed source supplies the merged record; then the official, then the most used copy.
-    for row in sorted(rows, key=lambda row: (precedence(row), not (row["signals"] or {}).get("official"),
+    # The most reviewed source supplies the merged record; then the vendor's, the official, the most used copy.
+    for row in sorted(rows, key=lambda row: (precedence(row), not row["verified"], not (row["signals"] or {}).get("official"),
                                              -row["popularity"], row["id"])):
         keys = [identity for identity in [row["canonical_identity"], *row["identities"]] if identity] or [row["id"]]
         primary = next((merged[identity] for identity in keys if identity in merged), None)

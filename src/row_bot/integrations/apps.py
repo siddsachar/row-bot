@@ -127,7 +127,9 @@ def verified(app: App | None, refs: list[str]) -> bool:
     """A record published by the app's vendor, by rule only: its Registry namespace is a
     vendor domain reversed or ``io.github.<vendor org>``, or its endpoint is a vendor host
     (under a vendor domain, or an endpoint the vendor's documentation names exactly).
-    The Registry itself checks DNS and GitHub ownership of namespaces."""
+    The Registry itself checks DNS and GitHub ownership of namespaces, so Registry records
+    are judged by their namespace alone (callers pass only those refs); the endpoint rule
+    is for reviewed recipes and the user's own configurations."""
     if app is None:
         return False
     orgs = {org.lower() for org in app.github_orgs}

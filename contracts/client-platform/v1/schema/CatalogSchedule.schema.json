@@ -13,6 +13,23 @@
       ],
       "title": "Interval Days",
       "type": "integer"
+    },
+    "sources": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[a-z0-9_]{1,40}$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sources"
     }
   },
   "required": [

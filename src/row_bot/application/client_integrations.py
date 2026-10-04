@@ -234,6 +234,10 @@ def preview_integration(*, owner_id: str, revision: str = "", item_id: str = "",
             if found["pin"] != value["pin"] or found["source_identity"] != value["identity"]:
                 raise ClientPlatformError("integration_catalog_changed")
         result = {"kind": "plugin", "plugin": inspect_package(owner_id=owner_id, reference=value["reference"])}
+    elif value["kind"] == "skill" and value.get("install_ref"):
+        from row_bot.application.client_skill_hub import preview_skill_reference
+        result = {"kind": "skill", "skill": preview_skill_reference(owner_id=owner_id, install_ref=value["install_ref"],
+                                                                    name=value["name"], publisher=value["publisher"])}
     elif value["kind"] == "skill":
         result = {"kind": "skill", "skill": preview_public_skill(owner_id=owner_id, revision=value["revision"], entry_id=value["entry_id"])}
     elif value["kind"] == "hermes_mcp":

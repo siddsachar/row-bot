@@ -426,6 +426,8 @@ def list_public_root_entries(
     repo_full = f"{owner}/{repo}"
     entries: list[SkillHubEntry] = []
     seen_folders: set[str] = set()
+    trees = {normalize_bundle_path(str(item.get("path") or "")): str(item["sha"]) for item in raw_items
+             if isinstance(item, dict) and item.get("type") == "tree" and re.fullmatch(r"[0-9a-f]{40}", str(item.get("sha") or ""))}
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
@@ -473,7 +475,7 @@ def list_public_root_entries(
                 "repository": repo_full,
                 "path": folder,
                 "ref": ref,
-                "content_hash": "git:" + str(raw.get("sha") or "") if re.fullmatch(r"[0-9a-f]{40}", str(raw.get("sha") or "")) else "",
+                "content_hash": "git-tree:" + trees[folder] if folder in trees else "",
                 "root": root_path,
                 "publisher": publisher,
                 "source_name": "GitHub",

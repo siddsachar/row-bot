@@ -27,6 +27,7 @@ MAX_BYTES = 256 * 1024
 MAX_SIDE = 2048
 PER_UPDATE = 200
 CACHE_BYTES = 20 * 1024 * 1024
+RETRY_AFTER = 30 * 86400  # A failed icon is not asked for again for a month.
 _PATH = re.compile(r"[MmLlHhVvCcSsQqTtAaZz0-9.,eE\s+-]{1,40000}")
 _CACHED = re.compile(r"cached:[0-9a-f]{32}")
 _PALETTE = ("#4F46E5", "#0E7490", "#B45309", "#047857", "#BE185D", "#6D28D9", "#1D4ED8", "#B91C1C")
@@ -117,7 +118,8 @@ def reencode(data: bytes) -> bytes:
     if len(data) > MAX_BYTES or data.lstrip()[:1] == b"<":
         raise ValueError("icon_refused")
     try:
-        with Image.open(io.BytesIO(data), formats=["PNG", "JPEG", "WEBP", "GIF"]) as image:
+        # PNG, JPEG and GIF only: the fewest, most exercised decoders (WebP's has had exploited bugs).
+        with Image.open(io.BytesIO(data), formats=["PNG", "JPEG", "GIF"]) as image:
             if image.width < 1 or image.height < 1 or image.width > MAX_SIDE or image.height > MAX_SIDE:
                 raise ValueError("icon_refused")
             image.seek(0)
@@ -130,10 +132,24 @@ def reencode(data: bytes) -> bytes:
     return out.getvalue()
 
 
+def publisher_host(url: str, namespace: str) -> bool:
+    """An icon served from its publisher's own domain: the Registry namespace's domain, or
+    GitHub's content hosts for an ``io.github`` namespace. Other hosts are never contacted."""
+    from urllib.parse import urlsplit
+    host = (urlsplit(url).hostname or "").lower()
+    namespace = namespace.lower()
+    if namespace.startswith("io.github."):
+        domains = ("githubusercontent.com", "github.com", "github.io")
+    else:
+        domains = (".".join(reversed(namespace.split("."))),)
+    return any(host == domain or host.endswith("." + domain) for domain in domains)
+
+
 def _download(url: str) -> bytes:
     from row_bot.integrations.safe import fetch
-    return fetch(url, hosts=None, max_bytes=MAX_BYTES, timeout=10, redirects=2, headers={"Accept": "image/png,image/jpeg,image/webp,image/gif"},
-                 refused="icon_refused", too_large="icon_refused")
+    # A generic agent: publishers' hosts learn nothing about the app from the request.
+    return fetch(url, hosts=None, max_bytes=MAX_BYTES, timeout=10, redirects=2, refused="icon_refused", too_large="icon_refused",
+                 headers={"User-Agent": "Mozilla/5.0", "Accept": "image/png,image/jpeg,image/gif"})
 
 
 def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda: False,
@@ -143,11 +159,19 @@ def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda:
     stop = time.monotonic() + deadline
     target = folder(create=True)
     used = sum(item.stat().st_size for item in target.glob("*.png"))
+    try:
+        refused = json.loads((target / "failed.json").read_text(encoding="utf-8"))
+        refused = refused if isinstance(refused, dict) else {}
+    except (OSError, ValueError):
+        refused = {}
+    now = time.time()
+    refused = {key: when for key, when in refused.items() if isinstance(when, (int, float)) and now - when < RETRY_AFTER}
     for url in dict.fromkeys(urls):
         if cached + failed >= PER_UPDATE or used >= CACHE_BYTES or cancelled() or time.monotonic() > stop:
             break
-        path = target / (remote_id(url)[7:] + ".png")
-        if not url.startswith("https://") or path.exists():
+        key = remote_id(url)[7:]
+        path = target / (key + ".png")
+        if not url.startswith("https://") or path.exists() or key in refused:
             continue
         try:
             data = reencode(download(url))
@@ -155,6 +179,8 @@ def cache_remote(urls: Iterable[str], *, cancelled: Callable[[], bool] = lambda:
             used += len(data)
             cached += 1
         except Exception:  # One bad icon never stops an update; it keeps its letter avatar.
+            refused[key] = now
             failed += 1
         time.sleep(pause)
+    write_atomic(target / "failed.json", json.dumps(refused))
     return {"cached": cached, "failed": failed}

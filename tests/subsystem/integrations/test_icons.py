@@ -20,7 +20,7 @@ def image(fmt: str, size=(512, 256), **options) -> bytes:
     return out.getvalue()
 
 
-@pytest.mark.parametrize("fmt", ["PNG", "JPEG", "WEBP", "GIF"])
+@pytest.mark.parametrize("fmt", ["PNG", "JPEG", "GIF"])
 def test_raster_icons_are_reencoded_as_small_png_without_metadata(fmt):
     source = image(fmt, exif=b"Exif\x00\x00secret-camera") if fmt == "JPEG" else image(fmt)
     data = icons.reencode(source)
@@ -51,7 +51,9 @@ def test_oversized_and_bomb_images_are_refused_before_decoding():
     bmp = io.BytesIO()
     Image.new("RGB", (8, 8)).save(bmp, "BMP")
     with pytest.raises(ValueError, match="icon_refused"):
-        icons.reencode(bmp.getvalue())  # Only PNG, JPEG, WebP and GIF are decoded.
+        icons.reencode(bmp.getvalue())  # Only PNG, JPEG and GIF are decoded.
+    with pytest.raises(ValueError, match="icon_refused"):
+        icons.reencode(image("WEBP"))  # WebP's decoder is left out on purpose.
 
 
 def test_update_caches_at_most_its_quota_and_skips_failures(local):
@@ -66,8 +68,8 @@ def test_update_caches_at_most_its_quota_and_skips_failures(local):
     result = icons.cache_remote(urls + ["http://cdn.example.test/insecure.png"], download=download)
     assert result == {"cached": icons.PER_UPDATE - 1, "failed": 1}
     assert len(fetched) == icons.PER_UPDATE and "http://cdn.example.test/insecure.png" not in fetched
-    again = icons.cache_remote(urls[1:4], download=lambda url: pytest.fail("cached icons are fetched once"))
-    assert again == {"cached": 0, "failed": 0}
+    again = icons.cache_remote(urls[:4], download=lambda url: pytest.fail("cached or failed icons are fetched once"))
+    assert again == {"cached": 0, "failed": 0}  # The failed one waits a month.
     assert icons.entry_icon(None, urls[1], "Example") == icons.remote_id(urls[1])
     data, media = icons.render(icons.remote_id(urls[1]))
     assert media == "image/png" and data.startswith(b"\x89PNG")
@@ -93,3 +95,15 @@ def test_every_bundled_mark_is_plain_path_data_with_a_recorded_licence():
     for slug, mark in marks.items():
         assert mark["license"] and mark["source"].startswith("https://github.com/simple-icons/simple-icons/")
         assert not set(mark["path"]) & set("<>\"'&;:()")
+
+
+@pytest.mark.parametrize(("url", "namespace", "allowed"), [
+    ("https://cdn.notion.com/logo.png", "com.notion", True),
+    ("https://notion.com/logo.png", "com.notion", True),
+    ("https://tracker.example.test/pixel.png?u=1", "com.notion", False),
+    ("https://notion.com.evil.test/logo.png", "com.notion", False),
+    ("https://avatars.githubusercontent.com/u/1", "io.github.someone", True),
+    ("https://example.test/logo.png", "io.github.someone", False),
+])
+def test_registry_icons_are_fetched_only_from_their_publishers_own_domain(url, namespace, allowed):
+    assert icons.publisher_host(url, namespace) is allowed

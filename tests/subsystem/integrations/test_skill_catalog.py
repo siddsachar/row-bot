@@ -122,3 +122,19 @@ def test_featured_skills_open_discover_and_are_added_from_their_pinned_source_af
     assert seen[0]["install_ref"].startswith("github:anthropics/skills/skills/skill-creator?ref=")
     assert all(len(s["commit"]) == 40 and s["license"] in {"MIT", "Apache-2.0", "MPL-2.0"}
                for s in sources.featured_skills().values())
+
+
+def test_a_skill_consent_names_the_skill_not_its_app():
+    row, reference = sources.catalog_entry("skill:featured:anthropic-skill-creator")
+    row["app"] = {"id": "github", "name": "GitHub"}
+    assert plans.compute(row, reference)["steps"][0]["title"] == "Before you add Skill creator"
+
+
+def test_github_skills_are_identified_by_their_whole_folder_not_skill_md_alone():
+    from row_bot.skills_hub.github_source import list_public_root_entries
+    tree = {"tree": [
+        {"path": "skills/a", "type": "tree", "sha": "1" * 40}, {"path": "skills/a/SKILL.md", "type": "blob", "sha": "f" * 40},
+        {"path": "skills/b", "type": "tree", "sha": "2" * 40}, {"path": "skills/b/SKILL.md", "type": "blob", "sha": "f" * 40}]}
+    entries = list_public_root_entries(tree, owner="o", repo="r", root="skills", ref="", publisher="O",
+                                       trust_level="community", max_depth=3)
+    assert sorted(e.metadata["content_hash"] for e in entries) == ["git-tree:" + "1" * 40, "git-tree:" + "2" * 40]

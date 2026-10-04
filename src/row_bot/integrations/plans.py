@@ -161,7 +161,7 @@ def compute(row: dict, reference: dict, *, intent: str = "") -> dict | None:
     if (not intent or (intent == "access" and (kind != "mcp" or available))
             or intent not in {"connect", "add", "turn_on", "fix", "access"}):
         return None
-    name = (row["app"] or {}).get("name") or row["name"]
+    name = row["name"] if kind == "skill" else (row["app"] or {}).get("name") or row["name"]
     consent = {"destinations": [], "runs_locally": True, "downloads": [], "access_preset": presets.DEFAULT,
                "turns_on_mcp": False}
     declaration: dict = {}

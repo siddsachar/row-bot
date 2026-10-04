@@ -191,10 +191,12 @@ def _requirements(cfg: dict) -> list[dict]:
 
 def _mcp_refs(cfg: dict) -> list[str]:
     source = cfg.get("source") or {}
+    if source.get("marketplace") == "official":  # Imported from the Registry: judged by its namespace alone.
+        return apps.registry_refs(str(source.get("registry_name") or ""))
     refs = apps.recipe_refs(cfg)
     if source.get("marketplace") == "curated" and source.get("id"):
         refs.insert(0, "curated:" + str(source["id"]).lower())
-    return refs + apps.registry_refs(str(source.get("registry_name") or ""))
+    return refs
 
 
 def _fingerprint() -> tuple:
