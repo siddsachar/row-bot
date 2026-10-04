@@ -33,6 +33,8 @@ def test_every_curated_recipe_and_seed_package_has_an_app_identity():
     ({"command": "uvx", "args": ["mcp-server-fetch"]}, ["pypi:mcp-server-fetch"]),
     ({"command": "docker", "args": ["run", "-i", "--rm", "-e", "TOKEN", "ghcr.io/github/github-mcp-server:latest"]},
      ["oci:ghcr.io/github/github-mcp-server"]),
+    ({"command": "docker", "args": ["run", "-v", "ghcr.io/github/github-mcp-server:/x", "--rm", "example/other"]},
+     ["oci:example/other"]),
     ({"command": "node", "args": ["server.js"]}, []),
     (None, []),
 ])

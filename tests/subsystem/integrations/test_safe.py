@@ -183,3 +183,13 @@ def test_write_atomic_never_publishes_through_a_link(tmp_path):
     with pytest.raises(OSError):
         safe.write_atomic(link, "replaced")
     assert outside.read_text() == "private" and Path(link).is_symlink()
+
+
+def test_an_unresolvable_name_is_unreachable_not_refused(http, monkeypatch):
+    http(lambda request: pytest.fail("nothing is contacted"))
+
+    def offline(*a, **k):
+        raise OSError("no network")
+    monkeypatch.setattr(safe.socket, "getaddrinfo", offline)
+    with pytest.raises(ConnectionError):
+        safe.fetch("https://skills.example/x", hosts=None, max_bytes=10)

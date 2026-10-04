@@ -250,6 +250,19 @@ def read_unfinished_target_commands(target: str, *, limit: int = 32) -> dict:
         return {"items": [dict(row) for row in rows[:limit]], "overflow": len(rows) > limit}
 
 
+def read_unfinished_commands(*, limit: int = 256) -> dict:
+    """Every unfinished command in one bounded read; overflow must remain a recovery requirement."""
+    with _read_command_connection() as conn:
+        if conn is None:
+            return {"items": [], "overflow": False}
+        rows = conn.execute("SELECT owner_id,key,command_id,target,type,status FROM client_commands "
+                            "WHERE (status NOT IN ('completed','rejected') OR status IS NULL) ORDER BY target,owner_id,key LIMIT ?",
+                            (limit + 1,)).fetchmany(limit + 1)
+        if any(not isinstance(value, str) or len(value) > 1024 for row in rows for value in row):
+            raise AdmissionError("command_metadata_unavailable")
+        return {"items": [dict(row) for row in rows[:limit]], "overflow": len(rows) > limit}
+
+
 def command_progress(owner_id: str, key: str, result: dict) -> None:
     """Persist confirmed setup identities without storing setup text or secrets."""
     with transaction() as conn:

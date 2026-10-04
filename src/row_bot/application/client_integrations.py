@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import concurrent.futures
+from typing import Any
 import copy
 import hashlib
 import json
@@ -272,7 +273,7 @@ def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str 
 
 
 def search_items(*, owner_id: str, cancelled: Callable[[], bool] = lambda: False, validate: Callable[[], None] = lambda: None,
-                 **fields) -> dict:
+                 **fields: Any) -> dict:
     """An explicit catalog search; only this, and catalog refresh, contacts sources."""
     page, offset = _search(owner_id=owner_id, cancelled=cancelled, validate=validate, **fields)
     return _page(page, offset, fields["limit"], entry)
@@ -301,10 +302,14 @@ def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], 
 
 
 def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = "",
-              validate: Callable[[], None] = lambda: None) -> tuple[dict, dict | None]:
-    """One entry with the plan for its next action (or a requested intent); passive."""
+              validate: Callable[[], None] = lambda: None, context: plans.Context | None = None) -> tuple[dict, dict | None]:
+    """One entry with its unfinished plan, or the plan for its next action (or a requested
+    intent). The second value is the plan still to consent to; reading never sends a command."""
     validate()
     row, reference = _resolve(owner_id, item_id, revision, validate)
+    current = plans.open_plan(context or plans.Context(owner_id, owner_id, validate), item_id)
+    if current is not None:
+        return {"entry": entry(row), "plan": current}, None
     plan = plans.compute(row, reference, intent=intent)
     validate()
     return {"entry": entry(row), "plan": plans.view(plan) if plan else None}, plan
@@ -313,15 +318,12 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
 def start_plan(ctx: plans.Context, *, plan_id: str, item_id: str, revision: str = "", intent: str = "", digest: str,
                preset: str = "") -> dict:
     ctx.validate()
-    existing = _existing_plan(ctx, plan_id)
-    if existing is not None:
-        return existing
     row, reference = _resolve(ctx.owner_id, item_id, revision, ctx.validate)
     return plans.start(ctx, row, reference, digest=digest, intent=intent, preset=preset, plan_id=plan_id)
 
 
-def _existing_plan(ctx: plans.Context, plan_id: str) -> dict | None:
-    """A retried start returns the plan it already admitted."""
+def existing_plan(ctx: plans.Context, plan_id: str) -> dict | None:
+    """A retried start returns the plan it already admitted, without asking for consent again."""
     try:
         return plans.read_plan(ctx, plan_id)
     except plans.PlanError:

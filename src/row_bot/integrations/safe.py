@@ -38,7 +38,7 @@ def _public_address(host: str, refused: str) -> str:
     try:
         found = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     except OSError as exc:
-        raise ValueError(refused) from exc
+        raise ConnectionError("source_unreachable") from exc
     addresses = [ipaddress.ip_address(item[4][0].split("%", 1)[0]) for item in found]
     for address in addresses:
         mapped = getattr(address, "ipv4_mapped", None)

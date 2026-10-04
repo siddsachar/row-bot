@@ -92,7 +92,7 @@ export default function IntegrationsPage({
       ? 'discover'
       : 'my';
   const [preferences, setPreferences] = useState(readPreferences);
-  const catalogSources = useSources();
+  const { sources: catalogSources, error: sourcesError } = useSources();
   const knownSources = useRef(catalogSources);
   knownSources.current = catalogSources;
   // A search with disabled catalogs waits for the served list, never reaching one.
@@ -205,7 +205,10 @@ export default function IntegrationsPage({
   };
   const load = useCallback(
     async (refresh = false, cursor?: string) => {
-      if (!type || !sourcesReady) return;
+      if (!type || !sourcesReady) {
+        if (sourcesError) setMessage(sourcesError);
+        return;
+      }
       abort.current?.abort();
       const cancellation = new AbortController();
       abort.current = cancellation;
@@ -259,6 +262,7 @@ export default function IntegrationsPage({
       preferences.disabled,
       listKey,
       sourcesReady,
+      sourcesError,
     ],
   );
   useEffect(() => {

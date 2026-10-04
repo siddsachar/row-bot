@@ -184,10 +184,13 @@ def _document(saved, server_id, captured, preset=None):
         if tool_name not in enabled and preset is None:
             enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] == "unknown")
     tools["require_approval"] = sorted(approvals)
-    if preset is not None:
+    added = [row["name"] for row in captured["tools"] if row["name"] not in enabled]
+    if preset is not None and manual:
+        enabled.update(dict.fromkeys(added, False))  # Manual selection: the user turns each tool on.
+    elif preset is not None:
         # An access preset applies only to tools this acceptance adds.
         from row_bot.integrations import presets
-        presets.apply(tools, preset, [row["name"] for row in captured["tools"] if row["name"] not in enabled])
+        presets.apply(tools, preset, added)
     return document, (name,), manual
 
 

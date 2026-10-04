@@ -28,8 +28,8 @@ _LOCK = threading.RLock()
 _TTL = 20 * 60
 # Result lists by (owner, revision): a skill opened from a list still previews
 # after "Load more" or a late source replaced that list.
-_CATALOGS = TtlCache(_TTL, 128)
-_SEARCHED = TtlCache(_TTL, 32)
+_CATALOGS = TtlCache(_TTL, 32)
+_CATALOG_REVISIONS = 4
 _PREVIEWS = TtlCache(_TTL, 64)
 _ACTIVE: set[tuple[str, str]] = set()
 MAX_RESULTS = 96
@@ -96,8 +96,11 @@ def search_public_skills(
     found = [entry for entry in result.entries if 0 < len(entry.id) <= 256]
     entries = found[:limit]
     revision = _catalog_revision(entries)
-    _CATALOGS.put((owner_id, revision), {entry.id: entry for entry in entries})
-    _SEARCHED.put(owner_id, True)
+    with _LOCK:
+        lists = dict(_CATALOGS.get(owner_id) or {})
+        lists.pop(revision, None)
+        lists[revision] = {entry.id: entry for entry in entries}
+        _CATALOGS.put(owner_id, dict(list(lists.items())[-_CATALOG_REVISIONS:]))
     return {
         "schema_version": 1,
         "revision": revision,
@@ -124,9 +127,10 @@ def preview_public_skill(
     revision: str,
     entry_id: str,
 ) -> dict[str, Any]:
-    if _SEARCHED.get(owner_id) is None:
+    lists = _CATALOGS.get(owner_id)
+    if lists is None:
         raise SkillHubCommandError("skill_catalog_expired")
-    listed = _CATALOGS.get((owner_id, revision))
+    listed = lists.get(revision)
     if listed is None or entry_id not in listed:
         raise SkillHubCommandError("skill_catalog_changed")
     entry = listed[entry_id]

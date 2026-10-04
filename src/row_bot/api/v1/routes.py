@@ -4530,7 +4530,7 @@ def create_router(
         current = await session(request)
         from row_bot.application.client_integrations import read_item
         detail, _plan = await call(read_item, owner_id=await integration_owner(request), item_id=item_id, revision=revision,
-            intent=intent, validate=dispatch_validation(request, current))
+            intent=intent, validate=dispatch_validation(request, current), context=await plan_context(request, current))
         return await respond(request, dto.IntegrationDetail, detail)
 
     @router.post("/integrations/plans/review")
@@ -4540,7 +4540,10 @@ def create_router(
         body = await _body(request, dto.PlanReviewRequest, 4096)
         from row_bot.application.client_integrations import read_item
         detail, plan = await call(read_item, owner_id=await integration_owner(request), item_id=body.item_id,
-            revision=body.revision, intent=body.intent, validate=dispatch_validation(request, current))
+            revision=body.revision, intent=body.intent, validate=dispatch_validation(request, current),
+            context=await plan_context(request, current))
+        if detail["plan"] is not None and detail["plan"]["plan_id"]:
+            return await respond(request, dto.InstallPlan, detail["plan"])  # Continue or cancel the unfinished plan.
         if plan is None:
             raise ProtocolError("plan_unsupported", 409)
         if plan["supported"]:
@@ -4554,11 +4557,14 @@ def create_router(
         body = await _body(request, dto.PlanStartRequest, 131072)
         if request.headers.get("idempotency-key", "") != str(body.plan_id):
             raise ProtocolError("idempotency_mismatch", 409)
+        from row_bot.application.client_integrations import existing_plan, start_plan
+        context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest)
+        existing = await call(existing_plan, context, str(body.plan_id))
+        if existing is not None:
+            return await respond(request, dto.InstallPlan, existing)
         # Consent: nothing runs unless this session agreed to exactly this plan.
         security.consume_nonce(current, "integrations:plan:" + body.item_id, body.digest, body.digest,
             body.consent_token, str(body.plan_id))
-        from row_bot.application.client_integrations import start_plan
-        context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest)
         result = await call(start_plan, context, plan_id=str(body.plan_id), item_id=body.item_id, revision=body.revision,
             intent=body.intent, digest=body.digest, preset=body.preset)
         return await respond(request, dto.InstallPlan, result)

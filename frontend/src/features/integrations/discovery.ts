@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { IntegrationItem, IntegrationSourceView } from '../../api/types';
+import { clientError } from '../../api/errors';
 import { useRuntime } from '../../runtime';
 export type Kind = 'skill' | 'mcp' | 'plugin';
 export const categories = [
@@ -35,9 +36,13 @@ export const sourcesFor = (
   list
     .filter((item) => kind === 'all' || item.kinds.includes(kind))
     .map((item) => item.id);
-export function useSources(): IntegrationSourceView[] {
+export function useSources(): {
+  sources: IntegrationSourceView[];
+  error: string;
+} {
   const { controller } = useRuntime();
   const [sources, setSources] = useState(known);
+  const [error, setError] = useState('');
   useEffect(() => {
     if (known.length) return;
     const abort = new AbortController();
@@ -47,10 +52,12 @@ export function useSources(): IntegrationSourceView[] {
         known = list?.items ?? [];
         if (!abort.signal.aborted) setSources(known);
       })
-      .catch(() => undefined);
+      .catch((e) => {
+        if (!abort.signal.aborted) setError(clientError(e).message);
+      });
     return () => abort.abort();
   }, [controller]);
-  return sources;
+  return { sources, error };
 }
 const key = 'row-bot.integrations.preferences.v1';
 export type Preferences = { category: Kind | ''; disabled: Source[] };

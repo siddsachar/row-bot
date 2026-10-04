@@ -179,15 +179,8 @@ def mcp_blockers(setup: dict, runtime: dict, *, enabled: bool) -> list[dict]:
 
 
 def _requirements(cfg: dict) -> list[dict]:
-    from row_bot.mcp_client.requirements import check_server_requirements
-    try:
-        return [{"id": c.requirement.id if c.requirement.id in {"node", "uv", "playwright-chrome"} else "other",
-                 "label": c.requirement.label[:96], "available": c.available, "managed": c.requirement.managed,
-                 "installable": c.installable and c.requirement.id in {"node", "uv"},
-                 "source": c.source if c.source in {"system", "managed", "environment", "missing"} else "unknown"}
-                for c in check_server_requirements(cfg)[:8]]
-    except (OSError, ValueError, RuntimeError):
-        return [{"id": "other", "label": "Requirements", "available": False, "managed": False, "installable": False, "source": "unknown"}]
+    from row_bot.application.capability_configuration_controls import requirement_summaries
+    return list(requirement_summaries(cfg))
 
 
 def _mcp_refs(cfg: dict) -> list[str]:
@@ -204,6 +197,7 @@ def _fingerprint() -> tuple:
     from row_bot.data_paths import get_row_bot_data_dir
     from row_bot.mcp_client import config
     from row_bot.application.plugin_commands import _failed_to_load
+    from row_bot.skills_hub.provenance import lockfile_path
     root = get_row_bot_data_dir(create=False)
 
     def digest(path) -> str:
@@ -218,7 +212,7 @@ def _fingerprint() -> tuple:
     except OSError:
         pass
     return (str(root), skills._client_library_fingerprint(), digest(config.CONFIG_PATH), digest(root / "plugin_state.json"),
-            digest(root / "skills_hub" / "lock.json"), digest(root / "marketplace_cache.json"), tuple(packages),
+            digest(lockfile_path(create=False)), digest(root / "marketplace_cache.json"), tuple(packages),
             tuple(sorted(_failed_to_load())))
 
 
@@ -361,29 +355,44 @@ def reconcile_command(owner_id: str, command_id: str, kind: str, validate: Calla
                 "message": result["message"]}
     if str(metadata.get("type", "")).startswith("integrations.plan"):
         from row_bot.integrations import plans
-        plan = plans.read_plan(owner_id=owner_id, plan_id=command_id, validate=validate)
+        plan = plans.read_plan(plans.Context(owner_id, owner_id, validate), command_id)
         return {"command_id": command_id, "settled": plan["state"] not in {"running", "uncertain"}, "message": ""}
     from row_bot.application.capability_configuration_controls import reconcile_mcp_configuration_operation
     return reconcile_mcp_configuration_operation(owner_id=owner_id, command_id=command_id, validate=validate)
 
 
-def _reconcile(row: dict, validate: Callable[[], None]) -> list[dict]:
-    """Unfinished changes on this item: settled when proven, otherwise one blocker."""
+def _unfinished() -> dict:
+    """Unfinished owner commands by admission target, read once per listing."""
     from row_bot.runtime import admissions
+    try:
+        pending = admissions.read_unfinished_commands()
+    except admissions.AdmissionError:
+        return {"overflow": True}
+    by_target: dict = {"overflow": pending["overflow"], "settled": {}}
+    for command in pending["items"]:
+        by_target.setdefault(command["target"], []).append(command)
+    return by_target
+
+
+def _reconcile(row: dict, validate: Callable[[], None], pending: dict) -> list[dict]:
+    """Unfinished changes on this item: settled when proven, otherwise one blocker."""
+    if pending.get("overflow"):
+        return [blocker("change_unconfirmed")]
     found = []
     for target in _pending_targets(row):
-        try:
-            pending = admissions.read_unfinished_target_commands(target)
-        except admissions.AdmissionError:
-            return [blocker("change_unconfirmed")]
-        if pending["overflow"]:
-            return [blocker("change_unconfirmed")]
-        for command in pending["items"]:
+        for command in pending.get(target, []):
             kind = "plugin" if command["type"].startswith("plugin.lifecycle.") else "skill" if command["type"].startswith("skill.hub.") else "mcp"
-            try:
-                settled = reconcile_command(command["owner_id"], command["command_id"], kind, validate)["settled"]
-            except Exception as error:  # An owner still running reports itself busy.
-                settled = None if getattr(error, "code", str(error)) in {"operation_pending", "skill_install_pending"} else False
+            if kind == "plugin":
+                # Settling package operations stays with the local owner's explicit recovery.
+                found.append(blocker("change_unconfirmed"))
+                continue
+            settled = pending["settled"].get(command["command_id"])
+            if command["command_id"] not in pending["settled"]:
+                try:
+                    settled = reconcile_command(command["owner_id"], command["command_id"], kind, validate)["settled"]
+                except Exception as error:  # An owner still running reports itself busy.
+                    settled = None if getattr(error, "code", str(error)) in {"operation_pending", "skill_install_pending"} else False
+                pending["settled"][command["command_id"]] = settled
             if settled is None:
                 found.append(blocker("change_in_progress"))
             elif not settled:
@@ -391,7 +400,7 @@ def _reconcile(row: dict, validate: Callable[[], None]) -> list[dict]:
     return found[:1]
 
 
-def _live(row: dict, statuses: dict, validate: Callable[[], None]) -> dict:
+def _live(row: dict, statuses: dict, validate: Callable[[], None], pending: dict) -> dict:
     """Apply live runtime state, requirements and unfinished changes to static facts."""
     row = copy.deepcopy(row)
     private = row.pop("_mcp", None)
@@ -408,8 +417,8 @@ def _live(row: dict, statuses: dict, validate: Callable[[], None]) -> dict:
             auth_status="expired" if any(b["code"] == "expired" for b in row["blockers"]) else "configured" if setup["credential_configured"] else "none")
     if row["parent_id"] is None:
         codes = {b["code"] for b in row["blockers"]}
-        row["blockers"] = [b for b in _reconcile(row, validate) if b["code"] not in codes] + row["blockers"]
-    row["children"] = [_live(child, statuses, validate) for child in row["children"]]
+        row["blockers"] = [b for b in _reconcile(row, validate, pending) if b["code"] not in codes] + row["blockers"]
+    row["children"] = [_live(child, statuses, validate, pending) for child in row["children"]]
     for child in row["children"]:
         # A switched-off package's included items are off with it, not broken.
         if child["status"] == "ready" or (row["lifecycle"] == "off" and child["status"] == "off"
@@ -437,8 +446,8 @@ def inventory(validate: Callable[[], None] = lambda: None) -> tuple[list[dict], 
     validate()
     indexed, errors = _index(validate)
     rows = list(indexed.values())
-    statuses = _statuses(rows)
-    result = [_live(row, statuses, validate) for row in rows]
+    statuses, pending = _statuses(rows), _unfinished()
+    result = [_live(row, statuses, validate, pending) for row in rows]
     validate()
     return result, copy.deepcopy(errors)
 
@@ -451,7 +460,7 @@ def read(item_id: str, validate: Callable[[], None] = lambda: None) -> dict | No
         if item_id.startswith(row["id"] + ":") and any(c["id"] == item_id for c in row["children"])), None)
     if parent is None:
         return None
-    row = _live(parent, _statuses([parent]), validate)
+    row = _live(parent, _statuses([parent]), validate, _unfinished())
     validate()
     return row if row["id"] == item_id else next(c for c in row["children"] if c["id"] == item_id)
 

@@ -171,7 +171,11 @@ def test_browser_sign_in_pauses_and_resumes_after_the_callback(item, owner, monk
     config.CONFIG_PATH.write_text(json.dumps(document))
     facts.invalidate()
     state = {"value": "waiting"}
-    monkeypatch.setattr(client_mcp_auth, "execute_auth", lambda **k: {"state": "starting", "authorization_url": None})
+
+    def start_sign_in(**k):  # Admitted like the owner's own sign-in command.
+        admissions.claim_command(k["owner_id"], k["command_id"], {"command_id": k["command_id"], "type": "mcp.auth.start"}, "fixture")
+        return {"state": "starting", "authorization_url": None}
+    monkeypatch.setattr(client_mcp_auth, "execute_auth", start_sign_in)
     monkeypatch.setattr(client_mcp_auth, "auth_status", lambda **k: {"state": state["value"], "message": "",
         "authorization_url": "https://auth.example.test/authorize" if state["value"] == "waiting" else None})
     _, plan = review(item)
@@ -297,3 +301,51 @@ def test_adding_a_skill_checks_it_then_adds_it_turned_on(tmp_path, monkeypatch, 
     done = api.start_plan(context(), plan_id=str(uuid4()), item_id=item_id, revision=page["revision"], digest=plan["digest"])
     assert done["state"] == "completed", done
     assert installed == [True], "Add installs the checked bundle once, turned on"
+
+
+def test_a_sign_in_that_never_started_fails_cleanly_and_frees_the_item(item, owner, monkeypatch):
+    from row_bot.application import client_mcp_auth
+    from row_bot.mcp_client.auth import McpAuthError
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Synthetic"] = {"transport": "streamable_http", "url": "https://example.test/mcp", "enabled": False,
+                                        "source": {"auth_mode": "oauth"}}
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    facts.invalidate()
+
+    def refuse(**_):
+        raise McpAuthError("mcp_auth_busy")
+    monkeypatch.setattr(client_mcp_auth, "execute_auth", refuse)
+    _, plan = review(item)
+    failed = api.start_plan(context(redirect_uri="http://127.0.0.1:1/cb"), plan_id=str(uuid4()), item_id=item, digest=plan["digest"])
+    assert failed["state"] == "failed" and failed["next_action"]["kind"] == "retry"
+    assert review(item)[0]["plan"]["plan_id"] is None, "a failed plan no longer holds the item"
+
+
+def test_an_unfinished_plan_is_returned_with_the_item_and_reconciles_through_facts(item, owner):
+    _, plan = review(item)
+    plan_id = str(uuid4())
+    api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"])
+    detail, consent = review(item)
+    assert detail["plan"]["plan_id"] == plan_id and detail["plan"]["pause"] == "access" and consent is None
+    assert facts.reconcile_command("owner", plan_id, "mcp", lambda: None) == {"command_id": plan_id, "settled": True, "message": ""}
+
+
+def test_servers_needing_manual_tool_choice_keep_every_tool_off(item, owner):
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Synthetic"]["source"] = {"risk_level": "high"}
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    facts.invalidate()
+    _, plan = review(item)
+    plan_id = str(uuid4())
+    paused = api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"], preset="full")
+    access = next(s for s in paused["steps"] if s["type"] == "access")
+    assert {t["state"] for t in access["access"]["tools"]} == {"off"} and "choose" in access["message"]
+    assert plans.resume(context(tools_digest=access["access"]["tools_digest"]), plan_id)["state"] == "completed"
+    assert not any(saved_tools()["enabled"].values())
+
+
+def test_blank_values_in_an_installed_configuration_are_not_missing_settings():
+    row = facts.finish(facts.entry("mcp", "x", "Local", lifecycle="off"))
+    plan = plans.compute(row, {"cfg": {"transport": "stdio", "command": "node", "args": ["s.js"], "env": {"DEBUG": ""},
+                                       "tools": {"catalog": {}}}}, intent="turn_on")
+    assert plan["supported"] and "inputs" not in [s["type"] for s in plan["steps"]]

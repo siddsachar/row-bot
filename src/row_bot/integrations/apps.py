@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 CATEGORIES = ("productivity", "developer", "data", "design", "communication", "finance", "local_tools")
 VARIANTS = ("hosted_mcp", "local_mcp", "package", "account", "channel", "api_key_tool", "broker")
+_DOCKER_FLAGS = {"-i", "-t", "-it", "-d", "--rm", "--interactive", "--tty", "--detach", "--init", "--privileged", "--read-only"}
 _REF = re.compile(r"(curated|registry|endpoint|npm|pypi|oci|repo|hermes|bundled|account|channel):[a-z0-9@._/+-]{1,200}")
 
 
@@ -75,10 +76,20 @@ def recipe_refs(install: dict | None) -> list[str]:
     if host:
         return ["endpoint:" + host.lower()]
     command = Path(str(install.get("command") or "")).name.lower().removesuffix(".exe").removesuffix(".cmd")
-    args = [str(arg) for arg in install.get("args") or [] if not str(arg).startswith("-")]
     kind = {"npx": "npm", "uvx": "pypi", "docker": "oci"}.get(command)
+    args = [str(arg) for arg in install.get("args") or []]
     if kind == "oci":
-        args = [arg for arg in args if arg not in {"run"} and "/" in arg]
+        args, skip = args[1:] if args[:1] == ["run"] else [], False
+        for index, arg in enumerate(args):
+            if skip or arg.startswith("-"):
+                skip = not skip and arg.startswith("-") and "=" not in arg and arg not in _DOCKER_FLAGS
+                continue
+            args = args[index:index + 1]
+            break
+        else:
+            args = []
+    else:
+        args = [arg for arg in args if not arg.startswith("-")]
     if not kind or not args:
         return []
     name = args[0].lower()

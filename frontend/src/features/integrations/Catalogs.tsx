@@ -22,7 +22,7 @@ export default function Catalogs({
   onBack: () => void;
 }) {
   const { controller } = useRuntime();
-  const known = useSources();
+  const { sources: known, error: sourcesError } = useSources();
   const [sources, setSources] = useState<IntegrationSourceStatus[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -50,7 +50,11 @@ export default function Catalogs({
         metadata. Search sends your query to enabled public catalogs; snapshots
         stay local.
       </p>
-      {error && <p role="alert">Catalog information unavailable: {error}</p>}
+      {(error || sourcesError) && (
+        <p role="alert">
+          Catalog information unavailable: {error || sourcesError}
+        </p>
+      )}
       {sources.map((source) => (
         <section
           className="integration-catalog stack"

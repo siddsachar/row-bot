@@ -194,39 +194,7 @@ def read_mcp_configuration(
         tools = server.get("tools")
         catalog = tools.get("catalog") if type(tools) is dict else None
         status = statuses.get(name, {})
-        from row_bot.mcp_client.requirements import check_server_requirements
-
-        try:
-            checks = check_server_requirements(server)[:8]
-            requirements = tuple(
-                {
-                    "id": check.requirement.id
-                    if check.requirement.id in {"node", "uv", "playwright-chrome"}
-                    else "other",
-                    "label": check.requirement.label[:96]
-                    if check.requirement.id in {"node", "uv", "playwright-chrome"}
-                    else "Other runtime",
-                    "available": check.available,
-                    "managed": check.requirement.managed,
-                    "installable": check.installable
-                    and check.requirement.id in {"node", "uv"},
-                    "source": check.source
-                    if check.source in {"system", "managed", "environment", "missing"}
-                    else "unknown",
-                }
-                for check in checks
-            )
-        except (OSError, ValueError, RuntimeError):
-            requirements = (
-                {
-                    "id": "other",
-                    "label": "Requirements",
-                    "available": False,
-                    "managed": False,
-                    "installable": False,
-                    "source": "unknown",
-                },
-            )
+        requirements = requirement_summaries(server)
         items.append(
             McpServerSummary(
                 _server_id(name),
@@ -260,6 +228,27 @@ def read_mcp_configuration(
         if offset + len(items) < len(matches)
         else None,
     )
+
+
+def requirement_summaries(server: dict) -> tuple[dict[str, Any], ...]:
+    """Public runtime requirement checks for one saved server (no private launch fields)."""
+    from row_bot.mcp_client.requirements import check_server_requirements
+
+    try:
+        return tuple(
+            {
+                "id": check.requirement.id if check.requirement.id in {"node", "uv", "playwright-chrome"} else "other",
+                "label": check.requirement.label[:96] if check.requirement.id in {"node", "uv", "playwright-chrome"} else "Other runtime",
+                "available": check.available,
+                "managed": check.requirement.managed,
+                "installable": check.installable and check.requirement.id in {"node", "uv"},
+                "source": check.source if check.source in {"system", "managed", "environment", "missing"} else "unknown",
+            }
+            for check in check_server_requirements(server)[:8]
+        )
+    except (OSError, ValueError, RuntimeError):
+        return ({"id": "other", "label": "Requirements", "available": False, "managed": False,
+                 "installable": False, "source": "unknown"},)
 
 
 def _text(value: Any, maximum: int = 16384, *, empty: bool = True) -> str:

@@ -69,6 +69,9 @@ def test_plan_needs_this_sessions_consent_to_the_exact_plan(service, keyed):
                             json={**body, "plan_id": second})
         assert other.status_code == 409, "one consent starts one plan"
         assert client.get(BASE + "/plans/" + plan_id, headers=headers).json()["pause"] == "inputs"
+        found = client.get(BASE + "/detail", params={"item_id": work["id"]}, headers=headers).json()["plan"]
+        resumed = client.post(BASE + "/plans/review", headers=headers, json={"item_id": work["id"]}).json()
+        assert found["plan_id"] == resumed["plan_id"] == plan_id and resumed["consent_token"] == ""
         cancelled = client.post(BASE + "/plans/" + plan_id + "/cancel", headers=headers)
         assert cancelled.json()["state"] == "cancelled"
         assert client.post(BASE + "/plans/" + plan_id + "/continue", headers=headers, json={}).status_code == 409

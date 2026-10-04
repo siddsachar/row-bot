@@ -84,7 +84,8 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     hosted = cfg.get("transport", "stdio") != "stdio"
     app = apps.match(facts._mcp_refs(cfg))
     steps = [_step("consent", title="Before you connect")]
-    declared = [(kind, key) for kind in ("headers", "env") for key, value in (cfg.get(kind) or {}).items() if value == ""]
+    declared = [(kind, key) for kind in ("headers", "env") for key, value in (cfg.get(kind) or {}).items()
+                if value == "" and row["lifecycle"] == "available"]
     if setup["auth_mode"] == "api_key":
         steps.append(_step("inputs", "done" if signed_in else "pending", "Add your key", inputs=[
             {"key": b["key"], "label": b["name"], "secret": True, "required": True, "target": b["kind"], "name": b["name"],
@@ -256,10 +257,12 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     record["steps"][0]["state"] = "done"
     command = {"command_id": plan_id, "type": "integrations.plan", "item_id": row["id"], "intent": plan["intent"], "digest": digest}
     try:
-        admissions.claim_command(ctx.owner_id, plan_id, command, "integrations:plan:" + row["id"], exclusive_target=True,
-                                 initial_result={"command_id": plan_id, "status": "admitting", "plan": record})
+        prior = admissions.claim_command(ctx.owner_id, plan_id, command, "integrations:plan:" + row["id"], exclusive_target=True,
+                                         initial_result={"command_id": plan_id, "status": "admitting", "plan": record})
     except admissions.AdmissionError as error:
         raise PlanError(str(error)) from None
+    if prior is not None:  # This exact plan already finished: report it, never run it again.
+        return view(prior["plan"])
     return _run(ctx, record)
 
 
@@ -298,6 +301,7 @@ def read_plan(ctx: Context, plan_id: str) -> dict:
     """The plan's state, reconciled from owner receipts. Reading never sends a command."""
     record, open_ = _load(ctx.owner_id, plan_id)
     if open_ and plan_id not in _RUNNING and record["state"] in {"running", "paused", "uncertain"}:
+        before = json.dumps(record, sort_keys=True)
         step = next((s for s in record["steps"] if s["id"] == record.get("current_step")), None)
         seen = ""
         if step is not None:
@@ -312,9 +316,17 @@ def read_plan(ctx: Context, plan_id: str) -> dict:
             record.update(state="failed", pause=None, message=step["message"] or "This step could not finish.")
         elif seen == "uncertain" and record["state"] != "uncertain":
             record.update(state="uncertain", pause=None, message=_MESSAGES["change_unconfirmed"])
-        if seen:
+        if seen == "failed" or json.dumps(record, sort_keys=True) != before:
             _save(record, terminal=seen == "failed")
     return view(record)
+
+
+def open_plan(ctx: Context, item_id: str) -> dict | None:
+    """This owner's unfinished plan for an item, so a client can always find, continue or cancel it."""
+    from row_bot.runtime import admissions
+    pending = admissions.read_unfinished_target_commands("integrations:plan:" + item_id)
+    mine = next((command for command in pending["items"] if command["owner_id"] == ctx.owner_id), None)
+    return read_plan(ctx, mine["command_id"]) if mine else None
 
 
 def _run(ctx: Context, record: dict) -> dict:
@@ -382,7 +394,8 @@ def _unsettled(ctx: Context, record: dict, step: dict) -> bool:
             metadata = admissions.read_command_metadata(owner, command["command_id"])
             if metadata is not None and metadata["status"] not in {"completed", "rejected"}:
                 return True
-    return bool(step["id"] == "sign_in" and record.get("_auth"))
+    metadata = admissions.read_command_metadata(ctx.owner_id, record["_auth"]) if step["id"] == "sign_in" and record.get("_auth") else None
+    return metadata is not None and metadata["status"] not in {"completed", "rejected"}
 
 
 def _observe_commands(ctx: Context, record: dict, step: dict) -> str:
@@ -412,8 +425,13 @@ def _observe_commands(ctx: Context, record: dict, step: dict) -> str:
 
 def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application.client_mcp_auth import auth_status
+    from row_bot.runtime import admissions
     if not record.get("_auth"):
         return _observe_commands(ctx, record, step)
+    metadata = admissions.read_command_metadata(ctx.owner_id, record["_auth"])
+    if metadata is None or metadata["status"] == "rejected":
+        step["message"] = "Sign-in didn't start. Try again."
+        return "failed"
     result = auth_status(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
     step["sign_in"]["authorization_url"] = result.get("authorization_url")
     if result["state"] == "signed_in":
@@ -659,16 +677,27 @@ def _tools(ctx: Context, record: dict) -> list[dict]:
             return rows
 
 
+def _manual(record: dict) -> bool:
+    from row_bot.application.capability_configuration_controls import _server_id
+    from row_bot.mcp_client import config
+    from row_bot.mcp_client.conflicts import requires_manual_tool_selection
+    saved = config.read_saved_configuration(record["target"])
+    name, cfg = next((n, c) for n, c in saved.document["servers"].items() if _server_id(n) == record["server_id"])
+    return requires_manual_tool_selection(name, cfg)
+
+
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
-    tools = _tools(ctx, record)
-    digest = _digest(tools)
+    tools, manual = _tools(ctx, record), _manual(record)
+    digest = _digest([tools, manual])
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [
         {"name": t["name"], "title": t["name"].replace("_", " ").capitalize()[:128], "effect": t["effect"],
-         "state": presets.tool_state(record["preset"], t)} for t in tools[:256]]}
+         "state": "off" if manual else presets.tool_state(record["preset"], t)} for t in tools[:256]]}
     if ctx.tools_digest == digest:
         step["message"] = ""
         return "done"
-    step["message"] = "The tools changed. Review them again." if ctx.tools_digest else "Review what this app can do, then allow it."
+    step["message"] = ("The tools changed. Review them again." if ctx.tools_digest else
+                       "This app's tools stay off until you choose them in its settings." if manual else
+                       "Review what this app can do, then allow it.")
     return "access"
 
 
