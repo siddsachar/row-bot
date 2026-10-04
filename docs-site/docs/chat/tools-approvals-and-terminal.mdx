@@ -27,6 +27,8 @@ When Row-Bot uses tools, the turn shows a tool step: what Row-Bot tried, what ca
 
 Approval cards appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP or plugin tools, or do something else that deserves review. The composer's **Approvals** control sets the mode for the conversation: **Ask**, **Block** or **Auto**.
 
+An app's tools also follow the access you chose for it in [Settings › Apps](/docs/settings/apps): **Read only**, **Ask before changes** or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions ask first whichever access you choose.
+
 **Approvals wait until you answer.** They no longer expire after a set time; a workflow step that sets its own time limit still honours it. Each one shows how long it has been waiting.
 
 **Answer them where you are.** Every waiting approval, from this conversation, another conversation, a workflow or a delegated agent, shows with **Approve** and **Deny** in place:

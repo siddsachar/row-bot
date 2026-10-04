@@ -172,9 +172,12 @@ test('connect a hosted app with sign-in, then turn it off and remove it', async 
     remove.getByRole('button', { name: 'Remove', exact: true }),
   ).toHaveClass(/danger/);
   await checkLayout(page, info, 'apps-remove');
-  await remove
-    .getByRole('switch', { name: 'Also delete saved keys and data' })
-    .check();
+  // Cleanup is part of what is agreed: the switch follows a fresh review.
+  const cleanup = remove.getByRole('switch', {
+    name: 'Also delete saved keys and data',
+  });
+  await cleanup.click();
+  await expect(cleanup).toBeChecked();
   await remove.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(page).toHaveURL(/settings\/apps$/);
   await expect(page.getByRole('heading', { name: 'Your apps' })).toHaveCount(0);

@@ -86,8 +86,16 @@ export default function AccessSheet({
   >({});
   useEffect(() => {
     if (open && access) {
+      const custom = access.preset === 'custom';
       setPreset(access.preset === 'custom' ? 'ask' : access.preset);
-      setOverrides({});
+      // A custom policy keeps every tool as it is until the person changes one.
+      setOverrides(
+        custom
+          ? Object.fromEntries(
+              access.tools.map((tool) => [tool.name, tool.state]),
+            )
+          : {},
+      );
     }
   }, [open, access]);
   const tools = access?.tools ?? [];

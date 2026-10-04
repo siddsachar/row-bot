@@ -1,0 +1,102 @@
+---
+title: "Settings: Apps"
+description: "Find and connect the services Row-Bot can work in, choose what each app may do, and turn apps off or remove them."
+---
+
+# Settings: Apps
+
+Apps are the services Row-Bot can work in, such as Notion, GitHub or a tool that runs on this computer. **Settings › Apps** is where you find them, connect them, choose what each one may do, and turn them off or remove them.
+
+## Where To Find It
+
+Open **Settings**, then choose **Apps** in the **Connections** group, or search for it with **Find a setting**. The command palette's **Connect an app** opens it too.
+
+## Find An App
+
+Search is instant and local: Row-Bot searches catalog copies kept on this computer, and nothing you type leaves it. To ask the live catalogs (ClawHub and Hermes) about the current search, choose **Search online catalogs**.
+
+The page lists:
+
+- **Your apps**: the apps you have added, with anything that needs attention first. Each shows its status: **Ready**, **Off**, **Sign in needed**, **Key needed**, **Finish setup** or **Needs attention**.
+- **Featured**, then category chips (Productivity, Developer, Data, Design, Communication, Finance and Local tools), then **All apps**.
+
+While the app catalog is first being built, the page says **Preparing the app catalog…** and more apps appear in a moment.
+
+Each card shows the app's logo, its name and what it does, and who publishes it: **by _Vendor_** with a check when the service's own vendor publishes it, or **Community**. It also says how it connects: **Hosted · Sign-in**, **API key**, **Hosted** or **Runs on this computer**. Package entries from the Hermes catalog say **Checked when you add**. Logos come only from Row-Bot or its saved copies; browsing never downloads them.
+
+## The App Page
+
+Open an app to see its page (for example `/settings/apps/notion`). The header shows its logo, name, publisher and status, one main action, and a **⋯** menu.
+
+The main action is whatever comes next: **Connect**, **Add**, **Sign in**, **Sign in again**, **Add key**, **Continue setup**, **Turn on**, **Fix**, **Retry**, **Try it** or **Delete saved data**. The **⋯** menu holds **Turn off**, **Check for updates**, **Advanced settings** and **Remove…**.
+
+- **Overview**: what it does, things to ask, and where your data goes.
+- **Access**: what it may do, grouped as **Looks things up**, **Makes changes** and **Always asks first**, with a count such as "8 of 12 actions on" and **Choose** to change it.
+- **Settings**: the account, a saved key (kept in your system keychain), and anything it needs on this computer.
+- **Included**: for a package, the apps and skills it brought. Each of those says **Installed as part of _package_**.
+- **Details**: source, version, licence, other catalogs it is listed in, and its identifier.
+
+## Connect An App
+
+1. Choose the main action. A sheet named after it, such as **Connect Notion**, lists what will happen: where requests go, whether you sign in in your browser or paste a key, anything Row-Bot needs to download, and that apps get turned on. **How Row-Bot keeps this safe** explains the protections.
+2. Agree, and Row-Bot does the setup itself, showing each step as it goes.
+3. It pauses only when it needs you: to sign in (your browser opens), to paste a key (**Where do I get this?** shows how to get one), or to choose what the app can do.
+4. Choose access on **Here's what _app_ can do**, and the app is ready.
+
+**Stop** cancels a setup and keeps what was already done. A setup left waiting for more than 30 minutes stops by itself, also keeping what was done. If Row-Bot can't confirm that a change finished, the page shows **Finishing your last change…** with **Retry**; it checks the result and never repeats the change blindly.
+
+## Choose What An App Can Do
+
+| Choice | What it means |
+| --- | --- |
+| **Read only** | Looks things up. Cannot change anything. |
+| **Ask before changes** (default) | Looks things up and asks you before every change. |
+| **Full access** | Makes routine changes without asking. Risky actions still ask. |
+
+**Customise** sets each action on its own: **Use without asking**, **Ask first** or **Off**.
+
+:::info Some actions always ask
+Deleting, sending, paying, publishing, running code and anything Row-Bot can't identify always ask first, whatever you choose. Full access only covers routine changes such as creating or editing. Apps connected before this version keep asking before routine changes until you choose otherwise.
+:::
+
+## Turn Off Or Remove
+
+Both are in the app's **⋯** menu.
+
+- **Turn off** stops Row-Bot using the app. Its settings and saved keys are kept.
+- **Remove…** opens **Remove _app_**. Keys and data are kept unless you switch on **Also delete saved keys and data**. Removing a package removes everything it brought.
+
+## Add From Link Or File
+
+**Add from link or file** adds something that isn't in a catalog. Paste an https link (an app's address, a GitHub repository or a skill page; Row-Bot detects which, and **This is** lets you change it), or choose a .zip or .skill file for skills and packages. .mcpb bundles are accepted but arrive in a later update.
+
+Nothing is downloaded or run until you agree on the item's page.
+
+## Advanced
+
+**Advanced** on the Apps page (`/settings/apps?view=advanced`) holds:
+
+- **Catalogs**: each catalog with its state, such as **Included with Row-Bot**, when it was last updated, **Couldn't update. The last copy is still used.**, or **Not available yet**, with **Update** and **Update all**. **Update catalogs automatically** is off by default; turn it on to update every day, week or month.
+- **Apps in chats**: whether chats are offered app tools, and the shared runtimes (Node.js and uv) that local apps use.
+- **Your own connection**: **Add a custom connection** opens the connection editor for a service that isn't in a catalog.
+
+An app's **⋯ › Advanced settings** opens the raw settings for that one app only.
+
+## Old Links
+
+Settings no longer has Integrations, MCP or Plugins pages. Old links to them open **Apps**, or **Apps › Advanced** for catalogs and runtimes, or the item they named. Skills are on their own page: see [Settings: Skills](/docs/settings/skills).
+
+## Privacy And Safety
+
+Searching, browsing and opening an app page stay on this computer. A catalog is contacted only when you choose **Search online catalogs**, **Update**, or automatic updates. Requests to an app go where its page says once you use it. Keys are kept in your system keychain, never in settings files. Apps that run on this computer are not sandboxed, so add only apps you trust.
+
+## Control-Level Reference
+
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#apps-controls) lists every searchable setting on this page with its deep link and search keywords.
+
+## Troubleshooting
+
+- **Sign in needed** or **Key needed**: open the app and use the main action.
+- **Needs attention**: open the app and choose **Fix** or **Retry**.
+- If an app's tools are missing in chat, check that it is **Ready**, that **Apps in chats** offers app tools, and that the chat's agent profile allows it.
+- If a catalog says **Couldn't update**, Row-Bot keeps using the last copy; try **Update** later.

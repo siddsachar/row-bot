@@ -4506,10 +4506,20 @@ def create_router(
             kind=body.kind, validate=dispatch_validation(request, current))
         return await respond(request, dto.IntegrationEntryPage, result)
 
+    @router.post("/integrations/items/settle")
+    async def integration_item_settle(request: Request) -> JSONResponse:
+        """Retry on an unfinished change: each settles only when its owner proves how it ended."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.IntegrationSettleRequest, 1024)
+        from row_bot.application.client_integrations import settle_item
+        result = await call(settle_item, await plan_context(request, current), item_id=body.item_id)
+        return await respond(request, dto.IntegrationDetail, result)
+
     @router.post("/integrations/uploads")
     async def integration_upload(request: Request) -> JSONResponse:
-        """A picked .zip, .skill or .mcpb file, kept privately and only read."""
+        """A picked .zip, .skill or .mcpb file, kept privately and only read; Row-Bot on this computer only."""
         current = await session(request, lane="mutation")
+        await plugin_lifecycle_authority(request)
         from row_bot.application.client_integrations import upload_file
         from row_bot.integrations.uploads import MAX_BYTES
         from urllib.parse import unquote

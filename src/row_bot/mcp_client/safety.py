@@ -10,15 +10,22 @@ _DESTRUCTIVE_RE = re.compile(
     r"(^|_)(delete|remove|destroy|drop|purge|erase|wipe|truncate|revoke|uninstall|kill|terminate|cancel|refund|"
     r"send|post|reply|forward|comment|invite|share|publish|deploy|merge|commit|push|upload|"
     r"run|exec|execute|shell|command|payment|pay|charge|transfer|withdraw|trade|buy|sell|order|book|"
-    r"grant|permission|permissions)(_|$)",
+    r"grant|permission|permissions|reset|overwrite|eval)(_|$)",
+    re.IGNORECASE,
+)
+# A change to these reaches other people, publishes, runs code or grants access: high impact.
+_SENSITIVE_RE = re.compile(
+    r"(^|_)(emails?|messages?|releases?|scripts?|passwords?|roles?|members?|collaborators?|tokens?|secrets?|keys?|"
+    r"admins?|owners?|webhooks?|pull_requests?)(_|$)",
     re.IGNORECASE,
 )
 # Routine changes inside the app: ask unless the user chose Full access for the tool.
 _ROUTINE_RE = re.compile(
-    r"(^|_)(create|add|update|edit|write|set|rename|move|put|patch|modify|insert|append|save|tag|label|"
-    r"assign|mark|archive|close|star|link|attach|copy|duplicate)(_|$)",
+    r"(^|_)(create|add|update|edit|write|set|rename|move|put|patch|modify|insert|append|save|assign|duplicate)(_|$)",
     re.IGNORECASE,
 )
+# Words that are also nouns are changes only as the name's verb: tag_issue, not get_tag.
+_ROUTINE_FIRST_RE = re.compile(r"^(tag|label|mark|archive|close|star|link|attach|copy)(_|$)", re.IGNORECASE)
 
 _BROWSER_SESSION_SAFE_TOOLS = {
     "browser_click",
@@ -70,21 +77,26 @@ def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = N
         read_only_hint = _annotation_value(tool_obj, "readOnlyHint")
         if destructive_hint is True:
             return True
-        if _DESTRUCTIVE_RE.search(normalized_name):
+        if _DESTRUCTIVE_RE.search(normalized_name) or _sensitive_change(normalized_name):
             return True
         if read_only_hint is True:
             return False
     if normalized_name in _BROWSER_SESSION_SAFE_TOOLS:
         return False
+    if _sensitive_change(normalized_name):
+        return True
     haystack = f"{tool_name} {description or ''}"
     normalized = sanitize_name_component(haystack)
     return bool(_DESTRUCTIVE_RE.search(normalized))
 
 
-def is_routine_change(tool_name: str, description: str = "", tool_obj: Any = None) -> bool:
-    """A change inside the app that is not high impact: Full access may run it without asking."""
-    return (classify_tool_effect(tool_name, description, tool_obj) == "mutation"
-            and not is_destructive_tool(tool_name, description, tool_obj))
+def _changes(name: str) -> bool:
+    return bool(_ROUTINE_RE.search(name) or _ROUTINE_FIRST_RE.match(name))
+
+
+def _sensitive_change(name: str) -> bool:
+    """create_release, add_collaborator, set_password: a routine verb on something high impact."""
+    return _changes(name) and bool(_SENSITIVE_RE.search(name))
 
 
 def tool_enabled_by_default(is_destructive: bool) -> bool:
@@ -116,11 +128,14 @@ def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = 
     if name in _BROWSER_SESSION_SAFE_TOOLS:
         return "interaction"
     # A change named as one stays a change whatever its hints say; unknown names stay unknown.
-    if _ROUTINE_RE.search(name):
+    if _changes(name):
         return "mutation"
-    if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is True:
+    read_only_hint = _annotation_value(tool_obj, "readOnlyHint") if tool_obj is not None else None
+    if read_only_hint is True:
         return "read_only"
-    if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is False:
+    if _ROUTINE_RE.search(sanitize_name_component(description or "")):
+        return "mutation"  # Described as a change and not hinted read-only: it stays a change.
+    if read_only_hint is False:
         return "unknown"
     if re.match(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", name):
         return "read_only"

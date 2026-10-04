@@ -366,14 +366,14 @@ surfaces:
     source_files: [frontend/src/features/settings/ToolCatalog.tsx, frontend/src/features/settings/CustomToolsSettings.tsx]
   settings_skills:
     title: Skills settings
-    app_route: /app-v2/settings/integrations?tab=my&type=skill
+    app_route: /app-v2/settings/skills
     state: built-in and local skills only
     scenario: configured
     docs_page: /docs/settings/skills
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/SkillsSettings.tsx, src/row_bot/skills.py]
+    source_files: [frontend/src/features/apps/Library.tsx, frontend/src/features/apps/ItemPage.tsx, src/row_bot/skills.py]
   settings_accounts:
     title: Accounts settings
     app_route: /app-v2/settings/accounts
@@ -395,25 +395,25 @@ surfaces:
     status: ready
     source_files: [frontend/src/features/settings/ChannelSettings.tsx, src/row_bot/channels/registry.py]
   settings_mcp:
-    title: MCP settings
-    app_route: /app-v2/settings/integrations?tab=my&type=mcp
+    title: Apps › Advanced (catalogs, apps in chats, custom connection)
+    app_route: /app-v2/settings/apps?view=advanced
     state: sample servers configured and disabled
     scenario: configured
-    docs_page: /docs/settings/mcp
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    docs_page: /docs/settings/apps
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/CapabilitySettings.tsx, frontend/src/features/settings/McpConnections.tsx]
+    source_files: [frontend/src/features/apps/Advanced.tsx, frontend/src/features/settings/CapabilitySettings.tsx]
   settings_plugins:
-    title: Plugins settings
-    app_route: /app-v2/settings/integrations?tab=my&type=plugin
+    title: A package's app page
+    app_route: /app-v2/settings/apps
     state: inert local demonstration plugin
     scenario: configured
-    docs_page: /docs/settings/plugins
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    docs_page: /docs/integrations/plugins
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/PluginSettings.tsx]
+    source_files: [frontend/src/features/apps/ItemPage.tsx, frontend/src/features/settings/PluginSettings.tsx]
   settings_preferences:
     title: Preferences settings
     app_route: /app-v2/settings/preferences
@@ -425,45 +425,45 @@ surfaces:
     status: ready
     source_files: [frontend/src/features/settings/Preferences.tsx]
   skills_hub:
-    title: Browse Skills marketplace
-    app_route: /app-v2/settings/integrations?tab=discover&type=skill&source=clawhub
+    title: Find skills in Settings › Skills
+    app_route: /app-v2/settings/skills
     state: bundled catalogue only, network disabled
     scenario: configured
     docs_page: /docs/skills/
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/PublicSkillHub.tsx, src/row_bot/application/client_skill_hub.py]
+    source_files: [frontend/src/features/apps/Library.tsx, src/row_bot/application/client_skill_hub.py]
   plugin_marketplace:
-    title: Plugin Marketplace
-    app_route: /app-v2/settings/integrations?tab=discover&type=plugin&source=native
+    title: Find packages in Settings › Apps
+    app_route: /app-v2/settings/apps
     state: bundled catalogue only, no install
     scenario: configured
     docs_page: /docs/integrations/plugins
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/PluginSettings.tsx, src/row_bot/plugins/marketplace.py]
+    source_files: [frontend/src/features/apps/Library.tsx, src/row_bot/plugins/marketplace.py]
   mcp_add_server:
-    title: Add MCP server dialog
-    app_route: /app-v2/settings/integrations?tab=my&type=mcp
+    title: Add a custom connection
+    app_route: /app-v2/settings/apps/custom?edit=1
     state: blank disabled configuration, no connection attempt
     scenario: configured
     docs_page: /docs/integrations/mcp
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/CapabilitySettings.tsx, frontend/src/features/settings/mcp-add-connect.ts]
+    source_files: [frontend/src/features/apps/Advanced.tsx, frontend/src/features/settings/CapabilitySettings.tsx]
   mcp_marketplace:
-    title: Browse MCP server marketplace
-    app_route: /app-v2/settings/integrations?tab=discover&type=mcp&source=official
+    title: Find apps in Settings › Apps
+    app_route: /app-v2/settings/apps
     state: bundled curated starter catalogue only, no directory request or import
     scenario: configured
     docs_page: /docs/integrations/mcp
-    no_image_reason: Unified Integrations replaces this legacy surface; isolated browser evidence is kept with implementation verification.
+    no_image_reason: The Apps & Skills library has no approved screenshot yet; isolated browser evidence is kept with implementation verification.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/CapabilitySettings.tsx, src/row_bot/mcp_client/marketplace.py]
+    source_files: [frontend/src/features/apps/Library.tsx, src/row_bot/mcp_client/marketplace.py]
   mobile_chat_list:
     title: Phone sidebar and conversations
     app_route: /app-v2/ at phone width
@@ -586,7 +586,7 @@ surfaces:
     source_files: [src/row_bot/channels, frontend/src/features/settings/ChannelSettings.tsx]
   live_plugins_and_mcp:
     title: Live configured plugin and MCP health, tools, permissions, and recovery
-    app_route: Plugins and MCP settings with the review machine's configured extensions
+    app_route: Settings › Apps with the review machine's configured apps and packages
     state: requires approved local extensions or external MCP processes
     scenario: live-manual
     docs_page: /docs/extending/
@@ -604,13 +604,13 @@ surfaces:
     capture_type: manual
     status: ready
     source_files: [installer, src/row_bot/updater.py]
-  settings_integrations:
-    title: Integrations
-    app_route: /app-v2/settings/integrations
-    state: local inventory and explicit source discovery
+  settings_apps:
+    title: Apps
+    app_route: /app-v2/settings/apps
+    state: local library and explicit online catalog search
     scenario: configured
-    docs_page: /docs/settings/integrations
+    docs_page: /docs/settings/apps
     no_image_reason: Use isolated browser verification evidence; no live account screenshot is required.
     capture_type: manual
     status: ready
-    source_files: [frontend/src/features/integrations/IntegrationsPage.tsx, src/row_bot/application/client_integrations.py]
+    source_files: [frontend/src/features/apps/AppsArea.tsx, src/row_bot/application/client_integrations.py]

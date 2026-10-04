@@ -1,6 +1,7 @@
 """Phase 3 behaviour: the background runner, expiry, Turn off and Remove, picked files and links,
 and access that only an explicit Full access (or one tool's "Use") widens. Fakes only."""
 # ruff: noqa: F811 -- shared isolated fixtures
+import copy
 import io
 import json
 from uuid import uuid4
@@ -58,6 +59,15 @@ def gate(tools):
     ("get_record", None, "read_only", False),
     ("update_record", None, "mutation", False),
     ("create_issue", {"readOnlyHint": True}, "mutation", False),  # A change by name stays a change.
+    ("tag_issue", None, "mutation", False),
+    ("get_label", {"readOnlyHint": True}, "read_only", False),  # A noun after a read verb is not a change.
+    ("list_by_tag", None, "read_only", False),
+    ("create_release", None, "mutation", True),  # A routine verb on something that publishes or grants access.
+    ("add_collaborator", None, "mutation", True),
+    ("set_password", {"readOnlyHint": True}, "mutation", True),
+    ("create_pull_request", None, "mutation", True),
+    ("list_members", None, "read_only", False),
+    ("reset_workspace", None, "mutation", True),
     ("delete_record", None, "mutation", True),
     ("send_message", None, "mutation", True),
     ("add_comment", None, "mutation", True),  # Reaches other people.
@@ -71,6 +81,11 @@ def test_classification_separates_routine_changes_from_high_impact_ones(name, an
     tool = {"annotations": annotations} if annotations else None
     assert safety.classify_tool_effect(name, "", tool) == effect
     assert safety.is_destructive_tool(name, "", tool) is high_impact
+
+
+def test_a_tool_described_as_a_change_stays_a_change_unless_hinted_read_only():
+    assert safety.classify_tool_effect("get_or_make_page", "Update the page, creating it when missing") == "mutation"
+    assert safety.classify_tool_effect("get_page", "Update the page", {"annotations": {"readOnlyHint": True}}) == "read_only"
 
 
 def test_routine_changes_ask_until_allowed_while_high_impact_and_unknown_always_ask():
@@ -178,6 +193,118 @@ def test_turn_off_and_remove_are_consented_plans_and_cleanup_is_part_of_the_cons
     assert removed["state"] == "completed" and "Synthetic" not in config.read_saved_configuration().document["servers"]
 
 
+def test_a_recheck_keeps_earlier_allowances_and_applies_explicit_choices_to_earlier_tools(item, owner):
+    from row_bot.application import capability_catalog_controls as catalog, capability_runtime_controls as lifecycle
+    from row_bot.application.capability_configuration_controls import read_mcp_configuration
+    from tests.subsystem.mcp.test_capability_catalog_controls import test_request
+
+    def check_and_accept(preset, overrides=None):
+        tested = test_request()
+        result = lifecycle.execute_mcp_runtime_command(owner_id="owner", key=tested["command_id"], command=tested,
+                                                       validate=lambda: None, validate_review=lambda _: None)
+        assert result["mcp_runtime"]["state"] == "tested", result
+        payload = {"configuration_revision": read_mcp_configuration().revision, "server_id": tested["payload"]["server_id"],
+                   "test_command_id": tested["command_id"], "preset": preset, **({"overrides": overrides} if overrides else {})}
+        command = {"command_id": str(uuid4()), "type": "mcp.catalog.accept", "expected_revision": "0", "payload": payload}
+        catalog.execute_mcp_catalog_command(owner_id="owner", key=command["command_id"], command=command,
+                                            validate=lambda: None, validate_review=lambda review: None)
+    check_and_accept("full")
+    assert gate(owner.tools)["update_record"] == "use"
+    check_and_accept("ask", {"get_record": "off"})  # Checking the connection again, as a fix does.
+    assert gate(owner.tools)["update_record"] == "use"  # Accepting again never takes back what the user allowed.
+    assert gate(owner.tools)["get_record"] == "off"  # An explicit choice reaches a tool accepted before.
+
+
+def test_a_read_never_overwrites_progress_saved_while_it_looked(item, owner, monkeypatch):
+    _, plan = api.read_item(owner_id="owner", item_id=item)
+    plan_id = str(uuid4())
+    paused = api.start_plan(ctx(), plan_id=plan_id, item_id=item, digest=plan["digest"])
+    assert paused["pause"] == "access"
+    record, _ = plans._load("owner", plan_id)
+    record.update(state="running", pause=None)  # As if its runner stopped mid-step.
+    plans._save(record)
+
+    def runner_finishes_meanwhile(_ctx, seen, _step):
+        moved = copy.deepcopy(seen)
+        moved.update(state="paused", pause="access", message="moved on")
+        plans._save(moved)
+        return "resume"
+    monkeypatch.setitem(plans._OBSERVERS, "access", runner_finishes_meanwhile)
+    assert plans.read_plan(ctx(), plan_id)["message"] == "moved on"
+    assert plans._load("owner", plan_id)[0]["message"] == "moved on"
+
+
+def test_saving_access_never_runs_setup_steps_nobody_agreed_to(item, owner, monkeypatch):
+    connect(item, "ask")
+    facts.invalidate()
+    _, plan = api.read_item(owner_id="owner", item_id=item, intent="access")
+    assert [s["type"] for s in plan["steps"]] == ["consent", "test", "access", "enable"] and plan["supported"]
+    real = facts.mcp_setup
+    monkeypatch.setattr(facts, "mcp_setup", lambda *args: {**real(*args), "auth_mode": "oauth", "credential_configured": False})
+    _, signed_out = api.read_item(owner_id="owner", item_id=item, intent="access")
+    assert [s["type"] for s in signed_out["steps"]] == ["consent", "test", "access", "enable"]
+    assert not signed_out["supported"] and "Finish setting up" in signed_out["unsupported_reason"]
+
+
+def test_an_update_that_changes_nothing_the_package_can_do_is_applied(monkeypatch):
+    from row_bot.application import client_plugin_lifecycle as lifecycle
+    from row_bot.plugins import hermes_catalog
+    from row_bot.plugins.lifecycle_review import NO_CHANGES
+    row = facts.finish(facts.entry("plugin", "kit", "Kit", installed=True, lifecycle="installed", pin="old",
+                                   source_url="https://github.com/example/kit"))
+    monkeypatch.setattr(hermes_catalog, "inspect_package", lambda **_: {
+        "plugin_id": "kit", "pin": "new", "preview_id": "preview", "skills": [], "servers": []})
+    monkeypatch.setattr(lifecycle, "review_plugin_lifecycle", lambda action, plugin_id, **_: {"changes": [NO_CHANGES], "revision": "r"})
+    sent = []
+    monkeypatch.setattr(lifecycle, "execute_plugin_lifecycle", lambda command, **_: sent.append(command["action"]) or {"status": "completed"})
+    plan = plans.compute(row, {}, intent="update")
+    done = plans.start(ctx(), row, {}, digest=plan["digest"], intent="update")
+    assert (done["state"], done["message"], sent) == ("completed", "Updated.", ["update"])
+
+
+def test_removing_what_a_package_left_behind_is_agreed_as_deleting_its_data():
+    row = facts.finish(facts.entry("plugin", "kept", "Kept", installed=True, lifecycle="data_retained"))
+    plan = plans.compute(row, {}, intent="remove")
+    assert plan["consent"]["cleanup"] is True
+    assert plans.compute(row, {}, intent="remove", cleanup=True)["digest"] == plan["digest"]
+
+
+def test_retry_checks_only_this_owners_unfinished_changes_again_and_packages_stay_local(item, owner, monkeypatch):
+    from row_bot.mcp_client import targets
+    from row_bot.runtime import admissions
+    target = targets.admission_target(targets.normalize(None))
+    pending = [{"target": target, "owner_id": who, "command_id": who + "-change", "type": "mcp.configuration.save"}
+               for who in ("owner", "another-device")]
+    monkeypatch.setattr(admissions, "read_unfinished_commands", lambda **_: {"items": pending, "overflow": False})
+    checked = []
+    monkeypatch.setattr(facts, "reconcile_command", lambda owner_id, command_id, kind, validate, explicit=False: (
+        checked.append((command_id, explicit)) or {"command_id": command_id, "settled": True, "message": ""}))
+    assert api.settle_item(ctx(), item_id=item)["entry"]["id"] == item
+    assert [c for c in checked if c[1]] == [("owner-change", True)]
+    package = facts.finish(facts.entry("plugin", "kit", "Kit", installed=True, lifecycle="installed"))
+    monkeypatch.setattr(facts, "read", lambda item_id, validate=None: package)
+    remote = plans.Context(owner_id="owner", mcp_owner_id="owner", validate=lambda: None, local_owner=False)
+    with pytest.raises(ClientPlatformError, match="owner_local_only"):
+        api.settle_item(remote, item_id="plugin:kit")
+
+
+def test_a_package_cannot_choose_what_runs_without_asking(monkeypatch):
+    from types import SimpleNamespace
+    from row_bot.plugins import mcp as plugin_mcp, registry, state
+    entry = {"id": "notes", "url": "https://example.test/mcp", "tools": {
+        "enabled": {"update_note": True}, "require_approval": ["read_note"], "run_without_asking": ["update_note"],
+        "catalog": {"update_note": {"effect": "read_only", "destructive": False}}, "accepted_names": ["update_note"]}}
+    manifest = SimpleNamespace(id="kit", name="Kit", path="", provides=SimpleNamespace(mcp_servers=[entry]))
+    monkeypatch.setattr(registry, "get_loaded_manifests", lambda: [manifest])
+    monkeypatch.setattr(state, "is_plugin_enabled", lambda plugin_id: True)
+    monkeypatch.setattr(state, "get_mcp_child_overrides", lambda plugin_id, server_id: {})  # The user chose nothing yet.
+    (name, cfg), = plugin_mcp.plugin_mcp_servers().items()
+    assert not {"run_without_asking", "catalog", "accepted_names"} & set(cfg["tools"])
+    assert cfg["tools"]["require_approval"] == ["read_note"]
+    found = mcp_runtime._normalize_tools(name, cfg, [{"name": "update_note", "description": "", "inputSchema": {}}])
+    assert found["update_note"].requires_approval is True  # A routine change still asks until the user allows it.
+
+
 def zipped(files: dict[str, bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -187,7 +314,7 @@ def zipped(files: dict[str, bytes]) -> bytes:
 
 
 def test_picked_files_are_recognised_privately_and_never_run(tmp_path, monkeypatch, owner):
-    monkeypatch.setattr(uploads, "_root", lambda: tmp_path)
+    monkeypatch.setattr(uploads, "_root", lambda: tmp_path / "uploads")
     skill = uploads.stage(zipped({"pdf-helper/SKILL.md": b"---\nname: pdf-helper\ndescription: Fill PDFs\n---\nSteps",
                                   "pdf-helper/run.sh": b"echo never"}), "pdf.skill")
     assert (skill["kind"], skill["name"]) == ("skill", "pdf-helper")
@@ -201,6 +328,12 @@ def test_picked_files_are_recognised_privately_and_never_run(tmp_path, monkeypat
         uploads.stage(zipped({"readme.txt": b"x"}), "notes.zip")
     with pytest.raises(ValueError, match="invalid_upload"):
         uploads.stage(b"MZ", "setup.exe")
+    with pytest.raises(ValueError, match="invalid_upload"):
+        uploads.stage(b"not an archive", "broken.zip")
+    assert len(list((tmp_path / "uploads").iterdir())) == 2  # A refused file is never kept.
+    for index in range(uploads.MAX_KEPT + 3):
+        uploads.stage(zipped({"tools/plugin.json": b"{}"}), f"tools{index}.zip")
+    assert len(list((tmp_path / "uploads").iterdir())) == uploads.MAX_KEPT
     page = api.upload_file(owner_id="owner", data=b"bundle", filename="tool.mcpb")
     _detail, plan = api.read_item(owner_id="owner", item_id=page["items"][0]["id"], revision=page["revision"])
     assert not plan["supported"] and {s["type"]: s["state"] for s in plan["steps"]}["runtime"] == "unsupported"
@@ -217,9 +350,16 @@ def test_a_pasted_link_is_recognised_locally_and_only_https_is_accepted(owner, l
     assert page["items"][0]["kind"] == kind and owner.calls == []
     _detail, plan = api.read_item(owner_id="owner", item_id=page["items"][0]["id"], revision=page["revision"])
     assert plan["steps"][0]["type"] == "consent" and plan["supported"]
-    for bad in ("http://mcp.example.com/mcp", "https://user:secret@mcp.example.com/mcp", "file:///etc/passwd"):
+    for bad in ("http://mcp.example.com/mcp", "https://user:secret@mcp.example.com/mcp", "file:///etc/passwd",
+                "https://mcp.example.com/mcp?api_key=secret"):
         with pytest.raises(ClientPlatformError, match="integration_link_unsupported"):
             api.resolve_reference(owner_id="owner", reference=bad)
+
+
+def test_a_skill_or_package_link_keeps_only_its_address(owner):
+    page = api.resolve_reference(owner_id="owner", reference="https://github.com/example/tools?tab=readme#install")
+    detail, _plan = api.read_item(owner_id="owner", item_id=page["items"][0]["id"], revision=page["revision"])
+    assert detail["about"]["source_url"] == "https://github.com/example/tools"
 
 
 def test_connecting_a_catalog_entry_saves_it_at_consent_and_reports_the_installed_item(owner):

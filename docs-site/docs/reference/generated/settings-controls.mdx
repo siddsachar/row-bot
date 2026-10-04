@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: 4d0d65b477061ecd -->
+<!-- inventory-hash: c426c890e3f6f417 -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -119,22 +119,29 @@ Group: Capabilities. Open in Row-Bot: `/app-v2/settings/tools`. Guide: [/docs/se
 | Built-in tools | utilities calculator weather charts url reader | `/app-v2/settings/tools#built-in-tools` | `frontend/src/features/settings/model.ts#built-in-tools` |
 | Custom tools | own tools scripts repository folder commands builder | `/app-v2/settings/tools#custom-tools` | `frontend/src/features/settings/model.ts#custom-tools` |
 
-## Integrations Controls
+## Skills Controls
 
-Group: Capabilities. Open in Row-Bot: `/app-v2/settings/integrations`. Guide: [/docs/settings/integrations](/docs/settings/integrations).
+Group: Capabilities. Open in Row-Bot: `/app-v2/settings/skills`. Guide: [/docs/settings/skills](/docs/settings/skills).
 
-Dependencies: MCP and native plugins require their declared runtimes; portable host extensions are unsupported.
-
-Security: Imports start off; review source, credentials, dependencies and tested tools before enabling.
+Security: Adding a skill turns it on; scripts inside a skill never run when it is added.
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
-| Installed skills |  | `/app-v2/settings/integrations?tab=my&type=skill#skill-library` | `frontend/src/features/settings/model.ts#skill-library` |
-| Discover public skills | hub browse | `/app-v2/settings/integrations?tab=discover&type=skill&source=clawhub#public-skills` | `frontend/src/features/settings/model.ts#public-skills` |
-| Installed plugins |  | `/app-v2/settings/integrations?tab=my&type=plugin#installed-plugins` | `frontend/src/features/settings/model.ts#installed-plugins` |
-| Plugin marketplace | discover browse | `/app-v2/settings/integrations?tab=discover&type=plugin&source=native#plugin-marketplace` | `frontend/src/features/settings/model.ts#plugin-marketplace` |
-| MCP servers | add server import config | `/app-v2/settings/integrations?tab=my&type=mcp#mcp-servers` | `frontend/src/features/settings/model.ts#mcp-servers` |
-| Runtimes (Node.js, uv) | node python uv | `/app-v2/settings/integrations?tab=my&type=mcp#mcp-runtimes` | `frontend/src/features/settings/model.ts#mcp-runtimes` |
+| Your skills |  | `/app-v2/settings/skills#skill-library` | `frontend/src/features/settings/model.ts#skill-library` |
+| Find skills | hub browse discover public | `/app-v2/settings/skills#public-skills` | `frontend/src/features/settings/model.ts#public-skills` |
+
+## Apps Controls
+
+Group: Connections. Open in Row-Bot: `/app-v2/settings/apps`. Guide: [/docs/settings/apps](/docs/settings/apps).
+
+Dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot prepares after you agree.
+
+Security: Nothing is fetched or run until you agree; deleting, sending, paying, publishing, running code and unknown actions always ask first.
+
+| Setting | Search keywords | Open in Row-Bot | Source |
+| --- | --- | --- | --- |
+| App catalogs | update registry hermes mcp | `/app-v2/settings/apps#catalogs` | `frontend/src/features/settings/model.ts#catalogs` |
+| Runtimes (Node.js, uv) | node python uv mcp | `/app-v2/settings/apps#chats` | `frontend/src/features/settings/model.ts#chats` |
 
 ## Accounts Controls
 

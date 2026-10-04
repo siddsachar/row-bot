@@ -1,12 +1,47 @@
 ---
 title: "Settings: Skills"
-description: "Manage skills through Integrations while keeping specialized controls."
+description: "Find, add, try, update, and remove skills, and open the skill editor to create or edit one."
 ---
 
 # Settings: Skills
 
-Skills now live in **Settings → Integrations**. Choose **Skills**, then **Installed** or **Discover**. One explicit **Search** uses eligible catalogs such as ClawHub; typing and Installed filtering stay local. Optional skills.sh discovery is unavailable until its documented desktop access requirements are resolved. Open a skill to review its complete file list and scanner findings before adding it off. Availability and pinning stay in its details. Local creation, import and proposals remain under **Advanced configuration and existing editors**.
+Skills are instruction packs that teach Row-Bot how to approach a kind of work. **Settings › Skills** works like [Settings › Apps](/docs/settings/apps): one library to find skills and one page per skill.
 
-Public updates require a fresh file review. One prior managed revision can be restored; edited local skills are never silently overwritten. Skill instructions do not grant tool access, credentials or approvals. Automatic selection and per-task activation remain unchanged.
+## Where To Find It
 
-See [Integrations](/docs/settings/integrations) and [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills).
+Open **Settings**, then choose **Skills** in the **Capabilities** group, or search for it with **Find a setting**. The command palette's **Add a skill** opens it too.
+
+## Find A Skill
+
+Search is instant and local; nothing you type leaves this computer. **Search online catalogs** asks the live catalogs, such as ClawHub, about the current search. The page lists **Your skills** first, then featured skills and the rest of the library. **Add from link or file** adds a skill from a skill page, a GitHub repository, or a .zip or .skill file; nothing is fetched until you agree on the skill's page.
+
+## The Skill Page
+
+- **Use it in chat with /_name_** shows the slash command that loads it.
+- The page says which agent profiles include it.
+- **What's inside** (collapsed) lists its files and scripts, for example "6 files · 1 script".
+- **Try it** opens a new chat with a draft that uses the skill. The draft stays in the composer; nothing is sent until you send it.
+- For a skill from a catalog, the **⋯** menu has **Check for updates** and **Remove…**.
+
+## Add A Skill
+
+**Add** adds the skill and turns it on; the sheet says so before you agree. Scripts inside a skill never run when it is added.
+
+A skill changes instructions only. It does not add credentials, grant tools that an agent profile denies, or skip approvals.
+
+## Create Or Edit A Skill
+
+**Create a skill** opens the skill editor for a new skill. On a skill's page, **⋯ › Advanced settings** opens the editor for that one skill, where you edit it, pin it, and review proposed changes to it.
+
+## Old Links
+
+Old links to the Skills section of the former Integrations page open this page.
+
+## Control-Level Reference
+
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#skills-controls) lists every searchable setting on this page. How Row-Bot picks skills automatically is in [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills), and writing good skills is in [Skills Hub](/docs/skills/).
+
+## Troubleshooting
+
+- If a skill is never used, check that it is in **Your skills**, try it with **/_name_**, and make your request match its purpose.
+- If a skill is used too eagerly, edit it with clearer boundaries or remove it.

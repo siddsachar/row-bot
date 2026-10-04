@@ -2306,6 +2306,11 @@ export class ClientController {
     body: import('./types').IntegrationResolveRequest,
     signal?: AbortSignal,
   ) => this.query(() => this.transport.resolveIntegration?.(body, signal));
+  /** Retry on an unfinished change; it is checked again, never sent again. */
+  settleIntegration = (
+    body: import('./types').IntegrationSettleRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.settleIntegration?.(body, signal));
   uploadIntegration = (file: Blob, name: string, signal?: AbortSignal) =>
     this.query(() => this.transport.uploadIntegration?.(file, name, signal));
   integrationDetail = (

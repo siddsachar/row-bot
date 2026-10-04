@@ -1,12 +1,27 @@
 ---
 title: "Plugins"
-description: "Set up and maintain plugins in Integrations."
+description: "Add, turn off, and remove packages of apps and skills in Settings › Apps."
 ---
 
 # Plugins
 
-Packages now live in **Settings → Integrations**. Inspect a native Row-Bot package or portable Agent Plugins 1.0.0 package before adding it. Native configuration, protected secret fields, preparation and health checks remain in the package details. Portable skills and MCP connections appear as children of one parent.
+A package (plugin) bundles several things, such as apps, skills and settings, under one name. Packages are managed in [Settings › Apps](/docs/settings/apps) like any other app.
 
-Enabling a package does not bypass tool approvals or profiles. Test and accept a portable MCP child’s tools separately. Foreign host entry points and hooks are not executed. Updates preserve package identity and settings, keep one previous managed file revision, and expose explicit recovery. Remove preserves data and credentials; **Delete saved data** removes only that package’s retained state.
+## Add A Package
 
-See [Integrations](/docs/settings/integrations) for the complete workflow and compatibility limits.
+Find it in **Settings › Apps**, or use **Add from link or file** with a GitHub repository or a .zip file. Package rows from the Hermes catalog say **Checked when you add**: Row-Bot checks what the package contains when you add it, not while you browse. Nothing is downloaded or run until you agree on its page.
+
+The package page's **Included** section lists what it brings. Each of those items says **Installed as part of _package_** and is managed through the package. Finish any app inside it that still needs a sign-in or a key from its own page.
+
+## Turn Off And Remove
+
+- **Turn off** stops the package and everything it brought. Settings and keys are kept.
+- **Remove…** removes the package and everything it brought. Its saved keys and data are kept unless you choose **Also delete saved keys and data**.
+
+Shared runtimes such as Node.js and uv stay installed.
+
+## Safety
+
+A package does not skip approvals or agent profile limits; its apps follow the access you choose for them. Code a package runs on this computer is not sandboxed, so add packages only from publishers you trust. Hooks and entry points written for other assistants are not run.
+
+See [Extend Row-Bot](/docs/extending/) for how packages compare with skills, apps and Custom Tools.

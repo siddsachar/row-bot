@@ -164,6 +164,10 @@ export interface ClientTransport {
     body: Wire.IntegrationResolveRequest,
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationEntryPage>;
+  settleIntegration?(
+    body: Wire.IntegrationSettleRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationDetail>;
   uploadIntegration?(
     file: Blob,
     name: string,

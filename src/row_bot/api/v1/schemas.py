@@ -8130,6 +8130,10 @@ class IntegrationResolveRequest(WireModel):
     kind: Literal["", "mcp", "skill", "plugin"] = ""
 
 
+class IntegrationSettleRequest(WireModel):
+    item_id: str = Field(min_length=1, max_length=512)
+
+
 class PlanStartRequest(WireModel):
     plan_id: UUID
     item_id: str = Field(min_length=1, max_length=512)

@@ -55,11 +55,21 @@ pages:
       search and knowledge tools, built-in tools, and custom tools.
     docs_route: /docs/settings/tools
     screenshot_id: settings-tools
-  integrations:
-    description: Discover, inspect, authenticate, configure, update and remove skills, packages and MCP connections.
-    docs_route: /docs/settings/integrations
-    security: Imports start off; review source, credentials, dependencies and tested tools before enabling.
-    dependencies: MCP and native plugins require their declared runtimes; portable host extensions are unsupported.
+  skills:
+    description: Find, add, try and remove skills, and open the skill editor to create
+      or edit one.
+    docs_route: /docs/settings/skills
+    security: Adding a skill turns it on; scripts inside a skill never run when it is
+      added.
+  apps:
+    description: Find and connect the services Row-Bot can work in, choose what each
+      app may do, turn apps off or remove them, and manage catalogs and custom
+      connections.
+    docs_route: /docs/settings/apps
+    security: Nothing is fetched or run until you agree; deleting, sending, paying,
+      publishing, running code and unknown actions always ask first.
+    dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot
+      prepares after you agree.
   accounts:
     description: Connect the GitHub, Google, and X accounts used by tools and setup
       flows.

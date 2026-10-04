@@ -149,6 +149,7 @@ function Detail({
   const [detail, setDetail] = useState<IntegrationDetail | null>(null);
   const [error, setError] = useState('');
   const [changing, setChanging] = useState(false);
+  const [settling, setSettling] = useState(false);
   const load = useCallback(
     (signal?: AbortSignal) =>
       controller.integrationDetail({ item_id: itemId, revision }, signal).then(
@@ -167,6 +168,17 @@ function Detail({
     void load(abort.signal);
     return () => abort.abort();
   }, [load]);
+  const settle = async () => {
+    setSettling(true);
+    try {
+      setDetail(await controller.settleIntegration({ item_id: itemId }));
+      setError('');
+    } catch (cause) {
+      setError(clientError(cause).message);
+    } finally {
+      setSettling(false);
+    }
+  };
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [Boolean(detail)]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -307,9 +319,12 @@ function Detail({
       {recovering && !control.plan && (
         <div className="app-banner" role="status">
           <span>Finishing your last change…</span>
-          <Button onClick={() => void load()}>Retry</Button>
+          <Button disabled={settling} onClick={() => void settle()}>
+            Retry
+          </Button>
         </div>
       )}
+      {error && <p role="alert">{error}</p>}
       {detail.plan && !detail.plan.supported && !detail.plan.plan_id && (
         <p className="settings-help" role="status">
           {detail.plan.unsupported_reason}
@@ -491,7 +506,8 @@ function Detail({
         control={control}
         name={name}
         cleanupOffered={
-          entry.kind === 'plugin' || (entry.kind === 'mcp' && about.signed_in)
+          (entry.kind === 'plugin' && entry.lifecycle !== 'data_retained') ||
+          (entry.kind === 'mcp' && about.signed_in)
         }
       />
     </article>

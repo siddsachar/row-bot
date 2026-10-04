@@ -231,7 +231,8 @@ const INTENTS: {
   {
     query: 'install a skill',
     first: /^Add a skill/,
-    ran: (h) => expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/skills'),
+    ran: (h) =>
+      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/skills'),
   },
   {
     query: 'change model',

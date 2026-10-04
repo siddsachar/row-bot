@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import concurrent.futures
+from itertools import islice
 from pathlib import PurePosixPath
 from typing import Any
 import copy
@@ -10,7 +11,7 @@ import hashlib
 import json
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.integrations import facts, plans, presets
@@ -296,6 +297,9 @@ def resolve_reference(*, owner_id: str, reference: str, kind: str = "", validate
     guess = kind or ("skill" if detected in {"marketplace_url", "direct_skill_url", "well_known_index_url"} or (
         detected == "github_url" and skill_path) else "plugin" if detected == "github_url" else "mcp")
     name = PurePosixPath(parts.path.rstrip("/")).name or parts.hostname
+    if guess == "mcp" and (parts.query or parts.fragment):
+        raise ClientPlatformError("integration_link_unsupported")  # Keys belong in the keychain, never in a saved address.
+    link = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
     if guess == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry
         install = {"transport": "streamable_http", "url": link}
@@ -372,7 +376,8 @@ def _about(row: dict, validate: Callable[[], None], plan: dict | None) -> dict:
         skill = (skills.read_client_skills()["items"].get(row["owner_ref"]) or {}).get("skill")
         root = getattr(skill, "path", None)
         if root is not None and root.is_dir():
-            paths = sorted(p for p in root.rglob("*") if p.is_file() and not p.name.startswith(".row-bot"))[:100]
+            # Bounded: a skill that vendors thousands of files still opens quickly.
+            paths = sorted(islice((p for p in root.rglob("*") if p.is_file() and not p.name.startswith(".row-bot")), 1000))[:100]
             about["files"] = [{"path": p.relative_to(root).as_posix()[:256], "size_bytes": p.stat().st_size,
                                "executable": p.suffix.lower() in EXECUTABLE_EXTENSIONS} for p in paths]
         about["profiles"] = [str(p.get("display_name") or p.get("slug"))[:80] for p in list_agent_profiles()
@@ -392,6 +397,18 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
     plan = plans.compute(row, reference, intent=intent, cleanup=cleanup)
     validate()
     return {"entry": entry(row), "plan": plans.view(plan) if plan else None, "about": _about(row, validate, plan)}, plan
+
+
+def settle_item(ctx: plans.Context, *, item_id: str) -> dict:
+    """The Retry on an unfinished change: check it again explicitly, then read the item."""
+    ctx.validate()
+    row = facts.read(item_id, ctx.validate)
+    if row is None:
+        raise ClientPlatformError("not_found")
+    if row["kind"] == "plugin" and not ctx.local_owner:
+        raise ClientPlatformError("owner_local_only")  # Package recovery stays with Row-Bot on this computer.
+    facts.settle(row, {ctx.owner_id, ctx.mcp_owner_id}, ctx.validate)
+    return read_item(owner_id=ctx.owner_id, item_id=item_id, validate=ctx.validate, context=ctx)[0]
 
 
 def start_plan(ctx: plans.Context, *, plan_id: str, item_id: str, revision: str = "", intent: str = "", digest: str,

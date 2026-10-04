@@ -11,6 +11,8 @@ from row_bot.plugins.manifest import parse_manifest
 from row_bot.mcp_client.packages import requirement
 from row_bot.mcp_client.requirements import requirements_for_server
 
+NO_CHANGES = "No package file or capability changes."
+
 
 def describe_package_changes(previous: Path | None, candidate: Path, *, source_identity: str) -> list[str]:
     """Name changed owned files and declarations without exposing credential values."""
@@ -63,4 +65,4 @@ def describe_package_changes(previous: Path | None, candidate: Path, *, source_i
                         detail = "unsupported executable recipe; inspect the source before preparation"
                     lines.append(f"{label} executable package: {detail}")
                     lines.append(f"{label} execution/dependency declaration digest: {hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()}. Changed runtime declarations require preparation and tool review.")
-    return lines or ["No package file or capability changes."]
+    return lines or [NO_CHANGES]

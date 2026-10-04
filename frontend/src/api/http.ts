@@ -1207,6 +1207,9 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  settleIntegration(body: wire.IntegrationSettleRequest, signal?: AbortSignal) {
+    return wire.settleIntegrationItem(this.base, this.session(), body, signal);
+  }
   uploadIntegration(file: Blob, name: string, signal?: AbortSignal) {
     return wire.uploadIntegrationFile(
       this.base,

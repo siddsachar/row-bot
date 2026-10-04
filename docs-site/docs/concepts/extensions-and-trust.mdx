@@ -12,14 +12,16 @@ Row-Bot can learn a procedure, gain a tool, load code, connect a server, or auth
 | Built-in tool | A maintained capability shipped with Row-Bot. | Is it enabled for this profile, and does this action need approval? |
 | Skill | Instructions, examples, and supporting files that shape behaviour. | Do the instructions match your intent and avoid unexpected data or tool use? |
 | Custom Tool | Reviewed local code or a command exposed as a reusable tool. | What code runs, in which workspace, with which dependencies and command class? |
-| Plugin | A packaged extension that can add code, tools, Skills, channels, configuration, or UI. | Do you trust its publisher, source, permissions, dependencies, and update path? |
-| MCP server | Tools supplied by a separate local process or remote service. | What can the server access, where does it run, and which of its tools are enabled? |
+| Plugin (package) | A packaged extension that can add code, tools, Skills, apps, configuration, or UI. | Do you trust its publisher, source, permissions, dependencies, and update path? |
+| App (MCP server) | Tools supplied by a separate local process or hosted service. | What can it access, where does it run, and what may it do without asking? |
 | Channel | A bridge for incoming messages or outgoing results. | Who can contact it, which conversation receives replies, and may workflows deliver there? |
 | Account | Authorisation for a service such as GitHub, Google, or X. | Which service scopes and account data become available to enabled tools? |
 
 ## Instructions Are Not Permissions
 
-A Skill or profile can tell the model when to use a capability, but it does not create credentials or bypass Row-Bot's tool and approval policy. Conversely, installing a plugin or MCP server can add real executable capability even when no Skill mentions it. Review both the guidance layer and the execution layer.
+A Skill or profile can tell the model when to use a capability, but it does not create credentials or bypass Row-Bot's tool and approval policy. Conversely, connecting an app or adding a package can add real executable capability even when no Skill mentions it. Review both the guidance layer and the execution layer.
+
+When you connect an app, you choose what it may do: **Read only**, **Ask before changes** (the default) or **Full access**. Deleting, sending, paying, publishing, running code and unknown actions always ask, whichever you choose; Full access only lets routine changes run without asking.
 
 Progressive discovery preserves this separation. Loading a skill adds instructions to one task; it cannot make a profile-denied tool callable. Searching an enabled external-tool catalog does not enable a tool, change its provider schema, or bypass its approval classification.
 
@@ -34,6 +36,5 @@ Third-party dependency telemetry is not Row-Bot telemetry. Review dependency beh
 - Compare extension types and browse screenshots in [Extend Row-Bot](/docs/extending/).
 - Browse and review Skills in [Skills Hub](/docs/skills/) and [Skills Settings](/docs/settings/skills).
 - Understand automatic capability selection in [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills) and configure it in [Tools Settings](/docs/settings/tools).
-- Install and control packaged code in [Plugins](/docs/integrations/plugins) and [Plugin Settings](/docs/settings/plugins).
-- Browse, add, test, and enable servers in [MCP](/docs/integrations/mcp) and [MCP Settings](/docs/settings/mcp).
+- Find, connect, and choose access for apps and packages in [Apps Settings](/docs/settings/apps), with background in [MCP](/docs/integrations/mcp) and [Plugins](/docs/integrations/plugins).
 - Configure external messaging in [Channels](/docs/integrations/channels) and service authorisation in [Accounts And Authorisation](/docs/integrations/accounts).

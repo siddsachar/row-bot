@@ -21,7 +21,7 @@ MODELS = {name: getattr(schemas, name) for name in (
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
     "PlanStartRequest", "PlanContinueRequest", "IntegrationAbout", "IntegrationFile", "IntegrationRequirement",
-    "IntegrationResolveRequest",
+    "IntegrationResolveRequest", "IntegrationSettleRequest",
     "IntegrationAttribution", "IntegrationSourceStatus", "IntegrationSearchRequest", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
     "Command", "Event", "Handshake", "Problem", "Outcome", "ResourceBinding",
     "PreviewContract", "CommandReceipt", "AttachmentView", "SessionProof",
@@ -121,6 +121,7 @@ OPERATIONS = (
     ('post', '/integrations/plans/{plan_id}/continue', 'PlanContinueRequest', 'InstallPlan'),
     ('post', '/integrations/plans/{plan_id}/cancel', None, 'InstallPlan'),
     ('post', '/integrations/items/resolve', 'IntegrationResolveRequest', 'IntegrationEntryPage'),
+    ('post', '/integrations/items/settle', 'IntegrationSettleRequest', 'IntegrationDetail'),
     ('post', '/integrations/uploads', 'bytes', 'IntegrationEntryPage'),
     ('post', '/settings/mcp/auth/review', 'McpAuthReviewRequest', 'McpAuthReview'),
     ('post', '/settings/mcp/auth/commands', 'McpAuthCommand', 'McpAuthStatus'),
@@ -1195,6 +1196,8 @@ export const searchIntegrationItems = (base: string, proof: SessionProof, body: 
   jsonRequest(base, '/integrations/items/search', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);
 export const resolveIntegrationReference = (base: string, proof: SessionProof, body: IntegrationResolveRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items/resolve', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationResolveRequest', body), undefined, signal);
+export const settleIntegrationItem = (base: string, proof: SessionProof, body: IntegrationSettleRequest, signal?: AbortSignal): Promise<IntegrationDetail> =>
+  jsonRequest(base, '/integrations/items/settle', 'IntegrationDetail', proof, 'POST', validateWire('IntegrationSettleRequest', body), undefined, signal);
 export async function uploadIntegrationFile(base: string, proof: SessionProof, file: Blob, name: string, signal?: AbortSignal): Promise<IntegrationEntryPage> {
   const response = await fetch(`${base}/api/v1/integrations/uploads`, {
     method: 'POST', credentials: 'same-origin', cache: 'no-store', signal, body: file,

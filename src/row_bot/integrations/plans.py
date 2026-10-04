@@ -151,6 +151,11 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
         steps[-1].update(state="unsupported", message=f"Choose {name}'s tools one by one in its settings.")
     steps.append(_step("enable", "pending" if intent == "access" else "done" if row["lifecycle"] == "installed"
                        and row["readiness"] == "ready" else "pending", "Save access" if intent == "access" else "Turn on " + name))
+    if intent == "access":  # Saving access changes access only; setup still to do needs its own consent.
+        unfinished = any(s["state"] == "pending" for s in steps if s["type"] not in {"consent", "test", "access", "enable"})
+        steps = [s for s in steps if s["type"] in {"consent", "test", "access", "enable"}]
+        if unfinished:
+            steps[2].update(state="unsupported", message=f"Finish setting up {name} first.")
     # Turning a connection on also turns on MCP when it is off, which can wake other connections.
     standalone = row.get("target") in (None, {"kind": "standalone"})
     consent = {"destinations": [setup["destination"]] if hosted else [], "runs_locally": not hosted,
@@ -214,7 +219,8 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         if intent == "update":
             steps.insert(1, _step("test", title="Check for a newer version"))
             consent["downloads"] = [row["source_url"] or name]
-        consent["cleanup"] = intent == "remove" and bool(cleanup)
+        # Removing what a package left behind is deleting its data, so that is what is agreed.
+        consent["cleanup"] = intent == "remove" and (bool(cleanup) or row["lifecycle"] == "data_retained")
         declaration = {"revision": row["revision"], "lifecycle": row["lifecycle"]}
     elif kind == "mcp" and reference.get("kind") == "hermes_mcp":  # Recipes become declared inputs in Phase 4.
         steps = [_step("consent", title="Before you connect"), _step("inputs", "unsupported", "Add your settings",
@@ -289,7 +295,7 @@ def view(plan: dict) -> dict:
 
 def _save(record: dict, *, terminal: bool = False) -> None:
     from row_bot.runtime import admissions
-    record["_saved_at"] = _now()
+    record["_saved_at"], record["_save_id"] = _now(), uuid4().hex  # The id tells saves apart within one clock tick.
     value = {"command_id": record["plan_id"], "status": "completed" if terminal else "admitting", "plan": record}
     if terminal:
         admissions.complete_command(record["owner"], record["plan_id"], value)
@@ -415,11 +421,16 @@ def cancel(ctx: Context, plan_id: str) -> dict:
 
 def read_plan(ctx: Context, plan_id: str) -> dict:
     """The plan's state, reconciled from owner receipts. Reading never sends a command."""
+    with _LOCK:  # Observing never interleaves with the plan's runner, a cancel or another reader.
+        return _read(ctx, plan_id)
+
+
+def _read(ctx: Context, plan_id: str) -> dict:
     record, open_ = _load(ctx.owner_id, plan_id)
     if open_ and plan_id not in _RUNNING and _stale(record):
         _stop(ctx, record, "expired", _MESSAGES["plan_expired"])
     elif open_ and plan_id not in _RUNNING and record["state"] in {"running", "paused", "uncertain"}:
-        before = json.dumps(record, sort_keys=True)
+        before, save_id = json.dumps(record, sort_keys=True), record.get("_save_id")
         step = next((s for s in record["steps"] if s["id"] == record.get("current_step")), None)
         seen = ""
         if step is not None:
@@ -435,6 +446,9 @@ def read_plan(ctx: Context, plan_id: str) -> dict:
         elif seen == "uncertain" and record["state"] != "uncertain":
             record.update(state="uncertain", pause=None, message=_MESSAGES["change_unconfirmed"])
         if seen == "failed" or json.dumps(record, sort_keys=True) != before:
+            latest = _load(ctx.owner_id, plan_id)[0]
+            if latest.get("_save_id") != save_id:  # The plan moved on meanwhile: report that, never overwrite it.
+                return view(latest)
             _save(record, terminal=seen == "failed")
     return view(record)
 
@@ -571,10 +585,8 @@ def _observe_commands(ctx: Context, record: dict, step: dict) -> str:
             continue
         if metadata["status"] in {"completed", "rejected"}:
             return "resume"
-        kind = "plugin" if metadata["type"].startswith("plugin.lifecycle.") else \
-            "skill" if metadata["type"].startswith("skill.hub.") else "mcp"
         try:
-            settled = facts.reconcile_command(owner, command_id, kind, ctx.validate)["settled"]
+            settled = facts.reconcile_command(owner, command_id, facts.command_kind(metadata["type"]), ctx.validate)["settled"]
         except Exception:
             settled = False
         return "resume" if settled else "uncertain"
@@ -876,8 +888,16 @@ def current_access(row: dict) -> dict | None:
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
     tools, manual = _tools(ctx, record), _manual(record["target"], record["server_id"])
     digest, chosen = _digest([tools, manual]), record.get("overrides") or {}
-    step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [
-        _tool_view(t, "off" if manual else chosen.get(t["name"]) or presets.tool_state(record["preset"], t)) for t in tools[:256]]}
+    # A re-check keeps the tools accepted before as they are; the preset applies to new ones.
+    saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {}) if record.get("_test") else {}
+    kept = set(saved.get("accepted_names") or [])
+
+    def state(tool: dict) -> str:
+        if manual:
+            return "off"
+        return chosen.get(tool["name"]) or (presets.actual(saved, tool["name"]) if tool["name"] in kept
+                                            else presets.tool_state(record["preset"], tool))
+    step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]]}
     if ctx.tools_digest == digest:
         step["message"] = ""
         return "done"
@@ -1044,7 +1064,8 @@ def _lifecycle(ctx: Context, record: dict, name: str, action: str, preview_id: s
 
     def build():
         review = review_plugin_lifecycle(action, plugin_id, validate=ctx.validate, owner_id=ctx.owner_id, preview_id=preview_id)
-        declared = [line for line in review.get("changes") or [] if not line.startswith("File ")]
+        from row_bot.plugins.lifecycle_review import NO_CHANGES
+        declared = [line for line in review.get("changes") or [] if not line.startswith("File ") and line != NO_CHANGES]
         if action == "update" and declared:  # New access is never granted by an update; it needs its own review.
             raise PlanError("update_needs_review", "This update changes what the package can do. Remove it and add it again "
                                                    "to review the changes.")
@@ -1121,7 +1142,7 @@ def _remove(ctx: Context, record: dict, step: dict) -> str:
     if record["kind"] == "plugin":
         if record["reference"].get("lifecycle") != "data_retained":
             _lifecycle(ctx, record, "enable:remove", "remove")
-        if record["consent"]["cleanup"] or record["reference"].get("lifecycle") == "data_retained":
+        if record["consent"]["cleanup"]:
             _lifecycle(ctx, record, "enable:purge", "purge")
         return "done"
     from row_bot.application import client_skill_hub as hub

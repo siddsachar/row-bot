@@ -18,6 +18,7 @@ import type {
 import type { ClientPlatform } from '../../platform';
 import { RuntimeContext } from '../../runtime';
 import { WorkspaceActionsContext } from '../shell/workspace-actions';
+import AccessSheet from './AccessSheet';
 import AppsArea from './AppsArea';
 
 const digest = 'd'.repeat(64);
@@ -362,7 +363,11 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
     integrationDetail: vi.fn(async () => detail()),
     reviewInstallPlan: vi.fn(async () => plan()),
     startInstallPlan: vi.fn(async () => running),
-    installPlan: vi.fn(async () => paused),
+    // One missed look (the network blinked) does not stop the plan's progress.
+    installPlan: vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue(paused),
     continueInstallPlan: vi.fn(async () => completed),
   };
   show('/settings/apps/item?id=mcp%3Acurated%3Anotion', controller);
@@ -390,6 +395,8 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
     await screen.findByRole('list', { name: 'Setup steps' }),
   ).toHaveTextContent('Step sign_in: running');
   await act(() => vi.advanceTimersByTimeAsync(800));
+  await act(() => vi.advanceTimersByTimeAsync(3100));
+  expect(controller.installPlan).toHaveBeenCalledTimes(2);
   const sheet = await screen.findByRole('dialog', {
     name: "Here's what Notion can do",
   });
@@ -612,4 +619,100 @@ it('adds from a pasted link without fetching anything, then opens what it found'
       '/settings/apps/item?id=mcp%3Alink%3Aabc&r=',
     ),
   );
+});
+
+it('keeps a custom access policy as it is when the person saves without changing it', async () => {
+  const onAllow = vi.fn();
+  render(
+    <AccessSheet
+      open
+      change
+      name="Notion"
+      busy={false}
+      onCancel={() => undefined}
+      onAllow={onAllow}
+      access={{
+        preset: 'custom',
+        tools_digest: digest,
+        tools: [
+          {
+            name: 'search',
+            title: 'Search',
+            effect: 'read_only',
+            state: 'off',
+          },
+          {
+            name: 'update_page',
+            title: 'Update page',
+            effect: 'mutation',
+            state: 'use',
+          },
+          {
+            name: 'delete_page',
+            title: 'Delete page',
+            effect: 'mutation',
+            state: 'ask',
+            always_asks: true,
+          },
+        ],
+      }}
+    />,
+  );
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Change what Notion can do',
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+  expect(onAllow).toHaveBeenCalledWith({
+    preset: 'ask',
+    tools_digest: digest,
+    overrides: { search: 'off', update_page: 'use', delete_page: 'ask' },
+  });
+});
+
+it('checks an unfinished change again when no plan owns it, and never starts a new one', async () => {
+  const stuck = entry({
+    id: 'plugin:kit',
+    kind: 'plugin',
+    installed: true,
+    lifecycle: 'installed',
+    readiness: 'attention',
+    blockers: [
+      {
+        code: 'change_unconfirmed',
+        severity: 'blocking',
+        message: '',
+        subject: '',
+      },
+    ],
+    next_action: { kind: 'retry', label: 'Retry' },
+  });
+  const controller = {
+    integrationDetail: vi.fn(async () => detail({ entry: stuck, plan: null })),
+    settleIntegration: vi.fn(async () =>
+      detail({
+        entry: {
+          ...stuck,
+          readiness: 'ready',
+          blockers: [],
+          next_action: { kind: 'none', label: '' },
+        },
+        plan: null,
+      }),
+    ),
+    reviewInstallPlan: vi.fn(),
+  };
+  show('/settings/apps/item?id=plugin%3Akit', controller);
+  expect(await screen.findByText('Finishing your last change…')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() =>
+    expect(controller.settleIntegration).toHaveBeenCalledWith({
+      item_id: 'plugin:kit',
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByText('Finishing your last change…'),
+    ).not.toBeInTheDocument(),
+  );
+  expect(controller.reviewInstallPlan).not.toHaveBeenCalled();
 });

@@ -44,6 +44,8 @@ export function usePlan(
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const signingIn = useRef(false);
+  const failures = useRef(0);
+  const [missed, setMissed] = useState(0);
   const changed = useRef(onChanged);
   changed.current = onChanged;
   const run = async (work: () => Promise<void>) => {
@@ -126,11 +128,24 @@ export function usePlan(
     if (!planId) return;
     if (pause === 'sign_in') signingIn.current = true;
     if (state === 'running' || (state === 'paused' && pause === 'sign_in')) {
-      const timer = setTimeout(() => {
-        controller.installPlan(planId).then(setPlan, (cause) => {
-          setError(clientError(cause).message);
-        });
-      }, 750);
+      const timer = setTimeout(
+        () => {
+          controller.installPlan(planId).then(
+            (value) => {
+              failures.current = 0;
+              setError('');
+              setPlan(value);
+            },
+            (cause) => {
+              // A missed look is not the end of the plan: say so and look again a little later.
+              failures.current += 1;
+              setError(clientError(cause).message);
+              setMissed((count) => count + 1);
+            },
+          );
+        },
+        failures.current ? 3000 : 750,
+      );
       return () => clearTimeout(timer);
     }
     if (state === 'paused' && pause === 'resume' && signingIn.current) {
@@ -146,7 +161,7 @@ export function usePlan(
     } else if (state && !['running', 'paused', 'uncertain'].includes(state))
       changed.current(plan!);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planId, state, pause, plan, controller]);
+  }, [planId, state, pause, plan, controller, missed]);
   return {
     plan,
     consent,
@@ -383,6 +398,8 @@ function facts(plan: InstallPlan, name: string) {
   const lines: string[] = [];
   if (plan.intent === 'turn_off')
     lines.push('Row-Bot stops using it. Its settings and saved keys are kept.');
+  if (plan.intent === 'remove' && consent.cleanup)
+    lines.push('Its saved keys and data are deleted too.');
   if (plan.intent === 'update')
     lines.push(
       `Downloads the newest version from ${consent.downloads[0] ?? 'its source'} and checks it first.`,

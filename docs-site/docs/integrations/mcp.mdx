@@ -1,14 +1,36 @@
 ---
 title: "MCP"
-description: "Set up and maintain mcp in Integrations."
+description: "How MCP servers become apps in Settings › Apps, and how Row-Bot decides which of their tools ask first."
 ---
 
 # MCP
 
-MCP connections now live in **Settings → Integrations**. Add an endpoint or inspect a catalog entry; it is saved off. Prepare required runtimes and reviewed dependencies, sign in or bind a protected API key, **Test connection**, accept the tested tools, then **Turn on and connect**.
+The Model Context Protocol (MCP) lets a separate program or hosted service offer tools to Row-Bot. In Row-Bot, each MCP server is an **app**: you find, connect, turn off and remove it in [Settings › Apps](/docs/settings/apps), like any other app.
 
-Use different names and account labels for Work and Personal. Credentials are connection-specific. Signing in does not enable tools. Bundle connections use the same setup while their parent controls availability.
+## Connect A Server
 
-**Advanced configuration and existing editors** retains manual launch settings, JSON import, rename, the global **Use MCP servers** switch and **Offer MCP tools in chats**. Removing a standalone connection stops its transport and removes only its credential reference. Shared runtimes remain installed.
+- **From a catalog**: search **Settings › Apps**, open the app and choose **Connect** or **Add**. Row-Bot shows what will happen, then prepares any runtime (Node.js or uv), signs you in or asks for a key, checks the connection, and asks what the app can do.
+- **From a link**: **Add from link or file** accepts a server's https address or a GitHub repository.
+- **By its settings**: **Apps › Advanced › Add a custom connection** opens the connection editor for a server that isn't in a catalog.
 
-See [Integrations](/docs/settings/integrations) for OAuth callbacks, dependency limits, tool approvals and interrupted setup recovery.
+Use separate connections with their own names for separate accounts, such as Work and Personal. Keys are kept in your system keychain. **Apps › Advanced › Apps in chats** controls whether chats are offered app tools, and shows the shared Node.js and uv runtimes.
+
+## Which Tools Ask First
+
+When you choose what an app can do, Row-Bot groups its tools by effect:
+
+- **Looks things up**: tools that only read. Read only, Ask before changes and Full access all let these run.
+- **Makes changes**: routine changes such as create, add, update, edit, write, set, rename or move. They ask first unless you chose **Full access** or set the tool to **Use without asking**.
+- **Always asks first**: high-impact tools. A tool is high-impact when the server marks it destructive, or when its name or description says it does something such as delete, send, post, publish, deploy, merge, push, commit, run, execute, pay, transfer, upload, comment, share, invite or change permissions. A routine change to something that reaches people, publishes or grants access is high-impact too, for example creating a release or a pull request, adding a collaborator or setting a password. These ask in every preset and can't be set to run without asking.
+
+A tool whose effect Row-Bot can't determine always asks. A server's own hints can only make a tool stricter; the one exception is a read-only hint, and it never outweighs a name that says the tool makes a change. Without that hint, a tool whose description says it changes something is treated as a change. Connections set up before this version keep asking before routine changes until you choose otherwise.
+
+Approval mode, agent profiles and the model's tool support still apply on top of this. Turning a tool off locally does not revoke access at the service; use the service's own account controls for that.
+
+## Turn Off, Update And Remove
+
+**Turn off** stops the connection and keeps its settings and keys. **Check for updates** compares the installed version with its source. **Remove…** stops the connection and removes it; its keys and data are kept unless you choose **Also delete saved keys and data**. Shared runtimes stay installed.
+
+## Developers
+
+How setup runs on the server, the HTTP API and the tool classification are summarised in [Extend Row-Bot](/docs/extending/#how-apps-and-skills-are-set-up).

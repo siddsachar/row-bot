@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "item_id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Item Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id"
+  ],
+  "title": "IntegrationSettleRequest",
+  "type": "object"
+}

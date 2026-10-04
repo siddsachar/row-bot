@@ -360,6 +360,28 @@ def reconcile_command(owner_id: str, command_id: str, kind: str, validate: Calla
     return reconcile_mcp_configuration_operation(owner_id=owner_id, command_id=command_id, validate=validate)
 
 
+def command_kind(command_type: str) -> str:
+    """Which owner settles an admitted command."""
+    return "plugin" if command_type.startswith("plugin.lifecycle.") else "skill" if command_type.startswith("skill.hub.") else "mcp"
+
+
+def settle(row: dict, owners: set[str], validate: Callable[[], None]) -> None:
+    """Check one item's unfinished changes again because the person asked. Each settles only when its
+    owner proves how it ended; nothing is sent again."""
+    pending = _unfinished()
+    for target in _pending_targets(row):
+        for command in pending.get(target, []):
+            if command["owner_id"] not in owners:
+                continue
+            try:
+                reconcile_command(command["owner_id"], command["command_id"], command_kind(command["type"]), validate,
+                                  explicit=True)
+            except Exception as error:  # Still running: it settles by itself.
+                if getattr(error, "code", str(error)) not in {"operation_pending", "skill_install_pending"}:
+                    raise
+    invalidate()
+
+
 def _unfinished() -> dict:
     """Unfinished owner commands by admission target, read once per listing."""
     from row_bot.runtime import admissions
@@ -380,7 +402,7 @@ def _reconcile(row: dict, validate: Callable[[], None], pending: dict) -> list[d
     found = []
     for target in _pending_targets(row):
         for command in pending.get(target, []):
-            kind = "plugin" if command["type"].startswith("plugin.lifecycle.") else "skill" if command["type"].startswith("skill.hub.") else "mcp"
+            kind = command_kind(command["type"])
             if kind == "plugin":
                 # Settling package operations stays with the local owner's explicit recovery.
                 found.append(blocker("change_unconfirmed"))

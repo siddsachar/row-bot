@@ -89,7 +89,10 @@ const CATALOG: Record<string, Entry> = {
     'Paste an https link to an app, a skill page or a GitHub repository.',
     'review',
   ],
-  invalid_upload: ['Choose a .zip, .skill or .mcpb file up to 20 MB.', 'review'],
+  invalid_upload: [
+    'Choose a .zip, .skill or .mcpb file up to 20 MB.',
+    'review',
+  ],
   unsupported_upload: [
     "That file doesn't hold a skill or a package Row-Bot can add.",
     'review',

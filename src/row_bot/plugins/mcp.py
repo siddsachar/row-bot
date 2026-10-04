@@ -85,7 +85,9 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
         "output_limit": int(entry.get("output_limit", 24000) or 24000),
         "trust_level": str(entry.get("trust_level") or "standard"),
         "requirements": [],
-        "tools": dict(entry.get("tools") or {}),
+        # What runs without asking, and which tools were accepted, are the user's choices, never a manifest's.
+        "tools": {key: value for key, value in dict(entry.get("tools") or {}).items()
+                  if key not in {"run_without_asking", "catalog", "accepted_names"}},
         "source": {
             "kind": "plugin",
             "plugin_id": plugin_id,

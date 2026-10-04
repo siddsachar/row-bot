@@ -12,6 +12,7 @@ from uuid import UUID
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_policy_controls as policy
+from row_bot.integrations import presets
 from row_bot.mcp_client import config, targets
 from row_bot.mcp_client.conflicts import requires_manual_tool_selection
 from row_bot.mcp_client.safety import is_destructive_tool
@@ -179,7 +180,7 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
             or old.get("destructive") is not False and "destructive" in old or tool_name in approvals)
         updated["destructive"] = row["destructive"] or old.get("destructive") is True
         catalog[tool_name] = updated
-        if updated["requires_approval"]:
+        if updated["requires_approval"] and presets.locked(updated):  # A routine change asks until it is allowed.
             approvals.add(tool_name)
         if tool_name not in enabled and preset is None:
             enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] in {"unknown", "mutation"})
@@ -188,10 +189,12 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
     if preset is not None and manual:
         enabled.update(dict.fromkeys(added, False))  # Manual selection: the user turns each tool on.
     elif preset is not None:
-        # An access preset applies only to tools this acceptance adds.
-        from row_bot.integrations import presets
+        # An access preset applies only to tools this acceptance adds; explicit choices apply to any accepted tool.
         try:
             presets.apply(tools, preset, added, {k: v for k, v in (overrides or {}).items() if k in added})
+            for tool_name, state in (overrides or {}).items():
+                if tool_name not in added and tool_name in tools["accepted_names"]:
+                    presets.set_state(tools, tool_name, state, catalog[tool_name])
         except ValueError:
             raise Error("approval_required") from None
     return document, (name,), manual

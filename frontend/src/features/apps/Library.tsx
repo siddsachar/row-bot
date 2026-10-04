@@ -55,6 +55,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [look, setLook] = useState(0); // Only the catalog waits on "Preparing…".
   const headingId = useId();
   const [one, many, yours] = NOUN[kind];
   useEffect(() => {
@@ -69,23 +70,32 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   }, [draft, query, params, setParams]);
   useEffect(() => {
     const abort = new AbortController();
-    controller
-      .integrationItems({ scope: 'installed', kind }, abort.signal)
-      .then(
-        (value) => {
-          // Items included in a package appear under it; skills from packages appear here too.
-          const own = value.items.flatMap((item) =>
-            kind === 'skill'
-              ? [item, ...item.children].filter((row) => row.kind === 'skill')
-              : [item],
-          );
-          setInstalled(
-            own.sort((a, b) => attentionOrder(a) - attentionOrder(b)),
-          );
-        },
-        (cause) =>
-          !abort.signal.aborted && setError(clientError(cause).message),
-      );
+    const all = async () => {
+      // Every installed item, page by page, so attention items are never cut off.
+      const items: IntegrationEntry[] = [];
+      let cursor: string | undefined;
+      do {
+        const value = await controller.integrationItems(
+          { scope: 'installed', kind, cursor },
+          abort.signal,
+        );
+        items.push(...value.items);
+        cursor = value.next_cursor ?? undefined;
+      } while (cursor && !abort.signal.aborted);
+      return items;
+    };
+    all().then(
+      (items) => {
+        // Items included in a package appear under it; skills from packages appear here too.
+        const own = items.flatMap((item) =>
+          kind === 'skill'
+            ? [item, ...item.children].filter((row) => row.kind === 'skill')
+            : [item],
+        );
+        setInstalled(own.sort((a, b) => attentionOrder(a) - attentionOrder(b)));
+      },
+      (cause) => !abort.signal.aborted && setError(clientError(cause).message),
+    );
     return () => abort.abort();
   }, [controller, kind, retry]);
   const preparing = page?.sources.some((source) => source.status === 'pending');
@@ -103,11 +113,11 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           !abort.signal.aborted && setError(clientError(cause).message),
       );
     return () => abort.abort();
-  }, [controller, kind, query, retry]);
+  }, [controller, kind, query, retry, look]);
   useEffect(() => {
     if (!preparing) return;
     // While the Registry index is being prepared, look again shortly.
-    const timer = setTimeout(() => setRetry((n) => n + 1), 2000);
+    const timer = setTimeout(() => setLook((n) => n + 1), 2000);
     return () => clearTimeout(timer);
   }, [preparing, page]);
   const searchOnline = async () => {

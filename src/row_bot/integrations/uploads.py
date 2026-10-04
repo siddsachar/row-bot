@@ -6,6 +6,7 @@ skill; a package is inspected by its owner from the staged copy after consent. A
 """
 from __future__ import annotations
 
+import io
 from pathlib import Path, PurePosixPath
 import re
 import time
@@ -18,6 +19,7 @@ MAX_BYTES = 20 * 1024 * 1024
 MAX_FILES = 200
 MAX_UNPACKED = 5 * 1024 * 1024
 KEEP_SECONDS = 24 * 3600
+MAX_KEPT = 16
 _ID = re.compile(r"[0-9a-f]{32}\.(zip|mcpb)")
 _MANIFESTS = {"plugin.json", ".claude-plugin/plugin.json", "row-bot-plugin.json"}
 
@@ -53,31 +55,33 @@ def _top(names: list[str]) -> str:
 
 
 def stage(data: bytes, filename: str) -> dict:
-    """Keep one picked file and say what it holds: ``skill``, ``plugin`` or ``mcpb``."""
+    """Check one picked file in memory, then keep it and say what it holds: ``skill``, ``plugin`` or ``mcpb``."""
     suffix = PurePosixPath(filename.replace("\\", "/")).suffix.lower()
     if suffix not in {".zip", ".skill", ".mcpb"} or not data or len(data) > MAX_BYTES:
         raise ValueError("invalid_upload")
+    title = PurePosixPath(filename.replace("\\", "/")).stem[:128] or "Added file"
+    kind, name = "mcpb", title
+    if suffix != ".mcpb":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                names = [info.filename for info in _members(archive)]
+        except zipfile.BadZipFile:
+            raise ValueError("invalid_upload") from None
+        top = _top(names)
+        inner = {n.removeprefix(top) for n in names}
+        kind = "plugin" if inner & _MANIFESTS else "skill" if "SKILL.md" in inner else ""
+        if not kind:
+            raise ValueError("unsupported_upload")
+        name = top.rstrip("/")[:128] or title
     root = _root()
     root.mkdir(parents=True, exist_ok=True)
-    for old in root.glob("*"):  # Picked files are kept a day at most.
-        if old.is_file() and time.time() - old.stat().st_mtime > KEEP_SECONDS:
+    kept = sorted((p for p in root.glob("*") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+    for index, old in enumerate(kept):  # Picked files are kept a day at most, and only the latest few.
+        if index >= MAX_KEPT - 1 or time.time() - old.stat().st_mtime > KEEP_SECONDS:
             old.unlink(missing_ok=True)
-    name = uuid4().hex + (".mcpb" if suffix == ".mcpb" else ".zip")
-    write_atomic(root / name, data)
-    title = PurePosixPath(filename.replace("\\", "/")).stem[:128] or "Added file"
-    if suffix == ".mcpb":
-        return {"upload": name, "kind": "mcpb", "name": title}
-    try:
-        with zipfile.ZipFile(root / name) as archive:
-            names = [info.filename for info in _members(archive)]
-    except zipfile.BadZipFile:
-        raise ValueError("invalid_upload") from None
-    top = _top(names)
-    inner = {n.removeprefix(top) for n in names}
-    kind = "plugin" if inner & _MANIFESTS else "skill" if "SKILL.md" in inner else ""
-    if not kind:
-        raise ValueError("unsupported_upload")
-    return {"upload": name, "kind": kind, "name": top.rstrip("/")[:128] or title}
+    upload = uuid4().hex + (".mcpb" if kind == "mcpb" else ".zip")
+    write_atomic(root / upload, data)
+    return {"upload": upload, "kind": kind, "name": name}
 
 
 def skill_files(upload: str) -> tuple[list[tuple[str, bytes]], str]:
