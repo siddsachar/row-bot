@@ -777,3 +777,44 @@ it('lets each tool be chosen one by one when its app overlaps Row-Bot, with no p
     overrides: { search: 'use', delete_page: 'off' },
   });
 });
+
+it('stops every app at once from Advanced with the reviewed policy command', async () => {
+  const page = {
+    schema_version: 1,
+    revision: revision,
+    server_id: null,
+    availability: 'available',
+    global_enabled: true,
+    server_enabled: null,
+    resources_enabled: null,
+    prompts_enabled: null,
+    items: [],
+    total: 0,
+    next_cursor: null,
+  };
+  const controller = {
+    integrationSources: vi.fn(async () => ({ schema_version: 1, items: [] })),
+    catalogSchedule: vi.fn(async () => null),
+    mcpPolicy: vi
+      .fn()
+      .mockResolvedValueOnce(page)
+      .mockResolvedValue({ ...page, global_enabled: false }),
+    reviewMcpPolicy: vi.fn(async () => ({ nonce: 'n' })),
+    executeMcpConfiguration: vi.fn(async () => ({ status: 'completed' })),
+  };
+  show('/settings/apps?view=advanced', controller);
+  const use = await screen.findByRole('switch', { name: 'Use apps' });
+  await waitFor(() => expect(use).toBeChecked());
+  fireEvent.click(use);
+  await waitFor(() =>
+    expect(controller.reviewMcpPolicy).toHaveBeenCalledWith({
+      configuration_revision: revision,
+      intent: { operation: 'global_enabled', enabled: false },
+    }),
+  );
+  expect(controller.executeMcpConfiguration).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'mcp.configuration.control' }),
+    { nonce: 'n' },
+  );
+  await waitFor(() => expect(use).not.toBeChecked());
+});

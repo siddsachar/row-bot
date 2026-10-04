@@ -1,9 +1,13 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
-import type { CatalogSchedule, IntegrationSourceView } from '../../api/types';
+import type {
+  CatalogSchedule,
+  IntegrationSourceView,
+  McpPolicyPage,
+} from '../../api/types';
 import { relativeTime } from '../../ui/format';
 import { Button, Field, Select, Toggle } from '../../ui/primitives';
 import { SettingsGroup, StatusLine } from '../settings/anatomy';
@@ -30,6 +34,68 @@ function standing(source: IntegrationSourceView) {
 }
 
 /** Apps › Advanced: catalogs and their optional schedule, plus app-wide controls. */
+/** "Use apps": one switch that stops every app at once, through the same reviewed policy command as each app's. */
+function UseApps() {
+  const { controller } = useRuntime();
+  const [page, setPage] = useState<McpPolicyPage | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const read = useCallback(
+    (signal?: AbortSignal) =>
+      controller
+        .mcpPolicy({ server_id: null, query: '' }, signal)
+        .then(setPage),
+    [controller],
+  );
+  useEffect(() => {
+    const abort = new AbortController();
+    read(abort.signal).catch(() => undefined);
+    return () => abort.abort();
+  }, [read]);
+  const change = async (enabled: boolean) => {
+    if (!page?.revision) return;
+    setBusy(true);
+    setError('');
+    try {
+      const command = {
+        command_id: crypto.randomUUID(),
+        type: 'mcp.configuration.control' as const,
+        payload: {
+          configuration_revision: page.revision,
+          intent: { operation: 'global_enabled', enabled },
+        },
+      };
+      const review = await controller.reviewMcpPolicy(command.payload);
+      const result = await controller.executeMcpConfiguration(command, review);
+      if (result.status !== 'completed') throw Error();
+    } catch (cause) {
+      setError(
+        clientError(cause).message || "Couldn't change this. Try again.",
+      );
+    } finally {
+      setBusy(false);
+      await read().catch(() => undefined);
+    }
+  };
+  return (
+    <div className="app-section">
+      <Field
+        label="Use apps"
+        hint="Turn off to stop every app at once. Each keeps its settings."
+        layout="row"
+      >
+        <Toggle
+          label="Use apps"
+          checked={page?.global_enabled === true}
+          disabled={busy || !page?.revision || page.global_enabled === null}
+          onChange={(event) => void change(event.target.checked)}
+        />
+      </Field>
+      {error && <StatusLine tone="danger">{error}</StatusLine>}
+    </div>
+  );
+}
+
 export default function Advanced({ chat }: { chat: ReactNode }) {
   const { controller } = useRuntime();
   const [sources, setSources] = useState<IntegrationSourceView[]>([]);
@@ -156,6 +222,7 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
         </div>
       </SettingsGroup>
       <SettingsGroup title="Apps in chats" anchor="chats">
+        <UseApps />
         {chat}
         <RuntimeInstallations />
       </SettingsGroup>

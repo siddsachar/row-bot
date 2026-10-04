@@ -79,7 +79,7 @@ Nothing is downloaded or run until you agree on the item's page.
 **Advanced** on the Apps page (`/settings/apps?view=advanced`) holds:
 
 - **Catalogs**: each catalog with its state, such as **Included with Row-Bot**, when it was last updated, **Couldn't update. The last copy is still used.**, or **Not available yet**, with **Update** and **Update all**. **Update catalogs automatically** is off by default; turn it on to update every day, week or month.
-- **Apps in chats**: whether chats are offered app tools, and the shared runtimes (Node.js and uv) that local apps use.
+- **Apps in chats**: **Use apps** (turn off to stop every app at once; each keeps its settings), whether chats are offered app tools, and the shared runtimes (Node.js and uv) that local apps use.
 - **Your own connection**: **Add a custom connection** opens the connection editor for a service that isn't in a catalog.
 
 An app's **⋯ › Advanced settings** opens the raw settings for that one app only.
@@ -100,5 +100,5 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 - **Sign in needed** or **Key needed**: open the app and use the main action.
 - **Needs attention**: open the app and choose **Fix** or **Retry**.
-- If an app's tools are missing in chat, check that it is **Ready**, that **Apps in chats** offers app tools, and that the chat's agent profile allows it.
+- If an app's tools are missing in chat, check that it is **Ready**, that **Use apps** is on and **Apps in chats** offers app tools, and that the chat's agent profile allows it.
 - If a catalog says **Couldn't update**, Row-Bot keeps using the last copy; try **Update** later.
