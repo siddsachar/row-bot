@@ -135,6 +135,7 @@
   min-width: 0;
 }
 .app-detail-title h3 {
+  width: fit-content;
   margin: 0;
   font-size: var(--text-20);
   overflow-wrap: anywhere;

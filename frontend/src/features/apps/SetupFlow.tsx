@@ -42,6 +42,7 @@ export function usePlan(
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const signingIn = useRef(false);
   const changed = useRef(onChanged);
   changed.current = onChanged;
@@ -58,6 +59,7 @@ export function usePlan(
   };
   const review = (intent: string, action = '', cleanup = false) =>
     run(async () => {
+      setNotice('');
       const value = await controller.reviewInstallPlan({
         item_id: target.itemId,
         revision: target.revision,
@@ -136,7 +138,12 @@ export function usePlan(
       signingIn.current = false;
       void resume();
     }
-    if (state && !['running', 'paused', 'uncertain'].includes(state))
+    if (state === 'completed') {
+      // Done: say so once and give the page back its next action.
+      setNotice(plan!.message);
+      setPlan(null);
+      changed.current(plan!);
+    } else if (state && !['running', 'paused', 'uncertain'].includes(state))
       changed.current(plan!);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId, state, pause, plan, controller]);
@@ -151,6 +158,7 @@ export function usePlan(
     apply,
     resume,
     cancel,
+    notice,
     dismissConsent: () => setConsent(null),
     clear: () => setPlan(null),
   };

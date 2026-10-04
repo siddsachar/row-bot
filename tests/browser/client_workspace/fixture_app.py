@@ -2212,10 +2212,15 @@ def p5_apps(x_fixture_token: str = Header(default=""), x_fixture_origin: str = H
 
 
 @app.get("/__p5_fixture/oauth/approve")
-def p5_oauth_approve(state: str):
-    """The synthetic provider's consent page: opening it approves, like a real sign-in would."""
+def p5_oauth_approve(state: str, allow: str = ""):
+    """The synthetic provider's consent page: Allow completes the sign-in; leaving it doesn't."""
+    from html import escape
+    from urllib.parse import quote
     from fastapi.responses import HTMLResponse
     from row_bot.application import client_mcp_auth
+    if not allow:
+        return HTMLResponse("<!doctype html><title>Synthetic sign-in</title><p>Allow Row-Bot to use this service?</p>"
+                            f'<a href="?state={escape(quote(state))}&allow=1">Allow</a>')
     client_mcp_auth.accept_callback(state=state, code="synthetic-code")
     return HTMLResponse("<!doctype html><title>Signed in</title><p>Signed in to the synthetic service.</p>")
 

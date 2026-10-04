@@ -141,12 +141,20 @@ export function jobOf(entry: IntegrationEntry, app?: AppView) {
   return app?.summary || entry.description || 'No description.';
 }
 
+/** A link to one item: an installed skill by name, otherwise `item?id=` (ids carry `:` and `/`, which paths refuse). */
+export function idPath(kind: 'app' | 'skill', id: string, revision = '') {
+  if (kind === 'skill' && /^skill:[a-z0-9_-]+$/i.test(id))
+    return `/settings/skills/${id.slice(6)}`;
+  const query = new URLSearchParams({ id });
+  if (revision) query.set('r', revision);
+  return `/settings/${kind === 'skill' ? 'skills' : 'apps'}/item?${query}`;
+}
+
 export function itemHref(entry: IntegrationEntry, revision = '') {
-  const base = entry.kind === 'skill' ? '/settings/skills/' : '/settings/apps/';
-  return (
-    base +
-    encodeURIComponent(entry.id) +
-    (revision && !entry.installed ? `?r=${revision}` : '')
+  return idPath(
+    entry.kind === 'skill' ? 'skill' : 'app',
+    entry.id,
+    entry.installed ? '' : revision,
   );
 }
 

@@ -157,7 +157,8 @@ export function legacyIntegrationHref(
   const selected = search.get('selected') ?? '';
   if (selected.startsWith('skill:'))
     return `/settings/skills/${encodeURIComponent(selected.slice(6))}`;
-  if (selected) return `/settings/apps/${encodeURIComponent(selected)}`;
+  if (selected)
+    return `/settings/apps/item?${new URLSearchParams({ id: selected })}`;
   if (search.get('view') === 'catalogs' || hash === 'mcp-runtimes')
     return '/settings/apps?view=advanced';
   if (search.get('type') === 'skill' || (key === 'skills' && !search.size))

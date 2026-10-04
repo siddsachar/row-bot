@@ -92,26 +92,24 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   useEffect(() => {
     const abort = new AbortController();
     setOnline(false);
-    const timer = setTimeout(
-      () =>
-        controller
-          .integrationItems({ scope: 'catalog', kind, query }, abort.signal)
-          .then(
-            (value) => {
-              setPage(value);
-              setError('');
-            },
-            (cause) =>
-              !abort.signal.aborted && setError(clientError(cause).message),
-          ),
-      // While the Registry index is being prepared, look again shortly.
-      preparing ? 2000 : 0,
-    );
-    return () => {
-      clearTimeout(timer);
-      abort.abort();
-    };
-  }, [controller, kind, query, retry, preparing]);
+    controller
+      .integrationItems({ scope: 'catalog', kind, query }, abort.signal)
+      .then(
+        (value) => {
+          setPage(value);
+          setError('');
+        },
+        (cause) =>
+          !abort.signal.aborted && setError(clientError(cause).message),
+      );
+    return () => abort.abort();
+  }, [controller, kind, query, retry]);
+  useEffect(() => {
+    if (!preparing) return;
+    // While the Registry index is being prepared, look again shortly.
+    const timer = setTimeout(() => setRetry((n) => n + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [preparing, page]);
   const searchOnline = async () => {
     setBusy(true);
     try {

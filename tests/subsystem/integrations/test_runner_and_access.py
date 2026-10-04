@@ -220,3 +220,15 @@ def test_a_pasted_link_is_recognised_locally_and_only_https_is_accepted(owner, l
     for bad in ("http://mcp.example.com/mcp", "https://user:secret@mcp.example.com/mcp", "file:///etc/passwd"):
         with pytest.raises(ClientPlatformError, match="integration_link_unsupported"):
             api.resolve_reference(owner_id="owner", reference=bad)
+
+
+def test_connecting_a_catalog_entry_saves_it_at_consent_and_reports_the_installed_item(owner):
+    page = api.resolve_reference(owner_id="owner", reference="https://mcp.example.com/mcp")
+    item_id = page["items"][0]["id"]
+    _, plan = api.read_item(owner_id="owner", item_id=item_id, revision=page["revision"])
+    plan_id = str(uuid4())
+    paused = api.start_plan(ctx(), plan_id=plan_id, item_id=item_id, revision=page["revision"], digest=plan["digest"])
+    assert (paused["state"], paused["pause"]) == ("paused", "access"), paused
+    assert paused["steps"][0]["state"] == "done" and paused["installed_id"].startswith("mcp:")
+    saved_name = next(iter(n for n in config.read_saved_configuration().document["servers"] if n != "Synthetic"))
+    assert config.read_saved_configuration().document["servers"][saved_name]["enabled"] is False

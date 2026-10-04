@@ -113,7 +113,7 @@ describe('settings navigation metadata', () => {
         'integrations',
         new URLSearchParams('type=mcp&selected=mcp:abc'),
       ),
-    ).toBe('/settings/apps/mcp%3Aabc');
+    ).toBe('/settings/apps/item?id=mcp%3Aabc');
     expect(
       legacyIntegrationHref('integrations', new URLSearchParams('type=skill')),
     ).toBe('/settings/skills');

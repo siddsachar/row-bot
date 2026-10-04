@@ -27,6 +27,7 @@ import { ConsentSheet, hostOf, PlanProgress, usePlan } from './SetupFlow';
 import {
   AppIcon,
   appCatalog,
+  idPath,
   ItemCard,
   Publisher,
   statusOf,
@@ -180,7 +181,7 @@ function Detail({
       plan.installed_id &&
       plan.installed_id !== itemId
     )
-      navigate(`${back}/${encodeURIComponent(plan.installed_id)}`, {
+      navigate(idPath(kind, plan.installed_id), {
         replace: true,
       });
     else void load();
@@ -228,7 +229,11 @@ function Detail({
     !detail.plan || detail.plan.supported || detail.plan.plan_id;
   const primary =
     action.kind !== 'none' && plannable && !recovering && !control.plan ? (
-      <Button variant="primary" disabled={control.busy} onClick={start}>
+      <Button
+        variant="primary"
+        aria-disabled={control.busy}
+        onClick={() => !control.busy && start()}
+      >
         {action.label}
       </Button>
     ) : null;
@@ -246,7 +251,10 @@ function Detail({
   if (entry.installed && (entry.kind !== 'mcp' || !entry.parent_id))
     menu.push({
       label: 'Advanced settings',
-      onSelect: () => navigate('?edit=1'),
+      onSelect: () => {
+        const path = idPath(kind, entry.id);
+        navigate(`${path}${path.includes('?') ? '&' : '?'}edit=1`);
+      },
     });
   if (about.actions.includes('remove'))
     menu.push({
@@ -292,11 +300,7 @@ function Detail({
       {about.package && (
         <p className="settings-help">
           Installed as part of{' '}
-          <Link
-            to={`/settings/apps/${encodeURIComponent(entry.parent_id ?? '')}`}
-          >
-            {about.package}
-          </Link>
+          <Link to={idPath('app', entry.parent_id ?? '')}>{about.package}</Link>
           .
         </p>
       )}
@@ -312,6 +316,11 @@ function Detail({
         </p>
       )}
       {control.error && <p role="alert">{control.error}</p>}
+      {control.notice && (
+        <p className="settings-help" role="status">
+          {control.notice}
+        </p>
+      )}
       <PlanProgress control={control} name={name} />
       <SettingsGroup title="Overview">
         <div className="app-section">

@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import Advanced from './Advanced';
 import ItemPage from './ItemPage';
 import Library from './Library';
+import { idPath } from './parts';
 
 /**
  * Settings › Apps and Settings › Skills: the library, one item's page, or the
@@ -21,13 +22,8 @@ export default function AppsArea({
   chat: ReactNode;
 }) {
   const [search] = useSearchParams();
-  let id = item;
-  try {
-    // The router decodes once; an id that still carries escapes is decoded here.
-    if (/%[0-9A-F]{2}/i.test(item)) id = decodeURIComponent(item);
-  } catch {
-    id = item;
-  }
+  // Item ids travel as `item?id=`; app ids, skill names, `new` and `custom` as the path.
+  const id = item === 'item' ? (search.get('id') ?? '') : item;
   if (!id)
     return kind === 'app' && search.get('view') === 'advanced' ? (
       <Advanced chat={chat} />
@@ -42,7 +38,10 @@ export default function AppsArea({
     const back =
       id === 'new' || id === 'custom'
         ? `/settings/${kind === 'app' ? 'apps?view=advanced' : 'skills'}`
-        : `/settings/${kind === 'app' ? 'apps' : 'skills'}/${encodeURIComponent(id)}`;
+        : idPath(
+            kind,
+            kind === 'skill' && !id.includes(':') ? `skill:${id}` : id,
+          );
     return (
       <section className="stack" aria-label="Advanced settings">
         <Link className="settings-link app-back" to={back}>
@@ -52,5 +51,5 @@ export default function AppsArea({
       </section>
     );
   }
-  return <ItemPage kind={kind} param={id} />;
+  return <ItemPage key={`${kind}:${id}`} kind={kind} param={id} />;
 }

@@ -360,7 +360,9 @@ export default function SettingRoute() {
           review={controller.reviewMcpConfiguration}
           execute={controller.executeMcpConfiguration}
           onConnection={(serverId) =>
-            navigate(`/settings/apps/${encodeURIComponent('mcp:' + serverId)}`)
+            navigate(
+              `/settings/apps/item?${new URLSearchParams({ id: 'mcp:' + serverId })}`,
+            )
           }
           onRemoved={() => navigate('/settings/apps')}
         />
