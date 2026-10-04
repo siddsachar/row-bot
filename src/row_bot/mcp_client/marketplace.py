@@ -1,40 +1,20 @@
-"""Fail-safe MCP marketplace/directory discovery adapters."""
+"""MCP catalog records: the curated starter list and Registry v0.1 metadata."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-import time
 import urllib.parse
-import urllib.request
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    import requests
-except Exception:  # pragma: no cover - optional dependency fallback
-    requests = None
-
-try:
-    from bs4 import BeautifulSoup
-except Exception:  # pragma: no cover - optional dependency fallback
-    BeautifulSoup = None
-
-from row_bot.mcp_client.config import DATA_DIR
 from row_bot.mcp_client.conflicts import conflicts_for_entry
 from row_bot.mcp_client.logging import log_event
 
-CACHE_PATH = DATA_DIR / "mcp_marketplace_cache.json"
 CATALOG_PATH = Path(__file__).with_name("recommended_servers.json")
 DEFAULT_TIMEOUT = 3
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 Row-Bot-MCP-Client/1.0",
-    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-}
 
 
 @dataclass
@@ -60,54 +40,6 @@ class MarketplaceEntry:
     recommended: bool = False
     last_reviewed: str = ""
     notes: list[str] = field(default_factory=list)
-
-
-@dataclass
-class MarketplaceSearchResult:
-    entries: list[MarketplaceEntry]
-    mode: str
-    query: str = ""
-    source_counts: dict[str, int] = field(default_factory=dict)
-
-
-def _count_sources(entries: list[MarketplaceEntry]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for entry in entries:
-        counts[entry.source] = counts.get(entry.source, 0) + 1
-    return counts
-
-
-def _dedupe_entries(entries: list[MarketplaceEntry]) -> list[MarketplaceEntry]:
-    dedup: dict[str, MarketplaceEntry] = {}
-    for entry in entries:
-        if not _is_useful_entry(entry):
-            continue
-        dedup.setdefault(f"{entry.source}:{entry.id}", entry)
-    return list(dedup.values())
-
-
-def _is_useful_entry(entry: MarketplaceEntry) -> bool:
-    if not entry.name.strip():
-        return False
-    return not (entry.name == "MCP Server" and not entry.description.strip())
-
-
-def _entry_search_text(entry: MarketplaceEntry) -> str:
-    return " ".join([
-        entry.id,
-        entry.name,
-        entry.description,
-        entry.publisher,
-        entry.classification,
-        entry.transport,
-    ]).lower()
-
-
-def _filter_relevant(entries: list[MarketplaceEntry], query: str) -> list[MarketplaceEntry]:
-    tokens = [token for token in re.split(r"[^a-z0-9]+", (query or "").lower()) if len(token) > 1]
-    if not tokens:
-        return entries
-    return [entry for entry in entries if all(token in _entry_search_text(entry) for token in tokens)]
 
 
 def _entry_from_mapping(item: dict[str, Any]) -> MarketplaceEntry | None:
@@ -138,105 +70,9 @@ CURATED_STARTER_CATALOG: list[MarketplaceEntry] = _load_curated_catalog()
 
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> Any:
-    import httpx
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme != "https" or parsed.netloc != "registry.modelcontextprotocol.io":
-        raise ValueError("registry_source_not_supported")
-    with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False) as client:
-        with client.stream("GET", url, headers={"User-Agent": "Row-Bot-Catalog"}) as response:
-            response.raise_for_status()
-            data = bytearray()
-            for chunk in response.iter_bytes():
-                data.extend(chunk)
-                if len(data) > 2 * 1024 * 1024:
-                    raise ValueError("registry_response_too_large")
-            return json.loads(data)
-
-
-def _fetch_text(url: str, timeout: int = DEFAULT_TIMEOUT, *, prefer_urllib: bool = False) -> str:
-    if requests is not None and not prefer_urllib:
-        response = requests.get(url, headers=BROWSER_HEADERS, timeout=timeout)
-        if response.status_code < 200 or response.status_code >= 400:
-            raise RuntimeError(f"HTTP {response.status_code}")
-        return response.text
-    request = urllib.request.Request(url, headers=BROWSER_HEADERS)
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered directory fetch
-        return response.read().decode("utf-8", errors="replace")
-
-
-def _clean_text(value: str, *, max_len: int = 800) -> str:
-    text = re.sub(r"\s+", " ", value or "").strip()
-    return text[:max_len].rstrip()
-
-
-def _title_from_slug(slug: str) -> str:
-    tail = slug.strip("/").split("/")[-1]
-    text = re.sub(r"[-_]+", " ", tail).strip()
-    return text.title() if text else "MCP Server"
-
-
-def _parse_directory_html(
-    html: str,
-    *,
-    source: str,
-    base_url: str,
-    path_prefix: str,
-    limit: int,
-) -> list[MarketplaceEntry]:
-    if BeautifulSoup is None:
-        return []
-    soup = BeautifulSoup(html, "html.parser")
-    entries: list[MarketplaceEntry] = []
-    seen: set[str] = set()
-    for link in soup.find_all("a", href=True):
-        absolute = urllib.parse.urljoin(base_url, str(link.get("href") or ""))
-        parsed = urllib.parse.urlparse(absolute)
-        if not parsed.path.startswith(path_prefix):
-            continue
-        slug = parsed.path.removeprefix(path_prefix).strip("/")
-        if not slug or slug in seen or slug.startswith("#"):
-            continue
-        seen.add(slug)
-        link_text = _clean_text(link.get_text(" ", strip=True), max_len=160)
-        container = link.find_parent(["article", "li"]) or link.find_parent("div") or link
-        heading = container.find(["h1", "h2", "h3", "h4"]) if hasattr(container, "find") else None
-        heading_text = _clean_text(heading.get_text(" ", strip=True), max_len=120) if heading else ""
-        description = _clean_text(container.get_text(" ", strip=True), max_len=700)
-        if not description:
-            description = link_text
-        name = heading_text or (link_text if 0 < len(link_text) <= 80 and "CLASSIFICATION" not in link_text else _title_from_slug(slug))
-        if name.lower() in {"servers", "next", "previous", "go to next page", "go to previous page"}:
-            continue
-        entries.append(MarketplaceEntry(
-            id=slug,
-            name=name,
-            description=description,
-            source=source,
-            url=absolute,
-            classification="directory-page",
-            metadata={"page_fallback": True, "source_url": base_url},
-        ))
-        if len(entries) >= limit:
-            break
-    return entries
-
-
-def _load_cache() -> list[MarketplaceEntry]:
-    try:
-        with open(CACHE_PATH, "r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-        return [MarketplaceEntry(**item) for item in raw.get("entries", [])]
-    except Exception:
-        return []
-
-
-def _save_cache(entries: list[MarketplaceEntry]) -> None:
-    try:
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(CACHE_PATH, "w", encoding="utf-8") as handle:
-            json.dump({"saved_at": time.time(), "entries": [asdict(e) for e in entries]}, handle, indent=2)
-    except Exception as exc:
-        log_event("mcp.marketplace.cache_failed", level=30, error=str(exc))
+    from row_bot.integrations.safe import fetch
+    return json.loads(fetch(url, hosts={"registry.modelcontextprotocol.io"}, max_bytes=2 * 1024 * 1024, timeout=timeout,
+        refused="registry_source_not_supported", too_large="registry_response_too_large"))
 
 
 def _registry_setup_digest(item: dict) -> str:
@@ -324,61 +160,6 @@ def registry_entries(data: dict) -> list[MarketplaceEntry]:
             install=install, notes=list(dict.fromkeys(notes)), metadata={"version": version, "status": status,
                 "canonical_name": name, "setup_digest": setup_digest}))
     return entries
-
-
-def _official_registry_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    """Normalize the v0.1 envelope, bounded pagination and explicit recipes."""
-    entries, cursor, seen = [], "", set()
-    for _ in range(4):
-        params = {"search": query, "limit": str(min(50, limit)), "version": "latest"}
-        if cursor:
-            params["cursor"] = cursor
-        data = _fetch_json("https://registry.modelcontextprotocol.io/v0.1/servers?" + urllib.parse.urlencode(params))
-        if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
-            raise ValueError("invalid_registry_response")
-        entries.extend(registry_entries(data))
-        if len(entries) >= limit:
-            return entries[:limit]
-        cursor = data.get("metadata", {}).get("nextCursor", "")
-        if not isinstance(cursor, str) or not cursor or len(cursor) > 2048 or cursor in seen:
-            break
-        seen.add(cursor)
-    return entries
-
-
-def _pulsemcp_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    """B2B access requires a separately approved tenant/key integration."""
-    return []
-
-
-def _smithery_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    """Desktop catalog access is unresolved; never guess alternate endpoints."""
-    return []
-
-
-def _glama_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    """Key/licensing integration is not implemented; no anonymous scraping."""
-    return []
-
-
-def search_marketplace_with_status(query: str = "", *, sources: list[str] | None = None, limit: int = 24, cached_only: bool = False) -> MarketplaceSearchResult:
-    """Search shipped/saved metadata locally. Refresh is a separate action."""
-    from row_bot.mcp_client.registry_snapshot import read_snapshot
-    normalized = (query or "").strip().lower()
-    selected = sources or ["official"]
-    saved = read_snapshot() if "official" in selected else {"entries": []}
-    entries = _dedupe_entries(CURATED_STARTER_CATALOG + saved["entries"] + _load_cache())
-    entries = [entry for entry in entries if entry.source == "curated" or entry.source in selected]
-    entries = _filter_relevant(entries, normalized)
-    entries.sort(key=lambda entry: (not entry.recommended, entry.name.casefold(), entry.source, entry.id))
-    result = entries[:limit]
-    mode = "cache" if any(entry.source != "curated" for entry in result) else "curated"
-    return MarketplaceSearchResult(result, mode, normalized, _count_sources(result))
-
-
-def search_marketplace(query: str = "", *, sources: list[str] | None = None, limit: int = 24) -> list[MarketplaceEntry]:
-    """Search MCP directories with cache/curated fallback."""
-    return search_marketplace_with_status(query, sources=sources, limit=limit).entries
 
 
 def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:

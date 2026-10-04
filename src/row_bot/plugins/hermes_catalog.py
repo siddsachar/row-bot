@@ -18,41 +18,20 @@ import zipfile
 import httpx
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.integrations.safe import TtlCache, fetch, write_atomic
 from row_bot.package_files import check_package_tree, contained_path, relative_package_path
 from row_bot.plugins.manifest import parse_manifest, ManifestError
 
 CATALOG_URL = "https://hermes-agent.nousresearch.com/docs/api/plugin-catalog.json"
 _CATALOG_MIRROR = "https://nousresearch.github.io/hermes-agent/docs/api/plugin-catalog.json"
+_HOSTS = {"hermes-agent.nousresearch.com", "api.github.com", "codeload.github.com", "raw.githubusercontent.com"}
 _LOCK = threading.RLock()
-_PREVIEWS: dict[tuple[str, str], "PackagePreview"] = {}
-_TTL = 1200
+_PREVIEWS = TtlCache(1200, 64, full="Package preview capacity reached; finish or cancel a preview.")
 
 
 def _public_bytes(url: str, *, maximum: int = 4 * 1024 * 1024) -> bytes:
-    parsed = urlsplit(url)
-    if (parsed.scheme != "https" or parsed.hostname not in {
-            "hermes-agent.nousresearch.com", "api.github.com", "codeload.github.com", "raw.githubusercontent.com"}
-            or parsed.username or parsed.password or parsed.port not in {None, 443}):
-        raise ValueError("package_source_not_supported")
-    # Only this reviewed catalog migration can cross origins. Package downloads
-    # and the destination itself still cannot redirect. A fresh client per hop
-    # prevents cookies or other response state from carrying across origins.
-    for attempt in range(2):
-        with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-            with client.stream("GET", url, headers={"User-Agent": "Row-Bot-Integrations"}) as response:
-                if (attempt == 0 and url == CATALOG_URL
-                        and response.status_code in {301, 302, 303, 307, 308}
-                        and response.headers.get("Location") == _CATALOG_MIRROR):
-                    url = _CATALOG_MIRROR
-                    continue
-                response.raise_for_status()
-                data = bytearray()
-                for chunk in response.iter_bytes():
-                    data.extend(chunk)
-                    if len(data) > maximum:
-                        raise ValueError("package_download_too_large")
-                return bytes(data)
-    raise ValueError("package_source_not_supported")
+    # Only the reviewed catalog migration may cross origins; downloads never redirect.
+    return fetch(url, hosts=_HOSTS, max_bytes=maximum, exact_redirects={CATALOG_URL: _CATALOG_MIRROR})
 
 
 def _catalog_document(value: object) -> dict:
@@ -84,16 +63,7 @@ def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambd
             saved = {**value, "fetched_at": time.time()}
             if cancelled():
                 raise ValueError("integration_search_cancelled")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            from uuid import uuid4
-            temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-            try:
-                temporary.write_text(json.dumps(saved), encoding="utf-8")
-                if cancelled():
-                    raise ValueError("integration_search_cancelled")
-                temporary.replace(path)
-            finally:
-                temporary.unlink(missing_ok=True)
+            write_atomic(path, json.dumps(saved), cancelled=cancelled)
             status, reason = "live", ""
         except httpx.HTTPStatusError as exc:
             saved = previous
@@ -152,7 +122,6 @@ class PackagePreview:
     archive_digest: str
     root: Path
     summary: dict
-    created: float
     catalog_reference: str = ""
 
 
@@ -197,11 +166,7 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
     preview_id = uuid4().hex
     stage = contained_path(get_row_bot_data_dir(create=False), "plugin_previews/" + preview_id)
     with _LOCK:
-        for key, preview in list(_PREVIEWS.items()):
-            if time.monotonic() - preview.created > _TTL:
-                _PREVIEWS.pop(key)
-        if len(_PREVIEWS) >= 64:
-            raise ValueError("Package preview capacity reached; finish or cancel a preview.")
+        _PREVIEWS.room()
         stage.mkdir(parents=True)
     root = stage / "package"
     try:
@@ -238,8 +203,8 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
             "skills": [{"name": s.get("display_name") or s["name"], "description": str(s.get("description", ""))[:1024]} for s in manifest.provides.skills],
             "servers": [{"key": s["id"], "transport": s["transport"], "command": s.get("command", ""), "args": s.get("args", []), "url": s.get("url", "")} for s in manifest.provides.mcp_servers],
             "permissions": manifest.permissions, "evidence": "Format inspected; live service and platform behavior not tested."}
-        with _LOCK:
-            _PREVIEWS[(owner_id, preview_id)] = PackagePreview(preview_id, manifest.id, owner_id, source_identity, pin, digest, archive_digest, root, summary, time.monotonic(), reference if reference.startswith("hermes:") else "")
+        _PREVIEWS.put((owner_id, preview_id), PackagePreview(preview_id, manifest.id, owner_id, source_identity, pin, digest,
+            archive_digest, root, summary, reference if reference.startswith("hermes:") else ""))
         return summary
     except (ManifestError, FileNotFoundError) as exc:
         if not (root / "plugin.json").is_file() and ((root / "plugin.yaml").exists() or (root / "__init__.py").exists()):
@@ -248,9 +213,8 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
 
 
 def get_preview(owner_id: str, preview_id: str) -> PackagePreview:
-    with _LOCK:
-        preview = _PREVIEWS.get((owner_id, preview_id))
-    if preview is None or time.monotonic() - preview.created > _TTL:
+    preview = _PREVIEWS.get((owner_id, preview_id))
+    if preview is None:
         raise ValueError("package_preview_expired")
     if preview.catalog_reference:
         current = read_catalog(refresh=True)
@@ -286,12 +250,7 @@ def inspect_marketplace_update(*, owner_id: str, plugin_id: str, origin,
         return get_preview(owner_id, key)
     except ValueError:
         pass
-    with _LOCK:
-        for identity, retained in list(_PREVIEWS.items()):
-            if time.monotonic() - retained.created > _TTL:
-                _PREVIEWS.pop(identity)
-        if len(_PREVIEWS) >= 64:
-            raise ValueError("Package preview capacity reached; finish or cancel a preview.")
+    _PREVIEWS.room()
     base = get_row_bot_data_dir() / "plugin_previews"
     base.mkdir(parents=True, exist_ok=True)
     root = base / uuid4().hex / "package"
@@ -300,7 +259,6 @@ def inspect_marketplace_update(*, owner_id: str, plugin_id: str, origin,
         source_ref=source_identity, archive_url=origin.archive_url, archive_path=origin.archive_path,
         expected_checksum=checksum or None)
     preview = PackagePreview(key, plugin_id, owner_id, source_identity, "", compute_plugin_checksum(root), "", root,
-        {"format": manifest.package_format, "source_kind": "marketplace"}, time.monotonic())
-    with _LOCK:
-        _PREVIEWS[(owner_id, key)] = preview
+        {"format": manifest.package_format, "source_kind": "marketplace"})
+    _PREVIEWS.put((owner_id, key), preview)
     return preview

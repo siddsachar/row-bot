@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import copy
 import functools
-import tempfile
 import threading
 import logging
 import os
@@ -53,28 +52,8 @@ def _locked_state(function):
 
 def _atomic_json(path: pathlib.Path, data: dict, restricted: bool = False) -> None:
     """Publish one whole state file; callers decide whether errors propagate."""
-    for candidate in (path.parent, path):
-        try:
-            value = candidate.lstat()
-        except FileNotFoundError:
-            continue
-        if stat.S_ISLNK(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
-            raise OSError("State path is not an owned regular path")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(data, stream, indent=2)
-            stream.flush()
-            os.fsync(stream.fileno())
-        if restricted and os.name != "nt":
-            os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
-        os.replace(temporary, path)
-    finally:
-        try:
-            pathlib.Path(temporary).unlink(missing_ok=True)
-        except OSError:
-            logger.debug("Retained unpublished plugin state temporary file")
+    from row_bot.integrations.safe import write_atomic
+    write_atomic(path, json.dumps(data, indent=2), restricted=restricted)
 
 
 def _environment_state_document() -> dict[str, Any]:

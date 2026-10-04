@@ -42,7 +42,6 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ProviderConfigurationReviewRequest", "ProviderConfigurationReview", "ProviderConfigurationReceipt",
     "DefaultModelReviewRequest", "DefaultModelReview", "DefaultModelReceipt",
     "McpConfigurationPage", "McpConfigurationReviewRequest", "McpConfigurationReview", "McpConfigurationOutcome",
-    "McpDirectorySearchRequest", "McpDirectoryResult",
     "McpRuntimeState", "McpRuntimeReviewRequest", "McpRuntimeReview", "McpRuntimeOutcome",
     "McpPolicyPage", "McpPolicyRequest", "McpPolicyReview",
     "McpTestedCatalogPage", "McpCatalogRequest", "McpCatalogReview",
@@ -171,7 +170,6 @@ OPERATIONS = (
     ("post", "/settings/providers/commands", "Command", "CommandReceipt"),
     ("post", "/settings/mcp/commands", "Command", "CommandReceipt"),
     ("get", "/settings/mcp/configuration", None, "McpConfigurationPage"),
-    ("post", "/settings/mcp/directory/search", "McpDirectorySearchRequest", "McpDirectoryResult"),
     ("get", "/settings/mcp/runtime/{server_id}", None, "McpRuntimeState"),
     ("get", "/settings/mcp/policy", None, "McpPolicyPage"),
     ("get", "/settings/mcp/catalog", None, "McpTestedCatalogPage"),
@@ -1179,8 +1177,6 @@ export const cancelMcpAuth = (base:string, proof:SessionProof, command:string, s
   jsonRequest(base, `/settings/mcp/auth/commands/${id(command)}/cancel`, 'McpAuthStatus', proof, 'POST', undefined, undefined, signal);
 export const getMcpConfiguration = (base: string, proof: SessionProof, search: string, cursor?: string, signal?: AbortSignal, target?: McpTarget): Promise<McpConfigurationPage> =>
   jsonRequest(base, '/settings/mcp/configuration' + query({...targetQuery(target),query:search,cursor}), 'McpConfigurationPage', proof, 'GET', undefined, undefined, signal);
-export const searchMcpDirectory = (base: string, proof: SessionProof, body: McpDirectorySearchRequest, signal?: AbortSignal): Promise<McpDirectoryResult> =>
-  jsonRequest(base, '/settings/mcp/directory/search', 'McpDirectoryResult', proof, 'POST', validateWire('McpDirectorySearchRequest', body), undefined, signal);
 export const reviewMcpConfiguration = (base: string, proof: SessionProof, body: McpConfigurationReviewRequest, signal?: AbortSignal): Promise<McpConfigurationReview> =>
   jsonRequest(base, '/settings/mcp/configuration/review', 'McpConfigurationReview', proof, 'POST', validateWire('McpConfigurationReviewRequest',body), undefined, signal);
 export const cancelSubscriptionStart = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<SubscriptionFlowSnapshot> =>

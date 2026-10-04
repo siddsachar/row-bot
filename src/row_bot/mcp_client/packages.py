@@ -13,19 +13,15 @@ import json
 from pathlib import Path
 import re
 import tarfile
-import threading
-import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 from uuid import uuid4
 
-import httpx
-
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.integrations.safe import TtlCache, fetch
 from row_bot.package_files import check_package_tree, contained_path, relative_package_path
 
 _NAME = r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+"
-_LOCK = threading.RLock()
-_PREVIEWS: dict[tuple[str, str], dict] = {}
+_PREVIEWS = TtlCache(1200, 32, full="mcp_package_preview_capacity")
 _MAX = 64 * 1024 * 1024
 
 
@@ -47,18 +43,8 @@ def requirement(cfg: dict) -> tuple[str, str, list[str]] | None:
 
 
 def _fetch(url: str, *, maximum: int = _MAX) -> bytes:
-    parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != "registry.npmjs.org" or parsed.port not in {None, 443} or parsed.username or parsed.password or parsed.fragment:
-        raise ValueError("mcp_package_source_invalid")
-    with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
-        with client.stream("GET", url) as response:
-            response.raise_for_status()
-            data = bytearray()
-            for chunk in response.iter_bytes():
-                data.extend(chunk)
-                if len(data) > maximum:
-                    raise ValueError("mcp_package_too_large")
-    return bytes(data)
+    return fetch(url, hosts={"registry.npmjs.org"}, max_bytes=maximum, timeout=30,
+        refused="mcp_package_source_invalid", too_large="mcp_package_too_large")
 
 
 def _archive(url: str, integrity: str, root: Path) -> None:
@@ -174,23 +160,15 @@ def inspect(owner_id: str, cfg: dict) -> dict:
         "disclosures": ["Download from the public npm registry; integrity pins the reviewed package and dependency bytes.",
             "No install scripts run. Launch uses the separately approved Node runtime with a private package directory.",
             "Package execution and any data or telemetry it sends require your review of its publisher documentation."]}
-    with _LOCK:
-        for key, value in list(_PREVIEWS.items()):
-            if time.monotonic() - value["created"] > 1200:
-                _PREVIEWS.pop(key)
-        if len(_PREVIEWS) >= 32:
-            raise ValueError("mcp_package_preview_capacity")
-        _PREVIEWS[(owner_id, preview_id)] = {"summary": summary, "root": root, "entry": entry, "args": args,
-            "cfg": cfg, "created": time.monotonic()}
+    _PREVIEWS.put((owner_id, preview_id), {"summary": summary, "root": root, "entry": entry, "args": args, "cfg": cfg})
     return summary
 
 
 def reviewed_launch(owner_id: str, preview_id: str, cfg: dict, digest: str) -> dict:
     from row_bot.plugins.devtools import compute_plugin_checksum
     from row_bot.mcp_client.auth import binding
-    with _LOCK:
-        value = _PREVIEWS.get((owner_id, preview_id))
-    if not value or time.monotonic() - value["created"] > 1200:
+    value = _PREVIEWS.get((owner_id, preview_id))
+    if not value:
         raise ValueError("mcp_package_preview_expired")
     check_package_tree(value["root"])
     if (binding("", cfg) != binding("", value["cfg"]) or digest != value["summary"]["digest"]

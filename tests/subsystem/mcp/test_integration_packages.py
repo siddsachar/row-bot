@@ -7,6 +7,7 @@ import tarfile
 
 import pytest
 
+from row_bot.integrations.safe import TtlCache
 from row_bot.mcp_client import packages
 from row_bot.plugins import hermes_mcp
 
@@ -27,7 +28,7 @@ def archive(files):
 @pytest.fixture
 def source(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(packages, "_PREVIEWS", {})
+    monkeypatch.setattr(packages, "_PREVIEWS", TtlCache(1200, 32, full="mcp_package_preview_capacity"))
     cfg = {"transport": "stdio", "command": "npx", "args": ["-y", "fixture-mcp@1.0.0"], "environment_mode": "minimal"}
     def serve(extra=None, corrupt=False):
         manifest = {"name": "fixture-mcp", "version": "1.0.0", "license": "MIT", "bin": "main.js", **(extra or {})}

@@ -2367,8 +2367,6 @@ export class ClientController {
     this.query(() =>
       this.transport.mcpConfiguration?.(query, cursor, signal, target),
     );
-  searchMcpDirectory = (query: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.searchMcpDirectory?.(query, signal));
   mcpPolicy = (
     query: { server_id: string | null; query: string; cursor?: string },
     signal?: AbortSignal,

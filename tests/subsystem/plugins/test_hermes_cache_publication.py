@@ -1,5 +1,6 @@
 """Cancelled or failed Hermes cache publication cleans only its own temp file."""
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -24,18 +25,17 @@ def test_failed_refresh_preserves_cache_and_cleans_unique_temporary(tmp_path, mo
         if "/git/trees/" in url: return json.dumps({"tree": [{"path": "optional-mcps/new/manifest.yaml"}]}).encode()
         return json.dumps({"entries": [], "removed": []}).encode()
     monkeypatch.setattr(module, "_public_bytes", fetch)
-    write, replace = Path.write_text, Path.replace
-    def write_temp(target, *args, **kwargs):
-        result = write(target, *args, **kwargs)
-        if failure == "write" and target.name.startswith(filename + "."):
+    fsync, replace = os.fsync, os.replace
+    def write_temp(descriptor):
+        if failure == "write":
             raise OSError("synthetic partial write failure")
-        return result
-    def replace_temp(target, *args, **kwargs):
-        if failure == "replace" and target.name.startswith(filename + "."):
+        return fsync(descriptor)
+    def replace_temp(source, target, *args, **kwargs):
+        if failure == "replace" and Path(source).name.startswith(filename + "."):
             raise OSError("synthetic replace failure")
-        return replace(target, *args, **kwargs)
-    monkeypatch.setattr(Path, "write_text", write_temp)
-    monkeypatch.setattr(Path, "replace", replace_temp)
+        return replace(source, target, *args, **kwargs)
+    monkeypatch.setattr(os, "fsync", write_temp)
+    monkeypatch.setattr(os, "replace", replace_temp)
     checks = []
     def cancelled():
         checks.append(True)

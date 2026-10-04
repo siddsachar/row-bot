@@ -11,6 +11,7 @@ import httpx
 import yaml
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.integrations.safe import write_atomic
 from row_bot.plugins.hermes_catalog import _public_bytes
 
 _REPO = "https://api.github.com/repos/NousResearch/hermes-agent"
@@ -43,16 +44,7 @@ def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambd
             saved = {"pin": pin, "names": names, "fetched_at": time.time()}
             if cancelled():
                 raise ValueError("integration_search_cancelled")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            from uuid import uuid4
-            temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-            try:
-                temporary.write_text(json.dumps(saved), encoding="utf-8")
-                if cancelled():
-                    raise ValueError("integration_search_cancelled")
-                temporary.replace(path)
-            finally:
-                temporary.unlink(missing_ok=True)
+            write_atomic(path, json.dumps(saved), cancelled=cancelled)
             status, message = "live", "Pinned public recipes; no server or bootstrap has run."
         except (ValueError, OSError, KeyError, TypeError, httpx.HTTPError):
             saved = previous

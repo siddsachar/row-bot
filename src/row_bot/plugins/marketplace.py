@@ -269,13 +269,8 @@ def _local_index_root(source: str) -> pathlib.Path | None:
 
 
 def _https_host(url: str) -> str | None:
-    try:
-        parsed = urlsplit(url)
-    except ValueError:
-        return None
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        return None
-    return parsed.hostname
+    from row_bot.integrations.safe import public_url
+    return urlsplit(url).hostname if public_url(url) else None
 
 
 def check_updates(installed_manifests: list) -> list[dict[str, str]]:
@@ -334,9 +329,7 @@ def get_update_entry(
 
 
 def _fetch_from_url(url: str) -> dict[str, Any]:
-    """Fetch JSON from a URL. Raises on error."""
-
-    import urllib.request
+    """Fetch a bounded JSON index from a local file or a public https URL. Raises on error."""
 
     local_path = _local_path_from_ref(url)
     if local_path is not None:
@@ -345,9 +338,8 @@ def _fetch_from_url(url: str) -> dict[str, Any]:
             raise ValueError(f"Expected JSON object, got {type(data).__name__}")
         return data
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-Plugin-Client"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    from row_bot.integrations.safe import fetch
+    data = json.loads(fetch(url, hosts=None, max_bytes=4 * 1024 * 1024, timeout=15, redirects=3))
     if not isinstance(data, dict):
         raise ValueError(f"Expected JSON object, got {type(data).__name__}")
     return data
@@ -379,10 +371,9 @@ def _read_disk_cache() -> dict[str, Any] | None:
 
 
 def _write_disk_cache(data: dict[str, Any]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    from row_bot.integrations.safe import write_atomic
     try:
-        with open(_CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        write_atomic(_CACHE_PATH, json.dumps(data, indent=2))
     except OSError:
         logger.warning("Failed to write marketplace cache", exc_info=True)
 

@@ -22,31 +22,6 @@ pytestmark = pytest.mark.subsystem
 BASE = "/api/v1/settings/mcp"
 
 
-def test_directory_rejects_authenticated_remote_owner_before_search(service, monkeypatch):
-    from row_bot.mcp_client import marketplace
-
-    monkeypatch.setattr(
-        marketplace,
-        "search_marketplace_with_status",
-        lambda *_a, **_kw: pytest.fail("remote directory contacted a source"),
-    )
-    app = create_client_platform_app(
-        service,
-        access_config=AccessConfig(deployment_mode=DeploymentMode.SERVER),
-        session_authenticator=lambda _scope, _provenance: SessionIdentity(
-            "fixture-device", "fixture-session"
-        ),
-        choices=lambda: {"models": [], "capabilities": []},
-    )
-    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)) as remote:
-        _, headers = bootstrap(remote)
-        response = remote.post(
-            BASE + "/directory/search", headers=headers, json={"query": "fixture"}
-        )
-        assert response.status_code == 403
-        assert response.json()["code"] == "action_denied"
-
-
 def review(client, headers, intent=None):
     page = client.get(BASE + "/configuration", headers=headers)
     assert page.status_code == 200, page.text
@@ -138,50 +113,6 @@ def test_saved_configuration_add_edit_rename_import_preserves_private_launch_fie
             "_mcp_configuration" not in receipt.text
             and "private-value" not in receipt.text
         )
-
-
-def test_directory_search_requires_click_and_returns_bounded_disabled_template(
-    service, owner, monkeypatch
-):
-    from row_bot.mcp_client import marketplace
-
-    calls = []
-    entry = marketplace.MarketplaceEntry(
-        id="fixture",
-        name="Fixture",
-        description="Test server",
-        source="curated",
-        install={"command": "synthetic-command"},
-    )
-    monkeypatch.setattr(
-        marketplace,
-        "search_marketplace_with_status",
-        lambda query, *, limit: (
-            calls.append(query)
-            or marketplace.MarketplaceSearchResult([entry], "curated")
-        ),
-    )
-    with client_for(service) as client:
-        _, headers = bootstrap(client)
-        assert client.get(BASE + "/configuration", headers=headers).status_code == 200
-        assert calls == []
-        response = client.post(
-            BASE + "/directory/search", headers=headers, json={"query": "fixture"}
-        )
-        assert response.status_code == 200, response.text
-        assert calls == ["fixture"]
-        assert response.json()["items"][0]["name"] == "Fixture"
-        assert not config.CONFIG_PATH.exists()
-    with TestClient(
-        create_client_platform_app(
-            service, choices=lambda: {"models": [], "capabilities": []}
-        ),
-        base_url="http://localhost",
-        client=("198.51.100.42", 12345),
-    ) as remote:
-        denied = remote.post(BASE + "/directory/search", json={"query": "fixture"})
-        assert denied.status_code == 401
-    assert calls == ["fixture"]
 
 
 def test_server_delete_requires_review_and_reuses_original_command(service, owner):

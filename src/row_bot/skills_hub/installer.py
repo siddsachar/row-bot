@@ -346,11 +346,8 @@ def _publication_path(operation_id: str) -> pathlib.Path:
 
 
 def _save_publication(operation_id: str, value: dict) -> None:
-    path = _publication_path(operation_id)
-    path.parent.mkdir(exist_ok=True)
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps({**value, "operation_id": operation_id}), encoding="utf-8")
-    temp.replace(path)
+    from row_bot.integrations.safe import write_atomic
+    write_atomic(_publication_path(operation_id), json.dumps({**value, "operation_id": operation_id}))
 
 
 def publication_result(operation_id: str, name: str, action: str) -> bool:

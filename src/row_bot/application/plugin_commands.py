@@ -21,6 +21,7 @@ from typing import Any
 from uuid import UUID
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.integrations.safe import public_url
 from row_bot.runtime import admissions
 
 _ID = re.compile(r"[a-z][a-z0-9-]{1,63}")
@@ -280,22 +281,9 @@ def _marketplace(root: Path) -> dict[str, dict[str, Any]]:
                 for key, value in (provides.items() if type(provides) is dict else [])
                 if key in {"native_tools", "mcp_servers", "channels", "skills"}
             },
-            "changelog_url": _https_url(entry.get("changelog_url")),
+            "changelog_url": public_url(entry.get("changelog_url")) or None,
         }
     return result
-
-
-def _https_url(value: object) -> str | None:
-    text = str(value or "").strip()
-    if not text or len(text) > 2048:
-        return None
-    try:
-        parsed = urlsplit(text)
-    except ValueError:
-        return None
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        return None
-    return text
 
 
 def _plugin_guide(plugin_id: str) -> str:
@@ -641,7 +629,6 @@ def read_plugin_catalog(
 
 def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
     """Passive ownership/provenance projection for the shared Integrations view."""
-    from urllib.parse import urlsplit
     from row_bot.plugins.mcp import plugin_mcp_server_name
     from row_bot.application.capability_configuration_controls import _server_id
 
@@ -654,11 +641,9 @@ def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
         record = state.get(row["plugin_id"], {})
         package = record.get("package", {})
         source = str(package.get("source_identity", ""))
-        parsed = urlsplit(source)
-        if parsed.hostname == "github.com" and parsed.fragment:
-            source = source.split("#", 1)[0] + "/tree/HEAD/" + parsed.fragment
-            parsed = urlsplit(source)
-        source = source if parsed.scheme == "https" and parsed.hostname and not parsed.username else ""
+        if urlsplit(source).hostname == "github.com" and "#" in source:
+            source = source.replace("#", "/tree/HEAD/", 1)
+        source = public_url(source)
         row.update(package_format=getattr(manifest, "package_format", "row-bot-v2"),
             publisher=manifest.author.name if manifest else "", license=manifest.license if manifest else "",
             source_url=source, pin=str(package.get("pin", "")), diagnostics=getattr(manifest, "diagnostics", []),

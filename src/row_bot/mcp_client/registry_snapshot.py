@@ -78,17 +78,8 @@ def refresh_snapshot(*, cancelled: Callable[[], bool] = lambda: False) -> dict:
     doc = build_snapshot(rows, captured_at=time.time(), complete=not cursor)
     if cancelled():
         raise ValueError("integration_search_cancelled")
-    path = get_row_bot_data_dir(create=False) / "mcp_registry_snapshot.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    from uuid import uuid4
-    temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-    try:
-        temporary.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-        if cancelled():
-            raise ValueError("integration_search_cancelled")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    from row_bot.integrations.safe import write_atomic
+    write_atomic(get_row_bot_data_dir(create=False) / "mcp_registry_snapshot.json", json.dumps(doc, indent=2), cancelled=cancelled)
     return read_snapshot()
 
 

@@ -9,11 +9,11 @@ import os
 
 import psutil
 import threading
-import time
 from dataclasses import replace
 from typing import Any, Callable
 from uuid import uuid4
 
+from row_bot.integrations.safe import TtlCache, public_url
 from row_bot.runtime import admissions
 from row_bot.skills_hub import catalog, installer
 from row_bot.skills_hub.models import SkillBundle, SkillHubEntry
@@ -25,13 +25,13 @@ from row_bot.skills_hub.source_registry import SkillSourceTimeout
 logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
-# Per owner, the last few result lists by revision: a skill opened from a list
-# still previews after "Load more" or a late source replaced that list.
-_CATALOGS: dict[str, dict[str, tuple[float, dict[str, SkillHubEntry]]]] = {}
-_CATALOG_REVISIONS = 4
-_PREVIEWS: dict[tuple[str, str], tuple[float, SkillBundle, dict[str, Any]]] = {}
-_ACTIVE: set[tuple[str, str]] = set()
 _TTL = 20 * 60
+# Result lists by (owner, revision): a skill opened from a list still previews
+# after "Load more" or a late source replaced that list.
+_CATALOGS = TtlCache(_TTL, 128)
+_SEARCHED = TtlCache(_TTL, 32)
+_PREVIEWS = TtlCache(_TTL, 64)
+_ACTIVE: set[tuple[str, str]] = set()
 MAX_RESULTS = 96
 
 
@@ -42,14 +42,8 @@ class SkillHubCommandError(ValueError):
 
 
 def _entry_public(entry: SkillHubEntry) -> dict[str, Any]:
-    from urllib.parse import urlsplit
-    try:
-        parsed = urlsplit(entry.url)
-        url = entry.url[:2048] if parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password else ""
-    except ValueError:
-        url = ""
     return {
-        "url": url,
+        "url": public_url(entry.url),
         "id": entry.id[:256],
         "name": entry.name[:160],
         "description": entry.description[:1000],
@@ -102,14 +96,8 @@ def search_public_skills(
     found = [entry for entry in result.entries if 0 < len(entry.id) <= 256]
     entries = found[:limit]
     revision = _catalog_revision(entries)
-    with _LOCK:
-        if len(_CATALOGS) >= 32 and owner_id not in _CATALOGS:
-            _CATALOGS.pop(next(iter(_CATALOGS)))
-        lists = _CATALOGS.setdefault(owner_id, {})
-        lists.pop(revision, None)
-        lists[revision] = (time.monotonic(), {entry.id: entry for entry in entries})
-        while len(lists) > _CATALOG_REVISIONS:
-            lists.pop(next(iter(lists)))
+    _CATALOGS.put((owner_id, revision), {entry.id: entry for entry in entries})
+    _SEARCHED.put(owner_id, True)
     return {
         "schema_version": 1,
         "revision": revision,
@@ -136,15 +124,12 @@ def preview_public_skill(
     revision: str,
     entry_id: str,
 ) -> dict[str, Any]:
-    with _LOCK:
-        now = time.monotonic()
-        lists = _CATALOGS.get(owner_id, {})
-        if not any(now - stamp <= _TTL for stamp, _entries in lists.values()):
-            raise SkillHubCommandError("skill_catalog_expired")
-        listed = lists.get(revision)
-        if listed is None or now - listed[0] > _TTL or entry_id not in listed[1]:
-            raise SkillHubCommandError("skill_catalog_changed")
-        entry = listed[1][entry_id]
+    if _SEARCHED.get(owner_id) is None:
+        raise SkillHubCommandError("skill_catalog_expired")
+    listed = _CATALOGS.get((owner_id, revision))
+    if listed is None or entry_id not in listed:
+        raise SkillHubCommandError("skill_catalog_changed")
+    entry = listed[entry_id]
     try:
         bundle = catalog.inspect_entry(entry)
     except SkillSourceTimeout as exc:
@@ -209,10 +194,7 @@ def _save_preview(owner_id: str, bundle: SkillBundle, entry: SkillHubEntry) -> d
             "token_estimate": scan.token_estimate,
         },
     }
-    with _LOCK:
-        if len(_PREVIEWS) >= 64:
-            _PREVIEWS.pop(next(iter(_PREVIEWS)))
-        _PREVIEWS[(owner_id, preview_id)] = (time.monotonic(), bundle, summary)
+    _PREVIEWS.put((owner_id, preview_id), (bundle, summary))
     return summary
 
 
@@ -234,10 +216,10 @@ def install_previewed_skill(
         return prior
     with _LOCK:
         preview = _PREVIEWS.get((owner_id, preview_id))
-        if preview is None or time.monotonic() - preview[0] > _TTL:
+        if preview is None:
             raise SkillHubCommandError("skill_preview_expired")
-        bundle = preview[1]
-        if bundle.content_hash != content_hash or preview[2]["scan"]["blocked"]:
+        bundle = preview[0]
+        if bundle.content_hash != content_hash or preview[1]["scan"]["blocked"]:
             raise SkillHubCommandError("skill_preview_changed")
         from row_bot.skills_hub.clawhub_source import revalidate_bundle
         revalidate_bundle(bundle)
@@ -371,10 +353,10 @@ def execute_public_skill_maintenance(
         reviewed_bundle = None
         if action == "update":
             preview = _PREVIEWS.get((owner_id, preview_id))
-            if preview is None or time.monotonic() - preview[0] > _TTL:
+            if preview is None:
                 raise SkillHubCommandError("skill_preview_expired")
-            reviewed_bundle = preview[1]
-            if (reviewed_bundle.content_hash != content_hash or preview[2]["scan"]["blocked"]
+            reviewed_bundle = preview[0]
+            if (reviewed_bundle.content_hash != content_hash or preview[1]["scan"]["blocked"]
                     or reviewed_bundle.metadata.get("update_name") != name
                     or reviewed_bundle.metadata.get("update_revision") != expected_revision):
                 raise SkillHubCommandError("skill_preview_changed")

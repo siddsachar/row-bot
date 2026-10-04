@@ -286,7 +286,8 @@ def _search_source(source: str, *, owner_id: str, query: str, refresh: bool, ref
                 except Exception:
                     snapshot = {**snapshot, "status": "stale" if snapshot["entries"] else "error"}
             entries = snapshot["entries"] if source == "official" else marketplace.CURATED_STARTER_CATALOG if source == "recommended" else []
-            result = marketplace.MarketplaceSearchResult(marketplace._filter_relevant(entries, query), "cache")
+            tokens = [t for t in re.split(r"[^a-z0-9]+", query.lower()) if len(t) > 1]
+            matched = [e for e in entries if all(t in " ".join([e.id, e.name, e.description, e.publisher]).lower() for t in tokens)]
             if source == "examples":
                 for name, reference, description, evidence in (
                     ("Local text tools", "bundled:local-text-tools", "Two no-auth writing skills, a supporting checklist, and local text statistics over MCP.",
@@ -300,7 +301,7 @@ def _search_source(source: str, *, owner_id: str, query: str, refresh: bool, ref
                         description=description, reasons=[evidence], evidence="Source reviewed; see setup details and validation limits.", actions=["preview"])
                     items.append(item)
                     references[item["id"]] = {"kind": "plugin", "reference": reference}
-            for entry in result.entries:
+            for entry in matched:
                 if source == "recommended" and not (entry.metadata or {}).get("integration_starter"):
                     continue
                 supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")))

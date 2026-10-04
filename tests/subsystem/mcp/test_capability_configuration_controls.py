@@ -306,57 +306,18 @@ def test_deleted_server_uses_exact_revision_and_original_cleanup_receipt(
         )
 
 
-def test_directory_search_is_explicit_and_returns_disabled_import(owner, monkeypatch):
-    from row_bot.application.client_mcp_directory import search_directory
+def test_every_curated_entry_imports_against_a_fresh_revision(owner):
     from row_bot.mcp_client import marketplace
 
-    calls = []
-    entry = marketplace.MarketplaceEntry(
-        id="synthetic",
-        name="Synthetic Server",
-        description="Safe fixture",
-        source="curated",
-        transport="stdio",
-        install={"command": "synthetic-command"},
-    )
-    monkeypatch.setattr(
-        marketplace,
-        "search_marketplace_with_status",
-        lambda query, *, limit: (
-            calls.append((query, limit))
-            or marketplace.MarketplaceSearchResult([entry], "curated", query)
-        ),
-    )
-    assert not config.CONFIG_PATH.exists()
-    result = search_directory("synthetic", validate=lambda: None)
-    assert calls == [("synthetic", 24)]
-    assert result["mode"] == "curated"
-    imported = json.loads(result["items"][0]["import_json"])["mcpServers"]
-    assert next(iter(imported.values()))["enabled"] is False
-    assert not config.CONFIG_PATH.exists()
-
-
-def test_every_curated_entry_imports_against_a_fresh_revision(owner, monkeypatch):
-    from row_bot.application.client_mcp_directory import search_directory
-    from row_bot.mcp_client import marketplace
-
-    catalog = list(marketplace.CURATED_STARTER_CATALOG)
-    monkeypatch.setattr(marketplace, "search_marketplace_with_status",
-        lambda query, *, limit: marketplace.MarketplaceSearchResult(catalog[:limit], "curated", query))
-    items = search_directory("", validate=lambda: None)["items"]
-    assert len(items) == min(len(catalog), 24)
-    for item in items:
+    for entry in marketplace.CURATED_STARTER_CATALOG:
         # Each import reads the revision the previous save produced (B262).
-        value = command({"operation": "import", "import_json": item["import_json"]})
+        server = marketplace.entry_to_server_config(entry)
+        assert server["enabled"] is False
+        value = command({"operation": "import", "import_json": json.dumps({"mcpServers": {entry.id: server}})})
         controls.review_mcp_configuration_command(
             value["payload"]["configuration_revision"], value["payload"]["intent"], validate=lambda: None)
-        assert execute(value)["mcp_configuration"]["status"] == "saved", item["id"]
-    assert controls.read_mcp_configuration(limit=50).total == len(items)
-    # Remote servers that sign in through the browser are marked; token-based ones are not.
-    marked = {item["id"] for item in items if item["sign_in_required"]}
-    assert "makenotion-notion-mcp-server" in marked and "slack-mcp" in marked
-    assert not marked & {"xquik-mcp", "github-github-mcp-server", "upstash-context7", "microsoftdocs-mcp",
-                         "microsoft-playwright"}
+        assert execute(value)["mcp_configuration"]["status"] == "saved", entry.id
+    assert controls.read_mcp_configuration(limit=50).total == len(marketplace.CURATED_STARTER_CATALOG)
 
 
 def test_response_loss_reconciles_owned_publication_without_new_write(

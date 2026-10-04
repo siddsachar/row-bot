@@ -65,9 +65,8 @@ def save_records(records: dict[str, SkillInstallRecord]) -> None:
         "updated_at": now_iso(),
         "records": {name: record.as_dict() for name, record in sorted(records.items())},
     }
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
+    from row_bot.integrations.safe import write_atomic
+    write_atomic(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def get_record(local_name: str) -> SkillInstallRecord | None:

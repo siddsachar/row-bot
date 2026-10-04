@@ -7,10 +7,11 @@ import json
 import pathlib
 import re
 import stat
-import urllib.error
 import urllib.parse
 import zipfile
 from typing import Any
+
+import httpx
 
 from .models import SourceResult, SkillBundle, SkillFile, SkillHubEntry
 from .search_index import search_entries
@@ -162,8 +163,8 @@ def _detail(slug: str, owner: str) -> dict[str, Any]:
         url += "?" + urllib.parse.urlencode({"owner": owner})
     try:
         value = fetch_json(url)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 409:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
             raise ValueError("This ClawHub slug has multiple publishers. Use its publisher-qualified ClawHub URL.") from None
         raise
     if not isinstance(value, dict) or not isinstance(value.get("skill", value), dict):

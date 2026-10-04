@@ -1241,14 +1241,6 @@ export class HttpTransport implements ClientTransport {
       target,
     );
   }
-  searchMcpDirectory(query: string, signal?: AbortSignal) {
-    return wire.searchMcpDirectory(
-      this.base,
-      this.session(),
-      { query },
-      signal,
-    );
-  }
   mcpRuntime(server: string, signal?: AbortSignal, target?: wire.McpTarget) {
     return wire.getMcpRuntime(
       this.base,

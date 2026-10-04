@@ -474,6 +474,10 @@ def rate_limit_from_headers(
 
 
 def rate_limit_from_exception(exc: BaseException) -> GitHubRateLimit | None:
+    import httpx
+    if isinstance(exc, httpx.HTTPStatusError):
+        rate = rate_limit_from_headers(exc.response.headers, status_code=exc.response.status_code)
+        return rate if rate.limited else None
     if isinstance(exc, urllib.error.HTTPError):
         body = _safe_error_body(exc)
         rate = rate_limit_from_headers(exc.headers, status_code=exc.code, body=body)

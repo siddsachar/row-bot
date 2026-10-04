@@ -1267,10 +1267,6 @@ export interface ClientTransport {
     signal?: AbortSignal,
     target?: Wire.McpTarget,
   ): Promise<Wire.McpConfigurationPage>;
-  searchMcpDirectory?(
-    query: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.McpDirectoryResult>;
   reviewMcpConfiguration?(
     body: Wire.McpConfigurationReviewRequest,
     signal?: AbortSignal,

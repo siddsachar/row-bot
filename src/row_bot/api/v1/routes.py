@@ -7005,18 +7005,6 @@ def create_router(
         )
         return await respond(request, dto.McpConfigurationPage, asdict(result))
 
-    @router.post("/settings/mcp/directory/search")
-    async def mcp_directory_search(request: Request) -> JSONResponse:
-        require_native_local(request, await _context(request))
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.McpDirectorySearchRequest, 2048)
-        from row_bot.application.client_mcp_directory import search_directory
-
-        result = await call(
-            search_directory, body.query, validate=dispatch_validation(request, current)
-        )
-        return await respond(request, dto.McpDirectoryResult, result)
-
     @router.post("/settings/mcp/packages/preview")
     async def mcp_package_preview(request: Request) -> JSONResponse:
         require_native_local(request, await _context(request))

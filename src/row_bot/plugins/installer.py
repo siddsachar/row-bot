@@ -599,20 +599,9 @@ def _download_to_file(ref: str, dest: pathlib.Path) -> None:
         shutil.copyfile(local_path, dest)
         return
 
-    import urllib.request
-
-    req = urllib.request.Request(
-        ref, headers={"User-Agent": "Row-Bot-Plugin-Installer"}
-    )
-    maximum = 64 * 1024 * 1024
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        with open(dest, "wb") as f:
-            total = 0
-            while chunk := resp.read(1024 * 1024):
-                total += len(chunk)
-                if total > maximum:
-                    raise ValueError("Plugin archive exceeds the download limit")
-                f.write(chunk)
+    from row_bot.integrations.safe import fetch
+    dest.write_bytes(fetch(ref, hosts=None, max_bytes=64 * 1024 * 1024, timeout=60, redirects=3,
+        too_large="Plugin archive exceeds the download limit"))
 
 
 def _safe_extract_zip(zf: zipfile.ZipFile, dest: pathlib.Path) -> None:

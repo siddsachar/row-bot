@@ -120,19 +120,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(is_destructive_tool("browser_file_upload", "Upload one or multiple files", destructive_tool))
         self.assertEqual(prefixed_tool_name("My Server", "Delete File"), "mcp_my_server_delete_file")
 
-    def test_marketplace_unknown_source_falls_back_to_curated_catalog(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-        with patch.object(marketplace, "_load_cache", return_value=[]):
-            results = marketplace.search_marketplace("filesystem", sources=["unknown-source"], limit=5)
-            status = marketplace.search_marketplace_with_status("filesystem", sources=["unknown-source"], limit=5)
-        self.assertGreaterEqual(len(results), 1)
-        self.assertTrue(any(entry.source == "curated" for entry in results))
-        self.assertEqual(status.mode, "curated")
-        self.assertEqual(status.query, "filesystem")
-        self.assertGreaterEqual(status.source_counts.get("curated", 0), 1)
-        self.assertEqual([entry.id for entry in status.entries], [entry.id for entry in results])
-
     def test_recommended_catalog_excludes_memory_and_marks_overlaps(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
@@ -243,27 +230,6 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(timed_out["tools"], [])
         self.assertEqual(timed_out["error"], "MCP connection timed out after 2 seconds.")
         self.assertTrue(timed_out_future.cancelled)
-
-    def test_optional_marketplaces_do_not_guess_endpoints_or_scrape(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        for source in ("glama", "pulsemcp", "smithery"):
-            with self.subTest(source=source), \
-                 patch.object(marketplace, "_fetch_json", side_effect=AssertionError("network")), \
-                 patch.object(marketplace, "_fetch_text", side_effect=AssertionError("HTML fallback")), \
-                 patch.object(marketplace, "_load_cache", return_value=[]):
-                result = marketplace.search_marketplace_with_status("filesystem", sources=[source], limit=10)
-            self.assertEqual(result.mode, "curated")
-            self.assertEqual([entry.id for entry in result.entries], ["modelcontextprotocol-filesystem"])
-
-    def test_marketplace_search_does_not_match_repository_host_only(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        with patch.object(marketplace, "_load_cache", return_value=[]):
-            result = marketplace.search_marketplace_with_status("github", sources=["unknown-source"], limit=10)
-
-        self.assertEqual(result.mode, "curated")
-        self.assertEqual([entry.id for entry in result.entries], ["github-github-mcp-server"])
 
     def test_result_normalization_truncates_and_marks_errors(self) -> None:
         from row_bot.mcp_client.results import normalize_call_result

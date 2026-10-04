@@ -7,7 +7,6 @@ import json
 import pathlib
 import re
 import urllib.parse
-import urllib.request
 from typing import Any
 
 import yaml
@@ -66,14 +65,10 @@ class SkillSource:
 
 
 def fetch_bytes(url: str, *, headers: dict[str, str] | None = None, timeout: int = DEFAULT_TIMEOUT) -> bytes:
-    request_headers = dict(BROWSER_HEADERS)
-    request_headers.update(headers or {})
-    request = urllib.request.Request(url, headers=request_headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered public skill fetch
-        data = response.read(MAX_SOURCE_BYTES + 1)
-    if len(data) > MAX_SOURCE_BYTES:
-        raise ValueError(f"Source response is larger than {MAX_SOURCE_BYTES} bytes")
-    return data
+    """Public skill catalogs: any public host, every redirect rechecked; tokens never cross hosts."""
+    from row_bot.integrations.safe import fetch
+    return fetch(url, hosts=None, max_bytes=MAX_SOURCE_BYTES, timeout=timeout, headers={**BROWSER_HEADERS, **(headers or {})},
+        redirects=5, refused="skill_source_refused", too_large="skill_source_too_large")
 
 
 def fetch_text(url: str, *, headers: dict[str, str] | None = None, timeout: int = DEFAULT_TIMEOUT) -> str:

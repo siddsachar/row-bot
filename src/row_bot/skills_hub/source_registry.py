@@ -13,6 +13,10 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+import httpx
+
+from row_bot.integrations.safe import write_atomic
+
 from .input_detection import detect_source_input
 from .models import DetectedSourceInput, SourceHealth, SourceResult, SkillHubEntry
 from .provenance import hub_dir
@@ -277,9 +281,8 @@ class SkillSourceRegistry:
             # A keyword search of an index source filters its cached browse list.
             filtered = from_index and operation == "search"
             live_operation, live_query = ("browse", "") if filtered else (operation, query)
-            cached = None
-            if cached_only or not force_refresh:
-                cached = _read_source_cache(source_id, live_operation, live_query, allow_stale=cached_only)
+            # Explicit searches reuse results within their TTL; only expiry fetches again.
+            cached = _read_source_cache(source_id, live_operation, live_query, allow_stale=cached_only)
             if cached is not None:
                 results.append(_filtered(cached, query, limit) if filtered else cached)
                 continue
@@ -437,15 +440,16 @@ def _display_name(source: object) -> str:
 
 def _failure_message(exc: BaseException, name: str) -> str:
     """Why a source failed, in plain words; the raw error only reaches the log."""
-    if isinstance(exc, urllib.error.HTTPError):
-        if exc.code in {403, 429}:
+    code = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "code", None)
+    if isinstance(exc, (httpx.HTTPStatusError, urllib.error.HTTPError)):
+        if code in {403, 429}:
             return f"{name} is limiting requests right now. Try again later."
-        if exc.code == 404:
+        if code == 404:
             return f"{name} couldn't find it."
         return f"{name} had a problem answering. Try again later."
-    if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)) or isinstance(getattr(exc, "reason", None), TimeoutError):
         return f"{name} took too long to answer."
-    if isinstance(exc, (urllib.error.URLError, ConnectionError)):
+    if isinstance(exc, (httpx.TransportError, urllib.error.URLError, ConnectionError)):
         return f"{name} couldn't be reached."
     if isinstance(exc, ValueError):
         return f"{name} sent something Row-Bot couldn't read."
@@ -484,12 +488,13 @@ def _call_source(source: object, operation: str, query: str, limit: int, *, canc
                 result = SourceResult(search_entries(entries, query, limit=limit), source_id, "live")
     except Exception as exc:
         logger.warning("Skills hub %s %s failed: %s", source_id, operation, type(exc).__name__)
+        code = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "code", None)
         return SourceResult(
             [],
             source_id,
-            "auth_required" if getattr(exc, "code", None) in {401, 403} else
-            "rate_limited" if getattr(exc, "code", None) == 429 else
-            "timeout" if isinstance(exc, TimeoutError) else
+            "auth_required" if code in {401, 403} else
+            "rate_limited" if code == 429 else
+            "timeout" if isinstance(exc, (TimeoutError, httpx.TimeoutException)) else
             "malformed" if isinstance(exc, (ValueError, TypeError, KeyError)) else "error",
             _failure_message(exc, _display_name(source)),
             duration_ms=int((time.perf_counter() - started) * 1000),
@@ -555,10 +560,7 @@ def _write_source_cache(result: SourceResult, operation: str, query: str) -> Non
     payload = result.as_dict()
     payload["cache_schema_version"] = SOURCE_CACHE_SCHEMA_VERSION
     payload["entries"] = [asdict(entry) for entry in result.entries]
-    from uuid import uuid4
-    tmp = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
+    write_atomic(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def _normalize_source_id(value: str) -> str:

@@ -2004,30 +2004,6 @@ class McpRequirementSummary(WireModel):
     source: Literal["system", "managed", "environment", "missing", "unknown"]
 
 
-class McpDirectorySearchRequest(WireModel):
-    query: str = Field(max_length=128)
-
-
-class McpDirectoryEntry(WireModel):
-    id: str = Field(max_length=128)
-    name: str = Field(max_length=128)
-    description: str = Field(max_length=800)
-    source: str = Field(max_length=32)
-    publisher: str = Field(max_length=128)
-    transport: str = Field(max_length=32)
-    risk_level: str = Field(max_length=32)
-    requires_auth: bool
-    sign_in_required: bool
-    recommended: bool
-    import_json: str = Field(max_length=8192)
-
-
-class McpDirectoryResult(WireModel):
-    schema_version: Literal[1]
-    mode: Literal["live", "cache", "curated"]
-    items: list[McpDirectoryEntry] = Field(max_length=24)
-
-
 class McpServerSummary(WireModel):
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     name: str = Field(max_length=128)
