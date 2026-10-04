@@ -5,6 +5,7 @@ import errno
 import importlib
 import io
 import ipaddress
+import json
 import os
 import pathlib
 import socket
@@ -340,6 +341,24 @@ def _isolate_desktop_notification_outputs(monkeypatch):
 
     monkeypatch.setattr(notifications, "_desktop_notify", lambda *args, **kwargs: None)
     monkeypatch.setattr(notifications, "_play_sound", lambda *args, **kwargs: None)
+
+
+@pytest.fixture(scope="session")
+def _registry_fixture_snapshot(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    from row_bot.mcp_client import marketplace, registry_snapshot
+
+    envelope = json.loads((Path(__file__).parent / "fixtures/integrations/registry-v01.json").read_text(encoding="utf-8"))
+    path = tmp_path_factory.mktemp("registry") / "registry_snapshot.jsonl.xz"
+    path.write_bytes(registry_snapshot.build_snapshot(marketplace.registry_entries(envelope), captured_at=1790000000.0,
+                                                      watermark="2026-09-21T00:00:00Z"))
+    return path
+
+
+@pytest.fixture(autouse=True)
+def _small_registry_snapshot(_registry_fixture_snapshot: Path, monkeypatch: pytest.MonkeyPatch):
+    # The shipped Registry mirror holds tens of thousands of records. Deterministic tests
+    # index a one-record fixture instead; a test of the shipped snapshot sets SHIPPED itself.
+    monkeypatch.setattr("row_bot.mcp_client.registry_snapshot.SHIPPED", _registry_fixture_snapshot)
 
 
 @pytest.fixture

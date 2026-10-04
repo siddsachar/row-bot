@@ -14,8 +14,22 @@
       "title": "Category",
       "type": "string"
     },
+    "featured_rank": {
+      "anyOf": [
+        {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Featured Rank"
+    },
     "icon": {
-      "maxLength": 256,
+      "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
       "title": "Icon",
       "type": "string"
     },

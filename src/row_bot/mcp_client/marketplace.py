@@ -90,8 +90,31 @@ def _registry_setup_digest(item: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+_RASTER = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
+
+
+def _registry_display(item: dict, official: dict) -> dict:
+    """Display-only facts: freshness and at most one declared raster icon (SVG is never kept)."""
+    shown = {}
+    updated = official.get("updatedAt") or official.get("publishedAt")
+    if isinstance(updated, str) and re.match(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", updated):
+        shown["updated_at"] = updated[:10]
+    icons = item.get("icons")
+    for icon in icons if isinstance(icons, list) else []:
+        source = icon.get("src") if isinstance(icon, dict) else None
+        if (isinstance(source, str) and source.startswith("https://") and len(source) <= 2048
+                and str(icon.get("mimeType") or "image/png").lower() in _RASTER and not source.lower().endswith(".svg")):
+            shown["icon"] = source
+            break
+    return shown
+
+
 def registry_entries(data: dict) -> list[MarketplaceEntry]:
-    """Parse bounded v0.1 metadata; unsupported declarations never become recipes."""
+    """Parse bounded v0.1 metadata; unsupported declarations never become recipes.
+
+    A server whose declarations cannot be reviewed is still listed, with the
+    reason and no recipe or setup binding, so it can never be imported.
+    """
     if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
         raise ValueError("invalid_registry_response")
     entries = []
@@ -101,16 +124,23 @@ def registry_entries(data: dict) -> list[MarketplaceEntry]:
             continue
         item = envelope["server"]
         official = envelope.get("_meta", {}).get("io.modelcontextprotocol.registry/official", {})
+        official = official if isinstance(official, dict) else {}
         name, version = item.get("name"), item.get("version")
         if not isinstance(name, str) or not isinstance(version, str) or not name or len(name) > 200 or len(version) > 128:
             continue
-        setup_digest = _registry_setup_digest(item)
         status = official.get("status", "unknown")
         install, notes, requires_auth = None, [], False
-        remotes, packages = item.get("remotes", []), item.get("packages", [])
-        if not isinstance(remotes, list) or not isinstance(packages, list) or len(remotes) > 16 or len(packages) > 16:
-            raise ValueError("invalid_registry_declarations")
-        if status != "active":
+        remotes, packages, reviewable = item.get("remotes", []), item.get("packages", []), True
+        try:
+            if not isinstance(remotes, list) or not isinstance(packages, list) or len(remotes) > 16 or len(packages) > 16:
+                raise ValueError("invalid_registry_declarations")
+            setup_digest = _registry_setup_digest(item)
+        except ValueError:
+            reviewable, setup_digest = False, ""
+            notes.append("This server declares more setup than Row-Bot can review.")
+        if not reviewable:
+            pass
+        elif status != "active":
             notes.append("Registry status: " + str(status)[:80] + ". New installation is unavailable.")
         elif set(item) - known:
             notes.append("Additional server setup or authentication declarations are unsupported by catalog import.")
@@ -153,12 +183,13 @@ def registry_entries(data: dict) -> list[MarketplaceEntry]:
                     notes.append("Prepare reviewed dependencies first. Only self-contained npm archives or complete npm shrinkwraps without install scripts are supported.")
                     break
         repository = item.get("repository", {})
+        url = str(repository.get("url", "")) if isinstance(repository, dict) else ""
         entries.append(MarketplaceEntry(id=name + "@" + version, name=str(item.get("title") or name)[:128],
             description=str(item.get("description", ""))[:800], source="official", publisher=name.split("/", 1)[0],
-            url=str(repository.get("url", "")) if isinstance(repository, dict) else "", classification="official-registry",
+            url=url or str(item.get("websiteUrl") or "")[:2048], classification="official-registry",
             transport=install.get("transport", "") if install else "", requires_auth=requires_auth,
             install=install, notes=list(dict.fromkeys(notes)), metadata={"version": version, "status": status,
-                "canonical_name": name, "setup_digest": setup_digest}))
+                "canonical_name": name, **({"setup_digest": setup_digest} if install else {}), **_registry_display(item, official)}))
     return entries
 
 

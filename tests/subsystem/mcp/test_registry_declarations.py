@@ -8,6 +8,7 @@ import pytest
 
 from row_bot.application import client_integrations
 from row_bot.mcp_client import marketplace, registry_snapshot
+from tests.helpers.registry import use_registry
 
 pytestmark = pytest.mark.platform
 
@@ -24,10 +25,10 @@ def test_required_header_deployments_survive_parser_snapshot_and_search(envelope
     for row, tenant in ((envelope, "alpha"), (second, "beta")):
         row["server"]["remotes"][0]["headers"] = [{"name": "X-Tenant", "value": tenant, "isRequired": True}]
     entries = marketplace.registry_entries({"servers": [envelope, second]})
-    saved = tmp_path / "mcp_registry_snapshot.json"
-    saved.write_text(json.dumps(registry_snapshot.build_snapshot(entries, captured_at=1)))
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
-    page = client_integrations.search_integrations(owner_id="declarations", sources=["official"], include_incompatible=True)
+    use_registry(monkeypatch, tmp_path, entries)
+    page = client_integrations.search_integrations(owner_id="declarations", sources=["official"], query="notes",
+                                                   include_incompatible=True)
     assert len(page["items"]) == 2
     assert len({r["canonical_identity"] for r in page["items"]}) == 2
     for item in page["items"]:
@@ -35,6 +36,8 @@ def test_required_header_deployments_survive_parser_snapshot_and_search(envelope
         assert not item["actions"]
         assert "header" in " ".join(item["reasons"]).lower()
     assert client_integrations.search_integrations(owner_id="declarations", sources=["official"])["total"] == 0
+    assert client_integrations.search_integrations(owner_id="declarations", sources=["official"], query="notes",
+                                                   include_incompatible=False)["total"] == 2  # Searched: shown with reasons.
     assert not any(e.install for e in registry_snapshot.read_snapshot()["entries"])
 
 
@@ -93,16 +96,16 @@ def test_oversized_setup_is_rejected_instead_of_truncated(envelope, oversized):
         envelope["server"]["remotes"][0]["headers"] = [{"name": "X-Tenant", "value": "x" * 65536}]
     else:
         envelope["server"]["remotes"] *= 17
-    with pytest.raises(ValueError):
-        marketplace.registry_entries({"servers": [envelope]})
+    entry = marketplace.registry_entries({"servers": [envelope]})[0]
+    assert entry.install is None and "setup_digest" not in entry.metadata
+    assert "x" * 64 not in json.dumps(asdict(entry))
+    with pytest.raises(ValueError, match="unsupported"):
+        marketplace.entry_to_server_config(entry)
 
 
-def test_old_saved_snapshot_falls_back_to_new_declaration_bound_copy(envelope, tmp_path, monkeypatch):
+def test_shipped_snapshot_records_keep_their_declaration_binding(envelope, tmp_path, monkeypatch):
     entries = marketplace.registry_entries({"servers": [envelope]})
-    doc = registry_snapshot.build_snapshot(entries, captured_at=1)
-    doc["schema_version"] = 1
-    (tmp_path / "mcp_registry_snapshot.json").write_text(json.dumps(doc))
-    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    use_registry(monkeypatch, tmp_path, entries)
     result = registry_snapshot.read_snapshot()
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
     assert result["entries"] and all(e.metadata["setup_digest"] for e in result["entries"])

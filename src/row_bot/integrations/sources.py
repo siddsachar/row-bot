@@ -10,9 +10,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 import json
 import re
+import time
 from urllib.parse import urlsplit
 
-from row_bot.integrations import apps, facts
+from row_bot.integrations import apps, facts, icons
 from row_bot.integrations.safe import public_url
 
 
@@ -32,7 +33,6 @@ class Search:
     owner_id: str
     query: str = ""
     refresh: bool = False
-    refresh_catalogs: bool = False
     cancelled: Callable[[], bool] = lambda: False
     validate: Callable[[], None] = lambda: None
 
@@ -72,8 +72,11 @@ class Source:
         return None
 
 
-def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsupported: str = "", **fields) -> dict:
-    return facts.entry(kind, ref, name, **{"installed": False, **fields}, lifecycle="available", app=app.ref() if app else None,
+def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsupported: str = "", verified: bool = False,
+               **fields) -> dict:
+    fields["icon"] = fields.get("icon") or (app.ref()["icon"] if app else apps.letter(name))
+    return facts.entry(kind, ref, name, **{"installed": False, **fields}, lifecycle="available", verified=verified,
+        app=app.ref(verified=verified) if app else None,
         blockers=[facts.blocker("unsupported", unsupported)] if unsupported else [])
 
 
@@ -99,9 +102,14 @@ class _McpCatalog(Source):
     def row(self, entry) -> tuple[dict, dict]:
         metadata = entry.metadata or {}
         refs = (["curated:" + entry.id.lower()] if self.id == "recommended" else apps.registry_refs(metadata.get("canonical_name", "")))
-        app = apps.match(refs + apps.recipe_refs(entry.install))
+        refs += apps.recipe_refs(entry.install)
+        app = apps.match(refs)
         supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")))
+        known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not (entry.install or {}).get("url") or bool(
+            app and app.auth in {"oauth", "api_key", "none"})
         row = _available("mcp", entry.source + ":" + entry.id, entry.name, app=app, source=entry.source,
+            verified=apps.verified(app, refs), setup_tier=0 if supported and known else 1 if supported else 2,
+            updated_at=_day(metadata.get("updated_at", "")), icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
             unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
             description=entry.description[:2048], source_url=public_url(entry.url), publisher=entry.publisher[:160],
             compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
@@ -140,31 +148,25 @@ class Curated(_McpCatalog):
 
 class Registry(_McpCatalog):
     id, label, access, network = "official", "Official MCP Registry", "snapshot", "explicit"
-    message = "Local Registry snapshot; refreshed only on request."
+    message = "The whole Registry, searched on this computer; updated only when you ask."
 
-    def snapshot(self, refresh: bool = False, cancelled: Callable[[], bool] = lambda: False) -> dict:
-        from row_bot.mcp_client import registry_snapshot
-        snapshot = registry_snapshot.read_snapshot()
-        if refresh:
-            try:
-                snapshot = registry_snapshot.refresh_snapshot(cancelled=cancelled)
-            except Exception:
-                snapshot = {**snapshot, "status": "stale" if snapshot["entries"] else "error"}
-        return snapshot
-
-    def entries(self) -> list:
-        return self.snapshot()["entries"]
+    def lookup(self, reference: str):
+        from row_bot.integrations import index
+        return index.lookup(reference.removeprefix(self.id + ":"))
 
     def search(self, search: Search) -> Found:
-        snapshot = self.snapshot(search.refresh_catalogs, search.cancelled)
+        from row_bot.integrations import index
+        from row_bot.mcp_client.registry_snapshot import MAX_AGE
+        try:
+            results, total, current = index.search(search.query)
+        except LookupError:  # Start-up has not finished building the local mirror.
+            return Found(statuses=[self.status(status="pending", message="Preparing the Registry on this computer.")])
         found = Found()
-        for entry in snapshot["entries"]:
-            app = apps.match(apps.registry_refs((entry.metadata or {}).get("canonical_name", "")) + apps.recipe_refs(entry.install))
-            if matches(search.query, entry.id, entry.name, entry.description, entry.publisher, apps.text(app)):
-                found.add(*self.row(entry))
-        found.statuses.append(self.status(status=snapshot["status"], fetched_at=snapshot.get("captured_at"),
-            snapshot_version=snapshot.get("api_version", ""), snapshot_digest=snapshot.get("digest", ""),
-            truncated=not snapshot.get("complete", False)))
+        for entry, _derived in results:
+            found.add(*self.row(entry))
+        fetched = max(current["captured_at"], current.get("updated_at", 0))
+        found.statuses.append(self.status(status="stale" if time.time() - fetched > MAX_AGE else "cached", fetched_at=fetched,
+            snapshot_version="v0.1", snapshot_digest=current.get("digest", ""), truncated=total > len(results)))
         return found
 
 
@@ -333,30 +335,57 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     return (facts.finish(found[0]), found[1]) if found else None
 
 
+def _day(value: str) -> int:
+    """Seconds since the epoch for a Registry ``YYYY-MM-DD`` date, or 0."""
+    from row_bot.integrations.index import epoch
+    return epoch(value)
+
+
+def order(*, exact: bool, preferred: bool, strong: bool, featured_rank: int | None, setup: int, updated: float,
+          popularity: int, precedence: int, name: str, ident: str, now: float | None = None) -> tuple:
+    """The one ranking key, inside the Registry index and across sources: an exact name, then
+    featured or vendor-verified, a strong text hit, featured order, known authentication with an
+    installable plan, freshness (90 days, a year), source popularity, and stable ties."""
+    age = (time.time() if now is None else now) - updated if updated else None
+    fresh = 0 if age is None else 2 if age <= 90 * 86400 else 1 if age <= 365 * 86400 else 0
+    return (not exact, not preferred, not strong, featured_rank or 1_000_000, setup, -fresh, -popularity, precedence,
+            name.casefold(), ident)
+
+
 def rank(rows: list[dict], query: str) -> list[dict]:
-    """Merge one deployment found in several sources; then a deterministic order."""
-    order, words = list(SOURCES), tokens(query)
+    """Merge rows that share any source-neutral identity, keeping every attribution; then one order."""
+    sources, words, wanted = list(SOURCES), tokens(query), query.casefold().strip()
+    known = apps.catalog()[0]
 
     def precedence(row: dict) -> int:
         source = (row["attributions"] or [{"source": row["source"]}])[0]["source"]
-        return order.index(source) if source in order else len(order)
+        return sources.index(source) if source in sources else len(sources)
 
     def key(row: dict) -> tuple:
-        name = row["name"].casefold()
-        text = " ".join([name, row["description"], row["publisher"], (row["app"] or {}).get("name", "")]).casefold()
-        return (-(name == query.casefold().strip() and bool(query.strip())), -bool(row["app"]),
-                -sum(10 if word in name else 1 if word in text else 0 for word in words),
-                -(row["evidence_stage"] == "inspected"), precedence(row), name, row["id"])
+        app = row["app"] or {}
+        strong = " ".join([row["name"], row["publisher"], apps.text(known.get(app.get("id", "")))]).casefold()
+        return order(exact=bool(wanted) and wanted in {row["name"].casefold(), app.get("name", "").casefold()},
+                     preferred=app.get("featured_rank") is not None or row["verified"],
+                     strong=all(word in strong for word in words), featured_rank=app.get("featured_rank"),
+                     setup=row["setup_tier"], updated=row["updated_at"], popularity=row["popularity"],
+                     precedence=precedence(row), name=row["name"], ident=row["id"])
     merged: dict[str, dict] = {}
-    # The most reviewed source supplies the merged record; the query only orders results.
-    for row in sorted(rows, key=lambda row: (precedence(row), row["id"])):
-        identity = row["canonical_identity"] or row["id"]
-        if identity in merged:
-            known = merged[identity]["attributions"]
-            known.extend(a for a in row["attributions"] if a not in known)
+    shown: list[dict] = []
+    # The most reviewed source supplies the merged record; then the official, then the most used copy.
+    for row in sorted(rows, key=lambda row: (precedence(row), not (row["signals"] or {}).get("official"),
+                                             -row["popularity"], row["id"])):
+        keys = [identity for identity in [row["canonical_identity"], *row["identities"]] if identity] or [row["id"]]
+        primary = next((merged[identity] for identity in keys if identity in merged), None)
+        if primary is None:
+            primary = row
+            shown.append(row)
         else:
-            merged[identity] = row
-    return sorted(merged.values(), key=key)
+            primary["attributions"].extend(a for a in row["attributions"] if a not in primary["attributions"])
+            if row["verified"] and primary["app"]:
+                primary["verified"] = primary["app"]["verified"] = True
+        for identity in keys:
+            merged.setdefault(identity, primary)
+    return sorted(shown, key=key)
 
 
 def describe(entry) -> dict:

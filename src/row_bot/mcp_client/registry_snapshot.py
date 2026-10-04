@@ -1,86 +1,184 @@
-"""Dated, bounded MCP Registry metadata; searches never contact the registry."""
+"""The full Registry mirror's shipped snapshot and its sync; searches never contact the Registry.
+
+The snapshot is xz-compressed JSON lines: a header (source, capture time,
+watermark, record count and the sha256 of the records), then one compact
+normalized record per latest server, sorted by name. The same Registry data
+always gives the same bytes. Only an explicit sync (the developer build or a
+user's catalog update) reads the Registry: read-only, paginated and polite.
+"""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import asdict
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 import hashlib
+import io
 import json
+import lzma
 import math
 from pathlib import Path
 import time
 from urllib.parse import quote, urlencode
 
-from row_bot.data_paths import get_row_bot_data_dir
-
 if TYPE_CHECKING:
     from row_bot.mcp_client.marketplace import MarketplaceEntry
 
 SOURCE = "https://registry.modelcontextprotocol.io/v0.1/servers"
-SHIPPED = Path(__file__).with_name("registry_snapshot.json")
-MAX_ENTRIES = 500
-MAX_BYTES = 2 * 1024 * 1024
+SHIPPED = Path(__file__).with_name("registry_snapshot.jsonl.xz")
+SCHEMA = 3
+MAX_RECORDS = 100_000
+MAX_BYTES = 64 * 1024 * 1024
 MAX_AGE = 7 * 24 * 3600
+_FIXED = {"source": "official", "classification": "official-registry"}
 
 
-def build_snapshot(entries: list[MarketplaceEntry], *, captured_at: float, complete: bool = False) -> dict:
-    """Reproducible normalized metadata, with no package contents or execution."""
-    rows = [asdict(e) for e in entries[:MAX_ENTRIES]]
-    digest = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return {"schema_version": 2, "source": SOURCE, "api_version": "v0.1", "captured_at": captured_at,
-            "digest": digest, "complete": complete, "limit": MAX_ENTRIES, "entries": rows}
+def compact(entry: MarketplaceEntry) -> dict:
+    """A record without its fixed and empty fields (every default is empty)."""
+    return {key: value for key, value in asdict(entry).items() if key not in _FIXED and value not in ("", None, [], {}, False)}
 
 
-def _read(path: Path) -> dict:
+def expand(row: dict) -> MarketplaceEntry:
     from row_bot.mcp_client.marketplace import MarketplaceEntry
-    if path.is_symlink() or path.stat().st_size > MAX_BYTES:
+    return MarketplaceEntry(**{"description": "", **row, **_FIXED})
+
+
+def build_snapshot(entries: Iterable[MarketplaceEntry], *, captured_at: float, watermark: str = "",
+                   complete: bool = True) -> bytes:
+    """Reproducible normalized metadata, with no package contents or execution."""
+    by_name = {(entry.metadata or {}).get("canonical_name") or entry.id: entry for entry in entries}
+    lines = [json.dumps(compact(by_name[name]), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+             for name in sorted(by_name)]
+    body = "\n".join(lines).encode("utf-8")
+    header = {"schema_version": SCHEMA, "source": SOURCE, "api_version": "v0.1", "captured_at": captured_at,
+              "watermark": watermark, "complete": complete, "count": len(lines), "digest": hashlib.sha256(body).hexdigest()}
+    text = json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n" + body + b"\n"
+    return lzma.compress(text, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64, preset=6 | lzma.PRESET_EXTREME)
+
+
+def _header(line: bytes) -> dict:
+    header = json.loads(line)
+    if (not isinstance(header, dict) or header.get("schema_version") != SCHEMA or header.get("source") != SOURCE
+            or not isinstance(header.get("count"), int) or not 0 <= header["count"] <= MAX_RECORDS
+            or not isinstance(header.get("captured_at"), (int, float)) or not math.isfinite(header["captured_at"])
+            or not isinstance(header.get("watermark"), str) or not isinstance(header.get("digest"), str)):
         raise ValueError("invalid_registry_snapshot")
-    doc = json.loads(path.read_text(encoding="utf-8"))
-    if (not isinstance(doc, dict) or doc.get("schema_version") != 2 or doc.get("source") != SOURCE
-            or not isinstance(doc.get("entries"), list) or len(doc["entries"]) > MAX_ENTRIES
-            or not isinstance(doc.get("captured_at"), (float, int)) or not math.isfinite(doc["captured_at"])):
+    return header
+
+
+def read_header(path: Path | None = None) -> dict:
+    """The snapshot header alone, without reading its records."""
+    path = path or SHIPPED
+    if path.is_symlink():
         raise ValueError("invalid_registry_snapshot")
-    entries = [MarketplaceEntry(**row) for row in doc["entries"]]
-    if build_snapshot(entries, captured_at=doc["captured_at"])["digest"] != doc.get("digest"):
+    with lzma.open(path, "rb") as stream:
+        return _header(stream.readline(65536))
+
+
+def read_snapshot(path: Path | None = None) -> dict:
+    """Every record of an intact snapshot; a changed or oversized one is refused."""
+    path = path or SHIPPED
+    if path.is_symlink():
+        raise ValueError("invalid_registry_snapshot")
+    with lzma.open(path, "rb") as stream:
+        data = stream.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise ValueError("invalid_registry_snapshot")
+    first, _, body = data.partition(b"\n")
+    header, body = _header(first), body.removesuffix(b"\n")
+    if hashlib.sha256(body).hexdigest() != header["digest"]:
         raise ValueError("registry_snapshot_digest_changed")
-    return {**doc, "entries": entries}
+    entries = [expand(json.loads(line)) for line in io.BytesIO(body)] if body else []
+    if len(entries) != header["count"]:
+        raise ValueError("invalid_registry_snapshot")
+    stale = time.time() - header["captured_at"] > MAX_AGE
+    return {**header, "entries": entries, "status": "stale" if stale else "cached"}
 
 
-def read_snapshot() -> dict:
-    """Use only intact metadata; never create files during a passive read."""
-    for path in (get_row_bot_data_dir(create=False) / "mcp_registry_snapshot.json", SHIPPED):
-        try:
-            doc = _read(path)
-            return {**doc, "status": "stale" if time.time() - doc["captured_at"] > MAX_AGE else "cached"}
-        except (OSError, ValueError, TypeError, KeyError):
-            continue
-    return {"entries": [], "status": "error", "captured_at": None, "digest": "", "api_version": "v0.1", "source": SOURCE}
+def _get(url: str, headers: dict, meta: dict) -> bytes:
+    from row_bot.integrations.safe import fetch
+    return fetch(url, hosts={"registry.modelcontextprotocol.io"}, max_bytes=4 * 1024 * 1024, timeout=30, headers=headers,
+                 meta=meta, refused="registry_source_not_supported", too_large="registry_response_too_large")
 
 
-def refresh_snapshot(*, cancelled: Callable[[], bool] = lambda: False) -> dict:
-    """Explicit development refresh: at most five pages, no keyword traffic."""
-    from row_bot.mcp_client.marketplace import _fetch_json, registry_entries
-    rows, cursor, seen = [], "", set()
-    for _ in range(5):
-        if cancelled():
-            raise ValueError("integration_search_cancelled")
-        params = {"limit": "100", "version": "latest"}
-        if cursor:
-            params["cursor"] = cursor
-        data = _fetch_json(SOURCE + "?" + urlencode(params))
-        rows.extend(registry_entries(data))
-        cursor = data.get("metadata", {}).get("nextCursor", "")
+def _retry_after(exc: Exception, attempt: int) -> float | None:
+    """Seconds to wait before retrying a throttled or failed page, or None to give up."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if attempt >= 4 or not (status in {429, 500, 502, 503, 504} or isinstance(exc, (ConnectionError, TimeoutError, OSError))):
+        return None
+    try:
+        wait = float(exc.response.headers.get("retry-after", ""))  # type: ignore[union-attr]
+    except (AttributeError, TypeError, ValueError):
+        wait = 2.0 ** attempt
+    return min(max(wait, 1.0), 60.0)
+
+
+def sync(*, since: str = "", etag: str = "", cancelled: Callable[[], bool] = lambda: False,
+         get: Callable[[str, dict, dict], bytes] = _get, sleep: Callable[[float], None] = time.sleep,
+         pause: float = 0.25, max_pages: int = 600, deadline: float = 900) -> dict:
+    """Every latest Registry record, or those updated since a watermark (deleted ones included).
+
+    Read-only and polite: one page at a time, a pause between pages, backoff on
+    throttling. Returns ``{entries, deleted, watermark, etag, not_modified}``.
+    """
+    from row_bot.mcp_client.marketplace import registry_entries
+    import httpx
+    params = {"limit": "100", "version": "latest", **({"updated_since": since} if since else {})}
+    entries: dict[str, MarketplaceEntry] = {}
+    deleted: set[str] = set()
+    cursor, seen, newest, saved_etag = "", set(), since, etag
+    stop = time.monotonic() + deadline
+    for page in range(max_pages):
+        meta: dict = {}
+        for attempt in range(5):
+            if cancelled() or time.monotonic() > stop:
+                raise ValueError("integration_search_cancelled" if cancelled() else "registry_sync_timeout")
+            try:
+                headers = {"Accept": "application/json", **({"If-None-Match": etag} if etag and page == 0 else {})}
+                data = json.loads(get(SOURCE + "?" + urlencode({**params, **({"cursor": cursor} if cursor else {})}), headers, meta))
+                break
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 304 and page == 0:
+                    return {"entries": [], "deleted": [], "watermark": since, "etag": etag, "not_modified": True}
+                wait = _retry_after(exc, attempt)
+                if wait is None:
+                    raise
+                sleep(wait)
+            except (ConnectionError, TimeoutError, httpx.TransportError) as exc:
+                wait = _retry_after(exc, attempt)
+                if wait is None:
+                    raise
+                sleep(wait)
+        if page == 0:
+            saved_etag = str((meta.get("headers") or {}).get("etag", ""))[:256]
+        servers = data.get("servers") if isinstance(data, dict) else None
+        if not isinstance(servers, list):
+            raise ValueError("invalid_registry_response")
+        for envelope in servers:
+            server = envelope.get("server") if isinstance(envelope, dict) else None
+            meta_block = envelope.get("_meta") if isinstance(envelope, dict) else None
+            official = meta_block.get("io.modelcontextprotocol.registry/official") if isinstance(meta_block, dict) else None
+            name = server.get("name") if isinstance(server, dict) else None
+            if not isinstance(name, str) or not isinstance(official, dict):
+                continue
+            updated = official.get("updatedAt")
+            if isinstance(updated, str) and len(updated) <= 40 and updated > newest:
+                newest = updated
+            if official.get("status") == "deleted":
+                deleted.add(name)
+                entries.pop(name, None)
+                continue
+            for entry in registry_entries({"servers": [envelope]}):
+                entries[name] = entry
+                deleted.discard(name)
+        cursor = (data.get("metadata") or {}).get("nextCursor") or ""
         if not cursor:
-            break
+            return {"entries": list(entries.values()), "deleted": sorted(deleted), "watermark": newest,
+                    "etag": saved_etag, "not_modified": False}
         if not isinstance(cursor, str) or len(cursor) > 2048 or cursor in seen:
             raise ValueError("invalid_registry_cursor")
         seen.add(cursor)
-    doc = build_snapshot(rows, captured_at=time.time(), complete=not cursor)
-    if cancelled():
-        raise ValueError("integration_search_cancelled")
-    from row_bot.integrations.safe import write_atomic
-    write_atomic(get_row_bot_data_dir(create=False) / "mcp_registry_snapshot.json", json.dumps(doc, indent=2), cancelled=cancelled)
-    return read_snapshot()
+        sleep(pause)
+    raise ValueError("registry_sync_too_large")
 
 
 def revalidate_entry(entry: MarketplaceEntry) -> MarketplaceEntry:

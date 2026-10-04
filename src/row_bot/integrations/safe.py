@@ -76,7 +76,7 @@ class _Pinned(httpx.HTTPTransport):
 
 def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: float = 20,
           headers: Mapping[str, str] | None = None, redirects: int = 0,
-          exact_redirects: Mapping[str, str] | None = None,
+          exact_redirects: Mapping[str, str] | None = None, meta: dict | None = None,
           refused: str = "package_source_not_supported", too_large: str = "package_download_too_large") -> bytes:
     """Bounded https GET without environment proxies or automatic redirects.
 
@@ -85,7 +85,8 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
     checked again, and credentials never cross to another host. An exact
     ``source -> destination`` pair allows one reviewed migration off the list.
     Bodies are never decompressed, so ``max_bytes`` bounds what is held, and the
-    whole fetch has one deadline as well as the per-read ``timeout``.
+    whole fetch has one deadline as well as the per-read ``timeout``. ``meta``
+    receives the final response's status and headers.
     """
     allowed = None if hosts is None else frozenset(hosts)
     pairs, budget, sent, previous, reviewed = dict(exact_redirects or {}), redirects, dict(headers or {}), "", False
@@ -112,6 +113,8 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
                     previous, url = url, location if reviewed else urljoin(url, location)
                     continue
                 response.raise_for_status()
+                if meta is not None:
+                    meta.update(status=response.status_code, headers={k.lower(): v for k, v in response.headers.items()})
                 if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
                     raise ValueError(refused)
                 data = bytearray()

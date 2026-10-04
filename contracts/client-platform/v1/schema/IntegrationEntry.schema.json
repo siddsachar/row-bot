@@ -16,8 +16,22 @@
           "title": "Category",
           "type": "string"
         },
+        "featured_rank": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Featured Rank"
+        },
         "icon": {
-          "maxLength": 256,
+          "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
           "title": "Icon",
           "type": "string"
         },
@@ -207,6 +221,11 @@
           "title": "Evidence",
           "type": "string"
         },
+        "icon": {
+          "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
+          "title": "Icon",
+          "type": "string"
+        },
         "id": {
           "maxLength": 512,
           "minLength": 1,
@@ -287,6 +306,17 @@
           "title": "Required",
           "type": "boolean"
         },
+        "signals": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntegrationSignals"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "source": {
           "maxLength": 80,
           "title": "Source",
@@ -294,6 +324,11 @@
         },
         "tested_with_row_bot": {
           "title": "Tested With Row Bot",
+          "type": "boolean"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
           "type": "boolean"
         },
         "version": {
@@ -309,6 +344,7 @@
         "name",
         "description",
         "app",
+        "icon",
         "source",
         "publisher",
         "version",
@@ -362,6 +398,44 @@
         "label"
       ],
       "title": "IntegrationNextAction",
+      "type": "object"
+    },
+    "IntegrationSignals": {
+      "additionalProperties": false,
+      "properties": {
+        "downloads": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Downloads"
+        },
+        "official": {
+          "default": false,
+          "title": "Official",
+          "type": "boolean"
+        },
+        "stars": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stars"
+        }
+      },
+      "title": "IntegrationSignals",
       "type": "object"
     }
   },

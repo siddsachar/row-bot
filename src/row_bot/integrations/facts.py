@@ -107,7 +107,10 @@ def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
         "license": "", "compatibility": "supported", "platforms": [], "evidence": "Live service behavior has not been tested.",
         "installed": True, "enabled": False, "revision": "", "actions": [], "auth_status": "none", "account_label": "",
         "children": [], "target": None, "attributions": [], "evidence_stage": "listed", "tested_with_row_bot": False,
-        "auth_requirement": "unknown", "canonical_identity": "", "app": None, "lifecycle": "installed", "blockers": []}
+        "auth_requirement": "unknown", "canonical_identity": "", "app": None, "lifecycle": "installed", "blockers": [],
+        # Catalog ranking and dedup: vendor verification, setup tier (0 best), freshness, source signals.
+        "verified": False, "setup_tier": 0, "updated_at": 0, "popularity": 0, "signals": None, "identities": [],
+        "icon": apps.letter(name)}
     row.update(fields)
     return row
 
@@ -117,6 +120,9 @@ def finish(row: dict) -> dict:
     row.update(status(row["kind"], row["lifecycle"], row["blockers"]))
     row["status"] = legacy_status(row)
     row["reasons"] = [b["message"] for b in row["blockers"] if b["message"]][:16]
+    if row["app"]:
+        row["verified"] = row["verified"] or row["app"]["verified"]
+        row["icon"] = row["app"]["icon"] if row["icon"].startswith("letter:") else row["icon"]
     return row
 
 
@@ -263,7 +269,7 @@ def _static(validate: Callable[[], None]) -> tuple[list[dict], list[dict]]:
 
 def _app(refs: list[str]) -> dict | None:
     app = apps.match(refs)
-    return app.ref() if app else None
+    return app.ref(verified=apps.verified(app, refs)) if app else None
 
 
 def _package(plugin: dict, validate: Callable[[], None]) -> dict:

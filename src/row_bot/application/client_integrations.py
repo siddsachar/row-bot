@@ -39,7 +39,8 @@ def legacy(row: dict) -> dict:
 def entry(row: dict) -> dict:
     """The typed /integrations shape of one entry."""
     return {"id": row["id"], "kind": row["kind"], "parent_id": row["parent_id"], "name": row["name"],
-            "description": row["description"], "app": copy.deepcopy(row["app"]), "source": row["source"],
+            "description": row["description"], "app": copy.deepcopy(row["app"]), "icon": row["icon"], "verified": row["verified"],
+            "signals": copy.deepcopy(row["signals"]), "source": row["source"],
             "publisher": row["publisher"], "version": row["version"], "installed": row["installed"], "enabled": row["enabled"],
             "required": row.get("required", True), "account_label": row["account_label"], "compatibility": row["compatibility"],
             "evidence": row["evidence_stage"], "tested_with_row_bot": row["tested_with_row_bot"], "lifecycle": row["lifecycle"],
@@ -94,19 +95,18 @@ def _error_status(exc: Exception) -> str:
     return "malformed" if isinstance(exc, (ValueError, TypeError, KeyError, AttributeError)) else "error"
 
 
-def _search_source(source: str, *, owner_id: str, query: str, refresh: bool, refresh_catalogs: bool,
+def _search_source(source: str, *, owner_id: str, query: str, refresh: bool,
                    cancelled: Callable[[], bool], validate: Callable[[], None]) -> tuple[list, list, dict]:
     """One source adapter's results; a failing source never hides the others."""
     adapter = catalog.SOURCES[source]
     try:
-        found = adapter.search(catalog.Search(owner_id, query, refresh, refresh_catalogs, cancelled, validate))
+        found = adapter.search(catalog.Search(owner_id, query, refresh, cancelled, validate))
     except Exception as exc:
         return [], [adapter.status(status=_error_status(exc), message="This source is unavailable. Other results remain available.")], {}
     return found.rows, found.statuses, found.references
 
 
-def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool, refresh_catalogs: bool,
-            include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
+def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool, include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
             validate: Callable[[], None]) -> tuple[dict, int]:
     """One bounded fan-out; immutable owner-bound pagination and late-result suppression."""
     registry = catalog.SOURCES
@@ -147,7 +147,7 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
             try:
                 if not check_cancelled() and time.monotonic() < deadline:
                     future.set_result(_search_source(source, owner_id=owner_id, query=query, refresh=refresh,
-                        refresh_catalogs=refresh_catalogs, cancelled=lambda: check_cancelled() or time.monotonic() >= deadline, validate=validate))
+                        cancelled=lambda: check_cancelled() or time.monotonic() >= deadline, validate=validate))
             except BaseException as exc:
                 future.set_exception(exc)
             finally:
@@ -202,10 +202,10 @@ def _page(page: dict, offset: int, limit: int, render: Callable[[dict], dict]) -
 
 
 def search_integrations(*, owner_id: str, query: str = "", sources: list[str] | None = None, kind: str = "all",
-        refresh: bool = False, refresh_catalogs: bool = False, include_incompatible: bool = False, cursor: str | None = None,
+        refresh: bool = False, include_incompatible: bool = False, cursor: str | None = None,
         limit: int = 50, cancelled: Callable[[], bool] = lambda: False, validate: Callable[[], None] = lambda: None) -> dict:
     page, offset = _search(owner_id=owner_id, query=query, sources=sources, kind=kind, refresh=refresh,
-        refresh_catalogs=refresh_catalogs, include_incompatible=include_incompatible, cursor=cursor, limit=limit,
+        include_incompatible=include_incompatible, cursor=cursor, limit=limit,
         cancelled=cancelled, validate=validate)
     return _page(page, offset, limit, legacy)
 
@@ -267,8 +267,8 @@ def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str 
         return _installed(query=query, kind=kind, source="all", cursor=cursor, limit=limit, validate=validate, render=entry)
     if scope != "catalog":
         raise ClientPlatformError("invalid_integration_query")
-    page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, refresh_catalogs=False,
-        include_incompatible=False, cursor=cursor, limit=limit, cancelled=lambda: False, validate=validate)
+    page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, include_incompatible=False,
+        cursor=cursor, limit=limit, cancelled=lambda: False, validate=validate)
     return _page(page, offset, limit, entry)
 
 

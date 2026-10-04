@@ -9,7 +9,7 @@ facts. Nothing here establishes live-account compatibility.
 | Source | Contract and current discovery policy |
 | --- | --- |
 | Vendor recommendations | Local metadata in `recommended_servers.json`. Notion and Linear hosted endpoints have dated vendor setup evidence; live account checks remain pending. Developer fixtures are explicit `examples` or imports, never normal recommendations. |
-| Official MCP Registry | Local bounded snapshot of v0.1 metadata. Search sends no keyword request. Explicit development refresh reads at most five latest-version pages of 100 records. Preview and new configuration publication recheck the exact name/version and recipe against current status. |
+| Official MCP Registry | A full local mirror of every latest v0.1 record, shipped as a compressed snapshot and indexed on this computer. Search sends no request. Only an explicit **Update catalogs** (or a schedule the user turns on) reads the Registry, as `updated_since` deltas. Preview and new configuration publication recheck the exact name/version and recipe against current status. |
 | ClawHub skills | Documented public v1 search/list/detail/download. Complete pinned bundles and publisher identity remain owned by Skills Hub. Installation rechecks current moderation and the exact version. |
 | GitHub skills | Existing bounded maintainer repository roots through the GitHub owner and documented repository contents/tree APIs. Explicit imports preserve subdirectories/revisions. No arbitrary repository search or upstream install CLI. |
 | Hermes packages / MCP recipes | Existing pinned catalog and recipe adapters. Ordinary sources, not format authorities. Fresh package inspection/publication rejects unavailable, removed or changed catalog identities. The exact reviewed catalog migration redirect remains the only exception. |
@@ -38,39 +38,37 @@ responses, and a 401 from documented skills.sh v1. They did not authorize accoun
 execute packages or validate service tools. Optional provider credentials are not
 supported by this implementation; no shared desktop secret is shipped.
 
-## Snapshot production and refresh
+## Registry mirror: snapshot, index and updates
 
-`registry_snapshot.json` is packaged with the application. It contains 500
-normalized records from the beginning of the preserved 2 October 2026 07:47 UTC
-latest-version Registry sample. This is a bounded, non-random subset, not a complete
-catalog or a supported-integration count. It stores origin, API/schema version,
-acquisition time, completeness/limit and SHA-256 of canonical normalized entries.
-The loader verifies that digest and bounds before use. After seven days the status
-is stale; stale metadata never certifies installability.
+`registry_snapshot.jsonl.xz` is packaged with the application: every latest
+Registry record (39,231 on 4 October 2026), normalized and sorted by name, as
+xz-compressed JSON lines. A header records the source, capture time, the newest
+`updatedAt` (the update watermark), the record count and the SHA-256 of the
+records; the loader refuses a changed digest, schema or oversized file. The same
+records and capture time always produce the same bytes.
 
-Reproduction is offline from a saved Registry envelope:
+The snapshot is a developer build step. It reads the public Registry read-only,
+one page at a time with a pause between pages and backoff on throttling, and falls
+back to a saved capture when the network is unavailable:
 
 ```powershell
-uv run python scripts/build_mcp_registry_snapshot.py registry-input.json snapshot-output.json --captured-at 2026-10-02T07:47:45.431572+00:00
+uv run python scripts/build_mcp_registry_snapshot.py --sync
+uv run python scripts/build_mcp_registry_snapshot.py --sync --since src/row_bot/mcp_client/registry_snapshot.jsonl.xz
+uv run python scripts/build_mcp_registry_snapshot.py --input registry.json --captured-at 2026-10-02T07:47:45Z
 ```
 
-The same normalizer is used by explicit refresh. Failed refreshes preserve the
-last intact saved snapshot; a corrupt saved snapshot falls back to the shipped
-copy. New imports fail closed if exact current source status cannot be established.
-Existing installed configurations and provenance are retained.
-
-The settled delivery mechanism is release-bundled local metadata. **Production
-refresh distribution remains blocked** on a maintained, upstream-supported
-redistributable feed or distribution arrangement that allows direct desktop
-access without an embedded shared credential. No new cloud service, scheduled
-crawl or automatic update was added. `refresh_catalogs=true` remains an explicit
-bounded development action, not a production feed commitment. Registry metadata
-is CC0; that does not license packages or imply endorsement.
+At start-up Row-Bot builds a local SQLite FTS5 index under `catalogs/` in the data
+folder when it is missing or a release ships a newer snapshot. Searching only reads
+that index; it never builds, writes or contacts the Registry. Records that cannot
+be reviewed (for example more than 16 declared remotes) stay listed with a reason
+and no recipe, so they can never be imported. SVG icons are dropped at
+normalization. Registry metadata is CC0; that does not license packages or imply
+endorsement.
 
 ## Search API handoff
 
 `POST /api/v1/settings/integrations/search` accepts `kind`, `query`, optional
-`sources`, `refresh`, `refresh_catalogs`, `include_incompatible`, `cursor` and
+`sources`, `refresh`, `include_incompatible`, `cursor` and
 `limit` (1-96, default 50). Omit sources for the selected type's eligible catalogs;
 source ids come from `GET /api/v1/integrations/sources`, and the server rejects
 unknown ids. The typed `POST /api/v1/integrations/items/search` takes the same
@@ -88,10 +86,16 @@ and propagates cancellation before source cache publication. In-flight blocking
 transport reads can finish within their transport timeout; they cannot publish a
 cancelled search revision. No forced process termination is involved.
 
-Ranking is deterministic: exact name, a reviewed app identity, textual relevance
-(including the app's synonyms and jobs), inspection evidence, then source
-precedence and stable name/identity ties. There is no LLM, popularity-as-safety
-score or first-source global 96-row cap.
+Ranking is deterministic, one key for every source (and the same order inside the
+Registry index): an exact name or app name; a featured app or a vendor-verified
+record; every query word in the name, publisher, app name, synonyms or jobs;
+featured order; an installable plan with known authentication; freshness (90 days,
+a year); source-provided popularity; then source precedence and stable ties. The
+empty query lists featured app records only, never an alphabetical dump; the
+Registry returns its top 200 matches and reports `truncated` beyond that. There is
+no LLM and no popularity-as-safety score. The vendor badge comes only from rules: a
+Registry namespace that is a vendor domain reversed or `io.github.<vendor org>`, or
+a vendor endpoint host.
 Pagination uses the retained merged result, not another public search. Cursors
 bind owner, query, type, source set and incompatible filter for 20 minutes;
 expired cursors require a new search. Source adapters retain their bounded fetch

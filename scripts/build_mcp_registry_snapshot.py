@@ -1,4 +1,13 @@
-"""Normalize an already acquired Registry v0.1 sample; never fetch the network."""
+"""Build the shipped MCP Registry snapshot (a developer step).
+
+  --sync            read every latest record from the public Registry (read-only,
+                    paginated, polite, with backoff); falls back to --input when
+                    the network is unavailable and a saved capture exists
+  --since SNAPSHOT  incremental: only records updated since that snapshot's watermark
+  --input FILE      offline: a saved Registry envelope ({"servers": [...]})
+
+The output is reproducible: the same records and capture time give the same bytes.
+"""
 from __future__ import annotations
 
 import argparse
@@ -6,30 +15,69 @@ from datetime import datetime
 import json
 from pathlib import Path
 import sys
+import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from row_bot.mcp_client.marketplace import registry_entries
-from row_bot.mcp_client.registry_snapshot import MAX_ENTRIES, build_snapshot
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from row_bot.mcp_client import registry_snapshot  # noqa: E402
+from row_bot.mcp_client.marketplace import registry_entries  # noqa: E402
+
+CAPTURE = ROOT / ".local" / "integration-reach-audit" / "registry.json"
+
+
+def _from_capture(path: Path, captured_at: str) -> tuple[list, float, str, bool]:
+    if path.stat().st_size > 64 * 1024 * 1024:
+        raise SystemExit("input exceeds 64 MiB")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    records = data.get("servers")
+    if not isinstance(records, list):
+        raise SystemExit("expected a Registry {\"servers\": [...]} envelope")
+    stamp = captured_at or data.get("fetched_at") or ""
+    captured = datetime.fromisoformat(stamp.replace("Z", "+00:00")) if stamp else None
+    if captured is None or captured.tzinfo is None:
+        raise SystemExit("--captured-at must be a UTC ISO timestamp with a timezone")
+    entries, watermark = {}, ""
+    for envelope in records:
+        official = ((envelope.get("_meta") or {}).get("io.modelcontextprotocol.registry/official") or {})
+        watermark = max(watermark, str(official.get("updatedAt") or ""))
+        for entry in registry_entries({"servers": [envelope]}):
+            entries[entry.metadata["canonical_name"]] = entry
+    return list(entries.values()), captured.timestamp(), watermark, data.get("complete") is True
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", type=Path)
-    parser.add_argument("output", type=Path)
-    parser.add_argument("--captured-at", required=True, help="UTC ISO timestamp of the metadata acquisition")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--sync", action="store_true")
+    mode.add_argument("--input", type=Path)
+    parser.add_argument("--since", type=Path, help="an existing snapshot to update incrementally")
+    parser.add_argument("--captured-at", default="", help="UTC ISO time of an --input capture")
+    parser.add_argument("--output", type=Path, default=registry_snapshot.SHIPPED)
+    parser.add_argument("--pause", type=float, default=0.5, help="seconds between Registry pages")
     args = parser.parse_args()
-    if args.input.stat().st_size > 32 * 1024 * 1024:
-        parser.error("input exceeds 32 MiB")
-    data = json.loads(args.input.read_text(encoding="utf-8"))
-    records = data.get("servers", data.get("entries"))
-    if not isinstance(records, list):
-        parser.error("expected a Registry servers/entries list")
-    captured = datetime.fromisoformat(args.captured_at.replace("Z", "+00:00"))
-    if captured.tzinfo is None:
-        parser.error("captured-at must include timezone")
-    doc = build_snapshot(registry_entries({"servers": records[:MAX_ENTRIES]}), captured_at=captured.timestamp(),
-        complete=data.get("complete") is True and len(records) <= MAX_ENTRIES)
-    args.output.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
+    if args.input:
+        entries, captured_at, watermark, complete = _from_capture(args.input, args.captured_at)
+    else:
+        base = registry_snapshot.read_snapshot(args.since) if args.since else None
+        started = time.time()
+        try:
+            result = registry_snapshot.sync(since=base["watermark"] if base else "", pause=args.pause,
+                                            deadline=3600, max_pages=2000)
+        except Exception as exc:  # The network is unavailable: build from the saved capture instead.
+            if not CAPTURE.exists():
+                raise
+            print(f"Registry sync failed ({type(exc).__name__}: {exc}); using {CAPTURE}", file=sys.stderr)
+            entries, captured_at, watermark, complete = _from_capture(CAPTURE, args.captured_at)
+        else:
+            merged = {e.metadata["canonical_name"]: e for e in (base["entries"] if base else [])}
+            merged.update({e.metadata["canonical_name"]: e for e in result["entries"]})
+            for name in result["deleted"]:
+                merged.pop(name, None)
+            entries, captured_at, watermark, complete = list(merged.values()), started, result["watermark"], True
+    data = registry_snapshot.build_snapshot(entries, captured_at=round(captured_at, 3), watermark=watermark, complete=complete)
+    args.output.write_bytes(data)
+    header = registry_snapshot.read_header(args.output)
+    print(json.dumps({"output": str(args.output), "bytes": len(data), **header}, indent=2))
 
 
 if __name__ == "__main__":

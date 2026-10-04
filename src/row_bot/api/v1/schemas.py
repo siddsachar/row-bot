@@ -1983,7 +1983,6 @@ class IntegrationSearchRequest(WireModel):
     sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
     kind: Literal["all", "skill", "mcp", "plugin"] = "all"
     refresh: bool = False
-    refresh_catalogs: bool = False
     include_incompatible: bool = False
     cursor: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=96)
@@ -8032,14 +8031,49 @@ class AccessPresetList(WireModel):
     items: list[AccessPresetView] = Field(max_length=8)
 
 
+IconId = Annotated[str, StringConstraints(pattern=r"^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$")]
+AppCategory = Literal["productivity", "developer", "data", "design", "communication", "finance", "local_tools"]
+
+
 class AppRef(WireModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
     name: str = Field(max_length=128)
     publisher: str = Field(max_length=128)
-    category: Literal["productivity", "developer", "data", "design", "communication", "finance", "local_tools"]
-    icon: str = Field(max_length=256)
+    category: AppCategory
+    icon: IconId
+    # Published by the app's vendor, by rule (Registry namespace or vendor endpoint), never by name.
     verified: bool
     placeholder: bool
+    featured_rank: int | None = Field(default=None, ge=1, le=10000)
+
+
+class IconLicense(WireModel):
+    title: str = Field(max_length=128)
+    license: str = Field(max_length=64)
+    source: str = Field(max_length=512)
+    guidelines: str = Field(default="", max_length=512)
+
+
+class AppView(AppRef):
+    summary: str = Field(max_length=256)
+    jobs: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=16)
+    example_prompts: list[Annotated[str, StringConstraints(max_length=160)]] = Field(max_length=8)
+    variants: list[Literal["hosted_mcp", "local_mcp", "package", "account", "channel", "api_key_tool", "broker"]] = Field(max_length=8)
+    auth: Literal["", "oauth", "api_key", "none", "account", "mixed"]
+    docs_url: str = Field(max_length=512)
+    key_url: str = Field(max_length=512)
+    icon_license: IconLicense | None
+
+
+class AppList(WireModel):
+    schema_version: Literal[1]
+    items: list[AppView] = Field(max_length=512)
+
+
+class IntegrationSignals(WireModel):
+    downloads: int | None = Field(default=None, ge=0)
+    stars: int | None = Field(default=None, ge=0)
+    official: bool = False
 
 
 class IntegrationBlocker(WireModel):
@@ -8061,6 +8095,9 @@ class IntegrationEntry(WireModel):
     name: str = Field(max_length=256)
     description: str = Field(max_length=2048)
     app: AppRef | None
+    icon: IconId
+    verified: bool = False
+    signals: IntegrationSignals | None = None
     source: str = Field(max_length=80)
     publisher: str = Field(max_length=160)
     version: str = Field(max_length=128)

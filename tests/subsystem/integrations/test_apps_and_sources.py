@@ -4,7 +4,8 @@ import pytest
 from row_bot.application import client_integrations as api
 from row_bot.integrations import apps, sources
 from row_bot.integrations.safe import TtlCache
-from row_bot.mcp_client import marketplace, registry_snapshot
+from row_bot.mcp_client import marketplace
+from tests.helpers.registry import use_registry
 
 
 @pytest.fixture
@@ -70,7 +71,7 @@ def test_one_deployment_listed_twice_is_merged_with_both_attributions(local, mon
     listing = marketplace.MarketplaceEntry("com.notion/mcp@1.0.0", "Notion", "Registry listing", "official",
         install={"transport": "streamable_http", "url": "https://mcp.notion.com/mcp"},
         metadata={"canonical_name": "com.notion/mcp", "version": "1.0.0", "setup_digest": "a" * 64})
-    monkeypatch.setattr(registry_snapshot, "read_snapshot", lambda: {"entries": [listing], "status": "cached"})
+    use_registry(monkeypatch, local, [listing])
     page = api.search_integrations(owner_id="owner", sources=["recommended", "official"], query="notion")
     notion = [row for row in page["items"] if row["canonical_identity"].endswith("mcp.notion.com/mcp")]
     assert len(notion) == 1 and notion[0]["source"] == "curated"
@@ -80,7 +81,7 @@ def test_one_deployment_listed_twice_is_merged_with_both_attributions(local, mon
 def test_unsupported_entries_appear_only_when_searched(local, monkeypatch):
     listing = marketplace.MarketplaceEntry("org.example/tool@1.0.0", "Example Tool", "Needs headers", "official",
         metadata={"canonical_name": "org.example/tool", "version": "1.0.0"}, notes=["Header declarations unsupported."])
-    monkeypatch.setattr(registry_snapshot, "read_snapshot", lambda: {"entries": [listing], "status": "cached"})
+    use_registry(monkeypatch, local, [listing])
     assert api.search_integrations(owner_id="owner", sources=["official"])["total"] == 0
     found = api.search_integrations(owner_id="owner", sources=["official"], query="example")["items"]
     assert len(found) == 1 and found[0]["compatibility"] == "unsupported" and found[0]["reasons"]

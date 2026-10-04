@@ -48,11 +48,6 @@
       "title": "Refresh",
       "type": "boolean"
     },
-    "refresh_catalogs": {
-      "default": false,
-      "title": "Refresh Catalogs",
-      "type": "boolean"
-    },
     "sources": {
       "anyOf": [
         {

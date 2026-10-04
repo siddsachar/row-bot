@@ -12,7 +12,8 @@ from row_bot.application import client_integrations as api
 from row_bot.integrations import facts
 from row_bot.integrations.safe import TtlCache
 from row_bot.integrations.sources import SOURCES
-from row_bot.mcp_client import marketplace, registry_snapshot
+from row_bot.mcp_client import marketplace
+from tests.helpers.registry import use_registry
 from row_bot.skills_hub import source_registry
 from row_bot.skills_hub.models import SkillHubEntry
 from tests.subsystem.client_protocol.test_integrations_api import isolated  # noqa: F401
@@ -173,22 +174,30 @@ def test_deadline_keeps_partial_results(catalogs, monkeypatch):
     assert next(s for s in page["sources"] if s["source"] == "clawhub")["status"] == "timeout"
 
 
-def test_registry_search_is_local_and_snapshot_has_provenance(catalogs, monkeypatch):
+def test_registry_search_is_local_never_builds_and_has_provenance(catalogs, isolated, monkeypatch):
+    from row_bot.integrations import index
+    from row_bot.mcp_client import registry_snapshot
     monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: pytest.fail("search fetched registry"))
-    page = api.search_integrations(owner_id="owner", sources=["official"], refresh=True)
+    before = sorted(isolated.rglob("*"))
+    waiting = api.search_integrations(owner_id="owner", sources=["official"], query="notes", refresh=True)
+    assert waiting["sources"][0]["status"] == "pending" and not waiting["items"]
+    assert sorted(isolated.rglob("*")) == before  # Searching never builds or writes the index.
+    index.ensure()  # Start-up's job.
+    page = api.search_integrations(owner_id="owner", sources=["official"], query="notes", refresh=True)
     status = page["sources"][0]
+    assert status["snapshot_digest"] == registry_snapshot.read_header()["digest"]
     assert status["snapshot_version"] == "v0.1" and len(status["snapshot_digest"]) == 64
     assert status["fetched_at"]
     assert page["items"] and all(r["status"] == "discover" for r in page["items"])
 
 
 @pytest.mark.parametrize("state", ["deleted", "deprecated", "changed", "missing"])
-def test_stale_registry_preview_requires_current_identical_recipe(catalogs, monkeypatch, state):
+def test_stale_registry_preview_requires_current_identical_recipe(catalogs, monkeypatch, state, tmp_path):
     original = marketplace.MarketplaceEntry("org.fixture/tool@1.0.0", "Fixture", "", "official",
         install={"transport": "streamable_http", "url": "https://example.test/mcp"},
         metadata={"canonical_name": "org.fixture/tool", "version": "1.0.0", "status": "active"})
-    monkeypatch.setattr(registry_snapshot, "read_snapshot", lambda: {"entries": [original], "status": "stale"})
-    page = api.search_integrations(owner_id="owner", sources=["official"])
+    use_registry(monkeypatch, tmp_path, [original])
+    page = api.search_integrations(owner_id="owner", sources=["official"], query="fixture")
     remote = {"server": {"name": "org.fixture/tool", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://example.test/changed" if state == "changed" else "https://example.test/mcp"}]},
         "_meta": {"io.modelcontextprotocol.registry/official": {"status": state if state in {"deleted", "deprecated"} else "active"}}}
     monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: {} if state == "missing" else remote)
@@ -238,7 +247,7 @@ def test_clawhub_install_rejects_moderation_after_preview(catalogs, monkeypatch)
 
 
 @pytest.mark.parametrize("change", ["unchanged", "unchanged_package", "deleted", "headers", "auth", "env", "runtime", "registry", "transport"])
-def test_registry_setup_revalidated_from_envelope_at_configuration_publication(service, catalogs, monkeypatch, change):
+def test_registry_setup_revalidated_from_envelope_at_configuration_publication(service, catalogs, monkeypatch, change, tmp_path):
     from row_bot.mcp_client import config
     from tests.subsystem.client_protocol.test_mcp_configuration_api import review, send
     envelope = {"server": {"name": "org.fixture/tool", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://example.test/mcp"}]},
@@ -247,11 +256,12 @@ def test_registry_setup_revalidated_from_envelope_at_configuration_publication(s
         envelope["server"].pop("remotes")
         envelope["server"]["packages"] = [{"registryType": "npm", "identifier": "fixture-tool", "version": "1.0.0", "transport": {"type": "stdio"}}]
     original = marketplace.registry_entries({"servers": [envelope]})[0]
-    monkeypatch.setattr(registry_snapshot, "read_snapshot", lambda: {"entries": [original], "status": "cached"})
+    use_registry(monkeypatch, tmp_path, [original])
     monkeypatch.setattr(marketplace, "_fetch_json", lambda *a, **k: envelope)
     with client_for(service) as client:
         _, headers = bootstrap(client)
-        page = client.post("/api/v1/settings/integrations/search", headers=headers, json={"sources": ["official"]}).json()
+        page = client.post("/api/v1/settings/integrations/search", headers=headers,
+                           json={"sources": ["official"], "query": "fixture"}).json()
         preview = client.post("/api/v1/settings/integrations/preview", headers=headers,
             json={"revision": page["revision"], "item_id": page["items"][0]["id"]})
         assert preview.status_code == 200, preview.text
