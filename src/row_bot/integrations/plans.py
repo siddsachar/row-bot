@@ -177,7 +177,7 @@ def compute(row: dict, reference: dict, *, intent: str = "") -> dict | None:
         consent["downloads"] = [row["source_url"] or name]
         if reference.get("kind") not in {"skill", "plugin"}:
             steps[1].update(state="unsupported", message="Add this one from its marketplace page for now.")
-        declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id")}
+        declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id", "install_ref")}
     else:
         steps = [_step("consent", title="Turn on " + name), _step("enable", title="Turn on " + name)]
         if intent == "fix":
@@ -792,9 +792,13 @@ def _done(*_args) -> str:
 
 
 def _skill_test(ctx: Context, record: dict, step: dict) -> str:
-    from row_bot.application.client_skill_hub import preview_public_skill
+    from row_bot.application.client_skill_hub import preview_public_skill, preview_skill_reference
     reference = record["reference"]
-    summary = preview_public_skill(owner_id=ctx.owner_id, revision=reference["revision"], entry_id=reference["entry_id"])
+    if reference.get("install_ref"):  # A featured skill: read its pinned folder now, after consent.
+        summary = preview_skill_reference(owner_id=ctx.owner_id, install_ref=reference["install_ref"], name=reference["name"],
+                                          publisher=reference["publisher"])
+    else:
+        summary = preview_public_skill(owner_id=ctx.owner_id, revision=reference["revision"], entry_id=reference["entry_id"])
     if summary["scan"]["blocked"]:
         raise PlanError("skill_blocked", "Row-Bot's safety check blocked this skill.")
     record["_skill"] = {"preview_id": summary["preview_id"], "content_hash": summary["content_hash"]}

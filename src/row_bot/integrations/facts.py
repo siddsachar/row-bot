@@ -109,7 +109,7 @@ def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
         "children": [], "target": None, "attributions": [], "evidence_stage": "listed", "tested_with_row_bot": False,
         "auth_requirement": "unknown", "canonical_identity": "", "app": None, "lifecycle": "installed", "blockers": [],
         # Catalog ranking and dedup: vendor verification, setup tier (0 best), freshness, source signals.
-        "verified": False, "setup_tier": 0, "updated_at": 0, "popularity": 0, "signals": None, "identities": [],
+        "verified": False, "featured_rank": None, "setup_tier": 0, "updated_at": 0, "popularity": 0, "signals": None, "identities": [],
         "icon": apps.letter(name)}
     row.update(fields)
     return row

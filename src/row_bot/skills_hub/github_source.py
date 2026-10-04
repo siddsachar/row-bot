@@ -473,6 +473,7 @@ def list_public_root_entries(
                 "repository": repo_full,
                 "path": folder,
                 "ref": ref,
+                "content_hash": "git:" + str(raw.get("sha") or "") if re.fullmatch(r"[0-9a-f]{40}", str(raw.get("sha") or "")) else "",
                 "root": root_path,
                 "publisher": publisher,
                 "source_name": "GitHub",

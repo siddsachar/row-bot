@@ -1179,8 +1179,8 @@ export const getCatalogSchedule = (base: string, proof: SessionProof, signal?: A
   jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'GET', undefined, undefined, signal);
 export const setCatalogSchedule = (base: string, proof: SessionProof, body: CatalogSchedule, signal?: AbortSignal): Promise<CatalogSchedule> =>
   jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'PUT', validateWire('CatalogSchedule', body), undefined, signal);
-export const getApps = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AppList> =>
-  jsonRequest(base, '/integrations/apps', 'AppList', proof, 'GET', undefined, undefined, signal);
+export const getApps = (base: string, proof: SessionProof, options: {query?: string} = {}, signal?: AbortSignal): Promise<AppList> =>
+  jsonRequest(base, '/integrations/apps' + query(options), 'AppList', proof, 'GET', undefined, undefined, signal);
 export async function readAppIcon(base: string, proof: SessionProof, icon: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(`${base}/api/v1/integrations/icons/${id(icon)}`, {
     credentials: 'same-origin', cache: 'default', headers: proofHeaders(proof), signal,

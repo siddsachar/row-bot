@@ -23,6 +23,10 @@ _DOCKER_FLAGS = {"-i", "-t", "-it", "-d", "--rm", "--interactive", "--tty", "--d
 _REF = re.compile(r"(curated|registry|endpoint|npm|pypi|oci|repo|hermes|bundled|account|channel):[a-z0-9@._/+-]{1,200}")
 _DOMAIN = re.compile(r"(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 _PATH = Path(__file__).with_name("apps.json")
+# Hosting domains whose subdomains belong to anyone; never a vendor domain for the badge.
+SHARED_HOSTING = ("netlify.app", "vercel.app", "github.io", "herokuapp.com", "pages.dev", "workers.dev", "web.app",
+                  "firebaseapp.com", "appspot.com", "run.app", "azurewebsites.net", "cloudfront.net", "amazonaws.com",
+                  "onrender.com", "fly.dev", "railway.app", "ngrok.app", "ngrok.io", "replit.app", "supabase.co")
 
 
 @dataclass(frozen=True)
@@ -89,6 +93,7 @@ def catalog() -> tuple[dict[str, App], dict[str, str]]:
         if (not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", app.id) or app.id in apps or app.category not in CATEGORIES
                 or set(app.variants) - set(VARIANTS) or not all(_REF.fullmatch(ref) for ref in app.refs)
                 or app.auth not in AUTH or not all(_DOMAIN.fullmatch(d) for d in app.domains)
+                or any(_within(domain, SHARED_HOSTING) for domain in app.domains)
                 or not all(re.fullmatch(r"[A-Za-z0-9-]{1,39}", org) for org in app.github_orgs)
                 or not all(link.startswith("https://") and len(link) <= 512 for link in links)
                 or (app.icon and not re.fullmatch(r"si:[a-z0-9]{1,64}", app.icon))
@@ -120,7 +125,8 @@ def _within(host: str, domains: tuple[str, ...]) -> bool:
 
 def verified(app: App | None, refs: list[str]) -> bool:
     """A record published by the app's vendor, by rule only: its Registry namespace is a
-    vendor domain reversed or ``io.github.<vendor org>``, or its endpoint is a vendor host.
+    vendor domain reversed or ``io.github.<vendor org>``, or its endpoint is a vendor host
+    (under a vendor domain, or an endpoint the vendor's documentation names exactly).
     The Registry itself checks DNS and GitHub ownership of namespaces."""
     if app is None:
         return False
@@ -134,7 +140,7 @@ def verified(app: App | None, refs: list[str]) -> bool:
                     return True
             elif _within(".".join(reversed(namespace.split("."))), app.domains):
                 return True
-        elif kind == "endpoint" and _within(value, app.domains):
+        elif kind == "endpoint" and (ref in app.refs or _within(value, app.domains)):
             return True
     return False
 

@@ -4507,10 +4507,10 @@ def create_router(
         return await respond(request, dto.CatalogSchedule, await call(catalog_schedule, body.model_dump(mode="json")))
 
     @router.get("/integrations/apps")
-    async def integration_apps(request: Request) -> JSONResponse:
+    async def integration_apps(request: Request, query: str = "") -> JSONResponse:
         await session(request)
         from row_bot.application.client_integrations import list_apps
-        return await respond(request, dto.AppList, await call(list_apps))
+        return await respond(request, dto.AppList, await call(list_apps, query))
 
     @router.get("/integrations/icons/{icon_id}")
     async def integration_icon(icon_id: str, request: Request) -> Response:

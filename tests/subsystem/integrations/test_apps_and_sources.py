@@ -60,7 +60,7 @@ def test_source_list_is_served_with_server_side_eligibility():
 
 def test_all_curated_recipes_are_visible_and_findable_by_job(local):
     page = api.search_integrations(owner_id="owner", sources=["recommended"], limit=96)
-    assert page["total"] == len(marketplace.CURATED_STARTER_CATALOG) == 19
+    assert page["total"] == len(marketplace.CURATED_STARTER_CATALOG) == 46
     for job, app in (("payments", "Stripe MCP"), ("issues tickets", "Linear MCP"), ("web search", "Tavily MCP"),
                      ("local files", "Filesystem")):
         found = api.search_integrations(owner_id="owner", sources=["recommended"], query=job)

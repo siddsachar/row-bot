@@ -55,6 +55,11 @@ def _entry_public(entry: SkillHubEntry) -> dict[str, Any]:
     }
 
 
+def listed_entry(owner_id: str, revision: str, entry_id: str) -> SkillHubEntry | None:
+    """A listed entry with its full source metadata (content hash, upstream, publisher signals)."""
+    return ((_CATALOGS.get(owner_id) or {}).get(revision) or {}).get(entry_id)
+
+
 def _catalog_revision(entries: list[SkillHubEntry]) -> str:
     data = [(entry.id, entry.source, entry.install_ref) for entry in entries]
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
@@ -144,6 +149,26 @@ def preview_public_skill(
     # The install record keeps the listing it came from, so search can mark it
     # installed even when the files came from another address.
     bundle = replace(bundle, metadata={**bundle.metadata, "hub_entry_ref": entry.install_ref})
+    return _save_preview(owner_id, bundle, entry)
+
+
+def preview_skill_reference(*, owner_id: str, install_ref: str, name: str, publisher: str) -> dict[str, Any]:
+    """Preview a featured skill from its pinned GitHub folder (the reference is Row-Bot catalog data)."""
+    from row_bot.skills_hub.github_source import parse_github_install_ref
+    parsed = parse_github_install_ref(install_ref)
+    if parsed is None or not parsed.ref:
+        raise SkillHubCommandError("skill_preview_unavailable")
+    entry = SkillHubEntry(id=install_ref[:256], name=name, description="", source="github", source_id=parsed.repo_full_name,
+                          install_ref=install_ref, author=publisher, trust_level="community",
+                          metadata={"repository": parsed.repo_full_name, "path": parsed.path, "ref": parsed.ref})
+    try:
+        bundle = catalog.inspect_entry(entry)
+    except SkillSourceTimeout as exc:
+        raise SkillHubCommandError("skill_source_timeout") from exc
+    except Exception as exc:
+        logger.warning("Featured skill preview failed: %s", type(exc).__name__)
+        raise SkillHubCommandError("skill_preview_unavailable") from exc
+    bundle = replace(bundle, metadata={**bundle.metadata, "hub_entry_ref": install_ref})
     return _save_preview(owner_id, bundle, entry)
 
 

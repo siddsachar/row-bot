@@ -101,9 +101,9 @@
     "recommended": true,
     "capabilities": ["documents", "conversion", "markdown"],
     "overlaps_native": ["documents"],
-    "last_reviewed": "2026-04-27",
-    "notes": ["Overlaps with Row-Bot document tools, but is a widely used conversion surface."],
-    "install": {"transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-markitdown"]}
+    "last_reviewed": "2026-10-04",
+    "notes": ["Runs the markitdown-mcp package from Microsoft on this computer; it needs Python tools (uv).", "Overlaps with Row-Bot document tools, but is a widely used conversion surface."],
+    "install": {"transport": "stdio", "command": "uvx", "args": ["markitdown-mcp"]}
   },
   {
     "id": "bytebase-dbhub",
@@ -437,6 +437,1040 @@
       "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
       "license": "Hosted service terms apply",
       "evidence": "Official setup documentation reviewed; deterministic SDK OAuth coverage. Disposable live account and platform callbacks pending."
+    }
+  },
+  {
+    "id": "asana-mcp",
+    "name": "Asana MCP",
+    "description": "Search, create and update Asana tasks and projects for the signed-in user.",
+    "source": "curated",
+    "url": "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+    "publisher": "Asana",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "tasks",
+      "projects",
+      "to-do"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Asana accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Asana under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.asana.com/v2/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "dropbox-mcp",
+    "name": "Dropbox MCP",
+    "description": "Browse, search, read, create, move, delete and share files and folders in Dropbox.",
+    "source": "curated",
+    "url": "https://help.dropbox.com/integrations/connect-dropbox-mcp-server",
+    "publisher": "Dropbox",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "files",
+      "cloud_storage",
+      "file_sharing"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Dropbox accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Dropbox under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.dropbox.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "hubspot-mcp",
+    "name": "HubSpot MCP",
+    "description": "Read and update HubSpot CRM records such as contacts, companies, deals and tickets.",
+    "source": "curated",
+    "url": "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
+    "publisher": "HubSpot",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "crm",
+      "contacts",
+      "deals"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "HubSpot accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to HubSpot under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.hubspot.com"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "clickup-mcp",
+    "name": "ClickUp MCP",
+    "description": "Search ClickUp tasks and docs, create and update tasks, log time and post comments (no delete tools).",
+    "source": "curated",
+    "url": "https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server",
+    "publisher": "ClickUp",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "tasks",
+      "lists",
+      "project_management"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "ClickUp accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to ClickUp under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.clickup.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "salesforce-mcp",
+    "name": "Salesforce MCP",
+    "description": "Query, search, create, update and delete records in a production Salesforce org (SObject All server).",
+    "source": "curated",
+    "url": "https://developer.salesforce.com/docs/platform/hosted-mcp-servers/guide/sobject-all.html",
+    "publisher": "Salesforce",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "crm",
+      "sales_cloud",
+      "accounts"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Salesforce accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Salesforce under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://api.salesforce.com/platform/mcp/v1/platform/sobject-all"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "calendly-mcp",
+    "name": "Calendly MCP",
+    "description": "List event types, find free times, book or cancel meetings and share Calendly scheduling links.",
+    "source": "curated",
+    "url": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
+    "publisher": "Calendly",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "scheduling",
+      "booking",
+      "meetings"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Calendly in your browser when you connect.",
+      "Requests and the data you choose go to Calendly under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.calendly.com"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "granola-mcp",
+    "name": "Granola MCP",
+    "description": "Search and read Granola meeting notes, folders and transcripts.",
+    "source": "curated",
+    "url": "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+    "publisher": "Granola",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_only",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "meeting_notes",
+      "notetaker",
+      "transcripts"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Granola in your browser when you connect.",
+      "Requests and the data you choose go to Granola under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.granola.ai/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "otter-mcp",
+    "name": "Otter.ai MCP",
+    "description": "Search and fetch Otter meeting transcripts and summaries.",
+    "source": "curated",
+    "url": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
+    "publisher": "Otter.ai",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_only",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "otter.ai",
+      "meeting_notes",
+      "transcription"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Otter.ai accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Otter.ai under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.otter.ai/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "box-mcp",
+    "name": "Box MCP",
+    "description": "Search, read, upload and organise Box files and folders, manage metadata and ask Box AI about content.",
+    "source": "curated",
+    "url": "https://developer.box.com/guides/box-mcp/remote/",
+    "publisher": "Box",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "files",
+      "cloud_storage",
+      "documents"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Box accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Box under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.box.com"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "intercom-mcp",
+    "name": "Intercom MCP",
+    "description": "Search Intercom conversations, contacts and companies, add internal notes and edit Help Center articles.",
+    "source": "curated",
+    "url": "https://developers.intercom.com/docs/guides/mcp",
+    "publisher": "Intercom",
+    "classification": "official",
+    "category": "Communication",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "customer_support",
+      "inbox",
+      "help_center"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Intercom accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Intercom under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.intercom.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "resend-mcp",
+    "name": "Resend MCP",
+    "description": "Send and schedule email and manage Resend contacts, broadcasts, templates and domains.",
+    "source": "curated",
+    "url": "https://resend.com/docs/mcp-server",
+    "publisher": "Resend",
+    "classification": "official",
+    "category": "Communication",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "email_api",
+      "transactional_email",
+      "newsletters"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Resend in your browser when you connect.",
+      "Requests and the data you choose go to Resend under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.resend.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "smartsheet-mcp",
+    "name": "Smartsheet MCP",
+    "description": "Read and update Smartsheet sheets and rows, and add discussions and comments (US region).",
+    "source": "curated",
+    "url": "https://developers.smartsheet.com/ai-mcp/smartsheet/install-the-smartsheet-mcp-server",
+    "publisher": "Smartsheet",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "spreadsheet",
+      "sheets",
+      "project_tracking"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Uses a Smartsheet API key, kept in your system keychain.",
+      "Requests and the data you choose go to Smartsheet under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.smartsheet.com"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "api_key",
+      "auth_bindings": [
+        {
+          "kind": "header",
+          "name": "Authorization",
+          "key": "api_key",
+          "prefix": "Bearer "
+        }
+      ]
+    }
+  },
+  {
+    "id": "coda-mcp",
+    "name": "Coda MCP",
+    "description": "Read and write Coda docs, pages, tables and rows using a personal API token.",
+    "source": "curated",
+    "url": "https://help.coda.io/hc/en-us/articles/44722661982989-Connect-to-the-Coda-MCP",
+    "publisher": "Coda",
+    "classification": "official",
+    "category": "Productivity",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "docs",
+      "tables",
+      "wiki"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Uses a Coda API key, kept in your system keychain.",
+      "Requests and the data you choose go to Coda under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://coda.io/apis/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "api_key",
+      "auth_bindings": [
+        {
+          "kind": "header",
+          "name": "Authorization",
+          "key": "api_key",
+          "prefix": "Bearer "
+        }
+      ]
+    }
+  },
+  {
+    "id": "front-mcp",
+    "name": "Front MCP",
+    "description": "Search Front conversations, draft replies, add comments and tags, and update status or assignment.",
+    "source": "curated",
+    "url": "https://dev.frontapp.com/docs/mcp-server",
+    "publisher": "Front",
+    "classification": "official",
+    "category": "Communication",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "shared_inbox",
+      "customer_email",
+      "support_inbox"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Front accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Front under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.frontapp.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "datadog-mcp",
+    "name": "Datadog MCP",
+    "description": "Search Datadog logs, metrics, traces, monitors and incidents on the US1 site; can create monitors.",
+    "source": "curated",
+    "url": "https://docs.datadoghq.com/bits_ai/mcp_server/setup/",
+    "publisher": "Datadog",
+    "classification": "official",
+    "category": "Developer",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "observability",
+      "monitoring",
+      "apm"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Uses a Datadog API key, kept in your system keychain.",
+      "Requests and the data you choose go to Datadog under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.datadoghq.com/v1/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "api_key",
+      "auth_bindings": [
+        {
+          "kind": "header",
+          "name": "Authorization",
+          "key": "api_key",
+          "prefix": "Bearer "
+        }
+      ]
+    }
+  },
+  {
+    "id": "netlify-mcp",
+    "name": "Netlify MCP",
+    "description": "Create, build and deploy Netlify projects and manage their environment variables.",
+    "source": "curated",
+    "url": "https://docs.netlify.com/build/build-with-ai/agent-setup-guides/set-up-claude-code-for-netlify/",
+    "publisher": "Netlify",
+    "classification": "official",
+    "category": "Developer",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "deploy",
+      "hosting",
+      "static_site"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Netlify in your browser when you connect.",
+      "Requests and the data you choose go to Netlify under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://netlify-mcp.netlify.app/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "heroku-mcp",
+    "name": "Heroku MCP",
+    "description": "Work with Heroku apps, dynos, add-ons, pipelines, Postgres and logs in your account.",
+    "source": "curated",
+    "url": "https://devcenter.heroku.com/articles/heroku-remote-mcp-server",
+    "publisher": "Heroku",
+    "classification": "official",
+    "category": "Developer",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "deploy",
+      "hosting",
+      "paas"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Heroku in your browser when you connect.",
+      "Requests and the data you choose go to Heroku under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.heroku.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "render-mcp",
+    "name": "Render MCP",
+    "description": "Create Render services and databases, trigger deploys, set env vars and read logs and metrics.",
+    "source": "curated",
+    "url": "https://render.com/docs/mcp-server",
+    "publisher": "Render",
+    "classification": "official",
+    "category": "Developer",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "deploy",
+      "hosting",
+      "paas"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Uses a Render API key, kept in your system keychain.",
+      "Requests and the data you choose go to Render under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.render.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "api_key",
+      "auth_bindings": [
+        {
+          "kind": "header",
+          "name": "Authorization",
+          "key": "api_key",
+          "prefix": "Bearer "
+        }
+      ]
+    }
+  },
+  {
+    "id": "bigquery-mcp",
+    "name": "BigQuery MCP",
+    "description": "Google-hosted server to list BigQuery datasets and tables, read schemas and run SQL with your IAM rights.",
+    "source": "curated",
+    "url": "https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp",
+    "publisher": "Google",
+    "classification": "official",
+    "category": "Data & Research",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "data_warehouse",
+      "sql",
+      "google_cloud"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "BigQuery accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Google under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://bigquery.googleapis.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "square-mcp",
+    "name": "Square MCP",
+    "description": "Block-hosted access to the Square API: payments, orders, catalog and customers, after Square sign-in.",
+    "source": "curated",
+    "url": "https://developer.squareup.com/docs/mcp",
+    "publisher": "Square",
+    "classification": "official",
+    "category": "Finance",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "payments",
+      "point_of_sale",
+      "orders"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Square accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Square under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.squareup.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "excalidraw-mcp",
+    "name": "Excalidraw MCP",
+    "description": "Free hosted server that draws hand-drawn style Excalidraw diagrams in chat, no account needed.",
+    "source": "curated",
+    "url": "https://github.com/excalidraw/excalidraw-mcp",
+    "publisher": "Excalidraw",
+    "classification": "official",
+    "category": "Design",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_only",
+    "transport": "streamable_http",
+    "requires_auth": false,
+    "recommended": false,
+    "capabilities": [
+      "whiteboard",
+      "diagrams",
+      "sketches"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Requests and the data you choose go to Excalidraw under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.excalidraw.com"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "none"
+    }
+  },
+  {
+    "id": "kaggle-mcp",
+    "name": "Kaggle MCP",
+    "description": "Kaggle's official server for datasets, competitions, notebooks, models and benchmarks.",
+    "source": "curated",
+    "url": "https://www.kaggle.com/docs/mcp",
+    "publisher": "Kaggle",
+    "classification": "official",
+    "category": "Data & Research",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "datasets",
+      "competitions",
+      "notebooks"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Uses a Kaggle API key, kept in your system keychain.",
+      "Requests and the data you choose go to Kaggle under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://www.kaggle.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "api_key",
+      "auth_bindings": [
+        {
+          "kind": "header",
+          "name": "Authorization",
+          "key": "api_key",
+          "prefix": "Bearer "
+        }
+      ]
+    }
+  },
+  {
+    "id": "mixpanel-mcp",
+    "name": "Mixpanel MCP",
+    "description": "Query Mixpanel reports and events and manage dashboards, cohorts and flags (US region endpoint).",
+    "source": "curated",
+    "url": "https://docs.mixpanel.com/docs/mcp",
+    "publisher": "Mixpanel",
+    "classification": "official",
+    "category": "Data & Research",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "product_analytics",
+      "events",
+      "funnels"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Mixpanel in your browser when you connect.",
+      "Requests and the data you choose go to Mixpanel under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.mixpanel.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "mercury-mcp",
+    "name": "Mercury MCP",
+    "description": "Read-only view of Mercury accounts, balances, transactions, cards and statements.",
+    "source": "curated",
+    "url": "https://docs.mercury.com/docs/connecting-mercury-mcp",
+    "publisher": "Mercury",
+    "classification": "official",
+    "category": "Finance",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_only",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "banking",
+      "business_bank",
+      "transactions"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Mercury in your browser when you connect.",
+      "Requests and the data you choose go to Mercury under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.mercury.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "ramp-mcp",
+    "name": "Ramp MCP",
+    "description": "Search and analyse Ramp spend, edit transaction details and act on reimbursement approvals.",
+    "source": "curated",
+    "url": "https://support.ramp.com/ramp-mcp",
+    "publisher": "Ramp",
+    "classification": "official",
+    "category": "Finance",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "spend_management",
+      "corporate_cards",
+      "expenses"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Ramp accepts sign-in only from apps it has registered or approved; Row-Bot cannot sign in to it yet.",
+      "Requests and the data you choose go to Ramp under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.ramp.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested."
+    }
+  },
+  {
+    "id": "brex-mcp",
+    "name": "Brex MCP",
+    "description": "Brex expenses, cards, bills and spend data, plus memo, receipt and attendee updates on expenses.",
+    "source": "curated",
+    "url": "https://developer.brex.com/docs/mcp",
+    "publisher": "Brex",
+    "classification": "official",
+    "category": "Finance",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "spend_management",
+      "corporate_cards",
+      "expenses"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Sign in to Brex in your browser when you connect.",
+      "Requests and the data you choose go to Brex under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://api.brex.com/mcp"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "oauth"
+    }
+  },
+  {
+    "id": "financial-datasets-mcp",
+    "name": "Financial Datasets MCP",
+    "description": "Read-only company financials, SEC filings, insider trades, prices and market news.",
+    "source": "curated",
+    "url": "https://docs.financialdatasets.ai/mcp-server",
+    "publisher": "Financial Datasets",
+    "classification": "official",
+    "category": "Finance",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_only",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": false,
+    "capabilities": [
+      "financial_statements",
+      "sec_filings",
+      "stock_prices"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-04",
+    "notes": [
+      "Uses a Financial Datasets API key, kept in your system keychain.",
+      "Requests and the data you choose go to Financial Datasets under its terms."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.financialdatasets.ai/api"
+    },
+    "metadata": {
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Vendor documentation reviewed 2026-10-04; live account untested.",
+      "auth_mode": "api_key",
+      "auth_bindings": [
+        {
+          "kind": "header",
+          "name": "X-API-KEY",
+          "key": "api_key",
+          "prefix": ""
+        }
+      ]
     }
   }
 ]

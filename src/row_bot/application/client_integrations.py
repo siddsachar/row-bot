@@ -274,10 +274,14 @@ def catalog_schedule(change: dict | None = None) -> dict:
     return catalogs.set_schedule(**change) if change is not None else catalogs.schedule()
 
 
-def list_apps() -> dict:
-    """Every app identity, featured first; local data only."""
+def list_apps(query: str = "") -> dict:
+    """App identities, featured first, or those a query names by name, synonym or job; local data only."""
     from row_bot.integrations import apps
-    known = sorted(apps.catalog()[0].values(), key=lambda app: (app.featured_rank or 1_000_000, app.name.casefold()))
+    if len(query) > 256:
+        raise ClientPlatformError("invalid_integration_query")
+    wanted = query.casefold().strip()
+    known = sorted((app for app in apps.catalog()[0].values() if catalog.matches(query, apps.text(app))),
+                   key=lambda app: (wanted != app.name.casefold(), app.featured_rank or 1_000_000, app.name.casefold()))
     return {"schema_version": 1, "items": [app.view() for app in known]}
 
 

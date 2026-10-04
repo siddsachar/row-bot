@@ -57,8 +57,10 @@ def test_type_default_and_passive_http_contract(service, catalogs, monkeypatch):
             response = client.post("/api/v1/settings/integrations/search", headers=headers,
                 json={"kind": "skill", "query": draft})
             assert response.status_code == 200, response.text
-            assert not response.json()["items"]
-            assert {s["source"] for s in response.json()["sources"]} <= {"clawhub", "github"}
+            # Passive: only the local featured library answers; live catalogs wait for an explicit search.
+            assert all(item["source"] == "featured_skills" for item in response.json()["items"])
+            assert response.json()["items"] or draft
+            assert {s["source"] for s in response.json()["sources"]} <= {"featured_skills", "clawhub", "github"}
         live = client.post("/api/v1/settings/integrations/search", headers=headers,
             json={"kind": "skill", "query": "writing", "refresh": True})
         assert live.status_code == 200, live.text

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cache
+import hashlib
 import json
+from pathlib import Path
 import re
 import time
 from urllib.parse import urlsplit
@@ -20,6 +23,46 @@ from row_bot.integrations.safe import public_url
 def tokens(query: str) -> list[str]:
     words = re.findall(r"[a-z0-9]+", query.casefold())
     return [word for word in words if len(word) > 1] or words
+
+
+# UTF-8 read as Windows-1252: a lead byte character followed by a continuation character.
+_MOJIBAKE = re.compile("[\u00c2-\u00f4][\u00a0-\u00bf\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192"
+                       "\u02c6\u02dc\u2013\u2014\u2018-\u201e\u2020-\u2022\u2026\u2030\u2039\u203a\u20ac\u2122]")
+
+
+def plain_text(value: object, limit: int = 600) -> str:
+    """One readable line from catalog text: frontmatter, HTML and Markdown removed, mojibake
+    repaired, replacement characters dropped, cut at a word."""
+    text = str(value or "")
+    if _MOJIBAKE.search(text):
+        try:
+            text = text.encode("cp1252").decode("utf-8")
+        except UnicodeError:
+            pass
+    text = re.sub(r"\A\s*---\s*\n.*?\n---\s*(\n|$)", " ", text, flags=re.S)
+    text = re.sub(r"<[^<>]{1,200}>", " ", text)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"(?m)^\s*(#{1,6}|>|[-*+]|\d{1,3}[.)])\s+", "", text)
+    text = re.sub(r"(\*\*|__|~~|`+)(?=\S)(.+?)(?<=\S)\1", r"\2", text)
+    text = re.sub(r"(?<!\w)([*_])(?=\S)(.+?)(?<=\S)\1(?!\w)", r"\2", text)
+    text = re.sub(r"\*\*|__|~~|`", "", text)  # Markers left by a truncated upstream summary.
+    text = re.sub(r"\s+\ufffd+\s+", " \u2013 ", text).replace("\ufffd", "")
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit - 1].rsplit(" ", 1)[0].rstrip(",;:-") + "\u2026"
+    return text
+
+
+def skill_identities(*, content_hash: str = "", origin: str = "", description: str = "") -> list[str]:
+    """Keys that prove two listings are one skill: its content hash, its upstream folder, or
+    (when a catalog gives neither) the opening of a long declared description."""
+    keys = ["skill:sha:" + content_hash] if content_hash else []
+    keys += ["skill:" + ref for ref in apps.repository_refs(origin)] if origin else []
+    words = re.sub(r"[^a-z0-9]+", " ", plain_text(description).casefold().rstrip(".\u2026")).strip()
+    if len(words) >= 60:
+        keys.append("skill:text:" + hashlib.sha256(words[:100].encode("utf-8")).hexdigest()[:24])
+    return keys
 
 
 def matches(query: str, *texts: str) -> bool:
@@ -82,6 +125,7 @@ class Source:
 def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsupported: str = "", verified: bool = False,
                **fields) -> dict:
     fields["icon"] = fields.get("icon") or (app.ref()["icon"] if app else apps.letter(name))
+    fields["description"] = plain_text(fields.get("description", ""), 2048)
     return facts.entry(kind, ref, name, **{"installed": False, **fields}, lifecycle="available", verified=verified,
         app=app.ref(verified=verified) if app else None,
         blockers=[facts.blocker("unsupported", unsupported)] if unsupported else [])
@@ -331,9 +375,15 @@ class Skills(Source):
             refresh=search.refresh, cached_only=not search.refresh, limit=96, cancelled=search.cancelled)
         found = Found()
         for entry in result["entries"]:
-            found.add(_available("skill", entry["id"], entry["name"], app=None, installed=entry["installed"], source=entry["source"],
-                description=entry["description"], publisher=entry["author"], source_url=public_url(entry.get("url")),
-                compatibility="not_inspected", actions=["preview"]),
+            listed = client_skill_hub.listed_entry(search.owner_id, result["revision"], entry["id"])
+            meta = listed.metadata if listed is not None else {}
+            signals = {key: meta[key] for key in ("downloads", "stars", "official") if meta.get(key) is not None} or None
+            origin = f"https://github.com/{meta['repository']}/{meta.get('path', '')}".rstrip("/") if meta.get("repository") else ""
+            found.add(_available("skill", entry["id"], plain_text(entry["name"], 160), app=None, installed=entry["installed"],
+                source=entry["source"], description=entry["description"], publisher=entry["author"],
+                source_url=public_url(entry.get("url")), compatibility="not_inspected", actions=["preview"], signals=signals,
+                popularity=(signals or {}).get("downloads") or 0, identities=skill_identities(
+                    content_hash=str(meta.get("content_hash") or ""), origin=origin, description=entry["description"])),
                 {"kind": "skill", "revision": result["revision"], "entry_id": entry["id"]})
         found.statuses += [self.status(status=str(s["status"]), message=str(s.get("message", "")), fetched_at=s.get("fetched_at"),
                                        truncated=result.get("has_more", False)) for s in result.get("source_statuses", [])]
@@ -347,6 +397,57 @@ class Skills(Source):
         return {"entries": len(result.entries)}
 
 
+@cache
+def featured_skills() -> dict[str, dict]:
+    """The featured library: references to pinned folders in official and maintainer repositories,
+    each with the licence checked at that commit. Nothing third-party is bundled."""
+    raw = json.loads(Path(__file__).with_name("skills.json").read_text(encoding="utf-8"))
+    if raw.get("schema_version") != 1:
+        raise ValueError("invalid_skill_catalog")
+    found = {}
+    for row in raw["skills"]:
+        if (not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", row["id"]) or row["id"] in found
+                or not re.fullmatch(r"github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", row["repo"])
+                or not re.fullmatch(r"[A-Za-z0-9_.@/-]{1,200}", row["path"]) or ".." in row["path"]
+                or not re.fullmatch(r"[0-9a-f]{40}", row["commit"]) or not row["license"]
+                or row["category"] not in apps.CATEGORIES or not row["license_url"].startswith("https://")):
+            raise ValueError("invalid_skill_catalog: " + str(row.get("id")))
+        found[row["id"]] = row
+    return found
+
+
+class FeaturedSkills(Source):
+    id, kind, label = "featured_skills", "skill", "Featured skills"
+    message = "Skills from official and maintainer repositories, added from their source when you choose."
+
+    def row(self, skill: dict, installed: set[str]) -> tuple[dict, dict]:
+        owner, repo = skill["repo"].split("/")[1:]
+        install_ref = f"github:{owner}/{repo}/{skill['path']}?ref={skill['commit']}"
+        origin = f"https://{skill['repo']}/{skill['path']}"
+        app = apps.catalog()[0].get(skill.get("app", ""))
+        row = _available("skill", "featured:" + skill["id"], skill["name"], app=app, source=self.id, installed=install_ref in installed,
+            description=skill["summary"], publisher=skill["publisher"], license=skill["license"], version=skill["commit"][:12],
+            pin=skill["commit"], source_url=f"https://{skill['repo']}/tree/{skill['commit']}/{skill['path']}",
+            compatibility="not_inspected", actions=["preview"], identities=skill_identities(origin=origin),
+            featured_rank=skill["featured_rank"],
+            evidence="Licence checked at this commit; the skill is read from its source when you add it.")
+        return row, {"kind": "skill", "install_ref": install_ref, "name": skill["name"], "publisher": skill["publisher"]}
+
+    def search(self, search: Search) -> Found:
+        from row_bot.skills_hub.provenance import load_records
+        installed = {ref for record in load_records().values()
+                     for ref in (record.install_ref, str(record.metadata.get("hub_entry_ref") or ""))}
+        found = Found()
+        for skill in sorted(featured_skills().values(), key=lambda skill: skill.get("featured_rank", 1_000)):
+            if matches(search.query, skill["name"], skill["summary"], skill["publisher"], *skill["synonyms"], *skill["jobs"]):
+                found.add(*self.row(skill, installed))
+        found.statuses.append(self.status(status="cached"))
+        return found
+
+    def lookup(self, reference: str) -> dict | None:
+        return featured_skills().get(reference.removeprefix("featured:"))
+
+
 class Unavailable(Source):
     access = "unavailable"
 
@@ -356,7 +457,7 @@ class Unavailable(Source):
 
 # Public contracts checked 2026-10-03; evidence in docs/INTEGRATION_SOURCES.md. Order is ranking precedence.
 SOURCES: dict[str, Source] = {source.id: source for source in (
-    Curated(), Registry(), HermesMcp(),
+    Curated(), Registry(), HermesMcp(), FeaturedSkills(),
     Skills("clawhub", "ClawHub", "Public v1 skill search and complete version downloads."),
     Skills("github", "GitHub", "Maintainer skill repositories through the existing GitHub owner."),
     Hermes(), Native(), Examples(),
@@ -379,6 +480,9 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
         adapter = SOURCES["recommended" if source_id == "curated" else "official"]
         entry = adapter.lookup(reference)
         found = adapter.row(entry) if entry else None
+    elif kind == "skill" and reference.startswith("featured:"):
+        skill = SOURCES["featured_skills"].lookup(reference)
+        found = SOURCES["featured_skills"].row(skill, set()) if skill else None
     elif kind == "plugin" and reference.startswith("hermes:"):
         entry = SOURCES["hermes"].lookup(reference)
         found = SOURCES["hermes"].row(entry) if entry else None
@@ -416,10 +520,11 @@ def rank(rows: list[dict], query: str) -> list[dict]:
 
     def key(row: dict) -> tuple:
         app = row["app"] or {}
+        featured = row["featured_rank"] or app.get("featured_rank")
         strong = " ".join([row["name"], row["publisher"], apps.text(known.get(app.get("id", "")))]).casefold()
         return order(exact=bool(wanted) and wanted in {row["name"].casefold(), app.get("name", "").casefold()},
-                     preferred=app.get("featured_rank") is not None or row["verified"],
-                     strong=all(word in strong for word in words), featured_rank=app.get("featured_rank"),
+                     preferred=featured is not None or row["verified"],
+                     strong=all(word in strong for word in words), featured_rank=featured,
                      setup=row["setup_tier"], updated=row["updated_at"], popularity=row["popularity"],
                      precedence=precedence(row), name=row["name"], ident=row["id"])
     merged: dict[str, dict] = {}

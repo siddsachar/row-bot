@@ -280,6 +280,12 @@ def _entry_from_clawhub_item(raw: dict[str, Any]) -> SkillHubEntry | None:
     zip_url = str(raw.get("zipUrl") or raw.get("downloadUrl") or raw.get("archiveUrl") or "").strip()
     install_ref = f"clawhub:{reference}"
     tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+    native = raw.get("native") if isinstance(raw.get("native"), dict) else {}
+    skill = native.get("skill") if isinstance(native.get("skill"), dict) else {}
+    stats = skill.get("stats") if isinstance(skill.get("stats"), dict) else {}
+    publisher = raw.get("publisher") if isinstance(raw.get("publisher"), dict) else {}
+    identity = raw.get("sourceIdentity") if isinstance(raw.get("sourceIdentity"), dict) else {}
+    upstream = identity.get("repo") if identity.get("host") in {"github", "github.com"} else ""
     return SkillHubEntry(
         id=install_ref,
         name=name,
@@ -300,8 +306,17 @@ def _entry_from_clawhub_item(raw: dict[str, Any]) -> SkillHubEntry | None:
             "source_warning": _warning(),
             "risk": "high",
             "trust_level": "high-risk community",
+            # Publisher signals ClawHub provides, and the upstream repository when it names one.
+            "downloads": _count(raw.get("downloads", stats.get("downloads"))),
+            "stars": _count(stats.get("stars")),
+            "official": raw.get("official") is True or publisher.get("official") is True,
+            **({"repository": upstream} if isinstance(upstream, str) and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", upstream) else {}),
         },
     )
+
+
+def _count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 10**12 else None
 
 
 def _safe_zip_member_path(filename: str, *, root_prefix: str) -> str:
