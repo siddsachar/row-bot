@@ -89,8 +89,8 @@ def test_original_receipt_rehashes_current_bytes_after_saved_snapshot(
     original = config.read_saved_configuration
     captured = []
 
-    def raced_read():
-        result = original()
+    def raced_read(target=None):
+        result = original(target)
         if not captured:
             captured.append(result.identity)
             changed = json.loads(config.CONFIG_PATH.read_text(encoding="utf-8"))

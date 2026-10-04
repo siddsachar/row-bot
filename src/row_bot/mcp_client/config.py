@@ -67,19 +67,19 @@ def configuration_transaction() -> Iterator[None]:
         yield
 
 
-def configuration_recovery_required(*, excluding: tuple[str, str] | None = None) -> bool:
+def configuration_recovery_required(*, excluding: tuple[str, str] | None = None, target: dict | None = None) -> bool:
     """Consult only bounded canonical receipts; uncertainty never means empty."""
     from row_bot.runtime import admissions
     try:
-        pending = admissions.read_unfinished_target_commands(targets.admission_target(), limit=32)
+        pending = admissions.read_unfinished_target_commands(targets.admission_target(target), limit=32)
     except admissions.AdmissionError:
         raise McpConfigurationError("mcp_configuration_recovery_unavailable") from None
     return pending["overflow"] or any(
         (row["owner_id"], row["key"]) != excluding for row in pending["items"])
 
 
-def require_configuration_write_available(*, excluding: tuple[str, str] | None = None) -> None:
-    if configuration_recovery_required(excluding=excluding):
+def require_configuration_write_available(*, excluding: tuple[str, str] | None = None, target: dict | None = None) -> None:
+    if configuration_recovery_required(excluding=excluding, target=target):
         raise McpConfigurationError("mcp_configuration_recovery_required")
 
 
@@ -92,10 +92,11 @@ def _strict_object(pairs):
     return result
 
 
-def read_saved_configuration() -> SavedMcpConfiguration:
-    if targets.current():
+def read_saved_configuration(target: dict | None = None) -> SavedMcpConfiguration:
+    """The standalone library, or one plugin child's configuration when targeted."""
+    if target:
         from row_bot.plugins.state import read_mcp_child_configuration
-        return read_mcp_child_configuration(targets.current())
+        return read_mcp_child_configuration(target)
     return read_saved_document(CONFIG_PATH)
 
 
@@ -159,12 +160,12 @@ def read_saved_document(path, *, configuration: bool = True) -> SavedMcpConfigur
 def publish_saved_configuration(document: dict[str, Any], *, expected_digest: str,
                                 command_id: str, persist_recovery: Callable,
                                 validate: Callable[[], None] = lambda: None,
-                                recovery=None) -> SavedMcpConfiguration:
+                                recovery=None, target: dict | None = None) -> SavedMcpConfiguration:
     """Publish exact JSON through the existing metadata-safe file owner."""
     global _config_cache
-    if targets.current():
+    if target:
         from row_bot.plugins.state import publish_mcp_child_configuration
-        return publish_mcp_child_configuration(targets.current(), document, expected_digest=expected_digest,
+        return publish_mcp_child_configuration(target, document, expected_digest=expected_digest,
             command_id=command_id, persist_recovery=persist_recovery, validate=validate, recovery=recovery)
     from row_bot.developer.edits import publish_text_revision
     data = json.dumps(document, ensure_ascii=True, allow_nan=False, indent=2) + "\n"

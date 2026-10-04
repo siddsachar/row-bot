@@ -49,9 +49,8 @@ class Flow:
 
     def authority(self) -> None:
         self.active_authority()
-        with targets.scope(self.target):
-            if configuration._revision(config.read_saved_configuration()) != self.revision:
-                raise auth.McpAuthError("mcp_auth_configuration_changed")
+        if configuration._revision(config.read_saved_configuration(self.target)) != self.revision:
+            raise auth.McpAuthError("mcp_auth_configuration_changed")
 
 
 def callback_uri(*, local_origin: str | None, public_origins: tuple[str, ...]) -> str:
@@ -69,19 +68,20 @@ def callback_uri(*, local_origin: str | None, public_origins: tuple[str, ...]) -
     return value + "/api/v1/settings/mcp/auth/callback"
 
 
-def _server(server_id: str):
-    saved = config.read_saved_configuration()
+def _server(server_id: str, target: dict | None):
+    saved = config.read_saved_configuration(target)
     for name, cfg in saved.document.get("servers", {}).items():
         if configuration._server_id(name) == server_id:
             return saved, name, cfg
     raise auth.McpAuthError("mcp_auth_connection_unavailable")
 
 
-@targets.owner
 def review_auth(*, server_id: str, configuration_revision: str, action: str, mode: str = "oauth",
-        label: str = "", bindings: list | None = None, validate: Callable[[], None] = lambda: None) -> dict:
+        label: str = "", bindings: list | None = None, validate: Callable[[], None] = lambda: None,
+        target: dict | None = None) -> dict:
     validate()
-    saved, name, cfg = _server(server_id)
+    target = targets.normalize(target)
+    saved, name, cfg = _server(server_id, target)
     if configuration._revision(saved) != configuration_revision:
         raise auth.McpAuthError("revision_conflict")
     if action not in {"start", "disconnect"} or mode not in {"oauth", "api_key"}:
@@ -94,7 +94,7 @@ def review_auth(*, server_id: str, configuration_revision: str, action: str, mod
     if mode == "api_key" and any((item["kind"] == "env") != (cfg.get("transport", "stdio") == "stdio") for item in metadata["bindings"]):
         raise auth.McpAuthError("invalid_mcp_auth")
     intent = {"server_id": server_id, "configuration_revision": configuration_revision,
-        "action": action, "mode": mode, "label": label, "bindings": metadata["bindings"], "target": targets.current()}
+        "action": action, "mode": mode, "label": label, "bindings": metadata["bindings"], "target": target}
     return {**intent, "action_digest": admissions.keyed_digest(intent),
         "disclosures": ["Sign-in shares authorization with the selected service. Credentials are stored for this connection only.",
             "Authentication does not enable the connection, its tools, or its parent package. Test and review tools afterwards."
@@ -125,9 +125,9 @@ def _persist(flow: Flow, *, complete: bool = False, private: dict | None = None)
 
 
 def _publish(flow: Flow, metadata: dict) -> None:
-    with targets.scope(flow.target), config.configuration_transaction():
+    with config.configuration_transaction():
         flow.authority()
-        saved, name, _ = _server(flow.server_id)
+        saved, name, _ = _server(flow.server_id, flow.target)
         document = copy.deepcopy(saved.document)
         document["servers"][name]["auth"] = metadata
         document["_client_publication"] = {"owner_id": flow.owner_id, "key": flow.command_id, "command_id": flow.command_id}
@@ -136,7 +136,7 @@ def _publish(flow: Flow, metadata: dict) -> None:
             private["publication"] = asdict(proof)
             _persist(flow, private=private)
         config.publish_saved_configuration(document, expected_digest=saved.digest, command_id=flow.command_id,
-            persist_recovery=checkpoint, validate=flow.active_authority)
+            persist_recovery=checkpoint, validate=flow.active_authority, target=flow.target)
 
 
 async def _run_oauth(flow: Flow, label: str, client: dict | None):
@@ -186,12 +186,11 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
         # Publication can succeed before a state/receipt failure. Never remove
         # potentially active credentials or overwrite the retained edit proof.
         try:
-            with targets.scope(flow.target):
-                _, _, cfg = _server(flow.server_id)
-                if cfg.get("auth", {}).get("credential_ref") == flow.ref:
-                    flow.state = "signed_in"
-                elif flow.state not in {"cancelled", "expired"}:
-                    flow.state = "failed"
+            _, _, cfg = _server(flow.server_id, flow.target)
+            if cfg.get("auth", {}).get("credential_ref") == flow.ref:
+                flow.state = "signed_in"
+            elif flow.state not in {"cancelled", "expired"}:
+                flow.state = "failed"
             _persist(flow, complete=True)
         except Exception:
             flow.state = "uncertain"
@@ -199,20 +198,21 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
         flow.code = flow.oauth_state = flow.authorization_url = ""
 
 
-@targets.owner
 def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuration_revision: str,
         action: str, mode: str = "oauth", label: str = "", bindings: list | None = None,
         values: dict | None = None, client: dict | None = None, redirect_uri: str = "",
-        validate: Callable[[], None] = lambda: None, validate_review: Callable[[dict], None] = lambda review: None) -> dict:
+        validate: Callable[[], None] = lambda: None, validate_review: Callable[[dict], None] = lambda review: None,
+        target: dict | None = None) -> dict:
     validate()
+    target = targets.normalize(target)
     intent = {"server_id": server_id, "configuration_revision": configuration_revision, "action": action,
-        "mode": mode, "label": label, "bindings": bindings or [], "target": targets.current()}
+        "mode": mode, "label": label, "bindings": bindings or [], "target": target}
     wire = {"command_id": command_id, "type": "mcp.auth." + action, **intent,
         "input_digest": admissions.keyed_digest([values, client, redirect_uri])}
     existing = admissions.read_command_metadata(owner_id, command_id)
     if existing:
         try:
-            replay = admissions.claim_command(owner_id, command_id, wire, targets.admission_target())
+            replay = admissions.claim_command(owner_id, command_id, wire, targets.admission_target(target))
         except admissions.AdmissionError as error:
             if str(error) != "operation_uncertain":
                 raise
@@ -220,12 +220,12 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
             _settle_recovered(owner_id, command_id, result)
             return result
         return {key: value for key, value in replay.items() if not key.startswith("_")} | {"authorization_url": None}
-    review = review_auth(**{key: value for key, value in intent.items() if key != "target"}, validate=validate)
+    review = review_auth(**intent, validate=validate)
     validate_review(review)
-    config.require_configuration_write_available()
-    saved, name, cfg = _server(server_id)
-    flow = Flow(owner_id, command_id, server_id, name, targets.current(), configuration_revision, cfg, redirect_uri, targets.bind(validate))
-    admissions.claim_command(owner_id, command_id, wire, targets.admission_target(), exclusive_target=True,
+    config.require_configuration_write_available(target=target)
+    saved, name, cfg = _server(server_id, target)
+    flow = Flow(owner_id, command_id, server_id, name, target, configuration_revision, cfg, redirect_uri, validate)
+    admissions.claim_command(owner_id, command_id, wire, targets.admission_target(target), exclusive_target=True,
         initial_result={"command_id": command_id, "server_id": server_id, "state": "starting",
             "_mcp_auth": {"target": flow.target, "server_id": server_id, "credential_ref": flow.ref}})
     if action == "disconnect":
@@ -286,22 +286,21 @@ def auth_status(*, owner_id: str, command_id: str, validate: Callable[[], None] 
         raise auth.McpAuthError("mcp_auth_flow_unavailable")
     if metadata["status"] != "completed":
         private = result.get("_mcp_auth", {})
-        with targets.scope(private.get("target")):
-            try:
-                saved, _, cfg = _server(result["server_id"])
-                published = saved.document.get("_client_publication", {})
-                if (published.get("owner_id") == owner_id and published.get("command_id") == command_id
-                        and cfg.get("auth", {}).get("operation_id") == command_id):
-                    # Observe the exact command marker, not a coincidentally
-                    # equal endpoint or token. No OAuth effect is replayed.
-                    if private.get("disconnect_cleanup"):
-                        return {"command_id": command_id, "server_id": result["server_id"], "state": "uncertain", "authorization_url": None,
-                            "message": "Local binding cleared; original cleanup is incomplete. Use Cancel or clear sign-in to finish owned cleanup."}
-                    return {"command_id": command_id, "server_id": result["server_id"],
-                        "state": "disconnected" if cfg["auth"]["mode"] == "none" else "signed_in",
-                        "authorization_url": None, "message": "Saved authentication recovered; test the connection."}
-            except (ValueError, OSError):
-                pass
+        try:
+            saved, _, cfg = _server(result["server_id"], targets.normalize(private.get("target")))
+            published = saved.document.get("_client_publication", {})
+            if (published.get("owner_id") == owner_id and published.get("command_id") == command_id
+                    and cfg.get("auth", {}).get("operation_id") == command_id):
+                # Observe the exact command marker, not a coincidentally
+                # equal endpoint or token. No OAuth effect is replayed.
+                if private.get("disconnect_cleanup"):
+                    return {"command_id": command_id, "server_id": result["server_id"], "state": "uncertain", "authorization_url": None,
+                        "message": "Local binding cleared; original cleanup is incomplete. Use Cancel or clear sign-in to finish owned cleanup."}
+                return {"command_id": command_id, "server_id": result["server_id"],
+                    "state": "disconnected" if cfg["auth"]["mode"] == "none" else "signed_in",
+                    "authorization_url": None, "message": "Saved authentication recovered; test the connection."}
+        except (ValueError, OSError):
+            pass
         return {"command_id": command_id, "server_id": result["server_id"], "state": "expired", "authorization_url": None,
             "message": "The previous sign-in was interrupted. Cancel it, then start sign-in again."}
     return {key: value for key, value in result.items() if not key.startswith("_")} | {"authorization_url": None}
@@ -335,8 +334,7 @@ def cancel_auth(*, owner_id: str, command_id: str, validate: Callable[[], None] 
         private = saved.get("_mcp_auth", {})
         if private.get("disconnect_cleanup"):
             validate()
-            with targets.scope(private.get("target")):
-                _disconnect_cleanup(private["disconnect_cleanup"])
+            _disconnect_cleanup(private["disconnect_cleanup"])
             result.update(state="disconnected", message="Local binding and owned cleanup complete. Remote revocation was not verified; use the service's account security controls.")
             admissions.complete_command(owner_id, command_id, {**saved, **result, "_mcp_auth": {**private, "disconnect_cleanup": None}})
             return result

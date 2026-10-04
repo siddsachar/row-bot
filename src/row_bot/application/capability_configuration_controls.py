@@ -113,16 +113,17 @@ def _cursor(revision: str, query: str, offset: int, limit: int) -> str:
     )
 
 
-@targets.owner
 def read_mcp_configuration(
     *,
     query: str = "",
     cursor: str | None = None,
     limit: int = 25,
     validate: Callable[[], None] = lambda: None,
+    target: dict | None = None,
 ) -> McpConfigurationPage:
     """Read a bounded page from the full saved library, with no cold runtime load."""
     validate()
+    target = targets.normalize(target)
     if (
         type(query) is not str
         or len(query) > 128
@@ -132,8 +133,8 @@ def read_mcp_configuration(
         raise CapabilityConfigurationError("invalid_query")
     query = query.strip().casefold()
     try:
-        saved = config.read_saved_configuration()
-        recovery_required = config.configuration_recovery_required()
+        saved = config.read_saved_configuration(target)
+        recovery_required = config.configuration_recovery_required(target=target)
     except config.McpConfigurationError:
         validate()
         if cursor is not None:
@@ -352,7 +353,7 @@ def _server(base: dict, fields: dict, name: str) -> dict:
 
 
 def _next_document(
-    saved: config.SavedMcpConfiguration, intent: dict
+    saved: config.SavedMcpConfiguration, intent: dict, *, child: bool = False
 ) -> tuple[dict, tuple[str, ...]]:
     """Compute the complete proposed map before any file or receipt publication."""
     if type(intent) is not dict or set(intent) - {
@@ -446,26 +447,26 @@ def _next_document(
         affected.append(name)
     else:
         raise CapabilityConfigurationError("invalid_command")
-    if targets.current():
+    if child:
         from row_bot.plugins.state import validate_mcp_child_change
         validate_mcp_child_change(saved.document, document)
     return document, tuple(affected)
 
 
-@targets.owner
 def review_mcp_configuration_command(
-    configuration_revision: str, intent: dict, *, validate: Callable[[], None]
+    configuration_revision: str, intent: dict, *, validate: Callable[[], None], target: dict | None = None
 ) -> dict:
     """Review explicit local configuration only; never test a launch target."""
     from row_bot.runtime import admissions
 
     validate()
-    config.require_configuration_write_available()
-    saved = config.read_saved_configuration()
+    target = targets.normalize(target)
+    config.require_configuration_write_available(target=target)
+    saved = config.read_saved_configuration(target)
     current = _revision(saved)
     if configuration_revision != current:
         raise CapabilityConfigurationError("revision_conflict", current)
-    _document, affected = _next_document(saved, intent)
+    _document, affected = _next_document(saved, intent, child=target is not None)
     validate()
     return {
         "configuration_revision": current,
@@ -504,7 +505,6 @@ def _confirmed_publication(
     )
 
 
-@targets.owner
 def execute_mcp_configuration_command(
     *,
     owner_id: str,
@@ -512,8 +512,10 @@ def execute_mcp_configuration_command(
     command: dict,
     validate: Callable[[], None],
     validate_review: Callable[[dict], None],
+    target: dict | None = None,
 ) -> dict:
     """Save disabled once; retry reconciles exact proof and never blindly writes."""
+    command, target = targets.from_command(command, target)
     return _execute_saved_change(
         owner_id=owner_id,
         key=key,
@@ -521,8 +523,9 @@ def execute_mcp_configuration_command(
         validate=validate,
         validate_review=validate_review,
         command_type="mcp.configuration.save",
-        next_document=_next_document,
+        next_document=lambda saved, intent: _next_document(saved, intent, child=target is not None),
         saved_disabled=True,
+        target=target,
     )
 
 
@@ -601,6 +604,7 @@ def _execute_saved_change(
     command_type: str,
     next_document: Callable,
     saved_disabled: bool | None,
+    target: dict | None = None,
 ) -> dict:
     """Shared MCP configuration publication; callers own explicit typed intents."""
     from uuid import UUID
@@ -675,9 +679,9 @@ def _execute_saved_change(
     with config.configuration_transaction():
         validate()
         if admissions.read_command_metadata(owner_id, key) is None:
-            config.require_configuration_write_available(excluding=(owner_id, key))
+            config.require_configuration_write_available(excluding=(owner_id, key), target=target)
         try:
-            replay = admissions.claim_command(owner_id, key, mapped, targets.admission_target(), exclusive_target=True)
+            replay = admissions.claim_command(owner_id, key, mapped, targets.admission_target(target), exclusive_target=True)
         except admissions.AdmissionError as error:
             if str(error) != "operation_uncertain":
                 raise CapabilityConfigurationError(
@@ -699,7 +703,7 @@ def _execute_saved_change(
             publication = private.get("publication")
             ids = private.get("server_ids")
             try:
-                saved = config.read_saved_configuration()
+                saved = config.read_saved_configuration(target)
             except config.McpConfigurationError:
                 return partial()
             if (
@@ -725,8 +729,8 @@ def _execute_saved_change(
             validate()
             return public_receipt(replay)
         try:
-            config.require_configuration_write_available(excluding=(owner_id, key))
-            saved = config.read_saved_configuration()
+            config.require_configuration_write_available(excluding=(owner_id, key), target=target)
+            saved = config.read_saved_configuration(target)
             current = _revision(saved)
             if current != revision:
                 raise CapabilityConfigurationError("revision_conflict", current)
@@ -747,7 +751,7 @@ def _execute_saved_change(
             raise
         import psutil
         private = {"server_ids": ids, "affected_names": list(names), "operation": intent.get("operation"),
-            "target": targets.current(), "saved_disabled": saved_disabled,
+            "target": target, "saved_disabled": saved_disabled,
             "process": {"pid": os.getpid(), "birth": psutil.Process().create_time()}}
         if intent.get("operation") == "delete":
             from row_bot.mcp_client.auth import binding
@@ -775,6 +779,7 @@ def _execute_saved_change(
                 command_id=command["command_id"],
                 persist_recovery=checkpoint,
                 validate=authority,
+                target=target,
             )
         except Exception:
             return partial()
@@ -804,13 +809,13 @@ def reconcile_mcp_configuration_operation(*, owner_id: str, command_id: str, val
                 return {**pending, "message": "The original process is still running. Check again after it stops."}
         except (KeyError, TypeError, psutil.Error):
             pass
-    with targets.scope(private.get("target")), config.configuration_transaction():
+    with config.configuration_transaction():
         validate()
         result = admissions.read_command_receipt(owner_id, command_id) or result
         if result.get("status") in {"completed", "rejected"}:
             return {**pending, "settled": True, "message": "The original operation is complete."}
         try:
-            saved = config.read_saved_configuration()
+            saved = config.read_saved_configuration(targets.normalize(private.get("target")))
             if not _confirmed_publication(saved, private.get("publication", {}), owner_id, metadata["key"], command_id):
                 return pending
         except (OSError, ValueError, KeyError, TypeError):

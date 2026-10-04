@@ -1,21 +1,12 @@
-"""A scoped choice of the existing standalone or plugin configuration owner.
+"""Which configuration owner an MCP command addresses: standalone, or one plugin's child.
 
-The scope is carried into launch validation callbacks, never into the global
-runtime configuration. It lets policy, catalog and publication retain one path.
+Owner functions receive the target explicitly and pass it to every
+configuration read, publication and admission; nothing is ambient.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-from contextvars import ContextVar
-from functools import wraps
 import copy
 import re
-
-_TARGET: ContextVar[dict | None] = ContextVar("mcp_target", default=None)
-
-
-def current() -> dict | None:
-    return _TARGET.get()
 
 
 def normalize(value: dict | None) -> dict | None:
@@ -30,44 +21,16 @@ def normalize(value: dict | None) -> dict | None:
     return dict(value)
 
 
-@contextmanager
-def scope(target: dict | None):
-    token = _TARGET.set(normalize(target))
-    try:
-        yield
-    finally:
-        _TARGET.reset(token)
-
-
-def admission_target() -> str:
-    target = current()
+def admission_target(target: dict | None) -> str:
     # Child settings and package lifecycle share an exclusive target.
     return "settings:plugin:lifecycle:" + target["plugin_id"] if target else "settings:mcp"
 
 
-def bind(callback):
-    target = current()
-    @wraps(callback)
-    def bound(*args, **kwargs):
-        with scope(target):
-            return callback(*args, **kwargs)
-    return bound
-
-
-def owner(function):
-    """Accept an optional typed target on existing public MCP owner functions."""
-    @wraps(function)
-    def targeted(*args, **kwargs):
-        target = kwargs.pop("target", current())
-        command = kwargs.get("command")
-        if command is not None and "target" in command.get("payload", {}):
-            command = copy.deepcopy(command)
-            target = command["payload"].pop("target")
-            command["mcp_target"] = normalize(target)
-            kwargs["command"] = command
-        with scope(target):
-            for key in ("validate", "validate_review"):
-                if key in kwargs:
-                    kwargs[key] = bind(kwargs[key])
-            return function(*args, **kwargs)
-    return targeted
+def from_command(command: dict, target: dict | None = None) -> tuple[dict, dict | None]:
+    """A wire ``payload.target`` leaves the reviewed payload and binds the admission."""
+    payload = command.get("payload")
+    if type(payload) is dict and "target" in payload:
+        command = copy.deepcopy(command)
+        target = command["payload"].pop("target")
+        command["mcp_target"] = normalize(target)
+    return command, normalize(target)

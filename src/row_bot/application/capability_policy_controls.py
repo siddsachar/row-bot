@@ -106,19 +106,20 @@ def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
     return rows
 
 
-@targets.owner
 def read_mcp_policy(*, server_id: str | None = None, query: str = "", cursor: str | None = None,
-                    limit: int = 25, validate: Callable[[], None] = lambda: None) -> McpPolicyPage:
+                    limit: int = 25, validate: Callable[[], None] = lambda: None,
+                    target: dict | None = None) -> McpPolicyPage:
     """Read the whole saved tool scope before returning one bounded safe page."""
     validate()
+    target = targets.normalize(target)
     if server_id is not None:
         _identity(server_id)
     if type(query) is not str or len(query) > 128 or type(limit) is not int or not 1 <= limit <= 50:
         raise Error("invalid_query")
     query = query.strip().casefold()
     try:
-        saved = config.read_saved_configuration()
-        recovery = config.configuration_recovery_required()
+        saved = config.read_saved_configuration(target)
+        recovery = config.configuration_recovery_required(target=target)
     except config.McpConfigurationError:
         if cursor is not None:
             raise Error("cursor_expired") from None
@@ -170,7 +171,7 @@ def read_mcp_policy(*, server_id: str | None = None, query: str = "", cursor: st
         items, len(matches), next_cursor)
 
 
-def _next_policy_document(saved, intent):
+def _next_policy_document(saved, intent, *, child: bool = False):
     if type(intent) is not dict or type(intent.get("operation")) is not str:
         raise Error("invalid_command")
     operation = intent["operation"]
@@ -186,7 +187,7 @@ def _next_policy_document(saved, intent):
         raise Error("invalid_command")
     document = copy.deepcopy(saved.document)
     if operation == "global_enabled":
-        if targets.current():
+        if child:
             raise Error("plugin_child_parent_owned")
         document["enabled"] = intent["enabled"]
         return document, ()
@@ -231,30 +232,32 @@ def _next_policy_document(saved, intent):
     return document, (name,)
 
 
-@targets.owner
-def review_mcp_policy_command(configuration_revision: str, intent: dict, *, validate: Callable[[], None]) -> dict:
+def review_mcp_policy_command(configuration_revision: str, intent: dict, *, validate: Callable[[], None],
+                              target: dict | None = None) -> dict:
     from row_bot.runtime import admissions
     validate()
+    target = targets.normalize(target)
     _identity(configuration_revision)
-    config.require_configuration_write_available()
-    saved = config.read_saved_configuration()
+    config.require_configuration_write_available(target=target)
+    saved = config.read_saved_configuration(target)
     current = configuration._revision(saved)
     if configuration_revision != current:
         raise Error("revision_conflict", current)
-    _document, names = _next_policy_document(saved, intent)
+    _document, names = _next_policy_document(saved, intent, child=target is not None)
     validate()
     return {"configuration_revision": current, "operation": intent["operation"],
         "action_digest": admissions.keyed_digest({"revision": current, "intent": intent}),
         "server_ids": [configuration._server_id(name) for name in names], "saved_disabled": None}
 
 
-@targets.owner
 def execute_mcp_policy_command(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],
-                               validate_review: Callable[[dict], None]) -> dict:
+                               validate_review: Callable[[dict], None], target: dict | None = None) -> dict:
     """Save authorization only; original retries reuse the existing proof owner."""
+    command, target = targets.from_command(command, target)
     return configuration._execute_saved_change(owner_id=owner_id, key=key, command=command, validate=validate,
         validate_review=validate_review, command_type="mcp.configuration.control",
-        next_document=_next_policy_document, saved_disabled=None)
+        next_document=lambda saved, intent: _next_policy_document(saved, intent, child=target is not None),
+        saved_disabled=None, target=target)
 
 
 public_receipt = configuration.public_receipt

@@ -10,7 +10,7 @@ from row_bot.application import capability_configuration_controls as configurati
 from row_bot.application import capability_policy_controls as policy
 from row_bot.application import capability_runtime_controls as runtime_controls
 from row_bot.application import client_mcp_auth as auth_owner
-from row_bot.mcp_client import config, targets
+from row_bot.mcp_client import config
 from row_bot.plugins.portable import package_id
 from tests.subsystem.plugins.test_portable_packages import package, SOURCE
 
@@ -59,8 +59,7 @@ def test_child_policy_cannot_change_parent_switch_or_immutable_source(child):
     with pytest.raises(config.McpConfigurationError, match="plugin_child_source_immutable"):
         execute({"operation": "edit", "server_id": page.items[0].server_id,
             "fields": {"url": "https://different.example.test/mcp"}})
-    with targets.scope(child):
-        assert next(iter(config.read_saved_configuration().document["servers"].values()))["url"] == "https://example.test/mcp"
+    assert next(iter(config.read_saved_configuration(child).document["servers"].values()))["url"] == "https://example.test/mcp"
     assert not config.CONFIG_PATH.exists()
 
 
@@ -76,3 +75,17 @@ def test_parent_disable_or_source_update_invalidates_child_review(child, plugin_
     with pytest.raises(runtime_controls.CapabilityRuntimeError, match="revision_conflict"):
         runtime_controls.review_mcp_runtime_command(page.revision, page.items[0].server_id, "test", None,
             target=child, validate=lambda: None)
+
+
+def test_payload_target_binds_the_admission_and_invalid_targets_are_refused(child):
+    from row_bot.mcp_client import targets
+    wire = {"command_id": "c", "type": "mcp.configuration.save", "payload": {"target": child, "intent": {}}}
+    command, target = targets.from_command(wire)
+    assert target == child and command["mcp_target"] == child and "target" not in command["payload"]
+    assert "target" in wire["payload"], "the caller's wire command is never mutated"
+    assert targets.from_command({"payload": {}}, {"kind": "standalone"}) == ({"payload": {}}, None)
+    assert targets.admission_target(child) == "settings:plugin:lifecycle:" + child["plugin_id"]
+    assert targets.admission_target(None) == "settings:mcp"
+    for invalid in ({"kind": "plugin", "plugin_id": "../x", "server_key": "a"}, {"kind": "other"}, ["plugin"]):
+        with pytest.raises(ValueError, match="invalid_mcp_target"):
+            configuration.read_mcp_configuration(target=invalid)

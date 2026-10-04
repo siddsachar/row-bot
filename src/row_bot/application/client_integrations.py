@@ -89,7 +89,7 @@ def _mcp_status(server: dict, cfg: dict, *, active: bool) -> tuple[str, list[str
 
 def _package_children(plugin: dict, identity: str, validate) -> list[dict]:
     from row_bot.application.capability_configuration_controls import read_mcp_configuration
-    from row_bot.mcp_client import config, targets
+    from row_bot.mcp_client import config
     from row_bot.plugins.state import get_mcp_child_overrides
 
     children = []
@@ -101,9 +101,8 @@ def _package_children(plugin: dict, identity: str, validate) -> list[dict]:
             target = {"kind": "plugin", "plugin_id": plugin["plugin_id"], "server_key": child["server_key"]}
             row.update(target=target, actions=["configure"])
             try:
-                with targets.scope(target):
-                    page = asdict(read_mcp_configuration(validate=validate))
-                    cfg = next(iter(config.read_saved_configuration().document["servers"].values()))
+                page = asdict(read_mcp_configuration(validate=validate, target=target))
+                cfg = next(iter(config.read_saved_configuration(target).document["servers"].values()))
                 server = next(item for item in page["items"] if item["server_id"] == child["owner_ref"])
                 status, reasons = _mcp_status(server, cfg, active=plugin["enabled"])
                 excluded = get_mcp_child_overrides(plugin["plugin_id"], child["server_key"]).get("enabled") is False

@@ -50,7 +50,7 @@ def test_required_child_overrides_healthy_parent_and_optional_is_explicit(isolat
     page = configuration.read_mcp_configuration()
     server = replace(page.items[0], enabled=child_enabled, runtime_status=runtime)
     monkeypatch.setattr(configuration, "read_mcp_configuration", lambda **_: replace(page, items=(server,)))
-    monkeypatch.setattr(config, "read_saved_configuration", lambda: SimpleNamespace(document={"enabled": True, "servers": {"Work": {"transport": "streamable_http", "tools": {"catalog": {}}, "enabled": child_enabled}}}))
+    monkeypatch.setattr(config, "read_saved_configuration", lambda *_: SimpleNamespace(document={"enabled": True, "servers": {"Work": {"transport": "streamable_http", "tools": {"catalog": {}}, "enabled": child_enabled}}}))
     monkeypatch.setattr(state, "get_mcp_child_overrides", lambda *_: {"enabled": child_enabled})
     monkeypatch.setattr(plugin_commands, "read_integration_packages", lambda **_: [{"plugin_id": "fixture-package", "installed": True, "enabled": True, "health": "passed", "setup_complete": True, "name": "Fixture package", "description": "Fixture", "package_format": "agent-plugins-1.0.0", "version": "1", "capabilities": {}, "children": [{"kind": "mcp", "owner_ref": server_id, "name": "Work", "server_key": "work", "optional": optional}]}])
     row = client_integrations.read_integration("plugin:fixture-package")
