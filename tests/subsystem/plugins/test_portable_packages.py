@@ -63,7 +63,9 @@ def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_rea
             if path.is_file() and not path.name.endswith((".db-shm", ".db-wal"))}
     before = contents()
     row = read_integration("plugin:" + identity)
-    assert row["status"] == "attention"
+    # A skipped component is informational: the package is partly supported, and
+    # only the included connection that still needs setup holds it back.
+    assert row["status"] == "setup" and row["compatibility"] == "partial"
     assert next(child for child in row["children"] if child["kind"] == "skill")["status"] == "ready"
     assert next(child for child in row["children"] if child["kind"] == "mcp")["status"] == "setup"
     assert any("notes" in reason and "accept" in reason for reason in row["reasons"])
@@ -80,10 +82,10 @@ def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_rea
         validate=lambda: None, validate_review=lambda _: None)
     assert receipt["status"] == "completed"
     row = read_integration("plugin:" + identity)
-    assert row["status"] == "attention"
+    assert row["status"] == "setup"
     assert next(child for child in row["children"] if child["kind"] == "mcp")["status"] == "off"
     state.set_plugin_enabled(identity, False)
-    assert read_integration("plugin:" + identity)["status"] == "attention"
+    assert read_integration("plugin:" + identity)["status"] == "off"
 
 
 def test_portable_lifecycle_preserves_bytes_identity_data_and_enablement(tmp_path, plugin_modules):

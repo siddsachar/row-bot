@@ -150,6 +150,9 @@ class TtlCache:
         with self._lock:
             self._items.clear()
 
+    def __len__(self) -> int:
+        return len(self._items)
+
 
 def write_atomic(path: Path, data: bytes | str, *, restricted: bool = False,
                  cancelled: Callable[[], bool] = lambda: False) -> None:

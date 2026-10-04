@@ -130,11 +130,7 @@
           "default": "listed",
           "enum": [
             "listed",
-            "metadata_inspected",
-            "package_verified",
-            "connection_tested",
-            "tool_use_tested",
-            "lifecycle_tested"
+            "inspected"
           ],
           "title": "Evidence Stage",
           "type": "string"
@@ -270,6 +266,11 @@
             }
           ],
           "title": "Target"
+        },
+        "tested_with_row_bot": {
+          "default": false,
+          "title": "Tested With Row Bot",
+          "type": "boolean"
         },
         "version": {
           "maxLength": 128,

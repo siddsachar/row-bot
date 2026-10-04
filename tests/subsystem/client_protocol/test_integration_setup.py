@@ -1,8 +1,6 @@
 """Guided setup projects canonical owner facts without executing integrations."""
 # ruff: noqa: F811
-from dataclasses import replace
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -45,12 +43,13 @@ def test_inventory_projects_actual_conditional_auth_without_credentials(isolated
 ])
 def test_required_child_overrides_healthy_parent_and_optional_is_explicit(isolated, monkeypatch, optional, child_enabled, runtime, expected):
     from row_bot.application import plugin_commands
+    from row_bot.mcp_client import runtime as mcp_runtime
     from row_bot.plugins import state
     server_id = configuration.read_mcp_configuration().items[0].server_id
-    page = configuration.read_mcp_configuration()
-    server = replace(page.items[0], enabled=child_enabled, runtime_status=runtime)
-    monkeypatch.setattr(configuration, "read_mcp_configuration", lambda **_: replace(page, items=(server,)))
-    monkeypatch.setattr(config, "read_saved_configuration", lambda *_: SimpleNamespace(document={"enabled": True, "servers": {"Work": {"transport": "streamable_http", "tools": {"catalog": {}}, "enabled": child_enabled}}}))
+    child = {"transport": "streamable_http", "url": "https://example.test/mcp", "tools": {"catalog": {}}, "enabled": child_enabled}
+    monkeypatch.setattr(state, "read_mcp_child_configuration", lambda _target: config.SavedMcpConfiguration(
+        {"enabled": True, "servers": {"Work": child}}, "0" * 64, True))
+    monkeypatch.setattr(mcp_runtime, "get_passive_server_statuses", lambda names: {"Work": {"status": runtime}})
     monkeypatch.setattr(state, "get_mcp_child_overrides", lambda *_: {"enabled": child_enabled})
     monkeypatch.setattr(plugin_commands, "read_integration_packages", lambda **_: [{"plugin_id": "fixture-package", "installed": True, "enabled": True, "health": "passed", "setup_complete": True, "name": "Fixture package", "description": "Fixture", "package_format": "agent-plugins-1.0.0", "version": "1", "capabilities": {}, "children": [{"kind": "mcp", "owner_ref": server_id, "name": "Work", "server_key": "work", "optional": optional}]}])
     row = client_integrations.read_integration("plugin:fixture-package")

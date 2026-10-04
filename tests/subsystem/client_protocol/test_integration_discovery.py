@@ -9,7 +9,9 @@ from dataclasses import replace
 import pytest
 
 from row_bot.application import client_integrations as api
-from row_bot.application.integration_sources import source_status
+from row_bot.integrations import facts
+from row_bot.integrations.safe import TtlCache
+from row_bot.integrations.sources import SOURCES
 from row_bot.mcp_client import marketplace, registry_snapshot
 from row_bot.skills_hub import source_registry
 from row_bot.skills_hub.models import SkillHubEntry
@@ -42,8 +44,7 @@ class Skills:
 def catalogs(isolated, monkeypatch):
     fake = Skills()
     monkeypatch.setattr(source_registry, "_DEFAULT_REGISTRY", source_registry.SkillSourceRegistry([fake]))
-    monkeypatch.setattr(api, "_RESULTS", {})
-    monkeypatch.setattr(api, "_SEARCHES", {})
+    monkeypatch.setattr(api, "_SEARCHES", TtlCache(1200, 64))
     return fake
 
 
@@ -92,11 +93,11 @@ def test_partial_errors_preserve_other_results(catalogs, monkeypatch, error, sta
 def test_fair_merge_pagination_and_proven_identity(catalogs, monkeypatch):
     def source(source, **kwargs):
         count = 160 if source == "official" else 3
-        rows = [api._item("mcp", f"{source}:{i}", f"Result {i:03}", installed=False,
-            status="discover", source=source, compatibility="not_inspected") for i in range(count)]
+        rows = [facts.finish(facts.entry("mcp", f"{source}:{i}", f"Result {i:03}", installed=False,
+            lifecycle="available", source=source, compatibility="not_inspected")) for i in range(count)]
         # One proven identical deployment, plus same names with distinct identities.
         rows[0]["canonical_identity"] = "mcp:endpoint:proven"
-        return rows, [source_status(source, status="cached")], {r["id"]: {"kind": "native", "plugin_id": r["id"]} for r in rows}
+        return rows, [SOURCES[source].status(status="cached")], {r["id"]: {"kind": "native", "plugin_id": r["id"]} for r in rows}
     monkeypatch.setattr(api, "_search_source", source)
     args = {"owner_id": "owner", "sources": ["official", "recommended"], "limit": 4}
     first = api.search_integrations(**args)
@@ -125,7 +126,7 @@ def test_parallel_sources_and_cancellation_suppress_late_results(catalogs, monke
         barrier.wait(timeout=1)
         entered.set()
         release.wait(timeout=1)
-        return [api._item("mcp", source, source)], [source_status(source)], {}
+        return [facts.finish(facts.entry("mcp", source, source))], [SOURCES[source].status()], {}
     monkeypatch.setattr(api, "_search_source", source)
     outcomes = []
     def search():
@@ -140,7 +141,7 @@ def test_parallel_sources_and_cancellation_suppress_late_results(catalogs, monke
     thread.join(timeout=1)
     release.set()
     assert outcomes == ["integration_search_cancelled"]
-    assert not api._RESULTS and not api._SEARCHES
+    assert not len(api._SEARCHES)
 
 
 def test_deadline_keeps_partial_results(catalogs, monkeypatch):

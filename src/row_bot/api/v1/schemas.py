@@ -1937,7 +1937,8 @@ class IntegrationItem(WireModel):
     children: list[IntegrationItem] = Field(max_length=256)
     target: McpTarget | None
     attributions: list[IntegrationAttribution] = Field(default_factory=list, max_length=512)
-    evidence_stage: Literal["listed", "metadata_inspected", "package_verified", "connection_tested", "tool_use_tested", "lifecycle_tested"] = "listed"
+    evidence_stage: Literal["listed", "inspected"] = "listed"
+    tested_with_row_bot: bool = False
     auth_requirement: Literal["unknown", "required", "none"] = "unknown"
     canonical_identity: str = Field(default="", max_length=1024)
     setup: IntegrationSetup | None = None
@@ -1978,7 +1979,8 @@ class IntegrationPage(WireModel):
 
 class IntegrationSearchRequest(WireModel):
     query: str = Field(default="", max_length=256)
-    sources: list[Literal["recommended", "hermes", "hermes_mcp", "clawhub", "github", "skills_sh", "browse_sh", "lobehub", "official", "native", "glama", "pulsemcp", "smithery", "clawhub_plugins", "examples"]] | None = Field(default=None, max_length=15)
+    # Source ids come from GET /integrations/sources; the server validates them.
+    sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
     kind: Literal["all", "skill", "mcp", "plugin"] = "all"
     refresh: bool = False
     refresh_catalogs: bool = False

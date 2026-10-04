@@ -646,7 +646,8 @@ def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
         source = public_url(source)
         row.update(package_format=getattr(manifest, "package_format", "row-bot-v2"),
             publisher=manifest.author.name if manifest else "", license=manifest.license if manifest else "",
-            source_url=source, pin=str(package.get("pin", "")), diagnostics=getattr(manifest, "diagnostics", []),
+            source_url=source, source_identity=str(package.get("source_identity", ""))[:1024],
+            pin=str(package.get("pin", "")), diagnostics=getattr(manifest, "diagnostics", []),
             recoverable=bool(package.get("previous")), publication_pending=bool(package.get("pending")), children=[])
         from row_bot.plugins.hermes_catalog import activation_block
         blocked = activation_block(record)

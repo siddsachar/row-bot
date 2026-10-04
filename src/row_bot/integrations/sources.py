@@ -1,0 +1,367 @@
+"""Catalog sources. Each source is one small adapter; the list is served to clients.
+
+Searching is passive (local data and saved results) unless a request is an
+explicit online search or catalog refresh. Eligibility is decided here, on the
+server; availability in a catalog never grants runtime authority.
+"""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+import json
+import re
+from urllib.parse import urlsplit
+
+from row_bot.integrations import apps, facts
+from row_bot.integrations.safe import public_url
+
+
+def tokens(query: str) -> list[str]:
+    words = re.findall(r"[a-z0-9]+", query.casefold())
+    return [word for word in words if len(word) > 1] or words
+
+
+def matches(query: str, *texts: str) -> bool:
+    """Every query word appears among the entry's and its app's words."""
+    haystack = " ".join(texts).casefold()
+    return all(word in haystack for word in tokens(query))
+
+
+@dataclass
+class Search:
+    owner_id: str
+    query: str = ""
+    refresh: bool = False
+    refresh_catalogs: bool = False
+    cancelled: Callable[[], bool] = lambda: False
+    validate: Callable[[], None] = lambda: None
+
+
+@dataclass
+class Found:
+    rows: list[dict] = field(default_factory=list)
+    statuses: list[dict] = field(default_factory=list)
+    references: dict = field(default_factory=dict)
+
+    def add(self, row: dict, reference: dict) -> None:
+        self.rows.append(facts.finish(row))
+        self.references[row["id"]] = reference
+
+
+class Source:
+    """``search`` returns entries; ``lookup`` resolves one locally for detail and plans."""
+    id = kind = label = message = ""
+    access = "local"
+    eligibility = "eligible"
+    network = "none"
+
+    def view(self) -> dict:
+        return {"id": self.id, "kinds": [self.kind], "label": self.label, "access": self.access,
+                "eligibility": self.eligibility, "network": self.network,
+                "enabled": self.eligibility == "eligible", "message": self.message}
+
+    def status(self, **fields) -> dict:
+        return {"source": self.id, "kind": self.kind, "access": self.access, "eligibility": self.eligibility,
+                "enabled": self.eligibility == "eligible", "status": "unavailable" if self.access == "unavailable" else "empty",
+                "message": self.message, "fetched_at": None, "snapshot_version": "", "snapshot_digest": "", "truncated": False, **fields}
+
+    def search(self, search: Search) -> Found:
+        return Found(statuses=[self.status()])
+
+    def lookup(self, reference: str) -> dict | None:
+        return None
+
+
+def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsupported: str = "", **fields) -> dict:
+    return facts.entry(kind, ref, name, **{"installed": False, **fields}, lifecycle="available", app=app.ref() if app else None,
+        blockers=[facts.blocker("unsupported", unsupported)] if unsupported else [])
+
+
+def mcp_identity(install: dict | None, version: str = "", registry: str = "") -> str:
+    """Source-neutral identity of one deployment: transport and endpoint, package and version,
+    or (without a recipe) the Registry record."""
+    install = install or {}
+    parts = urlsplit(str(install.get("url") or ""))
+    if parts.hostname:
+        return f"mcp:endpoint:{install.get('transport', '')}:{parts.hostname.lower()}{parts.path.rstrip('/') or '/'}"
+    refs = apps.recipe_refs(install)
+    if refs:
+        return "mcp:" + refs[0] + ("@" + version if version else "")
+    return "mcp:registry:" + registry + "@" + version if registry else ""
+
+
+class _McpCatalog(Source):
+    kind = "mcp"
+
+    def entries(self) -> list:
+        return []
+
+    def row(self, entry) -> tuple[dict, dict]:
+        metadata = entry.metadata or {}
+        refs = (["curated:" + entry.id.lower()] if self.id == "recommended" else apps.registry_refs(metadata.get("canonical_name", "")))
+        app = apps.match(refs + apps.recipe_refs(entry.install))
+        supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")))
+        row = _available("mcp", entry.source + ":" + entry.id, entry.name, app=app, source=entry.source,
+            unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
+            description=entry.description[:2048], source_url=public_url(entry.url), publisher=entry.publisher[:160],
+            compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
+            evidence=metadata.get("evidence", "Publisher listing only; live service untested."),
+            pin=metadata.get("version_policy", ""), actions=["preview"] if supported else [], version=str(metadata.get("version", ""))[:128],
+            auth_requirement="required" if entry.requires_auth else "unknown", canonical_identity=mcp_identity(entry.install, metadata.get("version", ""), metadata.get("canonical_name", "")),
+            evidence_stage="inspected" if self.id == "recommended" else "listed")
+        row["blockers"] += [facts.blocker("note", note) for note in entry.notes[:8]]
+        return row, {"kind": "mcp", "entry": entry}
+
+    def search(self, search: Search) -> Found:
+        found = Found()
+        for entry in self.entries():
+            app = apps.match(["curated:" + entry.id.lower()] + apps.recipe_refs(entry.install))
+            if matches(search.query, entry.id, entry.name, entry.description, entry.publisher, apps.text(app)):
+                found.add(*self.row(entry))
+        return found
+
+    def lookup(self, reference: str):
+        return next((entry for entry in self.entries() if entry.source + ":" + entry.id == reference), None)
+
+
+class Curated(_McpCatalog):
+    id, label = "recommended", "Vendor recommendations"
+    message = "Reviewed setup recipes; live accounts untested."
+
+    def entries(self) -> list:
+        from row_bot.mcp_client.marketplace import CURATED_STARTER_CATALOG
+        return CURATED_STARTER_CATALOG
+
+    def search(self, search: Search) -> Found:
+        found = super().search(search)
+        found.statuses.append(self.status(status="cached"))
+        return found
+
+
+class Registry(_McpCatalog):
+    id, label, access, network = "official", "Official MCP Registry", "snapshot", "explicit"
+    message = "Local Registry snapshot; refreshed only on request."
+
+    def snapshot(self, refresh: bool = False, cancelled: Callable[[], bool] = lambda: False) -> dict:
+        from row_bot.mcp_client import registry_snapshot
+        snapshot = registry_snapshot.read_snapshot()
+        if refresh:
+            try:
+                snapshot = registry_snapshot.refresh_snapshot(cancelled=cancelled)
+            except Exception:
+                snapshot = {**snapshot, "status": "stale" if snapshot["entries"] else "error"}
+        return snapshot
+
+    def entries(self) -> list:
+        return self.snapshot()["entries"]
+
+    def search(self, search: Search) -> Found:
+        snapshot = self.snapshot(search.refresh_catalogs, search.cancelled)
+        found = Found()
+        for entry in snapshot["entries"]:
+            app = apps.match(apps.registry_refs((entry.metadata or {}).get("canonical_name", "")) + apps.recipe_refs(entry.install))
+            if matches(search.query, entry.id, entry.name, entry.description, entry.publisher, apps.text(app)):
+                found.add(*self.row(entry))
+        found.statuses.append(self.status(status=snapshot["status"], fetched_at=snapshot.get("captured_at"),
+            snapshot_version=snapshot.get("api_version", ""), snapshot_digest=snapshot.get("digest", ""),
+            truncated=not snapshot.get("complete", False)))
+        return found
+
+
+class HermesMcp(Source):
+    id, kind, label, access, network = "hermes_mcp", "mcp", "Hermes MCP recipes", "public", "explicit"
+    message = "Pinned recipe metadata; inspect before setup."
+
+    def search(self, search: Search) -> Found:
+        from row_bot.plugins import hermes_mcp
+        catalog = hermes_mcp.read_catalog(refresh=search.refresh, cancelled=search.cancelled)
+        found = Found()
+        for name in catalog.get("names", []):
+            if matches(search.query, name):
+                found.add(_available("mcp", "hermes_mcp:" + name, name, app=None, source=self.id, pin=catalog["pin"],
+                    compatibility="not_inspected", actions=["preview"],
+                    description="Pinned Hermes optional-MCP recipe. Inspect to check compatibility."),
+                    {"kind": "hermes_mcp", "name": name, "pin": catalog["pin"]})
+        found.statuses.append(self.status(status=catalog["status"], message=catalog["message"], fetched_at=catalog.get("fetched_at")))
+        return found
+
+
+class Hermes(Source):
+    id, kind, label, access, network = "hermes", "plugin", "Hermes", "public", "explicit"
+    message = "Pinned catalog packages; native foreign SDKs unsupported."
+
+    def row(self, entry: dict) -> tuple[dict, dict]:
+        app = apps.match(["hermes:" + entry["id"].removeprefix("hermes:")] + apps.repository_refs(entry["url"]))
+        row = _available("plugin", entry["id"], entry["name"], app=app, source="hermes", description=entry["description"],
+            publisher=entry["publisher"], source_url=public_url(entry["url"]), version=entry["version"], pin=entry["pin"],
+            compatibility=entry["compatibility"], platforms=entry["platforms"], actions=["preview"],
+            unsupported=entry["reason"] if entry["compatibility"] == "unsupported" else "",
+            canonical_identity="plugin:" + entry["source_identity"] + "@" + entry["pin"])
+        if entry["compatibility"] != "unsupported":
+            row["blockers"].append(facts.blocker("note", entry["reason"]))
+        return row, {"kind": "plugin", "reference": entry["id"], "pin": entry["pin"], "identity": entry["source_identity"]}
+
+    def search(self, search: Search) -> Found:
+        from row_bot.plugins import hermes_catalog
+        catalog = hermes_catalog.read_catalog(refresh=search.refresh, cancelled=search.cancelled)
+        found = Found()
+        for entry in catalog["entries"]:
+            app = apps.match(["hermes:" + entry["id"].removeprefix("hermes:")])
+            if matches(search.query, entry["name"], entry["description"], apps.text(app)):
+                found.add(*self.row(entry))
+        found.statuses.append(self.status(status=catalog["status"], message=catalog["message"], fetched_at=catalog["fetched_at"] or None))
+        return found
+
+    def lookup(self, reference: str) -> dict | None:
+        from row_bot.plugins import hermes_catalog
+        return next((e for e in hermes_catalog.read_catalog()["entries"] if e["id"] == reference), None)
+
+
+class Native(Source):
+    id, kind, label = "native", "plugin", "Row-Bot marketplace"
+    message = "Saved Row-Bot marketplace; refresh through its reviewed lifecycle action."
+
+    def search(self, search: Search) -> Found:
+        from row_bot.application import plugin_commands
+        found, cursor = Found(), None
+        while True:
+            page = plugin_commands.read_plugin_catalog(query=search.query, source="marketplace", cursor=cursor, limit=50,
+                                                       validate=search.validate)
+            for row in page["items"]:
+                found.add(_available("plugin", row["plugin_id"], row["name"], app=None, source=self.id, description=row["description"],
+                    version=row["version"], compatibility="not_inspected",
+                    actions=["install"] if row["capabilities"]["install"]["available"] else []),
+                    {"kind": "native", "plugin_id": row["plugin_id"]})
+            cursor = page.get("next_cursor")
+            if not cursor:
+                break
+        found.statuses.append(self.status(status="cached"))
+        return found
+
+
+_EXAMPLES = (
+    ("Local text tools", "bundled:local-text-tools", "Two no-auth writing skills, a supporting checklist, and local text statistics over MCP.",
+     "MIT; shipped version 1.0.0 and reviewed tree digest. Managed Node is optional for the MCP child. Windows/macOS/Linux recipe; only Windows checked locally. No network, file reads or telemetry in the server. Skill prompts use the conversation's chosen model."),
+    ("Hello Tool (native example)", "https://github.com/siddsachar/row-bot/tree/9435afbc930799ec30a622a2eb3d234a05214f31/examples/plugins/hello-tool",
+     "Existing native Row-Bot plugin demonstrating a minimal local tool.",
+     "MIT; pinned repository example 0.1.0. Requires Row-Bot's private Python worker environment; no third-party dependencies or telemetry. Windows/macOS/Linux fixture coverage; clean-machine checks pending."),
+)
+
+
+class Examples(Source):
+    id, kind, label, eligibility = "examples", "plugin", "Examples", "explicit_only"
+    message = "Developer fixtures, available only by explicit source selection or import."
+
+    def row(self, name: str, reference: str, description: str, evidence: str) -> tuple[dict, dict]:
+        app = apps.match(["bundled:" + reference.removeprefix("bundled:")] if reference.startswith("bundled:") else [])
+        row = _available("plugin", reference, name, app=app, source=self.id, publisher="Row-Bot", license="MIT",
+            description=description, evidence="Source reviewed; see setup details and validation limits.", actions=["preview"])
+        row["blockers"].append(facts.blocker("note", evidence))
+        return row, {"kind": "plugin", "reference": reference}
+
+    def search(self, search: Search) -> Found:
+        found = Found()
+        for example in _EXAMPLES:
+            if matches(search.query, example[0], example[2]):
+                found.add(*self.row(*example))
+        found.statuses.append(self.status(status="cached"))
+        return found
+
+    def lookup(self, reference: str):
+        return next((example for example in _EXAMPLES if example[1] == reference), None)
+
+
+class Skills(Source):
+    kind, access, network = "skill", "public", "explicit"
+
+    def __init__(self, source_id: str, label: str, message: str) -> None:
+        self.id, self.label, self.message = source_id, label, message
+
+    def search(self, search: Search) -> Found:
+        from row_bot.application import client_skill_hub
+        result = client_skill_hub.search_public_skills(owner_id=search.owner_id, query=search.query, source=self.id,
+            refresh=search.refresh, cached_only=not search.refresh, limit=96, cancelled=search.cancelled)
+        found = Found()
+        for entry in result["entries"]:
+            found.add(_available("skill", entry["id"], entry["name"], app=None, installed=entry["installed"], source=entry["source"],
+                description=entry["description"], publisher=entry["author"], source_url=public_url(entry.get("url")),
+                compatibility="not_inspected", actions=["preview"]),
+                {"kind": "skill", "revision": result["revision"], "entry_id": entry["id"]})
+        found.statuses += [self.status(status=str(s["status"]), message=str(s.get("message", "")), fetched_at=s.get("fetched_at"),
+                                       truncated=result.get("has_more", False)) for s in result.get("source_statuses", [])]
+        return found
+
+
+class Unavailable(Source):
+    access = "unavailable"
+
+    def __init__(self, source_id: str, kind: str, label: str, eligibility: str, message: str) -> None:
+        self.id, self.kind, self.label, self.eligibility, self.message = source_id, kind, label, eligibility, message
+
+
+# Public contracts checked 2026-10-03; evidence in docs/INTEGRATION_SOURCES.md. Order is ranking precedence.
+SOURCES: dict[str, Source] = {source.id: source for source in (
+    Curated(), Registry(), HermesMcp(),
+    Skills("clawhub", "ClawHub", "Public v1 skill search and complete version downloads."),
+    Skills("github", "GitHub", "Maintainer skill repositories through the existing GitHub owner."),
+    Hermes(), Native(), Examples(),
+    Unavailable("skills_sh", "skill", "skills.sh", "auth_required", "Documented v1 needs Vercel OIDC; desktop access is not implemented."),
+    Unavailable("browse_sh", "skill", "browse.sh", "contract_unresolved", "A supported public discovery contract has not been established."),
+    Unavailable("lobehub", "skill", "LobeHub", "contract_unresolved", "Agent prompt conversion is an explicit import, not an Agent Skills catalog."),
+    Unavailable("glama", "mcp", "Glama", "auth_required", "Directory key, data license, visible Glama credit and listing backlinks require a separate integration."),
+    Unavailable("pulsemcp", "mcp", "PulseMCP", "auth_required", "B2B tenant and API key integration is not implemented."),
+    Unavailable("smithery", "mcp", "Smithery", "contract_unresolved", "Documented bearer authentication and anonymous access differ; desktop access unresolved."),
+    Unavailable("clawhub_plugins", "plugin", "ClawHub plugins", "unsupported", "Bundle labels do not establish Agent Plugins 1.0 compatibility; native SDKs unsupported."),
+)}
+
+
+def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
+    """A catalog entry by its stable id from local data only; never contacts a source."""
+    kind, _, reference = item_id.partition(":")
+    source_id = reference.partition(":")[0]
+    if kind == "mcp" and source_id in {"curated", "official"}:
+        adapter = SOURCES["recommended" if source_id == "curated" else "official"]
+        entry = adapter.lookup(reference)
+        return adapter.row(entry) if entry else None
+    if kind == "plugin" and reference.startswith("hermes:"):
+        entry = SOURCES["hermes"].lookup(reference)
+        return SOURCES["hermes"].row(entry) if entry else None
+    if kind == "plugin":
+        example = SOURCES["examples"].lookup(reference)
+        return SOURCES["examples"].row(*example) if example else None
+    return None
+
+
+def rank(rows: list[dict], query: str) -> list[dict]:
+    """Merge one deployment found in several sources; then a deterministic order."""
+    order, words = list(SOURCES), tokens(query)
+
+    def precedence(row: dict) -> int:
+        source = (row["attributions"] or [{"source": row["source"]}])[0]["source"]
+        return order.index(source) if source in order else len(order)
+
+    def key(row: dict) -> tuple:
+        name = row["name"].casefold()
+        text = " ".join([name, row["description"], row["publisher"], (row["app"] or {}).get("name", "")]).casefold()
+        return (-(name == query.casefold().strip() and bool(query.strip())), -bool(row["app"]),
+                -sum(10 if word in name else 1 if word in text else 0 for word in words),
+                -(row["evidence_stage"] == "inspected"), precedence(row), name, row["id"])
+    merged: dict[str, dict] = {}
+    # The most reviewed source supplies the merged record; the query only orders results.
+    for row in sorted(rows, key=lambda row: (precedence(row), row["id"])):
+        identity = row["canonical_identity"] or row["id"]
+        if identity in merged:
+            known = merged[identity]["attributions"]
+            known.extend(a for a in row["attributions"] if a not in known)
+        else:
+            merged[identity] = row
+    return sorted(merged.values(), key=key)
+
+
+def describe(entry) -> dict:
+    """A disabled, review-required MCP configuration for a catalog entry."""
+    from row_bot.mcp_client.marketplace import entry_to_server_config
+    name = re.sub(r"[^A-Za-z0-9_. -]", "-", entry.name).strip()[:64] or "Connection"
+    return {"name": name, "import_json": json.dumps({"mcpServers": {name: entry_to_server_config(entry)}}),
+            "requires_auth": entry.requires_auth, "auth_requirement": "required" if entry.requires_auth else "unknown",
+            "notes": entry.notes[:16], "source_url": public_url(entry.url)}

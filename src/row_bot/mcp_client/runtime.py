@@ -1475,6 +1475,10 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
     return records
 
 
+_SIGN_IN_FAILURES = ("mcp_sign_in_required", "mcp_credentials_unavailable", "mcp_credentials_endpoint_changed",
+                     "401 Unauthorized", "invalid_grant")
+
+
 def get_passive_server_statuses(names: tuple[str, ...]) -> dict[str, dict[str, Any]]:
     """Read bounded instantiated status only, without refreshing its authority."""
     if len(names) > 50:
@@ -1493,6 +1497,8 @@ def get_passive_server_statuses(names: tuple[str, ...]) -> dict[str, dict[str, A
                 "status": status.status if type(status.status) is str and status.status in states else "unknown",
                 "tool_count": count if type(count) is int and 0 <= count <= 10000 else None,
                 "connection_present": name in _servers,
+                # A refused or expired account; the error text itself never leaves.
+                "sign_in_failed": any(code in str(getattr(status, "last_error", "")) for code in _SIGN_IN_FAILURES),
             }
         return result
 

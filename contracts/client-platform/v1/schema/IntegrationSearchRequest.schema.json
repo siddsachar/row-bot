@@ -57,26 +57,10 @@
       "anyOf": [
         {
           "items": {
-            "enum": [
-              "recommended",
-              "hermes",
-              "hermes_mcp",
-              "clawhub",
-              "github",
-              "skills_sh",
-              "browse_sh",
-              "lobehub",
-              "official",
-              "native",
-              "glama",
-              "pulsemcp",
-              "smithery",
-              "clawhub_plugins",
-              "examples"
-            ],
+            "pattern": "^[a-z0-9_]{1,40}$",
             "type": "string"
           },
-          "maxItems": 15,
+          "maxItems": 32,
           "type": "array"
         },
         {
