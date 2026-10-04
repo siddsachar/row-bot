@@ -46,12 +46,12 @@ class ClawHubSource(SkillSource):
 
     def browse(self, limit: int = 50, cursor: str | None = None) -> SourceResult:
         params = urllib.parse.urlencode({"limit": str(limit), "cursor": cursor or ""})
-        entries = parse_clawhub_payload(fetch_json(f"{API_ROOT}/skills?{params}"))
+        entries = _public_entries(fetch_json(f"{API_ROOT}/skills?{params}"))
         return SourceResult(entries[:limit], self.id, "live" if entries else "empty")
 
     def search(self, query: str, limit: int = 24) -> list[SkillHubEntry]:
         params = urllib.parse.urlencode({"q": query or "", "limit": str(limit)})
-        entries = parse_clawhub_payload(fetch_json(f"{API_ROOT}/search?{params}"))
+        entries = _public_entries(fetch_json(f"{API_ROOT}/search?{params}"))
         return search_entries(entries, query, limit=limit)
 
     def can_resolve(self, value: str) -> bool:
@@ -121,6 +121,31 @@ class ClawHubSource(SkillSource):
         return bundle
 
 
+def revalidate_bundle(bundle: SkillBundle) -> None:
+    """Check current moderation and availability of the exact reviewed version."""
+    if bundle.source != "clawhub" or not bundle.install_ref.startswith("clawhub:"):
+        return
+    reference, separator, version = bundle.install_ref.removeprefix("clawhub:").partition("@")
+    if not separator:
+        raise ValueError("ClawHub version must be pinned before installation")
+    owner, slash, slug = reference.partition("/")
+    if not slash:
+        owner, slug = "", owner
+    detail = _detail(slug, owner)
+    skill, moderation = detail.get("skill", detail), detail.get("moderation") or {}
+    if (skill.get("deletedAt") or skill.get("moderationStatus") in {"blocked", "removed", "malicious"}
+            or moderation.get("isMalwareBlocked") is True or moderation.get("verdict") == "malicious"):
+        raise ClawHubSourceBlocked("ClawHub has removed or moderation-blocked this skill.")
+    url = f"{API_ROOT}/skills/{urllib.parse.quote(slug, safe='')}/versions/{urllib.parse.quote(version, safe='')}"
+    if owner:
+        url += "?" + urllib.parse.urlencode({"owner": owner})
+    data = fetch_json(url)
+    current = data.get("version") if isinstance(data, dict) else None
+    if (not isinstance(current, dict) or current.get("version") != version
+            or current.get("deletedAt") or current.get("status") in {"deleted", "removed", "revoked"}):
+        raise ValueError("ClawHub reviewed version is unavailable")
+
+
 def _owner(raw: dict[str, Any]) -> str:
     publisher = raw.get("owner") or raw.get("publisher") or {}
     value = raw.get("ownerHandle") or (publisher.get("handle", "") if isinstance(publisher, dict) else "")
@@ -168,6 +193,12 @@ def _github_handoff(value: Any, *, install_ref: str) -> SkillBundle:
     bundle.metadata.update({"repository": repo, "ref": commit, "path": path,
         "upstream_content_hash": str(value.get("contentHash", ""))[:256]})
     return bundle
+
+
+def _public_entries(data: Any) -> list[SkillHubEntry]:
+    if not isinstance(data, dict) or not any(isinstance(data.get(key), list) for key in ("results", "skills", "items")):
+        raise ValueError("Invalid ClawHub catalog response")
+    return parse_clawhub_payload(data)
 
 
 def parse_clawhub_payload(data: Any) -> list[SkillHubEntry]:

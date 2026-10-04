@@ -2292,6 +2292,14 @@ export class ClientController {
     },
     signal?: AbortSignal,
   ) => this.query(() => this.transport.integrations?.(options, signal));
+  integrationUse = (
+    conversation: string,
+    integration: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.integrationUse?.(conversation, integration, signal),
+    );
   integration = (integration: string, signal?: AbortSignal) =>
     this.query(() => this.transport.integration?.(integration, signal));
   searchIntegrations = (

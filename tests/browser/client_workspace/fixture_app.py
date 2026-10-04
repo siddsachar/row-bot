@@ -2159,13 +2159,18 @@ def p4_integration_skills(x_fixture_token: str = Header(default="")) -> dict:
     from row_bot.skills_hub.models import CatalogSearchResult, SkillHubEntry, SkillFile, SourceResult
     from row_bot.skills_hub.sources import bundle_from_files
     entry = SkillHubEntry(id="clawhub:browser-writing", name="Browser writing", description="Synthetic writing skill with resources",
-        source="clawhub", source_id="clawhub", install_ref="clawhub:browser-writing")
+        source="clawhub", source_id="clawhub", install_ref="clawhub:fixture/browser-writing@1.0.0")
     bundle = bundle_from_files(source="clawhub", install_ref=entry.install_ref, root_name="browser-writing", files=[
         SkillFile.from_text("SKILL.md", "---\nname: browser-writing\ndescription: Synthetic writing instructions\n---\nRead references/checklist.txt before writing."),
         SkillFile.from_text("references/checklist.txt", "Use clear sentences.\n")])
     hub.catalog.search_skills = lambda *a, **k: CatalogSearchResult(entries=[entry], mode="cache", query="writing",
         source_statuses=[SourceResult(entries=[entry], source_id="clawhub", status="cached")])
     hub.catalog.inspect_entry = lambda *a, **k: bundle
+    hub.installer.fetch_bundle_for_record = lambda *a, **k: bundle
+    from row_bot.skills_hub import clawhub_source
+    clawhub_source.fetch_json = lambda url, **kwargs: (
+        {"version": {"version": "1.0.0"}} if "/versions/" in url else
+        {"owner": {"handle": "fixture"}, "skill": {"slug": "browser-writing"}})
     return {"ready": True}
 
 

@@ -7,6 +7,17 @@
           "title": "Destructive",
           "type": "boolean"
         },
+        "effect": {
+          "default": "unknown",
+          "enum": [
+            "read_only",
+            "mutation",
+            "interaction",
+            "unknown"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
         "enabled_after_accept": {
           "anyOf": [
             {

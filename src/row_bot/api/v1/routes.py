@@ -4402,13 +4402,38 @@ def create_router(
         result = await call(read_integration, integration_id, validate=dispatch_validation(request, current))
         return await respond(request, dto.IntegrationItem, result)
 
+    @router.get("/conversations/{conversation_id}/integrations/{integration_id}/use")
+    async def integration_use(conversation_id: str, integration_id: str, request: Request) -> JSONResponse:
+        current = await session(request, lane="view")
+        await readable_conversation(conversation_id)
+        from row_bot.application.integration_use import read_integration_use
+        result = await call(read_integration_use, service, conversation_id, integration_id,
+            validate=dictation_validation(request, current, conversation_id))
+        await readable_conversation(conversation_id)
+        return await respond(request, dto.IntegrationUse, result)
+
     @router.post("/settings/integrations/search")
     async def integrations_search(request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
         body = await _body(request, dto.IntegrationSearchRequest, 4096)
         from row_bot.application.client_integrations import search_integrations
-        result = await call(search_integrations, owner_id=await integration_owner(request), **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
-        return await respond(request, dto.IntegrationPage, result)
+        import threading
+        stopped = threading.Event()
+        owner = await integration_owner(request)
+        async def watch_disconnect() -> None:
+            while not stopped.is_set():
+                if await request.is_disconnected():
+                    stopped.set()
+                    return
+                await asyncio.sleep(0.05)
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            result = await call(search_integrations, owner_id=owner, **body.model_dump(mode="json"),
+                cancelled=stopped.is_set, validate=dispatch_validation(request, current))
+            return await respond(request, dto.IntegrationPage, result)
+        finally:
+            stopped.set()
+            watcher.cancel()
 
     @router.post("/settings/integrations/preview")
     async def integrations_preview(request: Request) -> JSONResponse:

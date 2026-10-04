@@ -162,7 +162,9 @@ export default function SettingsShell({
   return (
     // The frame is a size container, so the shell also compacts when the
     // settings area is narrow in a wide window (sidebar open, 200% zoom).
-    <div className="settings-shell-frame">
+    <div
+      className={`settings-shell-frame ${leaf.id === 'integrations' ? 'settings-integrations-focus' : ''}`}
+    >
       <section className="settings-shell" aria-label="Settings">
         <header
           className="settings-shell-header"

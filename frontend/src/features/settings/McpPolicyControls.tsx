@@ -128,6 +128,7 @@ export function createMcpPolicySession(serverId: string | null = null) {
 }
 export type McpPolicySession = ReturnType<typeof createMcpPolicySession>;
 export type McpPolicyControlsProps = {
+  mutationsDisabled?: boolean;
   session: McpPolicySession;
   load: (
     query: { server_id: string | null; query: string; cursor?: string },
@@ -161,6 +162,7 @@ function useMcpPolicy({
   load,
   review,
   execute,
+  mutationsDisabled = false,
 }: McpPolicyControlsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const { page, pending } = state;
@@ -259,6 +261,7 @@ function useMcpPolicy({
   const requestReview = async () => {
     const current = session.getSnapshot();
     if (
+      mutationsDisabled ||
       !current.active ||
       current.busy ||
       current.pending ||
@@ -319,6 +322,7 @@ function useMcpPolicy({
   const save = async (attempt: Attempt | null) => {
     const current = session.getSnapshot();
     if (
+      mutationsDisabled ||
       !attempt ||
       !current.active ||
       current.busy ||
@@ -373,7 +377,7 @@ function useMcpPolicy({
     }
   };
   const choose = (draft: McpPolicyIntent, draftLabel: string) => {
-    if (locked || !canSave) return;
+    if (mutationsDisabled || locked || !canSave) return;
     session.update({ draft, draftLabel, reviewed: null, message: '' });
     void requestReview();
   };
@@ -392,7 +396,7 @@ function useMcpPolicy({
       <Toggle
         label={label}
         checked={checked}
-        disabled={locked || !canSave || lockedValue}
+        disabled={mutationsDisabled || locked || !canSave || lockedValue}
         onChange={(event) =>
           choose(
             intent(event.target.checked),
@@ -402,7 +406,16 @@ function useMcpPolicy({
       />
     );
   };
-  return { state, page, pending, locked, read, save, toggle };
+  return {
+    state,
+    page,
+    pending,
+    locked,
+    read,
+    save,
+    toggle,
+    mutationsDisabled,
+  };
 }
 
 /** The outcome of the last change, and its original while unconfirmed. */
@@ -431,7 +444,9 @@ function PolicyOutcome({
       )}
       {pending && (
         <Button
-          disabled={!state.active || Boolean(state.busy)}
+          disabled={
+            policy.mutationsDisabled || !state.active || Boolean(state.busy)
+          }
           onClick={() => void policy.save(pending)}
         >
           Check original permission change
@@ -545,9 +560,7 @@ export default function McpPolicyControls(props: McpPolicyControlsProps) {
             help={
               tool.destructive
                 ? 'Changes things'
-                : tool.destructive === false
-                  ? 'Reads only'
-                  : undefined
+                : 'Review tool effects before use'
             }
             status={
               tool.approval_locked ? (

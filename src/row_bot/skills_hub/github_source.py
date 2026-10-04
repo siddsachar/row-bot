@@ -9,7 +9,7 @@ import re
 import time
 import urllib.parse
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import row_bot.github_account as github_account
 
@@ -90,8 +90,9 @@ class GitHubSource(SkillSource):
     # A keyword search only filters the browse list, so the registry answers it
     # from the cached list instead of reading every repository again.
     search_from_browse = True
+    supports_cancellation = True
 
-    def browse(self, limit: int = 50, cursor: str | None = None) -> SourceResult:
+    def browse(self, limit: int = 50, cursor: str | None = None, *, cancelled: Callable[[], bool] | None = None) -> SourceResult:
         global _GITHUB_BACKOFF_UNTIL, _GITHUB_BACKOFF_MESSAGE
         if _GITHUB_BACKOFF_UNTIL and time.time() < _GITHUB_BACKOFF_UNTIL:
             return SourceResult([], self.id, "error", _GITHUB_BACKOFF_MESSAGE)
@@ -100,11 +101,16 @@ class GitHubSource(SkillSource):
         rate_message = ""
         auth_message = self._auth_status_message()
         roots = [item for item in PUBLIC_GITHUB_ROOTS if item.enabled_by_default]
-        # Every repository is read at once, so the slowest one sets the time.
+        def read_root(root: object) -> list[SkillHubEntry]:
+            if cancelled is not None and cancelled():
+                return []
+            return self._list_public_root(root, limit=limit)
+
+        # Bounded batches; queued roots never fetch after cancellation.
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(roots), thread_name_prefix="skills-hub-github"
+            max_workers=min(4, len(roots)), thread_name_prefix="skills-hub-github"
         ) as pool:
-            reads = [pool.submit(self._list_public_root, root, limit=limit) for root in roots]
+            reads = [pool.submit(read_root, root) for root in roots]
         for root, read in zip(roots, reads):
             try:
                 root_results.append(read.result())
@@ -137,11 +143,11 @@ class GitHubSource(SkillSource):
             status = "empty"
         return SourceResult(entries[:limit], self.id, status, message)
 
-    def search(self, query: str, limit: int = 24) -> list[SkillHubEntry]:
+    def search(self, query: str, limit: int = 24, *, cancelled: Callable[[], bool] | None = None) -> list[SkillHubEntry]:
         parsed = parse_github_install_ref(query)
         if parsed is None:
             try:
-                return search_entries(self.browse(limit=max(limit, 50)).entries, query, limit=limit)
+                return search_entries(self.browse(limit=max(limit, 50), cancelled=cancelled).entries, query, limit=limit)
             except Exception:
                 return []
         try:
@@ -229,7 +235,7 @@ class GitHubSource(SkillSource):
             url += f"?ref={urllib.parse.quote(parsed.ref)}"
         return url
 
-    def _tree_api_url(self, root: PublicGitHubRoot, ref: str) -> str:
+    def _tree_api_url(self, root: object, ref: str) -> str:
         return (
             f"https://api.github.com/repos/{root.owner}/{root.repo}/git/trees/"
             f"{urllib.parse.quote(ref)}?recursive=1"
@@ -241,7 +247,7 @@ class GitHubSource(SkillSource):
             f"{urllib.parse.quote(ref)}?recursive=1"
         )
 
-    def _list_public_root(self, root: PublicGitHubRoot, *, limit: int) -> list[SkillHubEntry]:
+    def _list_public_root(self, root: object, *, limit: int) -> list[SkillHubEntry]:
         ref = root.ref or "main"
         try:
             data = fetch_json(self._tree_api_url(root, ref), headers=self._headers())

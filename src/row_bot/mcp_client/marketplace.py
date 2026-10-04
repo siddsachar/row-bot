@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -137,9 +138,19 @@ CURATED_STARTER_CATALOG: list[MarketplaceEntry] = _load_curated_catalog()
 
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> Any:
-    request = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-MCP-Client/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered directory fetch
-        return json.loads(response.read().decode("utf-8"))
+    import httpx
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc != "registry.modelcontextprotocol.io":
+        raise ValueError("registry_source_not_supported")
+    with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False) as client:
+        with client.stream("GET", url, headers={"User-Agent": "Row-Bot-Catalog"}) as response:
+            response.raise_for_status()
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > 2 * 1024 * 1024:
+                    raise ValueError("registry_response_too_large")
+            return json.loads(data)
 
 
 def _fetch_text(url: str, timeout: int = DEFAULT_TIMEOUT, *, prefer_urllib: bool = False) -> str:
@@ -228,6 +239,93 @@ def _save_cache(entries: list[MarketplaceEntry]) -> None:
         log_event("mcp.marketplace.cache_failed", level=30, error=str(exc))
 
 
+def _registry_setup_digest(item: dict) -> str:
+    # Bind all delivery declarations, including unknown extensions. Display-only
+    # metadata does not identify a deployment. Never persist raw declaration values:
+    # even a public catalog may accidentally contain a secret header/default.
+    display = {"$schema", "name", "version", "title", "description", "repository", "websiteUrl", "icons"}
+    setup = {key: value for key, value in item.items() if key not in display}
+    try:
+        encoded = json.dumps(setup, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("invalid_registry_setup") from exc
+    if len(encoded) > 65536:
+        raise ValueError("registry_setup_too_large")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def registry_entries(data: dict) -> list[MarketplaceEntry]:
+    """Parse bounded v0.1 metadata; unsupported declarations never become recipes."""
+    if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
+        raise ValueError("invalid_registry_response")
+    entries = []
+    known = {"$schema", "name", "version", "title", "description", "repository", "websiteUrl", "icons", "remotes", "packages"}
+    for envelope in data["servers"][:1000]:
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("server"), dict):
+            continue
+        item = envelope["server"]
+        official = envelope.get("_meta", {}).get("io.modelcontextprotocol.registry/official", {})
+        name, version = item.get("name"), item.get("version")
+        if not isinstance(name, str) or not isinstance(version, str) or not name or len(name) > 200 or len(version) > 128:
+            continue
+        setup_digest = _registry_setup_digest(item)
+        status = official.get("status", "unknown")
+        install, notes, requires_auth = None, [], False
+        remotes, packages = item.get("remotes", []), item.get("packages", [])
+        if not isinstance(remotes, list) or not isinstance(packages, list) or len(remotes) > 16 or len(packages) > 16:
+            raise ValueError("invalid_registry_declarations")
+        if status != "active":
+            notes.append("Registry status: " + str(status)[:80] + ". New installation is unavailable.")
+        elif set(item) - known:
+            notes.append("Additional server setup or authentication declarations are unsupported by catalog import.")
+        else:
+            for remote in remotes:
+                if not isinstance(remote, dict):
+                    continue
+                if remote.get("headers") or set(remote) - {"type", "url", "headers"}:
+                    notes.append("Remote header, authentication or variable declarations require setup that catalog import cannot safely express.")
+                    requires_auth = requires_auth or bool(remote.get("headers"))
+                    continue
+                url = str(remote.get("url", ""))
+                parsed = urllib.parse.urlsplit(url)
+                if (remote.get("type") not in {"streamable-http", "sse"} or parsed.scheme != "https"
+                        or not parsed.hostname or parsed.username or parsed.password or any(c in url for c in "{}")):
+                    continue
+                install = {"transport": remote["type"].replace("-", "_"), "url": url}
+                requires_auth = False
+                break
+            if install is None:
+                for package in packages:
+                    if not isinstance(package, dict):
+                        continue
+                    allowed = {"registryType", "identifier", "version", "transport", "registryBaseUrl", "runtimeHint",
+                               "runtimeArguments", "packageArguments", "environmentVariables"}
+                    if (set(package) - allowed or package.get("environmentVariables") or package.get("runtimeArguments")
+                            or package.get("packageArguments") or package.get("runtimeHint", "npx") != "npx"
+                            or package.get("registryBaseUrl", "https://registry.npmjs.org").rstrip("/") != "https://registry.npmjs.org"
+                            or package.get("transport") != {"type": "stdio"}):
+                        notes.append("Package environment, runtime, argument, integrity or registry declarations are unsupported by catalog import.")
+                        requires_auth = requires_auth or bool(package.get("environmentVariables"))
+                        continue
+                    identifier, package_version = package.get("identifier", ""), package.get("version", "")
+                    if (package.get("registryType") != "npm" or not isinstance(identifier, str) or not isinstance(package_version, str)
+                            or not re.fullmatch(r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+", identifier)
+                            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", package_version)):
+                        continue
+                    install = {"transport": "stdio", "command": "npx", "args": [identifier + "@" + package_version]}
+                    requires_auth = False
+                    notes.append("Prepare reviewed dependencies first. Only self-contained npm archives or complete npm shrinkwraps without install scripts are supported.")
+                    break
+        repository = item.get("repository", {})
+        entries.append(MarketplaceEntry(id=name + "@" + version, name=str(item.get("title") or name)[:128],
+            description=str(item.get("description", ""))[:800], source="official", publisher=name.split("/", 1)[0],
+            url=str(repository.get("url", "")) if isinstance(repository, dict) else "", classification="official-registry",
+            transport=install.get("transport", "") if install else "", requires_auth=requires_auth,
+            install=install, notes=list(dict.fromkeys(notes)), metadata={"version": version, "status": status,
+                "canonical_name": name, "setup_digest": setup_digest}))
+    return entries
+
+
 def _official_registry_search(query: str, limit: int) -> list[MarketplaceEntry]:
     """Normalize the v0.1 envelope, bounded pagination and explicit recipes."""
     entries, cursor, seen = [], "", set()
@@ -238,53 +336,9 @@ def _official_registry_search(query: str, limit: int) -> list[MarketplaceEntry]:
         data = _fetch_json("https://registry.modelcontextprotocol.io/v0.1/servers?" + urllib.parse.urlencode(params))
         if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
             raise ValueError("invalid_registry_response")
-        for envelope in data["servers"][:100]:
-            if not isinstance(envelope, dict) or not isinstance(envelope.get("server"), dict):
-                continue
-            item = envelope["server"]
-            official = envelope.get("_meta", {}).get("io.modelcontextprotocol.registry/official", {})
-            name, version = item.get("name"), item.get("version")
-            if not isinstance(name, str) or not isinstance(version, str) or not name or len(name) > 200 or len(version) > 128:
-                continue
-            status = official.get("status", "active")
-            install, notes, requires_auth = None, [], False
-            if status != "active":
-                notes.append("Registry status: " + str(status)[:80] + ". New installation is unavailable.")
-            else:
-                for remote in item.get("remotes", [])[:16]:
-                    if not isinstance(remote, dict):
-                        continue
-                    url = str(remote.get("url", ""))
-                    parsed = urllib.parse.urlsplit(url)
-                    if (remote.get("type") not in {"streamable-http", "sse"} or parsed.scheme != "https"
-                            or not parsed.hostname or parsed.username or parsed.password or any(c in url for c in "{}")):
-                        continue
-                    requires_auth = any(header.get("isSecret") or header.get("isRequired") for header in remote.get("headers", []) if isinstance(header, dict))
-                    install = {"transport": remote["type"].replace("-", "_"), "url": url}
-                    if remote.get("headers"):
-                        notes.append("Configure the publisher's required headers with connection-scoped secret bindings.")
-                    break
-                if install is None:
-                    for package in item.get("packages", [])[:16]:
-                        if (not isinstance(package, dict) or package.get("registryType") != "npm"
-                                or package.get("transport", {}).get("type") != "stdio"
-                                or package.get("runtimeArguments") or package.get("packageArguments")):
-                            continue
-                        identifier, package_version = package.get("identifier", ""), package.get("version", "")
-                        if not re.fullmatch(r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+", identifier) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", package_version):
-                            continue
-                        install = {"transport": "stdio", "command": "npx", "args": [identifier + "@" + package_version]}
-                        requires_auth = bool(package.get("environmentVariables"))
-                        notes.append("Prepare reviewed dependencies first. Only self-contained npm archives or complete npm shrinkwraps without install scripts are supported.")
-                        break
-            repository = item.get("repository", {})
-            entries.append(MarketplaceEntry(id=name + "@" + version, name=str(item.get("title") or name)[:128],
-                description=str(item.get("description", ""))[:800], source="official", publisher=name.split("/", 1)[0],
-                url=str(repository.get("url", "")) if isinstance(repository, dict) else "", classification="official-registry",
-                transport=install.get("transport", "") if install else "", requires_auth=requires_auth,
-                install=install, notes=notes, metadata={"version": version, "status": status, "canonical_name": name}))
-            if len(entries) >= limit:
-                return entries
+        entries.extend(registry_entries(data))
+        if len(entries) >= limit:
+            return entries[:limit]
         cursor = data.get("metadata", {}).get("nextCursor", "")
         if not isinstance(cursor, str) or not cursor or len(cursor) > 2048 or cursor in seen:
             break
@@ -293,225 +347,33 @@ def _official_registry_search(query: str, limit: int) -> list[MarketplaceEntry]:
 
 
 def _pulsemcp_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    encoded = urllib.parse.urlencode({"q": query, "limit": str(limit)})
-    candidates = [
-        f"https://www.pulsemcp.com/api/v0.1/servers?{encoded}",
-        f"https://www.pulsemcp.com/api/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.pulsemcp_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data.get("items", [])) if isinstance(data, dict) else data if isinstance(data, list) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("displayName") or "").strip()
-            if not name:
-                continue
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or ""),
-                source="pulsemcp",
-                url=str(item.get("url") or item.get("homepage") or "https://www.pulsemcp.com/servers"),
-                publisher=str(item.get("publisher") or item.get("owner") or ""),
-                classification=str(item.get("classification") or ""),
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    page_url = f"https://www.pulsemcp.com/servers?{urllib.parse.urlencode({'query': query})}"
-    try:
-        html = _fetch_text(page_url, prefer_urllib=True)
-        entries = _parse_directory_html(
-            html,
-            source="pulsemcp",
-            base_url=page_url,
-            path_prefix="/servers/",
-            limit=limit * 3,
-        )
-        if entries:
-            return entries
-    except Exception as exc:
-        log_event("mcp.marketplace.pulsemcp_page_failed", level=10, url=page_url, error=str(exc))
+    """B2B access requires a separately approved tenant/key integration."""
     return []
 
 
 def _smithery_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    encoded = urllib.parse.urlencode({"q": query, "query": query, "limit": str(limit)})
-    candidates = [
-        f"https://smithery.ai/api/servers?{encoded}",
-        f"https://server.smithery.ai/api/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.smithery_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data.get("items", data.get("data", []))) if isinstance(data, dict) else data if isinstance(data, list) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("displayName") or item.get("qualifiedName") or "").strip()
-            if not name:
-                continue
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("qualifiedName") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or item.get("summary") or ""),
-                source="smithery",
-                url=str(item.get("url") or item.get("homepage") or item.get("repository") or f"https://smithery.ai/server/{urllib.parse.quote(name)}"),
-                publisher=str(item.get("publisher") or item.get("author") or ""),
-                classification="hosted" if item.get("isHosted") else str(item.get("classification") or ""),
-                transport="streamable_http" if item.get("isHosted") else "",
-                requires_auth=bool(item.get("requiresAuth") or item.get("security")),
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    page_url = f"https://smithery.ai/servers?{urllib.parse.urlencode({'q': query})}"
-    try:
-        html = _fetch_text(page_url)
-        entries = _parse_directory_html(
-            html,
-            source="smithery",
-            base_url=page_url,
-            path_prefix="/servers/",
-            limit=limit * 3,
-        )
-        if entries:
-            return entries
-    except Exception as exc:
-        log_event("mcp.marketplace.smithery_page_failed", level=10, url=page_url, error=str(exc))
+    """Desktop catalog access is unresolved; never guess alternate endpoints."""
     return []
 
 
 def _glama_search(query: str, limit: int) -> list[MarketplaceEntry]:
-    encoded = urllib.parse.urlencode({"q": query, "search": query, "limit": str(limit)})
-    candidates = [
-        f"https://glama.ai/api/mcp/servers?{encoded}",
-        f"https://glama.ai/api/mcp/v1/servers?{encoded}",
-    ]
-    for url in candidates:
-        try:
-            data = _fetch_json(url)
-        except Exception as exc:
-            log_event("mcp.marketplace.glama_failed", level=10, url=url, error=str(exc))
-            continue
-        items = data.get("servers", data.get("items", data.get("data", []))) if isinstance(data, dict) else data if isinstance(data, list) else []
-        entries: list[MarketplaceEntry] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("slug") or "").strip()
-            if not name:
-                continue
-            quality = item.get("quality") or item.get("score") or item.get("grade") or ""
-            official = item.get("official") or item.get("isOfficial")
-            entries.append(MarketplaceEntry(
-                id=str(item.get("id") or item.get("slug") or item.get("name") or name),
-                name=name,
-                description=str(item.get("description") or item.get("summary") or ""),
-                source="glama",
-                url=str(item.get("url") or item.get("homepage") or f"https://glama.ai/mcp/servers/{urllib.parse.quote(name)}"),
-                publisher=str(item.get("publisher") or item.get("owner") or ""),
-                classification="official" if official else str(quality or ""),
-                transport=str(item.get("transport") or ""),
-                metadata=item,
-            ))
-        if entries:
-            return entries
-    page_url = f"https://glama.ai/mcp/servers?{urllib.parse.urlencode({'query': query})}"
-    try:
-        html = _fetch_text(page_url)
-        entries = _parse_directory_html(
-            html,
-            source="glama",
-            base_url=page_url,
-            path_prefix="/mcp/servers/",
-            limit=limit * 3,
-        )
-        if entries:
-            return entries
-    except Exception as exc:
-        log_event("mcp.marketplace.glama_page_failed", level=10, url=page_url, error=str(exc))
+    """Key/licensing integration is not implemented; no anonymous scraping."""
     return []
 
 
 def search_marketplace_with_status(query: str = "", *, sources: list[str] | None = None, limit: int = 24, cached_only: bool = False) -> MarketplaceSearchResult:
-    """Search MCP directories and report whether results are live or fallback."""
-    normalized_query = (query or "").strip().lower()
-    if cached_only:
-        entries = _dedupe_entries(CURATED_STARTER_CATALOG + _load_cache())
-        entries = [entry for entry in entries if not sources or entry.source in sources or entry.source == "curated"]
-        return MarketplaceSearchResult(_filter_relevant(entries, normalized_query)[:limit], "cache", normalized_query)
-    if not normalized_query:
-        result = [entry for entry in CURATED_STARTER_CATALOG if entry.recommended][:limit]
-        return MarketplaceSearchResult(
-            entries=result,
-            mode="curated",
-            query=normalized_query,
-            source_counts=_count_sources(result),
-        )
-    selected = sources or ["official", "pulsemcp", "smithery", "glama"]
-    curated_matches = _filter_relevant(CURATED_STARTER_CATALOG, normalized_query)
-    entries: list[MarketplaceEntry] = []
-    for source in selected:
-        try:
-            if source == "official":
-                entries.extend(_official_registry_search(normalized_query, limit))
-            elif source == "pulsemcp":
-                entries.extend(_pulsemcp_search(normalized_query, limit))
-            elif source == "smithery":
-                entries.extend(_smithery_search(normalized_query, limit))
-            elif source == "glama":
-                entries.extend(_glama_search(normalized_query, limit))
-        except Exception as exc:
-            log_event("mcp.marketplace.source_failed", level=30, source=source, error=str(exc))
-    if entries:
-        live_matches = _filter_relevant(_dedupe_entries(entries), normalized_query)
-        if live_matches:
-            result = _dedupe_entries(curated_matches + live_matches)[:limit]
-            _save_cache(result)
-            return MarketplaceSearchResult(
-                entries=result,
-                mode="live",
-                query=normalized_query,
-                source_counts=_count_sources(result),
-            )
-    cached = _load_cache()
-    cached_matches = _filter_relevant(cached, normalized_query)
-    if cached_matches:
-        result = _dedupe_entries(curated_matches + cached_matches)[:limit]
-        return MarketplaceSearchResult(
-            entries=result,
-            mode="cache",
-            query=normalized_query,
-            source_counts=_count_sources(result),
-        )
-    if curated_matches:
-        result = _dedupe_entries(curated_matches)[:limit]
-        return MarketplaceSearchResult(
-            entries=result,
-            mode="curated",
-            query=normalized_query,
-            source_counts=_count_sources(result),
-        )
-    mode = "cache" if cached_matches else "curated"
-    fallback = _dedupe_entries(curated_matches + cached_matches) if cached_matches else curated_matches
-    result = fallback[:limit]
-    return MarketplaceSearchResult(
-        entries=result,
-        mode=mode,
-        query=normalized_query,
-        source_counts=_count_sources(result),
-    )
+    """Search shipped/saved metadata locally. Refresh is a separate action."""
+    from row_bot.mcp_client.registry_snapshot import read_snapshot
+    normalized = (query or "").strip().lower()
+    selected = sources or ["official"]
+    saved = read_snapshot() if "official" in selected else {"entries": []}
+    entries = _dedupe_entries(CURATED_STARTER_CATALOG + saved["entries"] + _load_cache())
+    entries = [entry for entry in entries if entry.source == "curated" or entry.source in selected]
+    entries = _filter_relevant(entries, normalized)
+    entries.sort(key=lambda entry: (not entry.recommended, entry.name.casefold(), entry.source, entry.id))
+    result = entries[:limit]
+    mode = "cache" if any(entry.source != "curated" for entry in result) else "curated"
+    return MarketplaceSearchResult(result, mode, normalized, _count_sources(result))
 
 
 def search_marketplace(query: str = "", *, sources: list[str] | None = None, limit: int = 24) -> list[MarketplaceEntry]:
@@ -521,6 +383,8 @@ def search_marketplace(query: str = "", *, sources: list[str] | None = None, lim
 
 def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
     """Return a disabled, review-required server config template."""
+    if entry.source == "official" and (not entry.install or not (entry.metadata or {}).get("setup_digest")):
+        raise ValueError("registry_recipe_unsupported")
     install = dict(entry.install or {})
     conflicts = [conflict.as_dict() for conflict in conflicts_for_entry(entry)]
     return {
@@ -546,11 +410,16 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
             "risk_level": entry.risk_level,
             "action_scope": entry.action_scope,
             "requires_auth": entry.requires_auth,
+            **{key: (entry.metadata or {})[key] for key in ("auth_mode", "auth_bindings", "account_requirements", "cost", "evidence") if key in (entry.metadata or {})},
             "recommended": entry.recommended,
             "capabilities": list(entry.capabilities or []),
             "overlaps_native": list(entry.overlaps_native or []),
             "requirements": list(entry.requirements or []),
             "conflicts": conflicts,
             "not_verified_by_row_bot": True,
+            **({"registry_name": (entry.metadata or {}).get("canonical_name", ""),
+                "registry_version": (entry.metadata or {}).get("version", ""),
+                "registry_setup_digest": (entry.metadata or {}).get("setup_digest", "")}
+               if entry.source == "official" else {}),
         },
     }

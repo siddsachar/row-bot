@@ -187,6 +187,13 @@ export function usePluginLifecycle(
               </div>
             </dl>
           )}
+          {!!reviewed.review.changes?.length && (
+            <ul aria-label="Changed package contents">
+              {reviewed.review.changes.map((line, index) => (
+                <li key={index}>{line}</li>
+              ))}
+            </ul>
+          )}
           {(reviewed.review.disclosures ?? []).length > 0 && (
             <ul aria-label="What this does">
               {(reviewed.review.disclosures ?? []).map((line) => (

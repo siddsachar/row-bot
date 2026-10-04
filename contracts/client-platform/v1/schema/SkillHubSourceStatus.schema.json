@@ -1,6 +1,18 @@
 {
   "additionalProperties": false,
   "properties": {
+    "fetched_at": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fetched At"
+    },
     "message": {
       "maxLength": 300,
       "title": "Message",

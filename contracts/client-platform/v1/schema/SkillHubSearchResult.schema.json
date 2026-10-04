@@ -44,6 +44,12 @@
           "maxLength": 80,
           "title": "Trust Level",
           "type": "string"
+        },
+        "url": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
         }
       },
       "required": [
@@ -62,6 +68,18 @@
     "SkillHubSourceStatus": {
       "additionalProperties": false,
       "properties": {
+        "fetched_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fetched At"
+        },
         "message": {
           "maxLength": 300,
           "title": "Message",

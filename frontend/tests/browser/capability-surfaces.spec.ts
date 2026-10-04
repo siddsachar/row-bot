@@ -526,7 +526,9 @@ test('Developer repository, worktree, and sandbox changes use the bound workspac
   await openAdvanced(repository);
   await repository
     .getByLabel('Worktree objective', { exact: true })
-    .fill('Isolated browser worktree');
+    // The fixture checkout is deeply nested on Windows; keep this synthetic
+    // objective short so Git's fixed metadata path limit is not the test target.
+    .fill('Fixture');
   await repository
     .getByRole('button', { name: 'Create managed worktree', exact: true })
     .click();

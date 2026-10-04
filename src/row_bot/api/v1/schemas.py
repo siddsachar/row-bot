@@ -1015,6 +1015,7 @@ class GitHubAccessCommand(WireModel):
 
 
 class SkillHubEntryView(WireModel):
+    url: str = Field(default="", max_length=2048)
     id: str = Field(max_length=256)
     name: str = Field(max_length=160)
     description: str = Field(max_length=1000)
@@ -1026,6 +1027,7 @@ class SkillHubEntryView(WireModel):
 
 
 class SkillHubSourceStatus(WireModel):
+    fetched_at: float | None = None
     source_id: str = Field(max_length=80)
     status: str = Field(max_length=40)
     message: str = Field(max_length=300)
@@ -1069,6 +1071,15 @@ class SkillHubScanView(WireModel):
     token_estimate: int = Field(ge=0)
 
 
+class SkillHubReviewFile(WireModel):
+    path: str = Field(max_length=1024)
+    text: str | None = Field(default=None, max_length=1000000)
+    size_bytes: int = Field(ge=0)
+    sha256: str = Field(max_length=64)
+    executable: bool
+    unavailable_reason: str = Field(default="", max_length=256)
+
+
 class SkillHubPreview(WireModel):
     schema_version: Literal[1]
     preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -1078,6 +1089,11 @@ class SkillHubPreview(WireModel):
     primary_text: str = Field(max_length=6000)
     files: list[str] = Field(max_length=100)
     scan: SkillHubScanView
+    review_files: list[SkillHubReviewFile] = Field(default_factory=list, max_length=100)
+    changes: list[str] = Field(default_factory=list, max_length=300)
+    version: str = Field(default="", max_length=256)
+    requirements: list[str] = Field(default_factory=list, max_length=32)
+    provenance: list[str] = Field(default_factory=list, max_length=32)
 
 
 class SkillHubInstallCommand(WireModel):
@@ -1862,6 +1878,38 @@ class McpAuthStatus(WireModel):
     authorization_url: str | None = Field(default=None, max_length=8192)
 
 
+class IntegrationAttribution(WireModel):
+    source: str = Field(max_length=80)
+    item_id: str = Field(max_length=512)
+    url: str = Field(max_length=2048)
+    publisher: str = Field(max_length=160)
+    version: str = Field(max_length=128)
+    pin: str = Field(max_length=128)
+
+
+class IntegrationSecretBinding(WireModel):
+    kind: Literal["header", "env"]
+    name: str = Field(max_length=128)
+    key: str = Field(max_length=64)
+    prefix: Literal["", "Bearer ", "Basic "] = ""
+
+
+class IntegrationSetup(WireModel):
+    auth_mode: Literal["none", "oauth", "api_key", "unknown", "unsupported"]
+    execution: Literal["local", "hosted"]
+    destination: str = Field(max_length=2048)
+    bindings: list[IntegrationSecretBinding] = Field(max_length=16)
+    credential_configured: bool
+    catalog_accepted: bool
+    requirements: list[dict] = Field(max_length=8)
+    runtime_status: str = Field(max_length=64)
+    package_prepared: bool
+    package_required: bool
+    account_requirements: str = Field(max_length=512)
+    cost: str = Field(max_length=512)
+    evidence: str = Field(max_length=512)
+
+
 class IntegrationItem(WireModel):
     id: str = Field(min_length=1, max_length=512)
     kind: Literal["skill", "mcp", "plugin"]
@@ -1888,13 +1936,35 @@ class IntegrationItem(WireModel):
     account_label: str = Field(max_length=128)
     children: list[IntegrationItem] = Field(max_length=256)
     target: McpTarget | None
+    attributions: list[IntegrationAttribution] = Field(default_factory=list, max_length=512)
+    evidence_stage: Literal["listed", "metadata_inspected", "package_verified", "connection_tested", "tool_use_tested", "lifecycle_tested"] = "listed"
+    auth_requirement: Literal["unknown", "required", "none"] = "unknown"
+    canonical_identity: str = Field(default="", max_length=1024)
+    setup: IntegrationSetup | None = None
+    required: bool = True
+
+
+class IntegrationUse(WireModel):
+    conversation_id: OpaqueId
+    integration_id: str = Field(max_length=512)
+    conversation_revision: Revision
+    eligible: bool
+    reason: str = Field(max_length=1024)
+    account_label: str = Field(max_length=128)
 
 
 class IntegrationSourceStatus(WireModel):
     source: str = Field(max_length=80)
-    status: str = Field(max_length=32)
+    status: Literal["live", "cached", "stale", "partial", "pending", "error", "empty", "timeout", "auth_required", "rate_limited", "malformed", "busy", "unavailable"]
     message: str = Field(max_length=512)
     fetched_at: float | None
+    kind: Literal["skill", "mcp", "plugin"] | None = None
+    access: Literal["local", "snapshot", "public", "unavailable"] = "local"
+    eligibility: Literal["eligible", "explicit_only", "auth_required", "contract_unresolved", "unsupported"] = "eligible"
+    enabled: bool = True
+    snapshot_version: str = Field(default="", max_length=64)
+    snapshot_digest: str = Field(default="", max_length=64)
+    truncated: bool = False
 
 
 class IntegrationPage(WireModel):
@@ -1908,8 +1978,13 @@ class IntegrationPage(WireModel):
 
 class IntegrationSearchRequest(WireModel):
     query: str = Field(default="", max_length=256)
-    sources: list[Literal["recommended", "hermes", "hermes_mcp", "clawhub", "skills_sh", "official", "native"]] = Field(default_factory=lambda: ["recommended"], max_length=7)
+    sources: list[Literal["recommended", "hermes", "hermes_mcp", "clawhub", "github", "skills_sh", "browse_sh", "lobehub", "official", "native", "glama", "pulsemcp", "smithery", "clawhub_plugins", "examples"]] | None = Field(default=None, max_length=15)
+    kind: Literal["all", "skill", "mcp", "plugin"] = "all"
     refresh: bool = False
+    refresh_catalogs: bool = False
+    include_incompatible: bool = False
+    cursor: str | None = Field(default=None, max_length=256)
+    limit: int = Field(default=50, ge=1, le=96)
 
 
 class IntegrationPreviewRequest(WireModel):
@@ -2008,6 +2083,7 @@ class McpConfigurationFields(WireModel):
 
 
 class McpConfigurationIntent(WireModel):
+    delete_credentials: bool = False
     operation: Literal["add", "edit", "rename", "import", "delete"]
     server_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     fields: McpConfigurationFields | None = None
@@ -3298,6 +3374,8 @@ class PluginLifecycleReview(WireModel):
     checksum: str = Field(max_length=128)
     permissions: list[str] = Field(max_length=64)
     disclosures: list[str] = Field(max_length=8)
+    preview_id: str = Field(default="", max_length=64)
+    changes: list[str] = Field(default_factory=list, max_length=16384)
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
@@ -3454,7 +3532,7 @@ class SkillProposalPayload(WireModel):
 
 class SkillReceipt(WireModel):
     command_id: UUID
-    status: Literal["completed", "partial"]
+    status: Literal["completed", "partial", "rejected"]
     action: SkillAction
     skill_id: str | None = Field(max_length=128)
     revision: str | None = Field(max_length=128)
@@ -4189,6 +4267,7 @@ class McpCatalogTool(WireModel):
     enabled_after_accept: bool | None
     requires_approval: bool
     destructive: bool
+    effect: Literal["read_only", "mutation", "interaction", "unknown"] = "unknown"
 
 
 class McpTestedCatalogPage(WireModel):
@@ -7917,6 +7996,7 @@ class PortablePackagePreview(WireModel):
 
 
 class IntegrationMcpPreview(WireModel):
+    auth_requirement: Literal["unknown", "required", "none"] = "unknown"
     name: str = Field(max_length=128)
     import_json: str = Field(max_length=131072)
     requires_auth: bool

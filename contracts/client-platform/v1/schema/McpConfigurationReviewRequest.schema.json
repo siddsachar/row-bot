@@ -194,6 +194,11 @@
     "McpConfigurationIntent": {
       "additionalProperties": false,
       "properties": {
+        "delete_credentials": {
+          "default": false,
+          "title": "Delete Credentials",
+          "type": "boolean"
+        },
         "fields": {
           "anyOf": [
             {

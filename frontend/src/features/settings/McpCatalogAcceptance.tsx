@@ -19,6 +19,7 @@ export type McpTestedCatalogPage = {
     enabled_after_accept: boolean | null;
     requires_approval: boolean;
     destructive: boolean;
+    effect?: 'read_only' | 'mutation' | 'interaction' | 'unknown';
   }[];
   total: number | null;
   next_cursor: string | null;
@@ -114,6 +115,7 @@ export function createMcpCatalogSession(
 }
 export type McpCatalogSession = ReturnType<typeof createMcpCatalogSession>;
 export type McpCatalogAcceptanceProps = {
+  mutationsDisabled?: boolean;
   session: McpCatalogSession;
   load: (
     query: {
@@ -154,6 +156,7 @@ export default function McpCatalogAcceptance({
   load,
   review,
   execute,
+  mutationsDisabled = false,
 }: McpCatalogAcceptanceProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const read = useCallback(
@@ -246,6 +249,7 @@ export default function McpCatalogAcceptance({
   const requestReview = async () => {
     const current = session.getSnapshot();
     if (
+      mutationsDisabled ||
       !current.active ||
       current.busy ||
       current.pending ||
@@ -317,6 +321,7 @@ export default function McpCatalogAcceptance({
   const save = async (attempt: Attempt | null) => {
     const current = session.getSnapshot();
     if (
+      mutationsDisabled ||
       !attempt ||
       !current.active ||
       current.busy ||
@@ -415,28 +420,59 @@ export default function McpCatalogAcceptance({
             />
           )}
         </div>
-        <ul className="settings-mcp-catalog-list">
-          {state.page?.items.map((tool) => (
-            <li key={tool.tool_id} className="settings-divided">
-              <strong>{tool.name}</strong>
-              <span>
-                {label(tool.enabled_after_accept)}
-                {tool.requires_approval ? ' · asks first' : ''}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <p>
+          Read / Change / High impact describe the tested catalog. Unknown
+          effects stay in High impact. Annotations do not override approval
+          policy. Row-Bot exposure is separate from upstream account grants.
+        </p>
+        {(['Read', 'Change', 'High impact'] as const).map((group) => {
+          const tools =
+            state.page?.items.filter(
+              (tool) =>
+                (tool.destructive || !tool.effect || tool.effect === 'unknown'
+                  ? 'High impact'
+                  : tool.effect === 'read_only'
+                    ? 'Read'
+                    : 'Change') === group,
+            ) ?? [];
+          return tools.length ? (
+            <section key={group} aria-label={`${group} tools`}>
+              <h4>{group}</h4>
+              <ul className="settings-mcp-catalog-list">
+                {tools.map((tool) => (
+                  <li key={tool.tool_id} className="settings-divided">
+                    <details>
+                      <summary>{tool.name}</summary>
+                      <p>
+                        Effect: {tool.effect ?? 'unknown'}.{' '}
+                        {tool.requires_approval
+                          ? 'Approval required by the current policy.'
+                          : 'Existing profile and runtime approval rules apply.'}
+                      </p>
+                    </details>
+                    <span>
+                      {label(tool.enabled_after_accept)}
+                      {tool.requires_approval ? ' · asks first' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null;
+        })}
         <div className="settings-divided settings-mcp-catalog-actions">
           <Button
             variant="primary"
-            disabled={locked || !available}
+            disabled={mutationsDisabled || locked || !available}
             onClick={() => void requestReview()}
           >
             Accept tools
           </Button>
           {state.pending && (
             <Button
-              disabled={!state.active || Boolean(state.busy)}
+              disabled={
+                mutationsDisabled || !state.active || Boolean(state.busy)
+              }
               onClick={() => void save(state.pending)}
             >
               Check original acceptance

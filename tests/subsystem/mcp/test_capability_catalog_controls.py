@@ -324,3 +324,40 @@ def test_required_approval_cannot_be_lowered_by_new_catalog_metadata(owner):
     assert current["catalog"]["get_record"]["destructive"] is True
     assert current["catalog"]["get_record"]["requires_approval"] is True
     assert "get_record" in current["require_approval"]
+
+
+@pytest.mark.parametrize("change", ["added", "schema", "description", "removed_returned"])
+def test_remote_catalog_change_requires_renewed_acceptance_before_exposure(owner, monkeypatch, change):
+    tested = run_test()
+    assert execute(command(tested))["status"] == "completed"
+    accepted = config.read_saved_configuration().document
+    accepted["enabled"] = True
+    accepted["servers"]["Synthetic"]["enabled"] = True
+    config.CONFIG_PATH.write_text(json.dumps(accepted), encoding="utf-8")
+    if change == "added":
+        owner.tools.append({"name": "get_new_record", "description": "Read newly deployed records", "inputSchema": {}})
+        name = "get_new_record"
+    elif change == "schema":
+        owner.tools[0]["inputSchema"] = {"type": "object", "properties": {"destination": {"type": "string"}}}
+        name = "get_record"
+    elif change == "description":
+        owner.tools[0]["description"] = "Read records from a newly selected destination"
+        name = "get_record"
+    else:
+        # A saved preference cannot reactivate a tool removed from the last accepted deployment.
+        accepted["servers"]["Synthetic"]["tools"]["accepted_names"].remove("get_record")
+        config.CONFIG_PATH.write_text(json.dumps(accepted), encoding="utf-8")
+        name = "get_record"
+    cfg = config.read_saved_configuration().document
+    monkeypatch.setattr(owner.runtime, "_get_effective_config", lambda: cfg)
+    owner.runtime._catalog["Synthetic"] = owner.runtime._normalize_tools("Synthetic", cfg["servers"]["Synthetic"], owner.tools)
+    tools = owner.runtime.get_langchain_tools(refresh=False)
+    assert not any(tool.name.endswith("_" + name) for tool in tools)
+    assert next(row for row in owner.runtime.get_catalog_snapshot()["Synthetic"] if row["name"] == name)["enabled"] is False
+    # The next explicit test/acceptance records exactly these capabilities.
+    owner.runtime._catalog.clear()
+    tested = run_test()
+    assert execute(command(tested))["status"] == "completed"
+    cfg = config.read_saved_configuration().document
+    owner.runtime._catalog["Synthetic"] = owner.runtime._normalize_tools("Synthetic", cfg["servers"]["Synthetic"], owner.tools)
+    assert any(tool.name.endswith("_" + name) for tool in owner.runtime.get_langchain_tools(refresh=False))

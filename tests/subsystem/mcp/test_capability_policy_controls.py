@@ -170,12 +170,13 @@ def test_unknown_effect_retains_mandatory_approval_and_read_default_matches_cano
 def test_enable_updates_only_target_in_nonempty_include_filter(owner):
     from row_bot.mcp_client import runtime
     owner["servers"]["Synthetic"]["tools"]["include"] = ["delete_record"]
+    owner["servers"]["Synthetic"]["tools"]["catalog"]["read"].update(input_schema={}, effect="read_only")
     config.CONFIG_PATH.write_text(json.dumps(owner), encoding="utf-8")
     assert next(row for row in controls.read_mcp_policy(server_id=target()).items if row.name == "read").enabled is False
     assert execute(command("tool_enabled", True, tool_id=controls._tool_id(target(), "read")))["status"] == "completed"
     current = config.read_saved_configuration().document["servers"]["Synthetic"]
     assert current["tools"]["include"] == ["delete_record", "read"]
-    actual = runtime._normalize_tools("Synthetic", current, [{"name": "read"}, {"name": "unrelated_read"}])
+    actual = runtime._normalize_tools("Synthetic", current, [{"name": "read", "description": "Read synthetic records"}, {"name": "unrelated_read"}])
     assert actual["read"].enabled is True and "unrelated_read" not in actual
 
 

@@ -1,6 +1,42 @@
 {
   "additionalProperties": false,
   "properties": {
+    "cursor": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cursor"
+    },
+    "include_incompatible": {
+      "default": false,
+      "title": "Include Incompatible",
+      "type": "boolean"
+    },
+    "kind": {
+      "default": "all",
+      "enum": [
+        "all",
+        "skill",
+        "mcp",
+        "plugin"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "limit": {
+      "default": 50,
+      "maximum": 96,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
     "query": {
       "default": "",
       "maxLength": 256,
@@ -12,22 +48,43 @@
       "title": "Refresh",
       "type": "boolean"
     },
+    "refresh_catalogs": {
+      "default": false,
+      "title": "Refresh Catalogs",
+      "type": "boolean"
+    },
     "sources": {
-      "items": {
-        "enum": [
-          "recommended",
-          "hermes",
-          "hermes_mcp",
-          "clawhub",
-          "skills_sh",
-          "official",
-          "native"
-        ],
-        "type": "string"
-      },
-      "maxItems": 7,
-      "title": "Sources",
-      "type": "array"
+      "anyOf": [
+        {
+          "items": {
+            "enum": [
+              "recommended",
+              "hermes",
+              "hermes_mcp",
+              "clawhub",
+              "github",
+              "skills_sh",
+              "browse_sh",
+              "lobehub",
+              "official",
+              "native",
+              "glama",
+              "pulsemcp",
+              "smithery",
+              "clawhub_plugins",
+              "examples"
+            ],
+            "type": "string"
+          },
+          "maxItems": 15,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sources"
     }
   },
   "title": "IntegrationSearchRequest",

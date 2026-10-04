@@ -21,6 +21,8 @@ class BrowseShSource(SkillSource):
     supports_browse = True
     supports_search = True
     supports_import = True
+    discovery_eligible = False
+    discovery_reason = "Public desktop discovery is unavailable; existing provenance and explicit imports remain supported."
 
     def browse(self, limit: int = 50, cursor: str | None = None) -> SourceResult:
         entries = self._catalog()

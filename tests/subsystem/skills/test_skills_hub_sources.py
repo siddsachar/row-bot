@@ -781,23 +781,30 @@ def _one_skill_tree(url: str) -> dict:
     return {"tree": [{"path": f"{root.root}/{repo.replace('/', '-')}/SKILL.md", "type": "blob"}]}
 
 
-def test_github_browse_reads_its_repositories_in_parallel(monkeypatch):
+def test_github_browse_bounds_parallel_repository_requests(monkeypatch):
     import threading
 
-    together: list[threading.Barrier] = []
+    lock = threading.Lock()
+    together = threading.Barrier(4, timeout=1)
+    counts = {"calls": 0, "active": 0, "peak": 0}
 
     def fetch_json(url, *, headers=None, timeout=15):
-        # Every repository's request must be in flight at once to pass.
-        together[0].wait()
+        with lock:
+            counts["calls"] += 1
+            index = counts["calls"]
+            counts["active"] += 1
+            counts["peak"] = max(counts["peak"], counts["active"])
+        if index <= 4:
+            together.wait()
+        with lock:
+            counts["active"] -= 1
         return _one_skill_tree(url)
 
     roots = _quiet_github(monkeypatch, fetch_json)
-    together.append(threading.Barrier(len(roots), timeout=5))
-
     result = GitHubSource().browse(limit=100)
-
     assert result.status == "live"
     assert len(result.entries) == len(roots)
+    assert counts["peak"] == 4
 
 
 def test_github_browse_describes_unreadable_repositories_in_plain_words(monkeypatch):

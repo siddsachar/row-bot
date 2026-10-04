@@ -4833,3 +4833,19 @@ button.settings-mcp-server-name:hover {
     padding-inline-start: 16px;
   }
 }
+
+/* Integrations has its own type navigation and full-width details. */
+.settings-integrations-focus .settings-side-navigation {
+  display: none;
+}
+.settings-integrations-focus .settings-compact-picker {
+  display: block;
+}
+.settings-integrations-focus .settings-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: 'head' 'picker' 'content';
+}
+.settings-integrations-focus .settings-page-content {
+  grid-column: 1 / -1;
+}

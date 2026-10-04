@@ -135,7 +135,7 @@ def remote_marketplace(plugin_modules, tmp_path, monkeypatch):
 
 
 def _run(action: str, plugin_id: str = PLUGIN) -> tuple[dict, dict]:
-    review = owner.review_plugin_lifecycle(action, plugin_id, validate=_valid)
+    review = owner.review_plugin_lifecycle(action, plugin_id, validate=_valid, owner_id="owner")
     receipt = owner.execute_plugin_lifecycle(
         {"command_id": str(uuid4()), "action": action, "plugin_id": plugin_id, "revision": review["revision"]},
         owner_id="owner", validate=_valid,
@@ -418,3 +418,47 @@ def test_install_review_says_everything_the_person_confirms(lifecycle):
     assert "kept disabled" in text and "checked against the displayed checksum" in text
     assert "private Python environment" in text
     assert calls == []
+
+
+def test_update_review_names_changed_files_and_rejection_keeps_installed_revision(remote_marketplace):
+    market = remote_marketplace
+    market.publish("1.0.0")
+    assert _run("install")[1]["status"] == "completed"
+    before = (market.installer.PLUGINS_DIR / PLUGIN / "plugin.json").read_bytes()
+    market.publish("2.0.0")
+    review = owner.review_plugin_lifecycle("update", PLUGIN, owner_id="owner", validate=_valid)
+    assert "File changed: plugin.json" in review["changes"]
+    assert (market.installer.PLUGINS_DIR / PLUGIN / "plugin.json").read_bytes() == before
+    assert market.downloads == [ARCHIVE, ARCHIVE]
+    # No publication occurs without a separate command; reviewing twice reuses the pinned preview.
+    assert owner.review_plugin_lifecycle("update", PLUGIN, owner_id="owner", validate=_valid)["revision"] == review["revision"]
+    assert market.downloads == [ARCHIVE, ARCHIVE]
+
+
+def test_failed_reviewed_update_keeps_prior_usable_files(remote_marketplace, monkeypatch):
+    market = remote_marketplace
+    market.publish("1.0.0")
+    assert _run("install")[1]["status"] == "completed"
+    market.publish("2.0.0")
+    monkeypatch.setattr(market.installer, "update_plugin", lambda *_a, **_k: market.installer.InstallResult(False, PLUGIN, "Synthetic staging failure", code="fixture"))
+    review, result = _run("update")
+    assert review["changes"] and result["status"] == "failed"
+    assert _installed_version(market) == "1.0.0"
+
+
+def test_update_diff_names_runtime_and_package_dependencies_without_credential_values(tmp_path):
+    from row_bot.plugins.lifecycle_review import describe_package_changes
+    def tree(directory, version):
+        manifest = manifest_payload(provides={"mcp_servers": [{"id": "records", "transport": "stdio",
+            "command": "npx", "args": ["--yes", "@example/records@" + version],
+            "env": {"TOKEN": "synthetic-secret-not-for-review"}}]})
+        return write_plugin(directory, manifest=manifest)
+    previous = tree(tmp_path / "old", "1.0.0")
+    candidate = tree(tmp_path / "new", "2.0.0")
+    review = "\n".join(describe_package_changes(previous, candidate, source_identity="fixture"))
+    assert "File changed: plugin.json" in review
+    assert "mcp_servers changed: records" in review
+    assert "Previous executable package: @example/records@1.0.0" in review
+    assert "Proposed executable package: @example/records@2.0.0" in review
+    assert "runtime dependencies: node" in review
+    assert "synthetic-secret-not-for-review" not in review

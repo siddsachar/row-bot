@@ -669,6 +669,25 @@ def read_skill_command(
     command_id = _uuid(command_id)
     metadata = admissions.read_command_metadata(owner_id, command_id)
     saved = admissions.read_command_receipt(owner_id, command_id)
+    if (
+        metadata
+        and metadata["target"] == "skills"
+        and metadata["type"] in _ACTIONS
+        and metadata["status"] == "rejected"
+        and authority_id == owner_id
+    ):
+        # Rejected admissions never published skill data and have no _skill
+        # proof. The authenticated route uses this exact session for both
+        # owner and authority. Do not expose the private rejection payload.
+        validate()
+        return {
+            "command_id": command_id,
+            "status": "rejected",
+            "action": metadata["type"],
+            "skill_id": None,
+            "revision": None,
+            "code": "skill_operation_rejected",
+        }
     private = saved.get("_skill") if isinstance(saved, dict) else None
     if (
         not metadata

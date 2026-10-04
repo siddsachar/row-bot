@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 ScanSeverity = Literal["block", "warn", "info"]
-SourceStatusMode = Literal["live", "cached", "stale", "partial", "pending", "error", "empty"]
+SourceStatusMode = Literal["live", "cached", "stale", "partial", "pending", "error", "empty", "auth_required", "rate_limited", "timeout", "malformed"]
 
 
 @dataclass

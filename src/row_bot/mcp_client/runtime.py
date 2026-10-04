@@ -350,6 +350,19 @@ def _tool_attr(tool: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
+def _accepted_tool_matches(server_cfg: dict, info: McpToolInfo) -> bool:
+    """A previously accepted catalog never grants a newly deployed capability."""
+    accepted = server_cfg.get("tools", {}).get("catalog")
+    if not isinstance(accepted, dict):
+        return True  # Existing legacy configurations retain their owner semantics.
+    names = server_cfg.get("tools", {}).get("accepted_names", list(accepted))
+    if type(names) is not list or info.name not in names:
+        return False
+    old = accepted.get(info.name)
+    return isinstance(old, dict) and all(old.get(key) == value for key, value in (
+        ("description", info.description), ("input_schema", info.input_schema), ("effect", info.effect)))
+
+
 def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[Any]) -> dict[str, McpToolInfo]:
     tool_cfg = server_cfg.get("tools", {}) if isinstance(server_cfg, dict) else {}
     saved_enabled = dict(tool_cfg.get("enabled") or {})
@@ -383,6 +396,8 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             source=dict(server_cfg.get("source") or {}),
             effect=effect,
         )
+    for info in normalized.values():
+        info.enabled = info.enabled and _accepted_tool_matches(server_cfg, info)
     return normalized
 
 
@@ -397,7 +412,7 @@ def _sync_catalog_from_config(config: dict[str, Any] | None = None) -> None:
             approval_overrides = set(tools_cfg.get("require_approval") or [])
             for info in tools.values():
                 unknown = (info.effect or classify_tool_effect(info.name, info.description)) == "unknown"
-                info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(info.destructive or unknown)))
+                info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(info.destructive or unknown))) and _accepted_tool_matches(server_cfg, info)
                 info.requires_approval = info.destructive or unknown or info.name in approval_overrides
             status = _statuses.get(server_name)
             if status:
@@ -641,13 +656,17 @@ class McpServerRuntime:
                     or _servers.get(self.name, self) is not self):
                 return  # An old discovery callback cannot revive a replaced runtime.
             _catalog[self.name] = normalized
+        accepted = self.cfg.get("tools", {}).get("catalog")
+        options = self.cfg.get("tools", {})
+        expected = {name for name in options.get("accepted_names", list(accepted)) if name not in options.get("exclude", []) and (not options.get("include") or name in options["include"])} if isinstance(accepted, dict) else set(normalized)
+        changed = isinstance(accepted, dict) and (expected != set(normalized) or any(not _accepted_tool_matches(self.cfg, info) for info in normalized.values()))
         self._status(
-            status="connected",
+            status="error" if changed else "connected",
             tool_count=len(normalized),
             enabled_tool_count=sum(1 for info in normalized.values() if info.enabled),
             destructive_tool_count=sum(1 for info in normalized.values() if info.destructive),
             last_discovered_at=_now(),
-            last_error="",
+            last_error="Tool catalog changed. Test and accept the current tools before using changed capabilities." if changed else "",
         )
         log_event("mcp.tools.discovered", server=self.name, tools=len(normalized))
         mcp_config.clear_agent_cache_if_loaded()
@@ -1113,7 +1132,7 @@ def _validate_bound_runtime(server_name: str, expected: Any, *, tool_name: str =
         if tool_name:
             info = _catalog.get(server_name, {}).get(tool_name)
             options = server_cfg.get("tools", {})
-            if (info is None or tool_name in options.get("exclude", [])
+            if (info is None or not _accepted_tool_matches(server_cfg, info) or tool_name in options.get("exclude", [])
                     or (options.get("include") and tool_name not in options["include"])
                     or not options.get("enabled", {}).get(tool_name, tool_enabled_by_default(info.destructive or info.effect == "unknown"))):
                 raise RuntimeError("MCP capability was revoked")
@@ -1422,14 +1441,14 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
     with _runtime_lock:
         infos = [(info.server_name, info.name, info.prefixed_name, info.destructive,
                   (info.effect or classify_tool_effect(info.name, info.description)) == "unknown",
-                  info.source.get("plugin_id") if type(info.source) is dict else None)
+                  info.source.get("plugin_id") if type(info.source) is dict else None, info.enabled)
                  for info in islice((info for tools in _catalog.values() for info in tools.values()), 10001)]
     requested: dict[str, list[str]] = {}
     for server_name, name, *_ in infos:
         requested.setdefault(server_name, []).append(name)
     config = mcp_config.get_cached_enablement({server: tuple(names) for server, names in requested.items()})
     records = []
-    for server_name, name, identity, destructive, unknown, plugin_id in infos:
+    for server_name, name, identity, destructive, unknown, plugin_id, runtime_enabled in infos:
         enabled = None
         configured = None
         requires = True if destructive is True or unknown else None
@@ -1447,6 +1466,8 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
                 enabled = server["tools"].get(name, tool_enabled_by_default(destructive or unknown))
             if server is not None and type(destructive) is bool:
                 requires = destructive is True or unknown or name in server["require_approval"]
+        if runtime_enabled is False:
+            enabled = False
         records.append({"id": identity, "label": name, "server_name": server_name,
                         "plugin_id": plugin_id, "destructive": destructive,
                         "requires_approval": requires, "enabled": enabled,

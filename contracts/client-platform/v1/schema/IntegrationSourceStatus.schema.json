@@ -1,6 +1,34 @@
 {
   "additionalProperties": false,
   "properties": {
+    "access": {
+      "default": "local",
+      "enum": [
+        "local",
+        "snapshot",
+        "public",
+        "unavailable"
+      ],
+      "title": "Access",
+      "type": "string"
+    },
+    "eligibility": {
+      "default": "eligible",
+      "enum": [
+        "eligible",
+        "explicit_only",
+        "auth_required",
+        "contract_unresolved",
+        "unsupported"
+      ],
+      "title": "Eligibility",
+      "type": "string"
+    },
+    "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+    },
     "fetched_at": {
       "anyOf": [
         {
@@ -12,9 +40,38 @@
       ],
       "title": "Fetched At"
     },
+    "kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "skill",
+            "mcp",
+            "plugin"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kind"
+    },
     "message": {
       "maxLength": 512,
       "title": "Message",
+      "type": "string"
+    },
+    "snapshot_digest": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Snapshot Digest",
+      "type": "string"
+    },
+    "snapshot_version": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Snapshot Version",
       "type": "string"
     },
     "source": {
@@ -23,9 +80,28 @@
       "type": "string"
     },
     "status": {
-      "maxLength": 32,
+      "enum": [
+        "live",
+        "cached",
+        "stale",
+        "partial",
+        "pending",
+        "error",
+        "empty",
+        "timeout",
+        "auth_required",
+        "rate_limited",
+        "malformed",
+        "busy",
+        "unavailable"
+      ],
       "title": "Status",
       "type": "string"
+    },
+    "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
     }
   },
   "required": [

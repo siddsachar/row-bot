@@ -15,6 +15,14 @@
       "title": "Action",
       "type": "string"
     },
+    "changes": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16384,
+      "title": "Changes",
+      "type": "array"
+    },
     "checksum": {
       "maxLength": 128,
       "title": "Checksum",
@@ -44,6 +52,12 @@
     "plugin_id": {
       "maxLength": 128,
       "title": "Plugin Id",
+      "type": "string"
+    },
+    "preview_id": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Preview Id",
       "type": "string"
     },
     "revision": {

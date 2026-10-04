@@ -42,7 +42,14 @@ class SkillHubCommandError(ValueError):
 
 
 def _entry_public(entry: SkillHubEntry) -> dict[str, Any]:
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(entry.url)
+        url = entry.url[:2048] if parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password else ""
+    except ValueError:
+        url = ""
     return {
+        "url": url,
         "id": entry.id[:256],
         "name": entry.name[:160],
         "description": entry.description[:1000],
@@ -65,6 +72,8 @@ def search_public_skills(
     query: str,
     source: str = "all",
     refresh: bool = False,
+    cached_only: bool = False,
+    cancelled: Callable[[], bool] | None = None,
     limit: int = 24,
 ) -> dict[str, Any]:
     if (
@@ -84,10 +93,12 @@ def search_public_skills(
     try:
         # One more than shown says whether "Load more" has anything to add.
         result = catalog.search_skills(
-            query.strip(), source=source, limit=limit + 1, force_refresh=refresh
+            query.strip(), source=source, limit=limit + 1, force_refresh=refresh, cached_only=cached_only, cancelled=cancelled
         )
     except SkillSourceTimeout as exc:
         raise SkillHubCommandError("skill_source_timeout") from exc
+    if cancelled is not None and cancelled():
+        raise SkillHubCommandError("integration_search_cancelled")
     found = [entry for entry in result.entries if 0 < len(entry.id) <= 256]
     entries = found[:limit]
     revision = _catalog_revision(entries)
@@ -109,6 +120,7 @@ def search_public_skills(
         "source_statuses": [
             {
                 "source_id": status.source_id[:80],
+                "fetched_at": status.fetched_at or None,
                 "status": status.status,
                 "message": status.message[:300],
             }
@@ -153,6 +165,24 @@ def _save_preview(owner_id: str, bundle: SkillBundle, entry: SkillHubEntry) -> d
     shown["installed"] = shown["installed"] or taken
     preview_id = uuid4().hex
     primary = bundle.primary_file()
+    from pathlib import PurePosixPath
+    from row_bot.skills_hub.scanner import EXECUTABLE_EXTENSIONS, MAX_FILE_BYTES, MAX_TOTAL_BYTES
+    review_files = []
+    bounded = sum(len(f.content) for f in bundle.files) <= MAX_TOTAL_BYTES
+    for file in bundle.files[:100]:
+        text, reason = None, ""
+        if not bounded or len(file.content) > MAX_FILE_BYTES:
+            reason = "File exceeds the review limit; installation is blocked."
+        else:
+            try:
+                text = file.content.decode("utf-8")
+                if "\0" in text:
+                    text, reason = None, "Binary asset; content cannot be rendered as instructions."
+            except UnicodeDecodeError:
+                reason = "Binary asset; content cannot be rendered as instructions."
+        review_files.append({"path": file.path, "text": text, "size_bytes": len(file.content), "sha256": file.sha256,
+            "executable": PurePosixPath(file.path).suffix.lower() in EXECUTABLE_EXTENSIONS,
+            "unavailable_reason": reason})
     summary = {
         "schema_version": 1,
         "preview_id": preview_id,
@@ -161,6 +191,10 @@ def _save_preview(owner_id: str, bundle: SkillBundle, entry: SkillHubEntry) -> d
         "skill_name": local_name[:160],
         "primary_text": (primary.text if primary else "")[:6000],
         "files": bundle.file_tree()[:100],
+        "review_files": review_files,
+        "version": str(bundle.metadata.get("version") or bundle.frontmatter.get("version") or bundle.metadata.get("commit") or bundle.content_hash)[:256],
+        "requirements": [str(bundle.frontmatter[key])[:512] for key in ("allowed-tools", "compatibility", "requirements") if bundle.frontmatter.get(key)],
+        "provenance": [f"{key}: {str(value)[:480]}" for key, value in bundle.metadata.items() if key in {"version", "commit", "audit", "audits", "moderation", "source_url", "repository", "revision"}][:32],
         "scan": {
             "blocked": scan.blocked,
             "findings": [
@@ -205,6 +239,8 @@ def install_previewed_skill(
         bundle = preview[1]
         if bundle.content_hash != content_hash or preview[2]["scan"]["blocked"]:
             raise SkillHubCommandError("skill_preview_changed")
+        from row_bot.skills_hub.clawhub_source import revalidate_bundle
+        revalidate_bundle(bundle)
         name, _taken = installer.install_name(bundle)
         _claim(owner_id, command_id, wire, name, "install")
         _ACTIVE.add((owner_id, command_id))
@@ -357,6 +393,16 @@ def execute_public_skill_maintenance(
                 entry = SkillHubEntry(id="installed:" + name, name=name, description="Review the complete update before replacing local files.", source=record.source,
                     source_id=record.source_id, install_ref=bundle.install_ref)
                 update_preview = _save_preview(owner_id, bundle, entry)
+                from row_bot.package_files import check_package_tree, contained_path
+                from row_bot import skills
+                import hashlib
+                root = contained_path(skills.USER_SKILLS_DIR, name)
+                check_package_tree(root, max_files=200, max_bytes=5_000_000)
+                before = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in root.rglob("*") if path.is_file() and path.name != ".row-bot-publication.json"}
+                after = {file.path: file.sha256 for file in installer._normalized_installed_bundle(bundle, name).files}
+                update_preview["changes"] = [f"{('Added' if path not in before else 'Removed' if path not in after else 'Changed')}: {path}"
+                    for path in sorted(before.keys() | after.keys()) if before.get(path) != after.get(path)]
                 result = installer.InstallResult(True, "Review the update's files and scan findings.", skill_name=name)
             elif action == "update":
                 result = installer.update_skill(name, expected_record=record, reviewed_bundle=reviewed_bundle, operation_id=command_id)

@@ -244,82 +244,16 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(timed_out["error"], "MCP connection timed out after 2 seconds.")
         self.assertTrue(timed_out_future.cancelled)
 
-    def test_marketplace_search_filters_unrelated_live_results(self) -> None:
+    def test_optional_marketplaces_do_not_guess_endpoints_or_scrape(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        live_results = [
-            marketplace.MarketplaceEntry(
-                id="unrelated",
-                name="Static Site Builder",
-                description="Build websites with agents.",
-                source="glama",
-            ),
-            marketplace.MarketplaceEntry(
-                id="github-tools",
-                name="GitHub MCP",
-                description="Manage repositories, issues, and pull requests.",
-                source="glama",
-            ),
-        ]
-        with patch.object(marketplace, "_glama_search", return_value=live_results):
-            result = marketplace.search_marketplace_with_status("github", sources=["glama"], limit=10)
-
-        self.assertEqual(result.mode, "live")
-        self.assertEqual([entry.id for entry in result.entries], ["github-github-mcp-server", "github-tools"])
-        self.assertEqual(result.source_counts, {"curated": 1, "glama": 1})
-
-    def test_marketplace_search_uses_curated_when_live_source_ignores_query(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        ignored_query_results = [
-            marketplace.MarketplaceEntry(
-                id="statalog",
-                name="Stata MCP",
-                description="Controls Stata through automation.",
-                source="glama",
-            )
-        ]
-        with patch.object(marketplace, "_glama_search", return_value=ignored_query_results), \
-             patch.object(marketplace, "_load_cache", return_value=[]):
-            result = marketplace.search_marketplace_with_status("playwright", sources=["glama"], limit=10)
-
-        self.assertEqual(result.mode, "curated")
-        self.assertEqual([entry.name for entry in result.entries], ["Playwright MCP"])
-
-    def test_marketplace_search_uses_directory_page_fallback(self) -> None:
-        import row_bot.mcp_client.marketplace as marketplace
-        importlib.reload(marketplace)
-
-        html = """
-        <html><body>
-          <a href="/servers/example-filesystem">
-            <article>
-              <h2>Example Filesystem MCP</h2>
-              <p>Read and write local filesystem data through MCP.</p>
-            </article>
-          </a>
-                    <a href="/servers/example-filesystem-icon">
-                        <article>
-                            <h2>Example Filesystem MCP</h2>
-                            <p>Read and write local filesystem data through MCP.</p>
-                        </article>
-                    </a>
-        </body></html>
-        """
-        with patch.object(marketplace, "_fetch_json", side_effect=RuntimeError("gone")), \
-             patch.object(marketplace, "_fetch_text", return_value=html):
-            result = marketplace.search_marketplace_with_status("filesystem", sources=["pulsemcp"], limit=10)
-
-        self.assertEqual(result.mode, "live")
-        self.assertEqual(result.source_counts, {"curated": 1, "pulsemcp": 2})
-        self.assertEqual(len(result.entries), 3)
-        self.assertEqual(result.entries[0].id, "modelcontextprotocol-filesystem")
-        self.assertEqual(result.entries[1].id, "example-filesystem")
-        self.assertEqual(result.entries[1].name, "Example Filesystem MCP")
-        self.assertEqual(result.entries[1].source, "pulsemcp")
-        self.assertTrue(result.entries[1].metadata["page_fallback"])
+        for source in ("glama", "pulsemcp", "smithery"):
+            with self.subTest(source=source), \
+                 patch.object(marketplace, "_fetch_json", side_effect=AssertionError("network")), \
+                 patch.object(marketplace, "_fetch_text", side_effect=AssertionError("HTML fallback")), \
+                 patch.object(marketplace, "_load_cache", return_value=[]):
+                result = marketplace.search_marketplace_with_status("filesystem", sources=[source], limit=10)
+            self.assertEqual(result.mode, "curated")
+            self.assertEqual([entry.id for entry in result.entries], ["modelcontextprotocol-filesystem"])
 
     def test_marketplace_search_does_not_match_repository_host_only(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace

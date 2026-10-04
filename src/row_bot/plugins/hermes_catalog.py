@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+from collections.abc import Callable
 import json
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ from row_bot.package_files import check_package_tree, contained_path, relative_p
 from row_bot.plugins.manifest import parse_manifest, ManifestError
 
 CATALOG_URL = "https://hermes-agent.nousresearch.com/docs/api/plugin-catalog.json"
+_CATALOG_MIRROR = "https://nousresearch.github.io/hermes-agent/docs/api/plugin-catalog.json"
 _LOCK = threading.RLock()
 _PREVIEWS: dict[tuple[str, str], "PackagePreview"] = {}
 _TTL = 1200
@@ -32,48 +34,73 @@ def _public_bytes(url: str, *, maximum: int = 4 * 1024 * 1024) -> bytes:
             "hermes-agent.nousresearch.com", "api.github.com", "codeload.github.com", "raw.githubusercontent.com"}
             or parsed.username or parsed.password or parsed.port not in {None, 443}):
         raise ValueError("package_source_not_supported")
-    # No cookies/credentials and no redirects to unreviewed origins.
-    with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-        with client.stream("GET", url, headers={"User-Agent": "Row-Bot-Integrations"}) as response:
-            response.raise_for_status()
-            data = bytearray()
-            for chunk in response.iter_bytes():
-                data.extend(chunk)
-                if len(data) > maximum:
-                    raise ValueError("package_download_too_large")
-    return bytes(data)
+    # Only this reviewed catalog migration can cross origins. Package downloads
+    # and the destination itself still cannot redirect. A fresh client per hop
+    # prevents cookies or other response state from carrying across origins.
+    for attempt in range(2):
+        with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
+            with client.stream("GET", url, headers={"User-Agent": "Row-Bot-Integrations"}) as response:
+                if (attempt == 0 and url == CATALOG_URL
+                        and response.status_code in {301, 302, 303, 307, 308}
+                        and response.headers.get("Location") == _CATALOG_MIRROR):
+                    url = _CATALOG_MIRROR
+                    continue
+                response.raise_for_status()
+                data = bytearray()
+                for chunk in response.iter_bytes():
+                    data.extend(chunk)
+                    if len(data) > maximum:
+                        raise ValueError("package_download_too_large")
+                return bytes(data)
+    raise ValueError("package_source_not_supported")
+
+
+def _catalog_document(value: object) -> dict:
+    if (not isinstance(value, dict) or not isinstance(value.get("entries"), list)
+            or len(value["entries"]) > 2000 or not isinstance(value.get("removed"), list)
+            or len(value["removed"]) > 2000):
+        raise ValueError("invalid_catalog")
+    return value
 
 
 def _cache_path() -> Path:
     return get_row_bot_data_dir(create=False) / "hermes_catalog_cache.json"
 
 
-def read_catalog(*, refresh: bool = False) -> dict:
+def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambda: False) -> dict:
     """Cache-only by default; an unavailable source never erases cached results."""
     saved = {}
     path = _cache_path()
     if path.is_file() and not path.is_symlink() and path.stat().st_size <= 4 * 1024 * 1024:
         try:
-            saved = json.loads(path.read_text(encoding="utf-8"))
+            saved = _catalog_document(json.loads(path.read_text(encoding="utf-8")))
         except (ValueError, OSError):
             pass
     status, reason = ("cached", "") if saved else ("empty", "Refresh Hermes to load its public catalog.")
     if refresh:
+        previous = saved
         try:
-            value = json.loads(_public_bytes(CATALOG_URL))
-            if (not isinstance(value, dict) or not isinstance(value.get("entries"), list)
-                    or len(value["entries"]) > 2000 or not isinstance(value.get("removed"), list)):
-                raise ValueError("invalid_catalog")
+            value = _catalog_document(json.loads(_public_bytes(CATALOG_URL)))
             saved = {**value, "fetched_at": time.time()}
+            if cancelled():
+                raise ValueError("integration_search_cancelled")
             path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(saved), encoding="utf-8")
-            temporary.replace(path)
+            from uuid import uuid4
+            temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
+            try:
+                temporary.write_text(json.dumps(saved), encoding="utf-8")
+                if cancelled():
+                    raise ValueError("integration_search_cancelled")
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
             status, reason = "live", ""
         except httpx.HTTPStatusError as exc:
+            saved = previous
             status = "stale" if saved else "error"
             reason = "Hermes rate limited; retry after " + exc.response.headers.get("Retry-After", "the source allows it")[:80] if exc.response.status_code == 429 else "Hermes is unavailable; cached entries remain available."
         except (ValueError, OSError, httpx.HTTPError):
+            saved = previous
             status, reason = ("stale" if saved else "error"), "Hermes is unavailable; cached entries remain available."
     entries = []
     for raw in saved.get("entries", []) if isinstance(saved, dict) else []:
@@ -126,6 +153,7 @@ class PackagePreview:
     root: Path
     summary: dict
     created: float
+    catalog_reference: str = ""
 
 
 def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> dict:
@@ -211,7 +239,7 @@ def inspect_package(*, owner_id: str, reference: str, local: bool = False) -> di
             "servers": [{"key": s["id"], "transport": s["transport"], "command": s.get("command", ""), "args": s.get("args", []), "url": s.get("url", "")} for s in manifest.provides.mcp_servers],
             "permissions": manifest.permissions, "evidence": "Format inspected; live service and platform behavior not tested."}
         with _LOCK:
-            _PREVIEWS[(owner_id, preview_id)] = PackagePreview(preview_id, manifest.id, owner_id, source_identity, pin, digest, archive_digest, root, summary, time.monotonic())
+            _PREVIEWS[(owner_id, preview_id)] = PackagePreview(preview_id, manifest.id, owner_id, source_identity, pin, digest, archive_digest, root, summary, time.monotonic(), reference if reference.startswith("hermes:") else "")
         return summary
     except (ManifestError, FileNotFoundError) as exc:
         if not (root / "plugin.json").is_file() and ((root / "plugin.yaml").exists() or (root / "__init__.py").exists()):
@@ -224,6 +252,13 @@ def get_preview(owner_id: str, preview_id: str) -> PackagePreview:
         preview = _PREVIEWS.get((owner_id, preview_id))
     if preview is None or time.monotonic() - preview.created > _TTL:
         raise ValueError("package_preview_expired")
+    if preview.catalog_reference:
+        current = read_catalog(refresh=True)
+        entry = next((row for row in current["entries"] if row["id"] == preview.catalog_reference), None)
+        if current["status"] != "live" or entry is None or entry["compatibility"] == "unsupported":
+            raise ValueError("package_source_removed_or_unavailable")
+        if entry["pin"] != preview.pin or entry["source_identity"] != preview.source_identity:
+            raise ValueError("package_source_changed")
     if preview.source_identity.startswith("https://github.com/") and removed_reason("", preview.source_identity.split("#", 1)[0]):
         raise ValueError("package_source_removed")
     from row_bot.plugins.devtools import compute_plugin_checksum
@@ -239,3 +274,33 @@ def activation_block(record: dict) -> str:
     if not source.startswith("https://github.com/"):
         return ""
     return removed_reason("", source.split("#", 1)[0])
+
+
+def inspect_marketplace_update(*, owner_id: str, plugin_id: str, origin,
+        source_identity: str, checksum: str, source_revision: str) -> PackagePreview:
+    """Reuse the existing owner-bound preview cache for checksum-verified updates."""
+    from row_bot.plugins import installer
+    from row_bot.plugins.devtools import compute_plugin_checksum
+    key = hashlib.sha256(json.dumps([str(get_row_bot_data_dir(create=False)), plugin_id, source_identity, checksum, source_revision]).encode()).hexdigest()[:32]
+    try:
+        return get_preview(owner_id, key)
+    except ValueError:
+        pass
+    with _LOCK:
+        for identity, retained in list(_PREVIEWS.items()):
+            if time.monotonic() - retained.created > _TTL:
+                _PREVIEWS.pop(identity)
+        if len(_PREVIEWS) >= 64:
+            raise ValueError("Package preview capacity reached; finish or cancel a preview.")
+    base = get_row_bot_data_dir() / "plugin_previews"
+    base.mkdir(parents=True, exist_ok=True)
+    root = base / uuid4().hex / "package"
+    root.parent.mkdir()
+    manifest = installer._prepare_package(plugin_id, root, source_dir=origin.local_dir,
+        source_ref=source_identity, archive_url=origin.archive_url, archive_path=origin.archive_path,
+        expected_checksum=checksum or None)
+    preview = PackagePreview(key, plugin_id, owner_id, source_identity, "", compute_plugin_checksum(root), "", root,
+        {"format": manifest.package_format, "source_kind": "marketplace"}, time.monotonic())
+    with _LOCK:
+        _PREVIEWS[(owner_id, key)] = preview
+    return preview

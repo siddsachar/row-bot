@@ -145,7 +145,7 @@ def _index(ref: str) -> dict | None:
 @_serialized
 def read_credentials(ref: str) -> dict:
     value = _index(ref)
-    if value is None:
+    if value is None or value.get("cleanup_binding"):
         raise McpAuthError("mcp_sign_in_required")
     pieces = [secret_store.get_secret(f"{ref}:{value['generation']}:{i}", namespace=_NAMESPACE) for i in range(value["count"])]
     try:
@@ -203,6 +203,30 @@ def delete_credentials(ref: str) -> None:
     # The reference is first made unusable, even if a backend cleanup fails.
     secret_store.delete_secret(ref, namespace=_NAMESPACE)
     _delete_parts(ref, before)
+
+
+@_serialized
+def delete_bound_credentials(ref: str, expected_binding: str) -> bool:
+    """Clear only this connection's binding; never delete a borrowed reference."""
+    before = _index(ref)
+    if before is None:
+        return True
+    if before.get("cleanup_binding"):
+        if before["cleanup_binding"] != expected_binding:
+            return False
+    else:
+        if read_credentials(ref).get("binding") != expected_binding:
+            return False
+        # A protected tombstone withdraws access before removing chunks and
+        # retains their generation for restart-safe cleanup after a store error.
+        before = {**before, "cleanup_binding": expected_binding}
+        stored = secret_store.set_secret(ref, json.dumps(before), namespace=_NAMESPACE)
+        if stored not in {"keyring", "encrypted_file"}:
+            raise McpAuthError("mcp_durable_storage_required")
+    _delete_parts(ref, before)
+    secret_store.delete_secret(ref, namespace=_NAMESPACE)
+    return True
+
 
 
 class TokenStorage:

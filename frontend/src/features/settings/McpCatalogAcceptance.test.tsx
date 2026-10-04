@@ -254,3 +254,39 @@ it('does not offer an original retry after explicit rejection', async () => {
     screen.queryByRole('button', { name: 'Check original acceptance' }),
   ).not.toBeInTheDocument();
 });
+
+it('groups unknown and destructive tools conservatively and expands policy details', async () => {
+  const props = options();
+  props.load.mockResolvedValue({
+    ...page,
+    total: 3,
+    items: [
+      {
+        ...page.items[0],
+        effect: 'read_only',
+      },
+      { ...page.items[1], effect: 'mutation' },
+      {
+        ...page.items[0],
+        tool_id: 'f'.repeat(64),
+        name: 'unclassified',
+        effect: 'unknown',
+        requires_approval: true,
+        enabled_after_accept: false,
+      },
+    ],
+  });
+  render(<McpCatalogAcceptance {...props} />);
+  expect(
+    await screen.findByRole('region', { name: 'Read tools' }),
+  ).toHaveTextContent('get_record');
+  expect(
+    screen.getByRole('region', { name: 'High impact tools' }),
+  ).toHaveTextContent('delete_record');
+  expect(
+    screen.getByRole('region', { name: 'High impact tools' }),
+  ).toHaveTextContent('unclassified');
+  fireEvent.click(screen.getByText('get_record'));
+  expect(screen.getByText(/Effect: read_only/)).toBeVisible();
+  expect(props.execute).not.toHaveBeenCalled();
+});

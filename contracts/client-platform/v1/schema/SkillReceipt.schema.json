@@ -59,7 +59,8 @@
     "status": {
       "enum": [
         "completed",
-        "partial"
+        "partial",
+        "rejected"
       ],
       "title": "Status",
       "type": "string"

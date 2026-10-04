@@ -400,3 +400,24 @@ def test_search_marks_a_marketplace_skill_installed_after_install(hub_cache, mon
     result = search_skills("research", registry=registry, force_refresh=True)
 
     assert result.entries[0].metadata["installed"] is True
+
+
+def test_skill_identity_preserves_subpath_version_case_and_fragment():
+    entries = [
+        _entry("github", "Same", "", install_ref=ref)
+        for ref in ("https://example.test/repo#skills/a@1", "https://example.test/repo#skills/b@1",
+                    "https://example.test/repo#skills/a@2", "https://example.test/repo#skills/A@1")
+    ]
+    assert len(search_entries(entries, "")) == 4
+
+
+def test_query_cache_identity_preserves_punctuation_and_long_suffix(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    source = _MockSource("clawhub", [_entry("clawhub", "shared", "")])
+    registry = SkillSourceRegistry([source])
+    first, _, _ = registry.browse(query="shared-a", source_filter="clawhub")
+    # Seed different results via the public registry, then verify cache isolation.
+    source._entries = [_entry("clawhub", "shared a", "")]
+    registry.browse(query="shared a", source_filter="clawhub")
+    cached, _, _ = registry.browse(query="shared-a", source_filter="clawhub", cached_only=True)
+    assert [e.id for e in cached] == [e.id for e in first]

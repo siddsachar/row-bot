@@ -1,5 +1,50 @@
 {
   "$defs": {
+    "IntegrationAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "maxLength": 512,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "pin": {
+          "maxLength": 128,
+          "title": "Pin",
+          "type": "string"
+        },
+        "publisher": {
+          "maxLength": 160,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "item_id",
+        "url",
+        "publisher",
+        "version",
+        "pin"
+      ],
+      "title": "IntegrationAttribution",
+      "type": "object"
+    },
     "IntegrationItem": {
       "additionalProperties": false,
       "properties": {
@@ -16,6 +61,24 @@
           "title": "Actions",
           "type": "array"
         },
+        "attributions": {
+          "items": {
+            "$ref": "#/$defs/IntegrationAttribution"
+          },
+          "maxItems": 512,
+          "title": "Attributions",
+          "type": "array"
+        },
+        "auth_requirement": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "required",
+            "none"
+          ],
+          "title": "Auth Requirement",
+          "type": "string"
+        },
         "auth_status": {
           "enum": [
             "none",
@@ -23,6 +86,12 @@
             "expired"
           ],
           "title": "Auth Status",
+          "type": "string"
+        },
+        "canonical_identity": {
+          "default": "",
+          "maxLength": 1024,
+          "title": "Canonical Identity",
           "type": "string"
         },
         "children": {
@@ -55,6 +124,19 @@
         "evidence": {
           "maxLength": 512,
           "title": "Evidence",
+          "type": "string"
+        },
+        "evidence_stage": {
+          "default": "listed",
+          "enum": [
+            "listed",
+            "metadata_inspected",
+            "package_verified",
+            "connection_tested",
+            "tool_use_tested",
+            "lifecycle_tested"
+          ],
+          "title": "Evidence Stage",
           "type": "string"
         },
         "id": {
@@ -129,10 +211,26 @@
           "title": "Reasons",
           "type": "array"
         },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
         "revision": {
           "maxLength": 128,
           "title": "Revision",
           "type": "string"
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntegrationSetup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source": {
           "maxLength": 80,
@@ -207,6 +305,145 @@
         "target"
       ],
       "title": "IntegrationItem",
+      "type": "object"
+    },
+    "IntegrationSecretBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 64,
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "header",
+            "env"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "prefix": {
+          "default": "",
+          "enum": [
+            "",
+            "Bearer ",
+            "Basic "
+          ],
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "key"
+      ],
+      "title": "IntegrationSecretBinding",
+      "type": "object"
+    },
+    "IntegrationSetup": {
+      "additionalProperties": false,
+      "properties": {
+        "account_requirements": {
+          "maxLength": 512,
+          "title": "Account Requirements",
+          "type": "string"
+        },
+        "auth_mode": {
+          "enum": [
+            "none",
+            "oauth",
+            "api_key",
+            "unknown",
+            "unsupported"
+          ],
+          "title": "Auth Mode",
+          "type": "string"
+        },
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/IntegrationSecretBinding"
+          },
+          "maxItems": 16,
+          "title": "Bindings",
+          "type": "array"
+        },
+        "catalog_accepted": {
+          "title": "Catalog Accepted",
+          "type": "boolean"
+        },
+        "cost": {
+          "maxLength": 512,
+          "title": "Cost",
+          "type": "string"
+        },
+        "credential_configured": {
+          "title": "Credential Configured",
+          "type": "boolean"
+        },
+        "destination": {
+          "maxLength": 2048,
+          "title": "Destination",
+          "type": "string"
+        },
+        "evidence": {
+          "maxLength": 512,
+          "title": "Evidence",
+          "type": "string"
+        },
+        "execution": {
+          "enum": [
+            "local",
+            "hosted"
+          ],
+          "title": "Execution",
+          "type": "string"
+        },
+        "package_prepared": {
+          "title": "Package Prepared",
+          "type": "boolean"
+        },
+        "package_required": {
+          "title": "Package Required",
+          "type": "boolean"
+        },
+        "requirements": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "maxItems": 8,
+          "title": "Requirements",
+          "type": "array"
+        },
+        "runtime_status": {
+          "maxLength": 64,
+          "title": "Runtime Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "auth_mode",
+        "execution",
+        "destination",
+        "bindings",
+        "credential_configured",
+        "catalog_accepted",
+        "requirements",
+        "runtime_status",
+        "package_prepared",
+        "package_required",
+        "account_requirements",
+        "cost",
+        "evidence"
+      ],
+      "title": "IntegrationSetup",
       "type": "object"
     },
     "McpPluginTarget": {

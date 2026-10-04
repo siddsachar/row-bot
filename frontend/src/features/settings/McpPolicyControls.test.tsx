@@ -354,3 +354,32 @@ it('keeps unknown states explicit and blocks new changes during configuration re
   ).toBeDisabled();
   expect(props.execute).not.toHaveBeenCalled();
 });
+
+it('does not present an unclassified tool as read-only when it is not marked destructive', async () => {
+  const props = options();
+  props.load.mockResolvedValue({
+    ...page,
+    total: 1,
+    items: [
+      {
+        ...page.items[0],
+        name: 'unrecognized',
+        enabled: false,
+        requires_approval: true,
+        approval_locked: true,
+      },
+    ],
+  });
+  render(<McpPolicyControls {...props} />);
+  expect(
+    await screen.findByText('Review tool effects before use'),
+  ).toBeVisible();
+  expect(screen.queryByText('Reads only')).toBeNull();
+  expect(
+    screen.getByRole('switch', { name: 'Ask before unrecognized runs' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('switch', { name: 'Use unrecognized' }),
+  ).not.toBeChecked();
+  expect(props.execute).not.toHaveBeenCalled();
+});

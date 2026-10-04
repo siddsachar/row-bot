@@ -5,10 +5,10 @@ description: "Manage mcp through Integrations while keeping specialized controls
 
 # Settings: MCP
 
-MCP connections now live in **Settings → Integrations**. Add an endpoint or inspect a catalog entry; it is saved off. Prepare required runtimes and reviewed dependencies, sign in or bind a protected API key, **Test connection**, accept the tested tools, then **Turn on and connect**.
+MCP connections now live in **Settings → Integrations → Apps & tools (MCP)**. Add an endpoint or inspect a catalog entry; it is saved off. Prepare required runtimes and reviewed dependencies, complete declared authentication when required, **Test connection**, accept the tested tools, then **Turn on and connect**.
 
 Use different names and account labels for Work and Personal. Credentials are connection-specific. Signing in does not enable tools. Bundle connections use the same setup while their parent controls availability.
 
-**Advanced configuration and existing editors** retains manual launch settings, JSON import, rename, the global **Use MCP servers** switch and **Offer MCP tools in chats**. Removing a standalone connection stops its transport and removes only its credential reference. Shared runtimes remain installed.
+**Advanced configuration and existing editors** retains manual launch settings, JSON import, rename, the global **Use MCP servers** switch and **Offer MCP tools in chats**. Removing a standalone connection stops its transport and retains protected credentials by default; explicitly select bound credential cleanup when wanted. Disconnect account clears the selected local binding without claiming remote revocation. Shared runtimes remain installed.
 
 See [Integrations](/docs/settings/integrations) for OAuth callbacks, dependency limits, tool approvals and interrupted setup recovery.

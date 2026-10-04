@@ -861,21 +861,23 @@ export default function PluginSettings({
             >
               Run local test
             </Button>
-            <Toggle
-              label="Plugin enabled"
-              checked={state.selected.enabled}
-              disabled={
-                locked ||
-                !(state.selected.enabled
-                  ? state.selected.capabilities.disable?.available
-                  : state.selected.capabilities.enable?.available)
-              }
-              onChange={(event) =>
-                void requestReview(
-                  event.target.checked ? 'plugin.enable' : 'plugin.disable',
-                )
-              }
-            />
+            <Field label="Plugin enabled" layout="row">
+              <Toggle
+                label="Plugin enabled"
+                checked={state.selected.enabled}
+                disabled={
+                  locked ||
+                  !(state.selected.enabled
+                    ? state.selected.capabilities.disable?.available
+                    : state.selected.capabilities.enable?.available)
+                }
+                onChange={(event) =>
+                  void requestReview(
+                    event.target.checked ? 'plugin.enable' : 'plugin.disable',
+                  )
+                }
+              />
+            </Field>
           </div>
           {!state.selected.capabilities.remove?.available && (
             <p role="status">

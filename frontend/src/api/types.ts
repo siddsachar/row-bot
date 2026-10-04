@@ -147,6 +147,11 @@ export interface ClientTransport {
     },
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationPage>;
+  integrationUse?(
+    conversation: string,
+    integration: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationUse>;
   integration?(
     integration: string,
     signal?: AbortSignal,

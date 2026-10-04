@@ -60,6 +60,9 @@ working generation if a write fails. General Accounts credentials are never reus
 
 ## Source and recommendation evidence
 
+See [current discovery contracts](INTEGRATION_SOURCES.md) for eligibility, snapshot
+delivery, combined-search fields and unresolved production refresh distribution.
+
 - Official MCP Registry v0.1: nested server metadata, lifecycle status and bounded
   cursor pagination; exact source IDs are preserved rather than deduplicating by name.
 - ClawHub v1: resolve a version once, acquire its complete zip or a validated pinned
@@ -69,16 +72,48 @@ working generation if a write fails. General Accounts credentials are never reus
   moderation verdict found during an update check is retained and blocks reactivation;
   a network failure never becomes a moderation verdict.
 - Hermes plugin catalog: repo/SHA/subdirectory plus publisher removal information.
+  The acquisition owner is `plugins/hermes_catalog.py`. It permits one exact HTTPS
+  catalog migration from `hermes-agent.nousresearch.com/docs/api/plugin-catalog.json`
+  to `nousresearch.github.io/hermes-agent/docs/api/plugin-catalog.json`. The destination
+  cannot redirect again; other paths, queries, credentials, ports and origins are
+  refused. Package downloads still reject redirects. Both requests use fresh clients
+  without ambient proxies or cookies, retaining the decoded-byte download limit.
+  Invalid catalog documents never replace a saved cache; an invalid local cache can
+  be repaired by an explicit refresh.
   Optional-MCP manifests are fetched individually from a captured repository pin.
   Recipes with install/bootstrap or foreign OAuth-client requirements are unavailable.
-- Starters: shipped Local text tools 1.0.0 (MIT, no server network or telemetry),
-  existing Hello Tool 0.1.0 at repository commit
-  `9435afbc930799ec30a622a2eb3d234a05214f31`, and vendor-hosted Notion MCP
-  (`https://mcp.notion.com/mcp`, vendor-managed endpoint, hosted terms).
+- Default vendor recommendations: hosted Notion MCP and Linear MCP, with dated
+  setup-documentation evidence and live-account validation pending. Local text tools
+  1.0.0 and Hello Tool 0.1.0 remain explicit developer examples/imports.
 - The Hermes Snyk candidate at `2a41a07f81e45125bf82a19af1b13396ace4b81f`
   declares analytics off, but npm `snyk@1.1306.0` has a postinstall bootstrap and
   unpinned transitive dependencies. It is not a starter or an automatically prepared
   dependency. No private repository scans or third-party installs were performed.
+
+The hub is type-first: Apps & tools (MCP), Skills and Plugins each have Discover
+and Installed. One explicit Search fans out to eligible catalogs; typing, passive
+navigation and Installed filtering stay local. Official Registry search always
+uses its local dated snapshot. Catalog refresh is a separate development action.
+Category and disabled catalog IDs are device-local browser preferences; server
+eligibility remains authoritative. Source/publisher and every merged attribution
+remain visible; unknown compatibility is not readiness. The normal journey uses
+full-width details and focused owner controls, with legacy editors in Advanced.
+
+MCP setup follows declared auth/runtime requirements, then tested tool acceptance
+and existing policy. Skills review complete bounded files/scripts and availability;
+packages review contents and required/optional child setup. Credentials configured,
+authenticated, enabled, connected and successful tool use remain distinct facts.
+Try in chat passively checks the current chat/profile/model and canonical dispatch
+policy, then adds only a draft; it never sends or changes the profile/model.
+
+Conflicting controls share the retained owner operation guard, including package
+children. Rejected skill preferences use the canonical session-owned skill receipt;
+uncertain commands cannot be replaced or replayed. Updates compare staged bytes and
+capability declarations; hosted tool drift requires renewed catalog acceptance.
+Off retains settings and secrets. Disconnect deletes only the bound local credential
+and reports remote revocation as unverified. MCP removal retains credentials by
+default; explicit bound cleanup uses resumable protected tombstones. Package removal
+previews children and keeps data by default, with separate reviewed purge.
 
 Fixtures record synthetic source identities and must never contain credentials or
 private paths. Live-account and macOS/Linux/clean-machine checks remain distinct
@@ -91,3 +126,23 @@ bootstrap runner, cross-plugin dependency resolver, Docker orchestration, hosted
 OAuth broker, payments/ratings, automatic code translation or UI extensions were
 added. The reviewed dependency subset and first-party portable starter replace an
 unsafe one-click Snyk pilot while retaining the required skill/MCP bundle lifecycle.
+
+
+## Continuation validation boundaries
+
+The October 2026 continuation reproduced the Hermes HTTP 301 failure, then verified
+public catalog refresh through the exact migration above. This is discovery evidence,
+not evidence that any listed integration works. Deterministic tests cover rejected
+redirects, redirect loops, size limits, stale/invalid caches, owner-bound skill
+previews, uncertain install recovery, and stable subdirectory update identities.
+Existing lifecycle suites remain responsible for authentication, tool review,
+profile policy, parent/child ownership, updates, restore, disabling and removal.
+
+Remaining live validation requires a disposable Notion workspace and explicit user
+authorization to sign in, refresh credentials, discover/review tools and disconnect.
+Any real tool write requires separate approval. An external Hermes package needs a
+recorded catalog SHA, complete content/prerequisite/data-disclosure review, and its
+actual supported OS/runtime; catalog metadata alone is insufficient. Windows native
+browser/callback behavior, macOS desktop behavior and Linux server callback behavior
+need their respective hosts. Installer, signing, notarization and release checks are
+outside this continuation. Landing media refresh remains with the landing task.

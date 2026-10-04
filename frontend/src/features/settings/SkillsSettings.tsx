@@ -122,7 +122,7 @@ export type SkillReview = {
 };
 export type SkillReceipt = {
   command_id: string;
-  status: 'completed' | 'partial';
+  status: 'completed' | 'partial' | 'rejected';
   action: SkillAction;
   skill_id: string | null;
   revision: string | null;
@@ -1023,19 +1023,21 @@ export default function SkillsSettings({
           <p>{state.detail.skill.description}</p>
           {integrationId && (
             <div className="button-row">
-              <Toggle
-                label="Available in chats"
-                checked={state.detail.skill.available}
-                disabled={locked || state.detail.skill.tool_guide}
-                onChange={() =>
-                  void requestReview('skill.preference', {
-                    revision,
-                    name: state.detail!.skill.id,
-                    preference: 'availability',
-                    value: !state.detail!.skill.available,
-                  })
-                }
-              />
+              <Field label="Available in chats" layout="row">
+                <Toggle
+                  label="Available in chats"
+                  checked={state.detail.skill.available}
+                  disabled={locked || state.detail.skill.tool_guide}
+                  onChange={() =>
+                    void requestReview('skill.preference', {
+                      revision,
+                      name: state.detail!.skill.id,
+                      preference: 'availability',
+                      value: !state.detail!.skill.available,
+                    })
+                  }
+                />
+              </Field>
               <Button
                 disabled={locked || state.detail.skill.tool_guide}
                 aria-pressed={state.detail.skill.pinned}

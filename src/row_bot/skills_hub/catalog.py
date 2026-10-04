@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .models import CatalogSearchResult, SkillHubEntry, SourceResult
 from .provenance import load_records
@@ -28,6 +28,8 @@ def search_skills(
     source: str = "all",
     limit: int = 24,
     force_refresh: bool = False,
+    cached_only: bool = False,
+    cancelled: Callable[[], bool] | None = None,
     registry: SkillSourceRegistry | None = None,
 ) -> CatalogSearchResult:
     from row_bot.docs_capture import is_docs_capture
@@ -86,6 +88,8 @@ def search_skills(
         source_filter=source,
         limit=limit,
         force_refresh=force_refresh,
+        cached_only=cached_only,
+        cancelled=cancelled,
     )
     decorated = _decorate_installed_state(entries)
     mode = _mode_from_statuses(statuses, bool(decorated))

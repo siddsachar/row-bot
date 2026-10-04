@@ -93,7 +93,7 @@ def review_plugin_lifecycle(
     try:
         if preview_id:
             return _review_source(action, plugin_id, owner_id, preview_id, validate)
-        return _review(action, plugin_id, validate=validate)
+        return _review(action, plugin_id, validate=validate, owner_id=owner_id)
     except ClientPlatformError as exc:
         _log_refusal(action, plugin_id, exc.code)
         raise
@@ -109,6 +109,9 @@ def _review_source(action: str, plugin_id: str, owner_id: str, preview_id: str, 
     if installer.is_installed(plugin_id) != (action == "update"):
         raise ClientPlatformError("plugin_lifecycle_changed")
     current = state.get_plugin_package_state(plugin_id)
+    from row_bot.plugins.lifecycle_review import describe_package_changes
+    changes = describe_package_changes(installer.PLUGINS_DIR / plugin_id if action == "update" else None,
+        preview.root, source_identity=preview.source_identity)
     data = {"action": action, "plugin_id": plugin_id, "name": preview.summary["name"], "version": preview.summary["version"],
         "source": preview.summary["source"], "checksum": preview.digest, "permissions": preview.summary["permissions"],
         "disclosures": ["Add copies the reviewed package and keeps it off. Enablement is separate.",
@@ -116,12 +119,13 @@ def _review_source(action: str, plugin_id: str, owner_id: str, preview_id: str, 
             "Skill instructions and MCP processes can access local files and declared services when used; processes are not an OS sandbox.",
             "The tree digest binds this review to these bytes; it is not independent publisher authentication.",
             "Runtime downloads, credentials, and tools require their own setup reviews."],
-        "revision": sha256(json.dumps([preview_id, preview.digest, preview.pin, preview.source_identity, current], sort_keys=True).encode()).hexdigest()}
+        "changes": changes,
+        "revision": sha256(json.dumps([preview_id, preview.digest, preview.pin, preview.source_identity, current, changes], sort_keys=True).encode()).hexdigest()}
     validate()
     return data
 
 
-def _review(action: str, plugin_id: str, *, validate: Callable[[], None]) -> dict:
+def _review(action: str, plugin_id: str, *, validate: Callable[[], None], owner_id: str = "") -> dict:
     from row_bot.application import plugin_commands
 
     validate()
@@ -190,6 +194,18 @@ def _review(action: str, plugin_id: str, *, validate: Callable[[], None]) -> dic
                 else ["Removal withdraws the package and all its children. Saved data and credentials are retained unless you choose Delete saved data."]
             ),
         }
+    if action == "update":
+        from row_bot.plugins import hermes_catalog, installer
+        from row_bot.plugins.lifecycle_review import describe_package_changes
+        preview = hermes_catalog.inspect_marketplace_update(owner_id=owner_id, plugin_id=plugin_id,
+            origin=origin, source_identity=source, checksum=checksum, source_revision=reviewed_tree)
+        data["preview_id"] = preview.preview_id
+        data["changes"] = describe_package_changes(installer.PLUGINS_DIR / plugin_id, preview.root, source_identity=source)
+    if action in {"remove", "purge"}:
+        children = package.get("children") or {}
+        data["changes"] = [f"Owned {kind}: {name}" for kind, names in children.items() for name in names]
+        data["disclosures"] = (["Delete only this package's retained local data and protected credentials. Shared runtimes and other packages remain."]
+            if action == "purge" else ["Remove this package and withdraw all its owned tools, skills and connections. Saved data, configuration, permissions and credentials are retained; Delete saved data is a separate explicit action."])
     data["revision"] = sha256(
         json.dumps([data, reviewed_tree, _package_revision(plugin_id)], sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
@@ -295,10 +311,10 @@ def _execute_plugin_lifecycle(command: dict, *, owner_id: str, validate: Callabl
             else f"Row-Bot couldn't prepare {reviewed['name']} ({code or 'environment_preparation_failed'})."
         )
     else:
-        if command.get("preview_id"):
+        if command.get("preview_id") or reviewed.get("preview_id"):
             from row_bot.plugins.hermes_catalog import get_preview
-            preview = get_preview(owner_id, command["preview_id"])
-            kwargs = {"source": "portable" if preview.summary["format"] != "row-bot-v2" else "local",
+            preview = get_preview(owner_id, command.get("preview_id") or reviewed["preview_id"])
+            kwargs = {"source": preview.summary.get("source_kind") or ("portable" if preview.summary["format"] != "row-bot-v2" else "local"),
                 "source_ref": preview.source_identity, "source_dir": preview.root,
                 "expected_checksum": preview.digest, "source_pin": preview.pin, "operation_id": command["command_id"]}
         else:

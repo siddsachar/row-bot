@@ -99,6 +99,7 @@ class McpCatalogTool:
     enabled_after_accept: bool | None
     requires_approval: bool
     destructive: bool
+    effect: str
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,7 @@ def _document(saved, server_id, captured):
         raise Error("mcp_policy_unavailable")
     policy._tool_policies(server_id, tools)  # Retain strict existing safety shapes.
     enabled, catalog = tools.setdefault("enabled", {}), tools.setdefault("catalog", {})
+    tools["accepted_names"] = [row["name"] for row in captured["tools"]]
     approvals = set(tools.get("require_approval", []))
     manual = requires_manual_tool_selection(name, server)
     for row in captured["tools"]:
@@ -202,7 +204,7 @@ def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: s
         document, names, manual = _document(saved, server_id, captured)
         rows = policy._tool_policies(server_id, document["servers"][names[0]]["tools"])
         matches = sorted((McpCatalogTool(rows[row["name"]].tool_id, rows[row["name"]].name,
-            rows[row["name"]].enabled, bool(rows[row["name"]].requires_approval), bool(rows[row["name"]].destructive))
+            rows[row["name"]].enabled, bool(rows[row["name"]].requires_approval), bool(rows[row["name"]].destructive), row["effect"])
             for row in captured["tools"] if query in rows[row["name"]].name.casefold()), key=lambda row: (row.name.casefold(), row.tool_id))
         availability = "recovery_required" if config.configuration_recovery_required() else "available"
     except (Error, config.McpConfigurationError, admissions.AdmissionError) as error:

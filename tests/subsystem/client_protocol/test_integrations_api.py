@@ -34,7 +34,9 @@ def test_recommendations_are_passive_and_inspection_is_owner_bound(isolated, mon
     monkeypatch.setattr(hermes_catalog, "_public_bytes", lambda *a, **k: pytest.fail("passive fetch"))
     before = {p: p.read_bytes() for p in isolated.rglob("*") if p.is_file()}
     page = client_integrations.search_integrations(owner_id="local")
-    assert {row["name"] for row in page["items"]} >= {"Local text tools", "Notion MCP", "Hello Tool (native example)"}
+    assert {row["name"] for row in page["items"]} >= {"Notion MCP", "Linear MCP"}
+    assert not any(row["name"] == "Local text tools" for row in page["items"])
+    page = client_integrations.search_integrations(owner_id="local", sources=["examples"])
     assert before == {p: p.read_bytes() for p in isolated.rglob("*") if p.is_file()}
     bundle = next(row for row in page["items"] if row["name"] == "Local text tools")
     with pytest.raises(ValueError, match="preview_expired"):
@@ -158,3 +160,51 @@ def test_mcp_publication_recovery_is_explicit_authenticated_and_does_not_resave(
         receipt = client.get("/api/v1/commands/" + command["command_id"], headers=headers)
         assert receipt.json()["status"] == "completed"
         assert "private-value" not in result.text + receipt.text
+
+
+@pytest.mark.parametrize("query", ["", "writing", "https://example.test/SKILL.md"])
+def test_skill_discovery_passive_reads_do_not_fetch_or_create_cache(isolated, monkeypatch, query):
+    from row_bot.skills_hub import source_registry
+    monkeypatch.setattr(source_registry, "_in_background", lambda *a, **k: pytest.fail("passive source execution"))
+    before = {p: p.read_bytes() for p in isolated.rglob("*") if p.is_file()}
+    page = client_integrations.search_integrations(owner_id="fixture", sources=["clawhub"], query=query)
+    assert not page["items"]
+    assert before == {p: p.read_bytes() for p in isolated.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_skill_discovery_reuses_saved_results_and_preserves_preview_authority(isolated, monkeypatch, stale):
+    from row_bot.skills_hub import source_registry
+    from row_bot.skills_hub.models import SkillHubEntry
+    from tests.subsystem.skills.test_skills_hub_sources import _bundle
+
+    class Source:
+        id = "clawhub"
+        supports_browse = supports_search = True
+        calls = 0
+
+        def search(self, query, *, limit):
+            self.calls += 1
+            return [SkillHubEntry(id="clawhub:example/writing", name="Writing", description="Writing notes",
+                source="clawhub", source_id="clawhub", install_ref="clawhub:example/writing")]
+
+        def inspect(self, entry):
+            return _bundle("writing", source="clawhub", install_ref=entry.install_ref)
+
+    source = Source()
+    monkeypatch.setattr(source_registry, "_DEFAULT_REGISTRY", source_registry.SkillSourceRegistry([source]))
+    live = client_integrations.search_integrations(owner_id="fixture", sources=["clawhub"], query="writing", refresh=True)
+    assert len(live["items"]) == 1 and source.calls == 1
+    # Re-create the registry, as after process restart, and forbid every fetch.
+    monkeypatch.setattr(source_registry, "_DEFAULT_REGISTRY", source_registry.SkillSourceRegistry([source]))
+    monkeypatch.setattr(source, "search", lambda *a, **k: pytest.fail("cached search fetched"))
+    if stale:
+        now = source_registry.time.time()
+        monkeypatch.setattr(source_registry.time, "time", lambda: now + source_registry.BROWSE_CACHE_TTL_SECONDS + 1)
+    saved = client_integrations.search_integrations(owner_id="fixture", sources=["clawhub"], query="writing")
+    assert saved["items"] == live["items"]
+    assert saved["sources"][0]["status"] == ("stale" if stale else "cached")
+    inspected = client_integrations.preview_integration(owner_id="fixture", revision=saved["revision"], item_id=saved["items"][0]["id"])
+    assert inspected["skill"]["skill_name"] == "writing"
+    with pytest.raises(ValueError, match="preview_expired"):
+        client_integrations.preview_integration(owner_id="other", revision=saved["revision"], item_id=saved["items"][0]["id"])

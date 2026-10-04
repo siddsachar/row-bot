@@ -172,7 +172,7 @@
     "name": "Notion MCP",
     "description": "Official Notion API MCP server for workspace pages and databases.",
     "source": "curated",
-    "url": "https://github.com/makenotion/notion-mcp-server",
+    "url": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
     "publisher": "Notion",
     "classification": "official",
     "category": "Knowledge & Collaboration",
@@ -190,7 +190,7 @@
     "overlaps_native": [
       "documents"
     ],
-    "last_reviewed": "2026-10-02",
+    "last_reviewed": "2026-10-03",
     "notes": [
       "Requires a Notion workspace and browser OAuth sign-in. No local package installation.",
       "Requests and selected workspace data go to Notion. Hosted service data collection follows Notion terms; Row-Bot adds no telemetry.",
@@ -202,6 +202,7 @@
     },
     "metadata": {
       "integration_starter": true,
+      "auth_mode": "oauth",
       "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
       "license": "Hosted service terms apply",
       "evidence": "Official setup documentation reviewed; deterministic SDK OAuth coverage. Disposable live account and platform callbacks pending."
@@ -399,5 +400,43 @@
     "last_reviewed": "2026-04-27",
     "notes": ["Useful reference server, but GitHub is the more recognizable starter for hosted code workflows."],
     "install": {"transport": "stdio", "command": "uvx", "args": ["mcp-server-git"]}
+  },
+  {
+    "id": "linear-mcp",
+    "name": "Linear MCP",
+    "description": "Search and manage Linear issues, projects and team workflows.",
+    "source": "curated",
+    "url": "https://linear.app/docs/mcp",
+    "publisher": "Linear",
+    "classification": "official",
+    "category": "Project work",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "streamable_http",
+    "requires_auth": true,
+    "recommended": true,
+    "capabilities": [
+      "issues",
+      "projects",
+      "search"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-03",
+    "notes": [
+      "Requires a Linear account and browser authorization. Review tools and workspace access before enabling.",
+      "Requests and selected workspace data go to Linear under its service terms. Live account validation is pending."
+    ],
+    "install": {
+      "transport": "streamable_http",
+      "url": "https://mcp.linear.app/mcp"
+    },
+    "metadata": {
+      "integration_starter": true,
+      "auth_mode": "oauth",
+      "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
+      "license": "Hosted service terms apply",
+      "evidence": "Official setup documentation reviewed; deterministic SDK OAuth coverage. Disposable live account and platform callbacks pending."
+    }
   }
 ]

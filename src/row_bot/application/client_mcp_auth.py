@@ -98,13 +98,15 @@ def review_auth(*, server_id: str, configuration_revision: str, action: str, mod
     return {**intent, "action_digest": admissions.keyed_digest(intent),
         "disclosures": ["Sign-in shares authorization with the selected service. Credentials are stored for this connection only.",
             "Authentication does not enable the connection, its tools, or its parent package. Test and review tools afterwards."
-            if action == "start" else "Disconnect removes this connection's saved credentials and stops its runtime. Other accounts are unchanged."]}
+            if action == "start" else "Disconnect clears only this connection's local protected binding and stops its runtime. Configuration and tool permissions remain. Remote revocation is not verified; revoke this app or token in the service's account security controls. Other accounts are unchanged."]}
 
 
 def _receipt(flow: Flow, *, message: str = "") -> dict:
     return {"command_id": flow.command_id, "server_id": flow.server_id, "state": flow.state,
         "message": message or {"starting": "Contacting the authorization service.", "waiting": "Continue sign-in in your browser.",
-            "signed_in": "Signed in; test the connection and review its tools.", "cancelled": "Sign-in cancelled.",
+            "signed_in": "Signed in; test the connection and review its tools.",
+            "uncertain": "Local binding cleared; owned runtime or credential cleanup is incomplete. Use Cancel or clear sign-in to retry cleanup of the original operation.",
+            "disconnected": "Local account binding cleared. Remote revocation was not verified; revoke the app or token in the service's account security controls. Configuration and tool permissions are retained.", "cancelled": "Sign-in cancelled.",
             "expired": "Sign-in expired. Start a new sign-in.", "failed": "Sign-in failed; existing credentials were kept."}.get(flow.state, "Inspect connection setup."),
         "authorization_url": flow.authorization_url if flow.state == "waiting" else None}
 
@@ -178,7 +180,7 @@ def _finish_oauth(flow: Flow, label: str, client: dict | None):
         flow.state = "signed_in"
         old = flow.cfg.get("auth", {}).get("credential_ref")
         if old:
-            auth.delete_credentials(old)
+            auth.delete_bound_credentials(old, auth.binding(flow.name, flow.cfg))
         _persist(flow, complete=True)
     except Exception:
         # Publication can succeed before a state/receipt failure. Never remove
@@ -227,16 +229,19 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
         initial_result={"command_id": command_id, "server_id": server_id, "state": "starting",
             "_mcp_auth": {"target": flow.target, "server_id": server_id, "credential_ref": flow.ref}})
     if action == "disconnect":
-        old = cfg.get("auth", {}).get("credential_ref")
-        _publish(flow, {"mode": "none", "label": label, "operation_id": command_id})
-        if old:
-            auth.delete_credentials(old)
         from row_bot.mcp_client import runtime
         lifetime = runtime.get_server_lifecycle(name)
-        if lifetime.get("runtime_id"):
-            runtime.stop_server_owned(name, lifetime["runtime_id"])
-        flow.state = "disconnected"
-        _persist(flow, complete=True)
+        cleanup = {"name": name, "runtime_id": lifetime.get("runtime_id"),
+            "ref": cfg.get("auth", {}).get("credential_ref"), "binding": auth.binding(name, cfg)}
+        _persist(flow, private={"disconnect_cleanup": cleanup})
+        _publish(flow, {"mode": "none", "label": label, "operation_id": command_id})
+        try:
+            _disconnect_cleanup(cleanup)
+            flow.state = "disconnected"
+            _persist(flow, complete=True, private={"disconnect_cleanup": None})
+        except Exception:
+            flow.state = "uncertain"
+            _persist(flow)
     elif mode == "api_key":
         if type(values) is not dict or set(values) != {v["key"] for v in bindings or []} or not values or any(type(v) is not str or not v or len(v) > 16384 or "\r" in v or "\n" in v for v in values.values()):
             admissions.reject_command(owner_id, command_id, "invalid_mcp_auth")
@@ -249,7 +254,7 @@ def execute_auth(*, owner_id: str, command_id: str, server_id: str, configuratio
         _persist(flow, complete=True)
         old = cfg.get("auth", {}).get("credential_ref")
         if old and old != flow.ref:
-            auth.delete_credentials(old)
+            auth.delete_bound_credentials(old, auth.binding(flow.name, flow.cfg))
     else:
         if not redirect_uri:
             admissions.reject_command(owner_id, command_id, "mcp_auth_callback_unavailable")
@@ -289,6 +294,9 @@ def auth_status(*, owner_id: str, command_id: str, validate: Callable[[], None] 
                         and cfg.get("auth", {}).get("operation_id") == command_id):
                     # Observe the exact command marker, not a coincidentally
                     # equal endpoint or token. No OAuth effect is replayed.
+                    if private.get("disconnect_cleanup"):
+                        return {"command_id": command_id, "server_id": result["server_id"], "state": "uncertain", "authorization_url": None,
+                            "message": "Local binding cleared; original cleanup is incomplete. Use Cancel or clear sign-in to finish owned cleanup."}
                     return {"command_id": command_id, "server_id": result["server_id"],
                         "state": "disconnected" if cfg["auth"]["mode"] == "none" else "signed_in",
                         "authorization_url": None, "message": "Saved authentication recovered; test the connection."}
@@ -297,6 +305,17 @@ def auth_status(*, owner_id: str, command_id: str, validate: Callable[[], None] 
         return {"command_id": command_id, "server_id": result["server_id"], "state": "expired", "authorization_url": None,
             "message": "The previous sign-in was interrupted. Cancel it, then start sign-in again."}
     return {key: value for key, value in result.items() if not key.startswith("_")} | {"authorization_url": None}
+
+
+def _disconnect_cleanup(cleanup: dict) -> None:
+    """Retry only cleanup of the original runtime and protected binding."""
+    from row_bot.mcp_client import runtime
+    if cleanup.get("runtime_id"):
+        result = runtime.stop_server_owned(cleanup["name"], cleanup["runtime_id"])
+        if result.get("state") != "stopped":
+            raise auth.McpAuthError("mcp_cleanup_incomplete")
+    if cleanup.get("ref"):
+        auth.delete_bound_credentials(cleanup["ref"], cleanup["binding"])
 
 
 def _settle_recovered(owner_id: str, command_id: str, result: dict) -> None:
@@ -311,6 +330,16 @@ def _settle_recovered(owner_id: str, command_id: str, result: dict) -> None:
 
 def cancel_auth(*, owner_id: str, command_id: str, validate: Callable[[], None] = lambda: None) -> dict:
     result = auth_status(owner_id=owner_id, command_id=command_id, validate=validate)
+    if result["state"] == "uncertain":
+        saved = admissions.read_command_receipt(owner_id, command_id) or {}
+        private = saved.get("_mcp_auth", {})
+        if private.get("disconnect_cleanup"):
+            validate()
+            with targets.scope(private.get("target")):
+                _disconnect_cleanup(private["disconnect_cleanup"])
+            result.update(state="disconnected", message="Local binding and owned cleanup complete. Remote revocation was not verified; use the service's account security controls.")
+            admissions.complete_command(owner_id, command_id, {**saved, **result, "_mcp_auth": {**private, "disconnect_cleanup": None}})
+            return result
     with _LOCK:
         flow = _FLOWS.get((owner_id, command_id))
         if flow and flow.state in {"starting", "waiting"}:

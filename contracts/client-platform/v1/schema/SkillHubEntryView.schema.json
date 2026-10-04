@@ -42,6 +42,12 @@
       "maxLength": 80,
       "title": "Trust Level",
       "type": "string"
+    },
+    "url": {
+      "default": "",
+      "maxLength": 2048,
+      "title": "Url",
+      "type": "string"
     }
   },
   "required": [

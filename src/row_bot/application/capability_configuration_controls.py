@@ -360,6 +360,7 @@ def _next_document(
         "server_id",
         "fields",
         "import_json",
+        "delete_credentials",
     }:
         raise CapabilityConfigurationError("invalid_command")
     try:
@@ -403,7 +404,7 @@ def _next_document(
             servers[name] = _server(value, fields, name)
             affected.append(name)
     elif operation == "delete":
-        if set(intent) != {"operation", "server_id"}:
+        if set(intent) - {"operation", "server_id", "delete_credentials"} or type(intent.get("delete_credentials", False)) is not bool:
             raise CapabilityConfigurationError("invalid_command")
         identity = intent["server_id"]
         if type(identity) is not str or not _IDENTITY.fullmatch(identity):
@@ -553,9 +554,11 @@ def _complete_saved_change(*, owner_id: str, key: str, progress: dict, intent: d
             cleanup = "cleanup_incomplete"
         if cleanup != "cleanup_incomplete":
             try:
-                from row_bot.mcp_client.auth import delete_credentials
-                for ref in progress.get("_mcp_configuration", {}).get("credential_refs", []):
-                    delete_credentials(ref)
+                from row_bot.mcp_client.auth import delete_bound_credentials
+                private = progress.get("_mcp_configuration", {})
+                if private.get("delete_credentials") is True:
+                    for ref, binding in private.get("credential_bindings", {}).items():
+                        delete_bound_credentials(ref, binding)
             except Exception:
                 cleanup = "cleanup_incomplete"
         if cleanup == "cleanup_incomplete":
@@ -728,6 +731,10 @@ def _execute_saved_change(
             if current != revision:
                 raise CapabilityConfigurationError("revision_conflict", current)
             document, names = next_document(saved, intent)
+            if intent.get("operation") == "import":
+                from row_bot.mcp_client.registry_snapshot import revalidate_configuration
+                for name in names:
+                    revalidate_configuration(document["servers"][name])
             ids = [_server_id(name) for name in names]
             authority()
         except (CapabilityConfigurationError, config.McpConfigurationError) as error:
@@ -743,6 +750,10 @@ def _execute_saved_change(
             "target": targets.current(), "saved_disabled": saved_disabled,
             "process": {"pid": os.getpid(), "birth": psutil.Process().create_time()}}
         if intent.get("operation") == "delete":
+            from row_bot.mcp_client.auth import binding
+            private["delete_credentials"] = intent.get("delete_credentials", False)
+            private["credential_bindings"] = {saved.document["servers"][name]["auth"]["credential_ref"]: binding(name, saved.document["servers"][name])
+                for name in names if saved.document["servers"][name].get("auth", {}).get("credential_ref")}
             private["credential_refs"] = [saved.document["servers"][name]["auth"]["credential_ref"]
                 for name in names if saved.document["servers"][name].get("auth", {}).get("credential_ref")]
         progress["_mcp_configuration"] = private

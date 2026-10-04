@@ -669,9 +669,9 @@ def read_integration_packages(*, validate: Callable[[], None]) -> list[dict]:
             row["diagnostics"] = [*row["diagnostics"], {"component": "source", "reason": blocked}]
         if manifest:
             row["children"] = [{"kind": "skill", "owner_ref": s["name"], "name": str(s.get("display_name") or s["name"]),
-                "server_key": None} for s in manifest.provides.skills]
+                "server_key": None, "optional": s.get("optional") is True} for s in manifest.provides.skills]
             row["children"] += [{"kind": "mcp", "owner_ref": _server_id(plugin_mcp_server_name(manifest.id, s["id"])),
-                "name": s["id"], "server_key": s["id"]} for s in manifest.provides.mcp_servers]
+                "name": s["id"], "server_key": s["id"], "optional": s.get("optional") is True} for s in manifest.provides.mcp_servers]
     for plugin_id, record in state.items():
         if not _ID.fullmatch(plugin_id) or not isinstance(record, dict):
             continue

@@ -1,6 +1,7 @@
 """Bounded mapping of pinned Hermes optional-MCP recipes, without its runtime."""
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from pathlib import Path
 import re
@@ -15,7 +16,7 @@ from row_bot.plugins.hermes_catalog import _public_bytes
 _REPO = "https://api.github.com/repos/NousResearch/hermes-agent"
 
 
-def read_catalog(*, refresh: bool = False) -> dict:
+def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambda: False) -> dict:
     path = get_row_bot_data_dir(create=False) / "hermes_mcp_catalog_cache.json"
     saved = {}
     try:
@@ -27,6 +28,7 @@ def read_catalog(*, refresh: bool = False) -> dict:
         pass
     status, message = ("cached", "Pinned saved recipes; inspect before adding.") if saved else ("empty", "Search public source to load Hermes MCP recipes.")
     if refresh:
+        previous = saved
         try:
             pin = json.loads(_public_bytes(_REPO + "/commits/HEAD"))["sha"]
             if not re.fullmatch(r"[a-f0-9]{40}", pin):
@@ -39,12 +41,21 @@ def read_catalog(*, refresh: bool = False) -> dict:
             if len(names) > 128:
                 raise ValueError("invalid_catalog")
             saved = {"pin": pin, "names": names, "fetched_at": time.time()}
+            if cancelled():
+                raise ValueError("integration_search_cancelled")
             path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(saved), encoding="utf-8")
-            temporary.replace(path)
+            from uuid import uuid4
+            temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
+            try:
+                temporary.write_text(json.dumps(saved), encoding="utf-8")
+                if cancelled():
+                    raise ValueError("integration_search_cancelled")
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
             status, message = "live", "Pinned public recipes; no server or bootstrap has run."
         except (ValueError, OSError, KeyError, TypeError, httpx.HTTPError):
+            saved = previous
             status, message = ("stale" if saved else "error"), "Hermes MCP is unavailable or rate limited. Saved recipes remain available."
     return {**saved, "status": status, "message": message}
 

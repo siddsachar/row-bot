@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after path bootstrap
 
 MODELS = {name: getattr(schemas, name) for name in (
-    "IntegrationOperationResult", "IntegrationItem", "IntegrationSourceStatus", "IntegrationPage", "IntegrationSearchRequest", "IntegrationPreviewRequest", "IntegrationPreview", "PortablePackagePreview", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
+    "IntegrationUse", "IntegrationAttribution", "IntegrationOperationResult", "IntegrationItem", "IntegrationSourceStatus", "IntegrationPage", "IntegrationSearchRequest", "IntegrationPreviewRequest", "IntegrationPreview", "PortablePackagePreview", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
     "Command", "Event", "Handshake", "Problem", "Outcome", "ResourceBinding",
     "PreviewContract", "CommandReceipt", "AttachmentView", "SessionProof",
     "ConversationView", "ConversationPage", "ConversationActionSnapshot", "ConversationActionReviewRequest",
@@ -103,6 +103,7 @@ OPERATIONS = (
     ('post', '/settings/integrations/operations/{kind}/{command_id}/reconcile', None, 'IntegrationOperationResult'),
     ('get', '/settings/integrations', None, 'IntegrationPage'),
     ('get', '/settings/integrations/{integration_id}', None, 'IntegrationItem'),
+    ('get', '/conversations/{conversation_id}/integrations/{integration_id}/use', None, 'IntegrationUse'),
     ('post', '/settings/integrations/search', 'IntegrationSearchRequest', 'IntegrationPage'),
     ('post', '/settings/integrations/preview', 'IntegrationPreviewRequest', 'IntegrationPreview'),
     ('post', '/settings/mcp/auth/review', 'McpAuthReviewRequest', 'McpAuthReview'),
@@ -1156,6 +1157,8 @@ export const reconcileIntegrationOperation = (base: string, proof: SessionProof,
   jsonRequest(base, `/settings/integrations/operations/${id(kind)}/${id(command)}/reconcile`, 'IntegrationOperationResult', proof, 'POST', undefined, undefined, signal);
 export const getIntegrations = (base: string, proof: SessionProof, options: {query?:string;kind?:string;source?:string;cursor?:string}, signal?:AbortSignal): Promise<IntegrationPage> =>
   jsonRequest(base, '/settings/integrations' + query(options), 'IntegrationPage', proof, 'GET', undefined, undefined, signal);
+export const getIntegrationUse = (base:string, proof:SessionProof, conversation:string, integration:string, signal?:AbortSignal):Promise<IntegrationUse> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/integrations/${id(integration)}/use`, 'IntegrationUse', proof, 'GET', undefined, undefined, signal);
 export const getIntegration = (base:string, proof:SessionProof, integration:string, signal?:AbortSignal):Promise<IntegrationItem> =>
   jsonRequest(base, `/settings/integrations/${id(integration)}`, 'IntegrationItem', proof, 'GET', undefined, undefined, signal);
 export const searchIntegrations = (base:string, proof:SessionProof, body:IntegrationSearchRequest, signal?:AbortSignal):Promise<IntegrationPage> =>

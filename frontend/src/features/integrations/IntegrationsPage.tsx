@@ -1,6 +1,8 @@
+import { useSetupOperations, settleSetupOperation } from './setup-operations';
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -11,7 +13,6 @@ import type {
   IntegrationItem,
   IntegrationPage,
   IntegrationPreview,
-  IntegrationSearchRequest,
   PluginLifecycleCommand,
   SkillHubPreview,
 } from '../../api/types';
@@ -28,15 +29,29 @@ import {
 } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import McpSetup from './McpSetup';
+import { SkillReview, SkillSetup, PluginSetup } from './OwnerSetup';
+import Catalogs from './Catalogs';
+import ProfileContext from './ProfileContext';
+import TryInChat from './TryInChat';
+import SkillMaintenance from './SkillMaintenance';
+import {
+  categories,
+  catalogs,
+  readPreferences,
+  savePreferences,
+  sourceName,
+  setupLabel,
+  type Kind,
+  type Source,
+} from './discovery';
 import './integrations.css';
-
 const statusLabels: Record<string, string> = {
   ready: 'Ready',
   off: 'Off',
   setup: 'Setup needed',
   attention: 'Needs attention',
   missing_runtime: 'Runtime needed',
-  disconnected: 'Disconnected',
+  disconnected: 'Needs sign-in',
   recovery: 'Recovery needed',
   retained: 'Saved data retained',
   discover: 'Available to inspect',
@@ -44,7 +59,20 @@ const statusLabels: Record<string, string> = {
 type Review = { title: string; lines: string[]; apply: () => Promise<void> };
 type Pending = { kind: 'skill' | 'plugin' | 'mcp'; id: string };
 const pendingScopes = ['skill', 'plugin', 'mcp'] as const;
-
+function setupAction(raw: string) {
+  try {
+    const parsed = JSON.parse(raw) as {
+      mcpServers?: Record<string, { transport?: string; url?: string }>;
+    };
+    return Object.values(parsed.mcpServers ?? {}).some(
+      (value) => value?.url && value.transport !== 'stdio',
+    )
+      ? 'Connect'
+      : 'Set up';
+  } catch {
+    return 'Review setup';
+  }
+}
 /** Common inventory, explicit discovery and review; mutations keep their owners. */
 export default function IntegrationsPage({
   renderDetail,
@@ -59,34 +87,40 @@ export default function IntegrationsPage({
   const { controller } = useRuntime();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const tab = params.get('tab') === 'discover' ? 'discover' : 'my';
-  const type = ['skill', 'mcp', 'plugin'].includes(params.get('type') ?? '')
-    ? params.get('type')!
-    : 'all';
+  const tab =
+    params.get('tab') === 'discover' && params.get('type') !== 'all'
+      ? 'discover'
+      : 'my';
+  const [preferences, setPreferences] = useState(readPreferences);
+  const [entryCategory] = useState(preferences.category);
+  const explicitType = params.get('type');
+  const legacySource = params.get('source');
+  const selectedKind = params.get('selected')?.split(':')[0];
+  const inferredType = categories.some(
+    (category) => category.kind === selectedKind,
+  )
+    ? selectedKind
+    : Object.entries(catalogs).find(([, sources]) =>
+        sources.includes(legacySource as Source),
+      )?.[0];
+  const type = (
+    ['skill', 'mcp', 'plugin', 'all'].includes(explicitType ?? '')
+      ? explicitType
+      : (inferredType ?? entryCategory)
+  ) as Kind | 'all' | '';
   const query = params.get('q') ?? '';
   const selected = params.get('selected') ?? '';
-  const source = (
-    [
-      'recommended',
-      'hermes',
-      'hermes_mcp',
-      'clawhub',
-      'skills_sh',
-      'official',
-      'native',
-    ].includes(params.get('source') ?? '')
-      ? params.get('source')
-      : 'recommended'
-  ) as NonNullable<IntegrationSearchRequest['sources']>[number];
+  const unsupported = params.get('unsupported') === '1';
+  const catalogView = params.get('view') === 'catalogs';
   const [draftQuery, setDraftQuery] = useState(query);
   const [page, setPage] = useState<IntegrationPage | null>(null);
   const [preview, setPreview] = useState<IntegrationPreview | null>(null);
   const [detail, setDetail] = useState<IntegrationItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [inspecting, setInspecting] = useState(false);
   const [message, setMessage] = useState('');
   const [review, setReview] = useState<Review | null>(null);
-  const [unsupported, setUnsupported] = useState(false);
   const [add, setAdd] = useState(false);
   const [reference, setReference] = useState('');
   const [importKind, setImportKind] = useState<'plugin' | 'skill' | 'mcp'>(
@@ -107,61 +141,168 @@ export default function IntegrationsPage({
   const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const generation = useRef(0);
+  const publicSearch = useRef<string | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  const inspection = useRef<AbortController | null>(null);
+  const savedPages = useRef(new Map<string, IntegrationPage>());
+  const inspectionGeneration = useRef(0);
+  const inspectionIdentity = useRef('');
+  const invalidateInspection = useCallback(() => {
+    inspectionGeneration.current++;
+    inspection.current?.abort();
+    inspection.current = null;
+  }, []);
+  const returnTo = useRef(new Map<string, { id: string; top: number }>());
+  const listKey = JSON.stringify([
+    tab,
+    type,
+    query,
+    unsupported,
+    preferences.disabled,
+  ]);
+  const inspectionKey = JSON.stringify([
+    location.key,
+    location.pathname,
+    selected,
+    listKey,
+    page?.revision,
+  ]);
+  useLayoutEffect(() => {
+    // A committed navigation invalidates inspection even if the transport ignores abort.
+    inspectionIdentity.current = inspectionKey;
+    invalidateInspection();
+    setInspecting(false);
+    return invalidateInspection;
+  }, [inspectionKey, invalidateInspection]);
+  const persist = (next: typeof preferences) => {
+    setPreferences(next);
+    if (!savePreferences(next))
+      setMessage(
+        'Preferences could not be saved on this device. They apply for this visit.',
+      );
+  };
+  useEffect(() => {
+    if (type && type !== 'all' && preferences.category !== type) {
+      const next = { ...preferences, category: type };
+      setPreferences(next);
+      savePreferences(next);
+    }
+  }, [type, preferences]);
   const update = (values: Record<string, string>) => {
+    invalidateInspection();
+    setInspecting(false);
     const next = new URLSearchParams(params);
     Object.entries(values).forEach(([key, value]) =>
       value ? next.set(key, value) : next.delete(key),
     );
+    if (type && !next.has('type')) next.set('type', type);
+    next.delete('source');
     setParams(next);
   };
   const load = useCallback(
     async (refresh = false, cursor?: string) => {
+      if (!type) return;
+      abort.current?.abort();
+      const cancellation = new AbortController();
+      abort.current = cancellation;
       const request = ++generation.current;
       setLoading(true);
       try {
+        const sources = preferences.disabled.length
+          ? (type === 'all'
+              ? Object.values(catalogs).flat()
+              : catalogs[type]
+            ).filter((source) => !preferences.disabled.includes(source))
+          : undefined;
         const result =
           tab === 'my'
-            ? await controller.integrations({ query, kind: type, cursor })
-            : await controller.searchIntegrations({
-                query,
-                sources: [source],
-                refresh,
-              });
-        if (request !== generation.current) return;
-        setPage((old) =>
+            ? await controller.integrations(
+                { query, kind: type, cursor },
+                cancellation.signal,
+              )
+            : await controller.searchIntegrations(
+                {
+                  query,
+                  kind: type,
+                  ...(sources ? { sources } : {}),
+                  ...(cursor ? { cursor } : {}),
+                  ...(unsupported ? { include_incompatible: true } : {}),
+                  refresh,
+                },
+                cancellation.signal,
+              );
+        if (request !== generation.current || cancellation.signal.aborted)
+          return;
+        const old = savedPages.current.get(listKey);
+        const next =
           cursor && old?.revision === result.revision
             ? { ...result, items: [...old.items, ...result.items] }
-            : result,
-        );
+            : result;
+        savedPages.current.set(listKey, next);
+        setPage(next);
       } catch (e) {
-        if (request === generation.current) setMessage(clientError(e).message);
+        if (request === generation.current && !cancellation.signal.aborted)
+          setMessage(clientError(e).message);
       } finally {
         if (request === generation.current) setLoading(false);
       }
     },
-    [controller, tab, type, query, source],
+    [controller, tab, type, query, unsupported, preferences.disabled, listKey],
   );
   useEffect(() => {
     setDraftQuery(query);
-    void load();
+    setMessage('');
+    const refresh = publicSearch.current === listKey;
+    publicSearch.current = null;
+    const saved = savedPages.current.get(listKey);
+    setPage(saved ?? null);
+    if (saved && !refresh) setLoading(false);
+    else void load(refresh);
     return () => {
-      // Numeric request generation, not a DOM ref; invalidate late responses.
+      // Invalidate and abort even transports that race their cancellation signal.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       generation.current++;
+      abort.current?.abort();
     };
-  }, [load, query]);
+  }, [load, query, listKey]);
+  const search = () => {
+    setMessage('');
+    if (draftQuery === query) void load(tab === 'discover');
+    else {
+      if (tab === 'discover')
+        publicSearch.current = JSON.stringify([
+          tab,
+          type,
+          draftQuery,
+          unsupported,
+          preferences.disabled,
+        ]);
+      update({ q: draftQuery, selected: '' });
+    }
+  };
   useEffect(() => {
     setPreview(null);
     setDetail(null);
     if (!selected) {
-      list.current?.focus({ preventScroll: true });
+      const restore = returnTo.current.get(listKey);
+      if (restore) {
+        const row = Array.from(
+          list.current?.querySelectorAll<HTMLButtonElement>(
+            '[data-integration-id]',
+          ) ?? [],
+        ).find((button) => button.dataset.integrationId === restore.id);
+        row?.focus({ preventScroll: true });
+        const container = list.current?.closest('.settings-page-content');
+        if (container) container.scrollTop = restore.top;
+      }
       return;
     }
     heading.current?.focus({ preventScroll: true });
     if (tab === 'my') {
       let active = true;
+      const cancellation = new AbortController();
       void controller
-        .integration(selected)
+        .integration(selected, cancellation.signal)
         .then((row) => {
           if (active) setDetail(row);
         })
@@ -170,12 +311,13 @@ export default function IntegrationsPage({
         });
       return () => {
         active = false;
+        cancellation.abort();
       };
     }
-  }, [controller, selected, tab]);
+  }, [controller, selected, tab, listKey]);
   useEffect(() => {
-    if (detail || preview) heading.current?.focus({ preventScroll: true });
-  }, [detail, preview]);
+    if (selected || preview) heading.current?.focus({ preventScroll: true });
+  }, [selected, detail, preview]);
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     setMessage('');
@@ -199,17 +341,39 @@ export default function IntegrationsPage({
       pending.id,
     );
     setMessage(result.message);
-    if (result.settled) remember(null);
+    if (result.settled) {
+      settleSetupOperation(pending.id);
+      remember(null);
+    }
     await load();
   };
   const inspect = async (item: IntegrationItem) => {
     if (!page) return;
-    const result = await controller.previewIntegration({
-      revision: page.revision,
-      item_id: item.id,
-    });
-    setPreview(result);
-    if (result.mcp) setConnectionName(result.mcp.name);
+    invalidateInspection();
+    const cancellation = new AbortController();
+    inspection.current = cancellation;
+    const request = inspectionGeneration.current;
+    const identity = inspectionIdentity.current;
+    const isCurrent = () =>
+      !cancellation.signal.aborted &&
+      request === inspectionGeneration.current &&
+      identity === inspectionIdentity.current;
+    setInspecting(true);
+    setMessage('');
+    try {
+      const result = await controller.previewIntegration(
+        { revision: page.revision, item_id: item.id },
+        cancellation.signal,
+      );
+      if (!isCurrent()) return;
+      setPreview(result);
+      if (result.mcp) setConnectionName(result.mcp.name);
+    } catch (error) {
+      if (isCurrent()) setMessage(clientError(error).message);
+    } finally {
+      // An obsolete request cannot clear a newer inspection's loading state.
+      if (isCurrent()) setInspecting(false);
+    }
   };
   const installSkill = (skill: SkillHubPreview) =>
     setReview({
@@ -228,9 +392,14 @@ export default function IntegrationsPage({
           make_available: false,
         });
         setMessage(result.message);
-        await controller.reconcileIntegrationOperation('skill', id);
-        retainCommand('integrations:skill', '');
-        setPending(null);
+        const recovered = await controller.reconcileIntegrationOperation(
+          'skill',
+          id,
+        );
+        if (recovered.settled) {
+          retainCommand('integrations:skill', '');
+          setPending(null);
+        }
         if (result.success) {
           setPreview(null);
           update({ tab: 'my', selected: 'skill:' + result.skill_name });
@@ -243,49 +412,54 @@ export default function IntegrationsPage({
     pluginId: string,
     previewId = '',
   ) => {
-    const value = await controller.reviewPluginLifecycle(
-      action,
-      pluginId,
-      undefined,
-      previewId,
+    const value = await setupOperations.run(() =>
+      controller.reviewPluginLifecycle(action, pluginId, undefined, previewId),
     );
     setReview({
       title: `${action === 'install' ? 'Add' : action === 'purge' ? 'Delete saved data for' : action} ${value.name}`,
       lines: [
         ...value.disclosures,
+        ...(value.changes ?? []),
+        `Permissions: ${value.permissions.join(', ') || 'None declared'}`,
         `Version: ${value.version || 'not declared'}`,
         `Source: ${value.source}`,
         `Digest: ${value.checksum || 'local revision review'}`,
       ],
-      apply: async () => {
-        const id = crypto.randomUUID();
-        remember({ kind: 'plugin', id });
-        const result = await controller.executePluginLifecycle({
-          command_id: id,
-          action,
-          plugin_id: pluginId,
-          preview_id: previewId,
-          revision: value.revision,
-        });
-        setMessage(result.message);
-        if (result.status !== 'uncertain') {
-          retainCommand('integrations:plugin', '');
-          setPending(null);
-        }
-        if (result.status === 'completed') {
-          setPreview(null);
-          setDetail(
-            action === 'purge'
-              ? null
-              : await controller.integration('plugin:' + pluginId),
+      apply: () =>
+        setupOperations.run(async () => {
+          const id = crypto.randomUUID();
+          setupOperations.retain(
+            'integration-lifecycle:plugin:' + pluginId,
+            id,
           );
-          update({
-            tab: 'my',
-            selected: action === 'purge' ? '' : 'plugin:' + pluginId,
+          remember({ kind: 'plugin', id });
+          const result = await controller.executePluginLifecycle({
+            command_id: id,
+            action,
+            plugin_id: pluginId,
+            preview_id: previewId,
+            revision: value.revision,
           });
-        }
-        await load();
-      },
+          setMessage(result.message);
+          if (result.status !== 'uncertain') {
+            settleSetupOperation(id);
+            retainCommand('integrations:plugin', '');
+            setPending(null);
+          }
+          if (result.status === 'completed') {
+            setPreview(null);
+            setDetail(
+              action === 'purge'
+                ? null
+                : await controller.integration('plugin:' + pluginId),
+            );
+            update({
+              tab: 'my',
+              selected: action === 'purge' ? '' : 'plugin:' + pluginId,
+            });
+          }
+          await load();
+        }),
     });
   };
   const addMcp = async () => {
@@ -388,6 +562,7 @@ export default function IntegrationsPage({
   };
   const selectedRow =
     detail ?? page?.items.find((row) => row.id === selected) ?? null;
+  const setupOperations = useSetupOperations(selectedRow);
   const rows = (page?.items ?? []).filter(
     (item) =>
       (type === 'all' ||
@@ -396,6 +571,7 @@ export default function IntegrationsPage({
       (tab === 'my' || unsupported || item.compatibility !== 'unsupported'),
   );
   const refreshDetail = async (removed = false) => {
+    savedPages.current.clear();
     if (removed) {
       setDetail(null);
       update({ selected: '' });
@@ -414,6 +590,23 @@ export default function IntegrationsPage({
         : Promise.resolve(),
     ]);
   };
+  if (catalogView && type && type !== 'all')
+    return (
+      <Catalogs
+        kind={type}
+        disabled={preferences.disabled}
+        onChange={(source, enabled) => {
+          savedPages.current.clear();
+          persist({
+            ...preferences,
+            disabled: enabled
+              ? preferences.disabled.filter((s) => s !== source)
+              : [...preferences.disabled, source],
+          });
+        }}
+        onBack={() => update({ view: '' })}
+      />
+    );
   if (advanced)
     return (
       <section className="stack">
@@ -427,99 +620,114 @@ export default function IntegrationsPage({
         >
           Back to integrations
         </Button>
-        {renderAdvanced(advanced)}
+        {selectedRow && selectedRow.kind === advanced
+          ? renderDetail(selectedRow, refreshDetail)
+          : renderAdvanced(advanced)}
       </section>
     );
   return (
-    <div className="integrations-page stack" aria-busy={busy}>
-      <div className="button-row" aria-label="Integration views">
-        <Button
-          variant={tab === 'my' ? 'primary' : 'secondary'}
-          aria-pressed={tab === 'my'}
-          onClick={() => update({ tab: 'my', selected: '' })}
-        >
-          My integrations
-        </Button>
-        <Button
-          variant={tab === 'discover' ? 'primary' : 'secondary'}
-          aria-pressed={tab === 'discover'}
-          onClick={() => update({ tab: 'discover', selected: '' })}
-        >
-          Discover
-        </Button>
-        <Button onClick={() => setAdd(true)}>Add integration</Button>
-      </div>
-      <form
-        className="integrations-filters"
-        onSubmit={(e) => {
-          e.preventDefault();
-          update({ q: draftQuery, selected: '' });
-          if (draftQuery === query) void load(tab === 'discover');
-        }}
-      >
-        <Input
-          aria-label="Search integrations"
-          value={draftQuery}
-          onChange={(e) => setDraftQuery(e.target.value)}
-          maxLength={256}
-          placeholder="Search integrations"
-        />
-        <Select
-          aria-label="Integration type"
-          value={type}
-          onChange={(e) => update({ type: e.target.value, selected: '' })}
-        >
-          <option value="all">All types</option>
-          <option value="skill">Skills</option>
-          <option value="mcp">MCP connections</option>
-          <option value="plugin">Packages</option>
-        </Select>
-        {tab === 'discover' && (
-          <Select
-            aria-label="Discovery source"
-            value={source}
-            onChange={(e) => update({ source: e.target.value, selected: '' })}
+    <div className="integrations-page stack" aria-busy={busy || inspecting}>
+      {!selected && !preview && (
+        <>
+          <nav
+            className={`integration-categories ${!type ? 'is-chooser' : ''}`}
+            aria-label="Integration categories"
           >
-            {[
-              'recommended',
-              'hermes',
-              'hermes_mcp',
-              'clawhub',
-              'skills_sh',
-              'official',
-              'native',
-            ].map((value) => (
-              <option key={value} value={value}>
-                {value === 'hermes_mcp'
-                  ? 'Hermes MCP recipes'
-                  : value === 'official'
-                    ? 'Official MCP Registry'
-                    : value === 'skills_sh'
-                      ? 'skills.sh'
-                      : value[0].toUpperCase() + value.slice(1)}
-              </option>
+            {categories.map((category) => (
+              <Button
+                key={category.kind}
+                aria-label={
+                  category.kind === 'mcp'
+                    ? 'Apps & tools · MCP'
+                    : category.label
+                }
+                aria-pressed={type === category.kind}
+                variant={type === category.kind ? 'primary' : 'secondary'}
+                onClick={() => {
+                  persist({ ...preferences, category: category.kind });
+                  update({
+                    type: category.kind,
+                    selected: '',
+                    tab: 'discover',
+                    q: '',
+                    view: '',
+                  });
+                }}
+              >
+                <strong>
+                  {category.label}
+                  {category.kind === 'mcp' ? ' · MCP' : ''}
+                </strong>
+                {!type && <span>{category.purpose}</span>}
+              </Button>
             ))}
-          </Select>
-        )}
-        <Button type="submit">Search</Button>
-        {tab === 'discover' && (
-          <Button
-            disabled={loading}
-            onClick={() =>
-              void (source === 'native'
-                ? run(() => packageAction('refresh', ''))
-                : load(true))
-            }
-          >
-            Search public source
-          </Button>
-        )}
-      </form>
-      {tab === 'discover' && (
-        <p className="muted">
-          Recommendations and saved results load locally. Search public source
-          contacts only the selected source.
-        </p>
+          </nav>
+          {type && (
+            <>
+              <p>
+                {categories.find((category) => category.kind === type)
+                  ?.purpose ??
+                  'Advanced inventory across all integration types.'}
+              </p>
+              <div className="button-row" aria-label="Integration views">
+                <Button
+                  variant={tab === 'discover' ? 'primary' : 'secondary'}
+                  aria-pressed={tab === 'discover'}
+                  disabled={type === 'all'}
+                  onClick={() => update({ tab: 'discover', selected: '' })}
+                >
+                  Discover
+                </Button>
+                <Button
+                  variant={tab === 'my' ? 'primary' : 'secondary'}
+                  aria-pressed={tab === 'my'}
+                  onClick={() => update({ tab: 'my', selected: '' })}
+                >
+                  Installed
+                </Button>
+                <Button
+                  onClick={() => {
+                    setImportKind(type === 'all' ? 'plugin' : type);
+                    setReference('');
+                    setLocal(false);
+                    setAdd(true);
+                  }}
+                >
+                  Add from link or file
+                </Button>
+              </div>
+              <form
+                className="integrations-filters"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  search();
+                }}
+              >
+                <Input
+                  aria-label="Search integrations"
+                  value={draftQuery}
+                  onChange={(e) => setDraftQuery(e.target.value)}
+                  maxLength={256}
+                  placeholder={
+                    tab === 'my'
+                      ? 'Filter installed integrations'
+                      : 'Find a service or capability'
+                  }
+                />
+                <Button type="submit">
+                  {tab === 'discover' ? 'Search' : 'Filter'}
+                </Button>
+              </form>
+              {tab === 'discover' && (
+                <p className="muted">
+                  Search sends your query to enabled public catalogs. Typing
+                  stays on this device; local snapshots never send a public
+                  query.
+                </p>
+              )}
+            </>
+          )}
+        </>
       )}
       {message && <p role="status">{message}</p>}
       {pending && (
@@ -527,25 +735,67 @@ export default function IntegrationsPage({
           Check original {pending.kind} operation
         </Button>
       )}
-      {page?.sources.map((value, i) => (
-        <p className="muted" key={`${value.source}:${i}`}>
-          {value.source}: {value.message || value.status}
-          {value.fetched_at
-            ? ` · Saved ${new Date(value.fetched_at * 1000).toLocaleString()}`
-            : ''}
-        </p>
-      ))}
-      {tab === 'discover' && (
-        <Toggle
-          label="Include unsupported entries"
-          checked={unsupported}
-          onChange={(e) => setUnsupported(e.target.checked)}
-        />
+      {!selected && !preview && type && tab === 'discover' && (
+        <>
+          {page?.sources.some(
+            (source) =>
+              source.eligibility === 'eligible' &&
+              [
+                'error',
+                'timeout',
+                'rate_limited',
+                'malformed',
+                'busy',
+                'partial',
+                'auth_required',
+              ].includes(source.status),
+          ) && (
+            <details className="integration-notice">
+              <summary>
+                Some catalogs unavailable. Available results are shown.
+              </summary>
+              {page.sources
+                .filter(
+                  (source) =>
+                    source.eligibility === 'eligible' &&
+                    !['live', 'cached', 'empty'].includes(source.status),
+                )
+                .map((source) => (
+                  <p key={source.source}>
+                    {sourceName(source.source)}:{' '}
+                    {source.message || source.status}
+                  </p>
+                ))}
+              <Button onClick={() => void load(true)}>Retry search</Button>
+            </details>
+          )}
+          {page?.sources.some((source) =>
+            ['cached', 'stale'].includes(source.status),
+          ) && (
+            <p className="muted">
+              Showing local snapshots or saved catalog results. Saved results
+              may be out of date; inspect an item before setup.
+            </p>
+          )}
+          <Field label="Include unsupported entries" layout="row">
+            <Toggle
+              label="Include unsupported entries"
+              checked={unsupported}
+              onChange={(e) =>
+                update({
+                  unsupported: e.target.checked ? '1' : '',
+                  selected: '',
+                })
+              }
+            />
+          </Field>
+        </>
       )}
       <div
         className={`integrations-layout ${selected || preview ? 'has-detail' : ''}`}
       >
         <div
+          hidden={Boolean(selected || preview || !type)}
           ref={list}
           tabIndex={-1}
           className="integrations-list"
@@ -555,12 +805,30 @@ export default function IntegrationsPage({
           {!loading && !rows.length && (
             <EmptyState
               title={
-                tab === 'my' ? 'No matching integrations' : 'No saved results'
+                message
+                  ? 'Catalog results unavailable'
+                  : tab === 'my'
+                    ? 'No matching installed integrations'
+                    : page?.sources.some(
+                          (source) =>
+                            [
+                              'error',
+                              'timeout',
+                              'unavailable',
+                              'auth_required',
+                              'rate_limited',
+                              'malformed',
+                              'busy',
+                            ].includes(source.status) &&
+                            source.eligibility === 'eligible',
+                        )
+                      ? 'Catalogs unavailable'
+                      : 'No matching results'
               }
             >
               {tab === 'my'
                 ? 'Add an integration or choose another filter.'
-                : 'Choose a source and search when you want to look online.'}
+                : 'Try another query or review enabled Catalogs. Search explicitly when you want current public results.'}
             </EmptyState>
           )}
           {rows.map((item) => (
@@ -568,25 +836,68 @@ export default function IntegrationsPage({
               className="integration-row"
               aria-label={item.name}
               key={item.id}
+              data-integration-id={item.id}
               aria-pressed={selected === item.id}
-              onClick={() => update({ selected: item.id })}
+              onClick={() => {
+                returnTo.current.set(listKey, {
+                  id: item.id,
+                  top:
+                    list.current?.closest('.settings-page-content')
+                      ?.scrollTop ?? 0,
+                });
+                update({ selected: item.id });
+              }}
             >
               <span>
                 <strong>{item.name}</strong>
-                <small>{item.description}</small>
+                <small className="integration-purpose">
+                  {item.description}
+                </small>
                 <small>
-                  {item.kind} · {item.source}
+                  {item.publisher
+                    ? `By ${item.publisher}`
+                    : 'Publisher not supplied'}{' '}
+                  · {sourceName(item.source)}
+                  {(item.attributions?.length ?? 0) > 1
+                    ? ` · Also found in ${item
+                        .attributions!.filter((a) => a.source !== item.source)
+                        .map((a) => sourceName(a.source))
+                        .join(', ')}`
+                    : ''}
+                  {item.kind === 'skill' && item.installed
+                    ? item.source === 'bundled' || item.source === 'builtin'
+                      ? ' · Built-in skill'
+                      : ' · Added skill'
+                    : ''}
                   {item.children.length
                     ? ` · ${item.children.length} included`
                     : ''}
                 </small>
+                {item.children
+                  .filter((child) => child.kind === type)
+                  .map((child) => (
+                    <small key={child.id}>
+                      {child.name} · Included with {item.name}; managed by this
+                      plugin
+                    </small>
+                  ))}
+                {tab === 'discover' && (
+                  <small>
+                    {setupLabel(item)} ·{' '}
+                    {item.compatibility === 'not_inspected'
+                      ? 'Compatibility not yet verified'
+                      : item.compatibility}
+                  </small>
+                )}
               </span>
               <span className="integration-status">
-                {statusLabels[item.status] ?? item.status}
+                {item.installed
+                  ? (statusLabels[item.status] ?? item.status)
+                  : 'View details'}
               </span>
             </Button>
           ))}
-          {page?.next_cursor && tab === 'my' && (
+          {page?.next_cursor && (
             <Button
               disabled={loading}
               onClick={() => void load(false, page.next_cursor!)}
@@ -595,6 +906,18 @@ export default function IntegrationsPage({
             </Button>
           )}
         </div>
+        {selected && !selectedRow && !preview && (
+          <section>
+            <Button onClick={() => update({ selected: '' })}>
+              Back to integrations
+            </Button>
+            <p role="status">
+              {loading
+                ? 'Loading integration details'
+                : 'This item is no longer in the saved results. Return to search or Installed.'}
+            </p>
+          </section>
+        )}
         {(selectedRow || preview) && (
           <section
             className="integration-detail stack"
@@ -619,9 +942,44 @@ export default function IntegrationsPage({
               <>
                 <p>{selectedRow.description}</p>
                 <p>
-                  {statusLabels[selectedRow.status]} ·{' '}
-                  {selectedRow.publisher || selectedRow.source}
+                  {tab === 'my'
+                    ? setupOperations.blocked
+                      ? 'Operation needs checking'
+                      : statusLabels[selectedRow.status]
+                    : 'Available to inspect'}{' '}
+                  · {selectedRow.publisher || selectedRow.source}
                 </p>
+                {tab === 'discover' && (
+                  <>
+                    <p>{setupLabel(selectedRow)}</p>
+                    <p>
+                      Compatibility:{' '}
+                      {selectedRow.compatibility === 'not_inspected'
+                        ? 'Not yet verified'
+                        : selectedRow.compatibility}
+                    </p>
+                    <details>
+                      <summary>Source and provenance</summary>
+                      <p>
+                        {sourceName(selectedRow.source)} ·{' '}
+                        {selectedRow.publisher || 'Publisher not supplied'}
+                      </p>
+                      <p>{selectedRow.evidence}</p>
+                      <p>
+                        Version: {selectedRow.version || 'not supplied'} ·
+                        License: {selectedRow.license || 'not supplied'}
+                      </p>
+                      {selectedRow.attributions?.map((attribution, index) => (
+                        <p key={`${attribution.source}:${index}`}>
+                          {sourceName(attribution.source)} ·{' '}
+                          {attribution.publisher || 'Publisher not supplied'} ·{' '}
+                          {attribution.url}
+                        </p>
+                      ))}
+                      <code>{selectedRow.pin || selectedRow.revision}</code>
+                    </details>
+                  </>
+                )}
                 {selectedRow.reasons.map((reason, i) => (
                   <p key={i}>{reason}</p>
                 ))}
@@ -629,28 +987,19 @@ export default function IntegrationsPage({
             )}
             {tab === 'discover' && selectedRow && !preview && (
               <Button
-                disabled={busy || selectedRow.compatibility === 'unsupported'}
-                onClick={() => void run(() => inspect(selectedRow))}
+                disabled={
+                  busy ||
+                  inspecting ||
+                  selectedRow.compatibility === 'unsupported'
+                }
+                onClick={() => void inspect(selectedRow)}
               >
                 Inspect integration
               </Button>
             )}
             {preview?.skill && (
               <>
-                <pre className="text-preview">{preview.skill.primary_text}</pre>
-                <details>
-                  <summary>
-                    {preview.skill.files.length} included files and checks
-                  </summary>
-                  <ul>
-                    {preview.skill.files.map((file) => (
-                      <li key={file}>{file}</li>
-                    ))}
-                  </ul>
-                  {preview.skill.scan.findings.map((f, i) => (
-                    <p key={i}>{f.message}</p>
-                  ))}
-                </details>
+                <SkillReview preview={preview.skill} />
                 <Button
                   disabled={
                     busy || Boolean(pending) || preview.skill.scan.blocked
@@ -725,6 +1074,18 @@ export default function IntegrationsPage({
                     maxLength={128}
                   />
                 </Field>
+                <p>
+                  Review the destination and execution settings before saving.
+                  Metadata inspection has not executed this connection.
+                  Subscription and cost requirements are unknown unless
+                  explicitly stated below.
+                </p>
+                <details>
+                  <summary>
+                    Connection destination and reviewed configuration
+                  </summary>
+                  <pre className="text-preview">{preview.mcp.import_json}</pre>
+                </details>
                 {preview.mcp.notes.map((note, i) => (
                   <p key={i}>{note}</p>
                 ))}
@@ -732,40 +1093,56 @@ export default function IntegrationsPage({
                   disabled={busy || Boolean(pending) || !connectionName}
                   onClick={() => void run(addMcp)}
                 >
-                  Add connection
+                  {setupAction(preview.mcp.import_json)}
                 </Button>
               </>
             )}
             {tab === 'my' && selectedRow && !preview && (
               <>
+                <ProfileContext />
+                <TryInChat item={selectedRow} />
                 {selectedRow.kind === 'mcp' ? (
                   <McpSetup
                     key={selectedRow.id}
                     item={selectedRow}
                     onChanged={refreshDetail}
                   />
-                ) : selectedRow.installed ? (
-                  renderDetail(selectedRow, refreshDetail)
+                ) : selectedRow.installed && selectedRow.kind === 'skill' ? (
+                  <SkillSetup
+                    key={selectedRow.id}
+                    item={selectedRow}
+                    onChanged={refreshDetail}
+                    onAdvanced={() => setAdvanced('skill')}
+                  />
+                ) : selectedRow.installed && selectedRow.kind === 'plugin' ? (
+                  <PluginSetup
+                    key={selectedRow.id}
+                    item={selectedRow}
+                    onChanged={refreshDetail}
+                    onAdvanced={() => setAdvanced('plugin')}
+                  />
                 ) : null}
-                {selectedRow.children.length > 0 && (
-                  <section className="stack">
-                    <h3>Included with {selectedRow.name}</h3>
-                    {selectedRow.children.map((child) => (
-                      <details key={child.id}>
-                        <summary>
-                          {child.name} · {child.kind}
-                        </summary>
-                        {child.kind === 'mcp' ? (
-                          <McpSetup item={child} onChanged={refreshDetail} />
-                        ) : (
-                          <p>
-                            Supplied by this package. Its files and availability
-                            follow the parent package.
-                          </p>
-                        )}
-                      </details>
-                    ))}
-                  </section>
+                {selectedRow.kind === 'skill' &&
+                  selectedRow.installed &&
+                  [
+                    'github',
+                    'clawhub',
+                    'skills_sh',
+                    'browse_sh',
+                    'lobehub',
+                  ].includes(selectedRow.source) && (
+                    <SkillMaintenance
+                      item={selectedRow}
+                      onChanged={refreshDetail}
+                    />
+                  )}
+                {selectedRow.kind === 'mcp' && (
+                  <Button
+                    disabled={setupOperations.blocked}
+                    onClick={() => setAdvanced('mcp')}
+                  >
+                    Advanced connection configuration
+                  </Button>
                 )}
                 {selectedRow.kind === 'plugin' && (
                   <div className="button-row">
@@ -787,7 +1164,9 @@ export default function IntegrationsPage({
                       .map((action) => (
                         <Button
                           key={action}
-                          disabled={busy || Boolean(pending)}
+                          disabled={
+                            busy || Boolean(pending) || setupOperations.blocked
+                          }
                           onClick={() =>
                             void run(() =>
                               packageAction(action, selectedRow.owner_ref),
@@ -809,6 +1188,7 @@ export default function IntegrationsPage({
                       ))}
                     {selectedRow.source_url && (
                       <Button
+                        disabled={setupOperations.blocked}
                         onClick={() =>
                           void run(async () => {
                             setPreview(
@@ -847,28 +1227,52 @@ export default function IntegrationsPage({
           </section>
         )}
       </div>
-      <details className="integrations-advanced">
-        <summary>Advanced configuration and existing editors</summary>
-        <div className="button-row">
-          {(['skill', 'mcp'] as const).map((kind) => (
-            <Button key={kind} onClick={() => setAdvanced(kind)}>
-              {kind === 'skill'
-                ? 'Create, import, pin and maintain skills'
-                : kind === 'mcp'
-                  ? 'Custom MCP configuration and chat access'
-                  : 'Native plugin configuration'}
+      {!selected && !preview && (
+        <details className="integrations-advanced">
+          <summary>Advanced configuration and existing editors</summary>
+          <div className="button-row">
+            {type && type !== 'all' && (
+              <Button onClick={() => update({ view: 'catalogs' })}>
+                Catalogs
+              </Button>
+            )}
+            <Button
+              onClick={() => update({ type: 'all', tab: 'my', selected: '' })}
+            >
+              All types inventory
             </Button>
-          ))}
-        </div>
-      </details>
+            {(['skill', 'mcp', 'plugin'] as const).map((kind) => (
+              <Button key={kind} onClick={() => setAdvanced(kind)}>
+                {kind === 'skill'
+                  ? 'Create, import, pin and maintain skills'
+                  : kind === 'mcp'
+                    ? 'Custom MCP configuration and chat access'
+                    : 'Native plugin configuration'}
+              </Button>
+            ))}
+          </div>
+        </details>
+      )}
       <ModalTask
         description="Inspect a supported source before adding it."
         open={add}
         onOpenChange={setAdd}
-        title="Add integration"
-        ariaLabel="Add integration"
+        title="Add from link or file"
+        ariaLabel="Add from link or file"
       >
         <div className="stack">
+          {importKind !== 'plugin' && (
+            <Button
+              onClick={() => {
+                setAdd(false);
+                setAdvanced(importKind);
+              }}
+            >
+              {importKind === 'skill'
+                ? 'Import a skill file or create a skill'
+                : 'Import custom MCP configuration'}
+            </Button>
+          )}
           <Field label="Import type">
             <Select
               value={importKind}
@@ -891,11 +1295,13 @@ export default function IntegrationsPage({
             />
           </Field>
           {importKind === 'plugin' && (
-            <Toggle
-              label="Import from this computer"
-              checked={local}
-              onChange={(e) => setLocal(e.target.checked)}
-            />
+            <Field label="Import from this computer" layout="row">
+              <Toggle
+                label="Import from this computer"
+                checked={local}
+                onChange={(e) => setLocal(e.target.checked)}
+              />
+            </Field>
           )}
           <p>
             Inspection contacts the specified public source or reads the

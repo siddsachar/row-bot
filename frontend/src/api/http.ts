@@ -1180,6 +1180,19 @@ export class HttpTransport implements ClientTransport {
   ) {
     return wire.getIntegrations(this.base, this.session(), options, signal);
   }
+  integrationUse(
+    conversation: string,
+    integration: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getIntegrationUse(
+      this.base,
+      this.session(),
+      conversation,
+      integration,
+      signal,
+    );
+  }
   integration(integration: string, signal?: AbortSignal) {
     return wire.getIntegration(this.base, this.session(), integration, signal);
   }

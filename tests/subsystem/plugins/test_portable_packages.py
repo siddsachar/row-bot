@@ -63,7 +63,7 @@ def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_rea
             if path.is_file() and not path.name.endswith((".db-shm", ".db-wal"))}
     before = contents()
     row = read_integration("plugin:" + identity)
-    assert row["status"] == "setup"
+    assert row["status"] == "attention"
     assert next(child for child in row["children"] if child["kind"] == "skill")["status"] == "ready"
     assert next(child for child in row["children"] if child["kind"] == "mcp")["status"] == "setup"
     assert any("notes" in reason and "accept" in reason for reason in row["reasons"])
@@ -80,10 +80,10 @@ def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_rea
         validate=lambda: None, validate_review=lambda _: None)
     assert receipt["status"] == "completed"
     row = read_integration("plugin:" + identity)
-    assert row["status"] == "ready"
+    assert row["status"] == "attention"
     assert next(child for child in row["children"] if child["kind"] == "mcp")["status"] == "off"
     state.set_plugin_enabled(identity, False)
-    assert read_integration("plugin:" + identity)["status"] == "off"
+    assert read_integration("plugin:" + identity)["status"] == "attention"
 
 
 def test_portable_lifecycle_preserves_bytes_identity_data_and_enablement(tmp_path, plugin_modules):
@@ -154,3 +154,39 @@ def test_withdrawn_source_cannot_be_activated_and_keeps_installed_files(tmp_path
         state.set_plugin_enabled(identity, True)
     assert not state.is_plugin_enabled(identity)
     assert (installer.PLUGINS_DIR / identity / "plugin.json").is_file()
+
+
+def test_subdirectory_update_source_preserves_parent_and_child_identities(tmp_path, plugin_modules, monkeypatch):
+    import io
+    import zipfile
+    from row_bot.application.plugin_commands import read_integration_packages
+    from row_bot.plugins import hermes_catalog
+
+    installer = plugin_modules["installer"]
+    identity = package_id(SOURCE, "example.notes")
+    assert installer.install_plugin(identity, source_dir=package(tmp_path / "first"), source_ref=SOURCE).success
+    row = next(row for row in read_integration_packages(validate=lambda: None) if row["plugin_id"] == identity)
+    assert row["source_url"] == "https://github.com/example/portable/tree/HEAD/package"
+    updated = package(tmp_path / "updated", version="preview-2")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path in updated.rglob("*"):
+            if path.is_file():
+                archive.writestr("repo-pin/package/" + path.relative_to(updated).as_posix(), path.read_bytes())
+    calls = []
+    def download(url, **kwargs):
+        calls.append(url)
+        if url == "https://api.github.com/repos/example/portable/commits/HEAD":
+            return json.dumps({"sha": "b" * 40}).encode()
+        assert url == "https://codeload.github.com/example/portable/zip/" + "b" * 40
+        return buffer.getvalue()
+    monkeypatch.setattr(hermes_catalog, "_public_bytes", download)
+    preview = hermes_catalog.inspect_package(owner_id="fixture", reference=row["source_url"])
+    assert preview["plugin_id"] == identity and preview["version"] == "preview-2"
+    assert len(calls) == 2
+    staged = hermes_catalog.get_preview("fixture", preview["preview_id"])
+    assert staged.source_identity == SOURCE
+    assert installer.update_plugin(identity, source_dir=staged.root, source_ref=staged.source_identity).success
+    after = next(row for row in read_integration_packages(validate=lambda: None) if row["plugin_id"] == identity)
+    assert after["children"] == row["children"]
+    assert after["recoverable"]

@@ -3,6 +3,16 @@
     "IntegrationMcpPreview": {
       "additionalProperties": false,
       "properties": {
+        "auth_requirement": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "required",
+            "none"
+          ],
+          "title": "Auth Requirement",
+          "type": "string"
+        },
         "import_json": {
           "maxLength": 131072,
           "title": "Import Json",
@@ -306,6 +316,12 @@
           "maxLength": 80,
           "title": "Trust Level",
           "type": "string"
+        },
+        "url": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
         }
       },
       "required": [
@@ -361,6 +377,14 @@
     "SkillHubPreview": {
       "additionalProperties": false,
       "properties": {
+        "changes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 300,
+          "title": "Changes",
+          "type": "array"
+        },
         "content_hash": {
           "pattern": "^[0-9a-f]{64}$",
           "title": "Content Hash",
@@ -387,6 +411,30 @@
           "title": "Primary Text",
           "type": "string"
         },
+        "provenance": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "requirements": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Requirements",
+          "type": "array"
+        },
+        "review_files": {
+          "items": {
+            "$ref": "#/$defs/SkillHubReviewFile"
+          },
+          "maxItems": 100,
+          "title": "Review Files",
+          "type": "array"
+        },
         "scan": {
           "$ref": "#/$defs/SkillHubScanView"
         },
@@ -398,6 +446,12 @@
         "skill_name": {
           "maxLength": 160,
           "title": "Skill Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Version",
           "type": "string"
         }
       },
@@ -412,6 +466,57 @@
         "scan"
       ],
       "title": "SkillHubPreview",
+      "type": "object"
+    },
+    "SkillHubReviewFile": {
+      "additionalProperties": false,
+      "properties": {
+        "executable": {
+          "title": "Executable",
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 1024,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 1000000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "unavailable_reason": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Unavailable Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256",
+        "executable"
+      ],
+      "title": "SkillHubReviewFile",
       "type": "object"
     },
     "SkillHubScanView": {
