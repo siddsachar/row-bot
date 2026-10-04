@@ -614,7 +614,21 @@ export default function CapabilitySettings({
   );
   useEffect(() => {
     const current = session.getSnapshot();
-    if (!current.active || current.page || current.busy) return;
+    if (!current.active || current.busy) return;
+    if (current.page) {
+      // Opened again: show what is saved and running now (a plan may have changed it), keeping any draft.
+      const abort = session.beginRead();
+      void load({ query: current.filter, cursor: current.cursor }, abort.signal)
+        .then(
+          (result) => {
+            if (!abort.signal.aborted && result.items.length <= 50)
+              session.update({ page: boundedPage(result) });
+          },
+          () => undefined, // The page already shown stays; the next review reads again.
+        )
+        .finally(() => session.endRead(abort));
+      return;
+    }
     const abort = session.beginRead();
     session.update({ busy: 'load' });
     void load({ query: current.filter, cursor: current.cursor }, abort.signal)

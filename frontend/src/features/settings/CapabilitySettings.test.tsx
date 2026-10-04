@@ -425,8 +425,9 @@ it('preserves the exact unsent draft across full unmount', async () => {
     '--exact',
   ]);
   expect(props.session.hasRetained()).toBe(false);
-  // The saved list is read again and the dialog closes on an empty draft.
-  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
+  // Read on opening, again on reopening (keeping the draft) and after saving;
+  // the dialog closes on an empty draft.
+  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(3));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.queryByText(/You have an unsaved server/)).toBeNull();
 });

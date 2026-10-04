@@ -42,8 +42,11 @@ function UseApps() {
   const [error, setError] = useState('');
   const read = useCallback(
     (signal?: AbortSignal) =>
-      controller
-        .mcpPolicy({ server_id: null, query: '' }, signal)
+      // A runtime without MCP settings shows the switch as unknown.
+      Promise.resolve()
+        .then(() =>
+          controller.mcpPolicy({ server_id: null, query: '' }, signal),
+        )
         .then(setPage),
     [controller],
   );

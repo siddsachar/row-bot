@@ -1684,6 +1684,8 @@ async function turnOff(page: Page) {
     .getByRole('button', { name: 'Turn off', exact: true })
     .click();
   await expect(page.getByText('Off', { exact: true })).toBeVisible();
+  // The plan has finished once it says so, including stopping the session.
+  await expect(page.getByText('Turned off.', { exact: true })).toBeVisible();
 }
 
 /**
