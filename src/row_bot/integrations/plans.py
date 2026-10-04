@@ -621,7 +621,8 @@ def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
     record["_commands"][step["id"] + ":" + stage] = command
     _save(record)
     ctx.runtimes.execute(command, owner_id=ctx.owner_id, key=command["command_id"], validate=ctx.validate,
-        read_policy=ctx.read_policy, validate_review=lambda value: _bound(asdict(review))(asdict(value)))
+        read_policy=ctx.read_policy,
+        validate_review=lambda value: _bound({"action_digest": review.action_digest})({"action_digest": value.action_digest}))
     return "running"
 
 

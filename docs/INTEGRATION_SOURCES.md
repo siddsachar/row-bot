@@ -71,7 +71,10 @@ is CC0; that does not license packages or imply endorsement.
 
 `POST /api/v1/settings/integrations/search` accepts `kind`, `query`, optional
 `sources`, `refresh`, `refresh_catalogs`, `include_incompatible`, `cursor` and
-`limit` (1-96, default 50). Omit sources for the selected type's eligible catalogs.
+`limit` (1-96, default 50). Omit sources for the selected type's eligible catalogs;
+source ids come from `GET /api/v1/integrations/sources`, and the server rejects
+unknown ids. The typed `POST /api/v1/integrations/items/search` takes the same
+request.
 `refresh=false` is passive/cache-only, including pasted query drafts. An explicit
 Search uses `refresh=true`; Registry metadata still searches locally. Source
 settings can request the named unavailable sources to inspect their typed
@@ -85,19 +88,23 @@ and propagates cancellation before source cache publication. In-flight blocking
 transport reads can finish within their transport timeout; they cannot publish a
 cancelled search revision. No forced process termination is involved.
 
-Ranking is deterministic: textual relevance, dated metadata inspection evidence,
-then interleaved source positions for equal scores and stable name/identity ties.
-There is no LLM, popularity-as-safety score or first-source global 96-row cap.
+Ranking is deterministic: exact name, a reviewed app identity, textual relevance
+(including the app's synonyms and jobs), inspection evidence, then source
+precedence and stable name/identity ties. There is no LLM, popularity-as-safety
+score or first-source global 96-row cap.
 Pagination uses the retained merged result, not another public search. Cursors
 bind owner, query, type, source set and incompatible filter for 20 minutes;
 expired cursors require a new search. Source adapters retain their bounded fetch
 limits, so results do not claim exhaustive upstream coverage.
 
-`IntegrationItem` adds `attributions`, `canonical_identity`, `evidence_stage` and
-`auth_requirement`. Unknown auth stays unknown. Uninspected rows stay
-`not_inspected`/`discover`, never ready. Known incompatible rows are hidden unless
-requested. Full endpoint recipes or full pinned repository/subpath identities
-permit merging; labels never do. Merged rows retain source-specific attributions.
+`IntegrationItem` adds `attributions`, `canonical_identity`, `evidence_stage`
+(`listed` or `inspected`), `tested_with_row_bot` and `auth_requirement`. Unknown
+auth stays unknown. Uninspected rows stay `not_inspected`/`discover`, never ready.
+Known incompatible rows appear only when searched for (or requested), with their
+reason. One deployment (transport and endpoint, package and version, or the
+Registry record when there is no recipe) or one pinned repository/subpath merges
+into the record of the most reviewed source; labels never merge. Merged rows keep
+every source's attribution.
 `IntegrationSourceStatus` adds typed eligibility/access, enablement, snapshot
 version/digest, fetched time and truncation. Installed inventory remains local.
 Existing preview references remain owner-bound; setup, secrets, approvals,

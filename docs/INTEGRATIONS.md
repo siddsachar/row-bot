@@ -146,3 +146,41 @@ actual supported OS/runtime; catalog metadata alone is insufficient. Windows nat
 browser/callback behavior, macOS desktop behavior and Linux server callback behavior
 need their respective hosts. Installer, signing, notarization and release checks are
 outside this continuation. Landing media refresh remains with the landing task.
+
+## Apps & Skills model (row_bot.integrations)
+
+The domain package composes the owners above; it never replaces them.
+
+- `apps.py` and `apps.json`: curated app identities. A record attaches only through a
+  reviewed reference (curated recipe, Registry namespace, endpoint host, package or
+  repository). Anything else is a community entry. To add an app, add one record.
+- `sources.py`: one adapter per catalog with server-side eligibility. To add a
+  source, add one adapter and register it; clients read the list from
+  `GET /api/v1/integrations/sources`.
+- `facts.py`: typed owner facts and status v2. `lifecycle` and `readiness` come with
+  every `blocker` and exactly one `next_action`. Static facts are indexed by owner
+  fingerprints. Live runtime state, requirements and unfinished changes are applied
+  on each read, and unfinished owner commands are reconciled there: settled when
+  proven, never repeated.
+- `plans.py`: install plans and the runner.
+  - Every step type exists in the contract. Steps not implemented yet are marked
+    `unsupported` with a reason, and such a plan cannot start.
+  - Starting requires the consent token from `POST /api/v1/integrations/plans/review`,
+    bound to the session and the plan digest.
+  - The runner records each owner command before sending it, so a retry replays or
+    reconciles it.
+  - A plan pauses only for a browser sign-in, a missing key, access to newly
+    discovered tools, or a finished background step.
+- `presets.py`: Read only, Ask before changes (default) and Full access on the
+  existing per-tool policy. Destructive, approval-declaring and unknown-effect tools
+  stay approval-locked under every preset. Because the effect classifier treats every
+  recognised change as destructive, Full access currently differs from Ask before
+  changes only for browser-interaction tools. Approvals at invocation are unchanged.
+- `safe.py`: the one catalog fetcher, link cleaner, preview cache and file writer.
+  - Fetches are https only, with no environment proxies.
+  - Hosts are either reviewed or must resolve to public addresses only.
+  - Every redirect hop is rechecked, and credentials never cross hosts.
+  - Responses are size-capped.
+
+MCP owner functions take an explicit `target` (standalone or one package child);
+there is no ambient target.

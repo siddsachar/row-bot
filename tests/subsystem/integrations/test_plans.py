@@ -217,3 +217,83 @@ def test_changing_access_later_applies_a_preset_without_retesting(item, owner):
     assert presets.current(saved_tools()) == "read_only"
     assert saved_tools()["enabled"] == {"get_record": True, "delete_record": False, "unrecognized": False}
     assert "list_tools" not in owner.calls[len(calls):], "changing access does not run the server's discovery again"
+
+
+class FakeRuntimes:
+    """The managed runtime installer's surface: reviewed, background, receipt-observed."""
+
+    def __init__(self):
+        self.started, self.status = [], {}
+
+    def review(self, *, owner_id, runtime_id, operation, resource_revision, source_command_id, validate, read_policy):
+        from types import SimpleNamespace
+        return SimpleNamespace(runtime_id=runtime_id, operation=operation, resource_revision=resource_revision,
+                               source_command_id=source_command_id, action_digest=operation + "-digest")
+
+    def execute(self, command, *, owner_id, key, validate, read_policy, validate_review):
+        validate_review(self.review(owner_id=owner_id, runtime_id="node", operation=command["type"].rsplit(".", 1)[1],
+            resource_revision=command["payload"]["resource_revision"], source_command_id=command["payload"]["source_command_id"],
+            validate=validate, read_policy=read_policy))
+        self.started.append(command["type"])
+        self.status[key] = "accepted"
+        return {"command_id": key, "status": "accepted"}
+
+    def receipt(self, *, owner_id, runtime_id, command_id, validate):
+        return {"command_id": command_id, "status": self.status[command_id], "installation": {"quiesced": False}}
+
+
+def test_node_and_package_preparation_run_in_the_background_and_resume(item, owner, monkeypatch):
+    from row_bot.application import mcp_runtime_installation as installation
+    from row_bot.mcp_client import requirements
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Synthetic"].update(command="npx", args=["-y", "fixture-mcp@1.0.0"])
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    facts.invalidate()
+    monkeypatch.setattr(facts, "_requirements", lambda cfg: [{"id": "node", "label": "Node.js", "available": False,
+        "managed": True, "installable": True, "source": "missing"}])
+    monkeypatch.setattr(requirements, "runtime_install_revision", lambda runtime: "r" * 64)
+    prepared = []
+    monkeypatch.setattr(installation, "inspect_mcp_package", lambda **k: {"preview_id": "p", "digest": "d", "action_digest": "a"})
+
+    def prepare(**k):
+        k["validate_review"]({"action_digest": "a"})
+        prepared.append(k["command_id"])
+        return {"status": "completed"}
+    monkeypatch.setattr(installation, "prepare_mcp_package", prepare)
+    _, plan = review(item)
+    assert [s["runtime"]["id"] for s in plan["steps"] if s["type"] == "runtime"] == ["node", "npm_package"]
+    assert plan["consent"]["downloads"] == ["Node.js", "npm package"]
+    runtimes, plan_id = FakeRuntimes(), str(uuid4())
+    ctx = context(runtimes=runtimes, read_policy=lambda operation: {})
+    running = api.start_plan(ctx, plan_id=plan_id, item_id=item, digest=plan["digest"])
+    assert running["state"] == "running" and runtimes.started == ["mcp.runtime.resolve"]
+    assert plans.read_plan(ctx, plan_id)["state"] == "running", "a read never starts the next stage"
+    runtimes.status = {key: "completed" for key in runtimes.status}
+    assert plans.read_plan(ctx, plan_id)["pause"] == "resume"
+    assert plans.resume(ctx, plan_id)["state"] == "running" and runtimes.started[-1] == "mcp.runtime.install"
+    runtimes.status = {key: "completed" for key in runtimes.status}
+    monkeypatch.setattr(facts, "_requirements", lambda cfg: [])
+    paused = plans.resume(ctx, plan_id)
+    assert paused["pause"] == "access" and len(prepared) == 1
+    assert runtimes.started == ["mcp.runtime.resolve", "mcp.runtime.install"]
+
+
+def test_adding_a_skill_checks_it_then_adds_it_turned_on(tmp_path, monkeypatch, reload_for_data_dir):
+    from row_bot.application import client_skill_hub as hub
+    from row_bot.skills_hub.installer import InstallResult
+    from tests.subsystem.client_protocol.test_skill_hub_api import _fake_catalog
+    reload_for_data_dir(tmp_path, "row_bot.tasks")
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    _fake_catalog(monkeypatch)
+    installed = []
+    monkeypatch.setattr(hub.installer, "install_bundle", lambda bundle, *, enabled: installed.append(enabled)
+                        or InstallResult(True, "Skill installed.", skill_name="sample"))
+    page = api.search_integrations(owner_id="owner", sources=["clawhub"], query="sample", refresh=True)
+    item_id = page["items"][0]["id"]
+    _, plan = review(item_id, revision=page["revision"])
+    assert plan["intent"] == "add" and [s["type"] for s in plan["steps"]] == ["consent", "test", "enable"]
+    with pytest.raises(ValueError, match="not_found"):
+        review(item_id)  # Without this owner's search, a public listing is not resolvable.
+    done = api.start_plan(context(), plan_id=str(uuid4()), item_id=item_id, revision=page["revision"], digest=plan["digest"])
+    assert done["state"] == "completed", done
+    assert installed == [True], "Add installs the checked bundle once, turned on"
