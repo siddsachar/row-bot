@@ -59,6 +59,27 @@ def _public_address(host: str, refused: str) -> str:
     return str(addresses[0])
 
 
+def proxy_for(host: str) -> str | None:
+    """The system or environment proxy for a reviewed host, or None to connect directly.
+
+    Reads the environment, the Windows registry or macOS settings through the
+    standard library; only http(s) proxies are used, and PAC scripts are not run."""
+    import urllib.request
+    try:
+        proxies = urllib.request.getproxies()
+        if not proxies or urllib.request.proxy_bypass(host):
+            return None
+    except (OSError, ValueError, TypeError):
+        return None
+    proxy = proxies.get("https") or proxies.get("all") or ""
+    try:
+        parts = urlsplit(proxy)
+        parts.port  # A malformed port raises here.
+    except ValueError:
+        return None
+    return proxy if parts.scheme in {"http", "https"} and parts.hostname else None
+
+
 class _Pinned(httpx.HTTPTransport):
     """Connect to the checked address while TLS and Host keep the reviewed name."""
 
@@ -78,11 +99,14 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
           headers: Mapping[str, str] | None = None, redirects: int = 0,
           exact_redirects: Mapping[str, str] | None = None, meta: dict | None = None,
           refused: str = "package_source_not_supported", too_large: str = "package_download_too_large") -> bytes:
-    """Bounded https GET without environment proxies or automatic redirects.
+    """Bounded https GET without automatic redirects.
 
-    ``hosts`` is a reviewed allow-list; ``None`` admits any public name, which is
-    resolved and connected to only at a global address. Each redirect hop is
-    checked again, and credentials never cross to another host. An exact
+    ``hosts`` is a reviewed allow-list; ``None`` admits any public name. A direct
+    connection is made only to a checked global address. A reviewed host (and only
+    a reviewed host) goes through the system or environment proxy when one is set:
+    the proxy then resolves the name, so the address check cannot apply there and
+    the allow-list is the guard. Each redirect hop is checked again, its proxy is
+    chosen again, and credentials never cross to another host. An exact
     ``source -> destination`` pair allows one reviewed migration off the list.
     Bodies are never decompressed, so ``max_bytes`` bounds what is held, and the
     whole fetch has one deadline as well as the per-read ``timeout``. ``meta``
@@ -99,7 +123,10 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
         if previous and urlsplit(previous).hostname != parts.hostname:
             sent = {key: value for key, value in sent.items() if key.lower() not in _CREDENTIALS}
         options: dict[str, Any] = {"timeout": timeout, "follow_redirects": False, "trust_env": False}
-        if allowed is None:
+        proxy = proxy_for(parts.hostname) if allowed is not None else None
+        if proxy:
+            options["proxy"] = proxy
+        else:
             options["transport"] = _Pinned(parts.hostname, _public_address(parts.hostname, refused))
         # A fresh client per hop: no cookie or connection state crosses origins.
         with httpx.Client(**options) as client:

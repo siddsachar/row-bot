@@ -10,18 +10,45 @@ from row_bot.integrations import safe
 ALLOWED = {"catalog.example"}
 
 
+class Sent(list):
+    """Requests that reached a fake server, the proxy each client was given (None: direct),
+    and the names resolved for direct connections."""
+    proxies: list
+    resolved: list
+
+
+def reached(request: httpx.Request) -> str:
+    """The reviewed URL a request was for, also when it was pinned to an address."""
+    return "https://" + request.headers["host"] + request.url.path
+
+
+@pytest.fixture(autouse=True)
+def no_system_proxy(monkeypatch):
+    """Tests see only the proxy environment they set, never this machine's settings."""
+    import urllib.request
+    for name in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(urllib.request, "getproxies", urllib.request.getproxies_environment)
+    monkeypatch.setattr(urllib.request, "proxy_bypass",
+                        lambda host: urllib.request.proxy_bypass_environment(host, urllib.request.getproxies_environment()))
+
+
 @pytest.fixture
 def http(monkeypatch):
-    """Serve reviewed hosts from a handler; open fetches resolve through a fake DNS."""
-    client_type, sent = httpx.Client, []
+    """Serve hosts from a handler; every direct connection resolves through a fake DNS."""
+    client_type, sent = httpx.Client, Sent()
+    sent.proxies = []
 
     def install(handler, addresses=None):
+        resolved = {"catalog.example": ["93.184.216.34"], "mirror.example": ["93.184.216.35"], **(addresses or {})}
+
         def dispatch(request):
             sent.append(request)
             return handler(request)
 
         def client(**kwargs):
             assert kwargs["follow_redirects"] is False and kwargs["trust_env"] is False
+            sent.proxies.append(kwargs.pop("proxy", None))
             transport = kwargs.pop("transport", None)
             if isinstance(transport, httpx.HTTPTransport):
                 # Keep the pinning transport; only its socket layer is faked.
@@ -30,8 +57,11 @@ def http(monkeypatch):
             return client_type(transport=httpx.MockTransport(dispatch), **kwargs)
 
         monkeypatch.setattr(safe.httpx, "Client", client)
-        monkeypatch.setattr(safe.socket, "getaddrinfo", lambda host, *a, **k: [
-            (2, 1, 6, "", (address, 443)) for address in (addresses or {}).get(host, [])])
+        def resolve(host, *args, **kwargs):
+            sent.resolved.append(host)
+            return [(2, 1, 6, "", (address, 443)) for address in resolved.get(host, [])]
+        sent.resolved = []
+        monkeypatch.setattr(safe.socket, "getaddrinfo", resolve)
         return sent
 
     return install
@@ -62,10 +92,10 @@ def test_unreviewed_urls_are_refused_before_any_request(http, url):
 
 def test_exact_reviewed_migration_is_followed_once_and_only_once(http):
     source, mirror = "https://catalog.example/a.json", "https://mirror.example/a.json"
-    sent = http(lambda request: httpx.Response(301, headers={"location": mirror}) if str(request.url) == source
+    sent = http(lambda request: httpx.Response(301, headers={"location": mirror}) if reached(request) == source
                 else httpx.Response(200, content=b"ok"))
     assert safe.fetch(source, hosts=ALLOWED, max_bytes=10, exact_redirects={source: mirror}) == b"ok"
-    assert [str(r.url) for r in sent] == [source, mirror]
+    assert [reached(r) for r in sent] == [source, mirror]
     sent.clear()
     http(lambda request: httpx.Response(301, headers={"location": mirror}))
     with pytest.raises(ValueError):
@@ -209,3 +239,75 @@ def test_a_slow_source_stops_at_one_overall_deadline(http, monkeypatch):
     monkeypatch.setattr(safe.time, "monotonic", lambda: float(next(ticks)))
     with pytest.raises(TimeoutError):
         safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10, timeout=20)
+
+
+PROXY = "http://user:proxy-secret@proxy.corp.example:3128"
+
+
+def test_reviewed_hosts_go_through_the_proxy_and_open_fetches_never_do(http, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", PROXY)
+    sent = http(lambda request: httpx.Response(200, content=b"ok"), {"open.example": ["93.184.216.36"]})
+    assert safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10) == b"ok"
+    assert sent.proxies == [PROXY] and sent.resolved == []  # The proxy resolves reviewed names.
+    assert safe.fetch("https://open.example/a.json", hosts=None, max_bytes=10) == b"ok"
+    assert sent.proxies == [PROXY, None] and sent.resolved == ["open.example"]  # Direct, to a checked address.
+    assert all("proxy-authorization" not in r.headers and "proxy-secret" not in str(r.headers) for r in sent)
+
+
+def test_proxy_is_chosen_again_on_every_redirect_hop_and_honours_no_proxy(http, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", PROXY)
+    monkeypatch.setenv("NO_PROXY", "mirror.example")
+    source, mirror = "https://catalog.example/a.json", "https://mirror.example/a.json"
+    sent = http(lambda request: httpx.Response(301, headers={"location": mirror}) if reached(request) == source
+                else httpx.Response(200, content=b"ok"))
+    assert safe.fetch(source, hosts=ALLOWED, max_bytes=10, exact_redirects={source: mirror}) == b"ok"
+    assert sent.proxies == [PROXY, None] and sent.resolved == ["mirror.example"]
+
+
+@pytest.mark.parametrize("url", ["http://catalog.example/a.json", "https://other.example/a.json",
+                                 "https://catalog.example:8443/a.json"])
+def test_a_proxy_never_relaxes_https_the_allow_list_or_the_port(http, monkeypatch, url):
+    monkeypatch.setenv("HTTPS_PROXY", PROXY)
+    sent = http(lambda request: pytest.fail("refused URL was requested"))
+    with pytest.raises(ValueError, match="refused"):
+        safe.fetch(url, hosts=ALLOWED, max_bytes=10, refused="refused")
+    assert sent == [] and sent.proxies == []
+
+
+def test_a_proxy_still_bounds_size_and_strips_credentials_across_hosts(http, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", PROXY)
+    source, mirror = "https://catalog.example/a.json", "https://mirror.example/a.json"
+    sent = http(lambda request: httpx.Response(301, headers={"location": mirror}) if reached(request) == source
+                else httpx.Response(200, content=b"x" * 11))
+    with pytest.raises(ValueError, match="too_large"):
+        safe.fetch(source, hosts=ALLOWED | {"mirror.example"}, max_bytes=10, redirects=1, too_large="too_large",
+                   headers={"Authorization": "Bearer catalog-token"})
+    assert sent.proxies == [PROXY, PROXY]
+    assert sent[0].headers["authorization"] == "Bearer catalog-token" and "authorization" not in sent[1].headers
+
+
+@pytest.mark.parametrize("proxy", ["socks5://proxy.corp.example:1080", "ftp://proxy.corp.example", "http://:3128",
+                                   "http://proxy.corp.example:notaport"])
+def test_unusable_proxy_settings_fall_back_to_a_checked_direct_connection(http, monkeypatch, proxy):
+    monkeypatch.setenv("HTTPS_PROXY", proxy)
+    sent = http(lambda request: httpx.Response(200, content=b"ok"))
+    assert safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10) == b"ok"
+    assert sent.proxies == [None] and sent.resolved == ["catalog.example"]
+
+
+def test_system_proxy_settings_are_used_for_reviewed_hosts(http, monkeypatch):
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"https": "http://system.proxy.example:8080"})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: host == "mirror.example")
+    sent = http(lambda request: httpx.Response(200, content=b"ok"))
+    safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10)
+    safe.fetch("https://mirror.example/a.json", hosts={"mirror.example"}, max_bytes=10)
+    assert sent.proxies == ["http://system.proxy.example:8080", None]
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.8", "169.254.169.254", "::1"])
+def test_a_direct_reviewed_host_must_resolve_to_a_public_address(http, address):
+    sent = http(lambda request: pytest.fail("private address was contacted"), {"catalog.example": [address]})
+    with pytest.raises(ValueError, match="refused"):
+        safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10, refused="refused")
+    assert sent == []

@@ -4,6 +4,7 @@ import json
 import httpx
 import pytest
 
+from row_bot.integrations import safe
 from row_bot.plugins import hermes_catalog
 
 pytestmark = pytest.mark.platform
@@ -30,9 +31,11 @@ def catalog_http(tmp_path, monkeypatch):
         def client(**kwargs):
             assert kwargs["follow_redirects"] is False
             assert kwargs["trust_env"] is False
+            kwargs.pop("transport", None)  # The address-pinning transport; its checks are tested with the fetcher.
             return client_type(transport=httpx.MockTransport(dispatch), **kwargs)
 
         monkeypatch.setattr(hermes_catalog.httpx, "Client", client)
+        monkeypatch.setattr(safe.socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("93.184.216.34", 443))])
         return requests
 
     return install

@@ -63,10 +63,17 @@ class SkillSource:
         return SourceHealth(source_id=self.id, online=False)
 
 
+# Reviewed skill catalog hosts: these stay on their own list and may use the system proxy.
+CATALOG_HOSTS = frozenset({"clawhub.ai", "api.github.com", "raw.githubusercontent.com", "codeload.github.com"})
+
+
 def fetch_bytes(url: str, *, headers: dict[str, str] | None = None, timeout: int = DEFAULT_TIMEOUT) -> bytes:
-    """Public skill catalogs: any public host, every redirect rechecked; tokens never cross hosts."""
+    """Public skill catalogs: reviewed catalog hosts, or any other public host reached directly;
+    every redirect rechecked; tokens never cross hosts."""
+    from urllib.parse import urlsplit
     from row_bot.integrations.safe import fetch
-    return fetch(url, hosts=None, max_bytes=MAX_SOURCE_BYTES, timeout=timeout, headers={**BROWSER_HEADERS, **(headers or {})},
+    hosts = CATALOG_HOSTS if urlsplit(url).hostname in CATALOG_HOSTS else None
+    return fetch(url, hosts=hosts, max_bytes=MAX_SOURCE_BYTES, timeout=timeout, headers={**BROWSER_HEADERS, **(headers or {})},
         redirects=5, refused="skill_source_refused", too_large="skill_source_too_large")
 
 

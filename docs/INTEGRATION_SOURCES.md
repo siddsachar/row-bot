@@ -65,6 +65,25 @@ and no recipe, so they can never be imported. SVG icons are dropped at
 normalization. Registry metadata is CC0; that does not license packages or imply
 endorsement.
 
+## Network, proxies and their limit
+
+Every catalog request goes through one fetcher (`integrations/safe.py`): https on
+port 443 only, no automatic redirects (each hop is checked again), credentials
+never sent to another host, identity encoding, and size and time caps.
+
+- **Reviewed catalog hosts** (the Registry, Hermes, ClawHub and the GitHub API and
+  download hosts) use the system or environment proxy when one is set
+  (`HTTPS_PROXY`/`NO_PROXY`, the Windows Internet settings or macOS network
+  settings; only `http`/`https` proxies; PAC scripts are not run). Without a proxy
+  they connect directly, only to an address checked to be public.
+- **Any other host** (Registry icons fetched during an update, skill or plugin
+  imports from a link, well-known skill indexes) is never sent through a proxy. It
+  connects directly, only to a checked public address, so these fail on networks
+  that allow traffic only through a proxy.
+- **Limitation:** through a proxy, Row-Bot cannot see or check the address the
+  proxy connects to; the host allow-list is then the protection. Proxy credentials
+  go only to the proxy; TLS stays end to end with the reviewed host.
+
 ## Search API handoff
 
 `POST /api/v1/settings/integrations/search` accepts `kind`, `query`, optional
