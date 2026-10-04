@@ -1011,7 +1011,10 @@ _STATUS.update(
 )
 
 
-_STATUS.update(dict.fromkeys(('plan_changed', 'plan_unsupported', 'plan_not_resumable', 'invalid_access_preset', 'invalid_integration_query', 'integration_import_type_required', 'integration_preview_expired', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
+_STATUS.update(dict.fromkeys(('plan_changed', 'plan_unsupported', 'plan_not_resumable', 'invalid_access_preset', 'invalid_integration_query', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
+
+_STATUS.update(dict.fromkeys(('integration_link_unsupported', 'invalid_upload', 'unsupported_upload', 'unsafe_upload'), 422))
+_STATUS['upload_too_large'] = 413
 
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).
@@ -4388,75 +4391,6 @@ def create_router(
         if not (context.is_local_owner and context.direct_loopback):
             raise ProtocolError("owner_local_only", 403)
 
-    @router.get("/settings/integrations")
-    async def integrations(request: Request, query: str = "", kind: str = "all", source: str = "all", cursor: str | None = None, limit: int = 50) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.client_integrations import read_integrations
-        result = await call(read_integrations, query=query, kind=kind, source=source, cursor=cursor, limit=limit, validate=dispatch_validation(request, current))
-        return await respond(request, dto.IntegrationPage, result)
-
-    @router.get("/settings/integrations/{integration_id}")
-    async def integration_detail(integration_id: str, request: Request) -> JSONResponse:
-        current = await session(request)
-        from row_bot.application.client_integrations import read_integration
-        result = await call(read_integration, integration_id, validate=dispatch_validation(request, current))
-        return await respond(request, dto.IntegrationItem, result)
-
-    @router.get("/conversations/{conversation_id}/integrations/{integration_id}/use")
-    async def integration_use(conversation_id: str, integration_id: str, request: Request) -> JSONResponse:
-        current = await session(request, lane="view")
-        await readable_conversation(conversation_id)
-        from row_bot.application.integration_use import read_integration_use
-        result = await call(read_integration_use, service, conversation_id, integration_id,
-            validate=dictation_validation(request, current, conversation_id))
-        await readable_conversation(conversation_id)
-        return await respond(request, dto.IntegrationUse, result)
-
-    @router.post("/settings/integrations/search")
-    async def integrations_search(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.IntegrationSearchRequest, 4096)
-        from row_bot.application.client_integrations import search_integrations
-        import threading
-        stopped = threading.Event()
-        owner = await integration_owner(request)
-        async def watch_disconnect() -> None:
-            while not stopped.is_set():
-                if await request.is_disconnected():
-                    stopped.set()
-                    return
-                await asyncio.sleep(0.05)
-        watcher = asyncio.create_task(watch_disconnect())
-        try:
-            result = await call(search_integrations, owner_id=owner, **body.model_dump(mode="json"),
-                cancelled=stopped.is_set, validate=dispatch_validation(request, current))
-            return await respond(request, dto.IntegrationPage, result)
-        finally:
-            stopped.set()
-            watcher.cancel()
-
-    @router.post("/settings/integrations/preview")
-    async def integrations_preview(request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        body = await _body(request, dto.IntegrationPreviewRequest, 8192)
-        if body.local:
-            await plugin_lifecycle_authority(request)
-        from row_bot.application.client_integrations import preview_integration
-        result = await call(preview_integration, owner_id=await integration_owner(request), **body.model_dump(mode="json"), validate=dispatch_validation(request, current))
-        return await respond(request, dto.IntegrationPreview, result)
-
-    @router.post("/settings/integrations/operations/{kind}/{command_id}/reconcile")
-    async def integration_reconcile(kind: str, command_id: UUID, request: Request) -> JSONResponse:
-        current = await session(request, lane="mutation")
-        if kind not in {"plugin", "skill", "mcp"}:
-            raise ProtocolError("not_found", 404)
-        if kind == "plugin":
-            await plugin_lifecycle_authority(request)
-        from row_bot.integrations.facts import reconcile_command
-        result = await call(reconcile_command, security.instance_id if kind == "mcp" else await integration_owner(request),
-            str(command_id), kind, dispatch_validation(request, current), explicit=True)
-        return await respond(request, dto.IntegrationOperationResult, result)
-
     async def oauth_callback(request: Request) -> str:
         """The loopback (local owner) or single approved public origin for MCP sign-in."""
         from row_bot.application.client_mcp_auth import callback_uri
@@ -4562,12 +4496,42 @@ def create_router(
             stopped.set()
             watcher.cancel()
 
+    @router.post("/integrations/items/resolve")
+    async def integration_item_resolve(request: Request) -> JSONResponse:
+        """What a pasted link is; read locally, nothing is fetched until a plan is agreed."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.IntegrationResolveRequest, 4096)
+        from row_bot.application.client_integrations import resolve_reference
+        result = await call(resolve_reference, owner_id=await integration_owner(request), reference=body.reference,
+            kind=body.kind, validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationEntryPage, result)
+
+    @router.post("/integrations/uploads")
+    async def integration_upload(request: Request) -> JSONResponse:
+        """A picked .zip, .skill or .mcpb file, kept privately and only read."""
+        current = await session(request, lane="mutation")
+        from row_bot.application.client_integrations import upload_file
+        from row_bot.integrations.uploads import MAX_BYTES
+        from urllib.parse import unquote
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/octet-stream":
+            raise ProtocolError("invalid_command", 422)
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_BYTES:
+                raise ProtocolError("payload_too_large", 413)
+            data.extend(chunk)
+        result = await call(upload_file, owner_id=await integration_owner(request), data=bytes(data),
+            filename=unquote(request.headers.get("x-file-name", ""))[:256], validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationEntryPage, result)
+
     @router.get("/integrations/detail")
-    async def integration_detail_v2(request: Request, item_id: str, revision: str = "", intent: str = "") -> JSONResponse:
+    async def integration_detail_v2(request: Request, item_id: str, revision: str = "", intent: str = "",
+                                    cleanup: bool = False) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_integrations import read_item
         detail, _plan = await call(read_item, owner_id=await integration_owner(request), item_id=item_id, revision=revision,
-            intent=intent, validate=dispatch_validation(request, current), context=await plan_context(request, current))
+            intent=intent, cleanup=cleanup, validate=dispatch_validation(request, current),
+            context=await plan_context(request, current))
         return await respond(request, dto.IntegrationDetail, detail)
 
     @router.post("/integrations/plans/review")
@@ -4577,7 +4541,7 @@ def create_router(
         body = await _body(request, dto.PlanReviewRequest, 4096)
         from row_bot.application.client_integrations import read_item
         detail, plan = await call(read_item, owner_id=await integration_owner(request), item_id=body.item_id,
-            revision=body.revision, intent=body.intent, validate=dispatch_validation(request, current),
+            revision=body.revision, intent=body.intent, cleanup=body.cleanup, validate=dispatch_validation(request, current),
             context=await plan_context(request, current))
         if detail["plan"] is not None and detail["plan"]["plan_id"]:
             return await respond(request, dto.InstallPlan, detail["plan"])  # Continue or cancel the unfinished plan.
@@ -4603,7 +4567,8 @@ def create_router(
         security.consume_nonce(current, "integrations:plan:" + body.item_id, body.digest, body.digest,
             body.consent_token, str(body.plan_id))
         result = await call(start_plan, context, plan_id=str(body.plan_id), item_id=body.item_id, revision=body.revision,
-            intent=body.intent, digest=body.digest, preset=body.preset)
+            intent=body.intent, digest=body.digest, preset=body.preset, overrides=dict(body.overrides), cleanup=body.cleanup,
+            background=True)
         return await respond(request, dto.InstallPlan, result)
 
     @router.get("/integrations/plans/{plan_id}")
@@ -4619,7 +4584,8 @@ def create_router(
         body = await _body(request, dto.PlanContinueRequest, 131072)
         from row_bot.integrations.plans import resume
         context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest)
-        result = await call(resume, context, str(plan_id), preset=body.preset)
+        result = await call(resume, context, str(plan_id), preset=body.preset,
+            overrides=None if body.overrides is None else dict(body.overrides), background=True)
         return await respond(request, dto.InstallPlan, result)
 
     @router.post("/integrations/plans/{plan_id}/cancel")

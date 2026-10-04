@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "executable": {
+      "title": "Executable",
+      "type": "boolean"
+    },
+    "path": {
+      "maxLength": 256,
+      "title": "Path",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "path",
+    "size_bytes",
+    "executable"
+  ],
+  "title": "IntegrationFile",
+  "type": "object"
+}

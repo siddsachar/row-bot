@@ -13,15 +13,8 @@ import CapabilitySettings, {
   type McpConfigurationPage,
   type McpConfigurationReceipt,
 } from './CapabilitySettings';
-import { createMcpConnections } from './McpConnections';
-import {
-  runtimeActions,
-  type McpRuntimeCommand,
-  type McpRuntimeReceipt,
-  type McpRuntimeState,
-} from './McpRuntimeControls';
 
-/** A row keeps one action by state; Details, Edit, Rename and Remove sit in its ⋯. */
+/** Details, Edit, Rename and Remove sit in a row's ⋯. */
 async function rowMenu(server: string) {
   return screen.findByRole('button', { name: `More actions for ${server}` });
 }
@@ -380,7 +373,7 @@ it('shows one status line and keeps the Add dialog closed at rest', async () => 
   expect(screen.getByText('0 of 1 server connected')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Add server' })).toBeVisible();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  expect(screen.getByText('On · not connected')).toBeVisible();
+  expect(screen.getByText('On')).toBeVisible();
 });
 
 it('offers a search icon for a short list and a search field for a long one', async () => {
@@ -423,7 +416,7 @@ it('preserves the exact unsent draft across full unmount', async () => {
   expect(screen.getByLabelText('Arguments (one per line)')).toHaveValue(
     'one two\n--exact',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await screen.findByText(/^Added\. It stays turned off/);
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review).toHaveBeenCalledOnce();
@@ -443,7 +436,7 @@ it('retains uncertain originals and only reconciles their exact request after re
   props.execute.mockRejectedValueOnce(Error('synthetic transport loss'));
   render(<CapabilitySettings {...props} />);
   await enterDraft();
-  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await screen.findByRole('button', { name: 'Check original save' });
   expect(screen.getByLabelText('Command')).toBeDisabled();
   const original = props.execute.mock.calls[0];
@@ -471,7 +464,7 @@ it('never replays a rejected original and preserves its draft for new review', a
   }));
   render(<CapabilitySettings {...props} />);
   await enterDraft();
-  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await screen.findByText(/save was rejected/);
   expect(
     screen.queryByRole('button', { name: 'Check original save' }),
@@ -490,7 +483,7 @@ it('tombstones private drafts and late execution settlement after authentication
   fireEvent.change(screen.getByLabelText('Additional settings (JSON)'), {
     target: { value: '{"env":{"KEY":"private-draft"}}' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   const command = props.execute.mock.calls[0][0];
   act(() => props.session.dispose());
@@ -515,7 +508,7 @@ it('preserves in-flight ownership across remount without a duplicate save', asyn
   props.execute.mockReturnValue(pending.promise);
   const first = render(<CapabilitySettings {...props} />);
   await enterDraft();
-  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledOnce());
   first.unmount();
   render(<CapabilitySettings {...props} />);
@@ -615,7 +608,7 @@ it('admits one save during synchronous repeated clicks', async () => {
   props.execute.mockReturnValue(pending.promise);
   render(<CapabilitySettings {...props} />);
   await enterDraft();
-  const save = screen.getByRole('button', { name: 'Add turned off' });
+  const save = screen.getByRole('button', { name: 'Add' });
   act(() => {
     save.click();
     save.click();
@@ -630,7 +623,7 @@ it('rejects malformed and oversized drafts before review or execution', async ()
   render(<CapabilitySettings {...props} />);
   const dialog = await openAdd();
   // Adding waits for a name and a command; then the malformed arguments.
-  expect(screen.getByRole('button', { name: 'Add turned off' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Server name'), {
     target: { value: 'Malformed' },
   });
@@ -640,7 +633,7 @@ it('rejects malformed and oversized drafts before review or execution', async ()
   fireEvent.change(screen.getByLabelText('Arguments (one per line)'), {
     target: { value: '[not json' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Add turned off' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   await screen.findByText(/could not be validated/);
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
@@ -670,264 +663,75 @@ it('refuses an oversized loaded page without retaining unlimited rows', async ()
   ).not.toBeInTheDocument();
 });
 
-// ---------------------------------------------------------------------------
-// A row's one action by state (B262): the same reviewed connection commands
-// as the server's details.
-
-const runtimeRevision = 'f'.repeat(64);
-const runtimeId = '12345678-1234-4234-8234-123456789012';
-function runtimeState(patch: Partial<McpRuntimeState> = {}): McpRuntimeState {
-  return {
-    schema_version: 1,
-    server_id: serverId,
-    configuration_revision: runtimeRevision,
-    cleanup_revision: null,
-    availability: 'available',
-    runtime_id: null,
-    state: 'missing',
-    session_quiesced: null,
-    enabled: true,
-    ...patch,
-  };
-}
-function runtime(state = runtimeState()) {
-  const io = {
-    owner: createMcpConnections(),
-    load: vi.fn().mockResolvedValue(state),
-    review: vi.fn().mockImplementation(async (payload) => ({
-      resource_revision: payload.resource_revision,
-      server_id: payload.server_id,
-      operation: payload.operation,
-      runtime_id: payload.expected_runtime_id,
-      action_digest: 'd'.repeat(64),
-      nonce: 'synthetic',
-    })),
-    execute: vi
-      .fn()
-      .mockImplementation(
-        async (command: McpRuntimeCommand): Promise<McpRuntimeReceipt> => ({
-          command_id: command.command_id,
-          status: 'completed',
-          mcp_runtime: {
-            schema_version: 1,
-            server_id: serverId,
-            operation: command.payload.operation,
-            runtime_id: runtimeId,
-            state:
-              command.payload.operation === 'connect' ? 'connected' : 'stopped',
-            session_quiesced: command.payload.operation !== 'connect',
-            code: null,
-          },
-        }),
-      ),
-    turnOn: vi.fn(async () => undefined),
-  };
-  return io;
-}
-function withServer(patch: Partial<McpConfigurationPage['items'][number]>) {
-  return { ...page, items: [{ ...page.items[0], ...patch }] };
-}
-
-it.each([
-  [
-    'connected',
-    { connection_present: true, tool_count: 2 },
-    'Connected',
-    'Disconnect Synthetic',
-  ],
-  ['on and not connected', {}, 'On · not connected', 'Connect Synthetic'],
-  ['turned off', { enabled: false }, 'Off', 'Turn on & connect Synthetic'],
-  [
-    'failed',
-    { runtime_status: 'failed' },
-    'Couldn’t connect',
-    'Retry Synthetic',
-  ],
-] as const)(
-  'a %s server says so and offers one action',
-  async (_state, patch, status, action) => {
-    const props = options();
-    props.load.mockResolvedValue(withServer(patch));
-    render(<CapabilitySettings {...props} runtime={runtime()} />);
-    expect(await screen.findByRole('button', { name: action })).toBeEnabled();
-    expect(screen.getByText(status)).toBeVisible();
-    expect(
-      screen.getAllByRole('button', {
-        name: /^(Connect|Disconnect|Turn on & connect|Retry) Synthetic$/,
-      }),
-    ).toHaveLength(1);
-  },
-);
-
-it('connects from the row with the reviewed connect and reads the list again', async () => {
+it('says On or Off from the saved setting and offers no connection actions in the list', async () => {
   const props = options();
-  const io = runtime();
-  render(<CapabilitySettings {...props} runtime={io} />);
-  props.load.mockResolvedValue(withServer({ connection_present: true }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Connect Synthetic' }),
-  );
-  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
-  expect(io.review.mock.calls[0][0]).toEqual({
-    resource_revision: runtimeRevision,
-    server_id: serverId,
-    operation: 'connect',
-    expected_runtime_id: null,
+  props.load.mockResolvedValue({
+    ...page,
+    total: 2,
+    items: [
+      page.items[0],
+      {
+        ...page.items[0],
+        server_id: 'e'.repeat(64),
+        name: 'Paused',
+        enabled: false,
+      },
+    ],
   });
+  render(<CapabilitySettings {...props} />);
+  await rowMenu('Paused');
+  expect(screen.getByText('On')).toBeVisible();
+  expect(screen.getByText('Off')).toBeVisible();
   expect(
-    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
-  ).toBeVisible();
-  expect(props.load).toHaveBeenCalledTimes(2);
-  // A finished connect needs no message: the row says Connected.
-  expect(screen.queryByText(/Tools that change things/)).toBeNull();
-});
-
-it('reads the list again when a command from the server’s details settles', async () => {
-  const props = options();
-  const io = runtime();
-  render(<CapabilitySettings {...props} runtime={io} />);
-  await screen.findByRole('button', { name: 'Connect Synthetic' });
-  props.load.mockResolvedValue(withServer({ connection_present: true }));
-  const session = io.owner.runtime(serverId, 'Synthetic')!;
-  await act(async () => runtimeActions(session, io).run('connect'));
-  expect(
-    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
-  ).toBeVisible();
-});
-
-it('disconnects a connected server from its row', async () => {
-  const props = options();
-  props.load.mockResolvedValue(withServer({ connection_present: true }));
-  const io = runtime(
-    runtimeState({
-      runtime_id: runtimeId,
-      cleanup_revision: 'c'.repeat(64),
-      state: 'connected',
-      session_quiesced: false,
+    screen.queryByRole('button', {
+      name: /^(Connect|Disconnect|Retry|Turn on)/,
     }),
-  );
-  render(<CapabilitySettings {...props} runtime={io} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
-  );
-  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
-  expect(io.review.mock.calls[0][0]).toEqual({
-    resource_revision: 'c'.repeat(64),
-    server_id: serverId,
-    operation: 'disconnect',
-    expected_runtime_id: runtimeId,
-  });
+  ).toBeNull();
+  await chooseRow('Synthetic', 'Edit settings…');
+  expect(screen.getByRole('dialog', { name: 'Edit Synthetic' })).toBeVisible();
+  expect(props.review).not.toHaveBeenCalled();
+  expect(props.execute).not.toHaveBeenCalled();
 });
 
-it('disconnects right after connecting from the row (B262)', async () => {
+it('shows only the saved server it is scoped to', async () => {
   const props = options();
-  const io = runtime();
-  const execute = io.execute.getMockImplementation()!;
-  io.execute.mockImplementation(async (command: McpRuntimeCommand) => {
-    const receipt = await execute(command);
-    // The runtime the connect made is what a disconnect must name.
-    if (command.payload.operation === 'connect')
-      io.load.mockResolvedValue(
-        runtimeState({
-          runtime_id: runtimeId,
-          cleanup_revision: 'c'.repeat(64),
-          state: 'connected',
-          session_quiesced: false,
-        }),
-      );
-    return receipt;
+  props.load.mockResolvedValue({
+    ...page,
+    total: 2,
+    items: [
+      page.items[0],
+      { ...page.items[0], server_id: 'e'.repeat(64), name: 'Other' },
+    ],
   });
-  render(<CapabilitySettings {...props} runtime={io} />);
-  props.load.mockResolvedValue(withServer({ connection_present: true }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Connect Synthetic' }),
-  );
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Disconnect Synthetic' }),
-  );
-  await waitFor(() => expect(io.execute).toHaveBeenCalledTimes(2));
-  expect(io.review.mock.calls[1][0]).toEqual({
-    resource_revision: 'c'.repeat(64),
-    server_id: serverId,
-    operation: 'disconnect',
-    expected_runtime_id: runtimeId,
-  });
-});
-
-it('turns a turned-off server on, then connects it, in one click', async () => {
-  const props = options();
-  props.load.mockResolvedValue(withServer({ enabled: false }));
-  const io = runtime(runtimeState({ enabled: false }));
-  io.turnOn.mockImplementation(async () => {
-    io.load.mockResolvedValue(runtimeState());
-  });
-  render(<CapabilitySettings {...props} runtime={io} />);
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Turn on & connect Synthetic' }),
-  );
-  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
-  expect(io.turnOn).toHaveBeenCalledWith(serverId);
-  expect(io.review.mock.calls[0][0].operation).toBe('connect');
-});
-
-it('says a failed connect under its row in plain words, with a way to its details', async () => {
-  const props = options();
-  const onConnection = vi.fn();
-  const io = runtime();
-  io.execute.mockImplementation(async (command: McpRuntimeCommand) => ({
-    command_id: command.command_id,
-    status: 'completed',
-    mcp_runtime: {
-      schema_version: 1,
-      server_id: serverId,
-      operation: 'connect',
-      runtime_id: runtimeId,
-      state: 'failed',
-      session_quiesced: true,
-      code: 'mcp_connection_failed',
-    },
-  }));
-  render(
-    <CapabilitySettings {...props} runtime={io} onConnection={onConnection} />,
-  );
-  props.load.mockResolvedValue(withServer({ runtime_status: 'failed' }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Connect Synthetic' }),
-  );
+  render(<CapabilitySettings {...props} only={serverId} />);
+  await rowMenu('Synthetic');
   expect(
-    await screen.findByText(/Couldn’t connect: the server didn’t start/),
-  ).toBeVisible();
+    screen.queryByRole('button', { name: 'More actions for Other' }),
+  ).not.toBeInTheDocument();
+  await chooseRow('Synthetic', 'Rename…');
   expect(
-    await screen.findByRole('button', { name: 'Retry Synthetic' }),
+    screen.getByRole('dialog', { name: 'Rename Synthetic' }),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Open details' }));
-  expect(onConnection).toHaveBeenCalledWith(serverId, 'Synthetic');
 });
 
-it('tests a server from its ⋯ and points to the tools it found', async () => {
+it('opens Add once the saved servers load when asked to start adding', async () => {
   const props = options();
-  const io = runtime();
-  io.execute.mockImplementation(async (command: McpRuntimeCommand) => ({
-    command_id: command.command_id,
-    status: 'completed',
-    mcp_runtime: {
-      schema_version: 1,
-      server_id: serverId,
-      operation: 'test',
-      runtime_id: runtimeId,
-      state: 'tested',
-      session_quiesced: true,
-      code: null,
-    },
-  }));
-  render(<CapabilitySettings {...props} runtime={io} onConnection={vi.fn()} />);
-  await chooseRow('Synthetic', 'Test connection');
-  await waitFor(() => expect(io.execute).toHaveBeenCalledOnce());
-  expect(io.review.mock.calls[0][0].operation).toBe('test');
+  const loaded = deferred<McpConfigurationPage>();
+  props.load.mockReturnValue(loaded.promise);
+  render(<CapabilitySettings {...props} startAdd />);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  await act(async () => loaded.resolve(page));
+  const dialog = await screen.findByRole('dialog', { name: 'Add a server' });
+  expect(within(dialog).getByLabelText('Server name')).toBeVisible();
+  // It opens once: closed, it stays closed while the page is used.
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close dialog' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Search servers' }));
   expect(
-    await screen.findByText(
-      'Test completed and the temporary connection closed.',
-    ),
+    screen.getByRole('searchbox', { name: 'Search servers' }),
   ).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Open details' })).toBeVisible();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(props.review).not.toHaveBeenCalled();
 });

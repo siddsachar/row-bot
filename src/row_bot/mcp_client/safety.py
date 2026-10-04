@@ -5,10 +5,18 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# High impact: destroys, reaches other people, runs code, moves money or grants access. Always asks.
 _DESTRUCTIVE_RE = re.compile(
-    r"(^|_)(delete|remove|destroy|drop|write|update|edit|create|send|post|put|patch|"
-    r"move|rename|run|exec|execute|shell|command|deploy|publish|merge|commit|push|"
-    r"payment|pay|transfer|withdraw|trade|buy|sell|order|book|cancel)(_|$)",
+    r"(^|_)(delete|remove|destroy|drop|purge|erase|wipe|truncate|revoke|uninstall|kill|terminate|cancel|refund|"
+    r"send|post|reply|forward|comment|invite|share|publish|deploy|merge|commit|push|upload|"
+    r"run|exec|execute|shell|command|payment|pay|charge|transfer|withdraw|trade|buy|sell|order|book|"
+    r"grant|permission|permissions)(_|$)",
+    re.IGNORECASE,
+)
+# Routine changes inside the app: ask unless the user chose Full access for the tool.
+_ROUTINE_RE = re.compile(
+    r"(^|_)(create|add|update|edit|write|set|rename|move|put|patch|modify|insert|append|save|tag|label|"
+    r"assign|mark|archive|close|star|link|attach|copy|duplicate)(_|$)",
     re.IGNORECASE,
 )
 
@@ -52,7 +60,10 @@ def _annotation_value(tool: Any, key: str) -> Any:
 
 
 def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = None) -> bool:
-    """Classify whether an MCP tool should require approval by default."""
+    """Whether a tool is destructive or high impact, so it asks in every access preset.
+
+    Its name, its description or a ``destructiveHint`` can make it high impact; a
+    ``readOnlyHint`` never outweighs a high-impact name."""
     normalized_name = sanitize_name_component(tool_name)
     if tool_obj is not None:
         destructive_hint = _annotation_value(tool_obj, "destructiveHint")
@@ -70,9 +81,21 @@ def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = N
     return bool(_DESTRUCTIVE_RE.search(normalized))
 
 
+def is_routine_change(tool_name: str, description: str = "", tool_obj: Any = None) -> bool:
+    """A change inside the app that is not high impact: Full access may run it without asking."""
+    return (classify_tool_effect(tool_name, description, tool_obj) == "mutation"
+            and not is_destructive_tool(tool_name, description, tool_obj))
+
+
 def tool_enabled_by_default(is_destructive: bool) -> bool:
     """Default selection rule after a successful server test/discovery."""
     return not is_destructive
+
+
+def asks_first(name: str, destructive: bool, effect: str, approvals, allowed) -> bool:
+    """The invocation gate. High-impact and unknown tools always ask; a routine change asks
+    unless the user allowed it to run without asking (Full access, or that one tool)."""
+    return bool(destructive or effect == "unknown" or name in approvals or (effect == "mutation" and name not in allowed))
 
 
 def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = None) -> str:
@@ -82,11 +105,9 @@ def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = 
     classification remains distinct from an observational/read-only operation.
     Server annotations are hints, never evidence of an operating-system sandbox.
     """
+    name = sanitize_name_component(tool_name)
     if is_destructive_tool(tool_name, description, tool_obj):
         return "mutation"
-    if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is True:
-        return "read_only"
-    name = sanitize_name_component(tool_name)
     if name in {
         "browser_console_messages", "browser_network_requests", "browser_snapshot",
         "browser_take_screenshot", "browser_wait_for",
@@ -94,6 +115,11 @@ def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = 
         return "read_only"
     if name in _BROWSER_SESSION_SAFE_TOOLS:
         return "interaction"
+    # A change named as one stays a change whatever its hints say; unknown names stay unknown.
+    if _ROUTINE_RE.search(name):
+        return "mutation"
+    if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is True:
+        return "read_only"
     if tool_obj is not None and _annotation_value(tool_obj, "readOnlyHint") is False:
         return "unknown"
     if re.match(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", name):

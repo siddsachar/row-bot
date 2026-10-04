@@ -5,14 +5,9 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import PublicSkillHub, { type PublicSkillHubIO } from './PublicSkillHub';
-import PublicSkillMaintenance, {
-  type PublicSkillMaintenanceIO,
-} from './PublicSkillMaintenance';
 import {
   ChevronRight,
   FileUp,
-  Globe2,
   MoreHorizontal,
   Pin,
   Plus,
@@ -303,19 +298,12 @@ export default function SkillsSettings({
   integrationId,
   session,
   io,
-  hub,
-  hubMaintenance,
-  ownerKey = '',
 }: {
   integrationId?: string;
   session: SkillsSettingsSession;
   io: SkillsSettingsIO;
-  hub?: PublicSkillHubIO;
-  hubMaintenance?: PublicSkillMaintenanceIO;
-  ownerKey?: string;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const [hubReload, setHubReload] = useState(0);
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -633,9 +621,8 @@ export default function SkillsSettings({
     (state.page?.items.length ?? 0) >= state.page.total;
   const shown = complete ? '' : ' shown';
 
-  const [tab, setTab] = useTabForAnchor<'installed' | 'discover'>('installed', {
+  const [tab, setTab] = useTabForAnchor<'installed'>('installed', {
     'skill-library': 'installed',
-    'public-skills': 'discover',
   });
   const [importOpen, setImportOpen] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -741,11 +728,6 @@ export default function SkillsSettings({
               label: 'Import a skill',
               icon: <FileUp size={16} />,
               onSelect: () => setImportOpen(true),
-            },
-            {
-              label: 'Browse public skills',
-              icon: <Globe2 size={16} />,
-              onSelect: () => setTab('discover'),
             },
           ]}
         >
@@ -870,14 +852,6 @@ export default function SkillsSettings({
           )}
         </>
       )}
-      {hubMaintenance && (
-        <PublicSkillMaintenance
-          io={hubMaintenance}
-          ownerKey={ownerKey}
-          reload={hubReload}
-          onChanged={() => void load()}
-        />
-      )}
       <SettingsAdvanced
         summary="Import a skill"
         meta="Inspect SKILL.md text before saving it locally"
@@ -971,43 +945,9 @@ export default function SkillsSettings({
                 meta: state.page?.total ?? undefined,
                 content: installed,
               },
-              ...(hub
-                ? [
-                    {
-                      id: 'discover' as const,
-                      label: 'Discover',
-                      content: (
-                        <div data-setting-anchor="public-skills">
-                          {hub ? (
-                            <PublicSkillHub
-                              io={hub}
-                              ownerKey={ownerKey}
-                              onInstalled={() => {
-                                void load();
-                                setHubReload((value) => value + 1);
-                              }}
-                            />
-                          ) : (
-                            <p className="muted">
-                              Public skill sources are unavailable.
-                            </p>
-                          )}
-                        </div>
-                      ),
-                    },
-                  ]
-                : []),
             ]}
           />
         </>
-      )}
-      {integrationId && hubMaintenance && (
-        <PublicSkillMaintenance
-          io={hubMaintenance}
-          ownerKey={ownerKey}
-          skillName={integrationId}
-          onChanged={() => void load()}
-        />
       )}
       {integrationId && state.message && <p role="status">{state.message}</p>}
       {integrationId && state.pending && (

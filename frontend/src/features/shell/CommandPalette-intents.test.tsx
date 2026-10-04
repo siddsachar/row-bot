@@ -225,17 +225,13 @@ const INTENTS: {
   },
   {
     query: 'add mcp server',
-    first: /^Add an MCP server/,
-    ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/mcp#mcp-servers'),
+    first: /^Connect an app/,
+    ran: (h) => expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps'),
   },
   {
     query: 'install a skill',
-    first: /^Find and install skills/,
-    ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith(
-        '/settings/skills#public-skills',
-      ),
+    first: /^Add a skill/,
+    ran: (h) => expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/skills'),
   },
   {
     query: 'change model',

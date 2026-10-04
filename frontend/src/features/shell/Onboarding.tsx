@@ -88,8 +88,8 @@ const areas: Record<string, Area> = {
   tools: { icon: Wrench, action: 'Review tools', to: '/settings/tools' },
   extensions: {
     icon: Puzzle,
-    action: 'Open MCP & Plugins',
-    to: '/settings/mcp',
+    action: 'Open Apps',
+    to: '/settings/apps',
   },
   voice: { icon: Mic, action: 'Open Voice', to: '/settings/voice' },
   final: { icon: BadgeCheck, action: 'Run diagnosis', to: '/?tab=monitor' },

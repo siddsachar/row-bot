@@ -11,6 +11,7 @@ from row_bot.application import client_integrations as api
 from row_bot.integrations import facts, plans, presets
 from row_bot.mcp_client import config, marketplace
 from row_bot.runtime import admissions
+from tests.helpers.registry import search_catalog
 from tests.subsystem.mcp.test_capability_catalog_controls import owner  # noqa: F401
 from tests.subsystem.plugins.conftest import MemoryKeyring
 
@@ -278,15 +279,20 @@ def test_a_paused_plan_never_resumes_on_a_changed_launch_recipe(item, owner):
     assert owner.calls == [] and "auth" not in config.read_saved_configuration().document["servers"]["Synthetic"]
 
 
-def test_the_access_review_binds_the_preset(item, owner):
+def test_the_access_review_binds_the_tools_and_the_click_carries_the_preset(item, owner):
     _, plan = review(item)
     plan_id = str(uuid4())
     paused = api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"], preset="ask")
     asked = next(s for s in paused["steps"] if s["type"] == "access")["access"]
-    switched = plans.resume(context(tools_digest=asked["tools_digest"]), plan_id, preset="full")
-    access = next(s for s in switched["steps"] if s["type"] == "access")["access"]
-    assert switched["pause"] == "access" and access["preset"] == "full" and access["tools_digest"] != asked["tools_digest"]
-    assert "catalog" not in saved_tools(), "tools reviewed under one preset are never saved under another"
+    stale = plans.resume(context(tools_digest="0" * 64), plan_id, preset="read_only")
+    access = next(s for s in stale["steps"] if s["type"] == "access")["access"]
+    assert stale["pause"] == "access" and access["preset"] == "read_only"
+    assert access["tools_digest"] == asked["tools_digest"], "the review binds the tools, not the preset"
+    assert "catalog" not in saved_tools(), "tools that were not the ones reviewed are never saved"
+    done = plans.resume(context(tools_digest=asked["tools_digest"]), plan_id, preset="read_only")
+    assert done["state"] == "completed", done
+    assert presets.current(saved_tools()) == "read_only", "the preset sent with the click is the one saved"
+    assert saved_tools()["enabled"] == {"get_record": True, "delete_record": False, "unrecognized": False}
 
 
 def test_a_cancel_that_lands_while_a_continue_starts_wins(item, owner, monkeypatch):
@@ -391,7 +397,7 @@ def test_adding_a_skill_checks_it_then_adds_it_turned_on(tmp_path, monkeypatch, 
     installed = []
     monkeypatch.setattr(hub.installer, "install_bundle", lambda bundle, *, enabled: installed.append(enabled)
                         or InstallResult(True, "Skill installed.", skill_name="sample"))
-    page = api.search_integrations(owner_id="owner", sources=["clawhub"], query="sample", refresh=True)
+    page = search_catalog(sources=["clawhub"], query="sample", refresh=True)
     item_id = page["items"][0]["id"]
     _, plan = review(item_id, revision=page["revision"])
     assert plan["intent"] == "add" and [s["type"] for s in plan["steps"]] == ["consent", "test", "enable"]

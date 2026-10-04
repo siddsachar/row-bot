@@ -7,7 +7,6 @@ import re
 import time
 
 import httpx
-import yaml
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.integrations.safe import write_atomic
@@ -49,18 +48,6 @@ def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambd
             saved = previous
             status, message = ("stale" if saved else "error"), "Hermes MCP is unavailable or rate limited. Saved recipes remain available."
     return {**saved, "status": status, "message": message}
-
-
-def inspect_recipe(name: str, pin: str) -> dict:
-    """Fetch just the selected pinned manifest; unknown execution fields fail closed."""
-    if not re.fullmatch(r"[a-z0-9_-]{1,80}", name) or not re.fullmatch(r"[a-f0-9]{40}", pin):
-        raise ValueError("hermes_recipe_unsupported")
-    current = read_catalog()
-    if current.get("pin") != pin or name not in current.get("names", []):
-        raise ValueError("integration_preview_expired")
-    url = f"https://raw.githubusercontent.com/NousResearch/hermes-agent/{pin}/optional-mcps/{name}/manifest.yaml"
-    raw = _public_bytes(url, maximum=65536)
-    return normalize_recipe(yaml.safe_load(raw), name=name, pin=pin, source_url=url)
 
 
 def normalize_recipe(raw: dict, *, name: str, pin: str, source_url: str) -> dict:

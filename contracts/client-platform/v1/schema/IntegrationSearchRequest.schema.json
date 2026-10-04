@@ -23,6 +23,7 @@
       "default": "all",
       "enum": [
         "all",
+        "app",
         "skill",
         "mcp",
         "plugin"

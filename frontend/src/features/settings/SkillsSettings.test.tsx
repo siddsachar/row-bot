@@ -347,7 +347,7 @@ it('keeps supplemental imports and proposals closed in the resting view', async 
   expect(screen.getByText('Create a synthetic skill · ready')).toBeVisible();
 });
 
-it('keeps advanced editing local when discovery is not supplied', async () => {
+it('keeps advanced editing local, with no public-skill Discover tab', async () => {
   render(<SkillsSettings session={createSkillsSettingsSession()} io={io()} />);
   await screen.findByText('✨ Sample skill');
   expect(

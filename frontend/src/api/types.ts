@@ -133,33 +133,6 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
 
 /** The sole network boundary. Fixtures implement this same interface. */
 export interface ClientTransport {
-  reconcileIntegrationOperation?(
-    kind: 'skill' | 'plugin' | 'mcp',
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.IntegrationOperationResult>;
-  integrations?(
-    options: {
-      query?: string;
-      kind?: string;
-      source?: string;
-      cursor?: string;
-    },
-    signal?: AbortSignal,
-  ): Promise<Wire.IntegrationPage>;
-  integrationUse?(
-    conversation: string,
-    integration: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.IntegrationUse>;
-  integration?(
-    integration: string,
-    signal?: AbortSignal,
-  ): Promise<Wire.IntegrationItem>;
-  searchIntegrations?(
-    body: Wire.IntegrationSearchRequest,
-    signal?: AbortSignal,
-  ): Promise<Wire.IntegrationPage>;
   integrationSources?(
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationSourceList>;
@@ -167,10 +140,62 @@ export interface ClientTransport {
     source: string,
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationSourceView>;
-  previewIntegration?(
-    body: Wire.IntegrationPreviewRequest,
+  catalogSchedule?(signal?: AbortSignal): Promise<Wire.CatalogSchedule>;
+  setCatalogSchedule?(
+    body: Wire.CatalogSchedule,
     signal?: AbortSignal,
-  ): Promise<Wire.IntegrationPreview>;
+  ): Promise<Wire.CatalogSchedule>;
+  integrationApps?(query: string, signal?: AbortSignal): Promise<Wire.AppList>;
+  integrationIcon?(icon: string, signal?: AbortSignal): Promise<Blob>;
+  integrationItems?(
+    options: {
+      query?: string;
+      kind?: string;
+      scope?: 'installed' | 'catalog';
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  searchIntegrationItems?(
+    body: Wire.IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  resolveIntegration?(
+    body: Wire.IntegrationResolveRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  uploadIntegration?(
+    file: Blob,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationEntryPage>;
+  integrationDetail?(
+    options: {
+      item_id: string;
+      revision?: string;
+      intent?: string;
+      cleanup?: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationDetail>;
+  reviewInstallPlan?(
+    body: Wire.PlanReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+  startInstallPlan?(
+    body: Wire.PlanStartRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+  installPlan?(plan: string, signal?: AbortSignal): Promise<Wire.InstallPlan>;
+  continueInstallPlan?(
+    plan: string,
+    body: Wire.PlanContinueRequest,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
+  cancelInstallPlan?(
+    plan: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.InstallPlan>;
   reviewMcpAuth?(
     body: Wire.McpAuthReviewRequest,
     signal?: AbortSignal,

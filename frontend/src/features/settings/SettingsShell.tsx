@@ -8,6 +8,7 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
+  AppWindow,
   ArrowUpCircle,
   Bot,
   Brain,
@@ -18,8 +19,6 @@ import {
   KeyRound,
   Mic,
   Palette,
-  Plug,
-  Puzzle,
   Radio,
   Search,
   Settings2,
@@ -62,10 +61,8 @@ const icons: Record<string, Icon> = {
   documents: FileText,
   tracker: Activity,
   tools: Wrench,
-  integrations: Puzzle,
+  apps: AppWindow,
   skills: Sparkles,
-  plugins: Puzzle,
-  mcp: Plug,
   accounts: UserRound,
   channels: Radio,
   profiles: UsersRound,
@@ -87,10 +84,8 @@ const descriptions: Record<string, string> = {
   documents: 'Files Row-Bot can search and learn from.',
   tracker: 'Habits, symptoms and health events you track.',
   tools: 'Search, research and built-in tools the assistant can use.',
-  integrations: 'Discover and manage skills, connections and packages.',
-  skills: 'Reusable instructions: installed skills and public ones.',
-  plugins: 'Installed plugins and the plugin marketplace.',
-  mcp: 'Tools from MCP servers, on this computer or online.',
+  apps: 'Services Row-Bot can work in for you. Connect one in about a minute.',
+  skills: 'Ways of doing a job that Row-Bot follows when they fit.',
   accounts: 'Services Row-Bot can use for you. Keys stay in your keychain.',
   channels: 'Messaging platforms Row-Bot can talk through.',
   system: 'Where Row-Bot works on this computer, and what it may do there.',
@@ -162,9 +157,7 @@ export default function SettingsShell({
   return (
     // The frame is a size container, so the shell also compacts when the
     // settings area is narrow in a wide window (sidebar open, 200% zoom).
-    <div
-      className={`settings-shell-frame ${leaf.id === 'integrations' ? 'settings-integrations-focus' : ''}`}
-    >
+    <div className="settings-shell-frame">
       <section className="settings-shell" aria-label="Settings">
         <header
           className="settings-shell-header"

@@ -96,12 +96,20 @@ class McpClientFoundationTests(unittest.TestCase):
         clear_cache.assert_called_once_with()
 
     def test_destructive_detection_uses_annotations_and_names(self) -> None:
-        from row_bot.mcp_client.safety import is_destructive_tool, prefixed_tool_name
+        import row_bot.mcp_client.runtime as runtime
+        from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool, prefixed_tool_name
 
         self.assertTrue(is_destructive_tool("delete_file"))
         self.assertFalse(is_destructive_tool("search_messages"))
         readonly_tool = SimpleNamespace(annotations=SimpleNamespace(readOnlyHint=True, destructiveHint=False))
-        self.assertTrue(is_destructive_tool("update_index", tool_obj=readonly_tool))
+        # A routine change is not high impact, but a read-only hint never makes it read-only: it still asks first.
+        self.assertFalse(is_destructive_tool("update_index", tool_obj=readonly_tool))
+        self.assertEqual(classify_tool_effect("update_index", tool_obj=readonly_tool), "mutation")
+        update_index = SimpleNamespace(name="update_index", description="", inputSchema={},
+                                       annotations=readonly_tool.annotations)
+        normalized = runtime._normalize_tools("demo", {"enabled": True, "tools": {}}, [update_index])["update_index"]
+        self.assertTrue(normalized.requires_approval)
+        self.assertFalse(normalized.enabled)
         self.assertFalse(is_destructive_tool("search_messages", tool_obj=readonly_tool))
         destructive_tool = SimpleNamespace(annotations={"destructiveHint": True})
         self.assertTrue(is_destructive_tool("lookup", tool_obj=destructive_tool))

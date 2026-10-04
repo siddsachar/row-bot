@@ -46,8 +46,14 @@ def test_portable_components_have_independent_failure_boundaries(tmp_path, plugi
 
 def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_ready(
         tmp_path, plugin_modules, monkeypatch, reload_for_data_dir):
-    from row_bot.application.client_integrations import read_integration
+    from row_bot.application.client_integrations import read_items
     from row_bot.mcp_client import runtime
+
+    def read_entry(item_id):
+        return next(row for row in read_items(owner_id="fixture", kind="plugin")["items"] if row["id"] == item_id)
+
+    def child(row, kind):
+        return next(child for child in row["children"] if child["kind"] == kind)
 
     installer, state = (plugin_modules[k] for k in ("installer", "state"))
     reload_for_data_dir(installer.DATA_DIR, "row_bot.skills", "row_bot.mcp_client.config", "row_bot.tasks")
@@ -62,13 +68,13 @@ def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_rea
         return {path: path.read_bytes() for path in installer.DATA_DIR.rglob("*")
             if path.is_file() and not path.name.endswith((".db-shm", ".db-wal"))}
     before = contents()
-    row = read_integration("plugin:" + identity)
+    row = read_entry("plugin:" + identity)
     # A skipped component is informational: the package is partly supported, and
     # only the included connection that still needs setup holds it back.
-    assert row["status"] == "setup" and row["compatibility"] == "partial"
-    assert next(child for child in row["children"] if child["kind"] == "skill")["status"] == "ready"
-    assert next(child for child in row["children"] if child["kind"] == "mcp")["status"] == "setup"
-    assert any("notes" in reason and "accept" in reason for reason in row["reasons"])
+    assert (row["lifecycle"], row["readiness"], row["compatibility"]) == ("installed", "needs_setup", "partial")
+    assert (child(row, "skill")["lifecycle"], child(row, "skill")["readiness"]) == ("installed", "ready")
+    assert child(row, "mcp")["readiness"] == "needs_setup"
+    assert any("notes" in b["message"] and "accept" in b["message"] for b in row["blockers"] if b["severity"] == "blocking")
     assert before == contents()
 
     target = {"kind": "plugin", "plugin_id": identity, "server_key": "notes"}
@@ -81,11 +87,12 @@ def test_inventory_keeps_incomplete_children_visible_without_claiming_bundle_rea
     receipt = policy.execute_mcp_policy_command(owner_id="fixture", key=command["command_id"], command=command,
         validate=lambda: None, validate_review=lambda _: None)
     assert receipt["status"] == "completed"
-    row = read_integration("plugin:" + identity)
-    assert row["status"] == "setup"
-    assert next(child for child in row["children"] if child["kind"] == "mcp")["status"] == "off"
+    row = read_entry("plugin:" + identity)
+    assert row["readiness"] == "needs_setup"
+    assert (child(row, "mcp")["lifecycle"], child(row, "mcp")["readiness"]) == ("off", "ready")
     state.set_plugin_enabled(identity, False)
-    assert read_integration("plugin:" + identity)["status"] == "off"
+    row = read_entry("plugin:" + identity)
+    assert (row["lifecycle"], row["readiness"], row["next_action"]["kind"]) == ("off", "ready", "turn_on")
 
 
 def test_portable_lifecycle_preserves_bytes_identity_data_and_enablement(tmp_path, plugin_modules):

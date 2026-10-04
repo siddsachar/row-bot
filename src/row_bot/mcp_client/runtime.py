@@ -27,7 +27,8 @@ from row_bot.mcp_client import config as mcp_config
 from row_bot.mcp_client.logging import log_event, mask_mapping
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
 from row_bot.mcp_client.results import normalize_call_result
-from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool, prefixed_tool_name, sanitize_name_component, tool_enabled_by_default
+from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, is_destructive_tool, prefixed_tool_name,
+                                       sanitize_name_component, tool_enabled_by_default)
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +366,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
     include = set(tool_cfg.get("include") or [])
     exclude = set(tool_cfg.get("exclude") or [])
     approval_overrides = set(tool_cfg.get("require_approval") or [])
+    allowed = set(tool_cfg.get("run_without_asking") or [])
     normalized: dict[str, McpToolInfo] = {}
     for tool in tools:
         tool_name = str(_tool_attr(tool, "name", default="") or "").strip()
@@ -378,8 +380,8 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
         schema = _tool_attr(tool, "inputSchema", "input_schema", default={}) or {}
         destructive = is_destructive_tool(tool_name, description, tool)
         effect = classify_tool_effect(tool_name, description, tool)
-        enabled = bool(saved_enabled.get(tool_name, tool_enabled_by_default(destructive or effect == "unknown")))
-        requires = tool_name in approval_overrides or destructive or effect == "unknown"
+        enabled = bool(saved_enabled.get(tool_name, tool_enabled_by_default(destructive or effect in {"unknown", "mutation"})))
+        requires = asks_first(tool_name, destructive, effect, approval_overrides, allowed)
         normalized[tool_name] = McpToolInfo(
             server_name=server_name,
             name=tool_name,
@@ -406,10 +408,12 @@ def _sync_catalog_from_config(config: dict[str, Any] | None = None) -> None:
             tools_cfg = server_cfg.get("tools", {}) if isinstance(server_cfg.get("tools"), dict) else {}
             enabled_map = dict(tools_cfg.get("enabled") or {})
             approval_overrides = set(tools_cfg.get("require_approval") or [])
+            allowed = set(tools_cfg.get("run_without_asking") or [])
             for info in tools.values():
-                unknown = (info.effect or classify_tool_effect(info.name, info.description)) == "unknown"
-                info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(info.destructive or unknown))) and _accepted_tool_matches(server_cfg, info)
-                info.requires_approval = info.destructive or unknown or info.name in approval_overrides
+                effect = info.effect or classify_tool_effect(info.name, info.description)
+                info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(
+                    info.destructive or effect in {"unknown", "mutation"}))) and _accepted_tool_matches(server_cfg, info)
+                info.requires_approval = asks_first(info.name, info.destructive, effect, approval_overrides, allowed)
             status = _statuses.get(server_name)
             if status:
                 status.tool_count = len(tools)
@@ -1436,7 +1440,7 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
     plugins = state.get_cached_plugin_enablement() if state is not None else None
     with _runtime_lock:
         infos = [(info.server_name, info.name, info.prefixed_name, info.destructive,
-                  (info.effect or classify_tool_effect(info.name, info.description)) == "unknown",
+                  info.effect or classify_tool_effect(info.name, info.description),
                   info.source.get("plugin_id") if type(info.source) is dict else None, info.enabled)
                  for info in islice((info for tools in _catalog.values() for info in tools.values()), 10001)]
     requested: dict[str, list[str]] = {}
@@ -1444,10 +1448,10 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
         requested.setdefault(server_name, []).append(name)
     config = mcp_config.get_cached_enablement({server: tuple(names) for server, names in requested.items()})
     records = []
-    for server_name, name, identity, destructive, unknown, plugin_id, runtime_enabled in infos:
+    for server_name, name, identity, destructive, effect, plugin_id, runtime_enabled in infos:
         enabled = None
         configured = None
-        requires = True if destructive is True or unknown else None
+        requires = True if destructive is True or effect in {"unknown", "mutation"} else None
         if type(plugin_id) is str and plugin_id:
             # Overlay tool toggles cannot be resolved without plugin declarations;
             # cached disabled owners are definitive, enabled owners are not enough.
@@ -1459,9 +1463,9 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
             if server is None or config["enabled"] is False or server["enabled"] is False:
                 enabled = False
             elif config["enabled"] is True and server["enabled"] is True and type(destructive) is bool:
-                enabled = server["tools"].get(name, tool_enabled_by_default(destructive or unknown))
+                enabled = server["tools"].get(name, tool_enabled_by_default(destructive or effect in {"unknown", "mutation"}))
             if server is not None and type(destructive) is bool:
-                requires = destructive is True or unknown or name in server["require_approval"]
+                requires = asks_first(name, destructive, effect, server["require_approval"], server["run_without_asking"])
         if runtime_enabled is False:
             enabled = False
         records.append({"id": identity, "label": name, "server_name": server_name,

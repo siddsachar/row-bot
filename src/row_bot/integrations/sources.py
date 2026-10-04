@@ -291,7 +291,9 @@ class Hermes(Source):
         app = apps.match(["hermes:" + entry["id"].removeprefix("hermes:")] + apps.repository_refs(entry["url"]))
         row = _available("plugin", entry["id"], entry["name"], app=app, source="hermes", description=entry["description"],
             publisher=entry["publisher"], source_url=public_url(entry["url"]), version=entry["version"], pin=entry["pin"],
-            compatibility=entry["compatibility"], platforms=entry["platforms"], actions=["preview"],
+            # Only about one in ten is portable, and that is known only once added: rank below complete plans.
+            compatibility="unsupported" if entry["compatibility"] == "unsupported" else "not_inspected", setup_tier=2,
+            platforms=entry["platforms"], actions=["preview"],
             unsupported=entry["reason"] if entry["compatibility"] == "unsupported" else "",
             canonical_identity="plugin:" + entry["source_identity"] + "@" + entry["pin"])
         if entry["compatibility"] != "unsupported":

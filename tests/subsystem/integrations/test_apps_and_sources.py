@@ -5,7 +5,7 @@ from row_bot.application import client_integrations as api
 from row_bot.integrations import apps, sources
 from row_bot.integrations.safe import TtlCache
 from row_bot.mcp_client import marketplace
-from tests.helpers.registry import use_registry
+from tests.helpers.registry import search_catalog, use_registry
 
 
 @pytest.fixture
@@ -59,11 +59,11 @@ def test_source_list_is_served_with_server_side_eligibility():
 
 
 def test_all_curated_recipes_are_visible_and_findable_by_job(local):
-    page = api.search_integrations(owner_id="owner", sources=["recommended"], limit=96)
+    page = search_catalog(sources=["recommended"], limit=96)
     assert page["total"] == len(marketplace.CURATED_STARTER_CATALOG) == 46
     for job, app in (("payments", "Stripe MCP"), ("issues tickets", "Linear MCP"), ("web search", "Tavily MCP"),
                      ("local files", "Filesystem")):
-        found = api.search_integrations(owner_id="owner", sources=["recommended"], query=job)
+        found = search_catalog(sources=["recommended"], query=job)
         assert app in [row["name"] for row in found["items"]], job
 
 
@@ -72,21 +72,25 @@ def test_one_deployment_listed_twice_is_merged_with_both_attributions(local, mon
         install={"transport": "streamable_http", "url": "https://mcp.notion.com/mcp"},
         metadata={"canonical_name": "com.notion/mcp", "version": "1.0.0", "setup_digest": "a" * 64})
     use_registry(monkeypatch, local, [listing])
-    page = api.search_integrations(owner_id="owner", sources=["recommended", "official"], query="notion")
-    notion = [row for row in page["items"] if row["canonical_identity"].endswith("mcp.notion.com/mcp")]
+    page = search_catalog(sources=["recommended", "official"], query="notion")
+    notion = [row for row in page["items"] if row["app"] and row["app"]["id"] == "notion"]
     assert len(notion) == 1 and notion[0]["source"] == "curated"
     assert {a["source"] for a in notion[0]["attributions"]} == {"recommended", "official"}
+    assert {a["item_id"] for a in notion[0]["attributions"]} == {"mcp:curated:makenotion-notion-mcp-server",
+                                                                 "mcp:official:com.notion/mcp@1.0.0"}
 
 
 def test_unsupported_entries_appear_only_when_searched(local, monkeypatch):
     listing = marketplace.MarketplaceEntry("org.example/tool@1.0.0", "Example Tool", "Needs headers", "official",
         metadata={"canonical_name": "org.example/tool", "version": "1.0.0"}, notes=["Header declarations unsupported."])
     use_registry(monkeypatch, local, [listing])
-    assert api.search_integrations(owner_id="owner", sources=["official"])["total"] == 0
-    found = api.search_integrations(owner_id="owner", sources=["official"], query="example")["items"]
-    assert len(found) == 1 and found[0]["compatibility"] == "unsupported" and found[0]["reasons"]
+    assert search_catalog(sources=["official"])["total"] == 0
+    found = search_catalog(sources=["official"], query="example")["items"]
+    assert len(found) == 1 and found[0]["compatibility"] == "unsupported"
+    assert found[0]["blockers"][0]["code"] == "unsupported" and found[0]["blockers"][0]["message"]
+    assert found[0]["next_action"]["kind"] == "none"
 
 
 def test_unknown_sources_are_refused(local):
     with pytest.raises(ValueError, match="invalid_integration_query"):
-        api.search_integrations(owner_id="owner", sources=["not-a-source"])
+        search_catalog(sources=["not-a-source"])

@@ -1,6 +1,17 @@
 {
   "additionalProperties": false,
   "properties": {
+    "always_asks": {
+      "default": true,
+      "title": "Always Asks",
+      "type": "boolean"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Description",
+      "type": "string"
+    },
     "effect": {
       "enum": [
         "read_only",

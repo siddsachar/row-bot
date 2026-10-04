@@ -46,12 +46,12 @@ const page: PluginCatalogPage = {
       capabilities,
     },
     {
-      plugin_id: 'cached-plugin',
-      name: 'Cached Plugin',
+      plugin_id: 'other-plugin',
+      name: 'Other Plugin',
       version: '2.0.0',
-      description: 'A saved marketplace entry.',
-      source: 'marketplace',
-      installed: false,
+      description: 'Another installed plugin.',
+      source: 'installed',
+      installed: true,
       enabled: false,
       setup_complete: false,
       health: 'unknown',
@@ -110,22 +110,7 @@ const detail: PluginDetail = {
 function options() {
   return {
     session: createPluginSettingsSession(),
-    load: vi.fn().mockImplementation(async ({ source }) => {
-      const items =
-        source === 'installed'
-          ? page.items.filter((item) => item.installed)
-          : source === 'marketplace'
-            ? page.items.filter((item) => !item.installed)
-            : page.items;
-      // The server counts every plugin, whatever the tab shows (B120).
-      return {
-        ...page,
-        items,
-        total: items.length,
-        installed_count: 1,
-        attention_count: 0,
-      };
-    }),
+    load: vi.fn().mockResolvedValue(page),
     open: vi.fn().mockResolvedValue(detail),
     review: vi.fn().mockImplementation(async (action, payload) => ({
       schema_version: 1,
@@ -144,79 +129,49 @@ function options() {
   };
 }
 
-async function manage() {
-  await screen.findByText('1 matching plugins.');
-  fireEvent.click(screen.getByRole('button', { name: 'Manage Sample Plugin' }));
-  await screen.findByRole('heading', { name: 'Sample Plugin', level: 3 });
+/** Apps › a plugin › Advanced settings: the editor scoped to that one plugin. */
+function renderScoped(props: ReturnType<typeof options>) {
+  return render(<PluginSettings {...props} integrationId="sample-plugin" />);
 }
 
-it('starts with installed local plugins and keeps the marketplace explicitly passive', async () => {
+async function manage(props: ReturnType<typeof options>) {
+  const rendered = renderScoped(props);
+  await screen.findByRole('heading', { name: 'Sample Plugin', level: 3 });
+  return rendered;
+}
+
+it('opens only the scoped plugin and changes nothing until asked', async () => {
   const props = options();
-  render(<PluginSettings {...props} />);
-  await screen.findByText('1 matching plugins.');
-  expect(screen.getByRole('tab', { name: 'Installed' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  expect(screen.queryByText('Cached Plugin')).not.toBeInTheDocument();
-  expect(screen.getByText(/1 tool · 1 skill/)).toBeVisible();
-  expect(screen.getByText('1 installed')).toBeVisible();
+  await manage(props);
   expect(props.load).toHaveBeenCalledWith(
     { query: '', source: 'installed' },
     expect.any(AbortSignal),
   );
-
-  // Discover is the saved marketplace; it never fetches over the network.
-  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
-  expect(await screen.findByText('Cached Plugin')).toBeVisible();
-  // Discover shows the saved marketplace, and still "1 installed" (B120).
-  expect(screen.getByText('1 installed')).toBeVisible();
-  expect(screen.getByLabelText('Plugin source')).toHaveValue('marketplace');
-  expect(screen.getByText(/Install unavailable/)).toBeVisible();
-  expect(props.load).toHaveBeenLastCalledWith(
-    { query: '', source: 'marketplace', cursor: undefined },
+  expect(props.open).toHaveBeenCalledOnce();
+  expect(props.open).toHaveBeenCalledWith(
+    'sample-plugin',
     expect.any(AbortSignal),
   );
+  expect(screen.queryByText('Other Plugin')).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/Health: passed\. Permissions: Network/),
+  ).toBeVisible();
   expect(props.review).not.toHaveBeenCalled();
   expect(props.execute).not.toHaveBeenCalled();
 });
 
 it('runs the saved plugin self-test in one click before enablement', async () => {
   const props = options();
-  render(<PluginSettings {...props} />);
-  const more = await screen.findByRole('button', {
-    name: 'More actions for Sample Plugin',
-  });
-  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Test Sample Plugin' }));
+  await manage(props);
+  fireEvent.click(screen.getByRole('button', { name: 'Run local test' }));
   await waitFor(() => expect(props.execute).toHaveBeenCalledTimes(1));
   expect(props.review.mock.calls[0][0]).toBe('plugin.test');
   expect(props.execute.mock.calls[0][0].type).toBe('plugin.test');
 });
 
-it('keeps search inline and rarer actions in one menu', async () => {
-  const props = options();
-  render(<PluginSettings {...props} />);
-  await screen.findByText('1 matching plugins.');
-  expect(screen.getAllByLabelText('Search plugins')[0]).toBeVisible();
-  const more = screen.getAllByRole('button', {
-    name: 'More plugin actions',
-  })[0];
-  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Reload plugins' }));
-  await waitFor(() => expect(props.load).toHaveBeenCalledTimes(2));
-  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
-  expect(await screen.findByText('Cached Plugin')).toBeVisible();
-  expect(props.load).toHaveBeenLastCalledWith(
-    { query: '', source: 'marketplace', cursor: undefined },
-    expect.any(AbortSignal),
-  );
-});
-
 it('keeps path-like settings and saved secrets write-only', async () => {
   const props = options();
-  render(<PluginSettings {...props} />);
-  await manage();
+  await manage(props);
   expect(screen.getByLabelText(/Region/)).toHaveValue('');
   expect(screen.getByLabelText(/Workspace/)).toHaveValue('');
   expect(screen.getByLabelText(/Token/)).toHaveValue('');
@@ -225,8 +180,7 @@ it('keeps path-like settings and saved secrets write-only', async () => {
 
 it('saves exact configuration with a write-only secret in one click', async () => {
   const props = options();
-  render(<PluginSettings {...props} />);
-  await manage();
+  await manage(props);
   fireEvent.change(screen.getByLabelText(/Region/), {
     target: { value: 'us' },
   });
@@ -252,26 +206,9 @@ it('saves exact configuration with a write-only secret in one click', async () =
 
 it('enables a plugin with one click', async () => {
   const props = options();
-  render(<PluginSettings {...props} />);
-  await manage();
+  await manage(props);
   fireEvent.click(screen.getByRole('switch', { name: 'Plugin enabled' }));
   await screen.findByText(/Plugin change completed/);
-  expect(props.review.mock.calls[0][0]).toBe('plugin.enable');
-  expect(props.execute).toHaveBeenCalledOnce();
-});
-
-it('exposes one-click enablement from the resting plugin row', async () => {
-  const props = options();
-  render(<PluginSettings {...props} />);
-  await screen.findByText('1 matching plugins.');
-  fireEvent.click(
-    screen.getByRole('switch', { name: 'Sample Plugin enabled' }),
-  );
-  await screen.findByText(/Plugin change completed/);
-  expect(props.open).toHaveBeenCalledWith(
-    'sample-plugin',
-    expect.any(AbortSignal),
-  );
   expect(props.review.mock.calls[0][0]).toBe('plugin.enable');
   expect(props.execute).toHaveBeenCalledOnce();
 });
@@ -279,26 +216,20 @@ it('exposes one-click enablement from the resting plugin row', async () => {
 it('refreshes the enabled switch after the saved command completes', async () => {
   const props = options();
   let enabled = false;
-  props.load.mockImplementation(async () => ({
-    ...page,
-    items: [
-      {
-        ...page.items[0],
-        enabled,
-        capabilities: {
-          ...capabilities,
-          enable: {
-            available: !enabled,
-            code: enabled ? 'plugin_already_enabled' : null,
-          },
-          disable: {
-            available: enabled,
-            code: enabled ? null : 'plugin_already_disabled',
-          },
-        },
+  props.open.mockImplementation(async () => ({
+    ...detail,
+    enabled,
+    capabilities: {
+      ...capabilities,
+      enable: {
+        available: !enabled,
+        code: enabled ? 'plugin_already_enabled' : null,
       },
-    ],
-    total: 1,
+      disable: {
+        available: enabled,
+        code: enabled ? null : 'plugin_already_disabled',
+      },
+    },
   }));
   props.execute.mockImplementation(async (command) => {
     enabled = true;
@@ -308,171 +239,29 @@ it('refreshes the enabled switch after the saved command completes', async () =>
       plugin: { plugin_id: 'sample-plugin', action: command.type, enabled },
     };
   });
-  render(<PluginSettings {...props} />);
-  const toggle = await screen.findByRole('switch', {
-    name: 'Sample Plugin enabled',
-  });
+  await manage(props);
+  const toggle = screen.getByRole('switch', { name: 'Plugin enabled' });
   expect(toggle).not.toBeChecked();
   fireEvent.click(toggle);
   await waitFor(() =>
     expect(
-      screen.getByRole('switch', { name: 'Sample Plugin enabled' }),
+      screen.getByRole('switch', { name: 'Plugin enabled' }),
     ).toBeChecked(),
   );
   expect(props.load).toHaveBeenCalledTimes(2);
+  expect(props.open).toHaveBeenCalledTimes(2);
   expect(screen.getByText('Plugin change completed.')).toBeVisible();
-});
-
-const installable = {
-  ...capabilities,
-  install: { available: true, code: null },
-};
-
-function marketplaceOnly(
-  props: ReturnType<typeof options>,
-  caps: PluginCatalogPage['items'][number]['capabilities'],
-) {
-  props.load.mockResolvedValue({
-    ...page,
-    items: [{ ...page.items[1], capabilities: caps }],
-    total: 1,
-  });
-}
-
-it('says why a marketplace plugin cannot install instead of offering Install (B266)', async () => {
-  const props = options();
-  marketplaceOnly(props, {
-    ...capabilities,
-    install: { available: false, code: 'plugin_checksum_unavailable' },
-  });
-  const lifecycle = { review: vi.fn(), execute: vi.fn(), receipt: vi.fn() };
-  render(<PluginSettings {...props} lifecycle={lifecycle} />);
-  expect(await screen.findByText(/lists no checksum/)).toBeVisible();
-  expect(
-    screen.queryByRole('button', { name: 'Install' }),
-  ).not.toBeInTheDocument();
-  expect(lifecycle.review).not.toHaveBeenCalled();
-});
-
-it('shows the installer’s reason when an install fails (B266)', async () => {
-  sessionStorage.clear();
-  const props = options();
-  marketplaceOnly(props, installable);
-  const lifecycle = {
-    review: vi.fn().mockResolvedValue({
-      action: 'install',
-      plugin_id: 'cached-plugin',
-      name: 'Cached Plugin',
-      version: '2.0.0',
-      source:
-        'https://github.com/example/plugins/archive/refs/heads/main.zip (folder plugins/cached-plugin)',
-      checksum: `sha256:${'a'.repeat(64)}`,
-      permissions: [],
-      disclosures: [],
-      revision: 'd'.repeat(64),
-    }),
-    execute: vi.fn().mockImplementation(async (command) => ({
-      command_id: command.command_id,
-      status: 'failed',
-      action: 'install',
-      plugin_id: 'cached-plugin',
-      message:
-        "Couldn't install cached-plugin: Checksum mismatch: expected sha256:a, got sha256:b Refresh the marketplace, then try again.",
-    })),
-    receipt: vi.fn(),
-  };
-  render(<PluginSettings {...props} lifecycle={lifecycle} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Install plugin' }),
-  );
-  const alert = await screen.findByRole('alert');
-  expect(alert).toHaveTextContent('Checksum mismatch');
-  expect(alert).toHaveTextContent('Refresh the marketplace');
-});
-
-it('says an entry that cannot install is permanent, not "try again" (B266)', async () => {
-  sessionStorage.clear();
-  const props = options();
-  marketplaceOnly(props, installable);
-  const lifecycle = {
-    review: vi
-      .fn()
-      .mockRejectedValue({ status: 409, code: 'plugin_source_unsupported' }),
-    execute: vi.fn(),
-    receipt: vi.fn(),
-  };
-  render(<PluginSettings {...props} lifecycle={lifecycle} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
-  const alert = await screen.findByRole('alert');
-  expect(alert).toHaveTextContent(/can’t be installed from/);
-  expect(alert).not.toHaveTextContent(/try again/i);
-  expect(lifecycle.execute).not.toHaveBeenCalled();
-});
-
-it('keeps a newly installed marketplace plugin visible for its next action', async () => {
-  sessionStorage.clear();
-  const props = options();
-  let installed = false;
-  props.load.mockImplementation(async ({ source }) => {
-    const item = {
-      ...page.items[1],
-      capabilities: installable,
-      installed,
-      source: installed ? ('installed' as const) : ('marketplace' as const),
-    };
-    return {
-      ...page,
-      items: source === 'all' || source === item.source ? [item] : [],
-      total: source === 'all' || source === item.source ? 1 : 0,
-    };
-  });
-  const lifecycle = {
-    review: vi.fn().mockResolvedValue({ revision: 'd'.repeat(64) }),
-    execute: vi.fn().mockImplementation(async (command) => {
-      installed = true;
-      return {
-        command_id: command.command_id,
-        status: 'completed',
-        action: 'install',
-        plugin_id: 'cached-plugin',
-        message: 'Installed cached-plugin and kept it disabled.',
-      };
-    }),
-    receipt: vi.fn(),
-  };
-  render(<PluginSettings {...props} lifecycle={lifecycle} />);
-  await screen.findByText('0 matching plugins.');
-  fireEvent.click(screen.getByRole('tab', { name: 'Discover' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Install' }));
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Install plugin' }),
-  );
-  await waitFor(() =>
-    expect(props.load).toHaveBeenLastCalledWith(
-      { query: '', source: 'all', cursor: undefined },
-      expect.any(AbortSignal),
-    ),
-  );
-  const more = await screen.findByRole('button', {
-    name: 'More actions for Cached Plugin',
-  });
-  await act(async () => fireEvent.keyDown(more, { key: 'Enter' }));
-  expect(
-    screen.getByRole('menuitem', { name: 'Uninstall Cached Plugin' }),
-  ).toBeVisible();
 });
 
 it('retains one uncertain original across remount and never creates a second command', async () => {
   const props = options();
   props.execute.mockRejectedValueOnce(Error('response lost'));
-  const rendered = render(<PluginSettings {...props} />);
-  await manage();
+  const rendered = await manage(props);
   fireEvent.click(screen.getByRole('switch', { name: 'Plugin enabled' }));
   await screen.findByText(/original plugin change is unconfirmed/);
   const original = props.execute.mock.calls[0];
   rendered.unmount();
-  render(<PluginSettings {...props} />);
+  renderScoped(props);
   fireEvent.click(
     screen.getByRole('button', { name: 'Check original plugin change' }),
   );
@@ -489,8 +278,7 @@ it('tombstones pending secrets and commands when authentication is lost', async 
       resolve = done;
     }),
   );
-  render(<PluginSettings {...props} />);
-  await manage();
+  await manage(props);
   fireEvent.change(screen.getByLabelText(/Token/), {
     target: { value: 'private-token' },
   });
@@ -515,22 +303,34 @@ it('rejects oversized pages and detail records from the client boundary', async 
     ...page,
     items: Array.from({ length: 51 }, () => page.items[0]),
   });
-  render(<PluginSettings {...props} />);
+  const rendered = renderScoped(props);
   await screen.findByText(/Saved plugin information is unavailable/);
-  expect(screen.queryByText('2 matching plugins.')).not.toBeInTheDocument();
   await waitFor(() => expect(props.open).not.toHaveBeenCalled());
+  rendered.unmount();
+
+  const oversized = options();
+  oversized.open.mockResolvedValue({
+    ...detail,
+    settings: Array.from({ length: 129 }, (_, index) => ({
+      ...detail.settings[0],
+      name: `field_${index}`,
+    })),
+  });
+  renderScoped(oversized);
+  await screen.findByText('Plugin details are unavailable.');
+  expect(
+    screen.queryByRole('heading', { name: 'Sample Plugin' }),
+  ).not.toBeInTheDocument();
 });
 
-it('says an enabled plugin failed to load instead of calling it enabled', async () => {
+it('says an enabled plugin failed to load in its health line', async () => {
   const props = options();
-  props.load.mockResolvedValue({
-    ...page,
-    total: 1,
-    items: [{ ...page.items[0], enabled: true, health: 'load_failed' }],
+  props.open.mockResolvedValue({
+    ...detail,
+    enabled: true,
+    health: { status: 'load_failed', checks: [] },
   });
-  render(<PluginSettings {...props} />);
-  await screen.findByText('1 matching plugins.');
-  expect(screen.getByText('Failed to load')).toBeVisible();
-  expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
-  expect(screen.getByText('1 needs attention')).toBeVisible();
+  await manage(props);
+  expect(screen.getByText(/Health: load failed\./)).toBeVisible();
+  expect(screen.queryByText(/Health: passed/)).not.toBeInTheDocument();
 });

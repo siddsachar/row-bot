@@ -1,6 +1,11 @@
 {
   "additionalProperties": false,
   "properties": {
+    "cleanup": {
+      "default": false,
+      "title": "Cleanup",
+      "type": "boolean"
+    },
     "consent_token": {
       "maxLength": 256,
       "minLength": 1,
@@ -32,7 +37,10 @@
             "add",
             "turn_on",
             "fix",
-            "access"
+            "access",
+            "turn_off",
+            "remove",
+            "update"
           ],
           "type": "string"
         },
@@ -49,6 +57,23 @@
       "minLength": 1,
       "title": "Item Id",
       "type": "string"
+    },
+    "overrides": {
+      "additionalProperties": {
+        "enum": [
+          "use",
+          "ask",
+          "off"
+        ],
+        "type": "string"
+      },
+      "maxProperties": 256,
+      "propertyNames": {
+        "maxLength": 512,
+        "minLength": 1
+      },
+      "title": "Overrides",
+      "type": "object"
     },
     "plan_id": {
       "format": "uuid",

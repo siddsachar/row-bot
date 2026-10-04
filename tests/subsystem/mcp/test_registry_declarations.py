@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from row_bot.application import client_integrations
 from row_bot.mcp_client import marketplace, registry_snapshot
-from tests.helpers.registry import use_registry
+from tests.helpers.registry import search_catalog, use_registry
 
 pytestmark = pytest.mark.platform
 
@@ -27,17 +26,17 @@ def test_required_header_deployments_survive_parser_snapshot_and_search(envelope
     entries = marketplace.registry_entries({"servers": [envelope, second]})
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     use_registry(monkeypatch, tmp_path, entries)
-    page = client_integrations.search_integrations(owner_id="declarations", sources=["official"], query="notes",
-                                                   include_incompatible=True)
+    page = search_catalog("declarations", sources=["official"], query="notes", include_incompatible=True)
     assert len(page["items"]) == 2
-    assert len({r["canonical_identity"] for r in page["items"]}) == 2
+    # Distinct deployments are never merged: each keeps only its own listing.
+    assert len({r["id"] for r in page["items"]}) == 2 and all(len(r["attributions"]) == 1 for r in page["items"])
     for item in page["items"]:
         assert item["compatibility"] == "unsupported"
-        assert not item["actions"]
-        assert "header" in " ".join(item["reasons"]).lower()
-    assert client_integrations.search_integrations(owner_id="declarations", sources=["official"])["total"] == 0
-    assert client_integrations.search_integrations(owner_id="declarations", sources=["official"], query="notes",
-                                                   include_incompatible=False)["total"] == 2  # Searched: shown with reasons.
+        assert item["next_action"]["kind"] == "none"
+        assert "header" in " ".join(b["message"] for b in item["blockers"]).lower()
+    assert search_catalog("declarations", sources=["official"])["total"] == 0
+    assert search_catalog("declarations", sources=["official"], query="notes",
+                          include_incompatible=False)["total"] == 2  # Searched: shown with reasons.
     assert not any(e.install for e in registry_snapshot.read_snapshot()["entries"])
 
 

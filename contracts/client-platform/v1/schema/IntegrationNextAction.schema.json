@@ -16,6 +16,9 @@
         "retry",
         "try",
         "delete_data",
+        "turn_off",
+        "remove",
+        "update",
         "none"
       ],
       "title": "Kind",

@@ -69,11 +69,13 @@ def _server(saved, server_id):
 
 
 def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
+    from row_bot.integrations import presets
     enabled, catalog = tools.get("enabled", {}), tools.get("catalog", {})
-    approvals, included, excluded = (tools.get(field, []) for field in ("require_approval", "include", "exclude"))
+    approvals, included, excluded, allowed = (tools.get(field, []) for field in ("require_approval", "include", "exclude",
+                                                                               "run_without_asking"))
     if (type(enabled) is not dict or type(catalog) is not dict or any(type(values) is not list or
             len(values) > 10000 or any(type(name) is not str for name in values)
-            for values in (approvals, included, excluded))):
+            for values in (approvals, included, excluded, allowed))):
         raise Error("mcp_policy_unavailable")
     names = set(enabled) | set(catalog) | set(approvals) | set(included) | set(excluded)
     if len(names) > 10000 or any(type(name) is not str or not name or len(name) > 512 for name in names):
@@ -95,9 +97,11 @@ def _tool_policies(server_id: str, tools: dict) -> dict[str, McpToolPolicy]:
                 destructive = True
             if type(description) is str and len(description) <= 16384:
                 effect = classify_tool_effect(name, description)
-        locked = destructive is not False or declared is not False or effect == "unknown"
-        required = True if destructive is True or declared is True or name in approvals or effect == "unknown" else None if locked else False
-        default_enabled = None if destructive is None else not (destructive or effect == "unknown")
+        locked = destructive is None or declared is None or presets.locked(
+            {"destructive": destructive, "requires_approval": declared, "effect": effect})
+        asks = locked or name in approvals or (effect == "mutation" and name not in allowed)
+        required = True if asks and destructive is not None else None if locked else False
+        default_enabled = None if destructive is None else not (destructive or effect in {"unknown", "mutation"})
         identity, label = _tool_id(server_id, name), _label(name)
         if label == "MCP tool" and label != name:
             label = f"MCP tool ({identity[:12]})"
@@ -184,9 +188,10 @@ def _next_policy_document(saved, intent, *, child: bool = False):
     if operation == "utility_enabled":
         fields.add("utility")
     if operation == "preset":
-        fields = {"operation", "server_id", "preset"}
+        fields = {"operation", "server_id", "preset", "overrides"} if "overrides" in intent else {"operation", "server_id", "preset"}
     if (operation not in {"global_enabled", "server_enabled", "tool_enabled", "tool_approval", "utility_enabled", "preset"}
-            or set(intent) != fields or (operation != "preset" and type(intent.get("enabled")) is not bool)):
+            or set(intent) != fields or (operation != "preset" and type(intent.get("enabled")) is not bool)
+            or type(intent.get("overrides", {})) is not dict or len(intent.get("overrides", {})) > 256):
         raise Error("invalid_command")
     document = copy.deepcopy(saved.document)
     if operation == "global_enabled":
@@ -212,7 +217,13 @@ def _next_policy_document(saved, intent, *, child: bool = False):
         if requires_manual_tool_selection(name, target):
             raise Error("mcp_policy_unavailable")  # Conflicting or high-risk tools are chosen one by one.
         _tool_policies(intent["server_id"], tools)  # Retain strict existing safety shapes.
-        presets.apply(tools, intent["preset"])
+        overrides = intent.get("overrides") or {}
+        if set(overrides) - set(tools.get("accepted_names") or tools["catalog"]):
+            raise Error("invalid_command")
+        try:
+            presets.apply(tools, intent["preset"], overrides=overrides)
+        except ValueError:
+            raise Error("approval_required") from None
     elif operation == "utility_enabled":
         if type(intent["utility"]) is not str or intent["utility"] not in {"resources", "prompts"}:
             raise Error("invalid_command")
@@ -234,12 +245,14 @@ def _next_policy_document(saved, intent, *, child: bool = False):
         else:
             if not intent["enabled"] and rows[tool].approval_locked:
                 raise Error("approval_required")
-            approved = set(tools.get("require_approval", []))
+            approved, allowed = set(tools.get("require_approval", [])), set(tools.get("run_without_asking", []))
             if intent["enabled"]:
                 approved.add(tool)
-            else:
+                allowed.discard(tool)
+            else:  # Stopping a routine change from asking is an explicit allowance for that one tool.
                 approved.discard(tool)
-            tools["require_approval"] = sorted(approved)
+                allowed.add(tool)
+            tools["require_approval"], tools["run_without_asking"] = sorted(approved), sorted(allowed)
     return document, (name,)
 
 

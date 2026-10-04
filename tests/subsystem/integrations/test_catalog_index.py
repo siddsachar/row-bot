@@ -8,7 +8,7 @@ from row_bot.application import client_integrations as api
 from row_bot.integrations import apps, index, sources
 from row_bot.integrations.safe import TtlCache
 from row_bot.mcp_client import marketplace, registry_snapshot
-from tests.helpers.registry import use_registry
+from tests.helpers.registry import search_catalog, use_registry
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def test_search_never_builds_writes_or_fetches(local):
     with pytest.raises(LookupError):
         index.search("notion")
     assert not (local / "catalogs").exists()
-    page = api.search_integrations(owner_id="owner", sources=["official"], query="notion")
+    page = search_catalog(sources=["official"], query="notion")
     assert page["sources"][0]["status"] == "pending" and not (local / "catalogs").exists()
 
 
@@ -94,11 +94,11 @@ def test_the_mirror_digest_matches_the_snapshot_it_was_built_from(local, monkeyp
 
 def test_registry_and_curated_listings_of_one_deployment_merge_with_the_vendor_badge(local, monkeypatch):
     use_registry(monkeypatch, local, [listing("com.notion/mcp", "Notion", url="https://mcp.notion.com/mcp")])
-    page = api.search_integrations(owner_id="owner", sources=["recommended", "official"], query="notion")
-    notion = [row for row in page["items"] if row["canonical_identity"].endswith("mcp.notion.com/mcp")]
+    page = search_catalog(sources=["recommended", "official"], query="notion", limit=10)
+    notion = [row for row in page["items"] if row["app"] and row["app"]["id"] == "notion"]
     assert len(notion) == 1 and {a["source"] for a in notion[0]["attributions"]} == {"recommended", "official"}
-    typed = api.search_items(owner_id="owner", query="notion", sources=["recommended", "official"], kind="all",
-                             refresh=False, include_incompatible=False, cursor=None, limit=10)["items"][0]
+    typed = page["items"][0]
+    assert typed["id"] == notion[0]["id"]
     assert typed["verified"] and typed["app"]["verified"] and typed["icon"] == "si:notion"
 
 
@@ -135,7 +135,7 @@ def test_a_record_pointing_at_a_vendor_endpoint_never_borrows_its_app_or_badge(l
     found = index.derive(impostor)
     assert found["app"] == "" and not found["verified"]
     use_registry(monkeypatch, local, [impostor, vendor])
-    (row,) = api.search_integrations(owner_id="owner", sources=["official"], query="notion")["items"]
+    (row,) = search_catalog(sources=["official"], query="notion")["items"]
     assert row["id"] == "mcp:official:com.notion/mcp@1.0.0"  # The vendor's record leads the merged deployment.
     assert {a["item_id"] for a in row["attributions"]} == {row["id"], "mcp:official:io.github.evil/notion@1.0.0"}
 

@@ -43,12 +43,12 @@ SETUP_STEPS: dict[str, dict[str, str]] = {
         "description": "Connect Gmail, Calendar, X, and other accounts.",
     },
     "tools": {
-        "title": "Tools & Skills",
-        "description": "Review search, browser, shell, filesystem, and skills.",
+        "title": "Tools",
+        "description": "Review search, browser, shell, and filesystem tools.",
     },
     "extensions": {
-        "title": "MCP & Plugins",
-        "description": "Add external tools through MCP servers and plugins.",
+        "title": "Apps & Skills",
+        "description": "Connect the services you use and add skills.",
     },
     "voice": {
         "title": "Voice",

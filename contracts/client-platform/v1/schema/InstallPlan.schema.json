@@ -18,6 +18,9 @@
             "retry",
             "try",
             "delete_data",
+            "turn_off",
+            "remove",
+            "update",
             "none"
           ],
           "title": "Kind",
@@ -82,6 +85,11 @@
           ],
           "title": "Access Preset",
           "type": "string"
+        },
+        "cleanup": {
+          "default": false,
+          "title": "Cleanup",
+          "type": "boolean"
         },
         "destinations": {
           "items": {
@@ -396,6 +404,17 @@
     "PlanTool": {
       "additionalProperties": false,
       "properties": {
+        "always_asks": {
+          "default": true,
+          "title": "Always Asks",
+          "type": "boolean"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
         "effect": {
           "enum": [
             "read_only",
@@ -464,13 +483,22 @@
       "title": "Digest",
       "type": "string"
     },
+    "installed_id": {
+      "default": "",
+      "maxLength": 512,
+      "title": "Installed Id",
+      "type": "string"
+    },
     "intent": {
       "enum": [
         "connect",
         "add",
         "turn_on",
         "fix",
-        "access"
+        "access",
+        "turn_off",
+        "remove",
+        "update"
       ],
       "title": "Intent",
       "type": "string"
@@ -545,7 +573,8 @@
         "completed",
         "failed",
         "cancelled",
-        "uncertain"
+        "uncertain",
+        "expired"
       ],
       "title": "State",
       "type": "string"

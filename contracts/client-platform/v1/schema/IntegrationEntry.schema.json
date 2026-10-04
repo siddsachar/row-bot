@@ -255,6 +255,18 @@
           "title": "Lifecycle",
           "type": "string"
         },
+        "method": {
+          "default": "",
+          "enum": [
+            "hosted_sign_in",
+            "api_key",
+            "hosted",
+            "local",
+            ""
+          ],
+          "title": "Method",
+          "type": "string"
+        },
         "name": {
           "maxLength": 256,
           "title": "Name",
@@ -382,6 +394,9 @@
             "retry",
             "try",
             "delete_data",
+            "turn_off",
+            "remove",
+            "update",
             "none"
           ],
           "title": "Kind",

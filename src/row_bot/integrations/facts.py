@@ -17,34 +17,35 @@ from urllib.parse import urlsplit
 from row_bot.integrations import apps
 from row_bot.integrations.safe import public_url
 
-# Blocking code -> (readiness, next action, legacy status). Order is precedence.
+# Blocking code -> (readiness, next action). Order is precedence.
 BLOCKING = {
-    "configuration_recovery": ("attention", "retry", "recovery"),
-    "change_unconfirmed": ("attention", "retry", "attention"),
-    "change_in_progress": ("working", "none", "setup"),
-    "auth_unsupported": ("needs_setup", "fix", "setup"),
-    "sign_in_required": ("needs_sign_in", "sign_in", "disconnected"),
-    "expired": ("needs_sign_in", "sign_in", "disconnected"),
-    "key_required": ("needs_key", "add_key", "disconnected"),
-    "connection_failed": ("attention", "fix", "attention"),
-    "cleanup_incomplete": ("attention", "retry", "attention"),
-    "tools_changed": ("attention", "fix", "attention"),
-    "source_removed": ("attention", "fix", "attention"),
-    "source_blocked": ("attention", "fix", "attention"),
-    "package_failed": ("attention", "fix", "attention"),
-    "included_attention": ("attention", "fix", "attention"),
-    "missing_runtime": ("needs_runtime", "install_runtime", "missing_runtime"),
-    "package_preparation": ("needs_runtime", "continue_setup", "setup"),
-    "app_required": ("needs_app", "open_app", "setup"),
-    "tools_not_accepted": ("needs_setup", "continue_setup", "setup"),
-    "package_setup": ("needs_setup", "continue_setup", "setup"),
-    "included_needs_setup": ("needs_setup", "continue_setup", "setup"),
-    "not_connected": ("needs_setup", "continue_setup", "setup"),
-    "unsupported": (None, "none", "discover"),
+    "configuration_recovery": ("attention", "retry"),
+    "change_unconfirmed": ("attention", "retry"),
+    "change_in_progress": ("working", "none"),
+    "auth_unsupported": ("needs_setup", "fix"),
+    "sign_in_required": ("needs_sign_in", "sign_in"),
+    "expired": ("needs_sign_in", "sign_in"),
+    "key_required": ("needs_key", "add_key"),
+    "connection_failed": ("attention", "fix"),
+    "cleanup_incomplete": ("attention", "retry"),
+    "tools_changed": ("attention", "fix"),
+    "source_removed": ("attention", "fix"),
+    "source_blocked": ("attention", "fix"),
+    "package_failed": ("attention", "fix"),
+    "included_attention": ("attention", "fix"),
+    "missing_runtime": ("needs_runtime", "install_runtime"),
+    "package_preparation": ("needs_runtime", "continue_setup"),
+    "app_required": ("needs_app", "open_app"),
+    "tools_not_accepted": ("needs_setup", "continue_setup"),
+    "package_setup": ("needs_setup", "continue_setup"),
+    "included_needs_setup": ("needs_setup", "continue_setup"),
+    "not_connected": ("needs_setup", "continue_setup"),
+    "unsupported": (None, "none"),
 }
 LABELS = {"connect": "Connect", "add": "Add", "install": "Add", "continue_setup": "Continue setup", "sign_in": "Sign in",
           "add_key": "Add key", "install_runtime": "Continue setup", "open_app": "Check again", "turn_on": "Turn on",
-          "fix": "Fix", "retry": "Retry", "try": "Try it", "delete_data": "Delete saved data", "none": ""}
+          "fix": "Fix", "retry": "Retry", "try": "Try it", "delete_data": "Delete saved data", "turn_off": "Turn off",
+          "remove": "Remove", "update": "Update", "none": ""}
 _MESSAGES = {
     "configuration_recovery": "Finishing your last change. Retry if this does not clear.",
     "change_unconfirmed": "Your last change did not finish. Retry to check it again.",
@@ -77,7 +78,7 @@ def status(kind: str, lifecycle: str, blockers: list[dict]) -> dict:
     """Status v2: lifecycle, readiness, every blocker, and exactly one next action."""
     blocking = sorted((b for b in blockers if b["severity"] == "blocking"), key=lambda b: list(BLOCKING).index(b["code"]))
     if blocking:
-        readiness, action, _legacy = BLOCKING[blocking[0]["code"]]
+        readiness, action = BLOCKING[blocking[0]["code"]]
     elif lifecycle == "available":
         readiness, action = None, {"mcp": "connect", "skill": "add"}.get(kind, "install")
     elif lifecycle == "data_retained":
@@ -89,19 +90,8 @@ def status(kind: str, lifecycle: str, blockers: list[dict]) -> dict:
             "next_action": {"kind": action, "label": label}}
 
 
-def legacy_status(value: dict) -> str:
-    blocking = [b for b in value["blockers"] if b["severity"] == "blocking"]
-    if value["lifecycle"] == "available":
-        return "discover"
-    if value["lifecycle"] == "data_retained":
-        return "retained"
-    if blocking:
-        return BLOCKING[blocking[0]["code"]][2]
-    return "off" if value["lifecycle"] == "off" else "ready"
-
-
 def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
-    """The one internal record; legacy and typed responses are views of it."""
+    """The one internal record; typed responses are views of it."""
     row = {"id": kind + ":" + owner_ref, "kind": kind, "owner_ref": owner_ref, "name": str(name)[:256],
         "description": "", "parent_id": None, "source": "local", "publisher": "", "source_url": "", "version": "", "pin": "",
         "license": "", "compatibility": "supported", "platforms": [], "evidence": "Live service behavior has not been tested.",
@@ -116,10 +106,8 @@ def entry(kind: str, owner_ref: str, name: str, **fields) -> dict:
 
 
 def finish(row: dict) -> dict:
-    """Derive status v2 and the legacy status/reasons from lifecycle and blockers."""
+    """Derive status v2 from lifecycle and blockers."""
     row.update(status(row["kind"], row["lifecycle"], row["blockers"]))
-    row["status"] = legacy_status(row)
-    row["reasons"] = [b["message"] for b in row["blockers"] if b["message"]][:16]
     if row["app"]:
         row["verified"] = row["verified"] or row["app"]["verified"]
         row["icon"] = row["app"]["icon"] if row["icon"].startswith("letter:") else row["icon"]
@@ -424,20 +412,21 @@ def _live(row: dict, statuses: dict, validate: Callable[[], None], pending: dict
         # A connection someone deliberately switched off is off, not unfinished.
         row["blockers"] = row["blockers"] + ([] if excluded else mcp_blockers(setup, runtime, enabled=enabled))
         row.update(setup=setup, account_label=str((cfg.get("auth") or {}).get("label", ""))[:128],
-            lifecycle="installed" if enabled else "off",
-            auth_status="expired" if any(b["code"] == "expired" for b in row["blockers"]) else "configured" if setup["credential_configured"] else "none")
+                   lifecycle="installed" if enabled else "off")
     if row["parent_id"] is None:
         codes = {b["code"] for b in row["blockers"]}
         row["blockers"] = [b for b in _reconcile(row, validate, pending) if b["code"] not in codes] + row["blockers"]
     row["children"] = [_live(child, statuses, validate, pending) for child in row["children"]]
     for child in row["children"]:
+        reasons = [b["message"] for b in child["blockers"] if b["message"]][:16]
+        clear = not any(b["severity"] == "blocking" for b in child["blockers"])
         # A switched-off package's included items are off with it, not broken.
-        if child["status"] == "ready" or (row["lifecycle"] == "off" and child["status"] == "off"
-                                          and (child["kind"] == "skill" or not child["reasons"])):
+        if clear and (child["lifecycle"] == "installed" or (row["lifecycle"] == "off" and child["lifecycle"] == "off"
+                                                             and (child["kind"] == "skill" or not reasons))):
             continue
         required = child.get("required", True)
-        message = child["name"] + (": " if required else " (optional): ") + (" ".join(child["reasons"]) or "Turn on this included capability.")
-        code = "included" if not required else "included_attention" if child["status"] == "attention" else "included_needs_setup"
+        message = child["name"] + (": " if required else " (optional): ") + (" ".join(reasons) or "Turn on this included capability.")
+        code = "included" if not required else "included_attention" if child["readiness"] == "attention" else "included_needs_setup"
         row["blockers"].append(blocker(code, message, subject=child["name"]))
     return finish(row)
 

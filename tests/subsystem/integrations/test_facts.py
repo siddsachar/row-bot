@@ -25,20 +25,21 @@ def _work():
     return next(row for row in facts.inventory()[0] if row["name"] == "Work")
 
 
-@pytest.mark.parametrize(("lifecycle", "codes", "readiness", "action", "legacy"), [
-    ("installed", [], "ready", "try", "ready"),
-    ("off", [], "ready", "turn_on", "off"),
-    ("available", [], None, "connect", "discover"),
-    ("data_retained", [], None, "delete_data", "retained"),
-    ("installed", ["tools_not_accepted", "connection_failed"], "attention", "fix", "attention"),
-    ("off", ["missing_runtime", "tools_not_accepted"], "needs_runtime", "install_runtime", "missing_runtime"),
-    ("installed", ["expired"], "needs_sign_in", "sign_in", "disconnected"),
-    ("installed", ["diagnostic"], "ready", "try", "ready"),
-    ("installed", ["configuration_recovery", "sign_in_required"], "attention", "retry", "recovery"),
+@pytest.mark.parametrize(("lifecycle", "codes", "readiness", "action"), [
+    ("installed", [], "ready", "try"),
+    ("off", [], "ready", "turn_on"),
+    ("available", [], None, "connect"),
+    ("data_retained", [], None, "delete_data"),
+    ("installed", ["tools_not_accepted", "connection_failed"], "attention", "fix"),
+    ("off", ["missing_runtime", "tools_not_accepted"], "needs_runtime", "install_runtime"),
+    ("installed", ["expired"], "needs_sign_in", "sign_in"),
+    ("installed", ["key_required"], "needs_key", "add_key"),
+    ("installed", ["diagnostic"], "ready", "try"),
+    ("installed", ["configuration_recovery", "sign_in_required"], "attention", "retry"),
 ])
-def test_status_has_one_next_action_from_the_first_blocking_reason(lifecycle, codes, readiness, action, legacy):
+def test_status_has_one_next_action_from_the_first_blocking_reason(lifecycle, codes, readiness, action):
     value = facts.status("mcp", lifecycle, [facts.blocker(code) for code in codes])
-    assert (value["readiness"], value["next_action"]["kind"], facts.legacy_status(value)) == (readiness, action, legacy)
+    assert (value["lifecycle"], value["readiness"], value["next_action"]["kind"]) == (lifecycle, readiness, action)
     assert [b["code"] for b in value["blockers"]] == sorted(codes, key=lambda c: (c not in facts.BLOCKING, list(facts.BLOCKING).index(c) if c in facts.BLOCKING else 0))
 
 
@@ -50,7 +51,8 @@ def test_refused_saved_sign_in_is_expired_without_reading_the_keychain(isolated,
             auth={"mode": "api_key", "credential_ref": "a" * 32, "binding": "b" * 64, "label": "Work"})
     monkeypatch.setattr(runtime, "get_passive_server_statuses", lambda names: {"Work": {"status": "failed", "sign_in_failed": True}})
     row = _work()
-    assert row["auth_status"] == "expired" and row["status"] == "disconnected"
+    assert row["setup"]["credential_configured"] and row["blockers"][0]["code"] == "expired"
+    assert row["readiness"] == "needs_sign_in"
     assert row["next_action"] == {"kind": "sign_in", "label": "Sign in again"}
     monkeypatch.setattr(runtime, "get_passive_server_statuses", lambda names: {"Work": {"status": "failed"}})
     assert _work()["blockers"][0]["code"] == "connection_failed"
@@ -61,7 +63,8 @@ def test_missing_runtime_is_emitted_from_live_requirements(isolated, monkeypatch
     monkeypatch.setattr(facts, "_requirements", lambda cfg: [{"id": "uv", "label": "uv", "available": False,
         "managed": True, "installable": True, "source": "missing"}])
     row = _work()
-    assert row["status"] == "missing_runtime" and row["readiness"] == "needs_runtime"
+    assert row["blockers"][0]["code"] == "missing_runtime" and row["readiness"] == "needs_runtime"
+    assert row["next_action"]["kind"] == "install_runtime"
     monkeypatch.setattr(facts, "_requirements", lambda cfg: [])
     assert _work()["blockers"][0]["code"] == "not_connected"
 
@@ -71,12 +74,12 @@ def test_reads_reuse_the_index_until_an_owner_publishes(isolated, monkeypatch):
     calls = []
     original = plugin_commands.read_integration_packages
     monkeypatch.setattr(plugin_commands, "read_integration_packages", lambda **k: calls.append(1) or original(**k))
-    page = api.read_integrations()
+    page = api.read_items(owner_id="owner")
     for row in page["items"]:
-        assert api.read_integration(row["id"])["id"] == row["id"]
+        assert api.entry(facts.read(row["id"]))["id"] == row["id"]
     assert len(calls) == 1
     _server(enabled=True)
-    api.read_integrations()
+    api.read_items(owner_id="owner")
     assert len(calls) == 2
 
 
@@ -86,7 +89,7 @@ def test_more_than_a_thousand_skills_are_listed(isolated, monkeypatch):
         description="", source="user", version="")} for i in range(1500)}
     monkeypatch.setattr(skills, "read_client_skills", lambda: {"items": items, "enabled": {}, "pinned": [], "revision": "r"})
     monkeypatch.setattr(skills, "is_tool_guide", lambda skill: False)
-    page = api.read_integrations(kind="skill", limit=50)
+    page = api.read_items(owner_id="owner", kind="skill", limit=50)
     assert page["total"] == 1500 and not page["sources"]
 
 
@@ -108,8 +111,8 @@ def test_unfinished_change_is_reconciled_on_read_without_repeating_it(service, i
         monkeypatch.setattr(admissions, "command_progress", persist)
         monkeypatch.setattr(config, "publish_saved_configuration", lambda *a, **k: pytest.fail("repeated publication"))
         assert admissions.read_unfinished_target_commands("settings:mcp")["items"]
-        rows = client.get("/api/v1/settings/integrations?kind=mcp", headers=headers).json()["items"]
-        assert all(row["status"] != "recovery" for row in rows)
+        rows = client.get("/api/v1/integrations/items?kind=mcp", headers=headers).json()["items"]
+        assert rows and all(b["code"] != "configuration_recovery" for row in rows for b in row["blockers"])
         assert not admissions.read_unfinished_target_commands("settings:mcp")["items"]
         assert client.get("/api/v1/commands/" + command["command_id"], headers=headers).json()["status"] == "completed"
 

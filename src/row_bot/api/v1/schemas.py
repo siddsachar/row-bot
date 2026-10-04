@@ -1887,73 +1887,6 @@ class IntegrationAttribution(WireModel):
     pin: str = Field(max_length=128)
 
 
-class IntegrationSecretBinding(WireModel):
-    kind: Literal["header", "env"]
-    name: str = Field(max_length=128)
-    key: str = Field(max_length=64)
-    prefix: Literal["", "Bearer ", "Basic "] = ""
-
-
-class IntegrationSetup(WireModel):
-    auth_mode: Literal["none", "oauth", "api_key", "unknown", "unsupported"]
-    execution: Literal["local", "hosted"]
-    destination: str = Field(max_length=2048)
-    bindings: list[IntegrationSecretBinding] = Field(max_length=16)
-    credential_configured: bool
-    catalog_accepted: bool
-    requirements: list[dict] = Field(max_length=8)
-    runtime_status: str = Field(max_length=64)
-    package_prepared: bool
-    package_required: bool
-    account_requirements: str = Field(max_length=512)
-    cost: str = Field(max_length=512)
-    evidence: str = Field(max_length=512)
-
-
-class IntegrationItem(WireModel):
-    id: str = Field(min_length=1, max_length=512)
-    kind: Literal["skill", "mcp", "plugin"]
-    owner_ref: str = Field(max_length=256)
-    parent_id: str | None = Field(max_length=512)
-    name: str = Field(max_length=256)
-    description: str = Field(max_length=2048)
-    source: str = Field(max_length=80)
-    publisher: str = Field(max_length=160)
-    source_url: str = Field(max_length=2048)
-    version: str = Field(max_length=128)
-    pin: str = Field(max_length=128)
-    license: str = Field(max_length=256)
-    compatibility: Literal["supported", "partial", "unsupported", "not_inspected"]
-    reasons: list[str] = Field(max_length=16)
-    platforms: list[str] = Field(max_length=12)
-    evidence: str = Field(max_length=512)
-    installed: bool
-    enabled: bool
-    status: Literal["ready", "off", "setup", "attention", "missing_runtime", "disconnected", "retained", "recovery", "discover"]
-    revision: str = Field(max_length=128)
-    actions: list[str] = Field(max_length=32)
-    auth_status: Literal["none", "configured", "expired"]
-    account_label: str = Field(max_length=128)
-    children: list[IntegrationItem] = Field(max_length=256)
-    target: McpTarget | None
-    attributions: list[IntegrationAttribution] = Field(default_factory=list, max_length=512)
-    evidence_stage: Literal["listed", "inspected"] = "listed"
-    tested_with_row_bot: bool = False
-    auth_requirement: Literal["unknown", "required", "none"] = "unknown"
-    canonical_identity: str = Field(default="", max_length=1024)
-    setup: IntegrationSetup | None = None
-    required: bool = True
-
-
-class IntegrationUse(WireModel):
-    conversation_id: OpaqueId
-    integration_id: str = Field(max_length=512)
-    conversation_revision: Revision
-    eligible: bool
-    reason: str = Field(max_length=1024)
-    account_label: str = Field(max_length=128)
-
-
 class IntegrationSourceStatus(WireModel):
     source: str = Field(max_length=80)
     status: Literal["live", "cached", "stale", "partial", "pending", "error", "empty", "timeout", "auth_required", "rate_limited", "malformed", "busy", "unavailable"]
@@ -1968,32 +1901,15 @@ class IntegrationSourceStatus(WireModel):
     truncated: bool = False
 
 
-class IntegrationPage(WireModel):
-    schema_version: Literal[1]
-    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    items: list[IntegrationItem] = Field(max_length=96)
-    total: int = Field(ge=0)
-    next_cursor: str | None = Field(max_length=256)
-    sources: list[IntegrationSourceStatus] = Field(max_length=24)
-
-
 class IntegrationSearchRequest(WireModel):
     query: str = Field(default="", max_length=256)
     # Source ids come from GET /integrations/sources; the server validates them.
     sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
-    kind: Literal["all", "skill", "mcp", "plugin"] = "all"
+    kind: Literal["all", "app", "skill", "mcp", "plugin"] = "all"
     refresh: bool = False
     include_incompatible: bool = False
     cursor: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=96)
-
-
-class IntegrationPreviewRequest(WireModel):
-    revision: str = Field(default="", max_length=64)
-    item_id: str = Field(default="", max_length=512)
-    kind: Literal["plugin", "skill", "mcp"] = "plugin"
-    reference: str = Field(default="", max_length=2048)
-    local: bool = False
 
 
 class McpRequirementSummary(WireModel):
@@ -7932,75 +7848,14 @@ class McpPackageCommand(McpPackageRequest):
     nonce: str = Field(max_length=256)
 
 
-class PackageDiagnostic(WireModel):
-    component: str = Field(max_length=256)
-    reason: str = Field(max_length=1024)
-
-
-class PortableSkillPreview(WireModel):
-    name: str = Field(max_length=128)
-    description: str = Field(max_length=1024)
-
-
-class PortableServerPreview(WireModel):
-    key: str = Field(max_length=256)
-    transport: str = Field(max_length=32)
-    command: str = Field(max_length=2048)
-    args: list[str] = Field(max_length=128)
-    url: str = Field(max_length=2048)
-
-
-class PortablePackagePreview(WireModel):
-    preview_id: str = Field(max_length=64)
-    plugin_id: str = Field(max_length=128)
-    name: str = Field(max_length=256)
-    description: str = Field(max_length=1000)
-    version: str = Field(max_length=128)
-    license: str = Field(max_length=256)
-    publisher: str = Field(max_length=160)
-    format: str = Field(max_length=64)
-    compatibility: Literal["supported", "partial"]
-    diagnostics: list[PackageDiagnostic] = Field(max_length=128)
-    source: str = Field(max_length=2048)
-    pin: str = Field(max_length=128)
-    tree_digest: str = Field(max_length=80)
-    archive_digest: str = Field(max_length=80)
-    adapter_version: int
-    skills: list[PortableSkillPreview] = Field(max_length=128)
-    servers: list[PortableServerPreview] = Field(max_length=128)
-    permissions: list[str] = Field(max_length=64)
-    evidence: str = Field(max_length=512)
-
-
-class IntegrationMcpPreview(WireModel):
-    auth_requirement: Literal["unknown", "required", "none"] = "unknown"
-    name: str = Field(max_length=128)
-    import_json: str = Field(max_length=131072)
-    requires_auth: bool
-    notes: list[str] = Field(max_length=16)
-    source_url: str = Field(max_length=2048)
-
-
-class IntegrationPreview(WireModel):
-    kind: Literal["plugin", "skill", "mcp", "native"]
-    plugin: PortablePackagePreview | None = None
-    skill: SkillHubPreview | None = None
-    mcp: IntegrationMcpPreview | None = None
-    plugin_id: str | None = Field(default=None, max_length=128)
-
-
-class IntegrationOperationResult(WireModel):
-    command_id: UUID
-    settled: bool
-    message: str = Field(max_length=1024)
-
-
 # Apps & Skills: one typed model over the existing owners (row_bot.integrations).
 IntegrationKind = Literal["skill", "mcp", "plugin"]
 AccessPresetId = Literal["read_only", "ask", "full"]
 NextActionKind = Literal["connect", "add", "install", "continue_setup", "sign_in", "add_key", "install_runtime", "open_app",
-                         "turn_on", "fix", "retry", "try", "delete_data", "none"]
-PlanIntent = Literal["connect", "add", "turn_on", "fix", "access"]
+                         "turn_on", "fix", "retry", "try", "delete_data", "turn_off", "remove", "update", "none"]
+PlanIntent = Literal["connect", "add", "turn_on", "fix", "access", "turn_off", "remove", "update"]
+ToolState = Literal["use", "ask", "off"]
+ToolOverrides = dict[Annotated[str, StringConstraints(min_length=1, max_length=512)], ToolState]
 
 
 class CatalogUpdate(WireModel):
@@ -8116,6 +7971,8 @@ class IntegrationEntry(WireModel):
     verified: bool = False
     signals: IntegrationSignals | None = None
     source: str = Field(max_length=80)
+    # How it connects, for the card: signs in, takes a key, hosted, or runs on this computer ("" for skills).
+    method: Literal["hosted_sign_in", "api_key", "hosted", "local", ""] = ""
     publisher: str = Field(max_length=160)
     version: str = Field(max_length=128)
     installed: bool
@@ -8173,8 +8030,11 @@ class PlanLocalApp(WireModel):
 class PlanTool(WireModel):
     name: str = Field(max_length=256)
     title: str = Field(max_length=128)
+    description: str = Field(default="", max_length=512)
     effect: Literal["read_only", "mutation", "interaction", "unknown"]
-    state: Literal["use", "ask", "off"]
+    state: ToolState
+    # Destructive, high impact or unknown: it asks every time, whatever the preset.
+    always_asks: bool = True
 
 
 class PlanAccess(WireModel):
@@ -8202,17 +8062,21 @@ class PlanConsent(WireModel):
     downloads: list[str] = Field(max_length=16)
     access_preset: AccessPresetId
     turns_on_mcp: bool = False
+    # Remove only: also delete saved keys and data.
+    cleanup: bool = False
 
 
 class InstallPlan(WireModel):
     schema_version: Literal[1]
     plan_id: UUID | None
     item_id: str = Field(max_length=512)
+    # Once a catalog entry is set up: the id of the installed item it became.
+    installed_id: str = Field(default="", max_length=512)
     kind: IntegrationKind
     name: str = Field(max_length=256)
     intent: PlanIntent
     digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    state: Literal["ready", "running", "paused", "completed", "failed", "cancelled", "uncertain"]
+    state: Literal["ready", "running", "paused", "completed", "failed", "cancelled", "uncertain", "expired"]
     pause: Literal["sign_in", "inputs", "access", "digest_changed", "resume"] | None
     current_step: str | None = Field(max_length=32)
     steps: list[PlanStep] = Field(min_length=1, max_length=16)
@@ -8224,9 +8088,46 @@ class InstallPlan(WireModel):
     consent_token: str = Field(default="", max_length=256)
 
 
+class IntegrationFile(WireModel):
+    path: str = Field(max_length=256)
+    size_bytes: int = Field(ge=0)
+    executable: bool
+
+
+class IntegrationRequirement(WireModel):
+    label: str = Field(max_length=96)
+    available: bool
+
+
+class IntegrationAbout(WireModel):
+    """What a detail page shows beyond the card. Identifiers appear only under Details."""
+    license: str = Field(max_length=256)
+    source_url: str = Field(max_length=2048)
+    pin: str = Field(max_length=128)
+    identifier: str = Field(max_length=512)
+    destination: str = Field(max_length=2048)
+    runs_locally: bool
+    saved_key: bool
+    signs_in: bool
+    signed_in: bool
+    requirements: list[IntegrationRequirement] = Field(max_length=16)
+    access: PlanAccess | None
+    package: str = Field(max_length=256)
+    files: list[IntegrationFile] = Field(max_length=100)
+    profiles: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=32)
+    # Changes this item supports, for its menu.
+    actions: list[Literal["turn_off", "update", "remove"]] = Field(max_length=3)
+
+
 class IntegrationDetail(WireModel):
     entry: IntegrationEntry
     plan: InstallPlan | None
+    about: IntegrationAbout
+
+
+class IntegrationResolveRequest(WireModel):
+    reference: str = Field(min_length=1, max_length=2048)
+    kind: Literal["", "mcp", "skill", "plugin"] = ""
 
 
 class PlanStartRequest(WireModel):
@@ -8240,6 +8141,8 @@ class PlanStartRequest(WireModel):
     inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
         default_factory=dict, max_length=16)
     tools_digest: str = Field(default="", max_length=64)
+    overrides: ToolOverrides = Field(default_factory=dict, max_length=256)
+    cleanup: bool = False
 
 
 class PlanContinueRequest(WireModel):
@@ -8247,9 +8150,11 @@ class PlanContinueRequest(WireModel):
     inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
         default_factory=dict, max_length=16)
     tools_digest: str = Field(default="", max_length=64)
+    overrides: ToolOverrides | None = Field(default=None, max_length=256)
 
 
 class PlanReviewRequest(WireModel):
     item_id: str = Field(min_length=1, max_length=512)
     revision: str = Field(default="", max_length=64)
     intent: PlanIntent | Literal[""] = ""
+    cleanup: bool = False

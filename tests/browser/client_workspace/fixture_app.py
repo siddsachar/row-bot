@@ -2174,5 +2174,51 @@ def p4_integration_skills(x_fixture_token: str = Header(default="")) -> dict:
     return {"ready": True}
 
 
+@app.post("/__p5_fixture/apps")
+def p5_apps(x_fixture_token: str = Header(default=""), x_fixture_origin: str = Header(default="")) -> dict:
+    """Apps end to end on this machine only: synthetic servers, keychain and sign-in page."""
+    p4_provider_credentials(x_fixture_token)
+    import asyncio
+    import secrets
+    from types import SimpleNamespace
+    from row_bot.application import client_mcp_auth
+    from row_bot.mcp_client import auth, runtime
+    tools = [{'name': 'search_pages', 'description': 'Find pages by title or text.', 'inputSchema': {'type': 'object'}},
+             {'name': 'update_page', 'description': 'Change the text of a page.', 'inputSchema': {'type': 'object'}},
+             {'name': 'delete_page', 'description': 'Delete a page for good.', 'inputSchema': {'type': 'object'}}]
+
+    async def list_tools():
+        return SimpleNamespace(tools=tools)
+
+    async def connect(server):
+        server.session = SimpleNamespace(list_tools=list_tools)
+    runtime.sdk_available = lambda: True
+    runtime.McpServerRuntime._connect = connect
+
+    async def run_oauth(flow, label, client):
+        state = secrets.token_urlsafe(24)
+        with client_mcp_auth._LOCK:
+            flow.authorization_url, flow.oauth_state, flow.state = (
+                f"{x_fixture_origin}/__p5_fixture/oauth/approve?state={state}", state, "waiting")
+        client_mcp_auth._persist(flow)
+        await asyncio.to_thread(flow.event.wait, 120)
+        if not flow.code:
+            raise auth.McpAuthError("mcp_auth_denied")
+        auth.write_credentials(flow.ref, {"tokens": {"access_token": "synthetic-access", "token_type": "Bearer"}})
+        client_mcp_auth._publish(flow, {"mode": "oauth", "credential_ref": flow.ref, "binding": auth.binding(flow.name, flow.cfg),
+            "callback_uri": flow.callback_uri, "label": label, "operation_id": flow.command_id})
+    client_mcp_auth._run_oauth = run_oauth
+    return {'ready': True}
+
+
+@app.get("/__p5_fixture/oauth/approve")
+def p5_oauth_approve(state: str):
+    """The synthetic provider's consent page: opening it approves, like a real sign-in would."""
+    from fastapi.responses import HTMLResponse
+    from row_bot.application import client_mcp_auth
+    client_mcp_auth.accept_callback(state=state, code="synthetic-code")
+    return HTMLResponse("<!doctype html><title>Signed in</title><p>Signed in to the synthetic service.</p>")
+
+
 if __name__ == "__main__":
     main()

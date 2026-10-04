@@ -71,11 +71,11 @@ _PLACES: dict[str, tuple[str, str]] = {
     "logging": ("/settings/system#logging.level", "Logging"),
     "documents": ("/settings/documents#embedding", "Documents"),
     "search": ("/settings/tools#search-tools", "Search tools"),
-    "skills": ("/settings/skills#skill-library", "Skills"),
+    "skills": ("/settings/skills", "Skills"),
     "tracker": ("/settings/tracker#tracker.enabled", "Habit tracker"),
     "buddy": ("/settings/buddy", "Buddy"),
-    "mcp": ("/settings/mcp#mcp-servers", "MCP"),
-    "plugins": ("/settings/plugins#installed-plugins", "Plugins"),
+    "mcp": ("/settings/apps", "Apps"),
+    "plugins": ("/settings/apps", "Apps"),
     "tools": ("/settings/tools#built-in-tools", "Tools"),
 }
 # A sign-in Row-Bot can renew from its own row on Settings › Accounts.

@@ -172,6 +172,31 @@ def preview_skill_reference(*, owner_id: str, install_ref: str, name: str, publi
     return _save_preview(owner_id, bundle, entry)
 
 
+def preview_skill_link(*, owner_id: str, link: str) -> dict[str, Any]:
+    """A pasted skill link, read from its source once the person agreed to add it."""
+    found = search_public_skills(owner_id=owner_id, query=link, refresh=True, limit=2)
+    if len(found["entries"]) != 1:
+        raise SkillHubCommandError("skill_link_unmatched")
+    return preview_public_skill(owner_id=owner_id, revision=found["revision"], entry_id=found["entries"][0]["id"])
+
+
+def preview_uploaded_skill(*, owner_id: str, upload: str) -> dict[str, Any]:
+    """A skill from a file the person picked, checked like any other skill; nothing in it runs."""
+    from row_bot.integrations import uploads
+    from row_bot.skills_hub.models import SkillFile
+    from row_bot.skills_hub.sources import bundle_from_files
+    try:
+        files, folder = uploads.skill_files(upload)
+        bundle = bundle_from_files(source="upload", install_ref="upload:" + upload, root_name=folder or "imported_skill",
+            files=[SkillFile(path=name, content=data, kind="") for name, data in files], metadata={"trust_level": "community"})
+    except (OSError, ValueError) as exc:
+        raise SkillHubCommandError("skill_preview_unavailable") from exc
+    name = str(bundle.frontmatter.get("name") or bundle.root_name)[:160]
+    entry = SkillHubEntry(id="upload:" + upload, name=name, description=str(bundle.frontmatter.get("description") or "")[:600],
+                          source="upload", source_id="upload", install_ref=bundle.install_ref, trust_level="community")
+    return _save_preview(owner_id, bundle, entry)
+
+
 def _save_preview(owner_id: str, bundle: SkillBundle, entry: SkillHubEntry) -> dict[str, Any]:
     scan = scan_bundle(bundle)
     local_name, taken = installer.install_name(bundle)

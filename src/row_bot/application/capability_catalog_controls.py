@@ -155,7 +155,7 @@ def _captured(owner_id, server_id, test_command_id, saved):
     return catalog
 
 
-def _document(saved, server_id, captured, preset=None):
+def _document(saved, server_id, captured, preset=None, overrides=None):
     name, server = policy._server(saved, server_id)
     if name is None:
         raise Error("not_found")
@@ -182,7 +182,7 @@ def _document(saved, server_id, captured, preset=None):
         if updated["requires_approval"]:
             approvals.add(tool_name)
         if tool_name not in enabled and preset is None:
-            enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] == "unknown")
+            enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] in {"unknown", "mutation"})
     tools["require_approval"] = sorted(approvals)
     added = [row["name"] for row in captured["tools"] if row["name"] not in enabled]
     if preset is not None and manual:
@@ -190,7 +190,10 @@ def _document(saved, server_id, captured, preset=None):
     elif preset is not None:
         # An access preset applies only to tools this acceptance adds.
         from row_bot.integrations import presets
-        presets.apply(tools, preset, added)
+        try:
+            presets.apply(tools, preset, added, {k: v for k, v in (overrides or {}).items() if k in added})
+        except ValueError:
+            raise Error("approval_required") from None
     return document, (name,), manual
 
 
@@ -244,21 +247,37 @@ def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: s
     return McpTestedCatalogPage(1, revision, server_id, test_command_id, availability, manual, items, len(matches), next_cursor)
 
 
-def _intent(server_id, test_command_id, preset=None):
+def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target: dict | None = None) -> list[dict]:
+    """The tools a test found, with the safety that accepting them would record; reads only."""
+    target = targets.normalize(target)
     _ids(server_id, test_command_id)
-    from row_bot.integrations.presets import PRESETS
-    if preset is not None and preset not in PRESETS:
+    saved = config.read_saved_configuration(target)
+    if config.configuration_recovery_required(target=target):
+        raise Error("mcp_catalog_unavailable")
+    captured = _captured(owner_id, server_id, test_command_id, saved)
+    document, names, _manual = _document(saved, server_id, captured)
+    catalog = document["servers"][names[0]]["tools"]["catalog"]
+    return [{"name": row["name"], **{key: catalog[row["name"]].get(key) for key in
+             ("description", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
+
+
+def _intent(server_id, test_command_id, preset=None, overrides=None):
+    _ids(server_id, test_command_id)
+    from row_bot.integrations.presets import PRESETS, STATES
+    if (preset is not None and preset not in PRESETS) or (overrides is not None and (
+            preset is None or type(overrides) is not dict or len(overrides) > _TOOL_LIMIT
+            or any(type(name) is not str or state not in STATES for name, state in overrides.items()))):
         raise Error("invalid_command")
     return {"operation": "accept_catalog", "server_id": server_id, "test_command_id": test_command_id,
-            **({"preset": preset} if preset else {})}
+            **({"preset": preset} if preset else {}), **({"overrides": overrides} if overrides else {})}
 
 
 def review_mcp_catalog_command(*, owner_id: str, configuration_revision: str, server_id: str,
                                test_command_id: str, validate: Callable[[], None], target: dict | None = None,
-                               preset: str | None = None) -> dict:
+                               preset: str | None = None, overrides: dict | None = None) -> dict:
     validate()
     target = targets.normalize(target)
-    intent = _intent(server_id, test_command_id, preset)
+    intent = _intent(server_id, test_command_id, preset, overrides)
     policy._identity(configuration_revision)
     with config.configuration_transaction():
         config.require_configuration_write_available(target=target)
@@ -267,7 +286,7 @@ def review_mcp_catalog_command(*, owner_id: str, configuration_revision: str, se
         if current != configuration_revision:
             raise Error("revision_conflict", current)
         captured = _captured(owner_id, server_id, test_command_id, saved)
-        _next, _names, manual = _document(saved, server_id, captured, preset)
+        _next, _names, manual = _document(saved, server_id, captured, preset, overrides)
         validate()
         return {"configuration_revision": current, "server_id": server_id, "test_command_id": test_command_id,
             "operation": "accept_catalog", "action_digest": admissions.keyed_digest({"revision": current, "intent": intent}),
@@ -280,13 +299,14 @@ def execute_mcp_catalog_command(*, owner_id: str, key: str, command: dict, valid
     command, target = targets.from_command(command, target)
     payload = command.get("payload")
     if (command.get("type") != "mcp.catalog.accept" or type(payload) is not dict
-            or set(payload) - {"preset"} != {"configuration_revision", "server_id", "test_command_id"}):
+            or set(payload) - {"preset", "overrides"} != {"configuration_revision", "server_id", "test_command_id"}):
         raise Error("invalid_command")
-    intent = _intent(payload["server_id"], payload["test_command_id"], payload.get("preset"))
+    intent = _intent(payload["server_id"], payload["test_command_id"], payload.get("preset"), payload.get("overrides"))
     mapped = {**command, "payload": {"configuration_revision": payload["configuration_revision"], "intent": intent}}
     def next_document(saved: config.SavedMcpConfiguration, _intent: dict) -> tuple[dict, tuple[str, ...]]:
         captured = _captured(owner_id, payload["server_id"], payload["test_command_id"], saved)
-        document, names, _manual = _document(saved, payload["server_id"], captured, payload.get("preset"))
+        document, names, _manual = _document(saved, payload["server_id"], captured, payload.get("preset"),
+                                             payload.get("overrides"))
         return document, names
     return configuration._execute_saved_change(owner_id=owner_id, key=key, command=mapped, validate=validate,
         validate_review=validate_review, command_type="mcp.catalog.accept", next_document=next_document, saved_disabled=None,

@@ -13,6 +13,31 @@
       "title": "Inputs",
       "type": "object"
     },
+    "overrides": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "enum": [
+              "use",
+              "ask",
+              "off"
+            ],
+            "type": "string"
+          },
+          "maxProperties": 256,
+          "propertyNames": {
+            "maxLength": 512,
+            "minLength": 1
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Overrides"
+    },
     "preset": {
       "anyOf": [
         {

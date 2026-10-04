@@ -266,6 +266,7 @@ def normalize_server_config(name: str, raw: dict[str, Any] | None) -> dict[str, 
     tools_cfg = cfg["tools"]
     tools_cfg["enabled"] = dict(tools_cfg.get("enabled") or {})
     tools_cfg["require_approval"] = list(tools_cfg.get("require_approval") or [])
+    tools_cfg["run_without_asking"] = list(tools_cfg.get("run_without_asking") or [])
     tools_cfg["include"] = list(tools_cfg.get("include") or [])
     tools_cfg["exclude"] = list(tools_cfg.get("exclude") or [])
     tools_cfg["resources_enabled"] = bool(tools_cfg.get("resources_enabled", False))
@@ -362,13 +363,15 @@ def get_cached_enablement(tool_names: dict[str, tuple[str, ...]]) -> dict[str, A
         tools = server.get("tools")
         tools = tools if type(tools) is dict else {}
         enabled = tools.get("enabled")
-        approvals = tools.get("require_approval")
+        approvals, allowed = tools.get("require_approval"), tools.get("run_without_asking")
         result[name] = {
             "enabled": server.get("enabled"),
             "tools": {key: enabled[key] if type(enabled[key]) is bool else None for key in names
                       if key in enabled} if type(enabled) is dict else {},
             "require_approval": tuple(value for value in approvals if type(value) is str and value in requested_names)
             if type(approvals) in (list, tuple) else (),
+            "run_without_asking": tuple(value for value in allowed if type(value) is str and value in requested_names)
+            if type(allowed) in (list, tuple) else (),
         }
     return {"enabled": _config_cache.get("enabled"), "servers": result}
 

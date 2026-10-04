@@ -7,7 +7,7 @@ from PIL import Image
 
 from row_bot.integrations import catalogs, icons, index, sources
 from row_bot.mcp_client import marketplace, registry_snapshot
-from tests.helpers.registry import use_registry
+from tests.helpers.registry import search_catalog, use_registry
 
 pytestmark = pytest.mark.platform
 
@@ -112,8 +112,7 @@ def test_not_modified_keeps_the_mirror_and_an_old_one_resyncs_fully(local, monke
 def test_updates_run_only_when_asked_and_unknown_or_local_sources_refuse(local, monkeypatch):
     use_registry(monkeypatch, local, entries("org.a/one"))
     monkeypatch.setattr(registry_snapshot, "_get", lambda *a: pytest.fail("contacted without an update"))
-    from row_bot.application import client_integrations as api
-    api.search_integrations(owner_id="owner", query="one")
+    search_catalog(query="one")
     assert catalogs.state("official")["state"] == "never"
     for source in ("recommended", "native", "examples", "glama", "unknown"):
         with pytest.raises(ValueError, match="not_updatable"):

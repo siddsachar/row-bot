@@ -1,0 +1,255 @@
+{
+  "$defs": {
+    "IntegrationFile": {
+      "additionalProperties": false,
+      "properties": {
+        "executable": {
+          "title": "Executable",
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 256,
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "executable"
+      ],
+      "title": "IntegrationFile",
+      "type": "object"
+    },
+    "IntegrationRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "label": {
+          "maxLength": 96,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "available"
+      ],
+      "title": "IntegrationRequirement",
+      "type": "object"
+    },
+    "PlanAccess": {
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "enum": [
+            "read_only",
+            "ask",
+            "full",
+            "custom"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/PlanTool"
+          },
+          "maxItems": 256,
+          "title": "Tools",
+          "type": "array"
+        },
+        "tools_digest": {
+          "maxLength": 64,
+          "title": "Tools Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "preset",
+        "tools",
+        "tools_digest"
+      ],
+      "title": "PlanAccess",
+      "type": "object"
+    },
+    "PlanTool": {
+      "additionalProperties": false,
+      "properties": {
+        "always_asks": {
+          "default": true,
+          "title": "Always Asks",
+          "type": "boolean"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "read_only",
+            "mutation",
+            "interaction",
+            "unknown"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "use",
+            "ask",
+            "off"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "effect",
+        "state"
+      ],
+      "title": "PlanTool",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What a detail page shows beyond the card. Identifiers appear only under Details.",
+  "properties": {
+    "access": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanAccess"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actions": {
+      "items": {
+        "enum": [
+          "turn_off",
+          "update",
+          "remove"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Actions",
+      "type": "array"
+    },
+    "destination": {
+      "maxLength": 2048,
+      "title": "Destination",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/IntegrationFile"
+      },
+      "maxItems": 100,
+      "title": "Files",
+      "type": "array"
+    },
+    "identifier": {
+      "maxLength": 512,
+      "title": "Identifier",
+      "type": "string"
+    },
+    "license": {
+      "maxLength": 256,
+      "title": "License",
+      "type": "string"
+    },
+    "package": {
+      "maxLength": 256,
+      "title": "Package",
+      "type": "string"
+    },
+    "pin": {
+      "maxLength": 128,
+      "title": "Pin",
+      "type": "string"
+    },
+    "profiles": {
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Profiles",
+      "type": "array"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/IntegrationRequirement"
+      },
+      "maxItems": 16,
+      "title": "Requirements",
+      "type": "array"
+    },
+    "runs_locally": {
+      "title": "Runs Locally",
+      "type": "boolean"
+    },
+    "saved_key": {
+      "title": "Saved Key",
+      "type": "boolean"
+    },
+    "signed_in": {
+      "title": "Signed In",
+      "type": "boolean"
+    },
+    "signs_in": {
+      "title": "Signs In",
+      "type": "boolean"
+    },
+    "source_url": {
+      "maxLength": 2048,
+      "title": "Source Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "license",
+    "source_url",
+    "pin",
+    "identifier",
+    "destination",
+    "runs_locally",
+    "saved_key",
+    "signs_in",
+    "signed_in",
+    "requirements",
+    "access",
+    "package",
+    "files",
+    "profiles",
+    "actions"
+  ],
+  "title": "IntegrationAbout",
+  "type": "object"
+}

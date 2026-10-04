@@ -9,6 +9,7 @@ import {
 import {
   Link,
   Navigate,
+  useNavigate,
   useParams,
   useSearchParams,
   useLocation,
@@ -20,6 +21,7 @@ import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import {
   AGENT_PROFILE_SETTINGS,
+  legacyIntegrationHref,
   resolveSetting,
   settingsHref,
   THREAD_SETTINGS,
@@ -34,21 +36,10 @@ import DocumentsCatalog from './DocumentsCatalog';
 import ProviderConfiguration from './ProviderConfiguration';
 import ProviderSettingsPanel from './ProviderSettingsPanel';
 import ModelsPanel from './ModelsPanel';
-import CapabilitySettings, {
-  type CapabilitySettingsSession,
-} from './CapabilitySettings';
-import McpFacadeControls, { type McpFacadeSession } from './McpFacadeControls';
-import { McpGlobalSwitch } from './McpPolicyControls';
-import {
-  addAndConnect,
-  turnOnServer,
-  type AddConnectApi,
-  type TurnOnApi,
-} from './mcp-add-connect';
+import CapabilitySettings from './CapabilitySettings';
+import McpFacadeControls from './McpFacadeControls';
 import SubscriptionAccounts from './SubscriptionAccounts';
 import SubscriptionOptions from './SubscriptionOptions';
-import McpConnectionsPanel, { type McpConnections } from './McpConnections';
-import RuntimeInstallations from '../mcp/RuntimeInstallations';
 import DocumentRemovalsPanel from '../knowledge/DocumentRemovals';
 import { DocumentQueuePanel } from '../knowledge/DocumentQueuePanel';
 import { DocumentUploadPanel } from '../knowledge/DocumentUploadPanel';
@@ -57,7 +48,7 @@ import ChannelSettings from './ChannelSettings';
 import { SETTINGS_CHANGED } from '../shell/palette-switches';
 import PluginSettings from './PluginSettings';
 import SkillsSettings from './SkillsSettings';
-import IntegrationsPage from '../integrations/IntegrationsPage';
+import AppsArea from '../apps/AppsArea';
 import { resolveSettingsConversation } from './SettingsConversationPicker';
 import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
@@ -114,7 +105,8 @@ function AgentProfilesMoved() {
 }
 
 export default function SettingRoute() {
-  const { setting = 'preferences' } = useParams();
+  const { setting = 'preferences', '*': item = '' } = useParams();
+  const navigate = useNavigate();
   const [search] = useSearchParams();
   const location = useLocation();
   const leaf = resolveSetting(setting);
@@ -128,7 +120,6 @@ export default function SettingRoute() {
     mcpChatOwner,
     subscriptionAccountsOwner,
     subscriptionOptionsOwner,
-    mcpConnectionsOwner,
     documentRemovalsOwner,
     documentQueueOwner,
     documentUploadOwner,
@@ -247,6 +238,17 @@ export default function SettingRoute() {
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
+    if (['integrations', 'plugins', 'mcp'].includes(setting.toLowerCase()))
+      return (
+        <Navigate
+          to={legacyIntegrationHref(
+            setting.toLowerCase(),
+            search,
+            location.hash,
+          )}
+          replace
+        />
+      );
     const target = settingsHref(setting, location.hash) ?? leaf.href;
     const [pathQuery, hash] = target.split('#');
     const [path, defaults] = pathQuery.split('?');
@@ -301,15 +303,27 @@ export default function SettingRoute() {
       </ErrorState>
     )
   ) : null;
-  const integrationEditor = (
-    kind: 'skill' | 'plugin' | 'mcp',
-    item?: import('../../api/types').IntegrationItem,
-    onChanged?: (removed?: boolean) => Promise<void>,
-  ) => {
-    if (kind === 'plugin' && pluginOwner?.get())
+  /** The advanced editor for one app or skill: its raw settings, never a whole list. */
+  const editor = (kind: 'app' | 'skill', id: string) => {
+    if (kind === 'skill' && skillsOwner?.get())
+      return (
+        <SkillsSettings
+          integrationId={id === 'new' ? 'create' : id.replace(/^skill:/, '')}
+          session={skillsOwner.get()!}
+          io={{
+            list: controller.skills,
+            detail: controller.skill,
+            proposals: controller.skillProposals,
+            review: controller.reviewSkill,
+            execute: controller.executeSkill,
+            receipt: controller.skillReceipt,
+          }}
+        />
+      );
+    if (id.startsWith('plugin:') && pluginOwner?.get())
       return (
         <PluginSettings
-          integrationId={item?.owner_ref}
+          integrationId={id.replace(/^plugin:/, '')}
           session={pluginOwner.get()!}
           load={({ query, source, cursor }, signal) =>
             controller.plugins(query, source, cursor, signal)
@@ -323,102 +337,35 @@ export default function SettingRoute() {
               signal,
             )
           }
-          execute={async (command, review) => {
-            const result = await controller.executePlugin(
-              String(command.payload.plugin_id),
-              {
-                ...command,
-                payload: { ...command.payload, review_id: review.review_id },
-              },
-            );
-            if (result.status === 'completed') await onChanged?.();
-            return result;
-          }}
-          lifecycle={{
-            review: (action, pluginId) =>
-              controller.reviewPluginLifecycle(action, pluginId),
-            execute: (command) => controller.executePluginLifecycle(command),
-            receipt: (commandId) =>
-              controller.pluginLifecycleReceipt(commandId),
-          }}
-        />
-      );
-    if (kind === 'skill' && skillsOwner?.get())
-      return (
-        <SkillsSettings
-          integrationId={item?.owner_ref}
-          session={skillsOwner.get()!}
-          ownerKey={session}
-          hub={
-            item
-              ? {
-                  search: controller.searchSkillHub,
-                  preview: controller.previewSkillHub,
-                  install: controller.installSkillHub,
-                  receipt: controller.skillHubInstallReceipt,
-                }
-              : undefined
+          execute={(command, review) =>
+            controller.executePlugin(String(command.payload.plugin_id), {
+              ...command,
+              payload: { ...command.payload, review_id: review.review_id },
+            })
           }
-          hubMaintenance={{
-            installed: controller.skillHubInstalled,
-            action: async (command, signal) => {
-              const result = await controller.skillHubMaintenance(
-                command,
-                signal,
-              );
-              await controller.reconcileIntegrationOperation(
-                'skill',
-                command.command_id,
-                signal,
-              );
-              if (result.success)
-                await onChanged?.(command.action === 'uninstall');
-              return result;
-            },
-            receipt: async (id, signal) => {
-              await controller.reconcileIntegrationOperation(
-                'skill',
-                id,
-                signal,
-              );
-              const result = await controller.skillHubMaintenanceReceipt(
-                id,
-                signal,
-              );
-              if (result.success)
-                await onChanged?.(result.action === 'uninstall');
-              return result;
-            },
-          }}
-          io={{
-            list: controller.skills,
-            detail: controller.skill,
-            proposals: controller.skillProposals,
-            review: controller.reviewSkill,
-            execute: async (command) => {
-              const result = await controller.executeSkill(command);
-              if (result.status === 'completed')
-                await onChanged?.(result.action === 'skill.delete');
-              return result;
-            },
-            receipt: async (id, signal) => {
-              const result = await controller.skillReceipt(id, signal);
-              if (result.status === 'completed')
-                await onChanged?.(result.action === 'skill.delete');
-              return result;
-            },
-          }}
         />
       );
-    if (kind === 'mcp' && capabilitySettingsOwner?.get())
+    if (
+      (id === 'custom' || id.startsWith('mcp:')) &&
+      capabilitySettingsOwner?.get()
+    )
       return (
-        <McpSettings
-          capability={capabilitySettingsOwner.get()!}
-          chat={mcpChatOwner?.get() ?? null}
-          connections={mcpConnectionsOwner?.get() ?? null}
+        <CapabilitySettings
+          session={capabilitySettingsOwner.get()!}
+          only={id === 'custom' ? undefined : id.replace(/^mcp:/, '')}
+          startAdd={id === 'custom'}
+          load={({ query, cursor }, signal) =>
+            controller.mcpConfiguration(query, cursor, signal)
+          }
+          review={controller.reviewMcpConfiguration}
+          execute={controller.executeMcpConfiguration}
+          onConnection={(serverId) =>
+            navigate(`/settings/apps/${encodeURIComponent('mcp:' + serverId)}`)
+          }
+          onRemoved={() => navigate('/settings/apps')}
         />
       );
-    return <p>Settings are unavailable. Reconnect to continue.</p>;
+    return <p>These settings are unavailable. Reconnect to continue.</p>;
   };
   return (
     <SettingsShell key={session} leaf={leaf}>
@@ -616,12 +563,25 @@ export default function SettingRoute() {
             initialProvider={search.get('provider') ?? ''}
             openExternal={(url) => void platform.openExternal(url)}
           />
-        ) : leaf.id === 'integrations' ? (
-          <IntegrationsPage
-            renderDetail={(item, onChanged) =>
-              integrationEditor(item.kind, item, onChanged)
+        ) : leaf.id === 'apps' || leaf.id === 'skills' ? (
+          <AppsArea
+            kind={leaf.id === 'apps' ? 'app' : 'skill'}
+            item={item}
+            editor={editor}
+            chat={
+              mcpChatOwner?.get() && (
+                <McpFacadeControls
+                  session={mcpChatOwner.get()!}
+                  load={(signal) => controller.mcpChat(signal)}
+                  review={(payload, signal) =>
+                    controller.reviewMcpChat(payload, signal)
+                  }
+                  execute={(command, review) =>
+                    controller.executeMcpChat(command, review)
+                  }
+                />
+              )
             }
-            renderAdvanced={(kind) => integrationEditor(kind)}
           />
         ) : leaf.id === 'tools' ? (
           <>
@@ -910,115 +870,5 @@ function DataDangerZone({
         <TrackerDangerAction mutation={mutation} />
       ) : null}
     </SettingsDangerZone>
-  );
-}
-
-/**
- * Settings › MCP (B262): "Use MCP servers", "Offer MCP tools in chats" and
- * the runtimes in one group, then the saved servers; a server's details
- * (connection, tools, permissions) open in a drawer. Each control runs the
- * same reviewed command as before.
- */
-function McpSettings({
-  capability,
-  chat,
-  connections,
-}: {
-  capability: CapabilitySettingsSession;
-  chat: McpFacadeSession | null;
-  connections: McpConnections | null;
-}) {
-  const { controller } = useRuntime();
-  const turnOn = (serverId: string) =>
-    turnOnServer(
-      {
-        policy: (query) => controller.mcpPolicy(query),
-        reviewPolicy: (body) => controller.reviewMcpPolicy(body),
-        executeConfiguration: (command, review) =>
-          controller.executeMcpConfiguration(command, review),
-      } as TurnOnApi,
-      serverId,
-    );
-  const policy = {
-    load: controller.mcpPolicy,
-    review: controller.reviewMcpPolicy,
-    execute: controller.executeMcpConfiguration,
-  };
-  return (
-    <>
-      <SettingsGroup label="MCP" className="settings-mcp-switches">
-        {connections && (
-          <McpGlobalSwitch {...policy} session={connections.globalPolicy} />
-        )}
-        {chat && (
-          <McpFacadeControls
-            session={chat}
-            load={(signal) => controller.mcpChat(signal)}
-            review={(payload, signal) =>
-              controller.reviewMcpChat(payload, signal)
-            }
-            execute={(command, review) =>
-              controller.executeMcpChat(command, review)
-            }
-          />
-        )}
-        <RuntimeInstallations />
-      </SettingsGroup>
-      <CapabilitySettings
-        session={capability}
-        load={({ query, cursor }, signal) =>
-          controller.mcpConfiguration(query, cursor, signal)
-        }
-        review={controller.reviewMcpConfiguration}
-        execute={controller.executeMcpConfiguration}
-        onConnection={(id, name) => connections?.select(id, name)}
-        onRemoved={() => connections?.close()}
-        runtime={
-          connections
-            ? {
-                owner: connections,
-                load: controller.mcpRuntime,
-                review: controller.reviewMcpRuntime,
-                execute: controller.executeMcpRuntime,
-                turnOn,
-              }
-            : undefined
-        }
-        addAndConnect={(serverId, onStep) =>
-          addAndConnect(
-            {
-              runtime: (id) => controller.mcpRuntime(id),
-              reviewRuntime: (payload) => controller.reviewMcpRuntime(payload),
-              executeRuntime: (command, review) =>
-                controller.executeMcpRuntime(command, review),
-              catalog: (query) => controller.mcpTestedCatalog(query),
-              reviewCatalog: (body) => controller.reviewMcpCatalog(body),
-              policy: (query) => controller.mcpPolicy(query),
-              reviewPolicy: (body) => controller.reviewMcpPolicy(body),
-              executeConfiguration: (command, review) =>
-                controller.executeMcpConfiguration(command, review),
-            } as AddConnectApi,
-            serverId,
-            onStep,
-          )
-        }
-      />
-      {connections && (
-        <McpConnectionsPanel
-          catalog={{
-            load: controller.mcpTestedCatalog,
-            review: controller.reviewMcpCatalog,
-            execute: controller.executeMcpConfiguration,
-          }}
-          owner={connections}
-          load={controller.mcpRuntime}
-          review={controller.reviewMcpRuntime}
-          execute={controller.executeMcpRuntime}
-          policy={policy}
-          turnOn={turnOn}
-          onRemove={(id, name) => capability.confirmRemove(id, name)}
-        />
-      )}
-    </>
   );
 }

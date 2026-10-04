@@ -229,7 +229,8 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'documents',
     'tracker',
     'tools',
-    'integrations',
+    'skills',
+    'apps',
     'accounts',
     'channels',
     'system',
@@ -347,7 +348,7 @@ test('Owner-review narrow Settings keeps representative owners behind one access
   for (const id of [
     'providers',
     'documents',
-    'integrations',
+    'apps',
     'preferences',
   ] as const) {
     if ((await picker.inputValue()) !== id) await picker.selectOption(id);

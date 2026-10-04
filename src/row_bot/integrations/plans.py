@@ -15,7 +15,9 @@ in the same run from the consented plan.
 A plan pauses only for a browser sign-in, a missing input, access to newly
 discovered tools, a changed plan, or ``resume`` (a background owner step has
 finished, or a step stopped before sending anything). Reading a plan observes
-owner receipts; it never sends a command.
+owner receipts; it never sends a command. Over HTTP a plan runs in the
+background and reports each step as it goes; a pause left for ``EXPIRES``
+seconds expires, keeping what was done.
 """
 from __future__ import annotations
 
@@ -24,18 +26,25 @@ from dataclasses import asdict, dataclass, field
 import copy
 import hashlib
 import json
+import logging
 import threading
+import time
 from typing import Any
 from uuid import uuid4
 
 from row_bot.integrations import apps, facts, presets, sources
 
+logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 _RUNNING: set[str] = set()
 _CANCELLED: set[str] = set()
+EXPIRES = 30 * 60
+INTENTS = ("connect", "add", "turn_on", "fix", "access", "turn_off", "remove", "update")
+_DONE = {"turn_off": "Turned off.", "remove": "Removed.", "update": "Updated."}
 _MESSAGES = {
     "plan_changed": "Something changed since you agreed. Review it again.",
     "plan_cancelled": "Stopped. Anything already done is kept.",
+    "plan_expired": "This setup waited too long, so Row-Bot stopped it. Anything already done is kept.",
     "revision_conflict": "The settings changed while setting up. Start again.",
     "mcp_connection_failed": "The connection test failed. Check the details and try again.",
     "change_unconfirmed": "Your last change didn't finish. Retry to check it again.",
@@ -65,6 +74,10 @@ class Context:
     tools_digest: str = ""
 
 
+def _now() -> float:
+    return time.time()
+
+
 def _step(kind: str, state: str = "pending", title: str = "", message: str = "", **detail) -> dict:
     return {"id": kind, "type": kind, "state": state, "title": title, "message": message[:512], **detail}
 
@@ -88,7 +101,8 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
                 if value == "" and row["lifecycle"] == "available"]
     if setup["auth_mode"] == "api_key":
         steps.append(_step("inputs", "done" if signed_in else "pending", "Add your key", inputs=[
-            {"key": b["key"], "label": b["name"], "secret": True, "required": True, "target": b["kind"], "name": b["name"],
+            {"key": b["key"], "label": "API key" if b["key"] in {"api_key", "token"} else b["name"], "secret": True,
+             "required": True, "target": b["kind"], "name": b["name"],
              "template": b.get("prefix", "") + "{value}", "default": "", "choices": [], "help_url": app.key_url if app else ""}
             for b in setup["bindings"]]))
     elif declared:
@@ -141,35 +155,85 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     standalone = row.get("target") in (None, {"kind": "standalone"})
     consent = {"destinations": [setup["destination"]] if hosted else [], "runs_locally": not hosted,
                "downloads": [s["runtime"]["label"] for s in steps if s["type"] == "runtime" and s["state"] == "pending"],
-               "access_preset": presets.DEFAULT, "turns_on_mcp": intent != "access" and standalone and not _mcp_on()}
+               "access_preset": presets.DEFAULT, "turns_on_mcp": intent != "access" and standalone and not _mcp_on(),
+               "cleanup": False}
     declaration = {"transport": cfg.get("transport"), "url": cfg.get("url", ""), "command": cfg.get("command", ""),
                    "args": cfg.get("args", []), "headers": sorted(cfg.get("headers") or {}), "env": sorted(cfg.get("env") or {}),
                    "auth": setup["auth_mode"], "bindings": setup["bindings"], "source": cfg.get("source") or {}}
     return steps, consent, declaration
 
 
-def compute(row: dict, reference: dict, *, intent: str = "") -> dict | None:
+def _hub_record(row: dict):
+    from row_bot.skills_hub.provenance import get_record
+    return get_record(row["owner_ref"]) if row["kind"] == "skill" and row["parent_id"] is None else None
+
+
+def changeable(row: dict, intent: str) -> bool:
+    """Whether an installed item supports Turn off, Remove or Check for updates."""
+    if row["lifecycle"] == "available":
+        return False
+    if intent == "turn_off":
+        return row["lifecycle"] == "installed" and (row["parent_id"] is None or row["kind"] == "mcp")
+    if intent == "remove":
+        return row["parent_id"] is None and (row["kind"] != "skill" or row["source"] == "user" or _hub_record(row) is not None)
+    record = _hub_record(row)
+    return row["lifecycle"] != "data_retained" and (record is not None and record.source != "upload" if row["kind"] == "skill"
+                                                     else row["kind"] == "plugin" and row["source_url"].startswith("https://github.com/"))
+
+
+def _checkable(row: dict) -> bool:
+    """An added package whose settings are complete: its local check and turning it on can run as one plan."""
+    from row_bot.application.plugin_commands import read_plugin_detail
+    try:
+        capabilities = read_plugin_detail(row["owner_ref"], validate=lambda: None)["capabilities"]
+    except Exception:
+        return False
+    return row["parent_id"] is None and bool((capabilities.get("test") or {}).get("available"))
+
+
+def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = False) -> dict | None:
     """The plan for one entry and intent, or None when nothing needs doing.
 
     ``reference`` carries what the owners need: ``cfg`` (an installed MCP
     configuration), ``entry`` (a catalog MCP record), or a skill or package
-    catalog reference.
+    catalog reference. ``cleanup`` (Remove only) also deletes saved keys and data.
     """
     kind, available, action = row["kind"], row["lifecycle"] == "available", row["next_action"]["kind"]
     intent = intent or ("connect" if available and kind == "mcp" else "add" if available else
                         "turn_on" if action == "turn_on" else "fix" if action not in {"try", "none", "delete_data"} else "")
-    if (not intent or (intent == "access" and (kind != "mcp" or available))
-            or intent not in {"connect", "add", "turn_on", "fix", "access"}):
+    if (not intent or intent not in INTENTS or (intent == "access" and (kind != "mcp" or available))
+            or (intent in _DONE and not changeable(row, intent))):
         return None
     name = row["name"] if kind == "skill" else (row["app"] or {}).get("name") or row["name"]
     consent = {"destinations": [], "runs_locally": True, "downloads": [], "access_preset": presets.DEFAULT,
-               "turns_on_mcp": False}
+               "turns_on_mcp": False, "cleanup": False}
     declaration: dict = {}
-    if kind == "mcp":
+    if intent in _DONE:
+        title = {"turn_off": "Turn off ", "remove": "Remove ", "update": "Update "}[intent] + name
+        steps = [_step("consent", title=title), _step("enable", title=title)]
+        if intent == "update":
+            steps.insert(1, _step("test", title="Check for a newer version"))
+            consent["downloads"] = [row["source_url"] or name]
+        consent["cleanup"] = intent == "remove" and bool(cleanup)
+        declaration = {"revision": row["revision"], "lifecycle": row["lifecycle"]}
+    elif kind == "mcp" and reference.get("kind") == "hermes_mcp":  # Recipes become declared inputs in Phase 4.
+        steps = [_step("consent", title="Before you connect"), _step("inputs", "unsupported", "Add your settings",
+                 "Recipes from this catalog arrive in a later update.", inputs=[]), _step("enable", title="Turn on " + name)]
+        declaration = {"recipe": reference.get("name"), "pin": reference.get("pin")}
+    elif kind == "mcp" and reference.get("kind") == "mcpb":  # Phase 4 runs bundles; the step is in the contract now.
+        steps = [_step("consent", title="Before you connect"), _step("runtime", "unsupported", "Set up the bundle",
+                 "Bundles (.mcpb) arrive in a later update.", runtime={"id": "mcpb", "label": "MCP bundle"}),
+                 _step("test", title="Check the connection"), _step("enable", title="Turn on " + name)]
+        declaration = {"upload": reference.get("upload")}
+    elif kind == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
         entry = reference.get("entry")
-        cfg = reference.get("cfg") or entry_to_server_config(entry if not isinstance(entry, dict) else MarketplaceEntry(**entry))
-        steps, consent, declaration = _mcp_steps(row, cfg, intent)
+        try:
+            cfg = reference.get("cfg") or entry_to_server_config(entry if not isinstance(entry, dict) else MarketplaceEntry(**entry))
+            steps, consent, declaration = _mcp_steps(row, cfg, intent)
+        except (ValueError, TypeError):  # No launch recipe Row-Bot can express.
+            steps = [_step("consent", title="Before you connect"), _step("enable", "unsupported", "Turn on " + name,
+                     "Row-Bot can't connect to this one yet.")]
     elif available:
         what = "skill" if kind == "skill" else "package"
         steps = [_step("consent", title="Before you add " + name), _step("test", title=f"Check the {what}"),
@@ -177,13 +241,20 @@ def compute(row: dict, reference: dict, *, intent: str = "") -> dict | None:
         consent["downloads"] = [row["source_url"] or name]
         if reference.get("kind") not in {"skill", "plugin"}:
             steps[1].update(state="unsupported", message="Add this one from its marketplace page for now.")
-        declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id", "install_ref")}
+        declaration = {key: reference.get(key) for key in ("reference", "pin", "identity", "revision", "entry_id", "install_ref",
+                                                            "link", "upload")}
+    elif intent == "fix" and kind == "plugin" and _checkable(row):
+        steps = [_step("consent", title="Finish setting up " + name), _step("test", title="Check it on this computer"),
+                 _step("enable", title="Turn on " + name)]
     else:
         steps = [_step("consent", title="Turn on " + name), _step("enable", title="Turn on " + name)]
         if intent == "fix":
-            steps[1].update(state="unsupported", title="Fix " + name, message="Open this item's settings to finish it for now.")
+            steps[1].update(state="unsupported", title="Fix " + name, message="Finish it in its advanced settings for now.")
+    listed = next((b["message"] for b in row["blockers"] if b["code"] == "unsupported"), "")
+    if available and listed and all(s["state"] != "unsupported" for s in steps):
+        steps[-1].update(state="unsupported", message=listed[:512] or "Row-Bot can't add this one yet.")
     unsupported = next((s for s in steps if s["state"] == "unsupported"), None)
-    plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "kind": kind, "name": name, "intent": intent,
+    plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "installed_id": "", "kind": kind, "name": name, "intent": intent,
             "state": "ready", "pause": None, "message": "", "steps": steps, "consent": consent,
             "supported": unsupported is None, "unsupported_reason": unsupported["message"] if unsupported else ""}
     plan["digest"] = _digest({"item_id": row["id"], "intent": intent, "declaration": declaration, "consent": consent,
@@ -197,18 +268,18 @@ def next_action(plan: dict) -> dict:
     if not plan.get("supported", True):
         kind = "none"
     elif state == "ready":
-        kind = {"connect": "connect", "add": "add", "turn_on": "turn_on"}.get(plan["intent"], "continue_setup")
+        kind = plan["intent"] if plan["intent"] in {"connect", "add", "turn_on", *_DONE} else "continue_setup"
     elif state == "paused":
         kind = {"inputs": "add_key", "access": "continue_setup", "digest_changed": "fix", "resume": "continue_setup"}.get(pause, "none")
     else:
-        kind = "retry" if state in {"failed", "uncertain"} else "try" if state == "completed" else "none"
+        kind = "retry" if state in {"failed", "uncertain"} else "try" if state == "completed" and plan["intent"] not in _DONE else "none"
     return {"kind": kind, "label": "Allow" if pause == "access" else facts.LABELS[kind]}
 
 
 def view(plan: dict) -> dict:
     """The public plan; owner command records and references stay private."""
     value = {key: copy.deepcopy(item) for key, item in plan.items()
-             if not key.startswith("_") and key not in {"reference", "owner", "target", "server_id", "preset"}}
+             if not key.startswith("_") and key not in {"reference", "owner", "target", "server_id", "preset", "overrides"}}
     value["next_action"] = next_action(plan)
     value["consent_token"] = ""
     return value
@@ -218,6 +289,7 @@ def view(plan: dict) -> dict:
 
 def _save(record: dict, *, terminal: bool = False) -> None:
     from row_bot.runtime import admissions
+    record["_saved_at"] = _now()
     value = {"command_id": record["plan_id"], "status": "completed" if terminal else "admitting", "plan": record}
     if terminal:
         admissions.complete_command(record["owner"], record["plan_id"], value)
@@ -239,20 +311,28 @@ def _load(owner_id: str, plan_id: str) -> tuple[dict, bool]:
     return saved["plan"], metadata["status"] != "completed"
 
 
+def _overrides(value: dict | None) -> dict:
+    value = value or {}
+    if len(value) > 256 or any(not isinstance(k, str) or v not in presets.STATES for k, v in value.items()):
+        raise PlanError("invalid_access_preset")
+    return dict(value)
+
+
 # --- Runner ------------------------------------------------------------------
 
 def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str = "", preset: str = "",
-          plan_id: str = "") -> dict:
-    """Admit one consented plan and run it to its first pause."""
+          plan_id: str = "", overrides: dict | None = None, cleanup: bool = False, background: bool = False) -> dict:
+    """Admit one consented plan and run it (in the background when asked) to its first pause."""
     from row_bot.runtime import admissions
-    plan = compute(row, reference, intent=intent)
+    open_plan(ctx, row["id"])  # An abandoned pause on this item expires here, freeing it.
+    plan = compute(row, reference, intent=intent, cleanup=cleanup)
     if plan is None or plan["digest"] != digest:
         raise PlanError("plan_changed")
     if not plan["supported"]:
         raise PlanError("plan_unsupported")
     if preset and preset not in presets.PRESETS:
         raise PlanError("invalid_access_preset")
-    if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] == "add") or any(
+    if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"}) or any(
             s["type"] == "runtime" and s["runtime"]["id"] == "npm_package" for s in plan["steps"])):
         raise PlanError("owner_local_only")
     installed = row["lifecycle"] != "available"
@@ -260,13 +340,14 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     reference = dict(reference)
     if "entry" in reference and not isinstance(reference["entry"], dict):
         reference["entry"] = asdict(reference["entry"])
+    if plan["intent"] in _DONE:
+        reference.update(source_url=row["source_url"], pin=row["pin"], lifecycle=row["lifecycle"])
     plan_id = plan_id or str(uuid4())
     record = {**plan, "plan_id": plan_id, "owner": ctx.owner_id, "state": "running", "preset": preset or presets.DEFAULT,
-              "reference": {k: v for k, v in reference.items() if k != "cfg"},
+              "overrides": _overrides(overrides), "reference": {k: v for k, v in reference.items() if k != "cfg"},
               "target": None if target in (None, {"kind": "standalone"}) else target,
               "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {}}
-    record["steps"][0]["state"] = "done"
-    if record["server_id"]:
+    if record["server_id"] and plan["intent"] not in _DONE:
         record["_recipe"] = _recipe(record)
     command = {"command_id": plan_id, "type": "integrations.plan", "item_id": row["id"], "intent": plan["intent"], "digest": digest}
     try:
@@ -276,19 +357,40 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         raise PlanError(str(error)) from None
     if prior is not None:  # This exact plan already finished: report it, never run it again.
         return view(prior["plan"])
-    return _run(ctx, record)
+    return _launch(ctx, record, background)
 
 
-def resume(ctx: Context, plan_id: str, *, preset: str = "") -> dict:
+def resume(ctx: Context, plan_id: str, *, preset: str = "", overrides: dict | None = None, background: bool = False) -> dict:
     """Continue from the current step: after a sign-in, an input, access, or a finished background step."""
     record, open_ = _load(ctx.owner_id, plan_id)
+    if open_ and _stale(record) and plan_id not in _RUNNING:
+        _stop(ctx, record, "expired", _MESSAGES["plan_expired"])
+        open_ = False
     if not open_:
         raise PlanError("plan_not_resumable")
     if preset:
         if preset not in presets.PRESETS:
             raise PlanError("invalid_access_preset")
         record["preset"] = preset
-    return _run(ctx, record)
+    if overrides is not None:
+        record["overrides"] = _overrides(overrides)
+    return _launch(ctx, record, background)
+
+
+def _stale(record: dict) -> bool:
+    """A pause nobody continued within ``EXPIRES``; running and uncertain plans never expire."""
+    return record["state"] == "paused" and _now() - record.get("_saved_at", _now()) > EXPIRES
+
+
+def _stop(ctx: Context, record: dict, state: str, message: str) -> None:
+    if record.get("_auth"):
+        from row_bot.application.client_mcp_auth import cancel_auth
+        try:
+            cancel_auth(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
+        except Exception:
+            pass  # A finished or expired sign-in has nothing left to cancel.
+    record.update(state=state, pause=None, message=message)
+    _save(record, terminal=True)
 
 
 def cancel(ctx: Context, plan_id: str) -> dict:
@@ -304,14 +406,7 @@ def cancel(ctx: Context, plan_id: str) -> dict:
     try:
         record, open_ = _load(ctx.owner_id, plan_id)
         if open_:
-            if record.get("_auth"):
-                from row_bot.application.client_mcp_auth import cancel_auth
-                try:
-                    cancel_auth(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
-                except Exception:
-                    pass  # A finished or expired sign-in has nothing left to cancel.
-            record.update(state="cancelled", pause=None, message=_MESSAGES["plan_cancelled"])
-            _save(record, terminal=True)
+            _stop(ctx, record, "cancelled", _MESSAGES["plan_cancelled"])
     finally:
         with _LOCK:
             _RUNNING.discard(plan_id)
@@ -321,7 +416,9 @@ def cancel(ctx: Context, plan_id: str) -> dict:
 def read_plan(ctx: Context, plan_id: str) -> dict:
     """The plan's state, reconciled from owner receipts. Reading never sends a command."""
     record, open_ = _load(ctx.owner_id, plan_id)
-    if open_ and plan_id not in _RUNNING and record["state"] in {"running", "paused", "uncertain"}:
+    if open_ and plan_id not in _RUNNING and _stale(record):
+        _stop(ctx, record, "expired", _MESSAGES["plan_expired"])
+    elif open_ and plan_id not in _RUNNING and record["state"] in {"running", "paused", "uncertain"}:
         before = json.dumps(record, sort_keys=True)
         step = next((s for s in record["steps"] if s["id"] == record.get("current_step")), None)
         seen = ""
@@ -347,15 +444,44 @@ def open_plan(ctx: Context, item_id: str) -> dict | None:
     from row_bot.runtime import admissions
     pending = admissions.read_unfinished_target_commands(_target(ctx, item_id))
     mine = next((command for command in pending["items"] if command["owner_id"] == ctx.owner_id), None)
-    return read_plan(ctx, mine["command_id"]) if mine else None
+    found = read_plan(ctx, mine["command_id"]) if mine else None
+    return None if found is None or found["state"] == "expired" else found
 
 
-def _run(ctx: Context, record: dict) -> dict:
+def _spawn(work: Callable[[], None]) -> None:
+    """The background seam; tests replace it to run a plan at a chosen moment."""
+    threading.Thread(target=work, daemon=True, name="integration-plan").start()
+
+
+def _launch(ctx: Context, record: dict, background: bool) -> dict:
+    """Reserve the plan, then run it here or on a background thread; the client polls ``read_plan``."""
     plan_id = record["plan_id"]
     with _LOCK:
         if plan_id in _RUNNING:
             raise PlanError("operation_pending")
         _RUNNING.add(plan_id)
+    if not background:
+        return _run(ctx, record)
+    record.update(state="running", pause=None, message="")
+    try:
+        _save(record)
+    except Exception:
+        with _LOCK:
+            _RUNNING.discard(plan_id)
+        raise
+
+    def work() -> None:
+        try:
+            _run(ctx, record)
+        except PlanError as error:  # Cancelled or finished meanwhile; its record says so.
+            logger.debug("Integration plan %s stopped: %s", plan_id, error.code)
+    _spawn(work)
+    return read_plan(ctx, plan_id)
+
+
+def _run(ctx: Context, record: dict) -> dict:
+    """Run a reserved plan from its current step until it pauses, finishes or fails."""
+    plan_id = record["plan_id"]
     try:
         still_open = _load(record["owner"], plan_id)[1]  # A cancel may have finished since this record was read.
     except PlanError:
@@ -390,7 +516,8 @@ def _run(ctx: Context, record: dict) -> dict:
                 record.update(state="paused", pause=outcome)
             _save(record)
             return view(record)
-        record.update(state="completed", current_step=None, message="Ready to use.")
+        record.update(state="completed", current_step=None,
+                      message=record.get("_done_message") or _DONE.get(record["intent"], "Ready to use."))
         _save(record, terminal=True)
     except Exception as error:
         code = getattr(error, "code", str(error))
@@ -543,6 +670,7 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
         command=command, validate=ctx.validate, validate_review=_bound(review))
     _completed(result)
     record["server_id"] = result["mcp_configuration"]["server_ids"][0]
+    record["installed_id"] = "mcp:" + record["server_id"]  # Where the saved connection lives from now on.
     record["_recipe"] = _recipe(record)
     return "done"
 
@@ -712,32 +840,44 @@ def _manual(target: dict | None, server_id: str) -> bool:
     return requires_manual_tool_selection(name, cfg)
 
 
-def _tools(ctx: Context, record: dict) -> list[dict]:
-    if not record.get("_test"):  # Changing access works on the tools already accepted.
-        cfg = _saved(record["target"], record["server_id"])[1]
-        return [{"name": n, "effect": r.get("effect", "unknown"), "destructive": bool(r.get("destructive")),
-                 "requires_approval": bool(r.get("requires_approval"))}
-                for n, r in sorted(((cfg.get("tools") or {}).get("catalog") or {}).items())]
-    from row_bot.application.capability_catalog_controls import read_tested_mcp_catalog
-    rows, cursor = [], None
-    while True:
-        page = read_tested_mcp_catalog(owner_id=ctx.mcp_owner_id, server_id=record["server_id"], test_command_id=record["_test"],
-                                       cursor=cursor, limit=50, validate=ctx.validate, target=record["target"])
-        if page.availability != "available":
-            raise PlanError("plan_changed")
-        rows += [{"name": t.name, "effect": t.effect, "destructive": t.destructive, "requires_approval": t.requires_approval}
-                 for t in page.items]
-        cursor = page.next_cursor
-        if not cursor:
-            return rows
+def _tools(ctx: Context | None, record: dict) -> list[dict]:
+    """The tools to choose access for, with the safety recorded for each: tested ones while
+    connecting, otherwise the ones already accepted."""
+    if not record.get("_test"):
+        catalog = (_saved(record["target"], record["server_id"])[1].get("tools") or {}).get("catalog") or {}
+        return [{"name": n, "description": str(r.get("description") or ""), "effect": r.get("effect", "unknown"),
+                 "destructive": bool(r.get("destructive")), "requires_approval": bool(r.get("requires_approval"))}
+                for n, r in sorted(catalog.items()) if isinstance(r, dict)]
+    from row_bot.application.capability_catalog_controls import tested_tools
+    try:
+        return tested_tools(owner_id=ctx.mcp_owner_id, server_id=record["server_id"], test_command_id=record["_test"],
+                            target=record["target"])
+    except Exception:
+        raise PlanError("plan_changed") from None
+
+
+def _tool_view(tool: dict, state: str) -> dict:
+    return {"name": tool["name"][:256], "title": tool["name"].replace("_", " ").replace("-", " ").strip().capitalize()[:128],
+            "description": sources.plain_text(tool.get("description", ""), 512), "effect": tool["effect"], "state": state,
+            "always_asks": presets.locked(tool)}
+
+
+def current_access(row: dict) -> dict | None:
+    """What an installed connection may do now, read from its saved settings only."""
+    if row["kind"] != "mcp" or row["lifecycle"] == "available":
+        return None
+    record = {"target": None if row.get("target") in (None, {"kind": "standalone"}) else row["target"], "server_id": row["owner_ref"]}
+    saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {})
+    tools, manual = _tools(None, record), _manual(record["target"], record["server_id"])
+    return {"preset": presets.current(saved) if saved.get("catalog") else presets.DEFAULT, "tools_digest": _digest([tools, manual]),
+            "tools": [_tool_view(t, presets.actual(saved, t["name"])) for t in tools[:256]]}
 
 
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
     tools, manual = _tools(ctx, record), _manual(record["target"], record["server_id"])
-    digest = _digest([tools, manual, record["preset"]])
+    digest, chosen = _digest([tools, manual]), record.get("overrides") or {}
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [
-        {"name": t["name"], "title": t["name"].replace("_", " ").capitalize()[:128], "effect": t["effect"],
-         "state": "off" if manual else presets.tool_state(record["preset"], t)} for t in tools[:256]]}
+        _tool_view(t, "off" if manual else chosen.get(t["name"]) or presets.tool_state(record["preset"], t)) for t in tools[:256]]}
     if ctx.tools_digest == digest:
         step["message"] = ""
         return "done"
@@ -747,24 +887,47 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
     return "access"
 
 
+def _mcp_change(ctx: Context, record: dict, step: dict) -> str:
+    """Turn a connection off, or remove a standalone one (with its saved key when cleanup was chosen)."""
+    if record["intent"] == "turn_off":
+        _policy(ctx, record, "enable:off", {"operation": "server_enabled", "server_id": record["server_id"], "enabled": False})
+        return "done"
+    from row_bot.application import capability_configuration_controls as configuration
+
+    def build():
+        revision = _revision(ctx, record)
+        intent = {"operation": "delete", "server_id": record["server_id"], "delete_credentials": record["consent"]["cleanup"]}
+        review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate)
+        return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
+    command, review = _once(record, "enable:remove", build)
+    _completed(configuration.execute_mcp_configuration_command(owner_id=ctx.mcp_owner_id, key=command["command_id"],
+        command=command, validate=ctx.validate, validate_review=_bound(review)))
+    return "done"
+
+
 def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application import capability_catalog_controls as catalog
     from row_bot.application.capability_policy_controls import read_mcp_policy
+    if record["intent"] in _DONE:
+        return _mcp_change(ctx, record, step)
     if record["intent"] != "access" and record["target"] is None and not record["consent"].get("turns_on_mcp") and not _mcp_on():
         raise PlanError("plan_changed")  # Turning MCP on was not part of this consent.
+    chosen = record.get("overrides") or {}
     if record.get("_test"):
         def build():
             revision = _revision(ctx, record)
             review = catalog.review_mcp_catalog_command(owner_id=ctx.mcp_owner_id, configuration_revision=revision,
                 server_id=record["server_id"], test_command_id=record["_test"], validate=ctx.validate,
-                target=record["target"], preset=record["preset"])
+                target=record["target"], preset=record["preset"], overrides=chosen or None)
             return _mcp_command("mcp.catalog.accept", configuration_revision=revision, server_id=record["server_id"],
-                                test_command_id=record["_test"], preset=record["preset"]), review
+                                test_command_id=record["_test"], preset=record["preset"],
+                                **({"overrides": chosen} if chosen else {})), review
         command, review = _once(record, "enable:accept", build)
         _completed(catalog.execute_mcp_catalog_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
             validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
     elif record["intent"] == "access":
-        _policy(ctx, record, "enable:preset", {"operation": "preset", "server_id": record["server_id"], "preset": record["preset"]})
+        _policy(ctx, record, "enable:preset", {"operation": "preset", "server_id": record["server_id"], "preset": record["preset"],
+                                               **({"overrides": chosen} if chosen else {})})
         return "done"
     state = read_mcp_policy(server_id=record["server_id"], validate=ctx.validate, target=record["target"])
     if state.server_enabled is not True:
@@ -791,27 +954,109 @@ def _done(*_args) -> str:
     return "done"
 
 
+def _latest(record: dict, step: dict) -> str:
+    """Nothing newer: skip the change and say so."""
+    step["message"] = "You have the latest version."
+    next(s for s in record["steps"] if s["type"] == "enable")["state"] = "skipped"
+    record["_done_message"] = step["message"]
+    return "done"
+
+
 def _skill_test(ctx: Context, record: dict, step: dict) -> str:
-    from row_bot.application.client_skill_hub import preview_public_skill, preview_skill_reference
+    from row_bot.application import client_skill_hub as hub
     reference = record["reference"]
-    if reference.get("install_ref"):  # A featured skill: read its pinned folder now, after consent.
-        summary = preview_skill_reference(owner_id=ctx.owner_id, install_ref=reference["install_ref"], name=reference["name"],
-                                          publisher=reference["publisher"])
+    if record["intent"] == "update":  # Read the newest version from its source now, after consent.
+        name = record["item_id"].removeprefix("skill:")
+        saved, _ = _once(record, "test:review", lambda: ({"command_id": str(uuid4()),
+                                                          "revision": hub._record_revision(_hub_record_named(name))}, {}))
+        result = hub.execute_public_skill_maintenance(owner_id=ctx.owner_id, command_id=saved["command_id"], name=name,
+            expected_revision=saved["revision"], action="review_update", validate=ctx.validate)
+        summary = result.get("update_preview")
+        if summary is None:
+            raise PlanError("skill_preview_expired")
+        if not summary.get("changes"):
+            return _latest(record, step)
+        record["_skill"] = {"preview_id": summary["preview_id"], "content_hash": summary["content_hash"], "revision": saved["revision"]}
+    elif reference.get("install_ref"):  # A featured skill: read its pinned folder now, after consent.
+        summary = hub.preview_skill_reference(owner_id=ctx.owner_id, install_ref=reference["install_ref"], name=reference["name"],
+                                              publisher=reference["publisher"])
+    elif reference.get("upload"):
+        summary = hub.preview_uploaded_skill(owner_id=ctx.owner_id, upload=reference["upload"])
+    elif reference.get("link"):
+        summary = hub.preview_skill_link(owner_id=ctx.owner_id, link=reference["link"])
     else:
-        summary = preview_public_skill(owner_id=ctx.owner_id, revision=reference["revision"], entry_id=reference["entry_id"])
+        summary = hub.preview_public_skill(owner_id=ctx.owner_id, revision=reference["revision"], entry_id=reference["entry_id"])
     if summary["scan"]["blocked"]:
         raise PlanError("skill_blocked", "Row-Bot's safety check blocked this skill.")
-    record["_skill"] = {"preview_id": summary["preview_id"], "content_hash": summary["content_hash"]}
-    step["message"] = f"{len(summary.get('review_files') or [])} files checked."
+    record.setdefault("_skill", {"preview_id": summary["preview_id"], "content_hash": summary["content_hash"]})
+    files = summary.get("review_files") or []
+    step["message"] = f"{len(files)} files checked." + (f" {sum(f['executable'] for f in files)} scripts; adding never runs them."
+                                                       if any(f["executable"] for f in files) else "")
     return "done"
+
+
+def _hub_record_named(name: str):
+    from row_bot.skills_hub.provenance import get_record
+    record = get_record(name)
+    if record is None:
+        raise PlanError("plan_changed")
+    return record
 
 
 def _package_test(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.plugins.hermes_catalog import inspect_package
-    summary = inspect_package(owner_id=ctx.owner_id, reference=record["reference"]["reference"])
+    reference = record["reference"]
+    if record["intent"] == "fix":  # The package's own local check, nothing more.
+        result = _plugin_command(ctx, record, "test:check", "plugin.test")
+        if result.get("status") in {"accepted", "partial"}:
+            return "running"
+        _completed(result)
+        from row_bot.application.plugin_commands import read_plugin_detail
+        if read_plugin_detail(record["item_id"].removeprefix("plugin:"), validate=ctx.validate)["health"]["status"] != "passed":
+            raise PlanError("package_failed", "The package's check didn't pass. Open its advanced settings to see why.")
+        step["message"] = "Checks passed."
+        return "done"
+    if record["intent"] == "update":
+        summary = inspect_package(owner_id=ctx.owner_id, reference=reference["source_url"])
+        if summary["plugin_id"] != record["item_id"].removeprefix("plugin:"):
+            raise PlanError("plan_changed")
+        if summary["pin"] and summary["pin"] == reference["pin"]:
+            return _latest(record, step)
+    else:
+        if reference.get("reference", "").startswith("hermes:"):
+            from row_bot.plugins import hermes_catalog
+            listed = next((e for e in hermes_catalog.read_catalog()["entries"] if e["id"] == reference["reference"]), None)
+            if listed is None or (listed["pin"], listed["source_identity"]) != (reference.get("pin"), reference.get("identity")):
+                raise PlanError("plan_changed")  # The catalog moved since consent: never fetch another version.
+        summary = inspect_package(owner_id=ctx.owner_id, reference=reference.get("upload") or reference["reference"],
+                                  local=bool(reference.get("upload")))
     record["_package"] = {"preview_id": summary["preview_id"], "plugin_id": summary["plugin_id"]}
     step["message"] = f"{len(summary['skills'])} skills and {len(summary['servers'])} connections found."
     return "done"
+
+
+def _lifecycle(ctx: Context, record: dict, name: str, action: str, preview_id: str = "") -> dict:
+    """One package lifecycle command (install, update, remove, purge), recorded before it is sent."""
+    from row_bot.application.client_plugin_lifecycle import execute_plugin_lifecycle, review_plugin_lifecycle
+    if not ctx.local_owner:
+        raise PlanError("owner_local_only")
+    plugin_id = record.get("_package", {}).get("plugin_id") or record["item_id"].removeprefix("plugin:")
+
+    def build():
+        review = review_plugin_lifecycle(action, plugin_id, validate=ctx.validate, owner_id=ctx.owner_id, preview_id=preview_id)
+        declared = [line for line in review.get("changes") or [] if not line.startswith("File ")]
+        if action == "update" and declared:  # New access is never granted by an update; it needs its own review.
+            raise PlanError("update_needs_review", "This update changes what the package can do. Remove it and add it again "
+                                                   "to review the changes.")
+        return {"command_id": str(uuid4()), "action": action, "plugin_id": plugin_id, "preview_id": preview_id,
+                "revision": review["revision"]}, review
+    command, _ = _once(record, name, build)
+    result = execute_plugin_lifecycle(dict(command), owner_id=ctx.owner_id, validate=ctx.validate)
+    if result.get("status") == "uncertain":
+        raise PlanError("change_unconfirmed")
+    if result.get("status") != "completed":
+        raise PlanError("package_not_changed", str(result.get("message") or "The package couldn't be changed."))
+    return result
 
 
 def _add(ctx: Context, record: dict, step: dict) -> str:
@@ -823,62 +1068,97 @@ def _add(ctx: Context, record: dict, step: dict) -> str:
             validate=ctx.validate)
         if not result.get("success"):
             raise PlanError("skill_not_added", str(result.get("message") or "The skill couldn't be added."))
+        record["installed_id"] = "skill:" + str(result.get("skill_name") or "")
         step["message"] = "Added and turned on."
         return "done"
-    from row_bot.application.client_plugin_lifecycle import execute_plugin_lifecycle, review_plugin_lifecycle
-    if not ctx.local_owner:
-        raise PlanError("owner_local_only")
-    package = record["_package"]
-
-    def build():
-        review = review_plugin_lifecycle("install", package["plugin_id"], validate=ctx.validate, owner_id=ctx.owner_id,
-                                         preview_id=package["preview_id"])
-        return {"command_id": str(uuid4()), "action": "install", "plugin_id": package["plugin_id"],
-                "preview_id": package["preview_id"], "revision": review["revision"]}, review
-    command, _ = _once(record, "enable:install", build)
-    result = execute_plugin_lifecycle(dict(command), owner_id=ctx.owner_id, validate=ctx.validate)
-    if result.get("status") == "uncertain":
-        raise PlanError("change_unconfirmed")
-    if result.get("status") != "completed":
-        raise PlanError("package_not_added", str(result.get("message") or "The package couldn't be added."))
+    _lifecycle(ctx, record, "enable:install", "install", record["_package"]["preview_id"])
+    record["installed_id"] = "plugin:" + record["_package"]["plugin_id"]
     return "done"
 
 
-def _turn_on(ctx: Context, record: dict, step: dict) -> str:
-    """Switch an installed skill or package on through its owner command."""
+def _switch(ctx: Context, record: dict, step: dict) -> str:
+    """Switch an installed skill or package on or off through its owner command."""
+    value = record["intent"] != "turn_off"
     if record["kind"] == "skill":
         from row_bot import skills
         from row_bot.application.skill_commands import execute_skill_command, review_skill_command
         payload = {"revision": skills.read_client_skills()["revision"], "name": record["item_id"].removeprefix("skill:"),
-                   "preference": "availability", "value": True}
-
-        def build():
-            review = review_skill_command("skill.preference", payload, validate=ctx.validate)
-            return {"command_id": str(uuid4()), "type": "skill.preference", "payload": {**payload, "review_id": "plan"}}, review
-        command, review = _once(record, "enable:skill", build)
-        result = execute_skill_command(command, owner_id=ctx.owner_id, authority_id=ctx.owner_id, key=command["command_id"],
-            validate=ctx.validate, validate_action=lambda _kind: None,
-            validate_review=lambda _original, value: _bound(review)(value))
+                   "preference": "availability", "value": value}
+        result = _skill_command(ctx, record, "enable:skill", "skill.preference", payload, review_skill_command, execute_skill_command)
     else:
-        from row_bot.application.plugin_commands import execute_plugin_command, read_plugin_detail, review_plugin_command
-        plugin_id = record["item_id"].removeprefix("plugin:")
-
-        def build():
-            payload = {"plugin_id": plugin_id, "revision": read_plugin_detail(plugin_id, validate=ctx.validate)["revision"]}
-            review = review_plugin_command("plugin.enable", payload, validate=ctx.validate)
-            return {"command_id": str(uuid4()), "type": "plugin.enable",
-                    "payload": {**payload, "action_digest": review["action_digest"]}}, review
-        command, review = _once(record, "enable:package", build)
-        result = execute_plugin_command(owner_id=ctx.owner_id, key=command["command_id"], command=command,
-            validate=ctx.validate, validate_review=_bound(review))
+        result = _plugin_command(ctx, record, "enable:package", "plugin.enable" if value else "plugin.disable")
     if result.get("status") in {"accepted", "partial"}:
         return "running"
     _completed(result)
     return "done"
 
 
+def _plugin_command(ctx: Context, record: dict, name: str, kind: str) -> dict:
+    """One package command (test, enable, disable), reviewed in this run and recorded before it is sent."""
+    from row_bot.application.plugin_commands import execute_plugin_command, read_plugin_detail, review_plugin_command
+    plugin_id = record["item_id"].removeprefix("plugin:")
+
+    def build():
+        payload = {"plugin_id": plugin_id, "revision": read_plugin_detail(plugin_id, validate=ctx.validate)["revision"]}
+        review = review_plugin_command(kind, payload, validate=ctx.validate)
+        return {"command_id": str(uuid4()), "type": kind, "payload": {**payload, "action_digest": review["action_digest"]}}, review
+    command, review = _once(record, name, build)
+    return execute_plugin_command(owner_id=ctx.owner_id, key=command["command_id"], command=command,
+        validate=ctx.validate, validate_review=_bound(review))
+
+
+def _skill_command(ctx: Context, record: dict, name: str, kind: str, payload: dict, review_command, execute_command) -> dict:
+    def build():
+        review = review_command(kind, payload, validate=ctx.validate)
+        return {"command_id": str(uuid4()), "type": kind, "payload": {**payload, "review_id": "plan"}}, review
+    command, review = _once(record, name, build)
+    return execute_command(command, owner_id=ctx.owner_id, authority_id=ctx.owner_id, key=command["command_id"],
+        validate=ctx.validate, validate_action=lambda _kind: None, validate_review=lambda _original, value: _bound(review)(value))
+
+
+def _remove(ctx: Context, record: dict, step: dict) -> str:
+    """Owned-only removal: a skill's own files, or a package and its parts; data stays unless cleanup was chosen."""
+    if record["kind"] == "plugin":
+        if record["reference"].get("lifecycle") != "data_retained":
+            _lifecycle(ctx, record, "enable:remove", "remove")
+        if record["consent"]["cleanup"] or record["reference"].get("lifecycle") == "data_retained":
+            _lifecycle(ctx, record, "enable:purge", "purge")
+        return "done"
+    from row_bot.application import client_skill_hub as hub
+    from row_bot.skills_hub.provenance import get_record
+    name = record["item_id"].removeprefix("skill:")
+    if get_record(name) is not None or "enable:uninstall" in record["_commands"]:
+        saved, _ = _once(record, "enable:uninstall", lambda: ({"command_id": str(uuid4()),
+                                                               "revision": hub._record_revision(_hub_record_named(name))}, {}))
+        result = hub.execute_public_skill_maintenance(owner_id=ctx.owner_id, command_id=saved["command_id"], name=name,
+            expected_revision=saved["revision"], action="uninstall", confirmed=True, validate=ctx.validate)
+        if not result.get("success"):
+            raise PlanError("skill_not_removed", "The skill couldn't be removed. Try again.")
+        return "done"
+    from row_bot.application.skill_commands import execute_skill_command, read_skill_detail, review_skill_command
+    detail = read_skill_detail(name, validate=ctx.validate)
+    payload = {"revision": detail["library_revision"], "name": name, "skill_revision": detail["skill"]["revision"]}
+    _completed(_skill_command(ctx, record, "enable:delete", "skill.delete", payload, review_skill_command, execute_skill_command))
+    return "done"
+
+
+def _update(ctx: Context, record: dict, step: dict) -> str:
+    if record["kind"] == "plugin":
+        _lifecycle(ctx, record, "enable:update", "update", record["_package"]["preview_id"])
+        return "done"
+    from row_bot.application import client_skill_hub as hub
+    saved, _ = _once(record, "enable:update", lambda: ({"command_id": str(uuid4())}, {}))
+    result = hub.execute_public_skill_maintenance(owner_id=ctx.owner_id, command_id=saved["command_id"],
+        name=record["item_id"].removeprefix("skill:"), expected_revision=record["_skill"]["revision"], action="update",
+        preview_id=record["_skill"]["preview_id"], content_hash=record["_skill"]["content_hash"], validate=ctx.validate)
+    if not result.get("success"):
+        raise PlanError("skill_not_updated", "The update couldn't be applied. Try again.")
+    return "done"
+
+
 def _enable(ctx: Context, record: dict, step: dict) -> str:
-    return (_turn_on if record["intent"] == "turn_on" else _add)(ctx, record, step)
+    return {"turn_on": _switch, "turn_off": _switch, "fix": _switch, "remove": _remove, "update": _update}.get(
+        record["intent"], _add)(ctx, record, step)
 
 
 _HANDLERS: dict[tuple[str, str], Callable[[Context, dict, dict], str]] = {

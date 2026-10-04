@@ -41,22 +41,10 @@ const ACCOUNTS = open('accounts', 'Accounts');
 const GITHUB = open('accounts', 'GitHub account', 'github');
 const GOOGLE = open('accounts', 'Google account', 'google');
 const CHANNELS = open('channels', 'Channels');
-const PLUGINS = open(
-  'integrations?tab=my&type=plugin',
-  'Integrations',
-  'installed-plugins',
-);
-const MCP = open('integrations?tab=my&type=mcp', 'Integrations', 'mcp-servers');
-const RUNTIMES = open(
-  'integrations?tab=my&type=mcp',
-  'Runtimes',
-  'mcp-runtimes',
-);
-const SKILLS = open(
-  'integrations?tab=my&type=skill',
-  'Integrations',
-  'skill-library',
-);
+const PLUGINS = open('apps', 'Apps');
+const MCP = open('apps', 'Apps');
+const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'chats');
+const SKILLS = open('skills', 'Skills');
 const TOOLS = open('tools', 'Built-in tools', 'built-in-tools');
 const WIKI = open('knowledge', 'Wiki vault', 'wiki-vault');
 const DREAM = open('preferences', 'Dream Cycle', 'dream-cycle');
@@ -93,19 +81,26 @@ const CATALOG: Record<string, Entry> = {
     MCP,
   ],
   invalid_integration_query: [
-    'Choose a valid integration type and search again.',
+    'Search again with a shorter phrase.',
     'review',
     MCP,
   ],
-  integration_import_type_required: [
-    'Choose whether this link contains a skill, MCP connection, or package.',
+  integration_link_unsupported: [
+    'Paste an https link to an app, a skill page or a GitHub repository.',
     'review',
-    MCP,
   ],
-  integration_preview_expired: [
-    'This inspection expired. Inspect the source again before adding it.',
+  invalid_upload: ['Choose a .zip, .skill or .mcpb file up to 20 MB.', 'review'],
+  unsupported_upload: [
+    "That file doesn't hold a skill or a package Row-Bot can add.",
     'review',
-    MCP,
+  ],
+  unsafe_upload: [
+    "That file has paths Row-Bot won't unpack. Ask its publisher for a clean copy.",
+    'review',
+  ],
+  upload_too_large: [
+    'That file is too large. Choose one under 20 MB with at most 200 files.',
+    'review',
   ],
   invalid_mcp_auth: [
     'Check the authentication method, secret binding, and account label.',
@@ -113,7 +108,7 @@ const CATALOG: Record<string, Entry> = {
     MCP,
   ],
   invalid_mcp_target: [
-    'This connection is unavailable. Open its current integration details.',
+    'This connection is unavailable. Open the app again.',
     'review',
     MCP,
   ],
@@ -123,7 +118,7 @@ const CATALOG: Record<string, Entry> = {
     MCP,
   ],
   mcp_auth_callback_invalid: [
-    'This sign-in callback is no longer valid. Return to Integrations and start again.',
+    'This sign-in is no longer valid. Return to Apps and start again.',
     'review',
     MCP,
   ],
@@ -138,7 +133,7 @@ const CATALOG: Record<string, Entry> = {
     MCP,
   ],
   mcp_auth_connection_unavailable: [
-    'The connection was removed or changed. Reload Integrations.',
+    'The connection was removed or changed. Open Apps again.',
     'review',
     MCP,
   ],

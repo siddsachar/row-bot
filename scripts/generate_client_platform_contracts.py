@@ -20,8 +20,9 @@ MODELS = {name: getattr(schemas, name) for name in (
     "AppRef", "AppView", "AppList", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
-    "PlanStartRequest", "PlanContinueRequest",
-    "IntegrationUse", "IntegrationAttribution", "IntegrationOperationResult", "IntegrationItem", "IntegrationSourceStatus", "IntegrationPage", "IntegrationSearchRequest", "IntegrationPreviewRequest", "IntegrationPreview", "PortablePackagePreview", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
+    "PlanStartRequest", "PlanContinueRequest", "IntegrationAbout", "IntegrationFile", "IntegrationRequirement",
+    "IntegrationResolveRequest",
+    "IntegrationAttribution", "IntegrationSourceStatus", "IntegrationSearchRequest", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
     "Command", "Event", "Handshake", "Problem", "Outcome", "ResourceBinding",
     "PreviewContract", "CommandReceipt", "AttachmentView", "SessionProof",
     "ConversationView", "ConversationPage", "ConversationActionSnapshot", "ConversationActionReviewRequest",
@@ -119,12 +120,8 @@ OPERATIONS = (
     ('get', '/integrations/plans/{plan_id}', None, 'InstallPlan'),
     ('post', '/integrations/plans/{plan_id}/continue', 'PlanContinueRequest', 'InstallPlan'),
     ('post', '/integrations/plans/{plan_id}/cancel', None, 'InstallPlan'),
-    ('post', '/settings/integrations/operations/{kind}/{command_id}/reconcile', None, 'IntegrationOperationResult'),
-    ('get', '/settings/integrations', None, 'IntegrationPage'),
-    ('get', '/settings/integrations/{integration_id}', None, 'IntegrationItem'),
-    ('get', '/conversations/{conversation_id}/integrations/{integration_id}/use', None, 'IntegrationUse'),
-    ('post', '/settings/integrations/search', 'IntegrationSearchRequest', 'IntegrationPage'),
-    ('post', '/settings/integrations/preview', 'IntegrationPreviewRequest', 'IntegrationPreview'),
+    ('post', '/integrations/items/resolve', 'IntegrationResolveRequest', 'IntegrationEntryPage'),
+    ('post', '/integrations/uploads', 'bytes', 'IntegrationEntryPage'),
     ('post', '/settings/mcp/auth/review', 'McpAuthReviewRequest', 'McpAuthReview'),
     ('post', '/settings/mcp/auth/commands', 'McpAuthCommand', 'McpAuthStatus'),
     ('get', '/settings/mcp/auth/commands/{command_id}', None, 'McpAuthStatus'),
@@ -1196,8 +1193,19 @@ export const getIntegrationItems = (base: string, proof: SessionProof, options: 
   jsonRequest(base, '/integrations/items' + query(options), 'IntegrationEntryPage', proof, 'GET', undefined, undefined, signal);
 export const searchIntegrationItems = (base: string, proof: SessionProof, body: IntegrationSearchRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items/search', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);
-export const getIntegrationDetail = (base: string, proof: SessionProof, options: {item_id:string;revision?:string;intent?:string}, signal?: AbortSignal): Promise<IntegrationDetail> =>
-  jsonRequest(base, '/integrations/detail' + query(options), 'IntegrationDetail', proof, 'GET', undefined, undefined, signal);
+export const resolveIntegrationReference = (base: string, proof: SessionProof, body: IntegrationResolveRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
+  jsonRequest(base, '/integrations/items/resolve', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationResolveRequest', body), undefined, signal);
+export async function uploadIntegrationFile(base: string, proof: SessionProof, file: Blob, name: string, signal?: AbortSignal): Promise<IntegrationEntryPage> {
+  const response = await fetch(`${base}/api/v1/integrations/uploads`, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store', signal, body: file,
+    headers: {...proofHeaders(proof), 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name).slice(0, 256)},
+  });
+  const value = await response.json();
+  if (!response.ok) throw validateWire<Problem>('Problem', value);
+  return validateWire<IntegrationEntryPage>('IntegrationEntryPage', value);
+}
+export const getIntegrationDetail = (base: string, proof: SessionProof, options: {item_id:string;revision?:string;intent?:string;cleanup?:boolean}, signal?: AbortSignal): Promise<IntegrationDetail> =>
+  jsonRequest(base, '/integrations/detail' + query({...options, cleanup: options.cleanup ? 'true' : undefined}), 'IntegrationDetail', proof, 'GET', undefined, undefined, signal);
 export const reviewInstallPlan = (base: string, proof: SessionProof, body: PlanReviewRequest, signal?: AbortSignal): Promise<InstallPlan> =>
   jsonRequest(base, '/integrations/plans/review', 'InstallPlan', proof, 'POST', validateWire('PlanReviewRequest', body), undefined, signal);
 export const startInstallPlan = (base: string, proof: SessionProof, body: PlanStartRequest, signal?: AbortSignal): Promise<InstallPlan> =>
@@ -1208,18 +1216,6 @@ export const continueInstallPlan = (base: string, proof: SessionProof, plan: str
   jsonRequest(base, `/integrations/plans/${id(plan)}/continue`, 'InstallPlan', proof, 'POST', validateWire('PlanContinueRequest', body), undefined, signal);
 export const cancelInstallPlan = (base: string, proof: SessionProof, plan: string, signal?: AbortSignal): Promise<InstallPlan> =>
   jsonRequest(base, `/integrations/plans/${id(plan)}/cancel`, 'InstallPlan', proof, 'POST', undefined, undefined, signal);
-export const reconcileIntegrationOperation = (base: string, proof: SessionProof, kind: 'skill' | 'plugin' | 'mcp', command: string, signal?: AbortSignal): Promise<IntegrationOperationResult> =>
-  jsonRequest(base, `/settings/integrations/operations/${id(kind)}/${id(command)}/reconcile`, 'IntegrationOperationResult', proof, 'POST', undefined, undefined, signal);
-export const getIntegrations = (base: string, proof: SessionProof, options: {query?:string;kind?:string;source?:string;cursor?:string}, signal?:AbortSignal): Promise<IntegrationPage> =>
-  jsonRequest(base, '/settings/integrations' + query(options), 'IntegrationPage', proof, 'GET', undefined, undefined, signal);
-export const getIntegrationUse = (base:string, proof:SessionProof, conversation:string, integration:string, signal?:AbortSignal):Promise<IntegrationUse> =>
-  jsonRequest(base, `/conversations/${id(conversation)}/integrations/${id(integration)}/use`, 'IntegrationUse', proof, 'GET', undefined, undefined, signal);
-export const getIntegration = (base:string, proof:SessionProof, integration:string, signal?:AbortSignal):Promise<IntegrationItem> =>
-  jsonRequest(base, `/settings/integrations/${id(integration)}`, 'IntegrationItem', proof, 'GET', undefined, undefined, signal);
-export const searchIntegrations = (base:string, proof:SessionProof, body:IntegrationSearchRequest, signal?:AbortSignal):Promise<IntegrationPage> =>
-  jsonRequest(base, '/settings/integrations/search', 'IntegrationPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);
-export const previewIntegration = (base:string, proof:SessionProof, body:IntegrationPreviewRequest, signal?:AbortSignal):Promise<IntegrationPreview> =>
-  jsonRequest(base, '/settings/integrations/preview', 'IntegrationPreview', proof, 'POST', validateWire('IntegrationPreviewRequest', body), undefined, signal);
 export const reviewMcpAuth = (base:string, proof:SessionProof, body:McpAuthReviewRequest, signal?:AbortSignal):Promise<McpAuthReview> =>
   jsonRequest(base, '/settings/mcp/auth/review', 'McpAuthReview', proof, 'POST', validateWire('McpAuthReviewRequest', body), undefined, signal);
 export const sendMcpAuth = (base:string, proof:SessionProof, body:McpAuthCommand, signal?:AbortSignal):Promise<McpAuthStatus> =>

@@ -2275,45 +2275,66 @@ export class ClientController {
         throw clientError({ code: 'capability_unavailable' });
       return this.transport.testLiveProviderRuntime(provider, signal);
     });
-  reconcileIntegrationOperation = (
-    kind: 'skill' | 'plugin' | 'mcp',
-    command: string,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.reconcileIntegrationOperation?.(kind, command, signal),
-    );
-  integrations = (
-    options: {
-      query?: string;
-      kind?: string;
-      source?: string;
-      cursor?: string;
-    },
-    signal?: AbortSignal,
-  ) => this.query(() => this.transport.integrations?.(options, signal));
-  integrationUse = (
-    conversation: string,
-    integration: string,
-    signal?: AbortSignal,
-  ) =>
-    this.query(() =>
-      this.transport.integrationUse?.(conversation, integration, signal),
-    );
-  integration = (integration: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.integration?.(integration, signal));
-  searchIntegrations = (
-    body: import('./types').IntegrationSearchRequest,
-    signal?: AbortSignal,
-  ) => this.query(() => this.transport.searchIntegrations?.(body, signal));
   integrationSources = (signal?: AbortSignal) =>
     this.query(() => this.transport.integrationSources?.(signal));
   updateIntegrationSource = (source: string, signal?: AbortSignal) =>
     this.query(() => this.transport.updateIntegrationSource?.(source, signal));
-  previewIntegration = (
-    body: import('./types').IntegrationPreviewRequest,
+  catalogSchedule = (signal?: AbortSignal) =>
+    this.query(() => this.transport.catalogSchedule?.(signal));
+  setCatalogSchedule = (
+    body: import('./types').CatalogSchedule,
     signal?: AbortSignal,
-  ) => this.query(() => this.transport.previewIntegration?.(body, signal));
+  ) => this.query(() => this.transport.setCatalogSchedule?.(body, signal));
+  integrationApps = (query = '', signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationApps?.(query, signal));
+  integrationIcon = (icon: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationIcon?.(icon, signal));
+  integrationItems = (
+    options: {
+      query?: string;
+      kind?: string;
+      scope?: 'installed' | 'catalog';
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.integrationItems?.(options, signal));
+  searchIntegrationItems = (
+    body: import('./types').IntegrationSearchRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.searchIntegrationItems?.(body, signal));
+  resolveIntegration = (
+    body: import('./types').IntegrationResolveRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.resolveIntegration?.(body, signal));
+  uploadIntegration = (file: Blob, name: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.uploadIntegration?.(file, name, signal));
+  integrationDetail = (
+    options: {
+      item_id: string;
+      revision?: string;
+      intent?: string;
+      cleanup?: boolean;
+    },
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.integrationDetail?.(options, signal));
+  reviewInstallPlan = (
+    body: import('./types').PlanReviewRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.reviewInstallPlan?.(body, signal));
+  startInstallPlan = (
+    body: import('./types').PlanStartRequest,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.startInstallPlan?.(body, signal));
+  installPlan = (plan: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.installPlan?.(plan, signal));
+  continueInstallPlan = (
+    plan: string,
+    body: import('./types').PlanContinueRequest,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() => this.transport.continueInstallPlan?.(plan, body, signal));
+  cancelInstallPlan = (plan: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.cancelInstallPlan?.(plan, signal));
   reviewMcpAuth = (
     body: import('./types').McpAuthReviewRequest,
     signal?: AbortSignal,

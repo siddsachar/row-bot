@@ -42,7 +42,6 @@ import { SubscriptionAccountsSession } from './features/settings/SubscriptionAcc
 import { SubscriptionProbesSession } from './features/settings/SubscriptionProbes';
 import { SubscriptionOptionsSession } from './features/settings/SubscriptionOptions';
 import { createDocumentRemovals } from './features/knowledge/DocumentRemovals';
-import { createMcpConnections } from './features/settings/McpConnections';
 import { createRuntimeInstallations } from './features/mcp/RuntimeInstallations';
 import { createDocumentQueueSession } from './features/knowledge/DocumentQueuePanel';
 import { createDocumentUploadSession } from './features/knowledge/DocumentUploadPanel';
@@ -266,10 +265,6 @@ async function start() {
     controller,
     () => new SubscriptionOptionsSession(),
   );
-  const mcpConnectionsOwner = createAuthenticatedEditorOwner(
-    controller,
-    createMcpConnections,
-  );
   const runtimeInstallationsOwner = createAuthenticatedEditorOwner(
     controller,
     createRuntimeInstallations,
@@ -363,7 +358,6 @@ async function start() {
             subscriptionAccountsOwner,
             subscriptionOptionsOwner,
             subscriptionProbesOwner,
-            mcpConnectionsOwner,
             runtimeInstallationsOwner,
             documentRemovalsOwner,
             documentQueueOwner,
@@ -404,7 +398,7 @@ async function start() {
                       element={<Navigate to="/?tab=workflows" replace />}
                     />
                     <Route
-                      path="settings/:setting"
+                      path="settings/:setting/*"
                       element={<SettingRoute />}
                     />
                     <Route
@@ -448,7 +442,6 @@ async function start() {
       subscriptionAccountsOwner.hasRetained() ||
       subscriptionOptionsOwner.hasRetained() ||
       subscriptionProbesOwner.hasRetained() ||
-      mcpConnectionsOwner.hasRetained() ||
       runtimeInstallationsOwner.hasRetained() ||
       documentRemovalsOwner.hasRetained() ||
       documentQueueOwner.hasRetained() ||
@@ -478,7 +471,6 @@ async function start() {
       subscriptionAccountsOwner.dispose();
       subscriptionOptionsOwner.dispose();
       subscriptionProbesOwner.dispose();
-      mcpConnectionsOwner.dispose();
       runtimeInstallationsOwner.dispose();
       documentRemovalsOwner.dispose();
       documentQueueOwner.dispose();

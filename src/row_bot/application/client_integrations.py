@@ -1,15 +1,16 @@
-"""Apps & Skills over the existing owners: the typed /integrations API, and the
-legacy /settings/integrations adapters that Phase 3 removes. No second runtime."""
+"""Apps & Skills over the existing owners: the typed /integrations API. No second runtime."""
 from __future__ import annotations
 
 from collections.abc import Callable
 import concurrent.futures
+from pathlib import PurePosixPath
 from typing import Any
 import copy
 import hashlib
 import json
 import threading
 import time
+from urllib.parse import urlsplit
 
 from row_bot.application.client_platform import ClientPlatformError
 from row_bot.integrations import facts, plans, presets
@@ -19,28 +20,36 @@ from row_bot.integrations.safe import TtlCache
 _SEARCHES = TtlCache(1200, 64)
 _SEARCH_SLOTS = threading.BoundedSemaphore(4)
 SOURCE_DEADLINE = 8.0
-_LEGACY = ("id", "kind", "owner_ref", "parent_id", "name", "description", "source", "publisher", "source_url", "version",
-           "pin", "license", "compatibility", "reasons", "platforms", "evidence", "installed", "enabled", "status", "revision",
-           "actions", "auth_status", "account_label", "children", "target", "attributions", "evidence_stage",
-           "tested_with_row_bot", "auth_requirement", "canonical_identity", "setup", "required")
+# "app" is everything that is not a skill: connections and the packages that bring them.
+_KINDS = {"all": {"skill", "mcp", "plugin"}, "app": {"mcp", "plugin"}, "skill": {"skill"}, "mcp": {"mcp"}, "plugin": {"plugin"}}
 
 
 def _digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def legacy(row: dict) -> dict:
-    """The /settings/integrations shape of one entry."""
-    value = {key: copy.deepcopy(row[key]) for key in _LEGACY if key in row}
-    value["children"] = [legacy(child) for child in row["children"]]
-    return value
+def _method(row: dict) -> str:
+    """How an app connects, for its card: signs in, takes a key, is hosted, or runs on this computer."""
+    if row["kind"] == "plugin":
+        return "local"
+    if row["kind"] != "mcp":
+        return ""
+    setup = row.get("setup")
+    if setup:
+        hosted, auth = setup["execution"] == "hosted", setup["auth_mode"]
+    else:
+        hosted = row["canonical_identity"].startswith("mcp:endpoint:")
+        auth = (row["app"] or {}).get("auth") or ("oauth" if row["auth_requirement"] == "required" else "")
+        if not hosted and not row["canonical_identity"].startswith("mcp:registry:"):
+            return "local"
+    return "api_key" if auth == "api_key" else "local" if not hosted else "hosted_sign_in" if auth == "oauth" else "hosted"
 
 
 def entry(row: dict) -> dict:
     """The typed /integrations shape of one entry."""
     return {"id": row["id"], "kind": row["kind"], "parent_id": row["parent_id"], "name": row["name"],
             "description": row["description"], "app": copy.deepcopy(row["app"]), "icon": row["icon"], "verified": row["verified"],
-            "signals": copy.deepcopy(row["signals"]), "source": row["source"],
+            "signals": copy.deepcopy(row["signals"]), "source": row["source"], "method": _method(row),
             "publisher": row["publisher"], "version": row["version"], "installed": row["installed"], "enabled": row["enabled"],
             "required": row.get("required", True), "account_label": row["account_label"], "compatibility": row["compatibility"],
             "evidence": row["evidence_stage"], "tested_with_row_bot": row["tested_with_row_bot"], "lifecycle": row["lifecycle"],
@@ -48,17 +57,15 @@ def entry(row: dict) -> dict:
             "attributions": copy.deepcopy(row["attributions"]), "children": [entry(child) for child in row["children"]]}
 
 
-def _installed(*, query: str, kind: str, source: str, cursor: str | None, limit: int, validate: Callable[[], None],
-               render: Callable[[dict], dict]) -> dict:
+def _installed(*, query: str, kind: str, cursor: str | None, limit: int, validate: Callable[[], None]) -> dict:
     validate()
-    if kind not in {"all", "skill", "mcp", "plugin"} or len(query) > 256 or len(source) > 80 or not 1 <= limit <= 50:
+    if kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 50:
         raise ClientPlatformError("invalid_integration_query")
     rows, errors = facts.inventory(validate)
-    rows = [render(row) for row in sorted(rows, key=lambda item: (item["name"].casefold(), item["id"]))
-            if (kind == "all" or row["kind"] == kind or any(c["kind"] == kind for c in row["children"]))
-            and (source == "all" or row["source"] == source)
+    rows = [entry(row) for row in sorted(rows, key=lambda item: (item["name"].casefold(), item["id"]))
+            if (row["kind"] in _KINDS[kind] or any(c["kind"] in _KINDS[kind] for c in row["children"]))
             and catalog.matches(query, row["name"], row["description"], (row["app"] or {}).get("name", ""))]
-    revision = _digest([rows, errors, query, kind, source])
+    revision = _digest([rows, errors, query, kind])
     offset = 0
     if cursor:
         try:
@@ -70,18 +77,6 @@ def _installed(*, query: str, kind: str, source: str, cursor: str | None, limit:
             raise ClientPlatformError("cursor_expired") from None
     return {"schema_version": 1, "revision": revision, "items": rows[offset:offset + limit], "total": len(rows),
         "next_cursor": f"{revision}:{offset + limit}" if offset + limit < len(rows) else None, "sources": errors}
-
-
-def read_integrations(*, query: str = "", kind: str = "all", source: str = "all", cursor: str | None = None,
-        limit: int = 50, validate: Callable[[], None] = lambda: None) -> dict:
-    return _installed(query=query, kind=kind, source=source, cursor=cursor, limit=limit, validate=validate, render=legacy)
-
-
-def read_integration(integration_id: str, *, validate: Callable[[], None] = lambda: None) -> dict:
-    row = facts.read(integration_id, validate)
-    if row is None:
-        raise ClientPlatformError("not_found")
-    return legacy(row)
 
 
 def _error_status(exc: Exception) -> str:
@@ -106,19 +101,28 @@ def _search_source(source: str, *, owner_id: str, query: str, refresh: bool,
     return found.rows, found.statuses, found.references
 
 
+def _remember(owner_id: str, key: str, items: list[dict], statuses: list[dict], references: dict) -> dict:
+    """Keep one owner's result list, so its entries can be opened and set up from it."""
+    revision = _digest([key, [entry(row) for row in items], list(references)])
+    references = {item["id"]: references[item["id"]] for item in items if item["id"] in references}
+    page = {"schema_version": 1, "revision": revision, "items": items, "total": len(items), "sources": statuses}
+    _SEARCHES.put((owner_id, revision), (key, page, references))
+    return page
+
+
 def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool,
             include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
             validate: Callable[[], None]) -> tuple[dict, int]:
     """One bounded fan-out; immutable owner-bound pagination and late-result suppression."""
     registry = catalog.SOURCES
     validate()
-    if kind not in {"all", "mcp", "skill", "plugin"} or len(query) > 256 or not 1 <= limit <= 96:
+    if kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 96:
         raise ClientPlatformError("invalid_integration_query")
     selected = sorted(set(sources if sources is not None else [s for s, a in registry.items()
-        if a.eligibility == "eligible" and kind in {"all", a.kind}]))
+        if a.eligibility == "eligible" and a.kind in _KINDS[kind]]))
     if len(selected) > len(registry) or set(selected) - registry.keys():
         raise ClientPlatformError("invalid_integration_query")
-    selected = [s for s in selected if kind in {"all", registry[s].kind}]
+    selected = [s for s in selected if registry[s].kind in _KINDS[kind]]
     key = _digest([query, selected, kind, include_incompatible])
     if cursor:
         try:
@@ -185,77 +189,17 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
             raise ClientPlatformError("integration_search_cancelled")
         # Unsupported entries appear only when searched for, with their reason.
         shown = [r for r in items if include_incompatible or query.strip() or r["compatibility"] != "unsupported"]
-        items = catalog.rank(shown, query)
         statuses.sort(key=lambda status: status["source"])
-        revision = _digest([key, [legacy(row) for row in items], list(references)])
-        references = {item["id"]: references[item["id"]] for item in items if item["id"] in references}
-        page = {"schema_version": 1, "revision": revision, "items": items, "total": len(items), "sources": statuses}
-        _SEARCHES.put((owner_id, revision), (key, page, references))
-        return page, 0
+        return _remember(owner_id, key, catalog.rank(shown, query), statuses, references), 0
     finally:
         stopped.set()
 
 
-def _page(page: dict, offset: int, limit: int, render: Callable[[dict], dict]) -> dict:
+def _page(page: dict, offset: int, limit: int) -> dict:
     return {k: copy.deepcopy(v) for k, v in page.items() if k != "items"} | {
-        "items": [render(row) for row in page["items"][offset:offset + limit]],
+        "items": [entry(row) for row in page["items"][offset:offset + limit]],
         "next_cursor": f"{page['revision']}:{offset + limit}" if offset + limit < page["total"] else None}
 
-
-def search_integrations(*, owner_id: str, query: str = "", sources: list[str] | None = None, kind: str = "all",
-        refresh: bool = False, include_incompatible: bool = False, cursor: str | None = None,
-        limit: int = 50, cancelled: Callable[[], bool] = lambda: False, validate: Callable[[], None] = lambda: None) -> dict:
-    page, offset = _search(owner_id=owner_id, query=query, sources=sources, kind=kind, refresh=refresh,
-        include_incompatible=include_incompatible, cursor=cursor, limit=limit,
-        cancelled=cancelled, validate=validate)
-    return _page(page, offset, limit, legacy)
-
-
-def preview_integration(*, owner_id: str, revision: str = "", item_id: str = "", kind: str = "plugin", reference: str = "",
-                        local: bool = False, validate: Callable[[], None] = lambda: None) -> dict:
-    from row_bot.plugins.hermes_catalog import inspect_package
-    from row_bot.application.client_skill_hub import preview_public_skill
-    validate()
-    if reference:
-        if kind != "plugin":
-            raise ClientPlatformError("integration_import_type_required")
-        return {"kind": "plugin", "plugin": inspect_package(owner_id=owner_id, reference=reference, local=local)}
-    saved = _SEARCHES.get((owner_id, revision))
-    if saved is None or item_id not in saved[2]:
-        raise ClientPlatformError("integration_preview_expired")
-    value = saved[2][item_id]
-    if value["kind"] == "plugin":
-        if value["reference"].startswith("hermes:"):
-            from row_bot.plugins import hermes_catalog
-            current = hermes_catalog.read_catalog(refresh=True)
-            found = next((row for row in current["entries"] if row["id"] == value["reference"]), None)
-            if current["status"] != "live" or found is None or found["compatibility"] == "unsupported":
-                raise ClientPlatformError("integration_source_unavailable")
-            if found["pin"] != value["pin"] or found["source_identity"] != value["identity"]:
-                raise ClientPlatformError("integration_catalog_changed")
-        result = {"kind": "plugin", "plugin": inspect_package(owner_id=owner_id, reference=value["reference"])}
-    elif value["kind"] == "skill" and value.get("install_ref"):
-        from row_bot.application.client_skill_hub import preview_skill_reference
-        result = {"kind": "skill", "skill": preview_skill_reference(owner_id=owner_id, install_ref=value["install_ref"],
-                                                                    name=value["name"], publisher=value["publisher"])}
-    elif value["kind"] == "skill":
-        result = {"kind": "skill", "skill": preview_public_skill(owner_id=owner_id, revision=value["revision"], entry_id=value["entry_id"])}
-    elif value["kind"] == "hermes_mcp":
-        from row_bot.plugins.hermes_mcp import inspect_recipe
-        result = {"kind": "mcp", "mcp": inspect_recipe(value["name"], value["pin"])}
-    elif value["kind"] == "mcp":
-        listed = value["entry"]
-        if listed.source == "official":
-            from row_bot.mcp_client.registry_snapshot import revalidate_entry
-            listed = revalidate_entry(listed)
-        result = {"kind": "mcp", "mcp": catalog.describe(listed)}
-    else:
-        result = {"kind": "native", "plugin_id": value["plugin_id"]}
-    validate()
-    return result
-
-
-# --- Typed /integrations API -------------------------------------------------
 
 def list_sources() -> dict:
     from row_bot.integrations import catalogs
@@ -311,19 +255,75 @@ def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str 
                limit: int = 50, validate: Callable[[], None] = lambda: None) -> dict:
     """Installed items, or the local catalogs. Neither contacts a source."""
     if scope == "installed":
-        return _installed(query=query, kind=kind, source="all", cursor=cursor, limit=limit, validate=validate, render=entry)
+        return _installed(query=query, kind=kind, cursor=cursor, limit=limit, validate=validate)
     if scope != "catalog":
         raise ClientPlatformError("invalid_integration_query")
     page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, include_incompatible=False,
         cursor=cursor, limit=limit, cancelled=lambda: False, validate=validate)
-    return _page(page, offset, limit, entry)
+    return _page(page, offset, limit)
 
 
 def search_items(*, owner_id: str, cancelled: Callable[[], bool] = lambda: False, validate: Callable[[], None] = lambda: None,
                  **fields: Any) -> dict:
     """An explicit catalog search; only this, and catalog refresh, contacts sources."""
     page, offset = _search(owner_id=owner_id, cancelled=cancelled, validate=validate, **fields)
-    return _page(page, offset, fields["limit"], entry)
+    return _page(page, offset, fields["limit"])
+
+
+def _added(owner_id: str, kind: str, name: str, reference: dict, *, description: str, source_url: str = "",
+           unsupported: str = "", install: dict | None = None) -> dict:
+    """An entry for something the person brought themselves; it opens like a catalog entry."""
+    from row_bot.integrations import apps
+    ref = "link:" + _digest([kind, reference])[:32]
+    row = facts.finish(facts.entry(kind, ref, name, installed=False, lifecycle="available", source="link",
+        description=description, source_url=source_url, compatibility="unsupported" if unsupported else "not_inspected",
+        icon=apps.letter(name), canonical_identity=catalog.mcp_identity(install) if install else "",
+        blockers=[facts.blocker("unsupported", unsupported)] if unsupported else []))
+    return _page(_remember(owner_id, _digest(["added", row["id"]]), [row], [], {row["id"]: reference}), 0, 1)
+
+
+def resolve_reference(*, owner_id: str, reference: str, kind: str = "", validate: Callable[[], None] = lambda: None) -> dict:
+    """What a pasted link is (a hosted app, a skill or a package), read locally; nothing is fetched until consent."""
+    from row_bot.skills_hub.input_detection import detect_source_input
+    validate()
+    link = reference.strip()
+    parts = urlsplit(link)
+    if len(link) > 2048 or kind not in {"", "mcp", "skill", "plugin"} or parts.scheme != "https" or not parts.hostname \
+            or parts.username or parts.password:
+        raise ClientPlatformError("integration_link_unsupported")
+    detected = detect_source_input(link).kind
+    skill_path = parts.path.endswith("SKILL.md") or "/skills/" in parts.path
+    guess = kind or ("skill" if detected in {"marketplace_url", "direct_skill_url", "well_known_index_url"} or (
+        detected == "github_url" and skill_path) else "plugin" if detected == "github_url" else "mcp")
+    name = PurePosixPath(parts.path.rstrip("/")).name or parts.hostname
+    if guess == "mcp":
+        from row_bot.mcp_client.marketplace import MarketplaceEntry
+        install = {"transport": "streamable_http", "url": link}
+        entry_ = MarketplaceEntry(id="link-" + _digest(link)[:12], name=parts.hostname, description="A connection you added by link.",
+            source="link", url=link, transport="streamable_http", install=install, publisher=parts.hostname)
+        return _added(owner_id, "mcp", parts.hostname, {"kind": "mcp", "entry": entry_}, install=install,
+                      description="A connection you added by link. Row-Bot checks it after you agree.")
+    if guess == "plugin":
+        return _added(owner_id, "plugin", name, {"kind": "plugin", "reference": link}, source_url=link,
+                      description="A package you added by link. Row-Bot checks it after you agree.")
+    return _added(owner_id, "skill", name, {"kind": "skill", "link": link}, source_url=link,
+                  description="A skill you added by link. Row-Bot checks it after you agree.")
+
+
+def upload_file(*, owner_id: str, data: bytes, filename: str, validate: Callable[[], None] = lambda: None) -> dict:
+    """A file the person picked: kept privately, recognised, and opened like a catalog entry."""
+    from row_bot.integrations import uploads
+    validate()
+    try:
+        staged = uploads.stage(data, filename)
+    except (ValueError, OSError) as exc:
+        raise ClientPlatformError(str(exc) if str(exc) in {"unsupported_upload", "upload_too_large", "unsafe_upload"}
+                                  else "invalid_upload") from None
+    kind = "mcp" if staged["kind"] == "mcpb" else staged["kind"]
+    reference = {"kind": staged["kind"], "upload": staged["upload"]} if kind != "plugin" else {
+        "kind": "plugin", "upload": str(uploads.path(staged["upload"])), "reference": ""}
+    return _added(owner_id, kind, staged["name"], reference, description="Added from a file on this device.",
+                  unsupported="Bundles (.mcpb) arrive in a later update." if staged["kind"] == "mcpb" else "")
 
 
 def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], None]) -> tuple[dict, dict]:
@@ -348,7 +348,39 @@ def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], 
     return local
 
 
-def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = "",
+def _about(row: dict, validate: Callable[[], None], plan: dict | None) -> dict:
+    """What the detail page shows beyond the card: settings, access, source facts and, for skills, what's inside."""
+    setup, local = row.get("setup") or {}, row["kind"] == "skill"
+    about = {"license": row["license"], "source_url": row["source_url"], "pin": row["pin"], "identifier": row["id"],
+             "destination": setup.get("destination", "") if setup.get("execution") == "hosted" else "",
+             "runs_locally": setup.get("execution", "local") == "local" and row["kind"] != "skill",
+             "saved_key": bool(setup.get("credential_configured")) and setup.get("auth_mode") == "api_key",
+             "signs_in": setup.get("auth_mode") == "oauth", "signed_in": bool(setup.get("credential_configured")),
+             "requirements": [{"label": r["label"][:96], "available": bool(r["available"])} for r in setup.get("requirements", [])][:16],
+             "access": plans.current_access(row), "package": "", "files": [], "profiles": [],
+             "actions": [intent for intent in ("turn_off", "update", "remove") if plans.changeable(row, intent)]}
+    if plan is not None and row["lifecycle"] == "available":  # Not set up yet: say what the plan would do.
+        about.update(destination=next(iter(plan["consent"]["destinations"]), ""),
+                     runs_locally=plan["consent"]["runs_locally"] and row["kind"] != "skill")
+    if row["parent_id"]:
+        parent = facts.read(row["parent_id"], validate)
+        about["package"] = parent["name"] if parent else ""
+    if local and row["lifecycle"] != "available":
+        from row_bot import skills
+        from row_bot.agent_profiles import list_agent_profiles
+        from row_bot.skills_hub.scanner import EXECUTABLE_EXTENSIONS
+        skill = (skills.read_client_skills()["items"].get(row["owner_ref"]) or {}).get("skill")
+        root = getattr(skill, "path", None)
+        if root is not None and root.is_dir():
+            paths = sorted(p for p in root.rglob("*") if p.is_file() and not p.name.startswith(".row-bot"))[:100]
+            about["files"] = [{"path": p.relative_to(root).as_posix()[:256], "size_bytes": p.stat().st_size,
+                               "executable": p.suffix.lower() in EXECUTABLE_EXTENSIONS} for p in paths]
+        about["profiles"] = [str(p.get("display_name") or p.get("slug"))[:80] for p in list_agent_profiles()
+                             if row["owner_ref"] in ((p.get("skill_policy_json") or {}).get("skills_override") or [])][:32]
+    return about
+
+
+def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = "", cleanup: bool = False,
               validate: Callable[[], None] = lambda: None, context: plans.Context | None = None) -> tuple[dict, dict | None]:
     """One entry with its unfinished plan, or the plan for its next action (or a requested
     intent). The second value is the plan still to consent to; reading never sends a command."""
@@ -356,17 +388,18 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
     row, reference = _resolve(owner_id, item_id, revision, validate)
     current = plans.open_plan(context or plans.Context(owner_id, owner_id, validate), item_id)
     if current is not None:
-        return {"entry": entry(row), "plan": current}, None
-    plan = plans.compute(row, reference, intent=intent)
+        return {"entry": entry(row), "plan": current, "about": _about(row, validate, current)}, None
+    plan = plans.compute(row, reference, intent=intent, cleanup=cleanup)
     validate()
-    return {"entry": entry(row), "plan": plans.view(plan) if plan else None}, plan
+    return {"entry": entry(row), "plan": plans.view(plan) if plan else None, "about": _about(row, validate, plan)}, plan
 
 
 def start_plan(ctx: plans.Context, *, plan_id: str, item_id: str, revision: str = "", intent: str = "", digest: str,
-               preset: str = "") -> dict:
+               preset: str = "", overrides: dict | None = None, cleanup: bool = False, background: bool = False) -> dict:
     ctx.validate()
     row, reference = _resolve(ctx.owner_id, item_id, revision, ctx.validate)
-    return plans.start(ctx, row, reference, digest=digest, intent=intent, preset=preset, plan_id=plan_id)
+    return plans.start(ctx, row, reference, digest=digest, intent=intent, preset=preset, plan_id=plan_id,
+                       overrides=overrides, cleanup=cleanup, background=background)
 
 
 def existing_plan(ctx: plans.Context, plan_id: str) -> dict | None:

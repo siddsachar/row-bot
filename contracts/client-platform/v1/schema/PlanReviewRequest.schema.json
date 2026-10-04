@@ -1,6 +1,11 @@
 {
   "additionalProperties": false,
   "properties": {
+    "cleanup": {
+      "default": false,
+      "title": "Cleanup",
+      "type": "boolean"
+    },
     "intent": {
       "anyOf": [
         {
@@ -9,7 +14,10 @@
             "add",
             "turn_on",
             "fix",
-            "access"
+            "access",
+            "turn_off",
+            "remove",
+            "update"
           ],
           "type": "string"
         },

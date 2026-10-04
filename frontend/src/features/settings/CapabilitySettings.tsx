@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  Activity,
-  AlertCircle,
   Braces,
   Globe2,
   LayoutGrid,
@@ -11,7 +9,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  RotateCw,
   Search,
   SquareTerminal,
   TextCursorInput,
@@ -38,9 +35,7 @@ import {
   SettingsStatus,
   StatusLine,
 } from './anatomy';
-import type { AddConnectStep } from './mcp-add-connect';
 import { mcpRevision, reviewFresh } from './mcp-revision';
-import { useServerAction, type McpServerRuntime } from './McpConnections';
 
 export type McpConfigurationPage = {
   schema_version: 1;
@@ -227,16 +222,10 @@ export type CapabilitySettingsProps = {
   onConnection?: (serverId: string, name: string) => void;
   /** A saved server was removed (its details close). */
   onRemoved?: (serverId: string) => void;
-  /** Runs a row's connection command (B262); without it rows offer Details. */
-  runtime?: McpServerRuntime;
-  /**
-   * "Add and connect" (U53): after saving a new server, Test it, accept its
-   * tools, turn it on and connect, reporting each step.
-   */
-  addAndConnect?: (
-    serverId: string,
-    onStep: (step: AddConnectStep) => void,
-  ) => Promise<{ tools: number }>;
+  /** Show only this saved server (Apps › an app › Advanced settings). */
+  only?: string;
+  /** Open the add dialog at once (Apps › Advanced › Add a custom connection). */
+  startAdd?: boolean;
   session: CapabilitySettingsSession;
   load: (
     query: { query: string; cursor?: string },
@@ -407,13 +396,6 @@ function buildIntent(draft: Draft): McpConfigurationIntent {
   };
 }
 
-const STEP_WORDS: Record<AddConnectStep, string> = {
-  test: 'Testing the server…',
-  accept: 'Accepting its tools…',
-  enable: 'Turning it on…',
-  connect: 'Connecting…',
-};
-
 type DirectoryEntry = Awaited<
   ReturnType<NonNullable<CapabilitySettingsProps['searchDirectory']>>
 >['items'][number];
@@ -432,28 +414,21 @@ function transportLabel(transport: string) {
 /** One saved server: status in words, one action by state, the rest in ⋯. */
 function ServerRow({
   server,
-  mcpEnabled,
-  runtime,
   locked,
   canSave,
   onDetails,
   onEdit,
   onRename,
   onRemove,
-  onSettled,
 }: {
   server: McpConfigurationPage['items'][number];
-  mcpEnabled: boolean | null;
-  runtime?: McpServerRuntime;
   locked: boolean;
   canSave: boolean;
   onDetails?: () => void;
   onEdit: () => void;
   onRename: () => void;
   onRemove: () => void;
-  onSettled: () => void;
 }) {
-  const action = useServerAction(runtime, server, mcpEnabled, onSettled);
   const missing = (server.requirements ?? []).filter(
     (requirement) => !requirement.available,
   );
@@ -481,7 +456,11 @@ function ServerRow({
           ) : (
             <span className="settings-mcp-server-name">{server.name}</span>
           )}
-          <StatusDot {...action.status} showLabel />
+          <StatusDot
+            tone={server.enabled ? 'success' : 'neutral'}
+            label={server.enabled ? 'On' : 'Off'}
+            showLabel
+          />
         </>
       }
       help={[
@@ -508,21 +487,6 @@ function ServerRow({
           </StatusLine>
         ) : undefined
       }
-      control={
-        action.primary && (
-          <Button
-            variant={action.primary.tone === 'quiet' ? 'ghost' : 'secondary'}
-            aria-label={`${action.primary.label} ${server.name}`}
-            disabled={action.primary.disabled}
-            onClick={action.primary.run}
-          >
-            {action.primary.tone === 'retry' && (
-              <RotateCw size={14} aria-hidden />
-            )}
-            {action.primary.label}
-          </Button>
-        )
-      }
       trailing={
         <Menu
           label={`More actions for ${server.name}`}
@@ -536,15 +500,6 @@ function ServerRow({
                     label: 'Details',
                     icon: <PanelRight size={16} />,
                     onSelect: onDetails,
-                  },
-                ]
-              : []),
-            ...(action.test
-              ? [
-                  {
-                    label: 'Test connection',
-                    icon: <Activity size={16} />,
-                    onSelect: action.test,
                   },
                 ]
               : []),
@@ -572,19 +527,7 @@ function ServerRow({
           <MoreHorizontal size={16} aria-hidden />
         </Menu>
       }
-    >
-      {action.message && (
-        <div className="settings-mcp-server-problem" role="status">
-          <AlertCircle size={14} aria-hidden />
-          <span>{action.message}</span>
-          {onDetails && (
-            <Button className="settings-link" onClick={onDetails}>
-              Open details
-            </Button>
-          )}
-        </div>
-      )}
-    </SettingsItem>
+    ></SettingsItem>
   );
 }
 
@@ -597,8 +540,8 @@ function ServerRow({
 export default function CapabilitySettings({
   onConnection,
   onRemoved,
-  runtime,
-  addAndConnect,
+  only,
+  startAdd,
   session,
   load,
   review,
@@ -606,9 +549,6 @@ export default function CapabilitySettings({
   searchDirectory,
 }: CapabilitySettingsProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  // Set by "Add and connect" for the save it starts.
-  const connectAfterSave = useRef(false);
-  const [connecting, setConnecting] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mode, setMode] = useState<AddMode>(() =>
     session.getSnapshot().draft.operation === 'import'
@@ -887,30 +827,6 @@ export default function CapabilitySettings({
           (typeof intent.fields?.name === 'string'
             ? intent.fields.name
             : 'New server');
-        if (connectAfterSave.current && addAndConnect && serverId && !deleted) {
-          connectAfterSave.current = false;
-          try {
-            const done = await addAndConnect(serverId, (step) =>
-              setConnecting(STEP_WORDS[step]),
-            );
-            session.update({
-              message: `Connected. ${done.tools} ${done.tools === 1 ? 'tool is' : 'tools are'} ready in chat; tools that change things still ask first.`,
-            });
-          } catch (cause) {
-            session.update({
-              message: `Added. ${
-                cause instanceof Error && cause.message
-                  ? cause.message
-                  : clientError(cause).message
-              } Finish in its details.`,
-            });
-          } finally {
-            setConnecting('');
-            // Its tools were accepted and it was turned on: other panels read again.
-            mcpRevision.saved(session);
-            await reread();
-          }
-        }
         // Adding ends by opening the new server's details (B262).
         if (added && serverId) onConnection?.(serverId, nameOf(serverId));
       } else if (result.mcp_configuration?.code === 'mcp_cleanup_incomplete') {
@@ -992,6 +908,13 @@ export default function CapabilitySettings({
     else if (hasDraft) chooseMode('manual');
     setDialogOpen(true);
   };
+  const addOnOpen = useRef(startAdd);
+  useEffect(() => {
+    if (addOnOpen.current && page) {
+      addOnOpen.current = false;
+      openAdd();
+    }
+  }); // Opens once the saved servers have loaded.
   const openEditor = (
     operation: 'edit' | 'rename',
     server: McpConfigurationPage['items'][number],
@@ -1171,32 +1094,26 @@ export default function CapabilitySettings({
               </p>
             )}
             {note('list')}
-            {connecting && (
-              <p role="status" className="settings-divided settings-mcp-empty">
-                {connecting}
-              </p>
-            )}
-            {page.items.map((server) => (
-              <ServerRow
-                key={server.server_id}
-                server={server}
-                mcpEnabled={page.enabled}
-                runtime={runtime}
-                locked={locked}
-                canSave={canSave}
-                onDetails={
-                  onConnection
-                    ? () => onConnection(server.server_id, server.name)
-                    : undefined
-                }
-                onEdit={() => openEditor('edit', server)}
-                onRename={() => openEditor('rename', server)}
-                onRemove={() =>
-                  session.confirmRemove(server.server_id, server.name)
-                }
-                onSettled={() => void reread()}
-              />
-            ))}
+            {page.items
+              .filter((server) => !only || server.server_id === only)
+              .map((server) => (
+                <ServerRow
+                  key={server.server_id}
+                  server={server}
+                  locked={locked}
+                  canSave={canSave}
+                  onDetails={
+                    onConnection
+                      ? () => onConnection(server.server_id, server.name)
+                      : undefined
+                  }
+                  onEdit={() => openEditor('edit', server)}
+                  onRename={() => openEditor('rename', server)}
+                  onRemove={() =>
+                    session.confirmRemove(server.server_id, server.name)
+                  }
+                />
+              ))}
             {page.items.length === 0 && (
               <p className="settings-divided settings-mcp-empty">
                 {state.filter
@@ -1436,10 +1353,7 @@ export default function CapabilitySettings({
               <Button
                 variant="primary"
                 disabled={incomplete}
-                onClick={() => {
-                  connectAfterSave.current = false;
-                  void requestReview();
-                }}
+                onClick={() => void requestReview()}
               >
                 Add from JSON
               </Button>
@@ -1565,38 +1479,18 @@ export default function CapabilitySettings({
               </>
             )}
             <div className="action-cluster">
-              {draft.operation === 'add' && addAndConnect && (
-                <Button
-                  variant="primary"
-                  disabled={nameInvalid || incomplete}
-                  onClick={() => {
-                    connectAfterSave.current = true;
-                    void requestReview();
-                  }}
-                >
-                  Add and connect
-                </Button>
-              )}
               <Button
-                variant={
-                  draft.operation === 'add' && addAndConnect
-                    ? 'secondary'
-                    : 'primary'
-                }
+                variant="primary"
                 disabled={nameInvalid || incomplete}
-                onClick={() => {
-                  connectAfterSave.current = false;
-                  void requestReview();
-                }}
+                onClick={() => void requestReview()}
               >
                 {draft.operation === 'add'
-                  ? 'Add turned off'
+                  ? 'Add'
                   : draft.operation === 'rename'
                     ? 'Rename'
                     : 'Save'}
               </Button>
             </div>
-            {connecting && <p role="status">{connecting}</p>}
             {note('editor')}
           </fieldset>
         )}

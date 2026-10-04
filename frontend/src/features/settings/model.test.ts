@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_PROFILE_SETTINGS,
+  legacyIntegrationHref,
   resolveSetting,
   searchSettings,
   searchSettingsRows,
@@ -39,7 +40,8 @@ describe('settings navigation metadata', () => {
       'Documents',
       'Tracker',
       'Tools',
-      'Integrations',
+      'Skills',
+      'Apps',
       'Accounts',
       'Channels',
       'System',
@@ -94,11 +96,33 @@ describe('settings navigation metadata', () => {
     expect(settingsHref('migration')).toBe('/settings/data#migration');
     expect(settingsHref('wiki')).toBe('/settings/knowledge#wiki-vault');
     expect(settingsHref('skills', 'public-skills')).toBe(
-      '/settings/integrations?tab=discover&type=skill&source=clawhub#public-skills',
+      '/settings/skills#public-skills',
     );
-    expect(settingsHref('plugins')).toBe(
-      '/settings/integrations?tab=my&type=plugin',
+    expect(settingsHref('plugins')).toBe('/settings/apps');
+    expect(settingsHref('mcp', 'mcp-runtimes')).toBe(
+      '/settings/apps?view=advanced',
     );
+    expect(
+      legacyIntegrationHref(
+        'integrations',
+        new URLSearchParams('tab=my&type=skill&selected=skill:pdf'),
+      ),
+    ).toBe('/settings/skills/pdf');
+    expect(
+      legacyIntegrationHref(
+        'integrations',
+        new URLSearchParams('type=mcp&selected=mcp:abc'),
+      ),
+    ).toBe('/settings/apps/mcp%3Aabc');
+    expect(
+      legacyIntegrationHref('integrations', new URLSearchParams('type=skill')),
+    ).toBe('/settings/skills');
+    expect(
+      legacyIntegrationHref(
+        'integrations',
+        new URLSearchParams('type=mcp&view=catalogs'),
+      ),
+    ).toBe('/settings/apps?view=advanced');
     expect(settingsHref('providers')).toBe('/settings/providers');
     expect(resolveSetting('unknown')).toBeUndefined();
     for (const redirect of Object.values(settingsRedirects))
@@ -130,20 +154,16 @@ describe('settings navigation metadata', () => {
     ).toEqual(['default-model']);
     expect(searchSettingsRows('')).toEqual([]);
     // A page name narrows a row search but never lists a whole page.
-    expect(searchSettingsRows('mcp runtime').map(settingsRowHref)).toEqual([
-      '/settings/integrations?tab=my&type=mcp#mcp-runtimes',
+    expect(searchSettingsRows('runtimes').map(settingsRowHref)).toEqual([
+      '/settings/apps?view=advanced#chats',
     ]);
-    expect(searchSettingsRows('mcp').map((row) => row.anchor)).toEqual([
-      'mcp-servers',
+    expect(searchSettingsRows('find skills').map(settingsRowHref)).toEqual([
+      '/settings/skills#public-skills',
     ]);
     expect(searchSettingsRows('logging').map(settingsRowHref)).toEqual([
       '/settings/system#logging.level',
     ]);
     for (const row of settingsRows)
-      expect(resolveSetting(row.leaf)?.id).toBe(
-        ['skills', 'plugins', 'mcp'].includes(row.leaf)
-          ? 'integrations'
-          : row.leaf,
-      );
+      expect(resolveSetting(row.leaf)?.id).toBe(row.leaf);
   });
 });

@@ -43,7 +43,9 @@ def test_reads_need_a_session_and_never_contact_a_source(service, isolated, monk
         assert client.get(BASE + "/detail", params={"item_id": "mcp:curated:missing"}, headers=headers).status_code == 404
 
 
-def test_plan_needs_this_sessions_consent_to_the_exact_plan(service, keyed):
+def test_plan_needs_this_sessions_consent_to_the_exact_plan(service, keyed, monkeypatch):
+    from row_bot.integrations import plans
+    monkeypatch.setattr(plans, "_spawn", lambda work: work())  # The background run finishes before the response.
     with client_for(service) as client:
         _, headers = bootstrap(client)
         work = next(row for row in client.get(BASE + "/items", headers=headers).json()["items"] if row["name"] == "Work")

@@ -22,7 +22,8 @@ const settingsRoutes = [
   ['documents', 'Documents'],
   ['tracker', 'Tracker'],
   ['tools', 'Tools'],
-  ['integrations', 'Integrations'],
+  ['skills', 'Skills'],
+  ['apps', 'Apps'],
   ['accounts', 'Accounts'],
   ['channels', 'Channels'],
   ['system', 'System'],
@@ -34,15 +35,15 @@ const settingsRoutes = [
 const firefoxPhoneRoutes = new Set([
   'providers',
   'system',
-  'integrations',
+  'apps',
   'preferences',
 ]);
 
 // Legacy ids and moved pages redirect to their new page (and row).
 const aliases = [
-  ['skills', 'integrations', 'Integrations'],
-  ['plugins', 'integrations', 'Integrations'],
-  ['mcp', 'integrations', 'Integrations'],
+  ['integrations', 'apps', 'Apps'],
+  ['plugins', 'apps', 'Apps'],
+  ['mcp', 'apps', 'Apps'],
   ['wiki', 'knowledge', 'Memory'],
   ['cloud', 'providers', 'Providers'],
   ['google', 'accounts', 'Accounts'],
@@ -307,11 +308,6 @@ test('Settings shell preserves the exact owner order aliases history and reload'
       .poll(() => new URL(page.url()).pathname)
       .toBe(settingsPath(destination));
     await waitForSettings(page, label);
-    if (['skills', 'plugins', 'mcp'].includes(alias)) {
-      expect(new URL(page.url()).searchParams.get('type')).toBe(
-        alias === 'skills' ? 'skill' : alias === 'plugins' ? 'plugin' : 'mcp',
-      );
-    }
   }
   // Goals belong to one conversation: the old page opens a conversation.
   await navigateInApp(page, settingsPath('goals'));

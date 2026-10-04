@@ -61,7 +61,7 @@ BROWSER_SMOKE_SPECS = (
     "unified-restart",
     "buddy-overlay",
     "polish-foundation",
-    "integrations",
+    "apps-and-skills",
 )
 # Nightly at desktop width, in three fixture runs (each run starts a fresh backend).
 BROWSER_NIGHTLY_SPECS = (

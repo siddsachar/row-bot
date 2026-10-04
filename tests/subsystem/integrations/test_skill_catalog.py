@@ -117,7 +117,7 @@ def test_featured_skills_open_discover_and_are_added_from_their_pinned_source_af
     seen = []
     monkeypatch.setattr(client_skill_hub, "preview_skill_reference", lambda **k: seen.append(k) or {
         "scan": {"blocked": False}, "preview_id": "p", "content_hash": "h", "review_files": []})
-    record = {"reference": reference}
+    record = {"reference": reference, "intent": plan["intent"]}
     assert plans._skill_test(plans.Context("owner", "owner", lambda: None), record, {}) == "done"
     assert seen[0]["install_ref"].startswith("github:anthropics/skills/skills/skill-creator?ref=")
     assert all(len(s["commit"]) == 40 and s["license"] in {"MIT", "Apache-2.0", "MPL-2.0"}

@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "label": {
+      "maxLength": 96,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "label",
+    "available"
+  ],
+  "title": "IntegrationRequirement",
+  "type": "object"
+}

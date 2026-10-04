@@ -20,9 +20,13 @@ export const settingsGroups = [
   {
     id: 'capabilities',
     label: 'Capabilities',
-    leaves: ['tools', 'integrations'],
+    leaves: ['tools', 'skills'],
   },
-  { id: 'connections', label: 'Connections', leaves: ['accounts', 'channels'] },
+  {
+    id: 'connections',
+    label: 'Connections',
+    leaves: ['apps', 'accounts', 'channels'],
+  },
   {
     id: 'system',
     label: 'System',
@@ -44,7 +48,8 @@ const leafLabels: Record<SettingsLeafId, string> = {
   documents: 'Documents',
   tracker: 'Tracker',
   tools: 'Tools',
-  integrations: 'Integrations',
+  skills: 'Skills',
+  apps: 'Apps',
   accounts: 'Accounts',
   channels: 'Channels',
   system: 'System',
@@ -65,8 +70,8 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   documents: 'files upload pdf library embedding index',
   tracker: 'habits tracking health',
   tools: 'utilities built-in search web research compression custom tools',
-  integrations:
-    'skills plugins mcp hub extensions servers marketplace discover install connectors hermes clawhub runtimes',
+  skills: 'skill library slash commands instructions clawhub create import',
+  apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes',
   accounts: 'github google gmail calendar x twitter oauth',
   channels: 'telegram discord slack sms whatsapp messaging',
   system: 'shell browser computer use workspace folder logging files',
@@ -99,9 +104,9 @@ export const settingsRedirects: Record<
   string,
   { leaf: SettingsLeafId; anchor?: string }
 > = {
-  skills: { leaf: 'integrations' },
-  plugins: { leaf: 'integrations' },
-  mcp: { leaf: 'integrations' },
+  integrations: { leaf: 'apps' },
+  plugins: { leaf: 'apps' },
+  mcp: { leaf: 'apps' },
   wiki: { leaf: 'knowledge', anchor: 'wiki-vault' },
   memory: { leaf: 'knowledge' },
   cloud: { leaf: 'providers' },
@@ -139,29 +144,32 @@ export function resolveSetting(value: string) {
   return settingsLeaves.find((leaf) => leaf.id === target);
 }
 
+/**
+ * Where an old Integrations, MCP, Plugins or Skills link lands now: Apps,
+ * Skills, one item, or Apps › Advanced (catalogs and runtimes).
+ */
+export function legacyIntegrationHref(
+  key: string,
+  search: URLSearchParams,
+  anchor = '',
+) {
+  const hash = anchor.replace(/^#/, '');
+  const selected = search.get('selected') ?? '';
+  if (selected.startsWith('skill:'))
+    return `/settings/skills/${encodeURIComponent(selected.slice(6))}`;
+  if (selected) return `/settings/apps/${encodeURIComponent(selected)}`;
+  if (search.get('view') === 'catalogs' || hash === 'mcp-runtimes')
+    return '/settings/apps?view=advanced';
+  if (search.get('type') === 'skill' || (key === 'skills' && !search.size))
+    return '/settings/skills';
+  return '/settings/apps';
+}
+
 /** The canonical href for a leaf id, legacy id or moved page. */
 export function settingsHref(value: string, anchor = '') {
   const key = value.toLowerCase();
-  if (['skills', 'plugins', 'mcp'].includes(key)) {
-    const type =
-      key === 'skills' ? 'skill' : key === 'plugins' ? 'plugin' : 'mcp';
-    const tab = [
-      'public-skills',
-      'plugin-marketplace',
-      'mcp-marketplace',
-    ].includes(anchor.replace(/^#/, ''))
-      ? 'discover'
-      : 'my';
-    const source =
-      tab === 'discover'
-        ? key === 'skills'
-          ? '&source=clawhub'
-          : key === 'plugins'
-            ? '&source=native'
-            : '&source=official'
-        : '';
-    return `/settings/integrations?tab=${tab}&type=${type}${source}${anchor ? '#' + anchor.replace(/^#/, '') : ''}`;
-  }
+  if (['integrations', 'plugins', 'mcp'].includes(key))
+    return legacyIntegrationHref(key, new URLSearchParams(), anchor);
   const redirect = settingsRedirects[key];
   const leaf = resolveSetting(key);
   if (!leaf) return undefined;
@@ -195,7 +203,6 @@ export function searchSettings(query: string) {
  */
 export type SettingsRow = {
   leaf: SettingsLeafId;
-  context?: 'skills' | 'plugins' | 'mcp';
   anchor: string;
   label: string;
   keywords?: string;
@@ -360,45 +367,24 @@ export const settingsRows: SettingsRow[] = [
     label: 'Custom tools',
     keywords: 'own tools scripts repository folder commands builder',
   },
+  { leaf: 'skills', anchor: 'skill-library', label: 'Your skills' },
   {
-    leaf: 'integrations',
-    context: 'skills',
-    anchor: 'skill-library',
-    label: 'Installed skills',
-  },
-  {
-    leaf: 'integrations',
-    context: 'skills',
+    leaf: 'skills',
     anchor: 'public-skills',
-    label: 'Discover public skills',
-    keywords: 'hub browse',
+    label: 'Find skills',
+    keywords: 'hub browse discover public',
   },
   {
-    leaf: 'integrations',
-    context: 'plugins',
-    anchor: 'installed-plugins',
-    label: 'Installed plugins',
+    leaf: 'apps',
+    anchor: 'catalogs',
+    label: 'App catalogs',
+    keywords: 'update registry hermes mcp',
   },
   {
-    leaf: 'integrations',
-    context: 'plugins',
-    anchor: 'plugin-marketplace',
-    label: 'Plugin marketplace',
-    keywords: 'discover browse',
-  },
-  {
-    leaf: 'integrations',
-    context: 'mcp',
-    anchor: 'mcp-servers',
-    label: 'MCP servers',
-    keywords: 'add server import config',
-  },
-  {
-    leaf: 'integrations',
-    context: 'mcp',
-    anchor: 'mcp-runtimes',
+    leaf: 'apps',
+    anchor: 'chats',
     label: 'Runtimes (Node.js, uv)',
-    keywords: 'node python uv',
+    keywords: 'node python uv mcp',
   },
   { leaf: 'accounts', anchor: 'github', label: 'GitHub account' },
   {
@@ -482,8 +468,7 @@ export function searchSettingsRows(query: string) {
     const own = `${row.label} ${row.keywords ?? ''}`.toLowerCase();
     // The page name narrows ("mcp runtime" → MCP › Runtimes), but
     // one word must name the row itself, so "system" lists the page only.
-    const text =
-      `${own} ${row.context ?? ''} ${leafLabels[row.leaf]}`.toLowerCase();
+    const text = `${own} ${leafLabels[row.leaf]}`.toLowerCase();
     return (
       words.every((word) => text.includes(word)) &&
       words.some((word) => own.includes(word))
@@ -492,9 +477,9 @@ export function searchSettingsRows(query: string) {
 }
 
 export function settingsRowHref(row: SettingsRow) {
+  if (row.leaf === 'apps') return `/settings/apps?view=advanced#${row.anchor}`;
   return (
-    settingsHref(row.context ?? row.leaf, row.anchor) ??
-    `/settings/${row.leaf}#${row.anchor}`
+    settingsHref(row.leaf, row.anchor) ?? `/settings/${row.leaf}#${row.anchor}`
   );
 }
 

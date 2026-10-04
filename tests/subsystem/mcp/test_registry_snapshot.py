@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from row_bot.mcp_client import marketplace, registry_snapshot as snapshot
-from tests.helpers.registry import use_registry
+from tests.helpers.registry import search_catalog, use_registry
 
 pytestmark = pytest.mark.platform
 
@@ -117,11 +117,11 @@ def test_registry_recipe_revalidated_at_publication(local, metadata, monkeypatch
 
 
 def test_recipe_identity_keeps_deployments_distinct(local, metadata, monkeypatch):
-    from row_bot.application import client_integrations
     second = copy.deepcopy(metadata["servers"][0])
     second["server"]["name"] = "org.other/notes"
     second["server"]["remotes"][0]["type"] = "sse"
     use_registry(monkeypatch, local, marketplace.registry_entries({"servers": [metadata["servers"][0], second]}))
-    page = client_integrations.search_integrations(owner_id="fixture", sources=["official"], query="notes")
-    assert len(page["items"]) == 2
-    assert page["items"][0]["canonical_identity"] != page["items"][1]["canonical_identity"]
+    page = search_catalog("fixture", sources=["official"], query="notes")
+    assert len(page["items"]) == 2  # One endpoint over two transports is two deployments, never merged.
+    assert page["items"][0]["id"] != page["items"][1]["id"]
+    assert all(len(item["attributions"]) == 1 for item in page["items"])
