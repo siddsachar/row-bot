@@ -30,7 +30,6 @@ from uuid import uuid4
 
 from row_bot.integrations import apps, facts, presets, sources
 
-STEP_TYPES = ("consent", "inputs", "runtime", "local_app_check", "sign_in", "test", "access", "enable")
 _LOCK = threading.RLock()
 _RUNNING: set[str] = set()
 _CANCELLED: set[str] = set()
@@ -467,6 +466,10 @@ def _completed(result: dict) -> None:
         raise PlanError("change_unconfirmed")
 
 
+def _mcp_command(kind: str, **payload) -> dict:
+    return {"command_id": str(uuid4()), "type": kind, "expected_revision": "0", "payload": payload}
+
+
 def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
     """For a catalog entry, agreeing saves the connection, switched off."""
     if record.get("server_id"):
@@ -485,8 +488,7 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
         revision = _revision(ctx, record)
         intent = {"operation": "import", "import_json": sources.describe(entry)["import_json"]}
         review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate)
-        return {"command_id": str(uuid4()), "type": "mcp.configuration.save", "expected_revision": "0",
-                "payload": {"configuration_revision": revision, "intent": intent}}, review
+        return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
     command, review = _once(record, "consent:save", build)
     result = configuration.execute_mcp_configuration_command(owner_id=ctx.mcp_owner_id, key=command["command_id"],
         command=command, validate=ctx.validate, validate_review=_bound(review))
@@ -501,8 +503,7 @@ def _policy(ctx: Context, record: dict, name: str, intent: dict) -> None:
     def build():
         revision = _revision(ctx, record)
         review = policy.review_mcp_policy_command(revision, intent, validate=ctx.validate, target=record["target"])
-        return {"command_id": str(uuid4()), "type": "mcp.configuration.control", "expected_revision": "0",
-                "payload": {"configuration_revision": revision, "intent": intent}}, review
+        return _mcp_command("mcp.configuration.control", configuration_revision=revision, intent=intent), review
     command, review = _once(record, name, build)
     _completed(policy.execute_mcp_policy_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
         validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
@@ -515,9 +516,8 @@ def _connection(ctx: Context, record: dict, name: str, operation: str) -> dict:
         revision = _revision(ctx, record)
         review = review_mcp_runtime_command(revision, record["server_id"], operation, None, validate=ctx.validate,
                                             target=record["target"])
-        return {"command_id": str(uuid4()), "type": "mcp.runtime.control", "expected_revision": "0",
-                "payload": {"resource_revision": revision, "server_id": record["server_id"], "operation": operation,
-                            "expected_runtime_id": None}}, review
+        return _mcp_command("mcp.runtime.control", resource_revision=revision, server_id=record["server_id"],
+                            operation=operation, expected_runtime_id=None), review
     command, review = _once(record, name, build)
     result = execute_mcp_runtime_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
         validate=ctx.validate, validate_review=_bound(review), observe_seconds=5, target=record["target"])
@@ -681,9 +681,8 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
             review = catalog.review_mcp_catalog_command(owner_id=ctx.mcp_owner_id, configuration_revision=revision,
                 server_id=record["server_id"], test_command_id=record["_test"], validate=ctx.validate,
                 target=record["target"], preset=record["preset"])
-            return {"command_id": str(uuid4()), "type": "mcp.catalog.accept", "expected_revision": "0",
-                    "payload": {"configuration_revision": revision, "server_id": record["server_id"],
-                                "test_command_id": record["_test"], "preset": record["preset"]}}, review
+            return _mcp_command("mcp.catalog.accept", configuration_revision=revision, server_id=record["server_id"],
+                                test_command_id=record["_test"], preset=record["preset"]), review
         command, review = _once(record, "enable:accept", build)
         _completed(catalog.execute_mcp_catalog_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
             validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
@@ -735,15 +734,11 @@ def _package_test(ctx: Context, record: dict, step: dict) -> str:
 
 def _add(ctx: Context, record: dict, step: dict) -> str:
     if record["kind"] == "skill":
-        from row_bot.application.client_skill_hub import install_previewed_skill, read_skill_install_receipt
-        from row_bot.runtime import admissions
+        from row_bot.application.client_skill_hub import install_previewed_skill
         saved, _ = _once(record, "enable:add", lambda: ({"command_id": str(uuid4())}, {}))
-        if admissions.read_command_metadata(ctx.owner_id, saved["command_id"]) is not None:
-            result = read_skill_install_receipt(owner_id=ctx.owner_id, command_id=saved["command_id"])
-        else:
-            result = install_previewed_skill(owner_id=ctx.owner_id, command_id=saved["command_id"],
-                preview_id=record["_skill"]["preview_id"], content_hash=record["_skill"]["content_hash"], make_available=True,
-                validate=ctx.validate)
+        result = install_previewed_skill(owner_id=ctx.owner_id, command_id=saved["command_id"],
+            preview_id=record["_skill"]["preview_id"], content_hash=record["_skill"]["content_hash"], make_available=True,
+            validate=ctx.validate)
         if not result.get("success"):
             raise PlanError("skill_not_added", str(result.get("message") or "The skill couldn't be added."))
         step["message"] = "Added and turned on."

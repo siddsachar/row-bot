@@ -718,16 +718,6 @@ def _tool_names(payload: Any) -> tuple[str, str]:
     return name, name
 
 
-def _stream_display(status_lines: list[str], answer_tokens: list[str]) -> str:
-    parts: list[str] = []
-    if status_lines:
-        parts.extend(status_lines[-4:])
-    answer = "".join(answer_tokens).strip()
-    if answer:
-        parts.append(answer)
-    return "\n".join(parts).strip()
-
-
 def _capture_generated_files(
     *,
     used_vision: bool,

@@ -6,12 +6,7 @@ from typing import Callable, Iterable
 
 from .models import CatalogSearchResult, SkillHubEntry, SourceResult
 from .provenance import load_records
-from .search_index import entry_search_text, search_entries
 from .source_registry import SkillSourceRegistry, default_registry
-
-
-def default_sources() -> list[object]:
-    return default_registry().sources
 
 
 def source_for_id(source_id: str):
@@ -107,29 +102,6 @@ def search_skills(
 
 def inspect_entry(entry: SkillHubEntry):
     return default_registry().inspect_entry(entry)
-
-
-def installed_hub_entries() -> list[SkillHubEntry]:
-    entries: list[SkillHubEntry] = []
-    for record in load_records().values():
-        entries.append(SkillHubEntry(
-            id=f"installed:{record.local_name}",
-            name=record.local_name.replace("_", " ").title(),
-            description="Installed public skill",
-            source=record.source,
-            source_id=record.source_id,
-            install_ref=record.install_ref,
-            url=str(record.metadata.get("url") or ""),
-            author=str(record.metadata.get("author") or ""),
-            tags=[],
-            trust_level=str(record.metadata.get("trust_level") or "community"),
-            metadata={"installed": True, "installed_state": "available" if record.enabled else "off", "record": record.as_dict()},
-        ))
-    return entries
-
-
-def filter_entries(entries: Iterable[SkillHubEntry], query: str) -> list[SkillHubEntry]:
-    return search_entries(entries, query, limit=10_000)
 
 
 def _decorate_installed_state(entries: Iterable[SkillHubEntry]) -> list[SkillHubEntry]:

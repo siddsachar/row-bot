@@ -8,7 +8,6 @@ changes are reconciled there (observed and settled, never repeated).
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import asdict
 import copy
 import hashlib
 import os
@@ -461,7 +460,3 @@ def invalidate() -> None:
     """Forget the index; the next read rebuilds it from the owners."""
     with _LOCK:
         _INDEX.clear()
-
-
-def as_dict(value) -> dict:
-    return value if isinstance(value, dict) else asdict(value)

@@ -116,21 +116,6 @@ def install_bundle(
     )
 
 
-def install_from_entry(
-    entry,
-    *,
-    enabled: bool = False,
-    conflict_policy: ConflictPolicy = "keep_existing",
-) -> InstallResult:
-    from .catalog import inspect_entry
-
-    return install_bundle(
-        inspect_entry(entry),
-        enabled=enabled,
-        conflict_policy=conflict_policy,
-    )
-
-
 def check_update(local_name: str) -> InstallResult:
     record = get_record(local_name)
     if record is None:
@@ -312,22 +297,6 @@ def _write_bundle_to_dir(bundle: SkillBundle, root: pathlib.Path) -> None:
         target.write_bytes(file.content)
 
 
-def _backup_existing_skill(local_name: str, *, reason: str) -> pathlib.Path | None:
-    import row_bot.skills as skills
-
-    dest = skills.USER_SKILLS_DIR / local_name
-    if not dest.exists():
-        return None
-    root = skills.DATA_DIR / "skill_versions" / local_name
-    root.mkdir(parents=True, exist_ok=True)
-    safe_ts = re.sub(r"[^0-9A-Za-z_-]+", "-", now_iso()).strip("-")
-    backup = root / f"{reason}-{safe_ts}"
-    if backup.exists():
-        shutil.rmtree(backup)
-    shutil.copytree(dest, backup)
-    return backup
-
-
 def installed_content_hash(record: SkillInstallRecord) -> str:
     """Hash installed bytes, including unexpected edits, without following links."""
     from row_bot.package_files import check_package_tree, contained_path
@@ -428,15 +397,6 @@ def restore_skill(local_name: str, *, expected_record: SkillInstallRecord, opera
         pass
     return update_skill(local_name, expected_record=expected_record, reviewed_bundle=bundle,
         operation_id=operation_id, recovery_hash=recovery_hash)
-
-
-def _assert_inside(path: pathlib.Path, root: pathlib.Path) -> None:
-    resolved = path.resolve(strict=False)
-    base = root.resolve(strict=False)
-    try:
-        resolved.relative_to(base)
-    except ValueError as exc:
-        raise ValueError(f"Path escapes staging root: {path}") from exc
 
 
 def _clear_agent_cache() -> None:

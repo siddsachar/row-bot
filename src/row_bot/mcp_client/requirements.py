@@ -344,10 +344,6 @@ _COMMAND_RUNTIME_MAP = {
 }
 
 
-def known_runtime_ids() -> list[str]:
-    return sorted(_RUNTIME_DEFS)
-
-
 def _normalize_command_name(command: str) -> str:
     name = Path(str(command or "").strip().strip('"')).name.lower()
     for suffix in (".cmd", ".exe", ".bat", ".ps1"):
@@ -603,11 +599,6 @@ def managed_command_path(runtime_id: str, command: str) -> str | None:
     return shutil.which(command, path=str(bin_dir))
 
 
-def managed_path_for_requirement(requirement: RuntimeRequirement) -> str:
-    bin_dir = _managed_bin_dir(requirement.id)
-    return str(bin_dir) if bin_dir else ""
-
-
 def _path_with_prefix(bin_dir: str, env: dict[str, str]) -> str:
     old_path = env.get("PATH") or env.get("Path") or ""
     return str(bin_dir) + os.pathsep + old_path if old_path else str(bin_dir)
@@ -682,15 +673,6 @@ def check_requirement(requirement: RuntimeRequirement, env: dict[str, str] | Non
 
 def check_server_requirements(server_cfg: dict[str, Any] | None, env: dict[str, str] | None = None) -> list[RuntimeCheck]:
     return [check_requirement(req, env) for req in requirements_for_server(server_cfg)]
-
-
-def missing_requirement_for_command(command: str, env: dict[str, str] | None = None) -> RuntimeCheck | None:
-    runtime_id = infer_runtime_id_for_command(command)
-    req = _requirement_from_id(runtime_id, commands=(command,), source="inferred") if runtime_id else None
-    if not req:
-        return None
-    check = check_requirement(req, env)
-    return check if not check.available else None
 
 
 def resolve_command(command: str, env: dict[str, str]) -> tuple[str | None, dict[str, str], RuntimeCheck | None]:
@@ -771,13 +753,6 @@ def _download(url: str, destination: Path, progress: Callable[[str], None] | Non
 def _sha256(path: Path) -> str:
     with _owned_directory(path.absolute().parent) as directory:
         return hashlib.sha256(directory.read(path.name, ARCHIVE_BYTE_LIMIT)).hexdigest()
-
-
-def _verify_sha256(path: Path, expected: str | None) -> None:
-    if type(expected) is not str or not re.fullmatch(r"[a-fA-F0-9]{64}", expected):
-        raise RuntimeError("A pinned archive checksum is required")
-    if _sha256(path).lower() != expected.lower():
-        raise RuntimeError(f"Downloaded archive checksum mismatch for {path.name}")
 
 
 def _system_arch() -> str:

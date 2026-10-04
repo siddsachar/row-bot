@@ -6,7 +6,6 @@ import hashlib
 import json
 import pathlib
 import re
-import urllib.parse
 from typing import Any
 
 import yaml
@@ -88,17 +87,6 @@ def parse_skill_markdown(text: str) -> tuple[dict[str, Any], str]:
         raise ValueError("SKILL.md frontmatter must be a mapping")
     instructions = text[match.end():].strip()
     return meta, instructions
-
-
-def looks_like_skill_markdown(text: str) -> bool:
-    value = text or ""
-    if FRONTMATTER_RE.match(value):
-        return True
-    lower = value.lower()
-    return value.lstrip().startswith("#") and any(
-        marker in lower
-        for marker in ("when to use", "instructions", "workflow", "steps", "skill")
-    )
 
 
 def markdown_with_frontmatter(text: str, *, name: str, description: str = "") -> str:
@@ -295,11 +283,3 @@ def score_entry(entry: SkillHubEntry, query: str) -> tuple[int, str]:
 
     return (-int(_score_entry(entry, query)), entry.name.lower())
 
-
-def source_url_from_entry(entry: SkillHubEntry) -> str:
-    if entry.url:
-        return entry.url
-    parsed = urllib.parse.urlparse(entry.install_ref)
-    if parsed.scheme in {"http", "https"}:
-        return entry.install_ref
-    return ""

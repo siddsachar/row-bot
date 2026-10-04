@@ -386,11 +386,6 @@ def default_registry() -> SkillSourceRegistry:
     return _DEFAULT_REGISTRY
 
 
-def reset_default_registry() -> None:
-    global _DEFAULT_REGISTRY
-    _DEFAULT_REGISTRY = None
-
-
 def _in_background(source: object, fn: Callable[..., Any], *args: Any) -> concurrent.futures.Future:
     """Run `fn` on a daemon thread, so no caller ever waits past its own limit."""
     future: concurrent.futures.Future = concurrent.futures.Future()

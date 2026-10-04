@@ -366,14 +366,6 @@ def set_plugin_health_result(
     _save_state()
 
 
-@_locked_state
-def clear_plugin_health_result(plugin_id: str) -> None:
-    _ensure_loaded()
-    record = _state.get(str(plugin_id), {})
-    if isinstance(record, dict) and record.pop("health", None) is not None:
-        _save_state()
-
-
 # ── Configuration ────────────────────────────────────────────────────────────
 @_locked_state
 def get_plugin_config(plugin_id: str, key: str, default: Any = None) -> Any:

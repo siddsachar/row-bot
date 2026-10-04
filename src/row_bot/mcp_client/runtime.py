@@ -245,10 +245,6 @@ def sdk_available() -> bool:
     return ClientSession is not None
 
 
-def _missing_stdio_command_message(command: str) -> str:
-    return missing_command_message(command)
-
-
 def _resolve_stdio_command(command: str, env: dict[str, str]) -> str:
     expanded = os.path.expandvars(os.path.expanduser(command.strip()))
     if not expanded:

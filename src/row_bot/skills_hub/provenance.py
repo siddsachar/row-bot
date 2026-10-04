@@ -27,12 +27,6 @@ def audit_log_path() -> Path:
     return hub_dir() / "audit.log"
 
 
-def quarantine_dir() -> Path:
-    path = hub_dir() / "quarantine"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -84,10 +78,6 @@ def remove_record(local_name: str) -> SkillInstallRecord | None:
     record = records.pop(local_name, None)
     save_records(records)
     return record
-
-
-def hub_installed_count() -> int:
-    return len(load_records())
 
 
 def append_audit(event: str, **data: Any) -> None:
