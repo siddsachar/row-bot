@@ -209,11 +209,18 @@ class Registry(_McpCatalog):
 
     def search(self, search: Search) -> Found:
         from row_bot.integrations import index
-        from row_bot.mcp_client.registry_snapshot import MAX_AGE
+        from row_bot.mcp_client.registry_snapshot import MAX_AGE, read_header
         try:
             results, total, current = index.search(search.query)
-        except LookupError:  # Start-up has not finished building the local mirror.
-            return Found(statuses=[self.status(status="pending", message="Preparing the Registry on this computer.")])
+        except LookupError:  # Start-up has not finished building the local mirror; show what it is built from.
+            import lzma
+            try:
+                shipped = read_header()
+            except (OSError, ValueError, EOFError, lzma.LZMAError):
+                shipped = {}
+            return Found(statuses=[self.status(status="pending", message="Preparing the Registry on this computer.",
+                fetched_at=shipped.get("captured_at"), snapshot_version="v0.1" if shipped else "",
+                snapshot_digest=shipped.get("digest", ""))])
         found = Found()
         for entry, _derived in results:
             found.add(*self.row(entry))

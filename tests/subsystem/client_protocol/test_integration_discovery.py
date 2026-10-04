@@ -183,6 +183,7 @@ def test_registry_search_is_local_never_builds_and_has_provenance(catalogs, isol
     before = sorted(isolated.rglob("*"))
     waiting = api.search_integrations(owner_id="owner", sources=["official"], query="notes", refresh=True)
     assert waiting["sources"][0]["status"] == "pending" and not waiting["items"]
+    assert waiting["sources"][0]["snapshot_digest"] == registry_snapshot.read_header()["digest"]  # What it is built from.
     assert sorted(isolated.rglob("*")) == before  # Searching never builds or writes the index.
     index.ensure()  # Start-up's job.
     page = api.search_integrations(owner_id="owner", sources=["official"], query="notes", refresh=True)
