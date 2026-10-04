@@ -400,6 +400,7 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
   const sheet = await screen.findByRole('dialog', {
     name: "Here's what Notion can do",
   });
+  fireEvent.click(within(sheet).getByRole('radio', { name: /Full access/ }));
   fireEvent.click(within(sheet).getByText('Customise'));
   const locked = within(sheet).getByRole('combobox', {
     name: 'What Delete page may do',
@@ -411,7 +412,6 @@ it('connects after one consent, follows the plan, and lets the access sheet choo
     within(sheet).getByRole('combobox', { name: 'What Update page may do' }),
     { target: { value: 'use' } },
   );
-  fireEvent.click(within(sheet).getByRole('radio', { name: /Full access/ }));
   fireEvent.click(within(sheet).getByRole('button', { name: 'Allow' }));
   await waitFor(() =>
     expect(controller.continueInstallPlan).toHaveBeenCalledWith(
@@ -666,6 +666,14 @@ it('keeps a custom access policy as it is when the person saves without changing
     preset: 'ask',
     tools_digest: digest,
     overrides: { search: 'off', update_page: 'use', delete_page: 'ask' },
+  });
+  // Picking a preset means it: every tool follows it again.
+  fireEvent.click(within(dialog).getByRole('radio', { name: /Read only/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+  expect(onAllow).toHaveBeenLastCalledWith({
+    preset: 'read_only',
+    tools_digest: digest,
+    overrides: {},
   });
 });
 

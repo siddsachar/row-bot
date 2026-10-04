@@ -365,17 +365,18 @@ def command_kind(command_type: str) -> str:
     return "plugin" if command_type.startswith("plugin.lifecycle.") else "skill" if command_type.startswith("skill.hub.") else "mcp"
 
 
-def settle(row: dict, owners: set[str], validate: Callable[[], None]) -> None:
+def settle(row: dict, owner_id: str, mcp_owner_id: str, validate: Callable[[], None]) -> None:
     """Check one item's unfinished changes again because the person asked. Each settles only when its
-    owner proves how it ended; nothing is sent again."""
+    owner proves how it ended; nothing is sent again. Only the caller's own commands (and this
+    instance's connection changes) are checked."""
     pending = _unfinished()
     for target in _pending_targets(row):
         for command in pending.get(target, []):
-            if command["owner_id"] not in owners:
+            kind = command_kind(command["type"])
+            if command["owner_id"] != owner_id and not (kind == "mcp" and command["owner_id"] == mcp_owner_id):
                 continue
             try:
-                reconcile_command(command["owner_id"], command["command_id"], command_kind(command["type"]), validate,
-                                  explicit=True)
+                reconcile_command(command["owner_id"], command["command_id"], kind, validate, explicit=True)
             except Exception as error:  # Still running: it settles by itself.
                 if getattr(error, "code", str(error)) not in {"operation_pending", "skill_install_pending"}:
                     raise

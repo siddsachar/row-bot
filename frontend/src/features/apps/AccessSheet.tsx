@@ -136,7 +136,11 @@ export default function AccessSheet({
                   name="access-preset"
                   value={id}
                   checked={preset === id}
-                  onChange={() => setPreset(id)}
+                  onChange={() => {
+                    // Picking a preset sets every tool from it; Customise can then adjust single tools.
+                    setPreset(id);
+                    setOverrides({});
+                  }}
                   data-initial-focus={preset === id ? true : undefined}
                 />
                 <span>

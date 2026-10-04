@@ -407,7 +407,7 @@ def settle_item(ctx: plans.Context, *, item_id: str) -> dict:
         raise ClientPlatformError("not_found")
     if row["kind"] == "plugin" and not ctx.local_owner:
         raise ClientPlatformError("owner_local_only")  # Package recovery stays with Row-Bot on this computer.
-    facts.settle(row, {ctx.owner_id, ctx.mcp_owner_id}, ctx.validate)
+    facts.settle(row, ctx.owner_id, ctx.mcp_owner_id, ctx.validate)
     return read_item(owner_id=ctx.owner_id, item_id=item_id, validate=ctx.validate, context=ctx)[0]
 
 

@@ -16,7 +16,7 @@ _DESTRUCTIVE_RE = re.compile(
 # A change to these reaches other people, publishes, runs code or grants access: high impact.
 _SENSITIVE_RE = re.compile(
     r"(^|_)(emails?|messages?|releases?|scripts?|passwords?|roles?|members?|collaborators?|tokens?|secrets?|keys?|"
-    r"admins?|owners?|webhooks?|pull_requests?)(_|$)",
+    r"admins?|owners?|webhooks?|pull_requests?|users?|visibility|memberships?)(_|$)",
     re.IGNORECASE,
 )
 # Routine changes inside the app: ask unless the user chose Full access for the tool.
@@ -134,7 +134,7 @@ def classify_tool_effect(tool_name: str, description: str = "", tool_obj: Any = 
     if read_only_hint is True:
         return "read_only"
     if _ROUTINE_RE.search(sanitize_name_component(description or "")):
-        return "mutation"  # Described as a change and not hinted read-only: it stays a change.
+        return "unknown"  # Only its description says it changes something: it always asks.
     if read_only_hint is False:
         return "unknown"
     if re.match(r"^(read|get|list|search|find|inspect|describe|count|query|fetch|status|lookup)(_|$)", name):

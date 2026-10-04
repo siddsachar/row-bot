@@ -47,7 +47,7 @@ This section is for developers working on Row-Bot or building against its local 
 
 **Tool access.** Each MCP tool is classified by effect:
 
-- High-impact tools always ask: those with `destructiveHint`, or whose name or description has a verb such as delete, send, post, publish, deploy, merge, push, commit, run, execute, pay, transfer, upload, comment, share, invite, permission, reset or overwrite. A routine verb on a sensitive noun (release, message, email, script, password, role, member, collaborator, token, secret, key, admin, owner, webhook, pull request) is high-impact too.
+- High-impact tools always ask: those with `destructiveHint`, or whose name or description has a verb such as delete, send, post, publish, deploy, merge, push, commit, run, execute, pay, transfer, upload, comment, share, invite, permission, reset or overwrite. A routine verb on a sensitive noun (release, message, email, script, password, role, member, collaborator, token, secret, key, admin, owner, webhook, pull request, user, visibility, membership) is high-impact too. A tool whose change shows only in its description is unknown and always asks.
 - Routine changes (create, add, update, edit, write, set, rename, move and similar; tag, label, archive, link or copy only as the name's leading verb) ask unless the tool is listed in the server's `tools.run_without_asking`, which **Full access** or a per-tool **Use without asking** sets.
 - Unknown effects always ask.
 - Annotations only make a tool stricter; `readOnlyHint` is the one exception and never outweighs a change verb in the name.

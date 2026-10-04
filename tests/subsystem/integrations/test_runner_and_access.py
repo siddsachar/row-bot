@@ -68,6 +68,8 @@ def gate(tools):
     ("create_pull_request", None, "mutation", True),
     ("list_members", None, "read_only", False),
     ("reset_workspace", None, "mutation", True),
+    ("add_user_to_org", None, "mutation", True),
+    ("update_repository_visibility", None, "mutation", True),
     ("delete_record", None, "mutation", True),
     ("send_message", None, "mutation", True),
     ("add_comment", None, "mutation", True),  # Reaches other people.
@@ -83,8 +85,9 @@ def test_classification_separates_routine_changes_from_high_impact_ones(name, an
     assert safety.is_destructive_tool(name, "", tool) is high_impact
 
 
-def test_a_tool_described_as_a_change_stays_a_change_unless_hinted_read_only():
-    assert safety.classify_tool_effect("get_or_make_page", "Update the page, creating it when missing") == "mutation"
+def test_a_tool_only_described_as_a_change_always_asks_unless_hinted_read_only():
+    assert safety.classify_tool_effect("get_or_make_page", "Update the page, creating it when missing") == "unknown"
+    assert safety.classify_tool_effect("collaborator", "Add a collaborator to a repository") == "unknown"
     assert safety.classify_tool_effect("get_page", "Update the page", {"annotations": {"readOnlyHint": True}}) == "read_only"
 
 
@@ -273,8 +276,9 @@ def test_retry_checks_only_this_owners_unfinished_changes_again_and_packages_sta
     from row_bot.mcp_client import targets
     from row_bot.runtime import admissions
     target = targets.admission_target(targets.normalize(None))
-    pending = [{"target": target, "owner_id": who, "command_id": who + "-change", "type": "mcp.configuration.save"}
-               for who in ("owner", "another-device")]
+    pending = [{"target": target, "owner_id": who, "command_id": who + "-change", "type": kind}
+               for who, kind in (("owner", "mcp.configuration.save"), ("another-device", "mcp.configuration.save"),
+                                 ("another-device", "skill.hub.install"))]
     monkeypatch.setattr(admissions, "read_unfinished_commands", lambda **_: {"items": pending, "overflow": False})
     checked = []
     monkeypatch.setattr(facts, "reconcile_command", lambda owner_id, command_id, kind, validate, explicit=False: (
