@@ -4454,7 +4454,7 @@ def create_router(
             await plugin_lifecycle_authority(request)
         from row_bot.integrations.facts import reconcile_command
         result = await call(reconcile_command, security.instance_id if kind == "mcp" else await integration_owner(request),
-            str(command_id), kind, dispatch_validation(request, current))
+            str(command_id), kind, dispatch_validation(request, current), explicit=True)
         return await respond(request, dto.IntegrationOperationResult, result)
 
     async def oauth_callback(request: Request) -> str:

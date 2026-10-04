@@ -8147,6 +8147,7 @@ class PlanConsent(WireModel):
     runs_locally: bool
     downloads: list[str] = Field(max_length=16)
     access_preset: AccessPresetId
+    turns_on_mcp: bool = False
 
 
 class InstallPlan(WireModel):

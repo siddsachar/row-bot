@@ -29,6 +29,11 @@
     "runs_locally": {
       "title": "Runs Locally",
       "type": "boolean"
+    },
+    "turns_on_mcp": {
+      "default": false,
+      "title": "Turns On Mcp",
+      "type": "boolean"
     }
   },
   "required": [

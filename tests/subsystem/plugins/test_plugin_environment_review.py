@@ -59,10 +59,10 @@ def test_verified_retry_rejects_changed_candidate_without_reinstall(setup, monke
     installer, state, _source, calls, _plan = setup
     original = state._atomic_json
 
-    def fail_publish(path, data, restricted=False):
+    def fail_publish(path, data):
         if data.get("sample-plugin", {}).get("environment", {}).get("active_operation_id") == OPERATION:
             raise OSError("synthetic publication failure")
-        return original(path, data, restricted)
+        return original(path, data)
 
     monkeypatch.setattr(state, "_atomic_json", fail_publish)
     assert not prepare(setup).ready
@@ -81,10 +81,10 @@ def test_failed_replacement_publication_keeps_previous_active_and_new_verified(s
     second = str(UUID(int=2))
     original = state._atomic_json
 
-    def fail_publish(path, data, restricted=False):
+    def fail_publish(path, data):
         if data.get("sample-plugin", {}).get("environment", {}).get("active_operation_id") == second:
             raise OSError("synthetic publication failure")
-        return original(path, data, restricted)
+        return original(path, data)
 
     monkeypatch.setattr(state, "_atomic_json", fail_publish)
     assert not prepare(setup, operation=second).ready

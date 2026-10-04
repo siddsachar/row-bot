@@ -49,8 +49,7 @@ def test_local_edits_survive_update_and_restore(tmp_path, monkeypatch, reload_fo
     assert path.read_text() == "My local edit"
 
 
-def test_explicit_reconciliation_closes_lost_receipt_without_repeating_publication(tmp_path, monkeypatch, reload_for_data_dir):
-    from row_bot.runtime import admissions
+def _previewed(tmp_path, monkeypatch, reload_for_data_dir):
     from row_bot.skills_hub.models import SkillHubEntry, CatalogSearchResult
     reload_for_data_dir(tmp_path, "row_bot.skills", "row_bot.tasks")
     monkeypatch.setattr(installer, "_clear_agent_cache", lambda: None)
@@ -58,7 +57,25 @@ def test_explicit_reconciliation_closes_lost_receipt_without_repeating_publicati
     monkeypatch.setattr(hub.catalog, "inspect_entry", lambda *a: bundle("Original."))
     monkeypatch.setattr(hub.catalog, "search_skills", lambda *a, **k: CatalogSearchResult(entries=[entry], mode="cache", query="writing"))
     found = hub.search_public_skills(owner_id="owner", query="writing")
-    preview = hub.preview_public_skill(owner_id="owner", revision=found["revision"], entry_id=entry.id)
+    return hub.preview_public_skill(owner_id="owner", revision=found["revision"], entry_id=entry.id)
+
+
+def test_a_read_leaves_an_unproven_outcome_unfinished_until_it_is_checked(tmp_path, monkeypatch, reload_for_data_dir):
+    from row_bot.runtime import admissions
+    preview = _previewed(tmp_path, monkeypatch, reload_for_data_dir)
+    identity = str(uuid4())
+    monkeypatch.setattr(installer, "install_bundle", lambda *a, **k: (_ for _ in ()).throw(OSError("interrupted")))
+    assert not hub.install_previewed_skill(owner_id="owner", command_id=identity, preview_id=preview["preview_id"],
+                                           content_hash=preview["content_hash"], make_available=False)["success"]
+    passive = hub.reconcile_skill_hub_operation(owner_id="owner", command_id=identity, validate=lambda: None, proven_only=True)
+    assert not passive["settled"] and admissions.read_command_metadata("owner", identity)["status"] == "admitting"
+    assert hub.reconcile_skill_hub_operation(owner_id="owner", command_id=identity, validate=lambda: None)["settled"]
+    assert admissions.read_command_metadata("owner", identity)["status"] == "completed"
+
+
+def test_explicit_reconciliation_closes_lost_receipt_without_repeating_publication(tmp_path, monkeypatch, reload_for_data_dir):
+    from row_bot.runtime import admissions
+    preview = _previewed(tmp_path, monkeypatch, reload_for_data_dir)
     identity = str(uuid4())
     with monkeypatch.context() as fault:
         fault.setattr(admissions, "complete_command", lambda *a, **k: (_ for _ in ()).throw(OSError("receipt interrupted")))

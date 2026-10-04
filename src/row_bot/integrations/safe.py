@@ -17,6 +17,8 @@ import httpx
 
 _REDIRECTS = {301, 302, 303, 307, 308}
 _CREDENTIALS = {"authorization", "cookie", "proxy-authorization"}
+# IPv6 forms that carry an IPv4 address: NAT64 and the deprecated IPv4-compatible block.
+_EMBEDDED = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("::/96"))
 
 
 def public_url(value: object, *, limit: int = 2048) -> str:
@@ -31,6 +33,18 @@ def public_url(value: object, *, limit: int = 2048) -> str:
     return text if valid else ""
 
 
+def _global(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if not address.is_global:
+        return False
+    if address.version == 6:
+        embedded = address.ipv4_mapped
+        if embedded is None and any(address in network for network in _EMBEDDED):
+            embedded = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+        if embedded is not None and not embedded.is_global:
+            return False
+    return True
+
+
 def _public_address(host: str, refused: str) -> str:
     """Resolve once; a name reaching loopback, private or link-local space is refused."""
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
@@ -40,11 +54,7 @@ def _public_address(host: str, refused: str) -> str:
     except OSError as exc:
         raise ConnectionError("source_unreachable") from exc
     addresses = [ipaddress.ip_address(item[4][0].split("%", 1)[0]) for item in found]
-    for address in addresses:
-        mapped = getattr(address, "ipv4_mapped", None)
-        if not address.is_global or (mapped is not None and not mapped.is_global):
-            raise ValueError(refused)
-    if not addresses:
+    if not addresses or not all(_global(address) for address in addresses):
         raise ValueError(refused)
     return str(addresses[0])
 
@@ -74,9 +84,12 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
     resolved and connected to only at a global address. Each redirect hop is
     checked again, and credentials never cross to another host. An exact
     ``source -> destination`` pair allows one reviewed migration off the list.
+    Bodies are never decompressed, so ``max_bytes`` bounds what is held, and the
+    whole fetch has one deadline as well as the per-read ``timeout``.
     """
     allowed = None if hosts is None else frozenset(hosts)
     pairs, budget, sent, previous, reviewed = dict(exact_redirects or {}), redirects, dict(headers or {}), "", False
+    deadline = time.monotonic() + timeout * 6
     while True:
         parts = urlsplit(url)
         if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
@@ -89,7 +102,7 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
             options["transport"] = _Pinned(parts.hostname, _public_address(parts.hostname, refused))
         # A fresh client per hop: no cookie or connection state crosses origins.
         with httpx.Client(**options) as client:
-            with client.stream("GET", url, headers={"User-Agent": "Row-Bot", **sent}) as response:
+            with client.stream("GET", url, headers={"User-Agent": "Row-Bot", **sent, "Accept-Encoding": "identity"}) as response:
                 if response.status_code in _REDIRECTS:
                     location = response.headers.get("location", "")
                     reviewed = pairs.pop(url, None) == location
@@ -99,11 +112,15 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
                     previous, url = url, location if reviewed else urljoin(url, location)
                     continue
                 response.raise_for_status()
+                if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+                    raise ValueError(refused)
                 data = bytearray()
-                for chunk in response.iter_bytes():
+                for chunk in response.iter_bytes():  # Identity only, so nothing is decompressed.
                     data.extend(chunk)
                     if len(data) > max_bytes:
                         raise ValueError(too_large)
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("source_timeout")
                 return bytes(data)
 
 
@@ -154,9 +171,9 @@ class TtlCache:
         return len(self._items)
 
 
-def write_atomic(path: Path, data: bytes | str, *, restricted: bool = False,
-                 cancelled: Callable[[], bool] = lambda: False) -> None:
-    """Publish a whole file, never through a link; only its own temporary is removed."""
+def write_atomic(path: Path, data: bytes | str, *, cancelled: Callable[[], bool] = lambda: False) -> None:
+    """Publish a whole file readable only by this account, never through a link;
+    only its own temporary is removed."""
     for candidate in (path.parent, path):
         try:
             info = candidate.lstat()
@@ -167,7 +184,7 @@ def write_atomic(path: Path, data: bytes | str, *, restricted: bool = False,
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600 if restricted else 0o666)
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data.encode("utf-8") if isinstance(data, str) else data)
             stream.flush()

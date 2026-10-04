@@ -334,15 +334,18 @@ def _pending_targets(row: dict) -> list[str]:
     return [targets.admission_target(targets.normalize(row["target"])), "settings:mcp-runtime:" + row["owner_ref"]]
 
 
-def reconcile_command(owner_id: str, command_id: str, kind: str, validate: Callable[[], None]) -> dict:
-    """Observe one unfinished owner command and settle it when its outcome is proven."""
+def reconcile_command(owner_id: str, command_id: str, kind: str, validate: Callable[[], None], *,
+                      explicit: bool = False) -> dict:
+    """Observe one unfinished owner command and settle it when its outcome is proven.
+    Only an ``explicit`` check also settles a skill command whose outcome stays unknown."""
     from row_bot.runtime import admissions
     if kind == "plugin":
         from row_bot.application.client_plugin_lifecycle import reconcile_plugin_operation
         return reconcile_plugin_operation(owner_id=owner_id, command_id=command_id, validate=validate)
     if kind == "skill":
         from row_bot.application.client_skill_hub import reconcile_skill_hub_operation
-        return reconcile_skill_hub_operation(owner_id=owner_id, command_id=command_id, validate=validate)
+        return reconcile_skill_hub_operation(owner_id=owner_id, command_id=command_id, validate=validate,
+                                             proven_only=not explicit)
     metadata = admissions.read_command_metadata(owner_id, command_id) or {}
     if metadata.get("type") == "mcp.runtime.control":
         from row_bot.application.capability_runtime_controls import reconcile_mcp_runtime_operation
@@ -365,7 +368,7 @@ def _unfinished() -> dict:
     """Unfinished owner commands by admission target, read once per listing."""
     from row_bot.runtime import admissions
     try:
-        pending = admissions.read_unfinished_commands()
+        pending = admissions.read_unfinished_commands(prefixes=("settings:mcp", "settings:skill:", "settings:plugin:lifecycle:"))
     except admissions.AdmissionError:
         return {"overflow": True}
     by_target: dict = {"overflow": pending["overflow"], "settled": {}}

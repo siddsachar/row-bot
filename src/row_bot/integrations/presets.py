@@ -41,7 +41,7 @@ def apply(tools: dict, preset: str, names: list[str] | None = None) -> None:
         enabled[name] = state != "off"
         if state == "ask":
             approvals.add(name)
-        elif not locked(catalog.get(name, {})):
+        elif state == "use":  # A tool switched off keeps its approval for when it is switched back on.
             approvals.discard(name)
         if state != "off":
             if name in tools.get("exclude", []):

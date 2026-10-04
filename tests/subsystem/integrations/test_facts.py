@@ -112,3 +112,13 @@ def test_unfinished_change_is_reconciled_on_read_without_repeating_it(service, i
         assert all(row["status"] != "recovery" for row in rows)
         assert not admissions.read_unfinished_target_commands("settings:mcp")["items"]
         assert client.get("/api/v1/commands/" + command["command_id"], headers=headers).json()["status"] == "completed"
+
+
+def test_other_subsystems_unfinished_commands_never_mark_integrations(isolated):
+    from uuid import uuid4
+    from row_bot.runtime import admissions
+    for target in ("conversation:fixture", "conversation:fixture", "settings:mcp"):
+        key = str(uuid4())
+        admissions.claim_command("owner", key, {"command_id": key, "type": "fixture.change"}, target)
+    found = admissions.read_unfinished_commands(prefixes=("settings:mcp",), limit=1)
+    assert [c["target"] for c in found["items"]] == ["settings:mcp"] and not found["overflow"]

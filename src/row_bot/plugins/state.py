@@ -50,10 +50,10 @@ def _locked_state(function):
     return guarded
 
 
-def _atomic_json(path: pathlib.Path, data: dict, restricted: bool = False) -> None:
+def _atomic_json(path: pathlib.Path, data: dict) -> None:
     """Publish one whole state file; callers decide whether errors propagate."""
     from row_bot.integrations.safe import write_atomic
-    write_atomic(path, json.dumps(data, indent=2), restricted=restricted)
+    write_atomic(path, json.dumps(data, indent=2))
 
 
 def _environment_state_document() -> dict[str, Any]:
@@ -266,13 +266,13 @@ def _save_state():
 
 
 def _save_secrets():
-    _write_json(_SECRETS_PATH, _secrets, restricted=True)
+    _write_json(_SECRETS_PATH, _secrets)
 
 
 @_locked_state
-def _write_json(path: pathlib.Path, data: dict, restricted: bool = False):
+def _write_json(path: pathlib.Path, data: dict):
     try:
-        _atomic_json(path, data, restricted)
+        _atomic_json(path, data)
     except OSError:
         logger.warning("Failed to write %s", path, exc_info=True)
 
@@ -571,7 +571,7 @@ def _migrate_legacy_secrets(data: dict[str, Any]) -> bool:
         if values:
             legacy[str(plugin_id)] = values
     if not legacy:
-        _write_json(_SECRETS_PATH, _empty_secret_metadata(), restricted=True)
+        _write_json(_SECRETS_PATH, _empty_secret_metadata())
         return True
     try:
         for plugin_id, values in legacy.items():
@@ -594,7 +594,7 @@ def _migrate_legacy_secrets(data: dict[str, Any]) -> bool:
                 "fingerprint": secret_store.fingerprint(value),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-    _write_json(_SECRETS_PATH, metadata, restricted=True)
+    _write_json(_SECRETS_PATH, metadata)
     return True
 
 

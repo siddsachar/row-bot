@@ -12,6 +12,7 @@ import re
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.mcp_client import config, targets
+from row_bot.mcp_client.conflicts import requires_manual_tool_selection
 from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool
 
 Error = configuration.CapabilityConfigurationError
@@ -208,6 +209,8 @@ def _next_policy_document(saved, intent, *, child: bool = False):
         from row_bot.integrations import presets
         if intent["preset"] not in presets.PRESETS or type(tools.get("catalog")) is not dict:
             raise Error("invalid_command")
+        if requires_manual_tool_selection(name, target):
+            raise Error("mcp_policy_unavailable")  # Conflicting or high-risk tools are chosen one by one.
         _tool_policies(intent["server_id"], tools)  # Retain strict existing safety shapes.
         presets.apply(tools, intent["preset"])
     elif operation == "utility_enabled":

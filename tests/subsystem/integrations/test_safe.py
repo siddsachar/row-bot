@@ -74,7 +74,7 @@ def test_exact_reviewed_migration_is_followed_once_and_only_once(http):
 
 
 @pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.8", "169.254.169.254", "192.168.1.1", "::1", "fd00::1",
-                                     "::ffff:127.0.0.1", "100.64.0.1"])
+                                     "::ffff:127.0.0.1", "100.64.0.1", "64:ff9b::7f00:1", "64:ff9b::a00:1", "::7f00:1"])
 def test_open_fetch_refuses_names_that_reach_private_networks(http, address):
     sent = http(lambda request: pytest.fail("private address was contacted"), {"skills.example": ["1.1.1.1", address]})
     with pytest.raises(ValueError, match="refused"):
@@ -193,3 +193,19 @@ def test_an_unresolvable_name_is_unreachable_not_refused(http, monkeypatch):
     monkeypatch.setattr(safe.socket, "getaddrinfo", offline)
     with pytest.raises(ConnectionError):
         safe.fetch("https://skills.example/x", hosts=None, max_bytes=10)
+
+
+def test_compressed_bodies_are_refused_so_the_size_cap_holds(http):
+    sent = http(lambda request: httpx.Response(200, headers={"content-encoding": "gzip"}, content=b"\x1f\x8b"))
+    with pytest.raises(ValueError, match="refused"):
+        safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10, refused="refused")
+    assert sent[0].headers["accept-encoding"] == "identity"
+
+
+def test_a_slow_source_stops_at_one_overall_deadline(http, monkeypatch):
+    from itertools import count
+    http(lambda request: httpx.Response(200, content=(b"x" for _ in range(5))))
+    ticks = count(0, 100)
+    monkeypatch.setattr(safe.time, "monotonic", lambda: float(next(ticks)))
+    with pytest.raises(TimeoutError):
+        safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10, timeout=20)

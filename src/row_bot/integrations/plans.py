@@ -133,11 +133,15 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     steps.append(_step("access", "done" if checked and intent != "access" else "pending", f"Choose what {name} can do",
                        access={"preset": presets.current(cfg.get("tools") or {}) if accepted else presets.DEFAULT,
                                "tools": [], "tools_digest": ""}))
-    steps.append(_step("enable", "done" if row["lifecycle"] == "installed" and row["readiness"] == "ready" and intent != "access"
-                       else "pending", "Turn on " + name))
+    if intent == "access" and _manual(row["target"], row["owner_ref"]):
+        steps[-1].update(state="unsupported", message=f"Choose {name}'s tools one by one in its settings.")
+    steps.append(_step("enable", "pending" if intent == "access" else "done" if row["lifecycle"] == "installed"
+                       and row["readiness"] == "ready" else "pending", "Save access" if intent == "access" else "Turn on " + name))
+    # Turning a connection on also turns on MCP when it is off, which can wake other connections.
+    standalone = row.get("target") in (None, {"kind": "standalone"})
     consent = {"destinations": [setup["destination"]] if hosted else [], "runs_locally": not hosted,
                "downloads": [s["runtime"]["label"] for s in steps if s["type"] == "runtime" and s["state"] == "pending"],
-               "access_preset": presets.DEFAULT}
+               "access_preset": presets.DEFAULT, "turns_on_mcp": intent != "access" and standalone and not _mcp_on()}
     declaration = {"transport": cfg.get("transport"), "url": cfg.get("url", ""), "command": cfg.get("command", ""),
                    "args": cfg.get("args", []), "headers": sorted(cfg.get("headers") or {}), "env": sorted(cfg.get("env") or {}),
                    "auth": setup["auth_mode"], "bindings": setup["bindings"], "source": cfg.get("source") or {}}
@@ -158,7 +162,8 @@ def compute(row: dict, reference: dict, *, intent: str = "") -> dict | None:
             or intent not in {"connect", "add", "turn_on", "fix", "access"}):
         return None
     name = (row["app"] or {}).get("name") or row["name"]
-    consent = {"destinations": [], "runs_locally": True, "downloads": [], "access_preset": presets.DEFAULT}
+    consent = {"destinations": [], "runs_locally": True, "downloads": [], "access_preset": presets.DEFAULT,
+               "turns_on_mcp": False}
     declaration: dict = {}
     if kind == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
@@ -181,7 +186,7 @@ def compute(row: dict, reference: dict, *, intent: str = "") -> dict | None:
     plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "kind": kind, "name": name, "intent": intent,
             "state": "ready", "pause": None, "message": "", "steps": steps, "consent": consent,
             "supported": unsupported is None, "unsupported_reason": unsupported["message"] if unsupported else ""}
-    plan["digest"] = _digest({"item_id": row["id"], "intent": intent, "declaration": declaration,
+    plan["digest"] = _digest({"item_id": row["id"], "intent": intent, "declaration": declaration, "consent": consent,
                               "steps": [(s["id"], s["state"]) for s in steps]})
     plan["current_step"] = next((s["id"] for s in steps if s["state"] not in {"done", "skipped"}), None)
     return plan
@@ -220,6 +225,11 @@ def _save(record: dict, *, terminal: bool = False) -> None:
         admissions.command_progress(record["owner"], record["plan_id"], value)
 
 
+def _target(ctx: Context, item_id: str) -> str:
+    owner = hashlib.sha256(ctx.owner_id.encode()).hexdigest()[:32]
+    return f"integrations:plan:{owner}:{item_id}"
+
+
 def _load(owner_id: str, plan_id: str) -> tuple[dict, bool]:
     from row_bot.runtime import admissions
     metadata = admissions.read_command_metadata(owner_id, plan_id)
@@ -242,7 +252,8 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         raise PlanError("plan_unsupported")
     if preset and preset not in presets.PRESETS:
         raise PlanError("invalid_access_preset")
-    if row["kind"] == "plugin" and plan["intent"] == "add" and not ctx.local_owner:
+    if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] == "add") or any(
+            s["type"] == "runtime" and s["runtime"]["id"] == "npm_package" for s in plan["steps"])):
         raise PlanError("owner_local_only")
     installed = row["lifecycle"] != "available"
     target = row.get("target") if installed else None
@@ -255,9 +266,11 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
               "target": None if target in (None, {"kind": "standalone"}) else target,
               "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {}}
     record["steps"][0]["state"] = "done"
+    if record["server_id"]:
+        record["_recipe"] = _recipe(record)
     command = {"command_id": plan_id, "type": "integrations.plan", "item_id": row["id"], "intent": plan["intent"], "digest": digest}
     try:
-        prior = admissions.claim_command(ctx.owner_id, plan_id, command, "integrations:plan:" + row["id"], exclusive_target=True,
+        prior = admissions.claim_command(ctx.owner_id, plan_id, command, _target(ctx, row["id"]), exclusive_target=True,
                                          initial_result={"command_id": plan_id, "status": "admitting", "plan": record})
     except admissions.AdmissionError as error:
         raise PlanError(str(error)) from None
@@ -281,19 +294,27 @@ def resume(ctx: Context, plan_id: str, *, preset: str = "") -> dict:
 def cancel(ctx: Context, plan_id: str) -> dict:
     """Stop a plan. A pending sign-in is cancelled; finished steps are kept, never undone."""
     record, open_ = _load(ctx.owner_id, plan_id)
-    if open_:
+    if not open_:
+        return view(record)
+    with _LOCK:
+        if plan_id in _RUNNING:
+            _CANCELLED.add(plan_id)
+            raise PlanError("operation_pending")
+        _RUNNING.add(plan_id)  # No run starts while the plan is being cancelled.
+    try:
+        record, open_ = _load(ctx.owner_id, plan_id)
+        if open_:
+            if record.get("_auth"):
+                from row_bot.application.client_mcp_auth import cancel_auth
+                try:
+                    cancel_auth(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
+                except Exception:
+                    pass  # A finished or expired sign-in has nothing left to cancel.
+            record.update(state="cancelled", pause=None, message=_MESSAGES["plan_cancelled"])
+            _save(record, terminal=True)
+    finally:
         with _LOCK:
-            if plan_id in _RUNNING:
-                _CANCELLED.add(plan_id)
-                raise PlanError("operation_pending")
-        if record.get("_auth"):
-            from row_bot.application.client_mcp_auth import cancel_auth
-            try:
-                cancel_auth(owner_id=ctx.owner_id, command_id=record["_auth"], validate=ctx.validate)
-            except Exception:
-                pass  # A finished or expired sign-in has nothing left to cancel.
-        record.update(state="cancelled", pause=None, message=_MESSAGES["plan_cancelled"])
-        _save(record, terminal=True)
+            _RUNNING.discard(plan_id)
     return view(record)
 
 
@@ -324,7 +345,7 @@ def read_plan(ctx: Context, plan_id: str) -> dict:
 def open_plan(ctx: Context, item_id: str) -> dict | None:
     """This owner's unfinished plan for an item, so a client can always find, continue or cancel it."""
     from row_bot.runtime import admissions
-    pending = admissions.read_unfinished_target_commands("integrations:plan:" + item_id)
+    pending = admissions.read_unfinished_target_commands(_target(ctx, item_id))
     mine = next((command for command in pending["items"] if command["owner_id"] == ctx.owner_id), None)
     return read_plan(ctx, mine["command_id"]) if mine else None
 
@@ -335,6 +356,14 @@ def _run(ctx: Context, record: dict) -> dict:
         if plan_id in _RUNNING:
             raise PlanError("operation_pending")
         _RUNNING.add(plan_id)
+    try:
+        still_open = _load(record["owner"], plan_id)[1]  # A cancel may have finished since this record was read.
+    except PlanError:
+        still_open = False
+    if not still_open:
+        with _LOCK:
+            _RUNNING.discard(plan_id)
+        raise PlanError("plan_not_resumable")
     base = ctx.validate
 
     def validate() -> None:
@@ -344,6 +373,8 @@ def _run(ctx: Context, record: dict) -> dict:
     ctx = Context(**{**ctx.__dict__, "validate": validate})
     try:
         record.update(state="running", pause=None, message="")
+        if record.get("_recipe") and _recipe(record) != record["_recipe"]:
+            raise PlanError("plan_changed")
         for step in record["steps"]:
             if step["state"] in {"done", "skipped"}:
                 continue
@@ -512,6 +543,7 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
         command=command, validate=ctx.validate, validate_review=_bound(review))
     _completed(result)
     record["server_id"] = result["mcp_configuration"]["server_ids"][0]
+    record["_recipe"] = _recipe(record)
     return "done"
 
 
@@ -602,6 +634,8 @@ def _runtime_receipt(ctx: Context, record: dict, step: dict, stage: str) -> dict
 def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
     if step["runtime"]["id"] == "npm_package":
         from row_bot.application.mcp_runtime_installation import inspect_mcp_package, prepare_mcp_package
+        if not ctx.local_owner:
+            raise PlanError("owner_local_only")
 
         def build():
             revision = _revision(ctx, record)
@@ -654,12 +688,33 @@ def _mcp_test(ctx: Context, record: dict, step: dict) -> str:
     return "running"
 
 
+def _saved(target: dict | None, server_id: str) -> tuple[str, dict]:
+    from row_bot.application.capability_configuration_controls import _server_id
+    from row_bot.mcp_client import config, targets
+    saved = config.read_saved_configuration(targets.normalize(target))
+    return next(((n, c) for n, c in saved.document["servers"].items() if _server_id(n) == server_id), ("", {}))
+
+
+def _mcp_on() -> bool:
+    from row_bot.mcp_client import config
+    return config.read_saved_configuration(None).document.get("enabled") is True
+
+
+def _recipe(record: dict) -> str:
+    """What runs and where it connects."""
+    cfg = _saved(record["target"], record["server_id"])[1]
+    return _digest({key: cfg.get(key) for key in ("transport", "url", "command", "args")})
+
+
+def _manual(target: dict | None, server_id: str) -> bool:
+    from row_bot.mcp_client.conflicts import requires_manual_tool_selection
+    name, cfg = _saved(target, server_id)
+    return requires_manual_tool_selection(name, cfg)
+
+
 def _tools(ctx: Context, record: dict) -> list[dict]:
     if not record.get("_test"):  # Changing access works on the tools already accepted.
-        from row_bot.application.capability_configuration_controls import _server_id
-        from row_bot.mcp_client import config
-        saved = config.read_saved_configuration(record["target"])
-        cfg = next(c for n, c in saved.document["servers"].items() if _server_id(n) == record["server_id"])
+        cfg = _saved(record["target"], record["server_id"])[1]
         return [{"name": n, "effect": r.get("effect", "unknown"), "destructive": bool(r.get("destructive")),
                  "requires_approval": bool(r.get("requires_approval"))}
                 for n, r in sorted(((cfg.get("tools") or {}).get("catalog") or {}).items())]
@@ -677,18 +732,9 @@ def _tools(ctx: Context, record: dict) -> list[dict]:
             return rows
 
 
-def _manual(record: dict) -> bool:
-    from row_bot.application.capability_configuration_controls import _server_id
-    from row_bot.mcp_client import config
-    from row_bot.mcp_client.conflicts import requires_manual_tool_selection
-    saved = config.read_saved_configuration(record["target"])
-    name, cfg = next((n, c) for n, c in saved.document["servers"].items() if _server_id(n) == record["server_id"])
-    return requires_manual_tool_selection(name, cfg)
-
-
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
-    tools, manual = _tools(ctx, record), _manual(record)
-    digest = _digest([tools, manual])
+    tools, manual = _tools(ctx, record), _manual(record["target"], record["server_id"])
+    digest = _digest([tools, manual, record["preset"]])
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [
         {"name": t["name"], "title": t["name"].replace("_", " ").capitalize()[:128], "effect": t["effect"],
          "state": "off" if manual else presets.tool_state(record["preset"], t)} for t in tools[:256]]}
@@ -704,6 +750,8 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
 def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application import capability_catalog_controls as catalog
     from row_bot.application.capability_policy_controls import read_mcp_policy
+    if record["intent"] != "access" and record["target"] is None and not record["consent"].get("turns_on_mcp") and not _mcp_on():
+        raise PlanError("plan_changed")  # Turning MCP on was not part of this consent.
     if record.get("_test"):
         def build():
             revision = _revision(ctx, record)
@@ -717,6 +765,7 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
             validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
     elif record["intent"] == "access":
         _policy(ctx, record, "enable:preset", {"operation": "preset", "server_id": record["server_id"], "preset": record["preset"]})
+        return "done"
     state = read_mcp_policy(server_id=record["server_id"], validate=ctx.validate, target=record["target"])
     if state.server_enabled is not True:
         _policy(ctx, record, "enable:server", {"operation": "server_enabled", "server_id": record["server_id"], "enabled": True})

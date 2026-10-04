@@ -161,16 +161,27 @@ The domain package composes the owners above; it never replaces them.
   every `blocker` and exactly one `next_action`. Static facts are indexed by owner
   fingerprints. Live runtime state, requirements and unfinished changes are applied
   on each read, and unfinished owner commands are reconciled there: settled when
-  proven, never repeated.
+  proven, never repeated. An unproven skill outcome stays unfinished until someone
+  checks it explicitly.
 - `plans.py`: install plans and the runner.
   - Every step type exists in the contract. Steps not implemented yet are marked
     `unsupported` with a reason, and such a plan cannot start.
   - Starting requires the consent token from `POST /api/v1/integrations/plans/review`,
-    bound to the session and the plan digest.
+    bound to the session and the plan digest. The consent lists destinations,
+    downloads and whether MCP itself will be turned on (`turns_on_mcp`), which can
+    wake other connections that are marked on.
+  - Changing access only applies a preset; it never turns a connection on. Servers
+    whose tools must be chosen one by one cannot take a preset.
+  - Preparing an npm package needs Row-Bot on this computer, as on its own route.
   - The runner records each owner command before sending it, so a retry replays or
     reconciles it.
   - A plan pauses only for a browser sign-in, a missing key, access to newly
-    discovered tools, or a finished background step.
+    discovered tools, or a finished background step. A plan whose launch recipe
+    changed while it waited fails with `plan_changed` instead of continuing.
+  - The access review binds the chosen preset, so tools reviewed under one preset are
+    never saved under another.
+  - An item's unfinished plan is returned with its detail and review, so it can
+    always be continued or cancelled. Each owner has its own plan per item.
 - `presets.py`: Read only, Ask before changes (default) and Full access on the
   existing per-tool policy. Destructive, approval-declaring and unknown-effect tools
   stay approval-locked under every preset. Because the effect classifier treats every
@@ -180,7 +191,9 @@ The domain package composes the owners above; it never replaces them.
   - Fetches are https only, with no environment proxies.
   - Hosts are either reviewed or must resolve to public addresses only.
   - Every redirect hop is rechecked, and credentials never cross hosts.
-  - Responses are size-capped.
+  - Responses are size-capped, never decompressed, and the whole fetch has a
+    deadline. NAT64 and IPv4-compatible forms of private addresses are refused.
+  - Files are written readable only by this account.
 
 MCP owner functions take an explicit `target` (standalone or one package child);
 there is no ambient target.

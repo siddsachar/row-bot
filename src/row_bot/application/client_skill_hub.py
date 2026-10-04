@@ -427,8 +427,10 @@ def read_skill_maintenance_receipt(*, owner_id: str, command_id: str) -> dict[st
     return _read_receipt(owner_id, command_id, "maintenance")
 
 
-def reconcile_skill_hub_operation(*, owner_id: str, command_id: str, validate: Callable[[], None]) -> dict:
-    """Settle a stopped owner without repeating downloads or publication."""
+def reconcile_skill_hub_operation(*, owner_id: str, command_id: str, validate: Callable[[], None],
+                                  proven_only: bool = False) -> dict:
+    """Settle a stopped owner without repeating downloads or publication. With
+    ``proven_only`` (a passive read), an unproven outcome stays unfinished."""
     validate()
     with _LOCK:
         if _original_alive(owner_id, command_id):
@@ -437,7 +439,10 @@ def reconcile_skill_hub_operation(*, owner_id: str, command_id: str, validate: C
         if not metadata or metadata["type"] not in {"skill.hub.install", "skill.hub.maintenance"}:
             raise SkillHubCommandError("skill_receipt_missing")
         kind = metadata["type"].rsplit(".", 1)[1]
+        stored = "receipt" in (admissions.read_command_receipt(owner_id, command_id) or {})
         result = _read_receipt(owner_id, command_id, kind)
+        if proven_only and not stored and not result["success"]:
+            return {"command_id": command_id, "settled": False, "message": result["message"]}
         validate()
         admissions.complete_command(owner_id, command_id, {"receipt": result})
         return {"command_id": command_id, "settled": True, "message": result["message"]}

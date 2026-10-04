@@ -201,17 +201,29 @@ def test_package_adds_need_this_computer_and_presets_never_unlock_risky_tools():
     assert presets.tool_state("read_only", {"effect": "read_only", "requires_approval": True}) == "off"
 
 
-def test_changing_access_later_applies_a_preset_without_retesting(item, owner):
+def test_switching_a_tool_off_keeps_its_approval_for_when_it_is_switched_back_on():
+    tools = {"catalog": {"click": {"effect": "interaction"}}, "enabled": {"click": True}, "require_approval": ["click"]}
+    presets.apply(tools, "read_only")
+    assert tools["enabled"]["click"] is False and tools["require_approval"] == ["click"]
+    presets.apply(tools, "full")
+    assert tools["enabled"]["click"] is True and tools["require_approval"] == []
+
+
+def test_changing_access_later_applies_a_preset_without_retesting_or_turning_anything_on(item, owner):
     _, plan = review(item)
     plan_id = str(uuid4())
     paused = api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"])
     digest = next(s for s in paused["steps"] if s["type"] == "access")["access"]["tools_digest"]
     assert plans.resume(context(tools_digest=digest), plan_id)["state"] == "completed"
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Synthetic"]["enabled"] = False
+    config.CONFIG_PATH.write_text(json.dumps(document))
     facts.invalidate()
     calls = list(owner.calls)
     _, change = review(item, intent="access")
     assert [(s["type"], s["state"]) for s in change["steps"]] == [
         ("consent", "pending"), ("test", "done"), ("access", "pending"), ("enable", "pending")]
+    assert change["consent"]["turns_on_mcp"] is False
     second = str(uuid4())
     paused = api.start_plan(context(), plan_id=second, item_id=item, intent="access", digest=change["digest"],
                             preset="read_only")
@@ -221,6 +233,89 @@ def test_changing_access_later_applies_a_preset_without_retesting(item, owner):
     assert presets.current(saved_tools()) == "read_only"
     assert saved_tools()["enabled"] == {"get_record": True, "delete_record": False, "unrecognized": False}
     assert "list_tools" not in owner.calls[len(calls):], "changing access does not run the server's discovery again"
+    assert config.read_saved_configuration().document["servers"]["Synthetic"]["enabled"] is False
+
+
+def test_turning_on_mcp_is_part_of_the_consent(item, owner):
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["enabled"] = False
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    facts.invalidate()
+    _, off = review(item)
+    assert off["consent"]["turns_on_mcp"] is True
+    document["enabled"] = True
+    document["servers"]["Synthetic"].update(source={"auth_mode": "api_key", "auth_bindings": [
+        {"kind": "env", "name": "SYNTHETIC_TOKEN", "key": "token"}]})
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    facts.invalidate()
+    _, on = review(item)
+    assert on["consent"]["turns_on_mcp"] is False and on["digest"] != off["digest"]
+    plan_id = str(uuid4())
+    assert api.start_plan(context(), plan_id=plan_id, item_id=item, digest=on["digest"])["pause"] == "inputs"
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["enabled"] = False  # Switched off while the plan waits: turning it back on was never agreed.
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    paused = plans.resume(context(inputs={"token": "fixture-private-key"}), plan_id)
+    digest = next(s for s in paused["steps"] if s["type"] == "access")["access"]["tools_digest"]
+    failed = plans.resume(context(tools_digest=digest), plan_id)
+    assert failed["state"] == "failed" and failed["message"] == plans._MESSAGES["plan_changed"]
+    assert config.read_saved_configuration().document["enabled"] is False and "catalog" not in saved_tools()
+
+
+def test_a_paused_plan_never_resumes_on_a_changed_launch_recipe(item, owner):
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Synthetic"].update(source={"auth_mode": "api_key", "auth_bindings": [
+        {"kind": "env", "name": "SYNTHETIC_TOKEN", "key": "token"}]})
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    facts.invalidate()
+    _, plan = review(item)
+    plan_id = str(uuid4())
+    assert api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"])["pause"] == "inputs"
+    document["servers"]["Synthetic"]["args"] = [*document["servers"]["Synthetic"].get("args", []), "--other"]
+    config.CONFIG_PATH.write_text(json.dumps(document))
+    failed = plans.resume(context(inputs={"token": "fixture-private-key"}), plan_id)
+    assert failed["state"] == "failed" and failed["message"] == plans._MESSAGES["plan_changed"]
+    assert owner.calls == [] and "auth" not in config.read_saved_configuration().document["servers"]["Synthetic"]
+
+
+def test_the_access_review_binds_the_preset(item, owner):
+    _, plan = review(item)
+    plan_id = str(uuid4())
+    paused = api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"], preset="ask")
+    asked = next(s for s in paused["steps"] if s["type"] == "access")["access"]
+    switched = plans.resume(context(tools_digest=asked["tools_digest"]), plan_id, preset="full")
+    access = next(s for s in switched["steps"] if s["type"] == "access")["access"]
+    assert switched["pause"] == "access" and access["preset"] == "full" and access["tools_digest"] != asked["tools_digest"]
+    assert "catalog" not in saved_tools(), "tools reviewed under one preset are never saved under another"
+
+
+def test_a_cancel_that_lands_while_a_continue_starts_wins(item, owner, monkeypatch):
+    _, plan = review(item)
+    plan_id = str(uuid4())
+    paused = api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"])
+    digest = next(s for s in paused["steps"] if s["type"] == "access")["access"]["tools_digest"]
+    load, raced = plans._load, []
+
+    def racing(owner_id, key):
+        value = load(owner_id, key)
+        if not raced:
+            raced.append(None)
+            raced[0] = plans.cancel(context(), key)
+        return value
+    monkeypatch.setattr(plans, "_load", racing)
+    calls = list(owner.calls)
+    with pytest.raises(plans.PlanError, match="plan_not_resumable"):
+        plans.resume(context(tools_digest=digest), plan_id)
+    assert raced[0]["state"] == "cancelled" and owner.calls == calls and "catalog" not in saved_tools()
+
+
+def test_another_owners_unfinished_plan_never_blocks_this_one(item, owner):
+    _, plan = review(item)
+    api.start_plan(context(), plan_id=str(uuid4()), item_id=item, digest=plan["digest"])
+    device = plans.Context(owner_id="device", mcp_owner_id="owner", validate=lambda: None)
+    detail, fresh = api.read_item(owner_id="device", item_id=item, context=device)
+    assert detail["plan"]["plan_id"] is None, "another owner's plan is neither shown nor holding the item"
+    assert api.start_plan(device, plan_id=str(uuid4()), item_id=item, digest=fresh["digest"])["pause"] == "access"
 
 
 class FakeRuntimes:
@@ -268,7 +363,11 @@ def test_node_and_package_preparation_run_in_the_background_and_resume(item, own
     assert [s["runtime"]["id"] for s in plan["steps"] if s["type"] == "runtime"] == ["node", "npm_package"]
     assert plan["consent"]["downloads"] == ["Node.js", "npm package"]
     runtimes, plan_id = FakeRuntimes(), str(uuid4())
-    ctx = context(runtimes=runtimes, read_policy=lambda operation: {})
+    remote = context(runtimes=runtimes, read_policy=lambda operation: {})
+    with pytest.raises(plans.PlanError, match="owner_local_only"):
+        api.start_plan(remote, plan_id=str(uuid4()), item_id=item, digest=plan["digest"])
+    assert runtimes.started == [] and prepared == [], "packages are prepared only from this computer"
+    ctx = context(runtimes=runtimes, read_policy=lambda operation: {}, local_owner=True)
     running = api.start_plan(ctx, plan_id=plan_id, item_id=item, digest=plan["digest"])
     assert running["state"] == "running" and runtimes.started == ["mcp.runtime.resolve"]
     assert plans.read_plan(ctx, plan_id)["state"] == "running", "a read never starts the next stage"
@@ -341,6 +440,17 @@ def test_servers_needing_manual_tool_choice_keep_every_tool_off(item, owner):
     access = next(s for s in paused["steps"] if s["type"] == "access")
     assert {t["state"] for t in access["access"]["tools"]} == {"off"} and "choose" in access["message"]
     assert plans.resume(context(tools_digest=access["access"]["tools_digest"]), plan_id)["state"] == "completed"
+    assert not any(saved_tools()["enabled"].values())
+    facts.invalidate()
+    _, change = review(item, intent="access")
+    assert not change["supported"] and "one by one" in change["unsupported_reason"]
+    from row_bot.application import capability_policy_controls as policy
+    from row_bot.application.capability_configuration_controls import read_mcp_configuration
+    revision = read_mcp_configuration(validate=lambda: None).revision
+    server_id = next(row for row in facts.inventory()[0] if row["id"] == item)["owner_ref"]
+    with pytest.raises(ValueError, match="mcp_policy_unavailable"):
+        policy.review_mcp_policy_command(revision, {"operation": "preset", "server_id": server_id, "preset": "full"},
+                                         validate=lambda: None)
     assert not any(saved_tools()["enabled"].values())
 
 
