@@ -185,8 +185,12 @@ def test_turn_off_and_remove_are_consented_plans_and_cleanup_is_part_of_the_cons
     facts.invalidate()
     _, plan = api.read_item(owner_id="owner", item_id=item, intent="turn_off")
     assert [s["type"] for s in plan["steps"]] == ["consent", "enable"]
+    from row_bot.application.capability_runtime_controls import read_mcp_runtime_state
+    server_id = facts.read(item)["owner_ref"]
+    assert read_mcp_runtime_state(server_id).state == "connected"
     done = api.start_plan(ctx(), plan_id=str(uuid4()), item_id=item, intent="turn_off", digest=plan["digest"])
     assert (done["state"], done["message"]) == ("completed", "Turned off.") and saved()["enabled"] is False
+    assert read_mcp_runtime_state(server_id).state in {"stopped", "missing"}  # Turning off stops the live session.
     _, keep = api.read_item(owner_id="owner", item_id=item, intent="remove")
     _, clean = api.read_item(owner_id="owner", item_id=item, intent="remove", cleanup=True)
     assert keep["digest"] != clean["digest"] and (keep["consent"]["cleanup"], clean["consent"]["cleanup"]) == (False, True)

@@ -697,15 +697,17 @@ def _policy(ctx: Context, record: dict, name: str, intent: dict) -> None:
         validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
 
 
-def _connection(ctx: Context, record: dict, name: str, operation: str) -> dict:
+def _connection(ctx: Context, record: dict, name: str, operation: str, live: Any = None) -> dict:
+    """Test, connect, or (given the ``live`` runtime state) disconnect, recorded before it is sent."""
     from row_bot.application.capability_runtime_controls import execute_mcp_runtime_command, review_mcp_runtime_command
 
     def build():
-        revision = _revision(ctx, record)
-        review = review_mcp_runtime_command(revision, record["server_id"], operation, None, validate=ctx.validate,
+        revision = live.cleanup_revision if live is not None else _revision(ctx, record)
+        runtime_id = live.runtime_id if live is not None else None
+        review = review_mcp_runtime_command(revision, record["server_id"], operation, runtime_id, validate=ctx.validate,
                                             target=record["target"])
         return _mcp_command("mcp.runtime.control", resource_revision=revision, server_id=record["server_id"],
-                            operation=operation, expected_runtime_id=None), review
+                            operation=operation, expected_runtime_id=runtime_id), review
     command, review = _once(record, name, build)
     result = execute_mcp_runtime_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
         validate=ctx.validate, validate_review=_bound(review), observe_seconds=5, target=record["target"])
@@ -911,7 +913,7 @@ def _mcp_change(ctx: Context, record: dict, step: dict) -> str:
     """Turn a connection off, or remove a standalone one (with its saved key when cleanup was chosen)."""
     if record["intent"] == "turn_off":
         _policy(ctx, record, "enable:off", {"operation": "server_enabled", "server_id": record["server_id"], "enabled": False})
-        return "done"
+        return _disconnect(ctx, record)
     from row_bot.application import capability_configuration_controls as configuration
 
     def build():
@@ -923,6 +925,18 @@ def _mcp_change(ctx: Context, record: dict, step: dict) -> str:
     _completed(configuration.execute_mcp_configuration_command(owner_id=ctx.mcp_owner_id, key=command["command_id"],
         command=command, validate=ctx.validate, validate_review=_bound(review)))
     return "done"
+
+
+def _disconnect(ctx: Context, record: dict) -> str:
+    """Turning off also stops a live session, so the connection really stops and can be checked again later."""
+    from row_bot.application.capability_runtime_controls import read_mcp_runtime_state
+    live = None
+    if "enable:disconnect" not in record["_commands"]:
+        live = read_mcp_runtime_state(record["server_id"], validate=ctx.validate, target=record["target"])
+        if live.runtime_id is None or live.state in {"stopping", "stopped", "missing"}:
+            return "done"
+    outcome = _connection(ctx, record, "enable:disconnect", "disconnect", live)
+    return "done" if outcome.get("state") in {"stopped", "missing"} or outcome.get("status") == "completed" else "running"
 
 
 def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:

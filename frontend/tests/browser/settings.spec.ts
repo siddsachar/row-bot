@@ -109,13 +109,6 @@ async function openSettingsRouteFromHome(
   page: Page,
   route: { linkName: string; path: string; headingName: string },
 ) {
-  const integrationEditor = route.path.endsWith('/mcp');
-  if (integrationEditor)
-    route = {
-      linkName: 'Integrations',
-      path: '/app-v2/settings/integrations',
-      headingName: 'Integrations',
-    };
   const navigation = page.getByRole('navigation', {
     name: 'Workspace navigation',
     exact: true,
@@ -147,7 +140,6 @@ async function openSettingsRouteFromHome(
     await expect(page.locator('.settings-pane-header h2')).toHaveText(
       route.headingName,
     );
-    if (integrationEditor) await showIntegrationEditor(page, 'mcp');
     return;
   }
 
@@ -164,27 +156,37 @@ async function openSettingsRouteFromHome(
       exact: true,
     });
   await activateRoute(page, routeLink, route);
-  if (integrationEditor) await showIntegrationEditor(page, 'mcp');
 }
 
-async function showIntegrationEditor(page: Page, kind: 'mcp' | 'skill') {
-  await page
-    .getByText('Advanced configuration and existing editors', { exact: true })
-    .click();
-  await page
-    .getByRole('button', {
-      name:
-        kind === 'mcp'
-          ? 'Custom MCP configuration and chat access'
-          : 'Create, import, pin and maintain skills',
-      exact: true,
-    })
-    .click();
+/** Settings › Apps › Advanced (catalogs, chats and runtimes), from Home. */
+async function openAppsAdvancedFromHome(page: Page) {
+  await openSettingsRouteFromHome(page, {
+    linkName: 'Apps',
+    path: '/app-v2/settings/apps',
+    headingName: 'Apps',
+  });
+  await page.getByRole('link', { name: 'Advanced', exact: true }).click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/apps\?view=advanced$/);
 }
 
-async function openIntegrationEditor(page: Page, kind: 'mcp' | 'skill') {
-  await page.goto('/app-v2/settings/integrations?type=' + kind);
-  await showIntegrationEditor(page, kind);
+/** One of your apps or skills, opened from its card in the library. */
+async function openInstalled(page: Page, name: string) {
+  await page
+    .getByRole('region', { name: /^Your (apps|skills)$/ })
+    .getByRole('link', { name: new RegExp(`^${name}`) })
+    .click();
+  // Its page is named by its heading (an unfinished plan may open over it).
+  await expect(page.getByRole('article', { name, exact: true })).toBeVisible();
+}
+
+/** An installed item's own editor: its page's ⋯ › Advanced settings. */
+async function openAdvancedSettings(page: Page, name: string) {
+  await chooseFromMenu(
+    page.getByRole('article', { name, exact: true }),
+    `More for ${name}`,
+    'Advanced settings',
+  );
+  await expect(page).toHaveURL(/[?&]edit=1$/);
 }
 
 async function openDocumentsFromHome(page: Page) {
@@ -239,7 +241,6 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'data',
   ] as const;
   const labels: Record<string, string> = {
-    mcp: 'MCP',
     knowledge: 'Memory',
     access: 'Devices & remote access',
   };
@@ -345,12 +346,7 @@ test('Owner-review narrow Settings keeps representative owners behind one access
   ).toBeHidden();
   await expect(picker).toBeVisible();
   expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  for (const id of [
-    'providers',
-    'documents',
-    'apps',
-    'preferences',
-  ] as const) {
+  for (const id of ['providers', 'documents', 'apps', 'preferences'] as const) {
     if ((await picker.inputValue()) !== id) await picker.selectOption(id);
     const label = id[0].toUpperCase() + id.slice(1);
     await expect(page).toHaveURL(new RegExp(`/app-v2/settings/${id}$`));
@@ -401,14 +397,15 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     await accessibility(page, info, `channels-saved-${appearance}`);
   }
 
-  await page.goto('/app-v2/settings/plugins');
+  // A package's saved configuration is its advanced settings, opened from its
+  // page under Your apps.
+  await page.goto('/app-v2/settings/apps');
+  await openInstalled(page, 'Synthetic settings plugin');
+  await openAdvancedSettings(page, 'Synthetic settings plugin');
   const plugins = page.getByRole('region', {
     name: 'Plugin Center',
     exact: true,
   });
-  await page
-    .getByRole('button', { name: 'Synthetic settings plugin', exact: true })
-    .click();
   const region = plugins.getByRole('combobox', {
     name: /^Region(?: |$)/,
   });
@@ -425,21 +422,17 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     await accessibility(page, info, `plugins-saved-${appearance}`);
   }
 
-  await openIntegrationEditor(page, 'skill');
+  // A skill's availability is in its advanced settings, from its page under
+  // Your skills.
+  await page.goto('/app-v2/settings/skills');
+  await openInstalled(page, 'Synthetic browser skill');
+  await openAdvancedSettings(page, 'Synthetic browser skill');
   const skills = page.getByRole('region', {
     name: 'Skills settings',
     exact: true,
   });
-  // The public skill hub has its own Search; submit the installed-skill search.
-  const skillSearch = skills.getByLabel('Search skills', { exact: true });
-  await skillSearch.fill('Synthetic browser skill');
-  await skillSearch.press('Enter');
-  const skill = skills.getByRole('listitem').filter({
-    hasText: 'Synthetic browser skill',
-  });
-  await expect(skill).toContainText('Available');
-  const available = skill.getByRole('switch', {
-    name: 'Synthetic browser skill available',
+  const available = skills.getByRole('switch', {
+    name: 'Available in chats',
     exact: true,
   });
   await expect(available).toBeChecked();
@@ -447,7 +440,9 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
   // saved outcome rather than on the click itself.
   await expect(available).toBeEnabled();
   await available.click();
-  await expect(skill).toContainText('Unavailable');
+  await expect(
+    skills.getByText('Skill change saved.', { exact: true }),
+  ).toBeVisible();
   await expect(available).not.toBeChecked();
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
@@ -914,8 +909,8 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
     expect(response.ok()).toBe(true);
     return response.json();
   };
-  await openIntegrationEditor(page, 'mcp');
-  // Runtimes are one status row at the top of the MCP page (B262).
+  await page.goto('/app-v2/settings/apps?view=advanced');
+  // Runtimes are one status row under Apps › Advanced › Apps in chats.
   const runtime = page.getByRole('group', {
     name: 'Node.js runtime',
     exact: true,
@@ -938,11 +933,7 @@ test('Managed runtimes install the reviewed exact archive with one Install and k
     synthetic_bytes: true,
   });
   await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'MCP',
-    path: '/app-v2/settings/mcp',
-    headingName: 'MCP',
-  });
+  await openAppsAdvancedFromHome(page);
   // The installed state is read again, not repeated, after navigation.
   await expect(
     runtime.getByText('Installed v1.2.3', { exact: true }),
@@ -1658,153 +1649,62 @@ test('Models catalog recovers an expired page cursor only when requested', async
   await accessibility(page, info, 'saved-models-empty');
 });
 
-test('MCP tested tools retain their review and accept the saved catalog without retesting', async ({
-  page,
-}, info) => {
-  const headers = {
-    'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-    Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
-  };
-  expect(
-    (await page.request.post('/__p4_fixture/mcp-catalog', { headers })).ok(),
-  ).toBe(true);
-  await openIntegrationEditor(page, 'mcp');
-  // A server's details open in a drawer from its name (B262).
-  await page
-    .getByRole('button', {
-      name: 'Synthetic lifecycle details',
-      exact: true,
-    })
-    .click();
-  const details = page.getByRole('dialog', {
-    name: 'Synthetic lifecycle',
-    exact: true,
-  });
-  const connection = details.getByRole('region', {
-    name: 'Connection',
-    exact: true,
-  });
-  // Test is reviewed by the server and runs in one step.
-  await connection.getByRole('button', { name: 'Test', exact: true }).click();
-  await expect(
-    connection.getByText(
-      'Test completed and the temporary connection closed.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  const catalog = details.getByRole('region', {
-    name: 'Accept tested MCP tools',
-    exact: true,
-  });
-  await expect(
-    catalog.getByText('3 tools found.', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    catalog.getByRole('listitem').filter({ hasText: 'delete_record' }),
-  ).toContainText('Stays off until you turn it on · asks first');
-  // The tested catalog is retained by its owner across navigation.
-  await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'MCP',
-    path: '/app-v2/settings/mcp',
-    headingName: 'MCP',
-  });
-  await catalog
-    .getByRole('button', { name: 'Accept tools', exact: true })
-    .click();
-  await expect(
-    catalog.getByText(
-      'Tools accepted. Check their switches under Tools before you connect; nothing was retested or started.',
-      { exact: true },
-    ),
-  ).toBeVisible();
-  expect(
-    (
-      await (
-        await page.request.get('/__p4_fixture/mcp-catalog', { headers })
-      ).json()
-    ).calls,
-  ).toEqual(['connect', 'list_tools']);
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `mcp-tested-catalog-${appearance}`);
-    await accessibility(page, info, `mcp-tested-catalog-${appearance}`);
-  }
-});
+/** The fixture's saved MCP connection, listed under Settings › Apps. */
+const SYNTHETIC_MCP = 'Synthetic lifecycle';
 
-test('MCP runtime reviews survive navigation and explicitly test connect disconnect the owned fake session', async ({
-  page,
-}, info) => {
-  const seed = await page.request.post('/__p4_fixture/mcp-runtime', {
-    headers: {
-      'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
-      Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
-    },
-  });
-  expect(seed.ok()).toBe(true);
-  await openIntegrationEditor(page, 'mcp');
+/**
+ * Setting a connection up is one plan on its page: after its consent the
+ * plan tests the server, then pauses on what its tools may do.
+ */
+async function continueSetup(page: Page) {
   await page
-    .getByRole('button', {
-      name: 'Synthetic lifecycle details',
-      exact: true,
-    })
+    .getByRole('button', { name: 'Continue setup', exact: true })
     .click();
-  const connection = page
-    .getByRole('dialog', { name: 'Synthetic lifecycle', exact: true })
-    .getByRole('region', { name: 'Connection', exact: true });
-  // Test, Connect and Disconnect are reviewed by the server and run in one
-  // step; the connection owner retains the outcome across navigation.
-  await connection.getByRole('button', { name: 'Test', exact: true }).click();
-  const tested = connection.getByText(
-    'Test completed and the temporary connection closed.',
-    { exact: true },
+  await page
+    .getByRole('dialog', { name: 'Continue setup', exact: true })
+    .getByRole('button', { name: 'Continue setup', exact: true })
+    .click();
+  const access = page.getByRole('dialog', {
+    name: `Here's what ${SYNTHETIC_MCP} can do`,
+    exact: true,
+  });
+  await expect(access).toBeVisible();
+  return access;
+}
+
+/** Turn off: a reviewed plan that stops the connection, keeping settings. */
+async function turnOff(page: Page) {
+  await chooseFromMenu(
+    page.getByRole('article', { name: SYNTHETIC_MCP, exact: true }),
+    `More for ${SYNTHETIC_MCP}`,
+    'Turn off',
   );
-  await expect(tested).toBeVisible();
-  await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'MCP',
-    path: '/app-v2/settings/mcp',
-    headingName: 'MCP',
-  });
-  await expect(tested).toBeVisible();
-  await connection
-    .getByRole('button', { name: 'Connect', exact: true })
-    .click();
-  await expect(
-    connection.getByText('Connected', { exact: true }),
-  ).toBeVisible();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `mcp-connected-${appearance}`);
-    await accessibility(page, info, `mcp-connected-${appearance}`);
-  }
-  await connection
-    .getByRole('button', { name: 'Disconnect', exact: true })
-    .click();
-  await expect(
-    connection.getByText('Disconnected.', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    connection.getByRole('button', { name: 'Connect', exact: true }),
-  ).toBeEnabled();
-  // The server's row follows with one action by state (B262).
   await page
-    .getByRole('button', { name: 'Close server details', exact: true })
+    .getByRole('dialog', { name: `Turn off ${SYNTHETIC_MCP}`, exact: true })
+    .getByRole('button', { name: 'Turn off', exact: true })
     .click();
-  const connect = page.getByRole('button', {
-    name: 'Connect Synthetic lifecycle',
+  await expect(page.getByText('Off', { exact: true })).toBeVisible();
+}
+
+/**
+ * Whether the live session is present, as the diagnostics in its advanced
+ * settings say; then back to its page.
+ */
+async function expectSession(page: Page, present: boolean) {
+  await openAdvancedSettings(page, SYNTHETIC_MCP);
+  await page.locator('summary', { hasText: 'Diagnostics' }).click();
+  const diagnostics = page.getByRole('region', {
+    name: 'MCP diagnostics',
     exact: true,
   });
-  const disconnect = page.getByRole('button', {
-    name: 'Disconnect Synthetic lifecycle',
-    exact: true,
-  });
-  await connect.click();
-  await disconnect.click();
-  await expect(connect).toBeVisible();
-});
+  await expect(diagnostics).toContainText(`${SYNTHETIC_MCP}: `);
+  if (present) await expect(diagnostics).toContainText('connection present');
+  else await expect(diagnostics).not.toContainText('connection present');
+  await page.getByRole('link', { name: 'Back', exact: true }).click();
+  await expect(
+    page.getByRole('article', { name: SYNTHETIC_MCP, exact: true }),
+  ).toBeVisible();
+}
 
 test('MCP saved permissions preserve mandatory approval and apply explicit reviewed access changes', async ({
   page,
@@ -1816,55 +1716,187 @@ test('MCP saved permissions preserve mandatory approval and apply explicit revie
     },
   });
   expect(seeded.ok()).toBe(true);
-  await openIntegrationEditor(page, 'mcp');
-  // "Use MCP servers" is the page's first switch; each change is reviewed by
-  // the server and saved in one step (B262).
-  const useMcp = page.getByRole('switch', {
-    name: 'Use MCP servers',
-    exact: true,
-  });
-  await expect(useMcp).toBeChecked();
-  await useMcp.click();
-  await expect(useMcp).toBeEnabled();
-  await expect(useMcp).not.toBeChecked();
-  await page
-    .getByRole('button', {
-      name: 'Synthetic lifecycle details',
+  // Narrowed: the global "Use MCP servers" switch and the resource and prompt
+  // access switches are gone; access is a preset with per-action choices.
+  await page.goto('/app-v2/settings/apps');
+  await openInstalled(page, SYNTHETIC_MCP);
+  const summary = page.getByText(/^\d+ of 2 actions on · /);
+  // read_record is on and asks; delete_record is off.
+  await expect(summary).toHaveText('1 of 2 actions on · Custom');
+  const change = async () => {
+    await page.getByRole('button', { name: 'Choose', exact: true }).click();
+    const sheet = page.getByRole('dialog', {
+      name: `Change what ${SYNTHETIC_MCP} can do`,
       exact: true,
-    })
-    .click();
-  const permissions = page
-    .getByRole('dialog', { name: 'Synthetic lifecycle', exact: true })
-    .getByRole('region', { name: 'Saved MCP permissions', exact: true });
-  const locked = permissions.getByRole('switch', {
-    name: 'Ask before delete_record runs',
-    exact: true,
-  });
-  await expect(locked).toBeChecked();
-  await expect(locked).toBeDisabled();
-  for (const [name, after] of [
-    ['Server access', false],
-    ['Use read_record', false],
-    ['Ask before read_record runs', true],
-    ['Resource access', true],
-    ['Prompt access', true],
-  ] as const) {
-    const control = permissions.getByRole('switch', { name, exact: true });
-    await control.click();
-    await expect(permissions.getByText(/Permission saved/)).toBeVisible();
-    await expect(control).toBeEnabled();
-    await permissions
-      .getByRole('button', { name: 'Refresh permissions', exact: true })
-      .click();
-    if (after) await expect(control).toBeChecked();
-    else await expect(control).not.toBeChecked();
+    });
+    await expect(sheet).toBeVisible();
+    await sheet.locator('summary', { hasText: 'Customise' }).click();
+    return sheet;
+  };
+  let sheet = await change();
+  // Both saved tools are approval-locked: neither can run without asking.
+  for (const tool of ['Read record', 'Delete record']) {
+    const choice = sheet.getByRole('combobox', {
+      name: `What ${tool} may do`,
+      exact: true,
+    });
+    await expect(
+      choice.getByRole('option', { name: 'Use without asking', exact: true }),
+    ).toHaveCount(0);
   }
+  await sheet
+    .getByRole('combobox', { name: 'What Delete record may do', exact: true })
+    .selectOption({ label: 'Ask first' });
   for (const appearance of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: appearance });
     await assertNoOverflow(page);
     await screenshot(page, info, `mcp-permissions-${appearance}`);
     await accessibility(page, info, `mcp-permissions-${appearance}`);
   }
+  // Saving is its own reviewed plan; the page reads the saved access again.
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(summary).toHaveText('2 of 2 actions on · Ask before changes');
+  await page.reload();
+  await expect(summary).toHaveText('2 of 2 actions on · Ask before changes');
+  // A preset applies to every tool it allows: Read only turns both off.
+  sheet = await change();
+  await sheet.getByRole('radio', { name: /^Read only/ }).check();
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(summary).toHaveText('0 of 2 actions on · Read only');
+});
+
+test('MCP tested tools retain their review and accept the saved catalog without retesting', async ({
+  page,
+}, info) => {
+  const headers = {
+    'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
+    Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
+  };
+  expect(
+    (await page.request.post('/__p4_fixture/mcp-catalog', { headers })).ok(),
+  ).toBe(true);
+  const calls = async () =>
+    (
+      await (
+        await page.request.get('/__p4_fixture/mcp-catalog', { headers })
+      ).json()
+    ).calls;
+  await page.goto('/app-v2/settings/apps');
+  await openInstalled(page, SYNTHETIC_MCP);
+  let access = await continueSetup(page);
+  const reviewTools = async () => {
+    await expect(
+      access.locator('summary', { hasText: 'Always asks first' }),
+    ).toBeVisible();
+    await access.locator('summary', { hasText: 'Customise' }).click();
+    await expect(
+      access.getByRole('combobox', { name: /^What .+ may do$/ }),
+    ).toHaveCount(3);
+    // Deleting asks first whatever is chosen: no choice runs it unasked.
+    const destructive = access.getByRole('combobox', {
+      name: 'What Delete record may do',
+      exact: true,
+    });
+    await expect(
+      destructive.getByRole('option', { name: 'Ask first', exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      destructive.getByRole('option', {
+        name: 'Use without asking',
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  };
+  await reviewTools();
+  expect(await calls()).toEqual(['connect', 'list_tools']);
+  // The paused plan keeps its tested tools across visits; nothing is tested
+  // again.
+  await page.goto('/app-v2/');
+  await openSettingsRouteFromHome(page, {
+    linkName: 'Apps',
+    path: '/app-v2/settings/apps',
+    headingName: 'Apps',
+  });
+  await openInstalled(page, SYNTHETIC_MCP);
+  access = page.getByRole('dialog', {
+    name: `Here's what ${SYNTHETIC_MCP} can do`,
+    exact: true,
+  });
+  await expect(access).toBeVisible();
+  await reviewTools();
+  expect(await calls()).toEqual(['connect', 'list_tools']);
+  for (const appearance of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await assertNoOverflow(page);
+    await screenshot(page, info, `mcp-tested-catalog-${appearance}`);
+    await accessibility(page, info, `mcp-tested-catalog-${appearance}`);
+  }
+  // Allow accepts the tools that were tested, then connects with them.
+  await access.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(access).toBeHidden();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('3 of 3 actions on · Ask before changes', { exact: true }),
+  ).toBeVisible();
+  expect(await calls()).toEqual([
+    'connect',
+    'list_tools',
+    'connect',
+    'list_tools',
+  ]);
+  // The next test reseeds this connection: turning it off stops the session.
+  await turnOff(page);
+});
+
+test('MCP connection setup survives navigation and turns the owned fake session on, off and on again', async ({
+  page,
+}, info) => {
+  const seed = await page.request.post('/__p4_fixture/mcp-runtime', {
+    headers: {
+      'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
+      Origin: new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin,
+    },
+  });
+  expect(seed.ok()).toBe(true);
+  await page.goto('/app-v2/settings/apps');
+  await openInstalled(page, SYNTHETIC_MCP);
+  // Test, Connect and Disconnect are steps of reviewed plans now: setup tests
+  // and connects, Turn off disconnects and Turn on connects again.
+  const access = await continueSetup(page);
+  await access.getByRole('button', { name: 'Allow', exact: true }).click();
+  const ready = page.getByText('Ready', { exact: true });
+  await expect(ready).toBeVisible();
+  await expectSession(page, true);
+  // The connection's state is read again, not repeated, after navigation.
+  await openHomeThroughNavigation(page);
+  await openSettingsRouteFromHome(page, {
+    linkName: 'Apps',
+    path: '/app-v2/settings/apps',
+    headingName: 'Apps',
+  });
+  await openInstalled(page, SYNTHETIC_MCP);
+  await expect(ready).toBeVisible();
+  for (const appearance of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await assertNoOverflow(page);
+    await screenshot(page, info, `mcp-connected-${appearance}`);
+    await accessibility(page, info, `mcp-connected-${appearance}`);
+  }
+  await turnOff(page);
+  await expectSession(page, false);
+  const turnOn = page.getByRole('button', { name: 'Turn on', exact: true });
+  await turnOn.click();
+  await page
+    .getByRole('dialog', { name: `Turn on ${SYNTHETIC_MCP}`, exact: true })
+    .getByRole('button', { name: 'Turn on', exact: true })
+    .click();
+  await expect(ready).toBeVisible();
+  await expect(turnOn).toHaveCount(0);
+  await expectSession(page, true);
+  // Later specs share this fixture: leave the session stopped.
+  await turnOff(page);
 });
 
 test('Document removal retains its review and original partial cleanup until explicit recovery', async ({
@@ -1960,19 +1992,24 @@ test('Document removal retains its review and original partial cleanup until exp
 test('MCP settings retain reviewed private fields and save add edit rename import disabled', async ({
   page,
 }, info) => {
-  await openIntegrationEditor(page, 'mcp');
   const editor = page.getByRole('region', {
     name: 'MCP configuration',
     exact: true,
   });
   const name = `Synthetic MCP ${info.project.name}`;
   const renamed = `${name} renamed`;
-  // Add server opens a dialog; Manual fills in the details (B262).
+  // Apps › Advanced › Add a custom connection opens the custom MCP editor on
+  // its Add a server dialog; Manual fills in the details.
   const addDialog = page.getByRole('dialog', {
     name: 'Add a server',
     exact: true,
   });
-  await editor.getByRole('button', { name: 'Add server', exact: true }).click();
+  const addCustom = page.getByRole('link', {
+    name: 'Add a custom connection',
+    exact: true,
+  });
+  await page.goto('/app-v2/settings/apps?view=advanced');
+  await addCustom.click();
   await addDialog.getByRole('radio', { name: 'Manual', exact: true }).click();
   await addDialog.getByLabel('Server name', { exact: true }).fill(name);
   await addDialog
@@ -1994,33 +2031,26 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await secretValue.fill('private-test-value');
   await expect(secretValue).toHaveAttribute('type', 'password');
   // Closed (and across navigation), the unsaved draft, write-only fields
-  // included, is kept by its owner; the page offers to continue it.
+  // included, is kept by its owner; the editor opens it again.
   await page.keyboard.press('Escape');
   await expect(addDialog).toBeHidden();
   await openHomeThroughNavigation(page);
-  await openSettingsRouteFromHome(page, {
-    linkName: 'MCP',
-    path: '/app-v2/settings/mcp',
-    headingName: 'MCP',
-  });
-  await expect(editor.getByText('You have an unsaved server.')).toBeVisible();
-  await editor.getByRole('button', { name: 'Continue', exact: true }).click();
-  await addDialog.getByRole('radio', { name: 'Manual', exact: true }).click();
+  await openAppsAdvancedFromHome(page);
+  await addCustom.click();
   await expect(addDialog.getByLabel('Command', { exact: true })).toHaveValue(
     'synthetic-unused-command',
   );
+  await expect(secretValue).toHaveValue('private-test-value');
   // Each save is reviewed by the server; a server is added turned off, and
-  // adding opens its details.
-  await addDialog
-    .getByRole('button', { name: 'Add turned off', exact: true })
-    .click();
+  // adding opens its page in Apps.
+  await addDialog.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(addDialog).toBeHidden();
-  await page
-    .getByRole('button', { name: 'Close server details', exact: true })
-    .click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/apps\/item\?id=mcp%3A/);
+  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  // Its page's Advanced settings edit only this server; the write-only
+  // command and additional settings are never read back.
+  await openAdvancedSettings(page, name);
   await expect(editor.getByText(/^Added\. It stays turned off/)).toBeVisible();
-  // Edit and Rename sit in the server's ⋯ menu; the write-only command and
-  // additional settings are never read back.
   await chooseFromMenu(editor, `More actions for ${name}`, 'Edit settings…');
   const editDialog = page.getByRole('dialog', {
     name: `Edit ${name}`,
@@ -2039,6 +2069,12 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await editDialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(editDialog).toBeHidden();
   await expect(editor.getByText(/^Saved\. It stays turned off/)).toBeVisible();
+  // Rename and import are in the custom editor, which lists every saved
+  // server (closing its Add dialog keeps nothing).
+  await page.goto('/app-v2/settings/apps/custom');
+  await expect(addDialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(addDialog).toBeHidden();
   await chooseFromMenu(editor, `More actions for ${name}`, 'Rename…');
   const renameDialog = page.getByRole('dialog', {
     name: `Rename ${name}`,
@@ -2054,7 +2090,14 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
   await expect(
     editor.getByRole('button', { name: `${renamed} details`, exact: true }),
   ).toBeVisible();
-  // Paste JSON adds each server in a standard mcpServers block, turned off.
+  for (const appearance of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: appearance });
+    await assertNoOverflow(page);
+    await screenshot(page, info, `mcp-settings-${appearance}`);
+    await accessibility(page, info, `mcp-settings-${appearance}`);
+  }
+  // Paste JSON adds each server in a standard mcpServers block, turned off,
+  // and opens the first one's page.
   await editor.getByRole('button', { name: 'Add server', exact: true }).click();
   await addDialog
     .getByRole('radio', { name: 'Paste JSON', exact: true })
@@ -2075,17 +2118,11 @@ test('MCP settings retain reviewed private fields and save add edit rename impor
     .click();
   await expect(addDialog).toBeHidden();
   await expect(
-    editor.getByRole('button', {
-      name: `Imported ${info.project.name} details`,
+    page.getByRole('heading', {
+      name: `Imported ${info.project.name}`,
       exact: true,
     }),
   ).toBeVisible();
-  for (const appearance of ['light', 'dark'] as const) {
-    await page.emulateMedia({ colorScheme: appearance });
-    await assertNoOverflow(page);
-    await screenshot(page, info, `mcp-settings-${appearance}`);
-    await accessibility(page, info, `mcp-settings-${appearance}`);
-  }
 });
 
 async function seedKnowledge(page: Page, state: 'populated' | 'empty') {

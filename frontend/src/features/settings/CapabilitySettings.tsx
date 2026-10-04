@@ -827,8 +827,10 @@ export default function CapabilitySettings({
           (typeof intent.fields?.name === 'string'
             ? intent.fields.name
             : 'New server');
-        // Adding ends by opening the new server's details (B262).
-        if (added && serverId) onConnection?.(serverId, nameOf(serverId));
+        // Adding ends by opening the new server's details (B262). A renamed
+        // server has a new identity, so a view scoped to the old one follows it.
+        if (serverId && (added || (only && only !== serverId)))
+          onConnection?.(serverId, nameOf(serverId));
       } else if (result.mcp_configuration?.code === 'mcp_cleanup_incomplete') {
         session.update({
           busy: '',

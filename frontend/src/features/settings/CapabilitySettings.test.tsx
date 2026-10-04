@@ -714,6 +714,36 @@ it('shows only the saved server it is scoped to', async () => {
   ).toBeVisible();
 });
 
+it('follows a server renamed in the view scoped to it, whose identity is its name', async () => {
+  const props = options();
+  const renamed = 'f'.repeat(64);
+  props.execute.mockImplementation(async (command) => ({
+    command_id: command.command_id,
+    status: 'completed',
+    mcp_configuration: {
+      status: 'saved',
+      revision: 'd'.repeat(64),
+      server_ids: [renamed],
+    },
+  }));
+  const onConnection = vi.fn();
+  render(
+    <CapabilitySettings
+      {...props}
+      only={serverId}
+      onConnection={onConnection}
+    />,
+  );
+  await chooseRow('Synthetic', 'Rename…');
+  fireEvent.change(screen.getByLabelText('New server name'), {
+    target: { value: 'Renamed synthetic' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+  await waitFor(() =>
+    expect(onConnection).toHaveBeenCalledWith(renamed, expect.any(String)),
+  );
+});
+
 it('opens Add once the saved servers load when asked to start adding', async () => {
   const props = options();
   const loaded = deferred<McpConfigurationPage>();
