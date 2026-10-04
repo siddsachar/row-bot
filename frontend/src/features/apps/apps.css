@@ -320,6 +320,10 @@
   align-items: center;
   gap: var(--space-2);
 }
+.access-tool-choice select {
+  width: 11rem; /* Every row's choice lines up, whichever options it offers. */
+  max-width: 100%;
+}
 .catalog-list li {
   display: flex;
   align-items: center;

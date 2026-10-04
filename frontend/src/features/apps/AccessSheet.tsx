@@ -107,7 +107,11 @@ export default function AccessSheet({
     <ModalTask
       open={open}
       title={title}
-      description="Choose how much it can do on its own. You can change this later."
+      description={
+        manual
+          ? 'Turn on what it may do. You can change this later.'
+          : 'Choose how much it can do on its own. You can change this later.'
+      }
       onOpenChange={(value) => {
         if (!value) onCancel();
       }}
