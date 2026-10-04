@@ -284,8 +284,6 @@ def _entry_from_clawhub_item(raw: dict[str, Any]) -> SkillHubEntry | None:
     skill = native.get("skill") if isinstance(native.get("skill"), dict) else {}
     stats = skill.get("stats") if isinstance(skill.get("stats"), dict) else {}
     publisher = raw.get("publisher") if isinstance(raw.get("publisher"), dict) else {}
-    identity = raw.get("sourceIdentity") if isinstance(raw.get("sourceIdentity"), dict) else {}
-    upstream = identity.get("repo") if identity.get("host") in {"github", "github.com"} else ""
     return SkillHubEntry(
         id=install_ref,
         name=name,
@@ -306,11 +304,11 @@ def _entry_from_clawhub_item(raw: dict[str, Any]) -> SkillHubEntry | None:
             "source_warning": _warning(),
             "risk": "high",
             "trust_level": "high-risk community",
-            # Publisher signals ClawHub provides, and the upstream repository when it names one.
-            "downloads": _count(raw.get("downloads", stats.get("downloads"))),
+            # Publisher signals ClawHub provides. (Its upstream repository names no folder, so it is
+            # not an identity: one repository holds many skills.)
+            "downloads": _count(raw.get("downloads") if raw.get("downloads") is not None else stats.get("downloads")),
             "stars": _count(stats.get("stars")),
             "official": raw.get("official") is True or publisher.get("official") is True,
-            **({"repository": upstream} if isinstance(upstream, str) and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", upstream) else {}),
         },
     )
 

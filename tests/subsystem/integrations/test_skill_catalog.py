@@ -13,7 +13,7 @@ PDF = ("Comprehensive PDF manipulation toolkit for extracting text and tables, c
 
 
 def clawhub(owner, *, summary=PDF, downloads=0, stars=0, official=False, repo=None, name="pdf"):
-    return {"displayName": name, "slug": "pdf", "ownerHandle": owner, "summary": summary, "downloads": downloads,
+    return {"displayName": name, "slug": name, "ownerHandle": owner, "summary": summary, "downloads": downloads,
             "official": official, "publisher": {"handle": owner, "official": official},
             "native": {"skill": {"stats": {"downloads": downloads, "stars": stars}}},
             "sourceIdentity": {"host": "github" if repo else None, "repo": repo, "owner": owner}}
@@ -68,10 +68,17 @@ def test_clawhub_forks_merge_into_the_official_or_most_used_copy_with_every_attr
     ]})
     skills(Fake("clawhub", entries))
     rows = search("pdf", "clawhub")
-    assert len(rows) == 2
-    merged = next(row for row in rows if len(row["attributions"]) == 3)
+    assert len(rows) == 3  # A truncated copy is not provably the same skill, so it stays separate.
+    merged = next(row for row in rows if len(row["attributions"]) == 2)
     assert merged["publisher"] == "popular" and merged["signals"] == {"downloads": 49993, "stars": 66, "official": False}
-    assert {a["publisher"] for a in merged["attributions"]} == {"popular", "forker", "truncated"}
+    assert {a["publisher"] for a in merged["attributions"]} == {"popular", "forker"}
+
+
+def test_skills_from_one_upstream_repository_stay_separate(skills):
+    skills(Fake("clawhub", parse_clawhub_payload({"results": [
+        clawhub("anthropics", name="pdf", repo="anthropics/skills", summary="Read, fill and merge PDF files."),
+        clawhub("anthropics", name="docx", repo="anthropics/skills", summary="Create and edit Word documents.")]})))
+    assert len(search("anthropics", "clawhub")) == 2
 
 
 def test_an_official_publisher_copy_leads_its_forks(skills):

@@ -67,8 +67,8 @@ def test_a_delta_update_merges_removes_and_swaps_the_mirror(local, monkeypatch):
     assert "updated_since=2026-09-30T23%3A50%3A00Z" in calls[0][0]  # The watermark, rewound ten minutes.
     assert names() == ["org.a/one", "org.c/three"]
     after = index.current()
-    assert after["file"] != before["file"] and after["watermark"] == "2026-10-03T10:00:00Z" and after["etag"] == '"v2"'
-    assert not (local / "catalogs" / before["file"]).exists()
+    assert after["file"] != before["file"] and after["etag"] == '"v2"'
+    assert registry_snapshot.instant(after["watermark"]) == "2026-10-03T10:00:00.000000000Z"
     assert sources.SOURCES["official"].row(index.lookup("org.c/three@1.0.0"))[0]["icon"].startswith("cached:")
 
 
@@ -169,3 +169,35 @@ def test_the_schedule_is_off_by_default_and_runs_only_due_sources(local, monkeyp
     assert "official" not in catalogs.run_due(now=lambda: 1_790_003_600) and "hermes" in started
     catalogs.set_schedule(enabled=False, interval_days=1)
     assert jobs == {} and catalogs.run_due() == []
+
+
+def test_watermarks_compare_as_instants_whatever_their_precision():
+    assert registry_snapshot.instant("2026-10-04T13:55:59.825784Z") > registry_snapshot.instant("2026-10-04T13:55:59Z")
+    assert registry_snapshot.instant("2026-10-04T13:55:59.5+00:00") == "2026-10-04T13:55:59.500000000Z"
+    assert registry_snapshot.instant("yesterday") == "" and registry_snapshot.instant(None) == ""
+
+
+def test_the_previous_generation_outlives_one_swap_for_searches_in_flight(local, monkeypatch):
+    use_registry(monkeypatch, local, entries("org.a/one"), watermark="2026-10-01T00:00:00Z")
+    first = index.current()["file"]
+    second = index.build(entries("org.a/one", "org.b/two"), captured_at=1, watermark="2026-10-02T00:00:00Z")["file"]
+    assert (local / "catalogs" / first).exists()  # A search that read the old pointer can still open it.
+    index.build(entries("org.a/one"), captured_at=1, watermark="2026-10-03T00:00:00Z")
+    assert not (local / "catalogs" / first).exists() and (local / "catalogs" / second).exists()
+
+
+def test_an_icon_failure_never_fails_an_update_that_already_swapped(local, monkeypatch):
+    use_registry(monkeypatch, local, entries("org.a/one"), watermark="2026-10-01T00:00:00Z")
+    registry_pages(monkeypatch, [{"servers": [envelope("org.c/three")], "metadata": {}}])
+    monkeypatch.setattr(icons, "cache_remote", lambda *a, **k: (_ for _ in ()).throw(OSError("read-only folder")))
+    assert catalogs.update("official", wait=True)["state"] == "done" and names() == ["org.a/one", "org.c/three"]
+
+
+def test_an_enabled_schedule_is_registered_even_if_the_index_cannot_be_built(local, monkeypatch):
+    registered = []
+    catalogs._write(lambda value: value.update(schedule={"enabled": True, "interval_days": 7}))
+    monkeypatch.setattr(catalogs, "_register", lambda: registered.append(True))
+    monkeypatch.setattr(index, "ensure", lambda: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError):
+        catalogs.start()
+    assert registered == [True]

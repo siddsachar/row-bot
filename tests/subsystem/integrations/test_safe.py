@@ -286,6 +286,13 @@ def test_a_proxy_still_bounds_size_and_strips_credentials_across_hosts(http, mon
     assert sent[0].headers["authorization"] == "Bearer catalog-token" and "authorization" not in sent[1].headers
 
 
+def test_a_proxy_written_without_a_scheme_is_an_http_proxy(http, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "proxy.corp.example:3128")
+    sent = http(lambda request: httpx.Response(200, content=b"ok"))
+    safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10)
+    assert sent.proxies == ["http://proxy.corp.example:3128"]
+
+
 @pytest.mark.parametrize("proxy", ["socks5://proxy.corp.example:1080", "ftp://proxy.corp.example", "http://:3128",
                                    "http://proxy.corp.example:notaport"])
 def test_unusable_proxy_settings_fall_back_to_a_checked_direct_connection(http, monkeypatch, proxy):

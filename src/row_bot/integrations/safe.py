@@ -72,6 +72,7 @@ def proxy_for(host: str) -> str | None:
     except (OSError, ValueError, TypeError):
         return None
     proxy = proxies.get("https") or proxies.get("all") or ""
+    proxy = proxy if "://" in proxy or not proxy else "http://" + proxy  # HTTPS_PROXY=proxy.corp:8080
     try:
         parts = urlsplit(proxy)
         parts.port  # A malformed port raises here.

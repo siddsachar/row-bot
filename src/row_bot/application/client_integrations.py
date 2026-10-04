@@ -106,7 +106,8 @@ def _search_source(source: str, *, owner_id: str, query: str, refresh: bool,
     return found.rows, found.statuses, found.references
 
 
-def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool, include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
+def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool,
+            include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
             validate: Callable[[], None]) -> tuple[dict, int]:
     """One bounded fan-out; immutable owner-bound pagination and late-result suppression."""
     registry = catalog.SOURCES
@@ -254,7 +255,8 @@ def preview_integration(*, owner_id: str, revision: str = "", item_id: str = "",
 
 def list_sources() -> dict:
     from row_bot.integrations import catalogs
-    return {"schema_version": 1, "items": [{**source.view(), "catalog": catalogs.state(source.id)}
+    states = catalogs.states()
+    return {"schema_version": 1, "items": [{**source.view(), "catalog": states.get(source.id)}
                                            for source in catalog.SOURCES.values()]}
 
 

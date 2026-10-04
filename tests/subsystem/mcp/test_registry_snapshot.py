@@ -78,7 +78,7 @@ def test_sync_pages_politely_with_updated_since_etag_backoff_and_deletions():
     assert calls[0][1]["If-None-Match"] == '"v1"' and "If-None-Match" not in calls[-1][1]
     assert sleeps == [0.25, 3.0] and len(calls) == 3
     assert sorted(e.metadata["canonical_name"] for e in result["entries"]) == ["org.a/x", "org.c/x"]
-    assert result["deleted"] == ["org.b/x"] and result["watermark"] == "2026-10-03T05:00:00Z" and result["etag"] == '"v2"'
+    assert result["deleted"] == ["org.b/x"] and result["watermark"] == "2026-10-03T05:00:00.000000000Z" and result["etag"] == '"v2"'
 
 
 def test_sync_not_modified_cancelled_and_runaway_cursors():

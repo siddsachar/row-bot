@@ -17,6 +17,7 @@ import json
 import lzma
 import math
 from pathlib import Path
+import re
 import time
 from urllib.parse import quote, urlencode
 
@@ -26,8 +27,8 @@ if TYPE_CHECKING:
 SOURCE = "https://registry.modelcontextprotocol.io/v0.1/servers"
 SHIPPED = Path(__file__).with_name("registry_snapshot.jsonl.xz")
 SCHEMA = 3
-MAX_RECORDS = 100_000
-MAX_BYTES = 64 * 1024 * 1024
+MAX_RECORDS = 250_000
+MAX_BYTES = 160 * 1024 * 1024
 MAX_AGE = 7 * 24 * 3600
 _FIXED = {"source": "official", "classification": "official-registry"}
 
@@ -53,6 +54,12 @@ def build_snapshot(entries: Iterable[MarketplaceEntry], *, captured_at: float, w
               "watermark": watermark, "complete": complete, "count": len(lines), "digest": hashlib.sha256(body).hexdigest()}
     text = json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n" + body + b"\n"
     return lzma.compress(text, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64, preset=6 | lzma.PRESET_EXTREME)
+
+
+def instant(value: object) -> str:
+    """A Registry timestamp in one fixed-width form that sorts as time ('' if it is not one)."""
+    found = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(?:Z|\+00:00)", str(value or ""))
+    return f"{found.group(1)}.{(found.group(2) or '').ljust(9, '0')}Z" if found else ""
 
 
 def _header(line: bytes) -> dict:
@@ -114,7 +121,7 @@ def _retry_after(exc: Exception, attempt: int) -> float | None:
 
 def sync(*, since: str = "", etag: str = "", cancelled: Callable[[], bool] = lambda: False,
          get: Callable[[str, dict, dict], bytes] | None = None, sleep: Callable[[float], None] | None = None,
-         pause: float = 0.25, max_pages: int = 600, deadline: float = 900) -> dict:
+         pause: float = 0.25, max_pages: int = 2500, deadline: float = 2700) -> dict:
     """Every latest Registry record, or those updated since a watermark (deleted ones included).
 
     Read-only and polite: one page at a time, a pause between pages, backoff on
@@ -126,7 +133,7 @@ def sync(*, since: str = "", etag: str = "", cancelled: Callable[[], bool] = lam
     params = {"limit": "100", "version": "latest", **({"updated_since": since} if since else {})}
     entries: dict[str, MarketplaceEntry] = {}
     deleted: set[str] = set()
-    cursor, seen, newest, saved_etag = "", set(), since, etag
+    cursor, seen, newest, saved_etag = "", set(), instant(since), etag
     stop = time.monotonic() + deadline
     for page in range(max_pages):
         meta: dict = {}
@@ -161,9 +168,7 @@ def sync(*, since: str = "", etag: str = "", cancelled: Callable[[], bool] = lam
             name = server.get("name") if isinstance(server, dict) else None
             if not isinstance(name, str) or not isinstance(official, dict):
                 continue
-            updated = official.get("updatedAt")
-            if isinstance(updated, str) and len(updated) <= 40 and updated > newest:
-                newest = updated
+            newest = max(newest, instant(official.get("updatedAt")))
             if official.get("status") == "deleted":
                 deleted.add(name)
                 entries.pop(name, None)

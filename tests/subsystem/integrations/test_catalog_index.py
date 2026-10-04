@@ -80,7 +80,6 @@ def test_a_newer_release_snapshot_rebuilds_and_an_older_one_keeps_the_mirror(loc
     first = index.current()
     use_registry(monkeypatch, local, [listing("org.a/one", "One"), listing("org.b/two", "Two")], watermark="2026-10-02T00:00:00Z")
     assert index.current()["count"] == 2 and index.current()["file"] != first["file"]
-    assert not (local / "catalogs" / first["file"]).exists()  # The old generation is removed.
     use_registry(monkeypatch, local, [listing("org.a/one", "One")], watermark="2026-09-01T00:00:00Z")
     assert index.current()["count"] == 2  # An older release snapshot never replaces a newer mirror.
     assert index.current()["digest"] != registry_snapshot.read_header()["digest"]

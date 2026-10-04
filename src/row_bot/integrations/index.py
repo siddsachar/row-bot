@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 import hashlib
 import json
 import lzma
@@ -24,6 +25,9 @@ import zlib
 
 from row_bot.integrations import apps
 from row_bot.integrations.safe import write_atomic
+
+if TYPE_CHECKING:
+    from row_bot.mcp_client.marketplace import MarketplaceEntry
 
 SCHEMA = 2
 LIMIT = 200
@@ -66,7 +70,7 @@ def epoch(day: str) -> int:
         return 0
 
 
-def derive(entry) -> dict:
+def derive(entry: MarketplaceEntry) -> dict:
     """What ranking needs about one record: its app, vendor verification, setup tier and freshness."""
     metadata = entry.metadata or {}
     refs = apps.registry_refs(metadata.get("canonical_name", "")) + apps.recipe_refs(entry.install)
@@ -94,6 +98,7 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
         by_name = {(entry.metadata or {}).get("canonical_name") or entry.id: entry for entry in entries}
         digest = hashlib.sha256()
         root = folder(create=True)
+        previous = (pointer() or {}).get("file", "")
         name = "registry-" + uuid4().hex[:16] + ".sqlite3"
         building = root / (name + ".building")
         try:
@@ -137,8 +142,9 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
                     pass
             raise
         _READY.clear()
+        # The previous generation stays one more build, for searches that already read the old pointer.
         for old in root.glob("registry-*.sqlite3*"):
-            if old.name != name:
+            if old.name not in {name, previous}:
                 try:
                     old.unlink()
                 except OSError:  # Still open in a reader (Windows); removed after a later build.
@@ -163,7 +169,8 @@ def ensure() -> dict:
         except (OSError, ValueError, EOFError, lzma.LZMAError):
             shipped = None
         # Keep a mirror that is newer than the release snapshot (or is that snapshot).
-        if current and (shipped is None or current["watermark"] > shipped["watermark"] or current["digest"] == shipped["digest"]):
+        if current and (shipped is None or current["digest"] == shipped["digest"]
+                        or registry_snapshot.instant(current["watermark"]) > registry_snapshot.instant(shipped["watermark"])):
             if current["apps"] == apps.digest():
                 _READY["key"] = (current["file"], shipped_key)
                 return current
@@ -183,7 +190,7 @@ def current() -> dict:
     return value
 
 
-def rows(index: dict | None = None) -> Iterator:
+def rows(index: dict | None = None) -> Iterator[MarketplaceEntry]:
     """Every record of the mirror in use."""
     from row_bot.mcp_client.registry_snapshot import expand
     index = index or current()
@@ -195,7 +202,7 @@ def rows(index: dict | None = None) -> Iterator:
         db.close()
 
 
-def lookup(entry_id: str):
+def lookup(entry_id: str) -> MarketplaceEntry | None:
     """One record by its ``name@version`` id, or None."""
     from row_bot.mcp_client.registry_snapshot import expand
     try:

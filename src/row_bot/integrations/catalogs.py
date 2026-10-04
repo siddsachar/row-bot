@@ -44,11 +44,20 @@ def _write(change: Callable[[dict], None]) -> dict:
         return value
 
 
+def states() -> dict[str, dict]:
+    """The last update of every updatable source, read once."""
+    saved = _read().get("sources") or {}
+    return {key: _view(key, saved.get(key) or {}) for key in updatable()}
+
+
 def state(source_id: str) -> dict | None:
     """The last update of an updatable source: ``{state, updated_at, checked_at, error, entries}``."""
     if source_id not in updatable():
         return None
-    saved = dict((_read().get("sources") or {}).get(source_id) or {})
+    return _view(source_id, (_read().get("sources") or {}).get(source_id) or {})
+
+
+def _view(source_id: str, saved: dict) -> dict:
     running = source_id in _RUNNING
     return {"state": "updating" if running else saved.get("state", "never"), "updated_at": saved.get("updated_at"),
             "checked_at": saved.get("checked_at"), "error": "" if running else saved.get("error", ""),
@@ -128,6 +137,8 @@ def run_due(now: Callable[[], float] = time.time) -> list[str]:
 
 def start() -> None:
     """At start-up: build the local Registry mirror if needed; schedule updates only if the user chose to."""
-    index.ensure()
-    if schedule()["enabled"]:
-        _register()
+    try:
+        if schedule()["enabled"]:
+            _register()
+    finally:
+        index.ensure()

@@ -56,12 +56,12 @@ def plain_text(value: object, limit: int = 600) -> str:
 
 def skill_identities(*, content_hash: str = "", origin: str = "", description: str = "") -> list[str]:
     """Keys that prove two listings are one skill: its content hash, its upstream folder, or
-    (when a catalog gives neither) the opening of a long declared description."""
+    (when a catalog gives neither) a long declared description, word for word."""
     keys = ["skill:sha:" + content_hash] if content_hash else []
     keys += ["skill:" + ref for ref in apps.repository_refs(origin)] if origin else []
-    words = re.sub(r"[^a-z0-9]+", " ", plain_text(description).casefold().rstrip(".\u2026")).strip()
+    words = re.sub(r"[^a-z0-9]+", " ", plain_text(description, 4096).casefold().rstrip(".\u2026")).strip()
     if len(words) >= 60:
-        keys.append("skill:text:" + hashlib.sha256(words[:100].encode("utf-8")).hexdigest()[:24])
+        keys.append("skill:text:" + hashlib.sha256(words.encode("utf-8")).hexdigest()[:24])
     return keys
 
 
@@ -228,7 +228,7 @@ class Registry(_McpCatalog):
         from row_bot.mcp_client import registry_snapshot
         current = index.ensure()
         try:
-            mark = datetime.fromisoformat(current["watermark"].replace("Z", "+00:00"))
+            mark = datetime.strptime(current["watermark"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
             fresh = datetime.now(timezone.utc) - mark < timedelta(days=180)
         except ValueError:
             fresh = False
@@ -240,10 +240,13 @@ class Registry(_McpCatalog):
             for name in result["deleted"]:
                 rows.pop(name, None)
             current = index.build(rows.values(), captured_at=current["captured_at"], etag=result["etag"],
-                                  watermark=max(current["watermark"], result["watermark"]), updated_at=time.time(),
-                                  cancelled=cancelled)
-        cached = icons.cache_remote(index.icon_urls(current), cancelled=cancelled)
-        return {"changed": len(result["entries"]) + len(result["deleted"]), "entries": current["count"], "icons": cached["cached"]}
+                                  watermark=max(current["watermark"], result["watermark"], key=registry_snapshot.instant),
+                                  updated_at=time.time(), cancelled=cancelled)
+        try:  # The mirror is already updated; icons are a best-effort extra.
+            cached = icons.cache_remote(index.icon_urls(current), cancelled=cancelled)["cached"]
+        except (OSError, ValueError):
+            cached = 0
+        return {"changed": len(result["entries"]) + len(result["deleted"]), "entries": current["count"], "icons": cached}
 
 
 class HermesMcp(Source):

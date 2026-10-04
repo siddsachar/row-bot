@@ -39,7 +39,7 @@ def _from_capture(path: Path, captured_at: str) -> tuple[list, float, str, bool]
     entries, watermark = {}, ""
     for envelope in records:
         official = ((envelope.get("_meta") or {}).get("io.modelcontextprotocol.registry/official") or {})
-        watermark = max(watermark, str(official.get("updatedAt") or ""))
+        watermark = max(watermark, registry_snapshot.instant(official.get("updatedAt")))
         for entry in registry_entries({"servers": [envelope]}):
             entries[entry.metadata["canonical_name"]] = entry
     return list(entries.values()), captured.timestamp(), watermark, data.get("complete") is True

@@ -15,8 +15,12 @@ import json
 from pathlib import Path
 import re
 import time
+from typing import TYPE_CHECKING
 
 from row_bot.integrations.safe import write_atomic
+
+if TYPE_CHECKING:
+    from row_bot.integrations.apps import App
 
 SIZE = 64
 MAX_BYTES = 256 * 1024
@@ -26,7 +30,7 @@ CACHE_BYTES = 20 * 1024 * 1024
 _PATH = re.compile(r"[MmLlHhVvCcSsQqTtAaZz0-9.,eE\s+-]{1,40000}")
 _CACHED = re.compile(r"cached:[0-9a-f]{32}")
 _PALETTE = ("#4F46E5", "#0E7490", "#B45309", "#047857", "#BE185D", "#6D28D9", "#1D4ED8", "#B91C1C")
-_SEEN: dict = {"key": None, "names": frozenset()}
+_SEEN: dict = {"key": None, "names": frozenset(), "checked": 0.0}
 
 
 @cache
@@ -61,18 +65,21 @@ def remote_id(url: str) -> str:
 
 
 def _cached() -> frozenset[str]:
-    """Names of the cached rasters, reread only when the folder changes."""
+    """Names of the cached rasters: the folder is checked at most once a second, reread when it changed."""
     path = folder()
+    if _SEEN["key"] and _SEEN["key"][0] == str(path) and time.monotonic() - _SEEN["checked"] < 1:
+        return _SEEN["names"]
     try:
         key = (str(path), path.stat().st_mtime_ns)
     except OSError:
         return frozenset()
     if _SEEN["key"] != key:
         _SEEN.update(key=key, names=frozenset("cached:" + item.stem for item in path.glob("*.png")))
+    _SEEN["checked"] = time.monotonic()
     return _SEEN["names"]
 
 
-def entry_icon(app, remote_url: str, name: str) -> str:
+def entry_icon(app: App | None, remote_url: str, name: str) -> str:
     """The app's mark, else a cached Registry raster, else a letter avatar. Never fetches."""
     from row_bot.integrations.apps import letter
     if app is not None and app.icon:
