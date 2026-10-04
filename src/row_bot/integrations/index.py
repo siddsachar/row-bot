@@ -20,18 +20,19 @@ import sqlite3
 import threading
 import time
 from uuid import uuid4
+import zlib
 
 from row_bot.integrations import apps
 from row_bot.integrations.safe import write_atomic
 
-SCHEMA = 1
+SCHEMA = 2
 LIMIT = 200
 _GENERATION = re.compile(r"registry-[0-9a-f]{16}\.sqlite3")
 _LOCK = threading.RLock()
 _READY: dict = {}
 _TABLES = """
 CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, title TEXT NOT NULL, app TEXT NOT NULL,
-    verified INTEGER NOT NULL, featured INTEGER, setup INTEGER NOT NULL, updated INTEGER NOT NULL, row TEXT NOT NULL);
+    verified INTEGER NOT NULL, featured INTEGER, setup INTEGER NOT NULL, updated INTEGER NOT NULL, icon TEXT, row BLOB NOT NULL);
 CREATE INDEX entries_app ON entries(app) WHERE app != '';
 CREATE VIRTUAL TABLE fts USING fts5(name, title, publisher, app_text, description, content='',
     tokenize='unicode61 remove_diacritics 2', prefix='2 3');
@@ -106,9 +107,11 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
                     found = derive(entry)
                     line = json.dumps(compact(entry), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
                     digest.update((b"\n" if count else b"") + line.encode("utf-8"))
-                    cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, row)"
-                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (name_key, entry.name, found["app"], int(found["verified"]),
-                        found["featured"], found["setup"], found["updated"], line))
+                    # Rows are stored compressed (their text repeats); icons get a column for updates.
+                    cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, icon, row)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (name_key, entry.name, found["app"], int(found["verified"]),
+                        found["featured"], found["setup"], found["updated"], (entry.metadata or {}).get("icon"),
+                        zlib.compress(line.encode("utf-8"))))
                     # Index the server part and the namespace; "io.github." alone would match half the Registry.
                     namespace, _, server = name_key.rpartition("/")
                     db.execute("INSERT INTO fts(rowid, name, title, publisher, app_text, description) VALUES (?, ?, ?, ?, ?, ?)",
@@ -187,7 +190,7 @@ def rows(index: dict | None = None) -> Iterator:
     db = _connect(folder() / index["file"])
     try:
         for (row,) in db.execute("SELECT row FROM entries ORDER BY name"):
-            yield expand(json.loads(row))
+            yield expand(json.loads(zlib.decompress(row)))
     finally:
         db.close()
 
@@ -203,7 +206,7 @@ def lookup(entry_id: str):
         found = db.execute("SELECT row FROM entries WHERE name = ?", (entry_id.rpartition("@")[0],)).fetchone()
     finally:
         db.close()
-    entry = expand(json.loads(found[0])) if found else None
+    entry = expand(json.loads(zlib.decompress(found[0]))) if found else None
     return entry if entry and entry.id == entry_id else None
 
 
@@ -213,8 +216,8 @@ def icon_urls(index: dict | None = None) -> list[str]:
     index = index or current()
     db = _connect(folder() / index["file"])
     try:
-        return [url for (url,) in db.execute("SELECT json_extract(row, '$.metadata.icon') AS url FROM entries "
-                                             "WHERE url IS NOT NULL ORDER BY app = '', NOT verified, updated DESC, name")]
+        return [url for (url,) in db.execute("SELECT icon FROM entries WHERE icon IS NOT NULL "
+                                             "ORDER BY app = '', NOT verified, updated DESC, name")]
     finally:
         db.close()
 
@@ -255,8 +258,8 @@ def search(query: str, *, limit: int = LIMIT, now: float | None = None) -> tuple
         else:
             top = db.execute(select + "WHERE e.app != '' " + _ORDER.format(strong="1"), values).fetchall()
             total = db.execute("SELECT count(*) FROM entries WHERE app != ''").fetchone()[0]
-        results = [(expand(json.loads(row[5])), {"app": row[1], "verified": bool(row[2]), "setup": row[3], "updated": row[4]})
-                   for row in top]
+        results = [(expand(json.loads(zlib.decompress(row[5]))), {"app": row[1], "verified": bool(row[2]), "setup": row[3],
+                                                                   "updated": row[4]}) for row in top]
         return results, total, index
     finally:
         db.close()
