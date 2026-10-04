@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "consent_token": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Consent Token",
+      "type": "string"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Digest",
+      "type": "string"
+    },
+    "inputs": {
+      "additionalProperties": {
+        "maxLength": 16384,
+        "type": "string"
+      },
+      "maxProperties": 16,
+      "propertyNames": {
+        "maxLength": 128
+      },
+      "title": "Inputs",
+      "type": "object"
+    },
+    "intent": {
+      "anyOf": [
+        {
+          "enum": [
+            "connect",
+            "add",
+            "turn_on",
+            "fix",
+            "access"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "",
+          "type": "string"
+        }
+      ],
+      "default": "",
+      "title": "Intent"
+    },
+    "item_id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Item Id",
+      "type": "string"
+    },
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "preset": {
+      "anyOf": [
+        {
+          "enum": [
+            "read_only",
+            "ask",
+            "full"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "",
+          "type": "string"
+        }
+      ],
+      "default": "",
+      "title": "Preset"
+    },
+    "revision": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Revision",
+      "type": "string"
+    },
+    "tools_digest": {
+      "default": "",
+      "maxLength": 64,
+      "title": "Tools Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "item_id",
+    "digest",
+    "consent_token"
+  ],
+  "title": "PlanStartRequest",
+  "type": "object"
+}

@@ -1011,7 +1011,7 @@ _STATUS.update(
 )
 
 
-_STATUS.update(dict.fromkeys(('integration_inventory_limit', 'invalid_integration_query', 'integration_import_type_required', 'integration_preview_expired', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
+_STATUS.update(dict.fromkeys(('plan_changed', 'plan_unsupported', 'plan_not_resumable', 'invalid_access_preset', 'invalid_integration_query', 'integration_import_type_required', 'integration_preview_expired', 'invalid_mcp_auth', 'invalid_mcp_target', 'mcp_auth_busy', 'mcp_auth_callback_invalid', 'mcp_auth_callback_unavailable', 'mcp_auth_configuration_changed', 'mcp_auth_connection_unavailable', 'mcp_auth_denied', 'mcp_auth_expired', 'mcp_auth_flow_unavailable', 'mcp_auth_not_completed', 'mcp_auth_state_invalid', 'mcp_oauth_http_required', 'mcp_auth_endpoint_invalid', 'mcp_auth_issuer_mismatch', 'mcp_auth_origin_mismatch', 'mcp_auth_redirect_refused', 'mcp_credentials_endpoint_changed', 'mcp_credentials_too_large', 'mcp_credentials_unavailable', 'invalid_credential_reference', 'mcp_durable_storage_required', 'mcp_sign_in_required', 'mcp_package_recipe_unsupported', 'mcp_package_install_scripts_unsupported', 'mcp_package_locked_dependencies_required', 'mcp_package_integrity_required', 'mcp_package_integrity_changed', 'mcp_package_invalid', 'mcp_package_node_required', 'mcp_package_preparation_required', 'mcp_package_preview_capacity', 'mcp_package_preview_expired', 'mcp_package_source_invalid', 'mcp_package_too_large', 'package_link_or_collision', 'unsafe_package_path', 'hermes_recipe_unsupported', 'package_download_too_large', 'package_preview_changed', 'package_preview_expired', 'package_source_not_supported', 'package_source_removed', 'plugin_child_owned', 'plugin_child_parent_owned', 'plugin_child_source_immutable', 'plugin_mcp_state_unavailable', 'plugin_package_state_unavailable'), 409))
 
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).
@@ -4448,23 +4448,143 @@ def create_router(
     @router.post("/settings/integrations/operations/{kind}/{command_id}/reconcile")
     async def integration_reconcile(kind: str, command_id: UUID, request: Request) -> JSONResponse:
         current = await session(request, lane="mutation")
+        if kind not in {"plugin", "skill", "mcp"}:
+            raise ProtocolError("not_found", 404)
         if kind == "plugin":
             await plugin_lifecycle_authority(request)
-            from row_bot.application.client_plugin_lifecycle import reconcile_plugin_operation as reconcile
-        elif kind == "skill":
-            from row_bot.application.client_skill_hub import reconcile_skill_hub_operation as reconcile
-        elif kind == "mcp":
-            from row_bot.runtime import admissions
-            metadata = await call(admissions.read_command_metadata, security.instance_id, str(command_id))
-            if metadata and metadata["type"] == "mcp.runtime.control":
-                from row_bot.application.capability_runtime_controls import reconcile_mcp_runtime_operation as reconcile
-            else:
-                from row_bot.application.capability_configuration_controls import reconcile_mcp_configuration_operation as reconcile
-        else:
-            raise ProtocolError("not_found", 404)
-        result = await call(reconcile, owner_id=security.instance_id if kind == "mcp" else await integration_owner(request), command_id=str(command_id),
-            validate=dispatch_validation(request, current))
+        from row_bot.integrations.facts import reconcile_command
+        result = await call(reconcile_command, security.instance_id if kind == "mcp" else await integration_owner(request),
+            str(command_id), kind, dispatch_validation(request, current))
         return await respond(request, dto.IntegrationOperationResult, result)
+
+    async def oauth_callback(request: Request) -> str:
+        """The loopback (local owner) or single approved public origin for MCP sign-in."""
+        from row_bot.application.client_mcp_auth import callback_uri
+        context = await _context(request)
+        server_address = request.scope.get("server")
+        local_origin = None
+        if context.direct_loopback and context.is_local_owner and server_address:
+            host, port = server_address
+            if host in {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"} and isinstance(port, int) and 0 < port <= 65535:
+                local_origin = f"{request.scope.get('scheme', 'http')}://127.0.0.1:{port}"
+        return callback_uri(local_origin=local_origin, public_origins=tuple(request.scope.get("row_bot_public_origins", ())))
+
+    async def plan_context(request: Request, current: Any, **fields: Any) -> Any:
+        from row_bot.integrations.plans import Context
+        context = await _context(request)
+        try:
+            redirect = await oauth_callback(request)
+        except ValueError:
+            redirect = ""
+        return Context(owner_id=await integration_owner(request), mcp_owner_id=security.instance_id,
+            validate=dispatch_validation(request, current), local_owner=context.is_local_owner and context.direct_loopback,
+            redirect_uri=redirect, runtimes=runtime_installations, read_policy=installation_policy, **fields)
+
+    @router.get("/integrations/sources")
+    async def integration_sources(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_integrations import list_sources
+        return await respond(request, dto.IntegrationSourceList, list_sources())
+
+    @router.get("/integrations/presets")
+    async def integration_presets(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_integrations import list_presets
+        return await respond(request, dto.AccessPresetList, list_presets())
+
+    @router.get("/integrations/items")
+    async def integration_items(request: Request, query: str = "", kind: str = "all", scope: str = "installed",
+                                cursor: str | None = None, limit: int = 50) -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_integrations import read_items
+        result = await call(read_items, owner_id=await integration_owner(request), query=query, kind=kind, scope=scope,
+            cursor=cursor, limit=limit, validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationEntryPage, result)
+
+    @router.post("/integrations/items/search")
+    async def integration_item_search(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.IntegrationSearchRequest, 4096)
+        from row_bot.application.client_integrations import search_items
+        import threading
+        stopped = threading.Event()
+        owner = await integration_owner(request)
+
+        async def watch_disconnect() -> None:
+            while not stopped.is_set():
+                if await request.is_disconnected():
+                    stopped.set()
+                    return
+                await asyncio.sleep(0.05)
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            result = await call(search_items, owner_id=owner, **body.model_dump(mode="json"),
+                cancelled=stopped.is_set, validate=dispatch_validation(request, current))
+            return await respond(request, dto.IntegrationEntryPage, result)
+        finally:
+            stopped.set()
+            watcher.cancel()
+
+    @router.get("/integrations/detail")
+    async def integration_detail_v2(request: Request, item_id: str, revision: str = "", intent: str = "") -> JSONResponse:
+        current = await session(request)
+        from row_bot.application.client_integrations import read_item
+        detail, _plan = await call(read_item, owner_id=await integration_owner(request), item_id=item_id, revision=revision,
+            intent=intent, validate=dispatch_validation(request, current))
+        return await respond(request, dto.IntegrationDetail, detail)
+
+    @router.post("/integrations/plans/review")
+    async def integration_plan_review(request: Request) -> JSONResponse:
+        """The plan to consent to, with a token bound to this session and the plan digest."""
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.PlanReviewRequest, 4096)
+        from row_bot.application.client_integrations import read_item
+        detail, plan = await call(read_item, owner_id=await integration_owner(request), item_id=body.item_id,
+            revision=body.revision, intent=body.intent, validate=dispatch_validation(request, current))
+        if plan is None:
+            raise ProtocolError("plan_unsupported", 409)
+        if plan["supported"]:
+            detail["plan"]["consent_token"] = security.approval_nonce(current, "integrations:plan:" + body.item_id,
+                plan["digest"], plan["digest"])
+        return await respond(request, dto.InstallPlan, detail["plan"])
+
+    @router.post("/integrations/plans")
+    async def integration_plan_start(request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.PlanStartRequest, 131072)
+        if request.headers.get("idempotency-key", "") != str(body.plan_id):
+            raise ProtocolError("idempotency_mismatch", 409)
+        # Consent: nothing runs unless this session agreed to exactly this plan.
+        security.consume_nonce(current, "integrations:plan:" + body.item_id, body.digest, body.digest,
+            body.consent_token, str(body.plan_id))
+        from row_bot.application.client_integrations import start_plan
+        context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest)
+        result = await call(start_plan, context, plan_id=str(body.plan_id), item_id=body.item_id, revision=body.revision,
+            intent=body.intent, digest=body.digest, preset=body.preset)
+        return await respond(request, dto.InstallPlan, result)
+
+    @router.get("/integrations/plans/{plan_id}")
+    async def integration_plan(plan_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request)
+        from row_bot.integrations.plans import read_plan
+        result = await call(read_plan, await plan_context(request, current), str(plan_id))
+        return await respond(request, dto.InstallPlan, result)
+
+    @router.post("/integrations/plans/{plan_id}/continue")
+    async def integration_plan_continue(plan_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request, lane="mutation")
+        body = await _body(request, dto.PlanContinueRequest, 131072)
+        from row_bot.integrations.plans import resume
+        context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest)
+        result = await call(resume, context, str(plan_id), preset=body.preset)
+        return await respond(request, dto.InstallPlan, result)
+
+    @router.post("/integrations/plans/{plan_id}/cancel")
+    async def integration_plan_cancel(plan_id: UUID, request: Request) -> JSONResponse:
+        current = await session(request, lane="control")
+        from row_bot.integrations.plans import cancel
+        result = await call(cancel, await plan_context(request, current), str(plan_id))
+        return await respond(request, dto.InstallPlan, result)
 
     @router.post("/settings/plugins/lifecycle/review")
     async def plugin_lifecycle_review(request: Request) -> JSONResponse:
@@ -7053,16 +7173,8 @@ def create_router(
             raise ProtocolError("invalid_command", 422)
         if request.headers.get("idempotency-key", "") != str(body.command_id):
             raise ProtocolError("idempotency_mismatch", 409)
-        from row_bot.application.client_mcp_auth import execute_auth, callback_uri
-        context = await _context(request)
-        server_address = request.scope.get("server")
-        local_origin = None
-        if context.direct_loopback and context.is_local_owner and server_address:
-            host, port = server_address
-            if host in {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"} and isinstance(port, int) and 0 < port <= 65535:
-                local_origin = f"{request.scope.get('scheme', 'http')}://127.0.0.1:{port}"
-        redirect = callback_uri(local_origin=local_origin,
-            public_origins=tuple(request.scope.get("row_bot_public_origins", ()))) if body.action == "start" and body.mode == "oauth" else ""
+        from row_bot.application.client_mcp_auth import execute_auth
+        redirect = await oauth_callback(request) if body.action == "start" and body.mode == "oauth" else ""
         def reviewed(value: dict) -> None:
             security.consume_nonce(current, "settings:mcp-auth:" + body.server_id, value["configuration_revision"],
                 value["action_digest"], body.nonce, str(body.command_id))

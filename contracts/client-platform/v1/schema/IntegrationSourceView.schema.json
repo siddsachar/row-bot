@@ -1,0 +1,79 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "access": {
+      "enum": [
+        "local",
+        "snapshot",
+        "public",
+        "unavailable"
+      ],
+      "title": "Access",
+      "type": "string"
+    },
+    "eligibility": {
+      "enum": [
+        "eligible",
+        "explicit_only",
+        "auth_required",
+        "contract_unresolved",
+        "unsupported"
+      ],
+      "title": "Eligibility",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "id": {
+      "pattern": "^[a-z0-9_]{1,40}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kinds": {
+      "items": {
+        "enum": [
+          "skill",
+          "mcp",
+          "plugin"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Kinds",
+      "type": "array"
+    },
+    "label": {
+      "maxLength": 80,
+      "title": "Label",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 512,
+      "title": "Message",
+      "type": "string"
+    },
+    "network": {
+      "enum": [
+        "none",
+        "explicit"
+      ],
+      "title": "Network",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "kinds",
+    "label",
+    "access",
+    "eligibility",
+    "network",
+    "enabled",
+    "message"
+  ],
+  "title": "IntegrationSourceView",
+  "type": "object"
+}

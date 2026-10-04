@@ -319,17 +319,18 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     """A catalog entry by its stable id from local data only; never contacts a source."""
     kind, _, reference = item_id.partition(":")
     source_id = reference.partition(":")[0]
+    found = None
     if kind == "mcp" and source_id in {"curated", "official"}:
         adapter = SOURCES["recommended" if source_id == "curated" else "official"]
         entry = adapter.lookup(reference)
-        return adapter.row(entry) if entry else None
-    if kind == "plugin" and reference.startswith("hermes:"):
+        found = adapter.row(entry) if entry else None
+    elif kind == "plugin" and reference.startswith("hermes:"):
         entry = SOURCES["hermes"].lookup(reference)
-        return SOURCES["hermes"].row(entry) if entry else None
-    if kind == "plugin":
+        found = SOURCES["hermes"].row(entry) if entry else None
+    elif kind == "plugin":
         example = SOURCES["examples"].lookup(reference)
-        return SOURCES["examples"].row(*example) if example else None
-    return None
+        found = SOURCES["examples"].row(*example) if example else None
+    return (facts.finish(found[0]), found[1]) if found else None
 
 
 def rank(rows: list[dict], query: str) -> list[dict]:

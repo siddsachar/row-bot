@@ -1,7 +1,6 @@
-import type {
-  IntegrationSearchRequest,
-  IntegrationItem,
-} from '../../api/types';
+import { useEffect, useState } from 'react';
+import type { IntegrationItem, IntegrationSourceView } from '../../api/types';
+import { useRuntime } from '../../runtime';
 export type Kind = 'skill' | 'mcp' | 'plugin';
 export const categories = [
   {
@@ -24,38 +23,35 @@ export const categories = [
     note: 'Packages',
   },
 ] as const;
-export type Source = NonNullable<IntegrationSearchRequest['sources']>[number];
-// Identifiers only. Eligibility and access policy always come from the server.
-export const catalogs: Record<Kind, Source[]> = {
-  mcp: [
-    'recommended',
-    'official',
-    'hermes_mcp',
-    'glama',
-    'pulsemcp',
-    'smithery',
-  ],
-  skill: ['clawhub', 'github', 'skills_sh', 'browse_sh', 'lobehub'],
-  plugin: ['hermes', 'native', 'clawhub_plugins'],
-};
-export const sourceNames: Partial<Record<Source, string>> = {
-  recommended: 'Vendor recommendations',
-  official: 'Official MCP Registry',
-  hermes_mcp: 'Hermes MCP recipes',
-  hermes: 'Hermes',
-  native: 'Row-Bot marketplace',
-  clawhub: 'ClawHub',
-  github: 'GitHub',
-  skills_sh: 'skills.sh',
-  browse_sh: 'browse.sh',
-  lobehub: 'LobeHub',
-  glama: 'Glama',
-  pulsemcp: 'PulseMCP',
-  smithery: 'Smithery',
-  clawhub_plugins: 'ClawHub plugins',
-};
+export type Source = string;
+// Ids, labels and eligibility come from the server; nothing here decides access.
+let known: IntegrationSourceView[] = [];
 export const sourceName = (source: string) =>
-  sourceNames[source as Source] ?? source;
+  known.find((item) => item.id === source)?.label ?? source;
+export const sourcesFor = (
+  kind: Kind | 'all',
+  list: IntegrationSourceView[] = known,
+) =>
+  list
+    .filter((item) => kind === 'all' || item.kinds.includes(kind))
+    .map((item) => item.id);
+export function useSources(): IntegrationSourceView[] {
+  const { controller } = useRuntime();
+  const [sources, setSources] = useState(known);
+  useEffect(() => {
+    if (known.length) return;
+    const abort = new AbortController();
+    void controller
+      .integrationSources(abort.signal)
+      .then((list) => {
+        known = list?.items ?? [];
+        if (!abort.signal.aborted) setSources(known);
+      })
+      .catch(() => undefined);
+    return () => abort.abort();
+  }, [controller]);
+  return sources;
+}
 const key = 'row-bot.integrations.preferences.v1';
 export type Preferences = { category: Kind | ''; disabled: Source[] };
 export function readPreferences(): Preferences {
@@ -66,9 +62,7 @@ export function readPreferences(): Preferences {
         ? saved.category
         : '',
       disabled: Array.isArray(saved.disabled)
-        ? saved.disabled.filter((s: Source) =>
-            Object.values(catalogs).flat().includes(s),
-          )
+        ? saved.disabled.filter((s: unknown) => typeof s === 'string')
         : [],
     };
   } catch {

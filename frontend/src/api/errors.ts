@@ -72,8 +72,23 @@ const CANT_DO_FROM_HERE: Entry = [
 ];
 
 const CATALOG: Record<string, Entry> = {
-  integration_inventory_limit: [
-    'The saved inventory is too large to show completely. Use the specialized editor to inspect it.',
+  plan_changed: [
+    'Something changed since you agreed. Review it again before continuing.',
+    'review',
+    MCP,
+  ],
+  plan_unsupported: [
+    "Row-Bot can't set this up yet. Open its details to see why.",
+    'review',
+    MCP,
+  ],
+  plan_not_resumable: [
+    'This setup already finished or was stopped. Start again if you still need it.',
+    'review',
+    MCP,
+  ],
+  invalid_access_preset: [
+    'Choose Read only, Ask before changes or Full access.',
     'review',
     MCP,
   ],

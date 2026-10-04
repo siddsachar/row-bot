@@ -16,6 +16,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after path bootstrap
 
 MODELS = {name: getattr(schemas, name) for name in (
+    "IntegrationSourceView", "IntegrationSourceList", "AccessPresetView", "AccessPresetList", "AppRef", "IntegrationBlocker",
+    "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanLocalApp",
+    "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
+    "PlanStartRequest", "PlanContinueRequest",
     "IntegrationUse", "IntegrationAttribution", "IntegrationOperationResult", "IntegrationItem", "IntegrationSourceStatus", "IntegrationPage", "IntegrationSearchRequest", "IntegrationPreviewRequest", "IntegrationPreview", "PortablePackagePreview", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
     "Command", "Event", "Handshake", "Problem", "Outcome", "ResourceBinding",
     "PreviewContract", "CommandReceipt", "AttachmentView", "SessionProof",
@@ -99,6 +103,16 @@ MODELS = {name: getattr(schemas, name) for name in (
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
 # drives OpenAPI and is checked against the actual router in the contract tests.
 OPERATIONS = (
+    ('get', '/integrations/sources', None, 'IntegrationSourceList'),
+    ('get', '/integrations/presets', None, 'AccessPresetList'),
+    ('get', '/integrations/items', None, 'IntegrationEntryPage'),
+    ('post', '/integrations/items/search', 'IntegrationSearchRequest', 'IntegrationEntryPage'),
+    ('get', '/integrations/detail', None, 'IntegrationDetail'),
+    ('post', '/integrations/plans/review', 'PlanReviewRequest', 'InstallPlan'),
+    ('post', '/integrations/plans', 'PlanStartRequest', 'InstallPlan'),
+    ('get', '/integrations/plans/{plan_id}', None, 'InstallPlan'),
+    ('post', '/integrations/plans/{plan_id}/continue', 'PlanContinueRequest', 'InstallPlan'),
+    ('post', '/integrations/plans/{plan_id}/cancel', None, 'InstallPlan'),
     ('post', '/settings/integrations/operations/{kind}/{command_id}/reconcile', None, 'IntegrationOperationResult'),
     ('get', '/settings/integrations', None, 'IntegrationPage'),
     ('get', '/settings/integrations/{integration_id}', None, 'IntegrationItem'),
@@ -1151,6 +1165,26 @@ export const reviewMcpRuntime = (base: string, proof: SessionProof, body: McpRun
   jsonRequest(base, '/settings/mcp/runtime/review', 'McpRuntimeReview', proof, 'POST', validateWire('McpRuntimeReviewRequest', body), undefined, signal);
 export type McpTarget = McpStandaloneTarget | McpPluginTarget | null;
 const targetQuery = (target?: McpTarget) => target?.kind === 'plugin' ? {plugin_id:target.plugin_id,server_key:target.server_key} : {};
+export const getIntegrationSources = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<IntegrationSourceList> =>
+  jsonRequest(base, '/integrations/sources', 'IntegrationSourceList', proof, 'GET', undefined, undefined, signal);
+export const getAccessPresets = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AccessPresetList> =>
+  jsonRequest(base, '/integrations/presets', 'AccessPresetList', proof, 'GET', undefined, undefined, signal);
+export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
+  jsonRequest(base, '/integrations/items' + query(options), 'IntegrationEntryPage', proof, 'GET', undefined, undefined, signal);
+export const searchIntegrationItems = (base: string, proof: SessionProof, body: IntegrationSearchRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
+  jsonRequest(base, '/integrations/items/search', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);
+export const getIntegrationDetail = (base: string, proof: SessionProof, options: {item_id:string;revision?:string;intent?:string}, signal?: AbortSignal): Promise<IntegrationDetail> =>
+  jsonRequest(base, '/integrations/detail' + query(options), 'IntegrationDetail', proof, 'GET', undefined, undefined, signal);
+export const reviewInstallPlan = (base: string, proof: SessionProof, body: PlanReviewRequest, signal?: AbortSignal): Promise<InstallPlan> =>
+  jsonRequest(base, '/integrations/plans/review', 'InstallPlan', proof, 'POST', validateWire('PlanReviewRequest', body), undefined, signal);
+export const startInstallPlan = (base: string, proof: SessionProof, body: PlanStartRequest, signal?: AbortSignal): Promise<InstallPlan> =>
+  jsonRequest(base, '/integrations/plans', 'InstallPlan', proof, 'POST', validateWire('PlanStartRequest', body), body.plan_id, signal);
+export const getInstallPlan = (base: string, proof: SessionProof, plan: string, signal?: AbortSignal): Promise<InstallPlan> =>
+  jsonRequest(base, `/integrations/plans/${id(plan)}`, 'InstallPlan', proof, 'GET', undefined, undefined, signal);
+export const continueInstallPlan = (base: string, proof: SessionProof, plan: string, body: PlanContinueRequest, signal?: AbortSignal): Promise<InstallPlan> =>
+  jsonRequest(base, `/integrations/plans/${id(plan)}/continue`, 'InstallPlan', proof, 'POST', validateWire('PlanContinueRequest', body), undefined, signal);
+export const cancelInstallPlan = (base: string, proof: SessionProof, plan: string, signal?: AbortSignal): Promise<InstallPlan> =>
+  jsonRequest(base, `/integrations/plans/${id(plan)}/cancel`, 'InstallPlan', proof, 'POST', undefined, undefined, signal);
 export const reconcileIntegrationOperation = (base: string, proof: SessionProof, kind: 'skill' | 'plugin' | 'mcp', command: string, signal?: AbortSignal): Promise<IntegrationOperationResult> =>
   jsonRequest(base, `/settings/integrations/operations/${id(kind)}/${id(command)}/reconcile`, 'IntegrationOperationResult', proof, 'POST', undefined, undefined, signal);
 export const getIntegrations = (base: string, proof: SessionProof, options: {query?:string;kind?:string;source?:string;cursor?:string}, signal?:AbortSignal): Promise<IntegrationPage> =>
@@ -1626,10 +1660,14 @@ def outputs() -> dict[Path, str]:
                                 ("cursor", False, {"type": "string", "maxLength": 2048})]
         elif suffix == "/settings/providers/subscriptions/flows/{flow_id}":
             query_parameters = [("server_epoch", True, {"type": "string", "format": "uuid"})]
-        elif suffix == "/settings/integrations":
+        elif suffix in {"/settings/integrations", "/integrations/items"}:
             query_parameters = [(name, False, {"type": "string", "maxLength": 2048 if name == "cursor" else 256})
-                for name in ("query", "kind", "source", "cursor")]
+                for name in ("query", "kind", "source" if suffix == "/settings/integrations" else "scope", "cursor")]
             query_parameters.append(("limit", False, {"type": "integer", "minimum": 1, "maximum": 50}))
+        elif suffix == "/integrations/detail":
+            query_parameters = [("item_id", True, {"type": "string", "minLength": 1, "maxLength": 512}),
+                                ("revision", False, {"type": "string", "maxLength": 64}),
+                                ("intent", False, {"type": "string", "maxLength": 16})]
         elif suffix == "/settings/mcp/auth/callback":
             query_parameters = [(name, False, {"type": "string", "maxLength": 4096}) for name in ("state", "code", "error")]
         elif suffix == "/settings/mcp/configuration":
@@ -1690,7 +1728,7 @@ def outputs() -> dict[Path, str]:
             if suffix.endswith("/transcribe"):
                 parameters.append({"name": "X-Dictation-Utterance", "in": "header", "required": True,
                                    "schema": {"type": "string", "format": "uuid"}})
-        if request in {"Command", "DreamRunCommand", "UploadCompletion", "ComputerUseCommand"} or suffix == "/uploads":
+        if request in {"Command", "DreamRunCommand", "UploadCompletion", "ComputerUseCommand", "PlanStartRequest"} or suffix == "/uploads":
             parameters.append({"name": "Idempotency-Key", "in": "header", "required": True,
                                "schema": {"type": "string", "format": "uuid"}})
         response_schema = ({"type": "string", "format": "binary", "maxLength":

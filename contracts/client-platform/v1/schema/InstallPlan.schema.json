@@ -1,0 +1,587 @@
+{
+  "$defs": {
+    "IntegrationNextAction": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "connect",
+            "add",
+            "install",
+            "continue_setup",
+            "sign_in",
+            "add_key",
+            "install_runtime",
+            "open_app",
+            "turn_on",
+            "fix",
+            "retry",
+            "try",
+            "delete_data",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "IntegrationNextAction",
+      "type": "object"
+    },
+    "PlanAccess": {
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "enum": [
+            "read_only",
+            "ask",
+            "full",
+            "custom"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/PlanTool"
+          },
+          "maxItems": 256,
+          "title": "Tools",
+          "type": "array"
+        },
+        "tools_digest": {
+          "maxLength": 64,
+          "title": "Tools Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "preset",
+        "tools",
+        "tools_digest"
+      ],
+      "title": "PlanAccess",
+      "type": "object"
+    },
+    "PlanConsent": {
+      "additionalProperties": false,
+      "properties": {
+        "access_preset": {
+          "enum": [
+            "read_only",
+            "ask",
+            "full"
+          ],
+          "title": "Access Preset",
+          "type": "string"
+        },
+        "destinations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Destinations",
+          "type": "array"
+        },
+        "downloads": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Downloads",
+          "type": "array"
+        },
+        "runs_locally": {
+          "title": "Runs Locally",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "destinations",
+        "runs_locally",
+        "downloads",
+        "access_preset"
+      ],
+      "title": "PlanConsent",
+      "type": "object"
+    },
+    "PlanInput": {
+      "additionalProperties": false,
+      "properties": {
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Choices",
+          "type": "array"
+        },
+        "default": {
+          "maxLength": 1024,
+          "title": "Default",
+          "type": "string"
+        },
+        "help_url": {
+          "maxLength": 2048,
+          "title": "Help Url",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 128,
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 128,
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "secret": {
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "target": {
+          "enum": [
+            "header",
+            "env",
+            "argument",
+            "url_variable"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "template": {
+          "maxLength": 256,
+          "title": "Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "secret",
+        "required",
+        "target",
+        "name",
+        "template",
+        "default",
+        "choices",
+        "help_url"
+      ],
+      "title": "PlanInput",
+      "type": "object"
+    },
+    "PlanLocalApp": {
+      "additionalProperties": false,
+      "properties": {
+        "help_url": {
+          "maxLength": 2048,
+          "title": "Help Url",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "help_url"
+      ],
+      "title": "PlanLocalApp",
+      "type": "object"
+    },
+    "PlanRuntime": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "node",
+            "uv",
+            "npm_package",
+            "mcpb",
+            "docker",
+            "playwright-chrome",
+            "other"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 96,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "PlanRuntime",
+      "type": "object"
+    },
+    "PlanSignIn": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_url": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authorization Url"
+        },
+        "method": {
+          "enum": [
+            "oauth_dcr",
+            "oauth_cimd",
+            "oauth_preregistered",
+            "oauth_client",
+            "api_key"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "PlanSignIn",
+      "type": "object"
+    },
+    "PlanStep": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanAccess"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "pattern": "^[a-z_]{1,32}[0-9]{0,2}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PlanInput"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inputs"
+        },
+        "local_app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanLocalApp"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanRuntime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sign_in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanSignIn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "running",
+            "waiting",
+            "done",
+            "skipped",
+            "failed",
+            "unsupported"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "consent",
+            "inputs",
+            "runtime",
+            "local_app_check",
+            "sign_in",
+            "test",
+            "access",
+            "enable"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "state",
+        "title",
+        "message"
+      ],
+      "title": "PlanStep",
+      "type": "object"
+    },
+    "PlanTool": {
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "enum": [
+            "read_only",
+            "mutation",
+            "interaction",
+            "unknown"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "use",
+            "ask",
+            "off"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 128,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "effect",
+        "state"
+      ],
+      "title": "PlanTool",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "consent": {
+      "$ref": "#/$defs/PlanConsent"
+    },
+    "consent_token": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Consent Token",
+      "type": "string"
+    },
+    "current_step": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Current Step"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Digest",
+      "type": "string"
+    },
+    "intent": {
+      "enum": [
+        "connect",
+        "add",
+        "turn_on",
+        "fix",
+        "access"
+      ],
+      "title": "Intent",
+      "type": "string"
+    },
+    "item_id": {
+      "maxLength": 512,
+      "title": "Item Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "skill",
+        "mcp",
+        "plugin"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 512,
+      "title": "Message",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "next_action": {
+      "$ref": "#/$defs/IntegrationNextAction"
+    },
+    "pause": {
+      "anyOf": [
+        {
+          "enum": [
+            "sign_in",
+            "inputs",
+            "access",
+            "digest_changed",
+            "resume"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Pause"
+    },
+    "plan_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Plan Id"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "running",
+        "paused",
+        "completed",
+        "failed",
+        "cancelled",
+        "uncertain"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/PlanStep"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "supported": {
+      "title": "Supported",
+      "type": "boolean"
+    },
+    "unsupported_reason": {
+      "maxLength": 512,
+      "title": "Unsupported Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "plan_id",
+    "item_id",
+    "kind",
+    "name",
+    "intent",
+    "digest",
+    "state",
+    "pause",
+    "current_step",
+    "steps",
+    "consent",
+    "supported",
+    "unsupported_reason",
+    "message",
+    "next_action"
+  ],
+  "title": "InstallPlan",
+  "type": "object"
+}

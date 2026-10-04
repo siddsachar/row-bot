@@ -54,6 +54,9 @@ it('Settings › MCP puts the switches and runtimes first, then the servers (B26
     getSnapshot: () => state,
     subscribe: () => () => {},
     settingsSnapshot: () => new Promise(() => {}),
+    integrationSources: vi
+      .fn()
+      .mockResolvedValue({ schema_version: 1, items: [] }),
     integrations: vi.fn().mockResolvedValue({
       schema_version: 1,
       revision,

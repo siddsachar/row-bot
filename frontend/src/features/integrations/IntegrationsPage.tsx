@@ -36,13 +36,13 @@ import TryInChat from './TryInChat';
 import SkillMaintenance from './SkillMaintenance';
 import {
   categories,
-  catalogs,
   readPreferences,
   savePreferences,
   sourceName,
+  sourcesFor,
   setupLabel,
+  useSources,
   type Kind,
-  type Source,
 } from './discovery';
 import './integrations.css';
 const statusLabels: Record<string, string> = {
@@ -92,6 +92,12 @@ export default function IntegrationsPage({
       ? 'discover'
       : 'my';
   const [preferences, setPreferences] = useState(readPreferences);
+  const catalogSources = useSources();
+  const knownSources = useRef(catalogSources);
+  knownSources.current = catalogSources;
+  // A search with disabled catalogs waits for the served list, never reaching one.
+  const sourcesReady =
+    !preferences.disabled.length || catalogSources.length > 0;
   const [entryCategory] = useState(preferences.category);
   const explicitType = params.get('type');
   const legacySource = params.get('source');
@@ -100,9 +106,7 @@ export default function IntegrationsPage({
     (category) => category.kind === selectedKind,
   )
     ? selectedKind
-    : Object.entries(catalogs).find(([, sources]) =>
-        sources.includes(legacySource as Source),
-      )?.[0];
+    : catalogSources.find((source) => source.id === legacySource)?.kinds[0];
   const type = (
     ['skill', 'mcp', 'plugin', 'all'].includes(explicitType ?? '')
       ? explicitType
@@ -201,7 +205,7 @@ export default function IntegrationsPage({
   };
   const load = useCallback(
     async (refresh = false, cursor?: string) => {
-      if (!type) return;
+      if (!type || !sourcesReady) return;
       abort.current?.abort();
       const cancellation = new AbortController();
       abort.current = cancellation;
@@ -209,10 +213,9 @@ export default function IntegrationsPage({
       setLoading(true);
       try {
         const sources = preferences.disabled.length
-          ? (type === 'all'
-              ? Object.values(catalogs).flat()
-              : catalogs[type]
-            ).filter((source) => !preferences.disabled.includes(source))
+          ? sourcesFor(type, knownSources.current).filter(
+              (source) => !preferences.disabled.includes(source),
+            )
           : undefined;
         const result =
           tab === 'my'
@@ -247,7 +250,16 @@ export default function IntegrationsPage({
         if (request === generation.current) setLoading(false);
       }
     },
-    [controller, tab, type, query, unsupported, preferences.disabled, listKey],
+    [
+      controller,
+      tab,
+      type,
+      query,
+      unsupported,
+      preferences.disabled,
+      listKey,
+      sourcesReady,
+    ],
   );
   useEffect(() => {
     setDraftQuery(query);

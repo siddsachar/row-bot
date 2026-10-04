@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "help_url": {
+      "maxLength": 2048,
+      "title": "Help Url",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 256,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "label",
+    "help_url"
+  ],
+  "title": "PlanLocalApp",
+  "type": "object"
+}

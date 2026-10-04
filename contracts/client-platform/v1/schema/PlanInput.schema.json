@@ -1,0 +1,75 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "choices": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Choices",
+      "type": "array"
+    },
+    "default": {
+      "maxLength": 1024,
+      "title": "Default",
+      "type": "string"
+    },
+    "help_url": {
+      "maxLength": 2048,
+      "title": "Help Url",
+      "type": "string"
+    },
+    "key": {
+      "maxLength": 128,
+      "title": "Key",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 128,
+      "title": "Label",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 128,
+      "title": "Name",
+      "type": "string"
+    },
+    "required": {
+      "title": "Required",
+      "type": "boolean"
+    },
+    "secret": {
+      "title": "Secret",
+      "type": "boolean"
+    },
+    "target": {
+      "enum": [
+        "header",
+        "env",
+        "argument",
+        "url_variable"
+      ],
+      "title": "Target",
+      "type": "string"
+    },
+    "template": {
+      "maxLength": 256,
+      "title": "Template",
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "label",
+    "secret",
+    "required",
+    "target",
+    "name",
+    "template",
+    "default",
+    "choices",
+    "help_url"
+  ],
+  "title": "PlanInput",
+  "type": "object"
+}

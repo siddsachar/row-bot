@@ -82,6 +82,7 @@
     {"id": "blender", "name": "Blender", "publisher": "Blender", "category": "design",
      "summary": "Build and edit 3D scenes in Blender on this computer.", "synonyms": ["3d", "modelling", "rendering", "scenes"],
      "refs": ["hermes:blender", "repo:github.com/nousresearch/hermes-plugin-blender"], "variants": ["package"],
+     "local_app": "Blender 5.1 with its MCP add-on",
      "docs_url": "https://github.com/NousResearch/hermes-plugin-blender"},
     {"id": "local-text-tools", "name": "Local text tools", "publisher": "Row-Bot", "category": "local_tools",
      "summary": "Concise writing, a review checklist and text statistics, all on this computer.", "synonyms": ["writing", "word count", "proofreading"],

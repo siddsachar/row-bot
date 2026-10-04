@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "enum": [
+        "node",
+        "uv",
+        "npm_package",
+        "mcpb",
+        "docker",
+        "playwright-chrome",
+        "other"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 96,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label"
+  ],
+  "title": "PlanRuntime",
+  "type": "object"
+}

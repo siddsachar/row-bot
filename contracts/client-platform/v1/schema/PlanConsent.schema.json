@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "access_preset": {
+      "enum": [
+        "read_only",
+        "ask",
+        "full"
+      ],
+      "title": "Access Preset",
+      "type": "string"
+    },
+    "destinations": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Destinations",
+      "type": "array"
+    },
+    "downloads": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Downloads",
+      "type": "array"
+    },
+    "runs_locally": {
+      "title": "Runs Locally",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "destinations",
+    "runs_locally",
+    "downloads",
+    "access_preset"
+  ],
+  "title": "PlanConsent",
+  "type": "object"
+}

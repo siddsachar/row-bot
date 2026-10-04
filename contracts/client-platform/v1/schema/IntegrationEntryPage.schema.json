@@ -1,0 +1,539 @@
+{
+  "$defs": {
+    "AppRef": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "productivity",
+            "developer",
+            "data",
+            "design",
+            "communication",
+            "finance",
+            "local_tools"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "icon": {
+          "maxLength": 256,
+          "title": "Icon",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "placeholder": {
+          "title": "Placeholder",
+          "type": "boolean"
+        },
+        "publisher": {
+          "maxLength": 128,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "verified": {
+          "title": "Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "publisher",
+        "category",
+        "icon",
+        "verified",
+        "placeholder"
+      ],
+      "title": "AppRef",
+      "type": "object"
+    },
+    "IntegrationAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "maxLength": 512,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "pin": {
+          "maxLength": 128,
+          "title": "Pin",
+          "type": "string"
+        },
+        "publisher": {
+          "maxLength": 160,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "title": "Url",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "item_id",
+        "url",
+        "publisher",
+        "version",
+        "pin"
+      ],
+      "title": "IntegrationAttribution",
+      "type": "object"
+    },
+    "IntegrationBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[a-z_]{1,64}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 256,
+          "title": "Subject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message",
+        "subject"
+      ],
+      "title": "IntegrationBlocker",
+      "type": "object"
+    },
+    "IntegrationEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "account_label": {
+          "maxLength": 128,
+          "title": "Account Label",
+          "type": "string"
+        },
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AppRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attributions": {
+          "items": {
+            "$ref": "#/$defs/IntegrationAttribution"
+          },
+          "maxItems": 512,
+          "title": "Attributions",
+          "type": "array"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/IntegrationBlocker"
+          },
+          "maxItems": 64,
+          "title": "Blockers",
+          "type": "array"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/IntegrationEntry"
+          },
+          "maxItems": 256,
+          "title": "Children",
+          "type": "array"
+        },
+        "compatibility": {
+          "enum": [
+            "supported",
+            "partial",
+            "unsupported",
+            "not_inspected"
+          ],
+          "title": "Compatibility",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 2048,
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "evidence": {
+          "enum": [
+            "listed",
+            "inspected"
+          ],
+          "title": "Evidence",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "installed": {
+          "title": "Installed",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "skill",
+            "mcp",
+            "plugin"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "lifecycle": {
+          "enum": [
+            "available",
+            "installed",
+            "off",
+            "data_retained"
+          ],
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "next_action": {
+          "$ref": "#/$defs/IntegrationNextAction"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Id"
+        },
+        "publisher": {
+          "maxLength": 160,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "readiness": {
+          "anyOf": [
+            {
+              "enum": [
+                "ready",
+                "needs_setup",
+                "needs_sign_in",
+                "needs_key",
+                "needs_runtime",
+                "needs_app",
+                "working",
+                "attention"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Readiness"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "tested_with_row_bot": {
+          "title": "Tested With Row Bot",
+          "type": "boolean"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "parent_id",
+        "name",
+        "description",
+        "app",
+        "source",
+        "publisher",
+        "version",
+        "installed",
+        "enabled",
+        "account_label",
+        "compatibility",
+        "evidence",
+        "tested_with_row_bot",
+        "lifecycle",
+        "readiness",
+        "blockers",
+        "next_action",
+        "attributions",
+        "children"
+      ],
+      "title": "IntegrationEntry",
+      "type": "object"
+    },
+    "IntegrationNextAction": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "connect",
+            "add",
+            "install",
+            "continue_setup",
+            "sign_in",
+            "add_key",
+            "install_runtime",
+            "open_app",
+            "turn_on",
+            "fix",
+            "retry",
+            "try",
+            "delete_data",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 64,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "title": "IntegrationNextAction",
+      "type": "object"
+    },
+    "IntegrationSourceStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "default": "local",
+          "enum": [
+            "local",
+            "snapshot",
+            "public",
+            "unavailable"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "eligibility": {
+          "default": "eligible",
+          "enum": [
+            "eligible",
+            "explicit_only",
+            "auth_required",
+            "contract_unresolved",
+            "unsupported"
+          ],
+          "title": "Eligibility",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "fetched_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fetched At"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "skill",
+                "mcp",
+                "plugin"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "message": {
+          "maxLength": 512,
+          "title": "Message",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "snapshot_version": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Snapshot Version",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 80,
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "live",
+            "cached",
+            "stale",
+            "partial",
+            "pending",
+            "error",
+            "empty",
+            "timeout",
+            "auth_required",
+            "rate_limited",
+            "malformed",
+            "busy",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source",
+        "status",
+        "message",
+        "fetched_at"
+      ],
+      "title": "IntegrationSourceStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/IntegrationEntry"
+      },
+      "maxItems": 96,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Revision",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/IntegrationSourceStatus"
+      },
+      "maxItems": 64,
+      "title": "Sources",
+      "type": "array"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "revision",
+    "items",
+    "total",
+    "next_cursor",
+    "sources"
+  ],
+  "title": "IntegrationEntryPage",
+  "type": "object"
+}

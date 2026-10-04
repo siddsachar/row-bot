@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "effect": {
+      "enum": [
+        "read_only",
+        "mutation",
+        "interaction",
+        "unknown"
+      ],
+      "title": "Effect",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "use",
+        "ask",
+        "off"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 128,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "title",
+    "effect",
+    "state"
+  ],
+  "title": "PlanTool",
+  "type": "object"
+}

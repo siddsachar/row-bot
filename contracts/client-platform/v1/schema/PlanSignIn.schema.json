@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "authorization_url": {
+      "anyOf": [
+        {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorization Url"
+    },
+    "method": {
+      "enum": [
+        "oauth_dcr",
+        "oauth_cimd",
+        "oauth_preregistered",
+        "oauth_client",
+        "api_key"
+      ],
+      "title": "Method",
+      "type": "string"
+    }
+  },
+  "required": [
+    "method"
+  ],
+  "title": "PlanSignIn",
+  "type": "object"
+}

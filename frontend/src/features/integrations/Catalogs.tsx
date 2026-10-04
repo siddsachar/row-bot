@@ -3,7 +3,13 @@ import { useRuntime } from '../../runtime';
 import type { IntegrationSourceStatus } from '../../api/types';
 import { clientError } from '../../api/errors';
 import { Button, Field, Toggle } from '../../ui/primitives';
-import { catalogs, sourceName, type Kind, type Source } from './discovery';
+import {
+  sourceName,
+  sourcesFor,
+  useSources,
+  type Kind,
+  type Source,
+} from './discovery';
 export default function Catalogs({
   kind,
   disabled,
@@ -16,13 +22,15 @@ export default function Catalogs({
   onBack: () => void;
 }) {
   const { controller } = useRuntime();
+  const known = useSources();
   const [sources, setSources] = useState<IntegrationSourceStatus[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
+    if (!known.length) return;
     const abort = new AbortController();
     void controller
       .searchIntegrations(
-        { kind, sources: catalogs[kind], refresh: false },
+        { kind, sources: sourcesFor(kind, known), refresh: false },
         abort.signal,
       )
       .then((page) => {
@@ -32,7 +40,7 @@ export default function Catalogs({
         if (!abort.signal.aborted) setError(clientError(e).message);
       });
     return () => abort.abort();
-  }, [controller, kind]);
+  }, [controller, kind, known]);
   return (
     <section className="stack integration-catalogs" aria-label="Catalogs">
       <Button onClick={onBack}>Back to integrations</Button>

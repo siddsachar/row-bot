@@ -81,12 +81,42 @@ function Location() {
     </>
   );
 }
+const source = (
+  id: string,
+  kind: 'skill' | 'mcp' | 'plugin',
+  label: string,
+  enabled = true,
+) => ({
+  id,
+  kinds: [kind],
+  label,
+  access: enabled ? ('public' as const) : ('unavailable' as const),
+  eligibility: enabled ? ('eligible' as const) : ('auth_required' as const),
+  network: 'explicit' as const,
+  enabled,
+  message: '',
+});
+const sourceList = {
+  schema_version: 1 as const,
+  items: [
+    source('recommended', 'mcp', 'Vendor recommendations'),
+    source('official', 'mcp', 'Official MCP Registry'),
+    source('clawhub', 'skill', 'ClawHub'),
+    source('github', 'skill', 'GitHub'),
+    source('skills_sh', 'skill', 'skills.sh', false),
+    source('browse_sh', 'skill', 'browse.sh', false),
+    source('lobehub', 'skill', 'LobeHub', false),
+    source('hermes', 'plugin', 'Hermes'),
+    source('native', 'plugin', 'Row-Bot marketplace'),
+  ],
+};
 function fixture(
   path = '/settings/integrations?type=skill',
   discovery?: IntegrationPage,
   installed = item,
 ) {
   const controller = {
+    integrationSources: vi.fn().mockResolvedValue(sourceList),
     integrations: vi.fn().mockResolvedValue({ ...page, items: [installed] }),
     integration: vi.fn().mockResolvedValue(installed),
     plugin: vi.fn().mockResolvedValue({

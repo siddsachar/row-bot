@@ -182,8 +182,10 @@ def _next_policy_document(saved, intent, *, child: bool = False):
         fields.add("tool_id")
     if operation == "utility_enabled":
         fields.add("utility")
-    if (operation not in {"global_enabled", "server_enabled", "tool_enabled", "tool_approval", "utility_enabled"}
-            or set(intent) != fields or type(intent.get("enabled")) is not bool):
+    if operation == "preset":
+        fields = {"operation", "server_id", "preset"}
+    if (operation not in {"global_enabled", "server_enabled", "tool_enabled", "tool_approval", "utility_enabled", "preset"}
+            or set(intent) != fields or (operation != "preset" and type(intent.get("enabled")) is not bool)):
         raise Error("invalid_command")
     document = copy.deepcopy(saved.document)
     if operation == "global_enabled":
@@ -202,7 +204,13 @@ def _next_policy_document(saved, intent, *, child: bool = False):
     tools = target.setdefault("tools", {})
     if type(tools) is not dict:
         raise Error("mcp_policy_unavailable")
-    if operation == "utility_enabled":
+    if operation == "preset":
+        from row_bot.integrations import presets
+        if intent["preset"] not in presets.PRESETS or type(tools.get("catalog")) is not dict:
+            raise Error("invalid_command")
+        _tool_policies(intent["server_id"], tools)  # Retain strict existing safety shapes.
+        presets.apply(tools, intent["preset"])
+    elif operation == "utility_enabled":
         if type(intent["utility"]) is not str or intent["utility"] not in {"resources", "prompts"}:
             raise Error("invalid_command")
         tools[intent["utility"] + "_enabled"] = intent["enabled"]

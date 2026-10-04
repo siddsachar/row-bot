@@ -35,6 +35,7 @@ class App:
     icon: str = ""
     featured_rank: int | None = None
     placeholder: bool = False
+    local_app: str = ""
 
     def ref(self) -> dict:
         """The small public identity carried by every entry of this app."""

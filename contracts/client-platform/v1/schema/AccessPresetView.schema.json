@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "default": {
+      "title": "Default",
+      "type": "boolean"
+    },
+    "description": {
+      "maxLength": 256,
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "enum": [
+        "read_only",
+        "ask",
+        "full"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 64,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "description",
+    "default"
+  ],
+  "title": "AccessPresetView",
+  "type": "object"
+}

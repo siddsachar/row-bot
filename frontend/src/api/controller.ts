@@ -2306,6 +2306,8 @@ export class ClientController {
     body: import('./types').IntegrationSearchRequest,
     signal?: AbortSignal,
   ) => this.query(() => this.transport.searchIntegrations?.(body, signal));
+  integrationSources = (signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationSources?.(signal));
   previewIntegration = (
     body: import('./types').IntegrationPreviewRequest,
     signal?: AbortSignal,

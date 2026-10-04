@@ -7994,3 +7994,207 @@ class IntegrationOperationResult(WireModel):
     command_id: UUID
     settled: bool
     message: str = Field(max_length=1024)
+
+
+# Apps & Skills: one typed model over the existing owners (row_bot.integrations).
+IntegrationKind = Literal["skill", "mcp", "plugin"]
+AccessPresetId = Literal["read_only", "ask", "full"]
+NextActionKind = Literal["connect", "add", "install", "continue_setup", "sign_in", "add_key", "install_runtime", "open_app",
+                         "turn_on", "fix", "retry", "try", "delete_data", "none"]
+PlanIntent = Literal["connect", "add", "turn_on", "fix", "access"]
+
+
+class IntegrationSourceView(WireModel):
+    id: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
+    kinds: list[IntegrationKind] = Field(min_length=1, max_length=3)
+    label: str = Field(max_length=80)
+    access: Literal["local", "snapshot", "public", "unavailable"]
+    eligibility: Literal["eligible", "explicit_only", "auth_required", "contract_unresolved", "unsupported"]
+    network: Literal["none", "explicit"]
+    enabled: bool
+    message: str = Field(max_length=512)
+
+
+class IntegrationSourceList(WireModel):
+    schema_version: Literal[1]
+    items: list[IntegrationSourceView] = Field(max_length=64)
+
+
+class AccessPresetView(WireModel):
+    id: AccessPresetId
+    label: str = Field(max_length=64)
+    description: str = Field(max_length=256)
+    default: bool
+
+
+class AccessPresetList(WireModel):
+    schema_version: Literal[1]
+    items: list[AccessPresetView] = Field(max_length=8)
+
+
+class AppRef(WireModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    name: str = Field(max_length=128)
+    publisher: str = Field(max_length=128)
+    category: Literal["productivity", "developer", "data", "design", "communication", "finance", "local_tools"]
+    icon: str = Field(max_length=256)
+    verified: bool
+    placeholder: bool
+
+
+class IntegrationBlocker(WireModel):
+    code: str = Field(pattern=r"^[a-z_]{1,64}$")
+    severity: Literal["blocking", "info"]
+    message: str = Field(max_length=512)
+    subject: str = Field(max_length=256)
+
+
+class IntegrationNextAction(WireModel):
+    kind: NextActionKind
+    label: str = Field(max_length=64)
+
+
+class IntegrationEntry(WireModel):
+    id: str = Field(min_length=1, max_length=512)
+    kind: IntegrationKind
+    parent_id: str | None = Field(max_length=512)
+    name: str = Field(max_length=256)
+    description: str = Field(max_length=2048)
+    app: AppRef | None
+    source: str = Field(max_length=80)
+    publisher: str = Field(max_length=160)
+    version: str = Field(max_length=128)
+    installed: bool
+    enabled: bool
+    required: bool = True
+    account_label: str = Field(max_length=128)
+    compatibility: Literal["supported", "partial", "unsupported", "not_inspected"]
+    evidence: Literal["listed", "inspected"]
+    tested_with_row_bot: bool
+    lifecycle: Literal["available", "installed", "off", "data_retained"]
+    readiness: Literal["ready", "needs_setup", "needs_sign_in", "needs_key", "needs_runtime", "needs_app", "working", "attention"] | None
+    blockers: list[IntegrationBlocker] = Field(max_length=64)
+    next_action: IntegrationNextAction
+    attributions: list[IntegrationAttribution] = Field(max_length=512)
+    children: list[IntegrationEntry] = Field(max_length=256)
+
+
+class IntegrationEntryPage(WireModel):
+    schema_version: Literal[1]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[IntegrationEntry] = Field(max_length=96)
+    total: int = Field(ge=0)
+    next_cursor: str | None = Field(max_length=256)
+    sources: list[IntegrationSourceStatus] = Field(max_length=64)
+
+
+class PlanInput(WireModel):
+    key: str = Field(max_length=128)
+    label: str = Field(max_length=128)
+    secret: bool
+    required: bool
+    target: Literal["header", "env", "argument", "url_variable"]
+    name: str = Field(max_length=128)
+    template: str = Field(max_length=256)
+    default: str = Field(max_length=1024)
+    choices: list[str] = Field(max_length=64)
+    help_url: str = Field(max_length=2048)
+
+
+class PlanSignIn(WireModel):
+    method: Literal["oauth_dcr", "oauth_cimd", "oauth_preregistered", "oauth_client", "api_key"]
+    authorization_url: str | None = Field(default=None, max_length=8192)
+
+
+class PlanRuntime(WireModel):
+    id: Literal["node", "uv", "npm_package", "mcpb", "docker", "playwright-chrome", "other"]
+    label: str = Field(max_length=96)
+
+
+class PlanLocalApp(WireModel):
+    label: str = Field(max_length=256)
+    help_url: str = Field(max_length=2048)
+
+
+class PlanTool(WireModel):
+    name: str = Field(max_length=256)
+    title: str = Field(max_length=128)
+    effect: Literal["read_only", "mutation", "interaction", "unknown"]
+    state: Literal["use", "ask", "off"]
+
+
+class PlanAccess(WireModel):
+    preset: Literal["read_only", "ask", "full", "custom"]
+    tools: list[PlanTool] = Field(max_length=256)
+    tools_digest: str = Field(max_length=64)
+
+
+class PlanStep(WireModel):
+    id: str = Field(pattern=r"^[a-z_]{1,32}[0-9]{0,2}$")
+    type: Literal["consent", "inputs", "runtime", "local_app_check", "sign_in", "test", "access", "enable"]
+    state: Literal["pending", "running", "waiting", "done", "skipped", "failed", "unsupported"]
+    title: str = Field(max_length=256)
+    message: str = Field(max_length=512)
+    inputs: list[PlanInput] | None = Field(default=None, max_length=32)
+    sign_in: PlanSignIn | None = None
+    runtime: PlanRuntime | None = None
+    local_app: PlanLocalApp | None = None
+    access: PlanAccess | None = None
+
+
+class PlanConsent(WireModel):
+    destinations: list[str] = Field(max_length=16)
+    runs_locally: bool
+    downloads: list[str] = Field(max_length=16)
+    access_preset: AccessPresetId
+
+
+class InstallPlan(WireModel):
+    schema_version: Literal[1]
+    plan_id: UUID | None
+    item_id: str = Field(max_length=512)
+    kind: IntegrationKind
+    name: str = Field(max_length=256)
+    intent: PlanIntent
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal["ready", "running", "paused", "completed", "failed", "cancelled", "uncertain"]
+    pause: Literal["sign_in", "inputs", "access", "digest_changed", "resume"] | None
+    current_step: str | None = Field(max_length=32)
+    steps: list[PlanStep] = Field(min_length=1, max_length=16)
+    consent: PlanConsent
+    supported: bool
+    unsupported_reason: str = Field(max_length=512)
+    message: str = Field(max_length=512)
+    next_action: IntegrationNextAction
+    consent_token: str = Field(default="", max_length=256)
+
+
+class IntegrationDetail(WireModel):
+    entry: IntegrationEntry
+    plan: InstallPlan | None
+
+
+class PlanStartRequest(WireModel):
+    plan_id: UUID
+    item_id: str = Field(min_length=1, max_length=512)
+    revision: str = Field(default="", max_length=64)
+    intent: PlanIntent | Literal[""] = ""
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    consent_token: str = Field(min_length=1, max_length=256)
+    preset: AccessPresetId | Literal[""] = ""
+    inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
+        default_factory=dict, max_length=16)
+    tools_digest: str = Field(default="", max_length=64)
+
+
+class PlanContinueRequest(WireModel):
+    preset: AccessPresetId | Literal[""] = ""
+    inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
+        default_factory=dict, max_length=16)
+    tools_digest: str = Field(default="", max_length=64)
+
+
+class PlanReviewRequest(WireModel):
+    item_id: str = Field(min_length=1, max_length=512)
+    revision: str = Field(default="", max_length=64)
+    intent: PlanIntent | Literal[""] = ""

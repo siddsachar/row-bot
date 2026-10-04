@@ -160,6 +160,9 @@ export interface ClientTransport {
     body: Wire.IntegrationSearchRequest,
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationPage>;
+  integrationSources?(
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationSourceList>;
   previewIntegration?(
     body: Wire.IntegrationPreviewRequest,
     signal?: AbortSignal,

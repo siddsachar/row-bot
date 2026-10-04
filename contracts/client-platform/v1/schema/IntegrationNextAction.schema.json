@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "connect",
+        "add",
+        "install",
+        "continue_setup",
+        "sign_in",
+        "add_key",
+        "install_runtime",
+        "open_app",
+        "turn_on",
+        "fix",
+        "retry",
+        "try",
+        "delete_data",
+        "none"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 64,
+      "title": "Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "label"
+  ],
+  "title": "IntegrationNextAction",
+  "type": "object"
+}
