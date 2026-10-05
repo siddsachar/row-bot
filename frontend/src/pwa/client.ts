@@ -123,13 +123,26 @@ export class PwaClient {
     for (const listener of this.listeners) listener();
   }
 
+  /**
+   * Whether `worker` is a newer version behind an older one that controls this
+   * page. A first install is briefly "installed" and "waiting" too, and WebKit
+   * can already name it as the controller then; neither is an update.
+   */
+  private isUpdate(worker: WorkerLike | null): worker is WorkerLike {
+    const controller = this.environment.serviceWorker?.controller;
+    return Boolean(worker && controller && controller !== worker);
+  }
+
+  private waitingUpdate(): WorkerLike | null {
+    const waiting = this.waitingWorker ?? this.registration?.waiting ?? null;
+    return this.isUpdate(waiting) ? waiting : null;
+  }
+
   private phaseForConnection(): PwaPhase {
     if (!this.environment.online()) return 'offline';
     if (!this.environment.serviceWorker) return 'unsupported';
     if (this.snapshot.error) return 'error';
-    return this.waitingWorker || this.registration?.waiting
-      ? 'update_available'
-      : 'ready';
+    return this.waitingUpdate() ? 'update_available' : 'ready';
   }
 
   private readonly connectivity = () => {
@@ -158,7 +171,7 @@ export class PwaClient {
 
   private readonly workerStateChanged = () => {
     if (!this.installing || this.installing.state !== 'installed') return;
-    const updateAvailable = Boolean(this.environment.serviceWorker?.controller);
+    const updateAvailable = this.isUpdate(this.installing);
     this.waitingWorker = updateAvailable ? this.installing : null;
     this.publish({
       phase: !this.environment.online()
@@ -219,8 +232,8 @@ export class PwaClient {
       this.registration = registration;
       this.registration.addEventListener('updatefound', this.updateFound);
       this.updateFound();
-      const updateAvailable = Boolean(this.registration.waiting);
       this.waitingWorker = this.registration.waiting;
+      const updateAvailable = Boolean(this.waitingUpdate());
       this.publish({
         phase: !this.environment.online()
           ? 'offline'

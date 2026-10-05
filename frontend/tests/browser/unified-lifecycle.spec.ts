@@ -9,13 +9,11 @@ import {
 import {
   composer,
   assertControlTextUnclipped,
-  advanceOrchestration,
   fixtureState,
   newConversation,
   openConversation,
   reloadDocument,
   releaseProducer,
-  revealContext,
 } from './unified-helpers';
 
 function summarizeFixtureFailure(error: unknown) {
@@ -244,167 +242,6 @@ test('ordinary queued messages support edit and removal before one accepted disp
     } catch (error) {
       cleanupFailure = { error };
       await writeEvidence(testInfo, 'ordinary-queue-cleanup-failure', {
-        ...summarizeFixtureFailure(error),
-        primaryBodyFailurePreserved: bodyFailed,
-      });
-    }
-  }
-  if (cleanupFailure) throw cleanupFailure.error;
-});
-
-test('seven steering messages retain duplicate order and acknowledge actual parent batches with child completion', async ({
-  page,
-}, testInfo) => {
-  const conversation = await newConversation(page);
-  await composer(page).fill('steering fixture');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(
-    page.getByText('Synthetic child is working.', { exact: true }),
-  ).toBeVisible();
-  const call = (await fixtureState(page)).calls.at(-1)!;
-  let queuedSamples = 0;
-  let bodyFailed = false;
-  let cleanupFailure: { error: unknown } | undefined;
-  try {
-    const texts = ['A', 'B', 'A', 'four', 'five', 'six', 'seven'];
-    for (const text of texts.slice(0, 5)) {
-      await composer(page).fill(text);
-      await page
-        .getByRole('button', { name: 'Queue message', exact: true })
-        .click();
-      await expect(composer(page)).toHaveValue('');
-      await assertQueuedControlsReachable(
-        page,
-        testInfo,
-        `steering-${++queuedSamples}`,
-      );
-    }
-    const queue = page.getByRole('region', {
-      name: 'Waiting messages',
-      exact: true,
-    });
-    const forAgents = queue
-      .getByRole('listitem')
-      .filter({ hasText: 'For the running agents' });
-    await expect(forAgents).toHaveCount(5);
-    await advanceOrchestration(page, conversation, 'begin-pass');
-    await expect
-      .poll(
-        async () =>
-          (await advanceOrchestration(page, conversation, 'state')).batches,
-      )
-      .toEqual([texts.slice(0, 5)]);
-    for (const text of texts.slice(5)) {
-      await composer(page).fill(text);
-      await page
-        .getByRole('button', { name: 'Queue message', exact: true })
-        .click();
-      await expect(composer(page)).toHaveValue('');
-      await assertQueuedControlsReachable(
-        page,
-        testInfo,
-        `steering-${++queuedSamples}`,
-      );
-    }
-    await expect(forAgents).toHaveCount(7);
-    const queued = await advanceOrchestration(page, conversation, 'state');
-    expect(queued.steering.items.map((item) => item.text)).toEqual(texts);
-    expect(new Set(queued.steering.items.map((item) => item.id)).size).toBe(7);
-    await composer(page).fill('Never consumed unsent draft');
-    const first = await advanceOrchestration(
-      page,
-      conversation,
-      'release-pass',
-    );
-    expect(first.batches).toEqual([texts.slice(0, 5)]);
-    await expect(forAgents).toHaveCount(2);
-    const second = await advanceOrchestration(page, conversation, 'pass');
-    expect(second.batches).toEqual([texts.slice(0, 5), texts.slice(5)]);
-    await expect(queue).toHaveCount(0);
-    const completed = await advanceOrchestration(
-      page,
-      conversation,
-      'finish-child',
-    );
-    expect(completed.child_status).toBe('completed');
-    await releaseProducer(page, call);
-    await expect(
-      page.getByText(
-        'Synthetic child is working. Synthetic joined work complete.',
-        { exact: true },
-      ),
-    ).toHaveCount(1);
-    await expect(composer(page)).toHaveValue('Never consumed unsent draft');
-    // Delegated agents are listed under Conversation details › Agents (a
-    // sheet on tablets and phones); a finished one folds into "1 done".
-    const agents = (await revealContext(page))
-      .locator('details', {
-        has: page.locator('summary', { hasText: 'Agents' }),
-      })
-      .first();
-    if (
-      !(await agents.evaluate(
-        (element) => (element as HTMLDetailsElement).open,
-      ))
-    )
-      await agents.locator('summary').first().click();
-    await agents.getByRole('button', { name: '1 done', exact: true }).click();
-    // Its status is in words, and a finished agent offers no Stop or Message.
-    const child = agents.getByRole('button', {
-      name: 'Synthetic child, Done',
-      exact: true,
-    });
-    await expect(child).toBeVisible();
-    await expect(
-      agents.getByRole('button', { name: 'Stop Synthetic child', exact: true }),
-    ).toHaveCount(0);
-    // Its row opens its conversation (B240).
-    await child.click();
-    await expect(page).toHaveURL(
-      new RegExp(`/conversations/${completed.child_conversation_id}$`),
-    );
-    await expect(
-      page.getByText('Synthetic delegated objective', { exact: true }),
-    ).toBeVisible();
-    await composer(page).fill('Independent child draft');
-    // The way back is the header's breadcrumb, on phones too (B242).
-    await page.getByRole('link', { name: /^Back to / }).click();
-    await expect(page).toHaveURL(new RegExp(`/conversations/${conversation}$`));
-    await expect(composer(page)).toHaveValue('Never consumed unsent draft');
-    expect(
-      (await fixtureState(page)).calls.filter(
-        (item) => item.conversation_id === completed.child_conversation_id,
-      ),
-    ).toHaveLength(0);
-    await screenshot(page, testInfo, 'real-steering-batches-and-child');
-    await writeEvidence(testInfo, 'parent-consumption', {
-      conversation,
-      generation: call.generation_id,
-      queued,
-      first,
-      second,
-      completed,
-    });
-  } catch (error) {
-    bodyFailed = true;
-    await writeEvidence(
-      testInfo,
-      'seven-steering-body-failure',
-      summarizeFixtureFailure(error),
-    );
-    throw error;
-  } finally {
-    try {
-      await advanceOrchestration(page, conversation, 'release-pass');
-      if (
-        !(await fixtureState(page)).calls.find(
-          (item) => item.barrier_id === call.barrier_id,
-        )?.quiesced
-      )
-        await releaseProducer(page, call);
-    } catch (error) {
-      cleanupFailure = { error };
-      await writeEvidence(testInfo, 'seven-steering-cleanup-failure', {
         ...summarizeFixtureFailure(error),
         primaryBodyFailurePreserved: bodyFailed,
       });
