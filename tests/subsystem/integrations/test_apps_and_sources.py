@@ -60,7 +60,9 @@ def test_source_list_is_served_with_server_side_eligibility():
 
 def test_all_curated_recipes_are_visible_and_findable_by_job(local):
     page = search_catalog(sources=["recommended"], limit=96)
-    assert page["total"] == len(marketplace.CURATED_STARTER_CATALOG) == 46
+    # One card per app; an app's other recipes (GitHub's token, OAuth app and local server) are on its page.
+    cards = {getattr(apps.match(["curated:" + entry.id.lower()]), "id", entry.id) for entry in marketplace.CURATED_STARTER_CATALOG}
+    assert page["total"] == len(cards) == 46 and len(marketplace.CURATED_STARTER_CATALOG) == 48
     for job, app in (("payments", "Stripe MCP"), ("issues tickets", "Linear MCP"), ("web search", "Tavily MCP"),
                      ("local files", "Filesystem")):
         found = search_catalog(sources=["recommended"], query=job)

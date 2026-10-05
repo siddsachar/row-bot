@@ -163,6 +163,9 @@ def resolve(cfg: dict, secrets: dict, *, partial: bool = False) -> dict:
         resolved["url"] = "https://" + filled_host + slash + _fill(rest, found, url_part="path")
     for field in ("headers", "env"):
         resolved[field] = {name: _fill(str(text), found) for name, text in (cfg.get(field) or {}).items() if not empty(str(text))}
+    for name, text in (cfg.get("headers") or {}).items():
+        if name.lower() == "authorization" and name in resolved["headers"] and _PLACEHOLDER.search(str(text)):
+            resolved["headers"][name] = _scheme(resolved["headers"][name])
     args, flags = [], {item["flag"] for item in declared if item.get("flag")}
     for arg in [str(arg) for arg in cfg.get("args") or []]:
         if empty(arg):
@@ -172,6 +175,13 @@ def resolve(cfg: dict, secrets: dict, *, partial: bool = False) -> dict:
         args.append(_fill(arg, found))
     resolved["args"] = args
     return resolved
+
+
+def _scheme(value: str) -> str:
+    """An Authorization value the person typed: a bare token is sent as ``Bearer`` (a header value
+    needs a scheme), and a pasted ``Bearer x`` into a ``Bearer {key}`` template is not doubled."""
+    value = re.sub(r"^(bearer)\s+bearer\s+", r"\1 ", value.strip(), flags=re.IGNORECASE)
+    return value if not value or re.search(r"\s", value) else "Bearer " + value
 
 
 def secret_segment(segment: str) -> bool:

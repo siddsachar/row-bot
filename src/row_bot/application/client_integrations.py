@@ -40,7 +40,8 @@ def _method(row: dict) -> str:
         hosted, auth = setup["execution"] == "hosted", setup["auth_mode"]
     else:
         hosted = row["canonical_identity"].startswith("mcp:endpoint:")
-        auth = (row["app"] or {}).get("auth") or ("oauth" if row["auth_requirement"] == "required" else "")
+        auth = (row.get("auth_mode") or (row["app"] or {}).get("auth")
+                or ("oauth" if row["auth_requirement"] == "required" else ""))
         if not hosted and not row["canonical_identity"].startswith("mcp:registry:"):
             return "local"
     return "api_key" if auth == "api_key" else "local" if not hosted else "hosted_sign_in" if auth == "oauth" else "hosted"

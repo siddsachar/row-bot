@@ -73,6 +73,24 @@ def test_one_card_per_app_with_vendors_first_and_its_other_ways_on_its_page(loca
     assert ways[0]["recommended"] and all(way["verified"] for way in ways)
 
 
+def test_github_is_one_card_whose_page_offers_a_token_its_own_oauth_app_or_this_computer(local, monkeypatch):
+    github = marketplace.MarketplaceEntry("io.github.github/github-mcp-server@1.13.0", "GitHub", "GitHub's server", "official",
+        install={"transport": "streamable_http", "url": "https://api.githubcopilot.com/mcp/", "headers": {"Authorization": "{authorization}"}},
+        metadata={"canonical_name": "io.github.github/github-mcp-server", "version": "1.13.0", "status": "active",
+                  "updated_at": "2026-09-30", "setup_digest": "b" * 64})
+    use_registry(monkeypatch, local, [github, listing("io.github.fan/github-helper", "GitHub helper")])
+    page = search_catalog(query="github")
+    first = page["items"][0]
+    assert first["id"] == "mcp:curated:github-hosted" and first["verified"] and first["method"] == "api_key"
+    assert sum((row["app"] or {}).get("id") == "github" for row in page["items"] if row["kind"] != "skill") == 1
+    # The Registry's copy of the same endpoint is the same way to connect, not another card.
+    assert "mcp:official:io.github.github/github-mcp-server@1.13.0" in {a["item_id"] for a in first["attributions"]}
+    detail, _ = api.read_item(owner_id="owner", item_id=first["id"], revision=page["revision"])
+    ways = [(way["id"], way["method"], way["recommended"]) for way in detail["about"]["ways"]]
+    assert ways == [("mcp:curated:github-hosted", "api_key", True), ("mcp:curated:github-oauth-app", "hosted_sign_in", False),
+                    ("mcp:curated:github-github-mcp-server", "local", False)]
+
+
 def test_a_job_reaches_the_apps_that_do_it_before_the_community(local, monkeypatch):
     use_registry(monkeypatch, local, [listing("io.github.fan/send-email", "Send Email", description="Send email from prompts")])
     page = search_catalog(kind="app", query="send email")

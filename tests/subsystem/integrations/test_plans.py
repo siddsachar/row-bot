@@ -54,6 +54,12 @@ def test_every_curated_recipe_has_a_valid_plan_and_only_supported_ones_can_start
     steps = {s["type"]: s for s in github["steps"]}
     assert steps["inputs"]["state"] == "pending"  # Its blank token variable is a declared, secret input.
     assert [(i["name"], i["secret"]) for i in steps["inputs"]["inputs"]] == [("GITHUB_PERSONAL_ACCESS_TOKEN", True)]
+    # GitHub's hosted server: a token, read only unless the person chooses otherwise; or their own OAuth app.
+    hosted = {s["type"]: s for s in review("mcp:curated:github-hosted")[1]["steps"]}
+    assert [(i["key"], i["secret"], i["default"]) for i in hosted["inputs"]["inputs"]] == [("token", True, ""), ("read_only", False, "true")]
+    assert "sign_in" not in hosted
+    own = {s["type"]: s for s in review("mcp:curated:github-oauth-app")[1]["steps"]}
+    assert own["sign_in"]["state"] == "pending" and own["sign_in"]["sign_in"]["method"] == "oauth_client"
     notion = review("mcp:curated:makenotion-notion-mcp-server")[1]
     assert [s["type"] for s in notion["steps"]] == ["consent", "sign_in", "test", "access", "enable"]
     assert notion["consent"]["destinations"] == ["https://mcp.notion.com/mcp"] and notion["consent"]["access_preset"] == "ask"

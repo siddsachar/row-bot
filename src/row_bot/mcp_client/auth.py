@@ -16,7 +16,7 @@ import re
 import socket
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -283,10 +283,21 @@ class _SafeSdkLog(logging.Filter):
 
 
 def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redirect=None, callback=None,
-                   client_metadata_url: str | None = None):
+                   client_metadata_url: str | None = None, scope: str = ""):
+    """``scope``: what a reviewed recipe asks for instead of everything the server lists (GitHub lists
+    write and admin scopes a read-mostly connection never needs)."""
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata
     public_endpoint(url)
+    if scope and redirect is not None:
+        if not re.fullmatch(r"[\x21\x23-\x5B\x5D-\x7E]+( [\x21\x23-\x5B\x5D-\x7E]+)*", scope) or len(scope) > 512:
+            raise McpAuthError("mcp_auth_scope_invalid")
+        ask = redirect
+
+        async def redirect(address: str) -> None:
+            parts = urlsplit(address)
+            query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "scope"]
+            await ask(urlunsplit(parts._replace(query=urlencode([*query, ("scope", scope)]))))
     sdk_logger = logging.getLogger("mcp.client.auth.oauth2")
     if not any(isinstance(value, _SafeSdkLog) for value in sdk_logger.filters):
         sdk_logger.addFilter(_SafeSdkLog())

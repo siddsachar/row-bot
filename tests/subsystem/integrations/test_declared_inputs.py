@@ -44,6 +44,14 @@ def test_templates_fill_at_use_and_optional_inputs_drop_what_they_carry():
             inputs.resolve({**cfg, "input_values": {"tenant": value, "space": "s"}}, {"api_key": SECRET})
 
 
+@pytest.mark.parametrize(("template", "typed", "sent"), [
+    ("{key}", "abc123", "Bearer abc123"), ("Bearer {key}", "Bearer abc123", "Bearer abc123"),
+    ("{key}", "apikey abc123", "apikey abc123"), ("{key}", "Basic YWJj", "Basic YWJj")])
+def test_a_typed_authorization_value_is_sent_with_one_scheme(template, typed, sent):
+    cfg = {"headers": {"Authorization": template}, "inputs": [declared("key", "header", "Authorization", secret=True, required=True)]}
+    assert inputs.resolve(cfg, {"key": typed})["headers"]["Authorization"] == sent
+
+
 @pytest.mark.parametrize("url", ["https://{host}/mcp", "https://{tenant}.com/mcp", "https://x.{rest}/mcp", "http://{t}.example.test/mcp"])
 def test_a_url_variable_can_never_choose_the_destination(url):
     with pytest.raises(inputs.InputError):

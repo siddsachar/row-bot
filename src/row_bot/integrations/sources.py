@@ -133,15 +133,17 @@ def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsuppor
         blockers=[facts.blocker("unsupported", unsupported)] if unsupported else [])
 
 
-def mcp_identity(install: dict | None, version: str = "", registry: str = "") -> str:
+def mcp_identity(install: dict | None, version: str = "", registry: str = "", *, own_client: bool = False) -> str:
     """Source-neutral identity of one deployment: transport and endpoint, package and version,
     or (without a recipe) the Registry record."""
     install = install or {}
     parts = urlsplit(str(install.get("url") or ""))
     if parts.hostname:
-        # Fixed header values (a tenant, a workspace) make another deployment of the same endpoint.
+        # Fixed header values (a tenant, a workspace) make another deployment of the same endpoint,
+        # and so does signing in through the person's own OAuth app rather than with a key.
         fixed = sorted((name.lower(), value) for name, value in (install.get("headers") or {}).items() if "{" not in value)
         suffix = "#" + hashlib.sha256(json.dumps(fixed).encode()).hexdigest()[:12] if fixed else ""
+        suffix += "#own-client" if own_client else ""
         return f"mcp:endpoint:{install.get('transport', '')}:{parts.hostname.lower()}{parts.path.rstrip('/') or '/'}{suffix}"
     refs = apps.recipe_refs(install)
     if refs:
@@ -178,8 +180,12 @@ class _McpCatalog(Source):
             compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
             evidence=metadata.get("evidence", "Publisher listing only; live service untested."),
             pin=metadata.get("version_policy", ""), actions=["preview"] if supported else [], version=str(metadata.get("version", ""))[:128],
-            auth_requirement="required" if entry.requires_auth else "unknown", canonical_identity=mcp_identity(entry.install, metadata.get("version", ""), metadata.get("canonical_name", "")),
-            evidence_stage="inspected" if self.id == "recommended" else "listed")
+            auth_requirement="required" if entry.requires_auth else "unknown", auth_mode=metadata.get("auth_mode", ""),
+            canonical_identity=mcp_identity(entry.install, metadata.get("version", ""), metadata.get("canonical_name", ""),
+                                            own_client=metadata.get("oauth_client") == "required"),
+            evidence_stage="inspected" if self.id == "recommended" else "listed",
+            # Set in a reviewed recipe only once a live account worked through Row-Bot (the live harness).
+            tested_with_row_bot=self.id == "recommended" and metadata.get("tested_with_row_bot") is True)
         row["blockers"] += [facts.blocker("note", note) for note in entry.notes[:8]]
         return row, {"kind": "mcp", "entry": entry}
 

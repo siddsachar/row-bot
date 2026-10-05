@@ -30,8 +30,8 @@ SECRET = "synthetic-client-secret-0123"
 class FakeAuthorizationServer:
     """The MCP endpoint and its authorization service, behind one fake transport."""
 
-    def __init__(self, *, signs_in=True, cimd=False, dcr=False):
-        self.signs_in, self.cimd, self.dcr = signs_in, cimd, dcr
+    def __init__(self, *, signs_in=True, cimd=False, dcr=False, scopes=None):
+        self.signs_in, self.cimd, self.dcr, self.scopes = signs_in, cimd, dcr, scopes
         self.seen: list[httpx.Request] = []
         self.issued = "synthetic-access-token"
 
@@ -44,7 +44,8 @@ class FakeAuthorizationServer:
             return httpx.Response(401, headers={"www-authenticate":
                 'Bearer resource_metadata="https://mcp.fake.example/.well-known/oauth-protected-resource/mcp"'})
         if url == "https://mcp.fake.example/.well-known/oauth-protected-resource/mcp":
-            return httpx.Response(200, json={"resource": MCP, "authorization_servers": [ISSUER]})
+            return httpx.Response(200, json={"resource": MCP, "authorization_servers": [ISSUER],
+                                             **({"scopes_supported": self.scopes} if self.scopes else {})})
         if url == ISSUER + "/.well-known/oauth-authorization-server":
             return httpx.Response(200, json={"issuer": ISSUER, "authorization_endpoint": ISSUER + "/authorize",
                 "token_endpoint": ISSUER + "/token", "response_types_supported": ["code"],
@@ -166,6 +167,19 @@ def test_your_own_oauth_app_is_asked_for_when_nothing_else_works_and_its_secret_
     assert stored["client"]["client_id"] == "my-own-app" and stored["client"]["client_secret"] == SECRET
     assert SECRET not in config.CONFIG_PATH.read_text()
     assert SECRET not in json.dumps([admissions.receipt("owner", plan_id), plans.read_plan(context(), plan_id)])
+
+
+def test_a_reviewed_recipe_asks_only_for_its_own_scopes(hosted):
+    hosted(cimd=True, scopes=["repo", "read:user", "delete_repo", "admin:org"])  # Everything GitHub-like servers list.
+    document = json.loads(config.CONFIG_PATH.read_text())
+    document["servers"]["Notes"]["source"]["oauth_scope"] = "repo read:user"
+    config.CONFIG_PATH.write_text(json.dumps(document), encoding="utf-8")
+    facts.invalidate()
+    _, plan = api.read_item(owner_id="owner", item_id=item_id())
+    plan_id = str(uuid4())
+    api.start_plan(context(), plan_id=plan_id, item_id=item_id(), digest=plan["digest"])
+    assert approve(until_waiting(plan_id))["scope"] == ["repo read:user"]
+    assert signed_in(plan_id)["pause"] == "resume"
 
 
 def test_a_refresh_that_fails_asks_to_sign_in_again(hosted):

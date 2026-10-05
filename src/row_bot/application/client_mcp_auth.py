@@ -170,7 +170,8 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
             raise auth.McpAuthError("mcp_auth_denied")
         return flow.code, flow.oauth_state
     provider = auth.oauth_provider(url, flow.callback_uri, storage, redirect=redirect, callback=callback,
-                                   client_metadata_url=None if client or not loopback else auth.CLIENT_METADATA_URL)
+                                   client_metadata_url=None if client or not loopback else auth.CLIENT_METADATA_URL,
+                                   scope=str((flow.cfg.get("source") or {}).get("oauth_scope") or ""))
     import httpx
     async with httpx.AsyncClient(auth=provider, timeout=30, follow_redirects=False, trust_env=False, transport=auth.PublicTransport()) as client_http:
         # This explicit unauthenticated request drives only authorization. Tool
