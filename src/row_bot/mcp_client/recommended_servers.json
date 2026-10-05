@@ -31,7 +31,8 @@
       "auth_mode": "api_key",
       "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
       "license": "MIT (server); hosted service terms apply",
-      "evidence": "GitHub documentation reviewed 2026-10-05; live validation pending."
+      "evidence": "Live validated with Row-Bot on Windows 2026-10-05: connect, one read, refresh, turn off, remove.",
+      "tested_with_row_bot": true
     }
   },
   {
@@ -68,7 +69,8 @@
       "oauth_scope": "repo read:org read:user",
       "version_policy": "Vendor-managed HTTPS endpoint; re-test and accept tools after changes.",
       "license": "MIT (server); hosted service terms apply",
-      "evidence": "GitHub documentation reviewed 2026-10-05; live validation pending."
+      "evidence": "Live validated with Row-Bot on Windows 2026-10-05: connect, one read, refresh, turn off, remove.",
+      "tested_with_row_bot": true
     }
   },
   {
