@@ -179,8 +179,9 @@ def reviewed_launch(owner_id: str, preview_id: str, cfg: dict, digest: str) -> d
         "integrity": value["summary"]["integrity"]}
 
 
-def resolve_launch(cfg: dict) -> tuple[str, list[str]] | None:
-    """Read-only launch gate: never acquire dependencies during a connection."""
+def resolve_launch(cfg: dict, *, args: list[str] | None = None) -> tuple[str, list[str]] | None:
+    """Read-only launch gate: never acquire dependencies during a connection. ``args`` are the
+    reviewed arguments with the person's declared inputs filled in."""
     from row_bot.mcp_client.auth import binding
     from row_bot.mcp_client.requirements import managed_command_path
     from row_bot.plugins.devtools import compute_plugin_checksum
@@ -198,4 +199,5 @@ def resolve_launch(cfg: dict) -> tuple[str, list[str]] | None:
     node = managed_command_path("node", "node") or shutil.which("node")
     if not node:
         raise ValueError("mcp_package_node_required")
-    return node, ["--no-global-search-paths", str(contained_path(root, launch["entry"])), *launch["args"]]
+    return node, ["--no-global-search-paths", str(contained_path(root, launch["entry"])),
+                  *(launch["args"] if args is None else args)]

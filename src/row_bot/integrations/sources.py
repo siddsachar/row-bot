@@ -139,7 +139,10 @@ def mcp_identity(install: dict | None, version: str = "", registry: str = "") ->
     install = install or {}
     parts = urlsplit(str(install.get("url") or ""))
     if parts.hostname:
-        return f"mcp:endpoint:{install.get('transport', '')}:{parts.hostname.lower()}{parts.path.rstrip('/') or '/'}"
+        # Fixed header values (a tenant, a workspace) make another deployment of the same endpoint.
+        fixed = sorted((name.lower(), value) for name, value in (install.get("headers") or {}).items() if "{" not in value)
+        suffix = "#" + hashlib.sha256(json.dumps(fixed).encode()).hexdigest()[:12] if fixed else ""
+        return f"mcp:endpoint:{install.get('transport', '')}:{parts.hostname.lower()}{parts.path.rstrip('/') or '/'}{suffix}"
     refs = apps.recipe_refs(install)
     if refs:
         return "mcp:" + refs[0] + ("@" + version if version else "")

@@ -45,7 +45,8 @@ def test_snapshot_is_reproducible_and_integrity_checked(local, metadata):
     path.write_bytes(lzma.compress(header + b"\n" + body.replace(b"Synthetic", b"Tampered")))
     with pytest.raises(ValueError, match="digest"):
         snapshot.read_snapshot(path)
-    path.write_bytes(lzma.compress(header.replace(b'"schema_version":3', b'"schema_version":2') + b"\n" + body))
+    older = b'"schema_version":' + str(snapshot.SCHEMA - 1).encode()
+    path.write_bytes(lzma.compress(header.replace(b'"schema_version":' + str(snapshot.SCHEMA).encode(), older) + b"\n" + body))
     with pytest.raises(ValueError, match="invalid"):
         snapshot.read_header(path)
 
@@ -119,6 +120,7 @@ def test_registry_recipe_revalidated_at_publication(local, metadata, monkeypatch
 def test_recipe_identity_keeps_deployments_distinct(local, metadata, monkeypatch):
     second = copy.deepcopy(metadata["servers"][0])
     second["server"]["name"] = "org.other/notes"
+    second["server"]["description"] = "The same notes over server-sent events"
     second["server"]["remotes"][0]["type"] = "sse"
     use_registry(monkeypatch, local, marketplace.registry_entries({"servers": [metadata["servers"][0], second]}))
     page = search_catalog("fixture", sources=["official"], query="notes")

@@ -98,18 +98,11 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     hosted = cfg.get("transport", "stdio") != "stdio"
     app = apps.match(facts._mcp_refs(cfg))
     steps = [_step("consent", title="Before you connect")]
-    declared = [(kind, key) for kind in ("headers", "env") for key, value in (cfg.get(kind) or {}).items()
-                if value == "" and row["lifecycle"] == "available"]
-    if setup["auth_mode"] == "api_key":
-        steps.append(_step("inputs", "done" if signed_in else "pending", "Add your key", inputs=[
-            {"key": b["key"], "label": "API key" if b["key"] in {"api_key", "token"} else b["name"], "secret": True,
-             "required": True, "target": b["kind"], "name": b["name"],
-             "template": b.get("prefix", "") + "{value}", "default": "", "choices": [], "help_url": app.key_url if app else ""}
-            for b in setup["bindings"]]))
-    elif declared:
-        steps.append(_step("inputs", "unsupported", "Add your settings", "This connection needs settings Row-Bot can't fill in yet.",
-            inputs=[{"key": key, "label": key, "secret": True, "required": True, "target": "header" if kind == "headers" else "env",
-                     "name": key, "template": "{value}", "default": "", "choices": [], "help_url": ""} for kind, key in declared]))
+    fields = _fields(cfg, setup, app)
+    if fields:
+        done = not (setup["auth_mode"] == "api_key" and not signed_in) and not setup["inputs_missing"]
+        steps.append(_step("inputs", "done" if done else "pending",
+                           "Add your key" if all(f["secret"] for f in fields) else "Add your settings", inputs=fields))
     command = str(cfg.get("command") or "").lower().removesuffix(".cmd").removesuffix(".exe")
     if not hosted and command.endswith(("uv", "uvx")):
         steps.append(_step("runtime", "unsupported", "Set up Python tools", "Python-based tools arrive in a later update.",
@@ -165,6 +158,24 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
                    "args": cfg.get("args", []), "headers": sorted(cfg.get("headers") or {}), "env": sorted(cfg.get("env") or {}),
                    "auth": setup["auth_mode"], "bindings": setup["bindings"], "source": cfg.get("source") or {}}
     return steps, consent, declaration
+
+
+def _fields(cfg: dict, setup: dict, app: apps.App | None) -> list[dict]:
+    """What the inputs step asks for: a recipe's keys (header or variable bindings) and its declared
+    inputs, with "Where do I get this?" for keys when the app's catalog entry knows where."""
+    saved = cfg.get("input_values") or {}
+    help_url = app.key_url if app else ""
+    found = [{"key": b["key"], "label": "API key" if b["key"] in {"api_key", "token"} else b["name"], "secret": True,
+              "required": True, "target": b["kind"], "name": b["name"], "template": b.get("prefix", "") + "{value}",
+              "default": "", "choices": [], "help_url": help_url, "description": "", "format": "string"}
+             for b in setup["bindings"] if b["kind"] != "input"]
+    for item in setup["inputs"]:
+        found.append({"key": item["key"], "label": item["label"], "secret": item["secret"], "required": item["required"],
+                      "target": item["target"], "name": item["name"], "template": "", "choices": item["choices"],
+                      "default": "" if item["secret"] else str(saved.get(item["key"]) or item["default"]),
+                      "help_url": item.get("help_url") or (help_url if item["secret"] else ""),
+                      "description": sources.plain_text(item.get("description", ""), 512), "format": item.get("format", "string")})
+    return found[:32]
 
 
 def _hub_record(row: dict):
@@ -727,22 +738,52 @@ def _connection(ctx: Context, record: dict, name: str, operation: str, live: Any
 
 
 def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
+    """Save what the person entered: plain settings in the connection's configuration, keys in the
+    keychain. Each is one owner command recorded before it is sent; running the step again never
+    re-sends a key, it reads how the first attempt ended."""
+    from row_bot.application import capability_configuration_controls as configuration
     from row_bot.application.client_mcp_auth import auth_status, execute_auth, review_auth
+    from row_bot.integrations import inputs
     saved = record["_commands"].get("inputs:key")
-    if saved is not None:  # Running again never re-sends a secret; it reads the original outcome.
+    if saved is not None:
         state = auth_status(owner_id=ctx.owner_id, command_id=saved["command_id"], validate=ctx.validate)["state"]
         if state in {"starting", "uncertain"}:
             raise PlanError("change_unconfirmed")
-        if state != "signed_in":
-            del record["_commands"]["inputs:key"]
-            return "inputs"
-        return "done"
-    values = {i["key"]: str(ctx.inputs.get(i["key"], "")) for i in step["inputs"]}
-    if not all(values.values()):
+        if state == "signed_in":
+            return "done"
+        del record["_commands"]["inputs:key"]
+        return "inputs"
+    cfg = _saved(record["target"], record["server_id"])[1]
+    setup = facts.mcp_setup({}, cfg)
+    declared = setup["inputs"]
+    given = {key: str(value) for key, value in ctx.inputs.items()}
+    legacy = [b for b in setup["bindings"] if b["kind"] != "input"]
+    keys = {b["key"]: given.get(b["key"], "").strip() for b in legacy}
+    try:
+        plain, secret = inputs.values(declared, {**(cfg.get("input_values") or {}), **given})
+    except inputs.InputError as error:
+        key = str(error).partition(":")[2]
+        label = next((item["label"] for item in declared if item["key"] == key), "a setting")
+        step["message"] = (f"Add {label} to continue." if str(error).startswith("input_required") else
+                           f"Check {label}: it isn't a value this app accepts.")[:512]
+        return "inputs"
+    if not all(keys.values()) or (setup["auth_mode"] == "api_key" and not (keys or secret) and not setup["credential_configured"]):
         step["message"] = "Paste your key to continue."
         return "inputs"
-    bindings = [{"kind": i["target"], "name": i["name"], "key": i["key"], "prefix": i["template"].removesuffix("{value}")}
-                for i in step["inputs"]]
+    if plain != (cfg.get("input_values") or {}):
+        def build():
+            revision = _revision(ctx, record)
+            intent = {"operation": "edit", "server_id": record["server_id"], "fields": {"input_values": plain}}
+            review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate,
+                                                                    target=record["target"])
+            return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
+        command, review = _once(record, "inputs:values", build)
+        _completed(configuration.execute_mcp_configuration_command(owner_id=ctx.mcp_owner_id, key=command["command_id"],
+            command=command, validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
+    if not (keys or secret):
+        return "done"
+    bindings = [{"kind": b["kind"], "name": b["name"], "key": b["key"], "prefix": b.get("prefix", "")} for b in legacy]
+    bindings += [{"kind": "input", "name": key, "key": key, "prefix": ""} for key in secret]
     revision = _revision(ctx, record)
     review = review_auth(server_id=record["server_id"], configuration_revision=revision, action="start", mode="api_key",
                          label=record["name"], bindings=bindings, validate=ctx.validate, target=record["target"])
@@ -750,7 +791,8 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
     _save(record)
     result = execute_auth(owner_id=ctx.owner_id, command_id=record["_commands"]["inputs:key"]["command_id"],
         server_id=record["server_id"], configuration_revision=revision, action="start", mode="api_key", label=record["name"],
-        bindings=bindings, values=values, validate=ctx.validate, validate_review=_bound(review), target=record["target"])
+        bindings=bindings, values={**keys, **secret}, validate=ctx.validate, validate_review=_bound(review),
+        target=record["target"])
     if result["state"] != "signed_in":
         raise PlanError("key_refused", "The key couldn't be saved. Check it and try again.")
     return "done"

@@ -15,7 +15,14 @@ import type {
   PlanContinueRequest,
   PlanStep,
 } from '../../api/types';
-import { Button, Disclosure, Field, Input, Toggle } from '../../ui/primitives';
+import {
+  Button,
+  Disclosure,
+  Field,
+  Input,
+  Select,
+  Toggle,
+} from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import AccessSheet from './AccessSheet';
 
@@ -227,31 +234,76 @@ function InputsForm({
   const inputs = step.inputs ?? [];
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onSubmit(values);
+    onSubmit(
+      Object.fromEntries(
+        inputs.map((input) => [input.key, values[input.key] ?? input.default]),
+      ),
+    );
     setValues({});
   };
+  const secret = inputs.some((input) => input.secret);
+  const plain = inputs.some((input) => !input.secret);
   return (
     <form className="plan-wait stack" onSubmit={submit}>
-      {inputs.map((input, index) => (
-        <Field key={input.key} label={input.label}>
-          <Input
-            type={input.secret ? 'password' : 'text'}
-            autoComplete="off"
-            data-initial-focus={index === 0 ? true : undefined}
-            required={input.required}
-            value={values[input.key] ?? input.default}
-            onChange={(event) =>
-              setValues({ ...values, [input.key]: event.target.value })
-            }
-          />
-          {input.help_url && (
-            <a href={input.help_url} target="_blank" rel="noreferrer">
-              Where do I get this?
-            </a>
-          )}
-        </Field>
-      ))}
-      <p className="settings-help">Saved only in your system keychain.</p>
+      {inputs.map((input, index) => {
+        const value = values[input.key] ?? input.default;
+        const change = (next: string) =>
+          setValues({ ...values, [input.key]: next });
+        const choices =
+          input.format === 'boolean' && !input.choices.length
+            ? ['true', 'false']
+            : input.choices;
+        return (
+          <Field
+            key={input.key}
+            label={input.required ? input.label : `${input.label} (optional)`}
+            hint={input.description || undefined}
+          >
+            {choices.length ? (
+              <Select
+                data-initial-focus={index === 0 ? true : undefined}
+                required={input.required}
+                value={value}
+                onChange={(event) => change(event.target.value)}
+              >
+                {!input.required && <option value="">Not set</option>}
+                {choices.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {input.format === 'boolean'
+                      ? choice === 'true'
+                        ? 'Yes'
+                        : 'No'
+                      : choice}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Input
+                type={input.secret ? 'password' : 'text'}
+                inputMode={input.format === 'number' ? 'decimal' : undefined}
+                autoComplete="off"
+                spellCheck={false}
+                data-initial-focus={index === 0 ? true : undefined}
+                required={input.required}
+                value={value}
+                onChange={(event) => change(event.target.value)}
+              />
+            )}
+            {input.help_url && (
+              <a href={input.help_url} target="_blank" rel="noreferrer">
+                Where do I get this?
+              </a>
+            )}
+          </Field>
+        );
+      })}
+      <p className="settings-help">
+        {secret && plain
+          ? 'Keys are saved only in your system keychain; other settings stay with this app.'
+          : secret
+            ? 'Saved only in your system keychain.'
+            : 'Saved with this app on this computer.'}
+      </p>
       <div className="app-dialog-actions">
         <Button type="submit" variant="primary" disabled={busy}>
           Continue
@@ -413,8 +465,13 @@ function facts(plan: InstallPlan, name: string) {
       lines.push(`Downloads ${consent.downloads.join(', ')}.`);
     if (types.get('sign_in') === 'pending')
       lines.push(`You sign in to ${name} in your browser.`);
-    if (types.get('inputs') === 'pending')
-      lines.push('You paste a key. It is kept in your system keychain.');
+    const asks = plan.steps.find((step) => step.type === 'inputs');
+    if (asks?.state === 'pending')
+      lines.push(
+        asks.inputs?.every((input) => input.secret)
+          ? 'You paste a key. It is kept in your system keychain.'
+          : 'You add a few settings. Any key is kept in your system keychain.',
+      );
     if (types.get('access') === 'pending')
       lines.push('Next, you choose what it can do. Changes ask first.');
     if (plan.kind === 'skill' && plan.intent === 'add')

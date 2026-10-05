@@ -112,6 +112,8 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
         # intentionally not part of the portable format.
         cfg["url"] = entry.get("url", "")
         cfg["headers"] = dict(entry.get("headers", {}))
+        if entry.get("inputs"):  # Filled in only when connecting: plain values here, keys in the keychain.
+            cfg["inputs"] = copy.deepcopy(entry["inputs"])
         cfg["environment_mode"] = "minimal"
         cfg["plugin_data"] = str(data)
     if _python_entry(entry) and not entry.get("portable"):
@@ -130,7 +132,7 @@ def _server_config_from_entry(manifest: Any, entry: dict[str, Any], server_id: s
     cfg["tools"].setdefault("exclude", [])
     from row_bot.plugins.state import get_mcp_child_overrides
     overrides = get_mcp_child_overrides(plugin_id, server_id)
-    for key in ("enabled", "tools", "auth", "label", "managed_launch"):
+    for key in ("enabled", "tools", "auth", "label", "managed_launch", "input_values"):
         if key in overrides:
             cfg[key] = copy.deepcopy(overrides[key])
     for key in ("env", "headers"):

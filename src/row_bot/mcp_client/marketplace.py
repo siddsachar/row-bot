@@ -109,16 +109,207 @@ def _registry_display(item: dict, official: dict) -> dict:
     return shown
 
 
+_UNSUPPORTED_PACKAGE = "Package environment, runtime, argument, integrity or registry declarations are unsupported by catalog import."
+_UNSUPPORTED_REMOTE = "Remote header, authentication or variable declarations require setup that catalog import cannot safely express."
+_NPM = r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+"
+_SEMVER = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?"
+_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}")
+_VARIABLE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_.-]{0,63})\}")
+# Docker flags a declaration may keep: they only narrow what the container can do.
+_DOCKER_KEEP = {("--cap-drop", "ALL"), ("--security-opt", "no-new-privileges"), ("--read-only", None), ("--init", None)}
+
+
+class _Declared(ValueError):
+    """A declaration Row-Bot cannot express safely; the record stays listed with this reason."""
+
+
+def _filled(spec: dict, *, target: str, name: str, inputs: dict, flag: str = "", carrier: str = "") -> str:
+    """The template for one Registry input, adding the inputs it asks for: a fixed value stays fixed,
+    ``{variables}`` in a value become inputs, and a value the person supplies becomes one input."""
+    from row_bot.integrations import inputs as declared
+    if not isinstance(spec, dict):
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    description = str(spec.get("description") or "")[:512]
+
+    def add(key: str, item: object, label: str, implied_secret: bool) -> None:
+        item = item if isinstance(item, dict) else {}
+        secret = bool(item.get("isSecret")) or implied_secret
+        found = declared.declaration(key, target=target, name=label, label=label, secret=secret,
+            required=bool(item.get("isRequired", spec.get("isRequired"))), description=str(item.get("description") or description),
+            default="" if secret else str(item.get("default") or ""), choices=[str(c) for c in item.get("choices") or []],
+            format=str(item.get("format") or "string"), flag=flag)
+        if key in inputs:  # The same variable twice is one value; the stricter declaration wins.
+            found["secret"] = found["secret"] or inputs[key]["secret"]
+            found["required"] = found["required"] or inputs[key]["required"]
+            found["default"] = "" if found["secret"] else found["default"]
+        inputs[key] = found
+    fixed = str(spec.get("value") or "")
+    if "value" in spec and not (spec.get("isSecret") and not _VARIABLE.search(fixed.replace("${", "{"))):
+        # A secret written into a public listing is never copied: the person supplies their own instead.
+        value = fixed.replace("${", "{")
+        variables = spec.get("variables") if isinstance(spec.get("variables"), dict) else {}
+        for var in dict.fromkeys(_VARIABLE.findall(value)):
+            key = declared.key_of(var)
+            value = value.replace("{" + var + "}", "{" + key + "}")
+            implied = var not in variables and (declared.secretish(var) or declared.secretish(carrier or name)
+                                                or bool(spec.get("isSecret")))
+            add(key, variables.get(var, {}), var, implied)
+        return value
+    key = declared.key_of(name)
+    add(key, spec, name, declared.secretish(name))
+    if (target == "header" and name.lower() == "authorization" and not inputs[key]["choices"]
+            and "bearer" in description.lower()):
+        return "Bearer {" + key + "}"  # Most declarations describe the scheme but leave it to the person.
+    return "{" + key + "}"
+
+
+def _arguments(arguments: object, inputs: dict) -> list[str]:
+    argv: list[str] = []
+    for argument in arguments if isinstance(arguments, list) else []:
+        if not isinstance(argument, dict) or argument.get("type") not in {"positional", "named"}:
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        if argument["type"] == "positional":
+            hint = str(argument.get("valueHint") or "value")
+            if "value" not in argument and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}", hint):
+                raise _Declared(_UNSUPPORTED_PACKAGE)
+            argv.append(_filled(argument, target="argument", name=hint, inputs=inputs))
+            continue
+        flag = str(argument.get("name") or "")
+        if not re.fullmatch(r"--?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", flag):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        given = any(key in argument for key in ("value", "valueHint", "default", "isSecret", "isRequired", "choices", "format"))
+        if not given:
+            argv.append(flag)  # A plain switch.
+            continue
+        argv += [flag, _filled(argument, target="argument", name=str(argument.get("valueHint") or flag.lstrip("-")),
+                               inputs=inputs, flag=flag)]
+    return argv
+
+
+def _checked(install: dict) -> dict:
+    from row_bot.integrations import inputs as declared
+    try:
+        found = declared.check(install.get("inputs"))
+        if "{" in install.get("url", ""):
+            declared.check_url(install["url"], found)
+        templates = [*install.get("headers", {}).values(), *install.get("env", {}).values(), *install.get("args", [])]
+        known = {item["key"] for item in found}
+        if any(key not in known for text in templates for key in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]{0,63})\}", text)):
+            raise declared.InputError("invalid_inputs")
+    except declared.InputError as exc:
+        raise _Declared("Its address is chosen when you set it up; add it from a link instead." if "url" in str(exc)
+                        else _UNSUPPORTED_PACKAGE if install.get("command") else _UNSUPPORTED_REMOTE) from None
+    return install
+
+
+def _remote(remote: dict) -> dict:
+    from row_bot.integrations import inputs as declared
+    url, kind = str(remote.get("url", "")), remote.get("type")
+    parsed = urllib.parse.urlsplit(url.replace("{", "x").replace("}", "x"))
+    if (kind not in {"streamable-http", "sse"} or parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or set(remote) - {"type", "url", "headers", "variables"}):
+        raise _Declared(_UNSUPPORTED_REMOTE)
+    inputs: dict = {}
+    variables = remote.get("variables") if isinstance(remote.get("variables"), dict) else {}
+    for var in dict.fromkeys(_VARIABLE.findall(url)):
+        key = declared.key_of(var)
+        url = url.replace("{" + var + "}", "{" + key + "}")
+        spec = variables.get(var) if isinstance(variables.get(var), dict) else {}
+        _filled({"value": "{" + var + "}", "variables": {var: spec}, "isRequired": True},
+                target="url_variable", name=var, inputs=inputs)
+    headers: dict = {}
+    for header in remote.get("headers") or []:
+        name = str((header or {}).get("name") or "") if isinstance(header, dict) else ""
+        if name.lower() == "payment-signature":
+            raise _Declared("It charges for each request (x402 payments); Row-Bot can't connect to it.")
+        if not _HEADER_NAME.fullmatch(name) or name.lower() in {key.lower() for key in headers}:
+            raise _Declared(_UNSUPPORTED_REMOTE)
+        headers[name] = _filled(header, target="header", name=name, inputs=inputs, carrier=name)
+    return _checked({"transport": kind.replace("-", "_"), "url": url, **({"headers": headers} if headers else {}),
+                     **({"inputs": list(inputs.values())} if inputs else {})})
+
+
+def _package(package: dict) -> dict:
+    from row_bot.integrations import inputs as declared
+    kind, identifier, version = package.get("registryType"), str(package.get("identifier") or ""), str(package.get("version") or "")
+    allowed = {"registryType", "identifier", "version", "transport", "registryBaseUrl", "runtimeHint", "runtimeArguments",
+               "packageArguments", "environmentVariables", "fileSha256"}
+    if set(package) - allowed or kind not in {"npm", "pypi", "oci"}:
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    if package.get("transport") != {"type": "stdio"}:
+        raise _Declared("It runs as a web server on this computer; Row-Bot can't start those yet.")
+    default = {"npm": "https://registry.npmjs.org", "pypi": "https://pypi.org"}.get(kind, "")
+    if str(package.get("registryBaseUrl") or default).rstrip("/") not in {default, "https://pypi.org/simple"}:
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    inputs: dict = {}
+    env: dict = {}
+    for variable in package.get("environmentVariables") or []:
+        name = str((variable or {}).get("name") or "") if isinstance(variable, dict) else ""
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) or name.upper() in declared.NEVER_ENV or name in env:
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        env[name] = _filled(variable, target="env", name=name, inputs=inputs, carrier=name)
+    arguments = _arguments(package.get("packageArguments"), inputs)
+    flags = [flag for flag in package.get("runtimeArguments") or [] if isinstance(flag, dict)]
+    if len(flags) != len(package.get("runtimeArguments") or []):
+        raise _Declared(_UNSUPPORTED_PACKAGE)
+    if kind == "npm":
+        if (not re.fullmatch(_NPM, identifier) or not re.fullmatch(_SEMVER, version)
+                or any(str(flag.get("name") or flag.get("value") or "") not in {"-y", "--yes"} for flag in flags)):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        install = {"transport": "stdio", "command": "npx", "args": [identifier + "@" + version, *arguments]}
+    elif kind == "pypi":
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", identifier) or not re.fullmatch(r"[A-Za-z0-9.!+_-]{1,64}", version):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        spec = identifier + "==" + version
+        for flag in flags:
+            word, value = str(flag.get("name") or flag.get("value") or ""), str(flag.get("value") or "")
+            if word == "--from" and re.fullmatch(re.escape(identifier) + r"(\[[A-Za-z0-9,_-]+\])?==[A-Za-z0-9.!+_-]+", value):
+                spec = value
+            elif word != "--python":
+                raise _Declared(_UNSUPPORTED_PACKAGE)
+        install = {"transport": "stdio", "command": "uvx", "args": ["--from", spec, identifier, *arguments]}
+    else:
+        tagged = ":" in identifier.rsplit("/", 1)[-1] or "@sha256:" in identifier
+        image = identifier if tagged else identifier + ":" + (version or "latest")
+        if (not re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+(:[A-Za-z0-9._-]{1,128}|@sha256:[0-9a-f]{64})", image)
+                or image.endswith(":latest")):
+            raise _Declared(_UNSUPPORTED_PACKAGE)
+        kept: list[str] = []
+        for flag in flags:
+            word, value = str(flag.get("name") or ""), flag.get("value")
+            if (flag.get("type") == "positional" and str(value) == "run") or word in {"-i", "--interactive", "--rm"}:
+                continue
+            if word == "-e" and isinstance(value, str) and "=" in value:
+                name, _, template = value.partition("=")
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) or name.upper() in declared.NEVER_ENV:
+                    raise _Declared(_UNSUPPORTED_PACKAGE)
+                env[name] = _filled({**flag, "value": template}, target="env", name=name, inputs=inputs, carrier=name)
+                continue
+            if (word, value if value is None else str(value)) not in _DOCKER_KEEP:
+                raise _Declared("It asks Docker for access to this computer (folders, ports or the network) that "
+                                "Row-Bot doesn't grant.")
+            kept += [word] + ([str(value)] if value is not None else [])
+        passed = [part for name in env for part in ("-e", name)]
+        install = {"transport": "stdio", "command": "docker", "args": ["run", "-i", "--rm", *kept, *passed, image, *arguments]}
+    if env:
+        install["env"] = env
+    if inputs:
+        install["inputs"] = list(inputs.values())
+    return _checked(install)
+
+
 def registry_entries(data: dict) -> list[MarketplaceEntry]:
     """Parse bounded v0.1 metadata; unsupported declarations never become recipes.
 
-    A server whose declarations cannot be reviewed is still listed, with the
+    Declared headers, URL variables, environment variables and arguments become the recipe's
+    templates and declared inputs (``row_bot.integrations.inputs``); the person fills them in when
+    connecting. A server whose declarations cannot be expressed safely is still listed, with the
     reason and no recipe or setup binding, so it can never be imported.
     """
     if not isinstance(data, dict) or not isinstance(data.get("servers"), list):
         raise ValueError("invalid_registry_response")
     entries = []
-    known = {"$schema", "name", "version", "title", "description", "repository", "websiteUrl", "icons", "remotes", "packages"}
+    known = {"$schema", "name", "version", "title", "description", "repository", "websiteUrl", "icons", "remotes", "packages", "_meta"}
     for envelope in data["servers"][:1000]:
         if not isinstance(envelope, dict) or not isinstance(envelope.get("server"), dict):
             continue
@@ -129,7 +320,7 @@ def registry_entries(data: dict) -> list[MarketplaceEntry]:
         if not isinstance(name, str) or not isinstance(version, str) or not name or len(name) > 200 or len(version) > 128:
             continue
         status = official.get("status", "unknown")
-        install, notes, requires_auth = None, [], False
+        install, notes = None, []
         remotes, packages, reviewable = item.get("remotes", []), item.get("packages", []), True
         try:
             if not isinstance(remotes, list) or not isinstance(packages, list) or len(remotes) > 16 or len(packages) > 16:
@@ -145,51 +336,26 @@ def registry_entries(data: dict) -> list[MarketplaceEntry]:
         elif set(item) - known:
             notes.append("Additional server setup or authentication declarations are unsupported by catalog import.")
         else:
-            for remote in remotes:
-                if not isinstance(remote, dict):
-                    continue
-                if remote.get("headers") or set(remote) - {"type", "url", "headers"}:
-                    notes.append("Remote header, authentication or variable declarations require setup that catalog import cannot safely express.")
-                    requires_auth = requires_auth or bool(remote.get("headers"))
-                    continue
-                url = str(remote.get("url", ""))
-                parsed = urllib.parse.urlsplit(url)
-                if (remote.get("type") not in {"streamable-http", "sse"} or parsed.scheme != "https"
-                        or not parsed.hostname or parsed.username or parsed.password or any(c in url for c in "{}")):
-                    continue
-                install = {"transport": remote["type"].replace("-", "_"), "url": url}
-                requires_auth = False
-                break
-            if install is None:
-                for package in packages:
-                    if not isinstance(package, dict):
-                        continue
-                    allowed = {"registryType", "identifier", "version", "transport", "registryBaseUrl", "runtimeHint",
-                               "runtimeArguments", "packageArguments", "environmentVariables"}
-                    if (set(package) - allowed or package.get("environmentVariables") or package.get("runtimeArguments")
-                            or package.get("packageArguments") or package.get("runtimeHint", "npx") != "npx"
-                            or package.get("registryBaseUrl", "https://registry.npmjs.org").rstrip("/") != "https://registry.npmjs.org"
-                            or package.get("transport") != {"type": "stdio"}):
-                        notes.append("Package environment, runtime, argument, integrity or registry declarations are unsupported by catalog import.")
-                        requires_auth = requires_auth or bool(package.get("environmentVariables"))
-                        continue
-                    identifier, package_version = package.get("identifier", ""), package.get("version", "")
-                    if (package.get("registryType") != "npm" or not isinstance(identifier, str) or not isinstance(package_version, str)
-                            or not re.fullmatch(r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+", identifier)
-                            or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", package_version)):
-                        continue
-                    install = {"transport": "stdio", "command": "npx", "args": [identifier + "@" + package_version]}
-                    requires_auth = False
-                    notes.append("Prepare reviewed dependencies first. Only self-contained npm archives or complete npm shrinkwraps without install scripts are supported.")
+            # The first route Row-Bot can express: a hosted remote, else a package it can run.
+            routes = [(remote, _remote) for remote in remotes] + [(package, _package) for package in packages]
+            for declaration, build in routes:
+                try:
+                    install = build(declaration if isinstance(declaration, dict) else {})
                     break
+                except _Declared as reason:
+                    notes.append(str(reason))
+            if install is not None:
+                notes = []  # Reasons for routes not taken are not the record's.
+        secret = any(field["secret"] for field in (install or {}).get("inputs", []))
         repository = item.get("repository", {})
         url = str(repository.get("url", "")) if isinstance(repository, dict) else ""
         entries.append(MarketplaceEntry(id=name + "@" + version, name=str(item.get("title") or name)[:128],
             description=str(item.get("description", ""))[:800], source="official", publisher=name.split("/", 1)[0],
             url=url or str(item.get("websiteUrl") or "")[:2048], classification="official-registry",
-            transport=install.get("transport", "") if install else "", requires_auth=requires_auth,
+            transport=install.get("transport", "") if install else "", requires_auth=secret,
             install=install, notes=list(dict.fromkeys(notes)), metadata={"version": version, "status": status,
-                "canonical_name": name, **({"setup_digest": setup_digest} if install else {}), **_registry_display(item, official)}))
+                "canonical_name": name, **({"setup_digest": setup_digest} if install else {}),
+                **({"auth_mode": "api_key"} if secret else {}), **_registry_display(item, official)}))
     return entries
 
 
@@ -197,8 +363,22 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
     """Return a disabled, review-required server config template."""
     if entry.source == "official" and (not entry.install or not (entry.metadata or {}).get("setup_digest")):
         raise ValueError("registry_recipe_unsupported")
+    from row_bot.integrations import inputs as declared
     install = dict(entry.install or {})
     conflicts = [conflict.as_dict() for conflict in conflicts_for_entry(entry)]
+    fields = {field: dict(install.get(field) or {}) for field in ("headers", "env")}
+    found = declared.check(install.get("inputs"))
+    if not found and not (entry.metadata or {}).get("auth_bindings"):
+        # A recipe that leaves a header or variable blank asks the person for it when connecting.
+        for field, target in (("headers", "header"), ("env", "env")):
+            for name, value in fields[field].items():
+                if value == "":
+                    found.append(declared.declaration(declared.key_of(name), target=target, name=name,
+                                                      secret=declared.secretish(name), required=True))
+                    fields[field][name] = "{" + found[-1]["key"] + "}"
+    metadata = dict(entry.metadata or {})
+    if any(item["secret"] for item in found) and not metadata.get("auth_mode"):
+        metadata["auth_mode"] = "api_key"
     return {
         "enabled": False,
         "environment_mode": "minimal",
@@ -206,8 +386,9 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
         "command": install.get("command", ""),
         "args": install.get("args", []),
         "url": install.get("url", ""),
-        "headers": install.get("headers", {}),
-        "env": install.get("env", {}),
+        "headers": fields["headers"],
+        "env": fields["env"],
+        **({"inputs": found} if found else {}),
         "requirements": list(entry.requirements or []),
         "trust_level": entry.trust_tier or "standard",
         "source": {
@@ -222,7 +403,7 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
             "risk_level": entry.risk_level,
             "action_scope": entry.action_scope,
             "requires_auth": entry.requires_auth,
-            **{key: (entry.metadata or {})[key] for key in ("auth_mode", "auth_bindings", "account_requirements", "cost", "evidence") if key in (entry.metadata or {})},
+            **{key: metadata[key] for key in ("auth_mode", "auth_bindings", "account_requirements", "cost", "evidence") if key in metadata},
             "recommended": entry.recommended,
             "capabilities": list(entry.capabilities or []),
             "overlaps_native": list(entry.overlaps_native or []),

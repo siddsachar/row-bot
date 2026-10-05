@@ -117,7 +117,7 @@ def validate_metadata(raw: dict | None) -> dict:
         raise McpAuthError("invalid_mcp_auth")
     for value in bindings:
         if (type(value) is not dict or set(value) - {"kind", "name", "key", "prefix"}
-                or value.get("kind") not in {"header", "env"}
+                or value.get("kind") not in {"header", "env", "input"}
                 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,127}", str(value.get("name", "")))
                 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", str(value.get("key", "")))
                 or value.get("prefix", "") not in {"", "Bearer ", "Basic "}):
@@ -333,6 +333,7 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
     metadata = validate_metadata(cfg.get("auth"))
     ref = metadata.get("credential_ref")
     options = {}
+    secrets: dict = {}
     if ref:
         if metadata.get("binding") != binding(name, cfg):
             raise McpAuthError("mcp_credentials_endpoint_changed")
@@ -348,8 +349,7 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
                     current = config.read_saved_configuration().document.get("servers", {}).get(name, {})
                 if current.get("auth") != cfg.get("auth") or binding(name, current) != metadata["binding"]:
                     raise McpAuthError("mcp_auth_configuration_changed")
-            storage = TokenStorage(ref, metadata["binding"], validate=current_authority)
-            options["auth"] = oauth_provider(cfg["url"], metadata["callback_uri"], storage)
+            options["auth"] = TokenStorage(ref, metadata["binding"], validate=current_authority)
         elif metadata["mode"] == "api_key":
             data = read_credentials(ref)
             if data.get("binding") != metadata["binding"]:
@@ -358,9 +358,20 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
                 value = data.get("values", {}).get(item["key"])
                 if not isinstance(value, str):
                     raise McpAuthError("mcp_credentials_unavailable")
+                if item["kind"] == "input":  # A declared input: filled into its templates below.
+                    secrets[item["key"]] = value
+                    continue
                 effective.setdefault("headers" if item["kind"] == "header" else "env", {})[item["name"]] = item.get("prefix", "") + value
+    if cfg.get("inputs"):
+        from row_bot.integrations import inputs
+        try:
+            effective = inputs.resolve(effective, secrets)
+        except inputs.InputError:
+            raise McpAuthError("mcp_inputs_required") from None
+    if options.get("auth"):  # Signs in to the address the person's own values complete.
+        options["auth"] = oauth_provider(effective["url"], metadata["callback_uri"], options["auth"])
     if cfg.get("transport", "stdio") != "stdio":
-        endpoint_origin = origin(cfg["url"])
+        endpoint_origin = origin(effective["url"])
         async def request_guard(request):
             validate()
             if options.get("auth"):

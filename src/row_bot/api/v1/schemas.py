@@ -8027,6 +8027,8 @@ class PlanInput(WireModel):
     default: str = Field(max_length=1024)
     choices: list[str] = Field(max_length=64)
     help_url: str = Field(max_length=2048)
+    description: str = Field(default="", max_length=512)
+    format: Literal["string", "number", "boolean", "filepath"] = "string"
 
 
 class PlanSignIn(WireModel):

@@ -187,10 +187,40 @@ def _servers(root: Path, diagnostics: list[dict]) -> list[dict]:
                         contained_path(root, suffix)
             else:
                 validate_remote(entry.get("url"), entry.get("headers", {}))
-            result.append({**entry, "id": name, "transport": "streamable_http" if kind == "streamable-http" else kind, "portable": True})
+            result.append({**declared_inputs(entry), "id": name, "transport": "streamable_http" if kind == "streamable-http" else kind,
+                           "portable": True})
         except (OSError, ValueError, TypeError) as exc:
             diagnostics.append({"component": "mcp/" + name[:160], "reason": str(exc)[:160]})
     return result
+
+
+def declared_inputs(entry: dict) -> dict:
+    """``${NAME}`` in a server's variables, headers, arguments or address is something the person
+    supplies: it becomes a declared input (``{name}``), filled in from the keychain or the
+    configuration only when Row-Bot connects. ``${PLUGIN_ROOT}`` and ``${PLUGIN_DATA}`` stay as they are."""
+    from row_bot.integrations import inputs
+    found: dict = {}
+
+    def convert(text: str, target: str, carrier: str) -> str:
+        def named(match: re.Match) -> str:
+            if match[1] in {"PLUGIN_ROOT", "PLUGIN_DATA"}:
+                return match[0]
+            key = inputs.key_of(match[1])
+            found.setdefault(key, inputs.declaration(key, target=target, name=match[1], secret=inputs.secretish(match[1])
+                                                     or inputs.secretish(carrier), required=True))
+            return "{" + key + "}"
+        return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]{0,63})\}", named, text)
+    converted = dict(entry)
+    converted["env"] = {key: convert(value, "env", key) for key, value in (entry.get("env") or {}).items()}
+    converted["headers"] = {key: convert(value, "header", key) for key, value in (entry.get("headers") or {}).items()}
+    converted["args"] = [convert(arg, "argument", "") for arg in entry.get("args") or []]
+    if entry.get("url"):
+        converted["url"] = convert(entry["url"], "url_variable", "")
+    if found:
+        converted["inputs"] = inputs.check(list(found.values()))
+        if "{" in converted.get("url", ""):
+            inputs.check_url(converted["url"], converted["inputs"])
+    return converted
 
 
 def validate_remote(url: object, headers: object) -> None:

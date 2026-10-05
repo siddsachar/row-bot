@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 SOURCE = "https://registry.modelcontextprotocol.io/v0.1/servers"
 SHIPPED = Path(__file__).with_name("registry_snapshot.jsonl.xz")
-SCHEMA = 3
+SCHEMA = 4  # 4: recipes carry their declared inputs.
 MAX_RECORDS = 250_000
 MAX_BYTES = 160 * 1024 * 1024
 MAX_AGE = 7 * 24 * 3600
@@ -34,12 +34,24 @@ _FIXED = {"source": "official", "classification": "official-registry"}
 
 
 def compact(entry: MarketplaceEntry) -> dict:
-    """A record without its fixed and empty fields (every default is empty)."""
-    return {key: value for key, value in asdict(entry).items() if key not in _FIXED and value not in ("", None, [], {}, False)}
+    """A record without its fixed and empty fields (every default is empty); a declared input keeps
+    only what differs from a declaration's defaults."""
+    row = {key: value for key, value in asdict(entry).items() if key not in _FIXED and value not in ("", None, [], {}, False)}
+    if (row.get("install") or {}).get("inputs"):
+        row["install"] = {**row["install"], "inputs": [
+            {key: value for key, value in item.items() if key in {"key", "target", "name"} or not (
+                value in ("", [], False) or (key == "format" and value == "string") or (key == "label" and value == item["name"]))}
+            for item in row["install"]["inputs"]]}
+    return row
 
 
 def expand(row: dict) -> MarketplaceEntry:
+    from row_bot.integrations.inputs import declaration
     from row_bot.mcp_client.marketplace import MarketplaceEntry
+    if (row.get("install") or {}).get("inputs"):
+        row = {**row, "install": {**row["install"], "inputs": [
+            declaration(item["key"], **{key: value for key, value in item.items() if key != "key"})
+            for item in row["install"]["inputs"]]}}
     return MarketplaceEntry(**{"description": "", **row, **_FIXED})
 
 

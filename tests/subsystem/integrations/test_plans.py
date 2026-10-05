@@ -51,8 +51,9 @@ def test_every_curated_recipe_has_a_valid_plan_and_only_supported_ones_can_start
             supported.add(entry.id)
     assert {"makenotion-notion-mcp-server", "linear-mcp", "upstash-context7", "microsoftdocs-mcp"} <= supported
     github = review("mcp:curated:github-github-mcp-server")[1]
-    assert not github["supported"]
-    assert {s["type"]: s["state"] for s in github["steps"]}["inputs"] == "unsupported"
+    steps = {s["type"]: s for s in github["steps"]}
+    assert steps["inputs"]["state"] == "pending"  # Its blank token variable is a declared, secret input.
+    assert [(i["name"], i["secret"]) for i in steps["inputs"]["inputs"]] == [("GITHUB_PERSONAL_ACCESS_TOKEN", True)]
     notion = review("mcp:curated:makenotion-notion-mcp-server")[1]
     assert [s["type"] for s in notion["steps"]] == ["consent", "sign_in", "test", "access", "enable"]
     assert notion["consent"]["destinations"] == ["https://mcp.notion.com/mcp"] and notion["consent"]["access_preset"] == "ask"

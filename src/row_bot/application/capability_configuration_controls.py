@@ -43,8 +43,9 @@ _FIELDS = {
     "connect_timeout",
     "tool_timeout",
     "output_limit",
+    "input_values",
 }
-_PRIVATE_FIELDS = ("command", "args", "cwd", "url", "env", "headers")
+_PRIVATE_FIELDS = ("command", "args", "cwd", "url", "env", "headers", "input_values")
 
 
 class CapabilityConfigurationError(ValueError):
@@ -294,7 +295,7 @@ def _fields(raw: Any) -> dict:
                 raise CapabilityConfigurationError("invalid_command")
             for item in value:
                 _text(item)
-        elif key in {"env", "headers"}:
+        elif key in {"env", "headers", "input_values"}:
             if type(value) is not dict or len(value) > 128:
                 raise CapabilityConfigurationError("invalid_command")
             for label, item in value.items():
@@ -326,6 +327,13 @@ def _server(base: dict, fields: dict, name: str) -> dict:
     if transport not in {"stdio", "streamable_http", "sse"}:
         raise CapabilityConfigurationError("invalid_command")
     result["transport"] = transport
+    try:  # Declared inputs keep their shape; plain values only for declared, non-secret inputs.
+        from row_bot.integrations import inputs
+        declared = {item["key"]: item for item in inputs.check(result.get("inputs"))}
+    except ValueError:
+        raise CapabilityConfigurationError("invalid_command") from None
+    if any(key not in declared or declared[key]["secret"] for key in result.get("input_values") or {}):
+        raise CapabilityConfigurationError("invalid_command")
     if transport == "stdio":
         _text(result.get("command"), empty=False)
     else:

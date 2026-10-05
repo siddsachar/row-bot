@@ -26,6 +26,7 @@ BLOCKING = {
     "sign_in_required": ("needs_sign_in", "sign_in"),
     "expired": ("needs_sign_in", "sign_in"),
     "key_required": ("needs_key", "add_key"),
+    "inputs_required": ("needs_setup", "continue_setup"),
     "connection_failed": ("attention", "fix"),
     "cleanup_incomplete": ("attention", "retry"),
     "tools_changed": ("attention", "fix"),
@@ -54,6 +55,7 @@ _MESSAGES = {
     "sign_in_required": "Connect the account for this connection before testing its tools.",
     "expired": "The saved sign-in no longer works. Sign in again.",
     "key_required": "Connect the account for this connection before testing its tools.",
+    "inputs_required": "Add the settings this connection needs.",
     "connection_failed": "The connection failed or its cleanup needs attention.",
     "cleanup_incomplete": "The connection failed or its cleanup needs attention.",
     "missing_runtime": "Finish the required runtime setup.",
@@ -116,6 +118,7 @@ def finish(row: dict) -> dict:
 
 def mcp_setup(server: dict, cfg: dict) -> dict:
     """Setup requirements, never secret values or unreviewed executable recipes."""
+    from row_bot.integrations import inputs
     from row_bot.mcp_client.auth import McpAuthError, validate_metadata
     auth, source = cfg.get("auth") or {}, cfg.get("source") or {}
     local = cfg.get("transport", "stdio") == "stdio"
@@ -124,11 +127,15 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
         mode = "none" if auth.get("mode") == "none" and not auth.get("operation_id") and not source.get("requires_auth") else "unknown"
     # Disconnect records mode=none; it cannot erase a declared account requirement.
     try:
-        bindings = validate_metadata({"mode": "api_key", "bindings": auth.get("bindings") or source.get("auth_bindings") or []})["bindings"]
-        if any((binding["kind"] == "env") != local for binding in bindings):
+        declared = inputs.check(cfg.get("inputs"))
+        # A declared secret is saved like any key: one keychain credential, filled into its templates at use.
+        secrets = [{"kind": "input", "name": item["key"], "key": item["key"]} for item in declared if item["secret"]]
+        bindings = validate_metadata({"mode": "api_key", "bindings": (auth.get("bindings") if auth.get("mode") == "api_key"
+                                      else None) or [*(source.get("auth_bindings") or []), *secrets]})["bindings"]
+        if any(binding["kind"] != "input" and (binding["kind"] == "env") != local for binding in bindings):
             raise McpAuthError("invalid_mcp_auth")
-    except McpAuthError:
-        bindings, mode = [], "unsupported"
+    except (McpAuthError, inputs.InputError):
+        declared, bindings, mode = [], [], "unsupported"
     destination = "Local process"
     if not local:
         try:
@@ -137,7 +144,8 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
         except ValueError:
             destination = "Invalid connection destination"
     return {"auth_mode": mode, "execution": "local" if local else "hosted", "destination": destination[:2048],
-        "bindings": bindings, "credential_configured": bool(auth.get("credential_ref")),
+        "bindings": bindings, "credential_configured": bool(auth.get("credential_ref")), "inputs": declared,
+        "inputs_missing": inputs.missing(cfg, bool(auth.get("credential_ref")))[1],
         "catalog_accepted": isinstance((cfg.get("tools") or {}).get("catalog"), dict),
         "requirements": list(server.get("requirements") or []),
         "runtime_status": str(server.get("runtime_status") or "not_connected")[:64],
@@ -157,6 +165,8 @@ def mcp_blockers(setup: dict, runtime: dict, *, enabled: bool) -> list[dict]:
         found.append(blocker("auth_unsupported"))
     elif setup["auth_mode"] in {"oauth", "api_key"} and not setup["credential_configured"]:
         found.append(blocker("sign_in_required" if setup["auth_mode"] == "oauth" else "key_required"))
+    if setup.get("inputs_missing"):
+        found.append(blocker("inputs_required"))
     elif setup["credential_configured"] and state in _FAILED | {"disconnected"} and runtime.get("sign_in_failed"):
         found.append(blocker("expired"))
     if state in _FAILED and not runtime.get("sign_in_failed"):

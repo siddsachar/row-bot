@@ -588,7 +588,8 @@ class McpServerRuntime:
                 env = ({key: value for key, value in os.environ.items() if key.upper() in
                         {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "LANG", "LC_ALL"}}
                        if self.cfg.get("environment_mode") == "minimal" else os.environ.copy())
-                env.update({str(k): str(v) for k, v in dict(self.cfg.get("env") or {}).items()})
+                # The connection's variables with its declared inputs and saved keys filled in, for this launch only.
+                env.update({str(k): str(v) for k, v in dict(launch_cfg.get("env") or {}).items()})
                 env = apply_managed_runtime_env(self.cfg, env)
                 if self.cfg.get("plugin_data"):
                     from row_bot.data_paths import get_row_bot_data_dir
@@ -599,17 +600,19 @@ class McpServerRuntime:
                         raise RuntimeError("plugin_data_owner_changed")
                     data.mkdir(parents=True, exist_ok=True)
             command = _resolve_stdio_command(command, env)
-            args = [str(arg) for arg in self.cfg.get("args") or []]
+            args = [str(arg) for arg in launch_cfg.get("args") or []]
             if self.cfg.get("environment_mode") == "minimal" or self.cfg.get("managed_launch"):
-                from row_bot.mcp_client.packages import resolve_launch
-                package_launch = resolve_launch(self.cfg)
+                from row_bot.mcp_client.packages import requirement, resolve_launch
+                filled = requirement(launch_cfg)
+                package_launch = resolve_launch(self.cfg, args=filled[2] if filled else None)
                 if package_launch:
                     command, args = package_launch
-            # Prepared workers retain their isolated HOME and runtime paths.
-            # Only explicitly reviewed credential bindings augment that environment.
-            secret_env = {item["name"] for item in self.cfg.get("auth", {}).get("bindings", [])
-                if item.get("kind") == "env"}
-            env.update({str(k): str(v) for k, v in launch_cfg.get("env", {}).items() if k in secret_env})
+            if launch is not None:
+                # Prepared workers retain their isolated HOME and runtime paths.
+                # Only explicitly reviewed credential bindings augment that environment.
+                secret_env = {item["name"] for item in self.cfg.get("auth", {}).get("bindings", [])
+                    if item.get("kind") == "env"}
+                env.update({str(k): str(v) for k, v in launch_cfg.get("env", {}).items() if k in secret_env})
             params = StdioServerParameters(
                 command=command,
                 args=args,
@@ -620,7 +623,7 @@ class McpServerRuntime:
         elif transport in {"streamable_http", "http", "streamable-http"}:
             if streamablehttp_client is None:
                 raise RuntimeError("MCP Streamable HTTP transport is unavailable")
-            url = str(self.cfg.get("url") or "").strip()
+            url = str(launch_cfg.get("url") or "").strip()
             if not url:
                 raise RuntimeError("HTTP MCP server requires a URL")
             read_stream, write_stream, _ = await self.exit_stack.enter_async_context(
@@ -629,7 +632,7 @@ class McpServerRuntime:
         elif transport == "sse":
             if sse_client is None:
                 raise RuntimeError("MCP SSE transport is unavailable")
-            url = str(self.cfg.get("url") or "").strip()
+            url = str(launch_cfg.get("url") or "").strip()
             if not url:
                 raise RuntimeError("SSE MCP server requires a URL")
             read_stream, write_stream = await self.exit_stack.enter_async_context(

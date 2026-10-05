@@ -159,7 +159,8 @@ class McpClientFoundationTests(unittest.TestCase):
 
         xquik_config = marketplace.entry_to_server_config(xquik)
         self.assertFalse(xquik_config["enabled"])
-        self.assertEqual(xquik_config["headers"], {"x-api-key": ""})
+        self.assertEqual(xquik_config["headers"], {"x-api-key": "{x_api_key}"})  # Asked for, never saved here.
+        self.assertEqual([(i["key"], i["secret"]) for i in xquik_config["inputs"]], [("x_api_key", True)])
         self.assertEqual(overlap_note("xquik", xquik_config), "Row-Bot also has its own X tools.")
 
         executor_description = "Execute API calls against your Xquik account."

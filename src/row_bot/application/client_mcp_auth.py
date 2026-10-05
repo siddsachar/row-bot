@@ -91,7 +91,8 @@ def review_auth(*, server_id: str, configuration_revision: str, action: str, mod
         if cfg.get("transport", "stdio") == "stdio":
             raise auth.McpAuthError("mcp_oauth_http_required")
         auth.public_endpoint(cfg.get("url", ""))
-    if mode == "api_key" and any((item["kind"] == "env") != (cfg.get("transport", "stdio") == "stdio") for item in metadata["bindings"]):
+    if mode == "api_key" and any(item["kind"] != "input" and (item["kind"] == "env") != (cfg.get("transport", "stdio") == "stdio")
+                                 for item in metadata["bindings"]):
         raise auth.McpAuthError("invalid_mcp_auth")
     intent = {"server_id": server_id, "configuration_revision": configuration_revision,
         "action": action, "mode": mode, "label": label, "bindings": metadata["bindings"], "target": target}

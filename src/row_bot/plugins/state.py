@@ -195,7 +195,7 @@ def publish_mcp_child_configuration(target: dict, document: dict, *, expected_di
     validate_mcp_child_change(before.document, document)
     servers = document["servers"]
     name = next(iter(servers))
-    allowed = {"enabled", "tools", "auth", "label", "env", "headers", "managed_launch"}
+    allowed = {"enabled", "tools", "auth", "label", "env", "headers", "managed_launch", "input_values"}
     values = {key: copy.deepcopy(value) for key, value in servers[name].items() if key in allowed}
     if len(json.dumps(values)) > 256 * 1024:
         raise McpConfigurationError("mcp_configuration_too_large")
@@ -224,7 +224,7 @@ def validate_mcp_child_change(before: dict, document: dict) -> None:
     if servers.keys() != old_servers.keys():
         raise McpConfigurationError("plugin_child_owned")
     name = next(iter(servers))
-    allowed = {"enabled", "tools", "auth", "label", "env", "headers", "managed_launch"}
+    allowed = {"enabled", "tools", "auth", "label", "env", "headers", "managed_launch", "input_values"}
     if any(servers[name].get(key) != value for key, value in old_servers[name].items() if key not in allowed):
         raise McpConfigurationError("plugin_child_source_immutable")
 

@@ -302,10 +302,23 @@ def resolve_reference(*, owner_id: str, reference: str, kind: str = "", validate
         raise ClientPlatformError("integration_link_unsupported")  # Keys belong in the keychain, never in a saved address.
     link = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
     if guess == "mcp":
+        from row_bot.integrations import inputs
         from row_bot.mcp_client.marketplace import MarketplaceEntry
-        install = {"transport": "streamable_http", "url": link}
+        # A key inside the address (".../s/<key>/mcp") is never saved as part of it: it becomes a
+        # secret the person enters, kept in the keychain and put back only when connecting.
+        segments, declared = parts.path.split("/"), []
+        for index, segment in enumerate(segments):
+            if inputs.secret_segment(segment):
+                key = "link_key" + (f"_{len(declared) + 1}" if declared else "")
+                declared.append(inputs.declaration(key, target="url_variable", name=key, label="Key from your link",
+                    description="The part of the link that works like a password. Paste it again here.", secret=True,
+                    required=True))
+                segments[index] = "{" + key + "}"
+        link = urlunsplit((parts.scheme, parts.netloc, "/".join(segments), "", ""))
+        install = {"transport": "streamable_http", "url": link, **({"inputs": declared} if declared else {})}
         entry_ = MarketplaceEntry(id="link-" + _digest(link)[:12], name=parts.hostname, description="A connection you added by link.",
-            source="link", url=link, transport="streamable_http", install=install, publisher=parts.hostname)
+            source="link", url=link if not declared else "", transport="streamable_http", install=install, publisher=parts.hostname,
+            metadata={"auth_mode": "api_key"} if declared else None)
         return _added(owner_id, "mcp", parts.hostname, {"kind": "mcp", "entry": entry_}, install=install,
                       description="A connection you added by link. Row-Bot checks it after you agree.")
     if guess == "plugin":

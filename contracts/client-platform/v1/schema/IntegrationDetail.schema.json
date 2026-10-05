@@ -956,6 +956,23 @@
           "title": "Default",
           "type": "string"
         },
+        "description": {
+          "default": "",
+          "maxLength": 512,
+          "title": "Description",
+          "type": "string"
+        },
+        "format": {
+          "default": "string",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "filepath"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
         "help_url": {
           "maxLength": 2048,
           "title": "Help Url",
