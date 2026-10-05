@@ -36,6 +36,8 @@ import {
 import type {
   ConversationView,
   InsightsSnapshot,
+  IntegrationEntry,
+  IntegrationEntryPage,
   KnowledgeGraphSnapshot,
   MonitorSnapshot,
   OnboardingSnapshot,
@@ -57,6 +59,7 @@ import {
 import { humanizeToken, parseTimestamp, relativeTime } from '../../ui/format';
 import { useReducedMotion } from '../buddy/BuddyAvatar';
 import { ConversationGlyph } from '../shell/ConversationGlyph';
+import { AppIcon } from '../apps/parts';
 import {
   conversationKinds,
   type ConversationKind,
@@ -113,6 +116,12 @@ export type OverviewHomeProps = {
   /** Workflows tab, optionally with one workflow's runs open. */
   onOpenWorkflows: (taskId?: string) => void;
   onOpenTab: (tab: 'knowledge' | 'monitor' | 'insights') => void;
+  /** Your apps (installed), so a broken one or one that needs a sign-in shows here. */
+  loadApps?: (
+    signal?: AbortSignal,
+  ) => Promise<IntegrationEntryPage | undefined>;
+  /** Open an app's page; `fix` starts its fix there at once. */
+  onOpenApp?: (itemId: string, fix?: boolean) => void;
   onHideSetup?: () => void;
   setupError?: string;
   /** Re-read one listed conversation (approvals and runs change live). */
@@ -741,6 +750,8 @@ export default function OverviewHome({
   onOpenConversation,
   onOpenWorkflows,
   onOpenTab,
+  loadApps,
+  onOpenApp,
   onHideSetup,
   setupError = '',
   refreshConversation,
@@ -753,6 +764,7 @@ export default function OverviewHome({
   const [tasksError, setTasksError] = useState('');
   const [health, setHealth] = useState<SystemDiagnosis | null>(null);
   const [healthFailed, setHealthFailed] = useState(false);
+  const [apps, setApps] = useState<readonly IntegrationEntry[]>([]);
   const [memory, setMemory] = useState<KnowledgeGraphSnapshot | null>(null);
   const [memoryFailed, setMemoryFailed] = useState(false);
   const [insights, setInsights] = useState<InsightsSnapshot | null>(null);
@@ -779,6 +791,18 @@ export default function OverviewHome({
     );
     return () => abort.abort();
   }, [fixed, loadHealth, refreshKey]);
+
+  useEffect(() => {
+    if (!loadApps) return;
+    const abort = new AbortController();
+    loadApps(abort.signal).then(
+      (page) => {
+        if (!abort.signal.aborted) setApps(page?.items ?? []);
+      },
+      () => undefined, // Apps can't be read: nothing to add here.
+    );
+    return () => abort.abort();
+  }, [fixed, loadApps, refreshKey]);
 
   useEffect(() => {
     if (!loadTasks) return;
@@ -994,6 +1018,45 @@ export default function OverviewHome({
         ),
       },
     })),
+    // An app that is on but broken or signed out: its fix is one click away.
+    ...apps
+      .filter(
+        (entry) =>
+          entry.lifecycle === 'installed' &&
+          ['needs_sign_in', 'needs_key', 'attention'].includes(
+            entry.readiness ?? '',
+          ),
+      )
+      .map<Need>((entry) => {
+        const name = entry.app?.name || entry.name;
+        const fix = entry.next_action;
+        return {
+          key: `app:${entry.id}`,
+          item: {
+            icon: <AppIcon icon={entry.icon} size={16} />,
+            tone: entry.readiness === 'attention' ? 'danger' : 'warning',
+            title:
+              entry.readiness === 'needs_sign_in'
+                ? `Sign in to ${name}`
+                : entry.readiness === 'needs_key'
+                  ? `${name} needs its key`
+                  : `${name} needs attention`,
+            meta:
+              entry.blockers.find((blocker) => blocker.message)?.message ??
+              'It can’t be used until this is fixed.',
+            label: `Open ${name}`,
+            onOpen: () => onOpenApp?.(entry.id),
+            actions: onOpenApp && fix.kind !== 'none' && (
+              <Button
+                className="small"
+                onClick={() => onOpenApp(entry.id, true)}
+              >
+                {fix.label}
+              </Button>
+            ),
+          },
+        };
+      }),
     // A Monitor check that turned red, checked in the background (B252).
     ...(health?.checks ?? [])
       .filter((check) => check.status === 'error')

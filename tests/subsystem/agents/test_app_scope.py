@@ -124,3 +124,30 @@ def test_tools_of_apps_left_out_are_never_bound_and_kept_ones_still_ask_first(mo
     assert agent.get_agent_graph(["mcp"]).tools == []  # Every app left out: none of their tools is bound.
     agent._current_app_scope_var.set(None)
     assert set(tools) <= set(_bound_tools(agent.get_agent_graph(["mcp"])))  # Unscoped turns are unchanged.
+
+
+@pytest.fixture
+def identities(apps, monkeypatch):
+    servers = {"mcp_notion_delete_page": "Notion", "mcp_notion_search": "Notion"}
+    monkeypatch.setattr("row_bot.mcp_client.runtime.server_for_tool", servers.get)
+    return {"item_id": "mcp:notion", "name": "Notion", "icon": "letter:N"}
+
+
+def test_an_approval_names_the_app_asking_with_its_logo(identities):
+    from row_bot.application.approval_projection import project_approval_context
+    asked = project_approval_context({"tool": "mcp_notion_delete_page", "args": {"page": "Roadmap"},
+                                      "description": "Delete a page"})
+    assert asked["app"] == identities
+    assert "app" not in project_approval_context({"tool": "workspace_file_delete", "args": {}})  # Row-Bot's own.
+
+
+def test_a_settled_tool_step_names_its_app_even_when_found_through_discovery(identities):
+    from row_bot.application.conversation_traces import project_assistant_row_traces
+    records = [
+        {"row": {"id": "assistant:checkpoint:parent", "message_id": "parent", "role": "assistant", "blocks": []},
+         "tool_calls": [{"id": "call-1", "name": "mcp_notion_search", "args": {"query": "roadmap"}},
+                        {"id": "call-2", "name": "tool_invoke", "args": {"name": "mcp_notion_search", "arguments": {}}},
+                        {"id": "call-3", "name": "calculate", "args": {}}]},
+    ]
+    items = [item for group in project_assistant_row_traces(records)[0]["traces"] for item in group["items"]]
+    assert [item.get("app") for item in items] == [identities, identities, None]

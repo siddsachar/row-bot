@@ -1080,3 +1080,27 @@ it('puts Stop in the same row as what the plan waits for', async () => {
     }),
   ).toBeVisible();
 });
+
+it('starts the fix at once when opened from Needs you, and only once', async () => {
+  const signedOut = entry({
+    id: 'mcp:notion',
+    installed: true,
+    lifecycle: 'installed',
+    readiness: 'needs_sign_in',
+    next_action: { kind: 'sign_in', label: 'Sign in again' },
+  });
+  const fix = plan({ intent: 'fix', item_id: 'mcp:notion' });
+  const { controller } = show('/settings/apps/item?id=mcp%3Anotion&fix=1', {
+    integrationDetail: vi.fn(async () =>
+      detail({ entry: signedOut, plan: fix }),
+    ),
+    reviewInstallPlan: vi.fn(async () => fix),
+  });
+  expect(
+    await screen.findByRole('dialog', { name: 'Sign in again' }),
+  ).toBeVisible();
+  expect(controller.reviewInstallPlan).toHaveBeenCalledOnce();
+  await waitFor(() =>
+    expect(screen.getByLabelText('Location')).not.toHaveTextContent('fix=1'),
+  );
+});

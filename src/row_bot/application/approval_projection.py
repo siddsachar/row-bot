@@ -65,6 +65,10 @@ def project_approval_context(value: Any, *, fallback_reason: str = "") -> dict[s
     # Turning on a tool the work needs reads as a setup card ("Turn on …"),
     # and a code folder to use or a repository to clone as a folder card
     # where the person picks the folder (B277).
+    from row_bot.application.conversation_traces import app_of_tool
+    app = app_of_tool(tool_name) if len(items) == 1 else None
+    if app:  # Shown with its logo and name, so the person knows which app is asking.
+        projected["app"] = app
     setup = item.get("setup")
     if isinstance(setup, Mapping) and len(items) == 1:
         projected_setup = _setup_card(setup)

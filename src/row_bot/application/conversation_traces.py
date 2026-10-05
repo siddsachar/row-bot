@@ -144,6 +144,8 @@ class TraceItem:
     summary_truncated: bool
     content_ref: str
     specialization: TraceSpecialization | None
+    # The app the tool belongs to ({item_id, name, icon}), or None for Row-Bot's own tools.
+    app: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -610,6 +612,7 @@ def build_trace_item(
     external_outcome: str = "",
     content_ref: str = "",
     safe_input: str = "",
+    app: dict | None = None,
 ) -> TraceItem:
     """Build one bounded item while retaining caller-owned identity/order."""
 
@@ -640,7 +643,22 @@ def build_trace_item(
         summary_truncated=truncated,
         content_ref=_identifier(content_ref, "content_ref", required=False),
         specialization=specialize_tool_result(result),
+        app=app,
     )
+
+
+def app_of_tool(name: Any, args: Any = None) -> dict | None:
+    """The app behind a tool call, by its runtime name (a discovered tool's own name); never fails a read."""
+    runtime = str(name or "")
+    if runtime == "tool_invoke" and isinstance(args, dict):
+        runtime = str(args.get("name") or "")
+    if not runtime.startswith(("mcp_", "plugin_")):
+        return None
+    try:
+        from row_bot.integrations.scope import app_for_tool
+        return app_for_tool(runtime)
+    except Exception:
+        return None
 
 
 def _aggregate_status(items: tuple[TraceItem, ...]) -> TraceStatus:
@@ -764,6 +782,7 @@ def public_trace_group(group: TraceGroup) -> dict[str, Any]:
                 "summary_truncated": item.summary_truncated,
                 "content_ref": item.content_ref,
                 "specialization": _public_specialization(item.specialization),
+                **({"app": dict(item.app)} if item.app else {}),
             }
             for item in group.items
         ],
@@ -856,6 +875,7 @@ def project_assistant_row_traces(
                 "call_order": call_order,
                 "group_order": grouped_orders[group_key],
                 "tool_name": name,
+                "app": app_of_tool(raw_call.get("name"), raw_call.get("args")),
                 "safe_input": safe_tool_input(raw_call.get("args")),
                 "parent_id": parent_id,
                 "parent_output_index": len(output) - 1,
@@ -919,6 +939,7 @@ def project_assistant_row_traces(
                     external_outcome=str(result_row.get("external_outcome") or ""),
                     content_ref=content_ref,
                     safe_input=call["safe_input"],
+                    app=call["app"],
                 )
             )
         parent_index = int(projected_calls[0]["parent_output_index"])

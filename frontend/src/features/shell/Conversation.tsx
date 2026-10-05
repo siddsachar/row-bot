@@ -731,6 +731,7 @@ export default function Conversation({
             safe_summary: value.safe_summary ?? '',
             summary_truncated: value.summary_truncated ?? false,
             content_ref: value.content_ref ?? '',
+            ...(value.app ? { app: value.app } : {}),
           },
         ],
       },

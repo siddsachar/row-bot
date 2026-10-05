@@ -167,3 +167,18 @@ it('keeps the tool off with Not now', async () => {
     'Developer tools stays off.',
   );
 });
+
+it('shows which app asks, with its logo and name, and still needs the person', async () => {
+  approval.mockResolvedValue({
+    ...view,
+    action_label: 'mcp_notion_delete_page',
+    reason: 'Delete a page for good.',
+    app: { item_id: 'mcp:notion', name: 'Notion', icon: 'letter:N' },
+  });
+  await renderCard();
+  const card = screen.getByRole('complementary', {
+    name: /Approval required for .* in Notion$/,
+  });
+  expect(card).toHaveTextContent('Notion');
+  expect(intent).not.toHaveBeenCalled();
+});

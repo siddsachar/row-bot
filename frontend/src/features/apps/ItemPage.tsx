@@ -196,6 +196,9 @@ function Detail({
   const [error, setError] = useState('');
   const [changing, setChanging] = useState(false);
   const [editing, setEditing] = useState(false);
+  // Opened from Home's "Needs you" with ?fix=1: the fix starts once, here.
+  const [search, setSearch] = useSearchParams();
+  const fixing = useRef(search.get('fix') === '1');
   const [settling, setSettling] = useState(false);
   const load = useCallback(
     (signal?: AbortSignal) =>
@@ -251,6 +254,22 @@ function Detail({
     if (openPlan && control.plan?.plan_id !== openPlan.plan_id && !control.plan)
       void control.review(openPlan.intent);
   }, [openPlan?.plan_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!fixing.current || !detail) return;
+    fixing.current = false;
+    setSearch(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('fix');
+        return next;
+      },
+      { replace: true },
+    );
+    const fix = detail.entry.next_action;
+    if (['none', 'try', 'delete_data', 'retry'].includes(fix.kind)) return;
+    if (!control.plan && (!detail.plan || detail.plan.supported))
+      void control.review('', fix.label);
+  }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error && !detail)
     return (
       <ErrorState

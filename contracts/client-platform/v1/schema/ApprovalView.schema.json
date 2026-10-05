@@ -70,6 +70,35 @@
       ],
       "title": "ApprovalSetup",
       "type": "object"
+    },
+    "TraceAppRef": {
+      "additionalProperties": false,
+      "description": "An app a Connect card offers: its catalog id, name and logo, re-read from local data.",
+      "properties": {
+        "icon": {
+          "maxLength": 128,
+          "title": "Icon",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "name",
+        "icon"
+      ],
+      "title": "TraceAppRef",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -79,6 +108,17 @@
       "maxLength": 180,
       "title": "Action Label",
       "type": "string"
+    },
+    "app": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TraceAppRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "expires_at": {
       "anyOf": [

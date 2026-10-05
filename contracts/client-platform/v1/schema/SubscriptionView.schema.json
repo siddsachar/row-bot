@@ -863,6 +863,17 @@
     "TranscriptTraceItem": {
       "additionalProperties": false,
       "properties": {
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceAppRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "call_id": {
           "maxLength": 256,
           "minLength": 1,

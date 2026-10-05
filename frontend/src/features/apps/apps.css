@@ -444,3 +444,20 @@ a.app-way:hover {
 .composer-apps-menu .app-icon {
   flex: none;
 }
+/* A tool step or an approval from an app shows whose it is: its logo and name. */
+.activity-step-app,
+.approval-card-app {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  color: var(--text-secondary);
+  font-weight: var(--weight-semibold);
+}
+.approval-card-app {
+  display: flex;
+  font-size: var(--text-12);
+}
+.approval-card-icon .app-icon {
+  border-radius: 6px;
+}

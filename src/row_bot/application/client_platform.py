@@ -1428,6 +1428,12 @@ class ClientPlatformService:
 
             safe_input = safe_tool_input(getter("args") or {})
             result_message_id = str(getter("message_id") or "")
+            # The app a call belongs to, read when it starts and kept for its result.
+            from row_bot.application.conversation_traces import app_of_tool
+            apps = handle.__dict__.setdefault("tool_apps", {})
+            if call_id not in apps:
+                apps[call_id] = app_of_tool(getter("runtime_name") or raw_tool, getter("args"))
+            app = apps[call_id]
             item = build_trace_item(
                 item_id=call_id,
                 group_id=group_id,
@@ -1446,6 +1452,7 @@ class ClientPlatformService:
                 external_outcome=str(getter("external_outcome") or ""),
                 content_ref=result_message_id if kind == "tool_done" else "",
                 safe_input=safe_input,
+                app=app,
             )
             self.projection.publish(conversation_id, "tool.activity", {
                 "tool_name": tool_name[:128],
@@ -1459,6 +1466,7 @@ class ClientPlatformService:
                 "safe_summary": item.safe_summary,
                 "summary_truncated": item.summary_truncated,
                 "content_ref": item.content_ref,
+                **({"app": dict(app)} if app else {}),
                 **({"specialization": public_specialization(item.specialization)}
                    if item.specialization is not None and item.specialization.kind in CARD_SPECIALIZATIONS
                    else {})})

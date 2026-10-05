@@ -31,6 +31,7 @@ import { BuddyPortrait } from '../buddy/BuddySurface';
 import ResourceSetup from './ResourceSetup';
 import { setupDeferred } from './FirstRun';
 import KnowledgeEditorDialog from '../knowledge/KnowledgeEditorDialog';
+import { idPath } from '../apps/parts';
 
 const homeTabs = ['overview', 'workflows', 'knowledge', 'monitor', 'insights'];
 /** Snapshots read in the last few seconds are reused when switching tabs. */
@@ -248,6 +249,22 @@ export default function Home({
   const loadHealth = useCallback(
     (signal?: AbortSignal) => controller.systemHealth(signal),
     [controller],
+  );
+  const loadApps = useCallback(
+    (signal?: AbortSignal) =>
+      // Optional: a client without the Apps API simply lists no apps here.
+      Promise.resolve(
+        controller.integrationItems?.(
+          { scope: 'installed', kind: 'app' },
+          signal,
+        ),
+      ),
+    [controller],
+  );
+  const openApp = useCallback(
+    (itemId: string, fix = false) =>
+      navigate(`${idPath('app', itemId)}${fix ? '&fix=1' : ''}`),
+    [navigate],
   );
   const refreshConversation = useCallback(
     (id: string, signal: AbortSignal) =>
@@ -542,6 +559,8 @@ export default function Home({
                 monitor={monitor}
                 loadTasks={identity ? loadTasks : undefined}
                 loadHealth={identity ? loadHealth : undefined}
+                loadApps={identity ? loadApps : undefined}
+                onOpenApp={openApp}
                 // Running every check is the local owner's.
                 onRunDiagnosis={
                   state.handshake?.authentication_kind === 'local_owner'

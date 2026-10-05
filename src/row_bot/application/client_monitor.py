@@ -398,9 +398,10 @@ def _plugin_problems() -> list[dict[str, str]]:
                 continue
         except Exception:
             pass
-        problems.append(_problem(f"plugin:{result.plugin_id}", f"The plugin {result.plugin_id} didn't load",
-            "Open it in Settings › Plugins; a plugin with its own code may need Prepare.", "plugins",
-            _open("/settings/plugins#installed-plugins", "Plugins")))
+        from urllib.parse import urlencode
+        problems.append(_problem(f"plugin:{result.plugin_id}", f"{result.plugin_id} didn't load",
+            "Open it in Apps to see what it needs.", "plugins",
+            _open("/settings/apps/item?" + urlencode({"id": "plugin:" + result.plugin_id}), "Apps")))
     return problems
 
 
@@ -416,9 +417,9 @@ def _mcp_problems() -> list[dict[str, str]]:
     connected = int(status.get("connected_server_count") or 0)
     if not status.get("enabled") or not enabled or connected >= enabled:
         return []
-    return [_problem("mcp", "An MCP server isn't connected",
-                     f"{connected} of {enabled} turned-on servers are connected.", "mcp",
-                     _open("/settings/mcp#mcp-servers", "MCP servers"))]
+    return [_problem("mcp", "An app isn't connected",
+                     f"{connected} of {enabled} apps that are on are connected.", "mcp",
+                     _open("/settings/apps", "Apps"))]
 
 
 def _available_update() -> Any:

@@ -5011,9 +5011,11 @@ class ToolCallPayload(str):
         raw_name: str = "",
         args: dict[str, Any] | None = None,
         call_id: str = "",
+        runtime_name: str = "",
     ):
         obj = str.__new__(cls, str(name or "tool"))
         obj.raw_name = str(raw_name or "")
+        obj.runtime_name = str(runtime_name or raw_name or "")
         obj.args = dict(args or {})
         obj.call_id = str(call_id or "")
         return obj
@@ -5023,6 +5025,8 @@ class ToolCallPayload(str):
             return str(self)
         if key == "raw_name":
             return self.raw_name
+        if key == "runtime_name":
+            return self.runtime_name
         if key == "args":
             return self.args
         if key == "id":
@@ -5088,6 +5092,7 @@ def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
         raw_name=raw_name,
         args=_safe_tool_call_args(args),
         call_id=str(tc.get("id") or raw_name),
+        runtime_name=effective_name,
     )
 
 

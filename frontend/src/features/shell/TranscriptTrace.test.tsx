@@ -662,3 +662,22 @@ it('gives a thought under a second no line of its own', () => {
   );
   expect(container).toBeEmptyDOMElement();
 });
+
+it('names the app a tool step belongs to, with its logo', () => {
+  const fromApp: TranscriptTraceGroup[] = [
+    {
+      ...groups[0],
+      items: [
+        {
+          ...groups[0].items[0],
+          canonical_name: 'mcp_notion_search',
+          specialization: null,
+          app: { item_id: 'mcp:notion', name: 'Notion', icon: 'letter:N' },
+        },
+      ],
+    },
+  ];
+  render(<TranscriptTrace conversation="conversation-a" groups={fromApp} />);
+  const named = screen.getByText('Notion', { selector: '.activity-step-app' });
+  expect(named.querySelector('.app-icon')).not.toBeNull();
+});

@@ -190,7 +190,7 @@ def test_each_attention_problem_offers_its_one_fix(tmp_path, monkeypatch):
         ("channel:whatsapp", {"kind": "open", "href": "/settings/channels#whatsapp",
                               "target": None, "name": "WhatsApp"}),
         ("tunnel", {"kind": "open", "href": "/settings/access#tunnel", "target": None, "name": "Public link"}),
-        ("mcp", {"kind": "open", "href": "/settings/mcp#mcp-servers", "target": None, "name": "MCP servers"}),
+        ("mcp", {"kind": "open", "href": "/settings/apps", "target": None, "name": "Apps"}),
     ]
 
 

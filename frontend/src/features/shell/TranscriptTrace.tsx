@@ -19,6 +19,7 @@ import type {
 } from '../../api/types';
 import { useRuntime } from '../../runtime';
 import { Button, CopyGlyph, useCopyFeedback } from '../../ui/primitives';
+import { AppIcon } from '../apps/parts';
 import {
   activityLabel,
   formatElapsed,
@@ -310,6 +311,13 @@ function TraceItem({
           <StepNode item={item} />
           <span className="activity-step-text">
             <span className="activity-step-verb">
+              {item.app && (
+                <span className="activity-step-app">
+                  <AppIcon icon={item.app.icon} size={14} />
+                  {item.app.name}
+                  <span className="visually-hidden">: </span>
+                </span>
+              )}
               {stepVerb(item.canonical_name, item.status)}
               {reason && <span className="activity-step-tag">{reason}</span>}
             </span>

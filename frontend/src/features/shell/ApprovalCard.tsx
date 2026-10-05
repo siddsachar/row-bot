@@ -7,6 +7,7 @@ import { useOverlay } from '../../ui/overlays';
 import { Button, Hint, Kbd, Skeleton } from '../../ui/primitives';
 import { absoluteTime, humanizeToken, relativeTime } from '../../ui/format';
 import FolderSetupCard from './FolderSetupCard';
+import { AppIcon } from '../apps/parts';
 import { WaitingSince } from './InPlaceApproval';
 import {
   approvalAction,
@@ -222,6 +223,8 @@ export default function ApprovalCard({
     return () => document.removeEventListener('keydown', key);
   });
   const action = view?.action_label || hint?.action_label || '';
+  // The app asking, shown as the catalog knows it.
+  const app = view?.app ?? null;
   const risk = view?.risk_class || hint?.risk_class || 'unknown';
   const argument = keyArgument(view?.safe_argument_summary);
   if (answered)
@@ -297,15 +300,16 @@ export default function ApprovalCard({
   return (
     <aside
       className="approval-card"
-      aria-label={`Approval required for ${action || 'requested action'}`}
+      aria-label={`Approval required for ${action || 'requested action'}${app ? ` in ${app.name}` : ''}`}
       data-risk={risk}
     >
       <span className="approval-card-icon" aria-hidden>
-        <ShieldAlert />
+        {app ? <AppIcon icon={app.icon} size={24} /> : <ShieldAlert />}
       </span>
       {view ? (
         <>
           <div className="approval-card-context">
+            {app && <span className="approval-card-app">{app.name}</span>}
             <strong>{approvalQuestion(view.action_label || '')}</strong>
             <span className="approval-card-reason">
               {plainApprovalReason(view.reason || view.summary || '')}

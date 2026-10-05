@@ -6360,6 +6360,8 @@ class ToolActivity(WireModel):
     # Only for results shown as a card (a created design or code folder, a
     # connection the work needs), so the card appears while the turn runs.
     specialization: TraceSpecialization | None = None
+    # The app the tool belongs to, shown with its logo; absent for Row-Bot's own tools.
+    app: TraceAppRef | None = None
 
 
 class GenerationActivity(WireModel):
@@ -6376,6 +6378,8 @@ class ApprovalRequired(WireModel):
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
     setup: ApprovalSetup | None = None
+    # The app asking, shown with its logo and name.
+    app: TraceAppRef | None = None
 
 
 class GenerationError(WireModel):
@@ -6872,6 +6876,8 @@ class TranscriptTraceItem(WireModel):
     summary_truncated: bool
     content_ref: str = Field(default="", max_length=256)
     specialization: TraceSpecialization | None = None
+    # The app the tool belongs to, shown with its logo; absent for Row-Bot's own tools.
+    app: TraceAppRef | None = None
 
 
 class TranscriptTraceGroup(WireModel):
@@ -7175,6 +7181,7 @@ class ApprovalView(WireModel):
     safe_argument_summary: str = Field(default="", max_length=1024)
     requesting_trace_id: str = Field(default="", max_length=256)
     setup: ApprovalSetup | None = None
+    app: TraceAppRef | None = None
     policy_revision: Revision
     nonce: str = Field(min_length=32, max_length=256)
 

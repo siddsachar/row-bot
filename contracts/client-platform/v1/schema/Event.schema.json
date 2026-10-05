@@ -184,6 +184,17 @@
           "title": "Action Label",
           "type": "string"
         },
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceAppRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "approval_id": {
           "anyOf": [
             {
@@ -2119,6 +2130,17 @@
     "ToolActivity": {
       "additionalProperties": false,
       "properties": {
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceAppRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "content_ref": {
           "default": "",
           "maxLength": 256,

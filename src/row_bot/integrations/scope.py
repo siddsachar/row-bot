@@ -106,7 +106,7 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
 
 
 def app_for_tool(tool_name: str) -> dict | None:
-    """The app a chat tool belongs to (``{id, name, icon}``), from its runtime name; None for Row-Bot's own."""
+    """The app a chat tool belongs to (``{item_id, name, icon}``), from its runtime name; None for Row-Bot's own."""
     from row_bot.mcp_client import runtime
     server = runtime.server_for_tool(tool_name)
     if not server:
@@ -114,8 +114,7 @@ def app_for_tool(tool_name: str) -> dict | None:
     item = next((item for item in _items() if item["server"] == server), None)
     if item is None:
         return None
-    app = item.get("app") or {}
-    return {"id": app.get("id", ""), "item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"]}
+    return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"]}
 
 
 MAX_SUGGESTIONS = 3

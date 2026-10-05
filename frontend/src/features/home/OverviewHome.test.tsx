@@ -1570,3 +1570,69 @@ it('advances its own clock every minute when no time is supplied', () => {
     vi.useRealTimers();
   }
 });
+
+it('lists an app that is on but signed out or broken under Needs you, with its fix one click away', async () => {
+  const entry = (fields: Record<string, unknown>) => ({
+    kind: 'mcp',
+    parent_id: null,
+    description: '',
+    app: null,
+    icon: 'letter:A',
+    verified: false,
+    source: 'recommended',
+    publisher: '',
+    version: '',
+    installed: true,
+    enabled: true,
+    account_label: '',
+    compatibility: 'supported',
+    evidence: 'inspected',
+    tested_with_row_bot: false,
+    attributions: [],
+    children: [],
+    lifecycle: 'installed',
+    readiness: 'ready',
+    blockers: [],
+    next_action: { kind: 'try', label: 'Try it' },
+    ...fields,
+  });
+  const loadApps = vi.fn(async () => ({
+    schema_version: 1,
+    revision: 'r',
+    total: 3,
+    next_cursor: null,
+    sources: [],
+    items: [
+      entry({
+        id: 'mcp:notion',
+        name: 'Notion',
+        readiness: 'needs_sign_in',
+        blockers: [
+          {
+            code: 'expired',
+            severity: 'blocking',
+            message: 'The saved sign-in no longer works. Sign in again.',
+            subject: '',
+          },
+        ],
+        next_action: { kind: 'sign_in', label: 'Sign in again' },
+      }),
+      entry({ id: 'mcp:linear', name: 'Linear' }),
+      entry({
+        id: 'mcp:off',
+        name: 'Figma',
+        lifecycle: 'off',
+        readiness: 'attention',
+      }),
+    ],
+  }));
+  const onOpenApp = vi.fn();
+  show({ loadApps, onOpenApp } as unknown as Partial<OverviewHomeProps>);
+  const needs = await screen.findByRole('list', { name: 'Needs you' });
+  await within(needs).findByText('Sign in to Notion');
+  expect(needs).toHaveTextContent('The saved sign-in no longer works.');
+  expect(needs).not.toHaveTextContent('Linear'); // Ready apps and ones turned off don't need you.
+  expect(needs).not.toHaveTextContent('Figma');
+  fireEvent.click(within(needs).getByRole('button', { name: 'Sign in again' }));
+  expect(onOpenApp).toHaveBeenCalledWith('mcp:notion', true);
+});
