@@ -50,10 +50,11 @@ for (const appearance of ['light', 'dark'] as const) {
       'data-theme',
       appearance,
     );
-    // Bundled Geist is the primary face; nothing is fetched remotely.
+    // Bundled Geist is the primary face; nothing is fetched remotely. Firefox
+    // reports the family name quoted.
     expect(
       await page.evaluate(() => getComputedStyle(document.body).fontFamily),
-    ).toMatch(/^Geist,/);
+    ).toMatch(/^"?Geist"?,/);
 
     const search = page.getByRole('button', { name: 'Search', exact: true });
     await expect(search).toHaveAttribute('aria-keyshortcuts', /\+K$/);
@@ -494,12 +495,14 @@ test('the knowledge graph settles in a same-origin worker and comes back settled
     });
     await page.goto('/app-v2/?tab=knowledge');
     const graph = page.locator('.knowledge-network-shell');
-    await expect(graph).toHaveAttribute(
-      'data-renderer-status',
-      /^(ready|failed)$/,
-    );
+    // A graph whose renderer fails (no WebGL) is replaced by the memory list
+    // and a note saying why, so wait for one of the two settled outcomes.
+    const noWebgl = page.getByRole('status').filter({ hasText: 'needs WebGL' });
+    await expect(
+      graph.and(page.locator('[data-renderer-status="ready"]')).or(noWebgl),
+    ).toBeVisible();
     test.skip(
-      (await graph.getAttribute('data-renderer-status')) === 'failed',
+      await noWebgl.isVisible(),
       'No WebGL in this browser: Knowledge lists the memories instead.',
     );
     // Drawn at once, then laid out by a worker this origin serves.
