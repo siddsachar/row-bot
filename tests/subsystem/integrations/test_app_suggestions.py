@@ -58,7 +58,10 @@ def test_a_card_shows_only_catalog_apps_by_id_whatever_the_tool_text_says(local)
     assert unknown is None  # Nothing the catalog knows: no card at all.
 
 
-def test_a_built_in_way_is_suggested_like_any_app_and_sets_up_in_its_own_settings(local):
+def test_a_built_in_way_is_suggested_like_any_app_and_sets_up_in_its_own_settings(local, monkeypatch):
+    monkeypatch.setattr("row_bot.application.channel_controls.read_channels", lambda **_: {"items": [
+        {"channel_id": "telegram", "display_name": "Telegram", "configured": False, "running": False,
+         "source": {"kind": "builtin"}}]})  # The channel registry, as its owner lists it.
     answer = json.loads(suggest_apps("Gmail"))
     assert answer["kind"] == "connect_apps" and answer["apps"][0] == "builtin:account:google"
     card = scope.app_card("builtin:account:google")

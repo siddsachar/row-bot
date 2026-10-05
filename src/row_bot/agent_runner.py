@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 import uuid
@@ -450,10 +451,11 @@ def _is_task_stopped(exc: BaseException) -> bool:
 def _delegating_app_scope(parent_thread_id: str) -> dict | None:
     """What an agent a chat starts leaves out: the delegating turn's own exclusions, and always the apps
     the chat has switched off (for an agent started with /agent, or resumed later, too)."""
-    from row_bot.agent import current_app_scope
     from row_bot.integrations.scope import turn_scope
     from row_bot.threads import get_thread_apps_off
-    inherited = current_app_scope()
+    # The running turn's scope lives with the agent; with no agent loaded there is no turn to inherit from.
+    reader = getattr(sys.modules.get("row_bot.agent"), "current_app_scope", None)
+    inherited = reader() if callable(reader) else None
     try:
         found = turn_scope(parent_thread_id, "", None, inherited)
     except Exception as exc:
