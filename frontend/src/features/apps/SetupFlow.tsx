@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import {
   AlertCircle,
   Ban,
@@ -34,6 +40,7 @@ const VERBS: Record<string, string> = {
   turn_off: 'Turn off',
   remove: 'Remove',
   access: 'Save',
+  settings: 'Save',
 };
 
 type Target = { itemId: string; revision: string; name: string };
@@ -94,7 +101,7 @@ export function usePlan(
       setConsent(null);
       setPlan(started);
     });
-  /** The access sheet is its own consent: review and start in one step. */
+  /** The access sheet and the settings form are their own consent: review and start in one step. */
   const apply = (intent: string, choice: PlanContinueRequest) =>
     run(async () => {
       const value = await controller.reviewInstallPlan({
@@ -115,6 +122,7 @@ export function usePlan(
               preset: choice.preset,
               overrides: choice.overrides ?? {},
               tools_digest: choice.tools_digest,
+              inputs: choice.inputs ?? {},
             }),
       );
     });
@@ -221,14 +229,19 @@ export function Stepper({ steps }: { steps: PlanStep[] }) {
   );
 }
 
-function InputsForm({
+export function InputsForm({
   step,
   busy,
   onSubmit,
+  submitLabel = 'Continue',
+  secondary,
 }: {
-  step: PlanStep;
+  step: Pick<PlanStep, 'inputs'>;
   busy: boolean;
   onSubmit: (values: Record<string, string>) => void;
+  submitLabel?: string;
+  /** Stop or Cancel, beside the primary button. */
+  secondary?: ReactNode;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const inputs = step.inputs ?? [];
@@ -256,8 +269,16 @@ function InputsForm({
         return (
           <Field
             key={input.key}
-            label={input.required ? input.label : `${input.label} (optional)`}
-            hint={input.description || undefined}
+            label={
+              input.required && !input.saved
+                ? input.label
+                : `${input.label} (optional)`
+            }
+            hint={
+              input.saved
+                ? 'Saved in your system keychain. Leave it blank to keep it.'
+                : input.description || undefined
+            }
           >
             {choices.length ? (
               <Select
@@ -288,8 +309,9 @@ function InputsForm({
                 inputMode={input.format === 'number' ? 'decimal' : undefined}
                 autoComplete="off"
                 spellCheck={false}
+                placeholder={input.saved ? '••••••••' : undefined}
                 data-initial-focus={index === 0 ? true : undefined}
-                required={input.required}
+                required={input.required && !input.saved}
                 value={value}
                 onChange={(event) => change(event.target.value)}
               />
@@ -310,8 +332,9 @@ function InputsForm({
             : 'Saved with this app on this computer.'}
       </p>
       <div className="app-dialog-actions">
+        {secondary}
         <Button type="submit" variant="primary" disabled={busy}>
-          Continue
+          {submitLabel}
         </Button>
       </div>
     </form>
@@ -323,10 +346,12 @@ function ReviewPanel({
   review,
   busy,
   onContinue,
+  secondary,
 }: {
   review: NonNullable<PlanStep['review']>;
   busy: boolean;
   onContinue: (digest: string) => void;
+  secondary?: ReactNode;
 }) {
   return (
     <div className="plan-wait stack plan-review">
@@ -356,6 +381,7 @@ function ReviewPanel({
         </Disclosure>
       )}
       <div className="app-dialog-actions">
+        {secondary}
         <Button
           variant="primary"
           disabled={busy}
@@ -401,6 +427,18 @@ export function PlanProgress({
   const done = ['completed', 'failed', 'cancelled', 'expired'].includes(
     plan.state,
   );
+  // Stop sits beside whatever the plan waits for, never apart from it.
+  const stop =
+    !done && plan.state !== 'running' ? (
+      <Button disabled={busy} onClick={() => void control.cancel()}>
+        Stop
+      </Button>
+    ) : null;
+  const waits =
+    (plan.pause === 'inputs' && step) ||
+    plan.pause === 'sign_in' ||
+    plan.pause === 'resume' ||
+    plan.pause === 'digest_changed';
   return (
     <section
       className="plan-progress"
@@ -417,6 +455,7 @@ export function PlanProgress({
         <InputsForm
           step={step}
           busy={busy}
+          secondary={stop}
           onSubmit={(inputs) => void control.resume({ inputs })}
         />
       )}
@@ -426,11 +465,14 @@ export function PlanProgress({
             Finish signing in to {name} in your browser. This page updates by
             itself.
           </p>
-          {url && (
-            <Button onClick={() => void platform.openExternal(url)}>
-              Open the sign-in page again
-            </Button>
-          )}
+          <div className="app-dialog-actions">
+            {stop}
+            {url && (
+              <Button onClick={() => void platform.openExternal(url)}>
+                Open the sign-in page again
+              </Button>
+            )}
+          </div>
         </div>
       )}
       {plan.pause === 'resume' && step?.local_app ? (
@@ -440,46 +482,52 @@ export function PlanProgress({
               How to set up {step.local_app.label}
             </a>
           )}
+          <div className="app-dialog-actions">
+            {stop}
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void control.resume()}
+            >
+              Check again
+            </Button>
+          </div>
+        </div>
+      ) : plan.pause === 'resume' ? (
+        <div className="app-dialog-actions">
+          {stop}
           <Button
             variant="primary"
             disabled={busy}
             onClick={() => void control.resume()}
           >
-            Check again
+            Continue
           </Button>
         </div>
-      ) : plan.pause === 'resume' ? (
-        <Button
-          variant="primary"
-          disabled={busy}
-          onClick={() => void control.resume()}
-        >
-          Continue
-        </Button>
       ) : null}
       {plan.pause === 'digest_changed' && step?.review ? (
         <ReviewPanel
           review={step.review}
           busy={busy}
+          secondary={stop}
           onContinue={(digest) =>
             void control.resume({ review_digest: digest })
           }
         />
       ) : plan.pause === 'digest_changed' ? (
-        <Button
-          variant="primary"
-          disabled={busy}
-          onClick={() => void control.review(plan.intent)}
-        >
-          Review again
-        </Button>
+        <div className="app-dialog-actions">
+          {stop}
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void control.review(plan.intent)}
+          >
+            Review again
+          </Button>
+        </div>
       ) : null}
       <div className="app-dialog-actions">
-        {!done && plan.state !== 'running' && (
-          <Button disabled={busy} onClick={() => void control.cancel()}>
-            Stop
-          </Button>
-        )}
+        {!waits && stop}
         {done && (
           <Button onClick={control.clear}>
             {plan.state === 'completed' ? 'Done' : 'Close'}

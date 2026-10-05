@@ -38,6 +38,7 @@
             "turn_on",
             "fix",
             "access",
+            "settings",
             "turn_off",
             "remove",
             "update"

@@ -152,3 +152,67 @@ def test_a_declared_key_is_asked_for_whatever_its_source_calls_the_sign_in():
               "source": {"auth_mode": "oauth"}, "inputs": [declared("api_key", "header", "X-Key", secret=True, required=True)]}
     # A sign-in's tokens would replace the key in the one credential, so the two are refused together.
     assert facts.mcp_setup({}, hosted)["auth_mode"] == "unsupported"
+
+
+def _connected(item_id):
+    _, plan = api.read_item(owner_id="owner", item_id=item_id)
+    plan_id = str(uuid4())
+    api.start_plan(context(), plan_id=plan_id, item_id=item_id, digest=plan["digest"])
+    paused = plans.resume(context(inputs={"notes_token": SECRET, "space": "work"}), plan_id)
+    access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
+    done = plans.resume(context(tools_digest=access["tools_digest"]), plan_id)
+    assert done["state"] == "completed", (done["message"], done["steps"])
+
+
+def _change(item_id, values):
+    detail, plan = api.read_item(owner_id="owner", item_id=item_id, intent="settings")
+    return detail, api.start_plan(context(inputs=values), plan_id=str(uuid4()), item_id=item_id, intent="settings",
+                                  digest=plan["digest"])
+
+
+def test_settings_stay_editable_after_setup_and_a_saved_key_is_never_shown_and_kept_unless_replaced(owner, declared_server):
+    item = next(row for row in facts.inventory()[0] if row["name"] == "Synthetic")["id"]
+    _connected(item)
+    detail, _ = api.read_item(owner_id="owner", item_id=item)
+    shown = {s["key"]: s for s in detail["about"]["settings"]}
+    assert shown["notes_token"]["saved"] and shown["notes_token"]["default"] == "" and shown["space"]["default"] == "work"
+    assert shown["space"]["label"] == "Notes space"  # A variable's name, read as words.
+    assert SECRET not in json.dumps(detail)
+
+    _, done = _change(item, {"notes_token": "", "space": "home"})  # The key left blank: kept.
+    assert done["state"] == "completed" and done["message"] == "Settings saved.", done
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]
+    assert saved["input_values"] == {"space": "home"}
+    assert auth.read_credentials(saved["auth"]["credential_ref"])["values"] == {"notes_token": SECRET}
+    facts.invalidate()
+    row = facts.read(item)
+    assert row["lifecycle"] == "installed" and row["readiness"] == "ready"
+
+    _, replaced = _change(item, {"notes_token": "synthetic-new-key-98765", "space": "home"})
+    assert replaced["state"] == "completed", replaced
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]
+    assert auth.read_credentials(saved["auth"]["credential_ref"])["values"] == {"notes_token": "synthetic-new-key-98765"}
+
+
+def test_new_tools_found_after_a_settings_change_wait_for_acceptance(owner, declared_server):
+    item = next(row for row in facts.inventory()[0] if row["name"] == "Synthetic")["id"]
+    _connected(item)
+    owner.tools.append({"name": "update_record", "description": "Update synthetic data", "inputSchema": {"type": "object"}})
+    _, paused = _change(item, {"space": "home"})
+    assert paused["pause"] == "access"
+    access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
+    assert "update_record" in {t["name"] for t in access["tools"]}
+    saved = config.read_saved_configuration().document["servers"]["Synthetic"]["tools"]
+    assert "update_record" not in saved["accepted_names"]
+
+
+def test_settings_on_a_connection_that_is_off_keep_it_off(owner, declared_server):
+    item = next(row for row in facts.inventory()[0] if row["name"] == "Synthetic")["id"]
+    _connected(item)
+    _, plan = api.read_item(owner_id="owner", item_id=item, intent="turn_off")
+    assert api.start_plan(context(), plan_id=str(uuid4()), item_id=item, intent="turn_off", digest=plan["digest"])["state"] == "completed"
+    facts.invalidate()
+    _, done = _change(item, {"space": "home"})
+    assert done["state"] == "completed" and "stays off" in done["message"], done
+    facts.invalidate()
+    assert facts.read(item)["lifecycle"] == "off"

@@ -189,6 +189,11 @@
           "title": "Required",
           "type": "boolean"
         },
+        "saved": {
+          "default": false,
+          "title": "Saved",
+          "type": "boolean"
+        },
         "secret": {
           "title": "Secret",
           "type": "boolean"
@@ -600,6 +605,7 @@
         "turn_on",
         "fix",
         "access",
+        "settings",
         "turn_off",
         "remove",
         "update"

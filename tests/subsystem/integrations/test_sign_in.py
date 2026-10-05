@@ -155,6 +155,7 @@ def test_your_own_oauth_app_is_asked_for_when_nothing_else_works_and_its_secret_
     paused = api.start_plan(context(), plan_id=plan_id, item_id=item_id(), digest=plan["digest"])
     step = next(s for s in paused["steps"] if s["type"] == "sign_in")
     assert paused["pause"] == "inputs" and step["sign_in"]["method"] == "oauth_client"
+    assert paused["next_action"]["label"] == "Add your OAuth app"  # Not "Add key": it asks for an app, not a key.
     assert [(i["key"], i["secret"]) for i in step["inputs"]] == [("client_id", False), ("client_secret", True)]
     assert "http://127.0.0.1" + auth.CALLBACK_PATH in step["inputs"][0]["description"]
     waiting = plans.resume(context(inputs={"client_id": "my-own-app", "client_secret": SECRET}), plan_id)
@@ -207,3 +208,30 @@ def test_the_published_client_metadata_names_itself_and_only_this_computer():
     for uri in document["redirect_uris"]:
         parts = urlsplit(uri)
         assert parts.scheme == "http" and parts.hostname == "127.0.0.1" and parts.path == auth.CALLBACK_PATH
+
+
+def test_discovery_reads_no_more_than_its_cap(monkeypatch):
+    """An endless answer, to the first look or to a metadata read, is never read past 64 KB."""
+    pulled, reads = [], []
+
+    async def endless():
+        while True:
+            pulled.append(1)
+            yield b" " * 4096
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(401 if signs_in else 200, content=endless(), headers={"www-authenticate":
+                'Bearer resource_metadata="https://mcp.fake.example/.well-known/oauth-protected-resource/mcp"'})
+        if "oauth-protected-resource" in str(request.url):
+            reads.append(1)
+            return httpx.Response(200, content=endless())
+        return httpx.Response(404)
+
+    monkeypatch.setattr(auth, "PublicTransport", lambda: httpx.MockTransport(handle))
+    signs_in = False
+    assert auth.discover_sign_in(MCP) == {"required": False} and len(pulled) <= 1
+    signs_in = True
+    pulled.clear()
+    assert auth.discover_sign_in(MCP) == {"required": True, "issuer": "", "cimd": False, "dcr": False}
+    assert reads and len(pulled) <= len(reads) * (65536 // 4096 + 1)  # Each candidate address stopped at the cap.

@@ -959,3 +959,121 @@ it('a required choice with nothing chosen says so instead of showing an option i
     within(select).getByRole('option', { name: 'Choose…' }),
   ).toBeDisabled();
 });
+
+it('changes settings after setup: Yes/No, a saved key never shown, and Stop beside the primary button', async () => {
+  const input = (fields: Record<string, unknown>) => ({
+    description: '',
+    required: true,
+    target: 'header' as const,
+    template: '',
+    choices: [],
+    help_url: '',
+    format: 'string' as const,
+    secret: false,
+    default: '',
+    ...fields,
+  });
+  const settings = [
+    input({
+      key: 'token',
+      label: 'Personal access token',
+      name: 'Authorization',
+      secret: true,
+      saved: true,
+    }),
+    input({
+      key: 'read_only',
+      label: 'Read only',
+      name: 'X-MCP-Readonly',
+      default: 'true',
+      choices: ['true', 'false'],
+      format: 'boolean' as const,
+    }),
+  ];
+  const ready = entry({
+    id: 'mcp:github',
+    name: 'GitHub',
+    installed: true,
+    lifecycle: 'installed',
+    readiness: 'ready',
+    next_action: { kind: 'try', label: 'Try it' },
+  });
+  const review = plan({
+    intent: 'settings',
+    item_id: 'mcp:github',
+    steps: [step('consent', 'pending'), step('inputs', 'pending')],
+  });
+  const running = plan({
+    ...review,
+    plan_id: 'b1b1b1b1-0000-4000-8000-00000000000a',
+    state: 'running',
+  });
+  const { controller } = show('/settings/apps/item?id=mcp%3Agithub', {
+    integrationDetail: vi.fn(async () =>
+      detail({
+        entry: ready,
+        plan: null,
+        about: {
+          ...detail().about,
+          saved_key: true,
+          signs_in: false,
+          settings,
+        },
+      }),
+    ),
+    reviewInstallPlan: vi.fn(async () => review),
+    startInstallPlan: vi.fn(async () => running),
+    installPlan: vi.fn(() => new Promise(() => {})),
+  });
+  const section = (
+    await screen.findByRole('heading', { name: 'Settings' })
+  ).closest('section') as HTMLElement;
+  expect(within(section).getByText('Yes')).toBeVisible();
+  expect(
+    within(section).getByText('Saved in your system keychain'),
+  ).toBeVisible();
+  expect(within(section).queryByText('true')).toBeNull();
+  fireEvent.click(
+    within(section).getByRole('button', { name: 'Change settings' }),
+  );
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Settings for GitHub',
+  });
+  const token = within(dialog).getByLabelText(
+    /^Personal access token \(optional\)/,
+  );
+  expect(token).toHaveValue('');
+  expect(token).not.toBeRequired();
+  fireEvent.change(within(dialog).getByLabelText('Read only'), {
+    target: { value: 'false' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(controller.startInstallPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: 'settings',
+        inputs: { token: '', read_only: 'false' },
+      }),
+    ),
+  );
+});
+
+it('puts Stop in the same row as what the plan waits for', async () => {
+  const waiting = plan({
+    plan_id: 'b1b1b1b1-0000-4000-8000-00000000000b',
+    state: 'paused',
+    pause: 'resume',
+    current_step: 'enable',
+    steps: [step('consent', 'done'), step('enable', 'waiting')],
+  });
+  show('/settings/apps/item?id=mcp%3Acurated%3Anotion', {
+    integrationDetail: vi.fn(async () => detail({ plan: waiting })),
+    reviewInstallPlan: vi.fn(async () => waiting),
+  });
+  const primary = await screen.findByRole('button', { name: 'Continue' });
+  expect(
+    within(primary.parentElement as HTMLElement).getByRole('button', {
+      name: 'Stop',
+    }),
+  ).toBeVisible();
+});

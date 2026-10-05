@@ -13,6 +13,7 @@ import type {
   IntegrationDetail,
   IntegrationEntry,
   IntegrationWay,
+  PlanInput,
 } from '../../api/types';
 import {
   Button,
@@ -24,10 +25,17 @@ import {
   StatusDot,
   type MenuAction,
 } from '../../ui/primitives';
+import { ModalTask } from '../../ui/overlays';
 import { SettingsGroup, StatusLine } from '../settings/anatomy';
 import { useWorkspaceActions } from '../shell/workspace-actions';
 import AccessSheet, { ToolGroups } from './AccessSheet';
-import { ConsentSheet, hostOf, PlanProgress, usePlan } from './SetupFlow';
+import {
+  ConsentSheet,
+  hostOf,
+  InputsForm,
+  PlanProgress,
+  usePlan,
+} from './SetupFlow';
 import {
   AppIcon,
   appCatalog,
@@ -70,6 +78,15 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
       <dd>{children}</dd>
     </div>
   );
+}
+
+/** A setting as it is now: Yes/No for a switch, and a key only as saved or not. */
+function settingValue(input: PlanInput) {
+  if (input.secret)
+    return input.saved ? 'Saved in your system keychain' : 'Not added yet';
+  if (input.format === 'boolean')
+    return { true: 'Yes', false: 'No' }[input.default] ?? 'Not set';
+  return input.default || 'Not set';
 }
 
 /** The chat command for a skill, as the composer names it. */
@@ -178,6 +195,7 @@ function Detail({
   const [detail, setDetail] = useState<IntegrationDetail | null>(null);
   const [error, setError] = useState('');
   const [changing, setChanging] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [settling, setSettling] = useState(false);
   const load = useCallback(
     (signal?: AbortSignal) =>
@@ -305,6 +323,7 @@ function Detail({
     });
   const files = about.files;
   const scripts = files.filter((file) => file.executable).length;
+  const settings = about.settings ?? [];
   return (
     <article className="app-detail stack" aria-labelledby="app-detail-title">
       <Link className="settings-link app-back" to={back}>
@@ -474,17 +493,40 @@ function Detail({
       )}
       {entry.kind !== 'skill' && entry.installed && (
         <SettingsGroup title="Settings">
+          {settings.length > 0 && (
+            <StatusLine
+              action={
+                <Button
+                  className="settings-link"
+                  disabled={Boolean(control.plan) || control.busy}
+                  onClick={() => setEditing(true)}
+                >
+                  Change settings
+                </Button>
+              }
+            >
+              {settings.some((input) => input.secret)
+                ? 'Keys are never shown once saved.'
+                : 'What this app is set to now.'}
+            </StatusLine>
+          )}
           <dl className="app-facts-list">
             {entry.account_label && (
               <Fact label="Account">{entry.account_label}</Fact>
             )}
-            {(about.signs_in || about.saved_key) && (
+            {(about.signs_in ||
+              (about.saved_key && !settings.some((s) => s.secret))) && (
               <Fact label={about.signs_in ? 'Sign-in' : 'Key'}>
                 {about.signed_in
                   ? 'Saved in your system keychain'
                   : 'Not added yet'}
               </Fact>
             )}
+            {settings.map((input) => (
+              <Fact key={input.key} label={input.label}>
+                {settingValue(input)}
+              </Fact>
+            ))}
             {about.requirements.map((need) => (
               <Fact key={need.label} label={need.label}>
                 {need.available ? 'Ready' : 'Needed'}
@@ -554,6 +596,23 @@ function Detail({
           </Fact>
         </dl>
       </Disclosure>
+      <ModalTask
+        open={editing}
+        onOpenChange={setEditing}
+        title={`Settings for ${name}`}
+        description="Row-Bot checks the connection again after you save."
+      >
+        <InputsForm
+          step={{ inputs: settings }}
+          busy={control.busy}
+          submitLabel="Save"
+          secondary={<Button onClick={() => setEditing(false)}>Cancel</Button>}
+          onSubmit={(inputs) => {
+            setEditing(false);
+            void control.apply('settings', { inputs });
+          }}
+        />
+      </ModalTask>
       <ConsentSheet
         control={control}
         name={name}

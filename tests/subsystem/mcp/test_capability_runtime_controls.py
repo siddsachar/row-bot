@@ -431,3 +431,38 @@ def test_recovery_by_retained_id_completes_without_repeating_test(owner, monkeyp
     from row_bot.runtime import admissions
     receipt = admissions.read_command_receipt("synthetic-owner", command["command_id"])
     assert receipt["mcp_runtime"]["state"] == "tested"
+
+
+@pytest.mark.parametrize("earlier", ["ended", "this", "still_running"])
+def test_a_disconnect_left_unconfirmed_by_a_restart_settles_only_once_its_process_has_ended(owner, monkeypatch, earlier):
+    import psutil
+    from row_bot.runtime import admissions
+    runtime, _ = owner
+    current = controls._process()
+    process = {"ended": {"pid": 2**31 - 4, "started": 1.0}, "this": current,
+               "still_running": {"pid": os.getppid(), "started": psutil.Process(os.getppid()).create_time()}}[earlier]
+    monkeypatch.setattr(controls, "_process", lambda: process)  # The Row-Bot that connected and began to disconnect.
+    identity = execute(request("connect"))["mcp_runtime"]["runtime_id"]
+    disconnect = request("disconnect", identity)
+
+    def ends_first(*_args, **_kwargs):
+        raise RuntimeError("Row-Bot quit before the session ended")
+    stop = runtime.stop_server_owned
+    monkeypatch.setattr(runtime, "stop_server_owned", ends_first)
+    with pytest.raises(RuntimeError):
+        execute(disconnect)
+    with runtime._runtime_lock:  # Its session went with it, and nothing recorded how.
+        ended = runtime._servers["Synthetic"]
+        ended._before_release, ended._release_confirmed = None, True
+    monkeypatch.setattr(runtime, "stop_server_owned", stop)
+    runtime.shutdown()
+    monkeypatch.setattr(runtime, "launch_server_owned", lambda *a, **k: pytest.fail("repeated launch"))
+    monkeypatch.setattr(controls, "_process", lambda: current)  # Row-Bot started again.
+
+    checked = controls.reconcile_mcp_runtime_operation(owner_id="synthetic-owner", command_id=disconnect["command_id"],
+                                                       validate=lambda: None)
+    receipt = admissions.read_command_receipt("synthetic-owner", disconnect["command_id"])
+    if earlier == "ended":
+        assert checked["settled"] and receipt["mcp_runtime"]["state"] == "stopped"
+    else:  # Absence proves nothing while the process that owned the session may still hold it.
+        assert not checked["settled"] and receipt["mcp_runtime"]["state"] == "unknown"

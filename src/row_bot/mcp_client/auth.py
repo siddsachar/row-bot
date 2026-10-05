@@ -362,25 +362,42 @@ def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redire
     return provider
 
 
+_DISCOVERY_LIMIT = 65536
+
+
+async def _metadata(client: httpx.AsyncClient, url: str) -> bytes | None:
+    """A published metadata document, read only up to its size cap; None when absent or too large."""
+    public_endpoint(url)
+    async with client.stream("GET", url, headers={"MCP-Protocol-Version": "2025-11-25"}) as answer:
+        if answer.status_code != 200:
+            return None
+        body = bytearray()
+        async for chunk in answer.aiter_bytes():
+            body += chunk
+            if len(body) > _DISCOVERY_LIMIT:
+                return None
+        return bytes(body)
+
+
 async def _discover(url: str) -> dict:
     from mcp.client.auth import utils
     from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
     public_endpoint(url)
     async with httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False, transport=PublicTransport()) as client:
-        response = await client.post(url, headers={"MCP-Protocol-Version": "2025-11-25", "Accept": "application/json, text/event-stream"},
-            json={"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {},
-                  "clientInfo": {"name": "Row-Bot", "version": "1"}}})
-        if response.status_code not in {401, 403}:
-            return {"required": False}
-        resource = utils.extract_resource_metadata_from_www_auth(response)
+        # Only the status and WWW-Authenticate matter; the body (possibly an endless event stream) is never read.
+        async with client.stream("POST", url, headers={"MCP-Protocol-Version": "2025-11-25", "Accept": "application/json, text/event-stream"},
+                json={"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                      "clientInfo": {"name": "Row-Bot", "version": "1"}}}) as response:
+            if response.status_code not in {401, 403}:
+                return {"required": False}
+            resource = utils.extract_resource_metadata_from_www_auth(response)
         found: dict = {"required": True, "issuer": "", "cimd": False, "dcr": False}
         protected = None
         for candidate in utils.build_protected_resource_metadata_discovery_urls(resource, url):
-            public_endpoint(candidate)
-            answer = await client.get(candidate, headers={"MCP-Protocol-Version": "2025-11-25"})
-            if answer.status_code == 200 and len(answer.content) <= 65536:
+            content = await _metadata(client, candidate)
+            if content is not None:
                 try:
-                    protected = ProtectedResourceMetadata.model_validate_json(answer.content)
+                    protected = ProtectedResourceMetadata.model_validate_json(content)
                     break
                 except ValueError:
                     continue
@@ -388,11 +405,10 @@ async def _discover(url: str) -> dict:
             return {**found, "required": response.status_code == 401}  # A key, not a sign-in, or no metadata at all.
         server = str(protected.authorization_servers[0])
         for candidate in utils.build_oauth_authorization_server_metadata_discovery_urls(server, url):
-            public_endpoint(candidate)
-            answer = await client.get(candidate, headers={"MCP-Protocol-Version": "2025-11-25"})
-            if answer.status_code == 200 and len(answer.content) <= 65536:
+            content = await _metadata(client, candidate)
+            if content is not None:
                 try:
-                    metadata = OAuthMetadata.model_validate_json(answer.content)
+                    metadata = OAuthMetadata.model_validate_json(content)
                 except ValueError:
                     continue
                 return {**found, "issuer": str(metadata.issuer), "cimd": metadata.client_id_metadata_document_supported is True,

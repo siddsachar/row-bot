@@ -113,6 +113,7 @@
             "turn_on",
             "fix",
             "access",
+            "settings",
             "turn_off",
             "remove",
             "update"
@@ -320,6 +321,14 @@
         "saved_key": {
           "title": "Saved Key",
           "type": "boolean"
+        },
+        "settings": {
+          "items": {
+            "$ref": "#/$defs/PlanInput"
+          },
+          "maxItems": 32,
+          "title": "Settings",
+          "type": "array"
         },
         "signed_in": {
           "title": "Signed In",
@@ -995,6 +1004,11 @@
         },
         "required": {
           "title": "Required",
+          "type": "boolean"
+        },
+        "saved": {
+          "default": false,
+          "title": "Saved",
           "type": "boolean"
         },
         "secret": {

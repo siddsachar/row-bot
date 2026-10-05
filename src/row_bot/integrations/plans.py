@@ -33,7 +33,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from row_bot.integrations import apps, facts, presets, safe, sources
+from row_bot.integrations import apps, facts, inputs, presets, safe, sources
 from row_bot.integrations.safe import public_url as public_link
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ _PLAN_LOCKS: dict[str, threading.RLock] = {}
 _RUNNING: set[str] = set()
 _CANCELLED: set[str] = set()
 EXPIRES = 30 * 60
-INTENTS = ("connect", "add", "turn_on", "fix", "access", "turn_off", "remove", "update")
+INTENTS = ("connect", "add", "turn_on", "fix", "access", "settings", "turn_off", "remove", "update")
 _DONE = {"turn_off": "Turned off.", "remove": "Removed.", "update": "Updated."}
 _MESSAGES = {
     "plan_changed": "Something changed since you agreed. Review it again.",
@@ -107,17 +107,27 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
         if requirement["available"]:
             continue
         supported = requirement["id"] in {"node", "uv"} and requirement["installable"]
-        steps.append(_step("runtime", "pending" if supported else "unsupported", "Set up " + requirement["label"],
-                           "" if supported else f"Install {requirement['label']}, then try again.",
+        steps.append(_step("runtime", "pending" if supported else "unsupported", f"Get ready to run {name}",
+                           f"Row-Bot sets up {requirement['label']} for its own use." if supported
+                           else f"Install {requirement['label']}, then try again.",
                            runtime={"id": requirement["id"], "label": requirement["label"]}))
     if setup["package_required"]:
         found = {"npm": ("npm_package", "npm package"), "pypi": ("pypi_package", "Python package"), "oci": ("oci_image", "container image"),
                  "mcpb": ("mcpb", "bundle")}
-        steps.append(_step("runtime", title="Prepare the " + found[package][1],
+        steps.append(_step("runtime", title=f"Install what {name} needs",
                            runtime={"id": found[package][0], "label": found[package][1]}))
     for index, step in enumerate(s for s in steps if s["type"] == "runtime"):
         step["id"] = f"runtime{index or ''}"
     fields = _fields(cfg, setup, app)  # After anything to install, so its review comes before any key is typed.
+    if intent == "settings":
+        # Every declared setting, optional ones too; a saved key is kept unless a new one is typed. Then the
+        # connection is checked again, new tools wait for acceptance, and it reconnects only if it was on.
+        steps = [steps[0], _step("inputs", title="Change settings", inputs=fields), _step("test", title="Check the connection"),
+                 _step("access", title=f"Choose what {name} can do", access={"preset": presets.current(cfg.get("tools") or {}),
+                                                                            "tools": [], "tools_digest": "", "note": ""}),
+                 _step("enable", title="Save settings")]
+        return steps, {"destinations": [], "runs_locally": not hosted, "downloads": [], "access_preset": presets.DEFAULT,
+                       "turns_on_mcp": False, "cleanup": False}, {"settings": [f["key"] for f in fields]}
     if fields:
         done = not (setup["auth_mode"] == "api_key" and not signed_in) and not setup["inputs_missing"]
         steps.append(_step("inputs", "done" if done else "pending",
@@ -203,17 +213,27 @@ def _fields(cfg: dict, setup: dict, app: apps.App | None) -> list[dict]:
     inputs, with "Where do I get this?" for keys when the app's catalog entry knows where."""
     saved = cfg.get("input_values") or {}
     help_url = app.key_url if app else ""
-    found = [{"key": b["key"], "label": "API key" if b["key"] in {"api_key", "token"} else b["name"], "secret": True,
-              "required": True, "target": b["kind"], "name": b["name"], "template": b.get("prefix", "") + "{value}",
-              "default": "", "choices": [], "help_url": help_url, "description": "", "format": "string"}
+    keep = (app.name,) if app else ()
+    stored = bool(setup.get("credential_configured")) and setup.get("auth_mode") == "api_key"
+    found = [{"key": b["key"], "label": "API key" if b["key"] in {"api_key", "token"} else inputs.label(b["name"], keep),
+              "secret": True, "required": True, "target": b["kind"], "name": b["name"], "template": b.get("prefix", "") + "{value}",
+              "default": "", "choices": [], "help_url": help_url, "description": "", "format": "string", "saved": stored}
              for b in setup["bindings"] if b["kind"] != "input"]
     for item in setup["inputs"]:
-        found.append({"key": item["key"], "label": item["label"], "secret": item["secret"], "required": item["required"],
-                      "target": item["target"], "name": item["name"], "template": "", "choices": item["choices"],
-                      "default": "" if item["secret"] else str(saved.get(item["key"]) or item["default"]),
+        found.append({"key": item["key"], "label": inputs.label(item["label"], keep), "secret": item["secret"],
+                      "required": item["required"], "target": item["target"], "name": item["name"], "template": "",
+                      "choices": item["choices"], "default": "" if item["secret"] else str(saved.get(item["key"]) or item["default"]),
                       "help_url": item.get("help_url") or (help_url if item["secret"] else ""),
-                      "description": sources.plain_text(item.get("description", ""), 512), "format": item.get("format", "string")})
+                      "description": sources.plain_text(item.get("description", ""), 512), "format": item.get("format", "string"),
+                      "saved": item["secret"] and stored})
     return found[:32]
+
+
+def settings(row: dict, cfg: dict) -> list[dict]:
+    """A connection's declared settings and keys as they are now (keys only as saved or not), for its page."""
+    if row["kind"] != "mcp" or row["lifecycle"] == "available" or not cfg:
+        return []
+    return _fields(cfg, facts.mcp_setup({"requirements": []}, cfg), apps.match(facts._mcp_refs(cfg)))
 
 
 def _hub_record(row: dict):
@@ -254,7 +274,7 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
     kind, available, action = row["kind"], row["lifecycle"] == "available", row["next_action"]["kind"]
     intent = intent or ("connect" if available and kind == "mcp" else "add" if available else
                         "turn_on" if action == "turn_on" else "fix" if action not in {"try", "none", "delete_data"} else "")
-    if (not intent or intent not in INTENTS or (intent == "access" and (kind != "mcp" or available))
+    if (not intent or intent not in INTENTS or (intent in {"access", "settings"} and (kind != "mcp" or available))
             or (intent in _DONE and not changeable(row, intent))):
         return None
     name = row["name"] if kind == "skill" else (row["app"] or {}).get("name") or row["name"]
@@ -287,6 +307,8 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         try:
             cfg = reference.get("cfg") or entry_to_server_config(entry if not isinstance(entry, dict) else MarketplaceEntry(**entry))
             steps, consent, declaration = _mcp_steps(row, cfg, intent)
+            if intent == "settings" and not declaration["settings"]:
+                return None  # Nothing it declares can be changed.
         except (ValueError, TypeError):  # No launch recipe Row-Bot can express.
             steps = [_step("consent", title="Before you connect"), _step("enable", "unsupported", "Turn on " + name,
                      "Row-Bot can't connect to this one yet.")]
@@ -333,7 +355,9 @@ def next_action(plan: dict) -> dict:
             pause, "none")
     else:
         kind = "retry" if state in {"failed", "uncertain"} else "try" if state == "completed" and plan["intent"] not in _DONE else "none"
-    return {"kind": kind, "label": "Allow" if pause == "access" else facts.LABELS[kind]}
+    own_client = pause == "inputs" and any(s["type"] == "sign_in" and s["state"] == "waiting" and s.get("inputs")
+                                           for s in plan["steps"])
+    return {"kind": kind, "label": "Allow" if pause == "access" else "Add your OAuth app" if own_client else facts.LABELS[kind]}
 
 
 def view(plan: dict) -> dict:
@@ -411,7 +435,11 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         reference.update(source_url=row["source_url"], pin=row["pin"], lifecycle=row["lifecycle"],
                          identity=row["canonical_identity"])
     plan_id = plan_id or str(uuid4())
+    if plan["intent"] == "settings" and not preset:
+        current = next(s["access"]["preset"] for s in plan["steps"] if s["type"] == "access")
+        preset = current if current in presets.PRESETS else presets.DEFAULT
     record = {**plan, "plan_id": plan_id, "owner": ctx.owner_id, "state": "running", "preset": preset or presets.DEFAULT,
+              "_keep_off": plan["intent"] == "settings" and row["lifecycle"] != "installed",
               "overrides": _overrides(overrides), "reference": {k: v for k, v in reference.items() if k != "cfg"},
               "target": None if target in (None, {"kind": "standalone"}) else target,
               "server_id": row["owner_ref"] if row["kind"] == "mcp" and installed else None, "_commands": {}}
@@ -849,7 +877,6 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
     re-sends a key, it reads how the first attempt ended."""
     from row_bot.application import capability_configuration_controls as configuration
     from row_bot.application.client_mcp_auth import auth_status, execute_auth, review_auth
-    from row_bot.integrations import inputs
     saved = record["_commands"].get("inputs:key")
     if saved is not None:
         state = auth_status(owner_id=ctx.owner_id, command_id=saved["command_id"], validate=ctx.validate)["state"]
@@ -865,6 +892,11 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
     given = {key: str(value) for key, value in ctx.inputs.items()}
     legacy = [b for b in setup["bindings"] if b["kind"] != "input"]
     keys = {b["key"]: given.get(b["key"], "").strip() for b in legacy}
+    # Changing settings later: a saved key left blank is kept; typing any key replaces them all.
+    keeping = (record["intent"] == "settings" and setup["credential_configured"] and setup["auth_mode"] == "api_key"
+               and not any(keys.values()) and not any(given.get(i["key"], "").strip() for i in declared if i["secret"]))
+    if keeping:
+        declared = [dict(item, required=False) if item["secret"] else item for item in declared]
     try:
         plain, secret = inputs.values(declared, {**(cfg.get("input_values") or {}), **given})
     except inputs.InputError as error:
@@ -873,8 +905,9 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
         step["message"] = (f"Add {label} to continue." if str(error).startswith("input_required") else
                            f"Check {label}: it isn't a value this app accepts.")[:512]
         return "inputs"
-    if not all(keys.values()) or (setup["auth_mode"] == "api_key" and not (keys or secret) and not setup["credential_configured"]):
-        step["message"] = "Paste your key to continue."
+    if not keeping and (not all(keys.values()) or (setup["auth_mode"] == "api_key" and not (keys or secret)
+                                                    and not setup["credential_configured"])):
+        step["message"] = "Paste your key to continue." if record["intent"] != "settings" else "Enter each key again to replace them."
         return "inputs"
     if plain != (cfg.get("input_values") or {}):
         def build():
@@ -887,7 +920,7 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
         command, review = _once(record, "inputs:values:" + _digest(plain)[:16], build)
         _completed(configuration.execute_mcp_configuration_command(owner_id=ctx.mcp_owner_id, key=command["command_id"],
             command=command, validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
-    if not (keys or secret):
+    if keeping or not (keys or secret):
         return "done"
     bindings = [{"kind": b["kind"], "name": b["name"], "key": b["key"], "prefix": b.get("prefix", "")} for b in legacy]
     bindings += [{"kind": "input", "name": key, "key": key, "prefix": ""} for key in secret]
@@ -1050,11 +1083,12 @@ def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
 
 def _address(cfg: dict) -> str:
     """The connection's address with the person's own values (a tenant) filled in."""
-    from row_bot.integrations import inputs
     return inputs.resolve(cfg, {}, partial=True)["url"] if cfg.get("inputs") else cfg.get("url", "")
 
 
 def _mcp_test(ctx: Context, record: dict, step: dict) -> str:
+    if record["intent"] == "settings" and _disconnect(ctx, record, "test:disconnect") == "running":
+        return "running"  # The live session still uses the old settings; it ends before the new ones are checked.
     sign_in = next((s for s in record["steps"] if s["type"] == "sign_in"), None)
     if sign_in is not None and sign_in["state"] == "skipped" and "_signs_in" not in record:
         # One unauthenticated request shows whether the app asks for a sign-in; if it does, sign in first.
@@ -1091,7 +1125,8 @@ def _mcp_on() -> bool:
 def _recipe(record: dict) -> str:
     """What runs and where it connects."""
     cfg = _saved(record["target"], record["server_id"])[1]
-    return _digest({key: cfg.get(key) for key in ("transport", "url", "command", "args")})
+    defaults = {"transport": "stdio", "url": "", "command": "", "args": []}  # A saved configuration may spell these out.
+    return _digest({key: cfg.get(key) or default for key, default in defaults.items()})
 
 
 def _note(target: dict | None, server_id: str) -> str:
@@ -1148,7 +1183,7 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
         return presets.tool_state(record["preset"], tool)
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]],
                       "note": _note(record["target"], record["server_id"])}
-    if ctx.tools_digest == digest:
+    if ctx.tools_digest == digest or (record["intent"] == "settings" and all(t["name"] in kept for t in tools)):
         step["message"] = ""
         return "done"
     step["message"] = "The tools changed. Review them again." if ctx.tools_digest else "Review what this app can do, then allow it."
@@ -1173,15 +1208,15 @@ def _mcp_change(ctx: Context, record: dict, step: dict) -> str:
     return "done"
 
 
-def _disconnect(ctx: Context, record: dict) -> str:
+def _disconnect(ctx: Context, record: dict, name: str = "enable:disconnect") -> str:
     """Turning off also stops a live session, so the connection really stops and can be checked again later."""
     from row_bot.application.capability_runtime_controls import read_mcp_runtime_state
     live = None
-    if "enable:disconnect" not in record["_commands"]:
+    if name not in record["_commands"]:
         live = read_mcp_runtime_state(record["server_id"], validate=ctx.validate, target=record["target"])
         if live.runtime_id is None or live.state in {"stopping", "stopped", "missing"}:
             return "done"
-    outcome = _connection(ctx, record, "enable:disconnect", "disconnect", live)
+    outcome = _connection(ctx, record, name, "disconnect", live)
     return "done" if outcome.get("state") in {"stopped", "missing"} or outcome.get("status") == "completed" else "running"
 
 
@@ -1190,7 +1225,8 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application.capability_policy_controls import read_mcp_policy
     if record["intent"] in _DONE:
         return _mcp_change(ctx, record, step)
-    if record["intent"] != "access" and record["target"] is None and not record["consent"].get("turns_on_mcp") and not _mcp_on():
+    if (record["intent"] not in {"access", "settings"} and record["target"] is None and not record["consent"].get("turns_on_mcp")
+            and not _mcp_on()):
         raise PlanError("plan_changed")  # Turning MCP on was not part of this consent.
     chosen = record.get("overrides") or {}
     if record.get("_test"):
@@ -1205,6 +1241,11 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
         command, review = _once(record, "enable:accept", build)
         _completed(catalog.execute_mcp_catalog_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
             validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
+    if record["intent"] == "settings" and record.get("_keep_off"):
+        record["_done_message"] = "Settings saved. It stays off until you turn it on."
+        return "done"
+    if record["intent"] == "settings":
+        record["_done_message"] = "Settings saved."
     elif record["intent"] == "access":
         _policy(ctx, record, "enable:preset", {"operation": "preset", "server_id": record["server_id"], "preset": record["preset"],
                                                **({"overrides": chosen} if chosen else {})})

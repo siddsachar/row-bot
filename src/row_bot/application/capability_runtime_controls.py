@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 import json
+import os
 import sys
 from uuid import UUID
 
@@ -42,6 +44,29 @@ def _identity(value: str, *, uuid: bool = False) -> None:
         valid = False
     if not valid:
         raise CapabilityRuntimeError("invalid_command")
+
+
+@cache
+def _process() -> dict:
+    """This process, recorded with each runtime checkpoint. A runtime lives only in the process that
+    launched it, so once that process has ended its runtime has ended too."""
+    import psutil
+    return {"pid": os.getpid(), "started": psutil.Process().create_time()}
+
+
+def _ended(recorded: object) -> bool:
+    """Whether the process a checkpoint names has provably ended (not this one, and gone or replaced)."""
+    import psutil
+    if type(recorded) is not dict or type(recorded.get("pid")) is not int or type(recorded.get("started")) is not float:
+        return False  # No identity: absence proves nothing.
+    if recorded == _process():
+        return False
+    try:
+        return abs(psutil.Process(recorded["pid"]).create_time() - recorded["started"]) > 1
+    except psutil.NoSuchProcess:
+        return True
+    except (psutil.Error, OSError, ValueError):
+        return False
 
 
 def _owned(server_id: str, expected_runtime_id: str | None = None):
@@ -283,6 +308,10 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
             if error.code != "mcp_runtime_identity_changed":
                 raise
             runtime_owner = None
+        if runtime_owner is None and _ended(private.get("process")):
+            # Row-Bot restarted: the runtime ended with the process that owned it, so nothing is left to stop.
+            return outcome("failed" if operation == "test" else "stopped", identity, True, terminal=True,
+                           code="mcp_connection_failed" if operation == "test" else None)
         if runtime_owner is not None:
             if operation == "connect" and runtime_owner._connected_admitted and not runtime_owner._stop_requested.is_set():
                 return outcome("connected", identity, False, terminal=True)
@@ -325,7 +354,8 @@ def execute_mcp_runtime_command(*, owner_id: str, key: str, command: dict,
             validate_review(current)
 
     def checkpoint(runtime_id: str) -> None:
-        progress["_mcp_runtime"] = {"runtime_id": runtime_id, "operation": operation, "command": command}
+        progress["_mcp_runtime"] = {"runtime_id": runtime_id, "operation": operation, "command": command,
+                                    "process": _process()}
         if operation == "test":
             progress["_mcp_runtime"].update(server_id=server_id,
                 configuration_digest=config.read_saved_configuration(mcp_target).digest)

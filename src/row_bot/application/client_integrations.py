@@ -418,7 +418,7 @@ def _ways(row: dict) -> list[dict]:
     return found[:24]
 
 
-def _about(row: dict, validate: Callable[[], None], plan: dict | None) -> dict:
+def _about(row: dict, validate: Callable[[], None], plan: dict | None, cfg: dict | None = None) -> dict:
     """What the detail page shows beyond the card: settings, access, source facts and, for skills, what's inside."""
     setup, local = row.get("setup") or {}, row["kind"] == "skill"
     about = {"license": row["license"], "source_url": row["source_url"], "pin": row["pin"], "identifier": row["id"],
@@ -428,7 +428,8 @@ def _about(row: dict, validate: Callable[[], None], plan: dict | None) -> dict:
              "signs_in": setup.get("auth_mode") == "oauth", "signed_in": bool(setup.get("credential_configured")),
              "requirements": [{"label": r["label"][:96], "available": bool(r["available"])} for r in setup.get("requirements", [])][:16],
              "access": plans.current_access(row), "package": "", "files": [], "profiles": [], "ways": _ways(row),
-             "actions": [intent for intent in ("turn_off", "update", "remove") if plans.changeable(row, intent)]}
+             "actions": [intent for intent in ("turn_off", "update", "remove") if plans.changeable(row, intent)],
+             "settings": plans.settings(row, cfg or {})}
     if plan is not None and row["lifecycle"] == "available":  # Not set up yet: say what the plan would do.
         about.update(destination=next(iter(plan["consent"]["destinations"]), ""),
                      runs_locally=plan["consent"]["runs_locally"] and row["kind"] != "skill")
@@ -459,10 +460,11 @@ def read_item(*, owner_id: str, item_id: str, revision: str = "", intent: str = 
     row, reference = _resolve(owner_id, item_id, revision, validate)
     current = plans.open_plan(context or plans.Context(owner_id, owner_id, validate), item_id)
     if current is not None:
-        return {"entry": entry(row), "plan": current, "about": _about(row, validate, current)}, None
+        return {"entry": entry(row), "plan": current, "about": _about(row, validate, current, reference.get("cfg"))}, None
     plan = plans.compute(row, reference, intent=intent, cleanup=cleanup)
     validate()
-    return {"entry": entry(row), "plan": plans.view(plan) if plan else None, "about": _about(row, validate, plan)}, plan
+    return {"entry": entry(row), "plan": plans.view(plan) if plan else None,
+            "about": _about(row, validate, plan, reference.get("cfg"))}, plan
 
 
 def settle_item(ctx: plans.Context, *, item_id: str) -> dict:

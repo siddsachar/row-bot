@@ -45,6 +45,36 @@ def secretish(name: str) -> bool:
     return name.lower() in {"authorization", "proxy-authorization", "cookie"} or bool(_SECRETISH.search(key_of(name)))
 
 
+_ACRONYMS = {"api": "API", "url": "URL", "id": "ID", "oauth": "OAuth", "mcp": "MCP", "ssh": "SSH", "http": "HTTP",
+             "https": "HTTPS", "json": "JSON", "sql": "SQL", "jwt": "JWT", "aws": "AWS", "gcp": "GCP", "ip": "IP"}
+
+
+def label(text: str, keep: tuple[str, ...] = ()) -> str:
+    """A setting's name as a sentence: ``GITHUB_API_TOKEN`` or ``Personal Access Token`` read
+    "GitHub API token" / "Personal access token". Acronyms, names with inner capitals and the
+    words in ``keep`` (the app's own name) keep their case."""
+    raw = text.strip()
+    if re.fullmatch(r"[a-z]+(?:[A-Z][a-z0-9]*)+", raw):  # camelCase: apiKey
+        raw = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", raw)
+    named = bool(re.search(r"[_-]", raw) or re.fullmatch(r"[A-Z0-9 ]+", raw))  # A variable or header name, not words.
+    kept = {word.casefold(): word for name in keep for word in name.split()}
+    shown = []
+    for word in (w for w in re.split(r"[_\s]+|-(?=[A-Za-z])" if named else r"\s+", raw) if w):
+        folded = word.casefold()
+        if folded in kept:
+            shown.append(kept[folded])
+        elif folded in _ACRONYMS:
+            shown.append(_ACRONYMS[folded])
+        elif not named and (re.search(r".[A-Z]", word) or (word.isupper() and 2 <= len(word) <= 5)):
+            shown.append(word)  # GitHub, iOS, SMTP: written that way on purpose.
+        else:
+            shown.append(folded)
+    sentence = " ".join(shown)
+    if shown and re.search(r".[A-Z]", shown[0]):
+        return sentence[:128]  # iOS stays iOS.
+    return (sentence[:1].upper() + sentence[1:])[:128] if sentence else text[:128]
+
+
 def declaration(key: str, *, target: str, name: str, label: str = "", description: str = "", secret: bool = False,
                 required: bool = False, default: str = "", choices: list | tuple = (), help_url: str = "",
                 format: str = "string", flag: str = "") -> dict:

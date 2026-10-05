@@ -7852,7 +7852,7 @@ IntegrationKind = Literal["skill", "mcp", "plugin"]
 AccessPresetId = Literal["read_only", "ask", "full"]
 NextActionKind = Literal["connect", "add", "install", "continue_setup", "sign_in", "add_key", "install_runtime", "open_app",
                          "turn_on", "fix", "retry", "try", "delete_data", "turn_off", "remove", "update", "none"]
-PlanIntent = Literal["connect", "add", "turn_on", "fix", "access", "turn_off", "remove", "update"]
+PlanIntent = Literal["connect", "add", "turn_on", "fix", "access", "settings", "turn_off", "remove", "update"]
 ToolState = Literal["use", "ask", "off"]
 ToolOverrides = dict[Annotated[str, StringConstraints(min_length=1, max_length=512)], ToolState]
 
@@ -8029,6 +8029,8 @@ class PlanInput(WireModel):
     help_url: str = Field(max_length=2048)
     description: str = Field(default="", max_length=512)
     format: Literal["string", "number", "boolean", "filepath"] = "string"
+    # A key already in the system keychain: left blank, it is kept. Its value is never sent.
+    saved: bool = False
 
 
 class PlanSignIn(WireModel):
@@ -8167,6 +8169,8 @@ class IntegrationAbout(WireModel):
     actions: list[Literal["turn_off", "update", "remove"]] = Field(max_length=3)
     # Every way to connect its app, recommended first.
     ways: list[IntegrationWay] = Field(default_factory=list, max_length=24)
+    # Its declared settings and keys as they are now (a key only as saved or not), changed through a `settings` plan.
+    settings: list[PlanInput] = Field(default_factory=list, max_length=32)
 
 
 class IntegrationDetail(WireModel):
