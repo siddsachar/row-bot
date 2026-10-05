@@ -4,6 +4,7 @@ import {
   validateWire,
 } from '../../../contracts/client-platform/v1/typescript/client';
 import { aborted, clientError, failureStatus } from './errors';
+import { networkFailure, reportNetworkFailures } from './network-failure';
 import { Acknowledgements } from './acknowledgements';
 import { isPanelDescriptor } from './types';
 import { sha256Hex } from '../platform/crypto';
@@ -217,10 +218,13 @@ export class ClientController {
     maxBatch: 0,
   };
 
+  private readonly transport: ClientTransport;
   constructor(
-    private readonly transport: ClientTransport,
+    transport: ClientTransport,
     private readonly random: () => number = Math.random,
-  ) {}
+  ) {
+    this.transport = reportNetworkFailures(transport);
+  }
   getSnapshot = (): ClientState => this.state;
   getSelectionVersion = (): number => this.selectionNumber;
   dictationScope(): DictationScope | null {
@@ -1656,7 +1660,7 @@ export class ClientController {
               failures = 0;
             }
             if (!alive()) return;
-            if (subscription) throw new TypeError('stream disconnected');
+            if (subscription) throw networkFailure('stream disconnected');
           } else {
             this.update({ connection: 'poll', status: 'ready', error: null });
             const page = validateWire<import('./types').EventPage>(
@@ -1739,7 +1743,7 @@ export class ClientController {
           failures += 1;
           streamFailures += 1;
           if (failures > DELAYS.length) {
-            this.failed(new TypeError('Disconnected'));
+            this.failed(networkFailure('Disconnected'));
             return;
           }
           this.metrics.reconnects += 1;
@@ -5135,7 +5139,7 @@ export class ClientController {
     this.transport.clearSession(true);
     this.update({
       status: 'disconnected',
-      error: clientError(new TypeError('Offline')),
+      error: clientError(networkFailure('Offline')),
       connection: 'none',
       handshake: null,
       loadingConversation: false,
@@ -5221,7 +5225,7 @@ export class ClientController {
     if (this.disposed)
       return Promise.reject(new DOMException('Cancelled', 'AbortError'));
     if (!this.online)
-      return Promise.reject(clientError(new TypeError('Offline')));
+      return Promise.reject(clientError(networkFailure('Offline')));
     if (command.client_session_id !== this.state.handshake?.client_session_id)
       return Promise.reject(clientError({ code: 'authentication_required' }));
     if (!isCommand(command))
@@ -5328,7 +5332,7 @@ export class ClientController {
     signal?: AbortSignal,
   ): Promise<T> {
     if (this.disposed) throw new DOMException('Cancelled', 'AbortError');
-    if (!this.online) throw clientError(new TypeError('Offline'));
+    if (!this.online) throw clientError(networkFailure('Offline'));
     if (!this.state.handshake)
       throw clientError({ code: 'authentication_required' });
     const authentication = this.authenticationNumber;

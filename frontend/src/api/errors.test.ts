@@ -1,7 +1,13 @@
 import { expect, it } from 'vitest';
 import contract from '../../../contracts/client-platform/v1/error-codes.json';
 import { settingsLeaves } from '../features/settings/model';
-import { catalogCodes, clientError, rejectedBeforeRunning } from './errors';
+import {
+  catalogCodes,
+  clientError,
+  failureStatus,
+  rejectedBeforeRunning,
+} from './errors';
+import { networkFailure } from './network-failure';
 
 const serverCodes = Object.keys(contract.codes);
 const JARGON = /\b(receipts?|replay(ed)?|admission|admitted|owned)\b/i;
@@ -100,8 +106,27 @@ it('drops a request only when the server refused it before anything ran', () => 
     'idempotency_mismatch',
   ])
     expect(rejectedBeforeRunning(clientError({ code })), code).toBe(false);
-  expect(rejectedBeforeRunning(clientError(new TypeError('offline')))).toBe(
+  expect(rejectedBeforeRunning(clientError(networkFailure('offline')))).toBe(
     false,
   );
   expect(rejectedBeforeRunning(clientError({ code: 'brand_new' }))).toBe(false);
+});
+
+it('says Disconnected only for a lost connection, and names a client fault', () => {
+  const lost = clientError(networkFailure('Failed to fetch'));
+  expect(lost).toMatchObject({
+    code: 'network_unavailable',
+    message: 'Disconnected. What you last saw is kept.',
+  });
+  expect(failureStatus(lost)).toBe('disconnected');
+  // A TypeError from the client's own code is a bug: reconnecting cannot fix
+  // it, so it is reported with a code instead of as a lost connection.
+  const fault = clientError(
+    new TypeError("Cannot read properties of undefined (reading 'digest')"),
+  );
+  expect(fault).toMatchObject({
+    code: 'request_failed',
+    message: 'Something went wrong. Try again. Details: client_error',
+  });
+  expect(failureStatus(fault)).toBe('fatal');
 });
