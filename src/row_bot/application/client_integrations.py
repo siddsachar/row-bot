@@ -335,13 +335,30 @@ def upload_file(*, owner_id: str, data: bytes, filename: str, validate: Callable
     try:
         staged = uploads.stage(data, filename)
     except (ValueError, OSError) as exc:
-        raise ClientPlatformError(str(exc) if str(exc) in {"unsupported_upload", "upload_too_large", "unsafe_upload"}
+        code = str(exc)
+        raise ClientPlatformError(code if code in {"unsupported_upload", "upload_too_large", "unsafe_upload",
+                                                   "bundle_signature_invalid"}
+                                  else "upload_too_large" if code == "bundle_too_large" else "unsafe_upload"
+                                  if code == "bundle_unsafe_path" else "bundle_unsupported" if code.startswith("bundle_")
+                                  and code != "bundle_invalid"
                                   else "invalid_upload") from None
-    kind = "mcp" if staged["kind"] == "mcpb" else staged["kind"]
-    reference = {"kind": staged["kind"], "upload": staged["upload"]} if kind != "plugin" else {
+    if staged["kind"] == "mcpb":  # A checked bundle connects like any app that runs on this computer.
+        from row_bot.mcp_client.marketplace import MarketplaceEntry
+        from row_bot.mcp_client.packages import bundle_install
+        bundle = staged["bundle"]
+        try:
+            install = bundle_install(staged["upload"], bundle)
+        except ValueError:
+            raise ClientPlatformError("bundle_unsupported") from None
+        entry_ = MarketplaceEntry(id="mcpb-" + bundle.sha256[:16], name=staged["name"], description=bundle.description[:800],
+            source="mcpb", transport="stdio", install=install, publisher=bundle.author[:160],
+            metadata={"version": bundle.version, **({"auth_mode": "api_key"} if any(i["secret"] for i in bundle.inputs) else {})})
+        return _added(owner_id, "mcp", staged["name"], {"kind": "mcp", "entry": entry_}, install=install,
+                      description=bundle.description[:2048] or "A bundle added from a file on this device.")
+    kind = staged["kind"]
+    reference = {"kind": kind, "upload": staged["upload"]} if kind != "plugin" else {
         "kind": "plugin", "upload": str(uploads.path(staged["upload"])), "reference": ""}
-    return _added(owner_id, kind, staged["name"], reference, description="Added from a file on this device.",
-                  unsupported="Bundles (.mcpb) arrive in a later update." if staged["kind"] == "mcpb" else "")
+    return _added(owner_id, kind, staged["name"], reference, description="Added from a file on this device.")
 
 
 def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], None]) -> tuple[dict, dict]:

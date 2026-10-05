@@ -90,7 +90,15 @@ const CATALOG: Record<string, Entry> = {
     'review',
   ],
   invalid_upload: [
-    'Choose a .zip, .skill or .mcpb file up to 20 MB.',
+    'Choose a .zip or .skill file up to 20 MB, or a .mcpb bundle up to 128 MB.',
+    'review',
+  ],
+  bundle_signature_invalid: [
+    "This bundle's signature doesn't match its contents, so Row-Bot won't add it. Get a fresh copy from its publisher.",
+    'review',
+  ],
+  bundle_unsupported: [
+    "Row-Bot can't run this bundle on this computer: it's for another system or needs something Row-Bot doesn't set up.",
     'review',
   ],
   unsupported_upload: [

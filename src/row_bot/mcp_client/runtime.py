@@ -618,6 +618,9 @@ class McpServerRuntime:
                     package_launch = packages.resolve_launch(self.cfg, args=packages.arguments(launch_cfg))
             if package_launch:
                 command, args = package_launch
+                if packages.kind(self.cfg) == "mcpb":
+                    root = packages.bundle_root(self.cfg)
+                    env = {key: value.replace("{bundle}", root) for key, value in env.items()}
             else:
                 command = _resolve_stdio_command(command, env)
             if launch is not None:

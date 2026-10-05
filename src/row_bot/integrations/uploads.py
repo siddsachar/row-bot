@@ -1,8 +1,9 @@
-"""Files a person picks to add: a skill or package archive, staged privately and only read.
+"""Files a person picks to add: a skill or package archive or an MCP bundle, staged privately and only read.
 
 Nothing in a staged file runs. A skill is read into memory and checked like any other
 skill; a package is inspected by its owner from the staged copy after consent. A
-``.mcpb`` bundle is kept for the plan to report as not available yet.
+``.mcpb`` bundle's manifest, paths and signature are checked when it is picked, and it is
+unpacked only after the person reviews it in a plan.
 """
 from __future__ import annotations
 
@@ -15,7 +16,8 @@ import zipfile
 
 from row_bot.integrations.safe import write_atomic
 
-MAX_BYTES = 20 * 1024 * 1024
+MAX_BYTES = 128 * 1024 * 1024  # A bundle carries its own dependencies.
+MAX_ARCHIVE = 20 * 1024 * 1024  # A skill or a package.
 MAX_FILES = 200
 MAX_UNPACKED = 5 * 1024 * 1024
 KEEP_SECONDS = 24 * 3600
@@ -57,11 +59,15 @@ def _top(names: list[str]) -> str:
 def stage(data: bytes, filename: str) -> dict:
     """Check one picked file in memory, then keep it and say what it holds: ``skill``, ``plugin`` or ``mcpb``."""
     suffix = PurePosixPath(filename.replace("\\", "/")).suffix.lower()
-    if suffix not in {".zip", ".skill", ".mcpb"} or not data or len(data) > MAX_BYTES:
+    if suffix not in {".zip", ".skill", ".mcpb"} or not data or len(data) > (MAX_BYTES if suffix == ".mcpb" else MAX_ARCHIVE):
         raise ValueError("invalid_upload")
     title = PurePosixPath(filename.replace("\\", "/")).stem[:128] or "Added file"
-    kind, name = "mcpb", title
-    if suffix != ".mcpb":
+    kind, name, bundle = "mcpb", title, None
+    if suffix == ".mcpb":
+        from row_bot.mcp_client import bundles
+        bundle = bundles.read(data)  # Manifest, paths, platform and signature; nothing is unpacked or run.
+        name = (bundle.display_name or bundle.name)[:128]
+    else:
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
                 names = [info.filename for info in _members(archive)]
@@ -81,7 +87,7 @@ def stage(data: bytes, filename: str) -> dict:
             old.unlink(missing_ok=True)
     upload = uuid4().hex + (".mcpb" if kind == "mcpb" else ".zip")
     write_atomic(root / upload, data)
-    return {"upload": upload, "kind": kind, "name": name}
+    return {"upload": upload, "kind": kind, "name": name, "bundle": bundle}
 
 
 def skill_files(upload: str) -> tuple[list[tuple[str, bytes]], str]:

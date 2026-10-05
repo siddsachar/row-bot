@@ -63,6 +63,8 @@
     "buddy_revision_conflict": 409,
     "buddy_tool_policy_denied": 409,
     "buddy_tool_unavailable": 409,
+    "bundle_signature_invalid": 422,
+    "bundle_unsupported": 422,
     "capability_revoked": 409,
     "capability_unavailable": 403,
     "change_set_already_reverted": 409,

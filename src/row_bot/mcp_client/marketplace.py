@@ -235,7 +235,8 @@ def _package(package: dict) -> dict:
     allowed = {"registryType", "identifier", "version", "transport", "registryBaseUrl", "runtimeHint", "runtimeArguments",
                "packageArguments", "environmentVariables", "fileSha256"}
     if set(package) - allowed or kind not in {"npm", "pypi", "oci"}:
-        raise _Declared(_UNSUPPORTED_PACKAGE)
+        raise _Declared("Download this bundle from its publisher, then add it from a file." if kind == "mcpb"
+                        else _UNSUPPORTED_PACKAGE)
     if package.get("transport") != {"type": "stdio"}:
         raise _Declared("It runs as a web server on this computer; Row-Bot can't start those yet.")
     default = {"npm": "https://registry.npmjs.org", "pypi": "https://pypi.org"}.get(kind, "")
@@ -389,6 +390,7 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
         "headers": fields["headers"],
         "env": fields["env"],
         **({"inputs": found} if found else {}),
+        **({"bundle": dict(install["bundle"])} if install.get("bundle") else {}),
         "requirements": list(entry.requirements or []),
         "trust_level": entry.trust_tier or "standard",
         "source": {

@@ -101,11 +101,6 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     hosted = cfg.get("transport", "stdio") != "stdio"
     app = apps.match(facts._mcp_refs(cfg))
     steps = [_step("consent", title="Before you connect")]
-    fields = _fields(cfg, setup, app)
-    if fields:
-        done = not (setup["auth_mode"] == "api_key" and not signed_in) and not setup["inputs_missing"]
-        steps.append(_step("inputs", "done" if done else "pending",
-                           "Add your key" if all(f["secret"] for f in fields) else "Add your settings", inputs=fields))
     from row_bot.mcp_client import packages
     package = packages.kind(cfg) if not hosted else None
     for requirement in [] if hosted else requirements:
@@ -116,11 +111,17 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
                            "" if supported else f"Install {requirement['label']}, then try again.",
                            runtime={"id": requirement["id"], "label": requirement["label"]}))
     if setup["package_required"]:
-        found = {"npm": ("npm_package", "npm package"), "pypi": ("pypi_package", "Python package"), "oci": ("oci_image", "container image")}
+        found = {"npm": ("npm_package", "npm package"), "pypi": ("pypi_package", "Python package"), "oci": ("oci_image", "container image"),
+                 "mcpb": ("mcpb", "bundle")}
         steps.append(_step("runtime", title="Prepare the " + found[package][1],
                            runtime={"id": found[package][0], "label": found[package][1]}))
     for index, step in enumerate(s for s in steps if s["type"] == "runtime"):
         step["id"] = f"runtime{index or ''}"
+    fields = _fields(cfg, setup, app)  # After anything to install, so its review comes before any key is typed.
+    if fields:
+        done = not (setup["auth_mode"] == "api_key" and not signed_in) and not setup["inputs_missing"]
+        steps.append(_step("inputs", "done" if done else "pending",
+                           "Add your key" if all(f["secret"] for f in fields) else "Add your settings", inputs=fields))
     steps += _local_app_step(app or apps.catalog()[0].get((row["app"] or {}).get("id", "")))
     method = "oauth_client" if (cfg.get("source") or {}).get("oauth_client") == "required" else "oauth_dcr"
     if setup["auth_mode"] == "oauth":
@@ -276,11 +277,6 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         steps = [_step("consent", title="Before you connect"), _step("inputs", "unsupported", "Add your settings",
                  "Recipes from this catalog arrive in a later update.", inputs=[]), _step("enable", title="Turn on " + name)]
         declaration = {"recipe": reference.get("name"), "pin": reference.get("pin")}
-    elif kind == "mcp" and reference.get("kind") == "mcpb":  # Phase 4 runs bundles; the step is in the contract now.
-        steps = [_step("consent", title="Before you connect"), _step("runtime", "unsupported", "Set up the bundle",
-                 "Bundles (.mcpb) arrive in a later update.", runtime={"id": "mcpb", "label": "MCP bundle"}),
-                 _step("test", title="Check the connection"), _step("enable", title="Turn on " + name)]
-        declaration = {"upload": reference.get("upload")}
     elif kind == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
         entry = reference.get("entry")
@@ -675,7 +671,7 @@ def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
     return ""
 
 
-PACKAGES = {"npm_package", "pypi_package", "oci_image"}
+PACKAGES = {"npm_package", "pypi_package", "oci_image", "mcpb"}
 
 
 def _package_problem(code: str) -> str:
@@ -685,6 +681,7 @@ def _package_problem(code: str) -> str:
             "mcp_package_integrity_changed": "The package changed since you checked it. Try again to review the new version.",
             "mcp_package_version_required": "It doesn't name an exact version to review.",
             "mcp_package_container_access_unsupported": "It asks Docker for access to this computer that Row-Bot doesn't grant.",
+            "mcp_bundle_unavailable": "The bundle file is no longer here. Add it from the file again.",
             }.get(code.split(":", 1)[0], "The package couldn't be prepared. Try again, or check it in advanced settings.")
 
 

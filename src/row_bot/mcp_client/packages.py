@@ -63,7 +63,10 @@ def requirement(cfg: dict) -> tuple[str, str, list[str]] | None:
 
 
 def kind(cfg: dict) -> str | None:
-    """Which locked package a stdio recipe runs: ``npm`` (npx), ``pypi`` (uvx) or ``oci`` (docker run)."""
+    """Which locked package a stdio recipe runs: ``npm`` (npx), ``pypi`` (uvx), ``oci`` (docker run) or
+    ``mcpb`` (an MCP bundle the person picked)."""
+    if cfg.get("bundle") and cfg.get("transport", "stdio") == "stdio":
+        return "mcpb"
     command = Path(str(cfg.get("command", ""))).name.lower().removesuffix(".cmd").removesuffix(".exe")
     return {"npx": "npm", "uvx": "pypi", "docker": "oci"}.get(command) if cfg.get("transport", "stdio") == "stdio" else None
 
@@ -164,7 +167,7 @@ def _digest(items: list[dict]) -> str:
 def resolve(cfg: dict, *, check: Callable[[], None] = lambda: None) -> dict:
     """The exact versions and integrity a recipe would install, for the person to review. Reads registry
     metadata (and runs npm, uv or Docker only to resolve); never installs or runs the package."""
-    found = {"npm": _npm_lock, "pypi": _pypi_lock, "oci": _oci_lock}.get(kind(cfg) or "")
+    found = {"npm": _npm_lock, "pypi": _pypi_lock, "oci": _oci_lock, "mcpb": _mcpb_lock}.get(kind(cfg) or "")
     if found is None:
         raise ValueError("mcp_package_recipe_unsupported")
     lock = found(cfg, check)
@@ -347,6 +350,38 @@ def _oci_lock(cfg: dict, check: Callable[[], None]) -> dict:
             "items": [{"path": "", "name": repository, "version": tag, "integrity": digest}], "integrity": digest}
 
 
+def bundle_install(upload: str, bundle) -> dict:
+    """The recipe for a checked bundle: its own launch, with ``{bundle}`` for its unpacked folder and its
+    settings as declared inputs. Bundles that install packages when they start (``uv``) aren't run."""
+    command = bundle.command
+    if bundle.server_type == "uv" or not (command in {"node", "python", "python3"} or command.startswith("{bundle}/")):
+        raise ValueError("bundle_runtime_unsupported")
+    return {"transport": "stdio", "command": command, "args": list(bundle.args), "env": dict(bundle.env),
+            "bundle": {"upload": upload, "sha256": "sha256:" + bundle.sha256},
+            **({"inputs": list(bundle.inputs)} if bundle.inputs else {}),
+            **({"requirements": ["uv"]} if command.startswith("python") else {})}
+
+
+def _bundle(cfg: dict):
+    from row_bot.integrations import uploads
+    from row_bot.mcp_client import bundles
+    path = uploads.path(str(cfg["bundle"].get("upload", "")))
+    if not path.is_file() or path.stat().st_size > bundles.MAX_BYTES:
+        raise ValueError("mcp_bundle_unavailable")  # Picked files are kept a day; pick it again.
+    data = path.read_bytes()
+    bundle = bundles.read(data)
+    if "sha256:" + bundle.sha256 != cfg["bundle"].get("sha256"):
+        raise ValueError("mcp_package_integrity_changed")
+    return bundle, data
+
+
+def _mcpb_lock(cfg: dict, check: Callable[[], None]) -> dict:
+    bundle, _data = _bundle(cfg)
+    return {"kind": "mcpb", "name": bundle.display_name or bundle.name, "version": bundle.version, "signature": bundle.signature,
+            "items": [{"path": "", "name": bundle.name, "version": bundle.version, "integrity": "sha256:" + bundle.sha256}],
+            "integrity": "sha256:" + bundle.sha256, "server_type": bundle.server_type}
+
+
 def review(lock: dict) -> dict:
     """What the person sees before anything is installed: every package, exact version and checksum."""
     count = len(lock["items"])
@@ -356,7 +391,11 @@ def review(lock: dict) -> dict:
              "pypi": [f"{count} Python package{'s' if count != 1 else ''}, ready-built only, checked against their checksums.",
                       "Installed in a private folder for this app; nothing is installed for the whole computer."],
              "oci": ["Docker runs this image by its exact digest, with network access and no folders from this computer.",
-                     "It gets only the settings you add here."]}[lock["kind"]]
+                     "It gets only the settings you add here."],
+             "mcpb": [("Signed by " + lock["signature"]["signer"] + ". Row-Bot checked the signature against the bundle, "
+                       "not who the signer is.") if lock.get("signature", {}).get("status") == "signed" else
+                      "Not signed, so Row-Bot can't tell who made it. Add it only if you trust where it came from.",
+                      "Unpacked into a private folder and run on this computer, with the settings you add here."]}[lock["kind"]]
     if skipped:
         lines.append("These have install scripts, which Row-Bot skips, so they may not work: " + ", ".join(skipped[:8])
                      + ("…" if len(skipped) > 8 else ""))
@@ -448,6 +487,14 @@ def inspect(owner_id: str, cfg: dict, lock: dict | None = None, *, check: Callab
         elif lock["kind"] == "pypi":
             entry = _install_pypi(lock, root, check)
             digest = _site_digest(root / "site")
+        elif lock["kind"] == "mcpb":
+            from row_bot.mcp_client import bundles
+            bundle, data = _bundle(cfg)
+            if "sha256:" + bundle.sha256 != lock["integrity"]:
+                raise ValueError("mcp_package_integrity_changed")
+            root.rmdir()  # The bundle unpacks into a folder that doesn't exist yet.
+            digest = bundles.extract(data, root, check=check)
+            entry = _bundle_python(check) if cfg.get("command", "").startswith("python") else cfg["command"]
         else:
             entry, digest = lock["image"], lock["integrity"]
     except BaseException:
@@ -463,6 +510,8 @@ def inspect(owner_id: str, cfg: dict, lock: dict | None = None, *, check: Callab
 def arguments(cfg: dict) -> list[str]:
     """The package's own arguments in a recipe (after the package or image)."""
     found = kind(cfg)
+    if found == "mcpb":
+        return [str(arg) for arg in cfg.get("args", [])]
     return (requirement(cfg) or ("", "", []))[2] if found == "npm" else _pypi(cfg)[2] if found == "pypi" else _oci(cfg)[2]
 
 
@@ -486,6 +535,16 @@ def _install_npm(lock: dict, root: Path) -> str:
     if not contained_path(root, entry).is_file():
         raise ValueError("mcp_package_invalid")
     return entry
+
+
+def _bundle_python(check: Callable[[], None]) -> str:
+    """The interpreter for a Python bundle: uv's managed Python in Row-Bot's data folder, never the system's."""
+    uv = _uv()
+    _run([uv, "python", "install", PYTHON], env=_uv_env(), timeout=600, check=check)
+    found = _run([uv, "python", "find", PYTHON], env=_uv_env(), timeout=60, check=check).strip()
+    if not found or not Path(found).is_file():
+        raise ValueError("mcp_package_python_unavailable")
+    return found
 
 
 def _install_pypi(lock: dict, root: Path, check: Callable[[], None]) -> str:
@@ -518,6 +577,12 @@ def reviewed_launch(owner_id: str, preview_id: str, cfg: dict, digest: str) -> d
             "lock_digest": summary["lock_digest"]}
 
 
+def bundle_root(cfg: dict) -> str:
+    """The unpacked folder a bundle's own variables name as ``{bundle}`` (``PYTHONPATH={bundle}/lib``)."""
+    launch = cfg.get("managed_launch") or {}
+    return str(_folder(launch["id"])) if kind(cfg) == "mcpb" and re.fullmatch(r"[a-f0-9]{32}", str(launch.get("id", ""))) else ""
+
+
 def resolve_launch(cfg: dict, *, args: list[str] | None = None) -> tuple[str, list[str]] | None:
     """Read-only launch gate: never acquire dependencies during a connection. ``args`` are the
     reviewed arguments with the person's declared inputs filled in."""
@@ -540,6 +605,21 @@ def resolve_launch(cfg: dict, *, args: list[str] | None = None) -> tuple[str, li
         _image, flags, _rest = _oci(cfg)
         return docker, ["run", "-i", "--rm", "--pull=never", *flags, launch["entry"], *extra]
     root = _folder(launch["id"])
+    if found == "mcpb":
+        if _tree_digest(root) != launch.get("digest"):
+            raise ValueError("mcp_package_integrity_changed")
+        command = str(cfg.get("command", ""))
+        filled = [str(arg).replace("{bundle}", str(root)) for arg in extra]
+        if command == "node":
+            node = managed_command_path("node", "node") or shutil.which("node")
+            if not node:
+                raise ValueError("mcp_package_node_required")
+            return node, filled
+        if command.startswith("python"):
+            if not Path(str(launch["entry"])).is_file():
+                raise ValueError("mcp_package_python_unavailable")
+            return str(launch["entry"]), ["-s", *filled]
+        return str(contained_path(root, command.removeprefix("{bundle}/"))), filled
     if found == "pypi":
         if _site_digest(root / "site") != launch.get("digest"):
             raise ValueError("mcp_package_integrity_changed")

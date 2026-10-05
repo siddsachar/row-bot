@@ -367,9 +367,9 @@ def test_picked_files_are_recognised_privately_and_never_run(tmp_path, monkeypat
     for index in range(uploads.MAX_KEPT + 3):
         uploads.stage(zipped({"tools/plugin.json": b"{}"}), f"tools{index}.zip")
     assert len(list((tmp_path / "uploads").iterdir())) == uploads.MAX_KEPT
-    page = api.upload_file(owner_id="owner", data=b"bundle", filename="tool.mcpb")
-    _detail, plan = api.read_item(owner_id="owner", item_id=page["items"][0]["id"], revision=page["revision"])
-    assert not plan["supported"] and {s["type"]: s["state"] for s in plan["steps"]}["runtime"] == "unsupported"
+    from row_bot.application.client_platform import ClientPlatformError
+    with pytest.raises(ClientPlatformError, match="invalid_upload"):  # A bundle is checked when it is picked.
+        api.upload_file(owner_id="owner", data=b"bundle", filename="tool.mcpb")
 
 
 @pytest.mark.parametrize(("link", "kind"), [

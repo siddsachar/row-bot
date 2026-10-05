@@ -257,7 +257,7 @@ def normalize_server_config(name: str, raw: dict[str, Any] | None) -> dict[str, 
         "tools": dict(raw.get("tools") or {}),
         "source": dict(raw.get("source") or {}),
     }
-    for key in ("auth", "label", "environment_mode", "plugin_data", "plugin_prepared", "managed_launch", "inputs", "input_values"):
+    for key in ("auth", "label", "environment_mode", "plugin_data", "plugin_prepared", "managed_launch", "inputs", "input_values", "bundle"):
         if key in raw:
             cfg[key] = copy.deepcopy(raw[key])
     if "auth" in cfg:

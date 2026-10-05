@@ -10,6 +10,7 @@ from row_bot.application import client_integrations as api
 from row_bot.integrations import facts, plans
 from row_bot.mcp_client import config, packages
 from tests.subsystem.mcp.test_capability_catalog_controls import owner  # noqa: F401
+from tests.subsystem.mcp.test_bundles import signers  # noqa: F401
 from tests.subsystem.mcp.test_integration_packages import NPM, Tools, self_contained
 
 pytestmark = [pytest.mark.platform, pytest.mark.mcp_transport]
@@ -99,3 +100,100 @@ def test_a_package_for_a_desktop_app_waits_until_the_app_is_open(monkeypatch):
     assert plans._local_app(context(), record, step) == "resume" and "check again" in step["message"]
     monkeypatch.setattr(plans, "local_app_open", lambda check: True)
     assert plans._local_app(context(), record, step) == "done"
+
+
+SERVER = """
+const lines = require('readline').createInterface({input: process.stdin});
+lines.on('line', (line) => {
+  const request = JSON.parse(line);
+  process.stdout.write(JSON.stringify({jsonrpc: '2.0', id: request.id, result: {
+    protocolVersion: '2025-11-25', capabilities: {tools: {}}, serverInfo: {name: 'fixture', version: process.env.NOTES_TOKEN}}}) + String.fromCharCode(10));
+  process.exit(0);
+});
+"""
+
+
+@pytest.fixture
+def bundled(owner, tmp_path, monkeypatch):
+    from tests.subsystem.mcp.test_bundles import archive
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "mcp_packages").mkdir(exist_ok=True)
+    from row_bot.mcp_client import requirements
+    monkeypatch.setattr(requirements, "check_requirement",
+                        lambda requirement, env=None: requirements.RuntimeCheck(requirement=requirement, available=True))
+    from row_bot import secret_store
+    from tests.subsystem.plugins.conftest import MemoryKeyring
+    secret_store._set_backend_for_tests(MemoryKeyring())
+    yield lambda signer=None: archive(files={"server/index.js": SERVER, "server/lib/README": "bundled"})
+    secret_store._set_backend_for_tests(None)
+
+
+def test_a_picked_bundle_is_reviewed_then_unpacked_privately_and_asks_for_its_settings(bundled, tmp_path):
+    page = api.upload_file(owner_id="owner", data=bundled(), filename="notes.mcpb")
+    (row,) = page["items"]
+    assert row["method"] == "local" and row["compatibility"] != "unsupported"
+    _, plan = api.read_item(owner_id="owner", item_id=row["id"], revision=page["revision"])
+    types = [(s["type"], (s.get("runtime") or {}).get("id")) for s in plan["steps"]]
+    assert ("runtime", "mcpb") in types and ("inputs", None) in types and plan["supported"]
+    plan_id = str(uuid4())
+    paused = api.start_plan(context(), plan_id=plan_id, item_id=row["id"], revision=page["revision"], digest=plan["digest"])
+    assert paused["pause"] == "digest_changed", paused
+    review = next(s for s in paused["steps"] if s["type"] == "runtime")["review"]
+    assert "Not signed" in review["lines"][0]
+    assert review["items"][0]["integrity"].startswith("sha256:")
+    assert not [p for p in (tmp_path / "mcp_packages").iterdir() if len(p.name) == 32]  # Nothing unpacked yet.
+    asking = plans.resume(context(review_digest=review["digest"]), plan_id)
+    assert asking["pause"] == "inputs", asking
+    done = plans.resume(context(inputs={"api_key": "synthetic-bundle-key", "folder": str(tmp_path)}), plan_id)
+    assert done["pause"] == "access", done
+    saved = next(cfg for name, cfg in config.read_saved_configuration().document["servers"].items() if cfg.get("bundle"))
+    launch = saved["managed_launch"]
+    root = tmp_path / "mcp_packages" / launch["id"]
+    assert launch["kind"] == "mcpb" and (root / "server/index.js").is_file()
+    assert "synthetic-bundle-key" not in config.CONFIG_PATH.read_text()
+    from row_bot.mcp_client import requirements
+    requirements_node = requirements.managed_command_path
+    requirements.managed_command_path = lambda runtime, command: "managed-node"
+    try:
+        command, args = packages.resolve_launch(saved, args=[str(a) for a in saved["args"]])
+    finally:
+        requirements.managed_command_path = requirements_node
+    assert command == "managed-node" and args[0] == str(root) + "/server/index.js"
+    (root / "server/index.js").write_text("// changed after review")
+    with pytest.raises(ValueError, match="integrity_changed"):
+        packages.resolve_launch(saved)
+
+
+def test_a_bundle_changed_after_signing_is_refused_when_picked(owner, tmp_path, monkeypatch, signers):
+    from row_bot.application.client_platform import ClientPlatformError
+    from tests.subsystem.mcp.test_bundles import archive, sign
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    signed = bytearray(sign(archive(), signers["ec"]))
+    signed[60] ^= 0xFF  # One changed byte inside the signed archive.
+    with pytest.raises(ClientPlatformError, match="bundle_signature_invalid"):
+        api.upload_file(owner_id="owner", data=bytes(signed), filename="notes.mcpb")
+
+
+@pytest.mark.slow
+def test_a_bundle_runs_with_node_from_its_private_folder(bundled, tmp_path):
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is not on this computer")
+    page = api.upload_file(owner_id="owner", data=bundled(), filename="notes.mcpb")
+    (row,) = page["items"]
+    _, plan = api.read_item(owner_id="owner", item_id=row["id"], revision=page["revision"])
+    plan_id = str(uuid4())
+    paused = api.start_plan(context(), plan_id=plan_id, item_id=row["id"], revision=page["revision"], digest=plan["digest"])
+    review = next(s for s in paused["steps"] if s["type"] == "runtime")["review"]
+    plans.resume(context(review_digest=review["digest"]), plan_id)
+    saved = next(cfg for cfg in config.read_saved_configuration().document["servers"].values() if cfg.get("bundle"))
+    command, args = packages.resolve_launch(saved, args=[str(a).replace("{folder}", str(tmp_path)) for a in saved["args"]])
+    result = subprocess.run([command, *args], input='{"jsonrpc":"2.0","id":1,"method":"initialize"}\n', capture_output=True,
+                            text=True, timeout=30, env={**{key: value for key, value in __import__("os").environ.items()
+                                                       if key in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP"}}, "NOTES_TOKEN": "ok"})
+    assert result.returncode == 0 and result.stdout, result.stderr
+    assert json.loads(result.stdout.splitlines()[0])["result"]["serverInfo"]["version"] == "ok"
