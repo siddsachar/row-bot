@@ -7941,8 +7941,8 @@ class AppList(WireModel):
     items: list[AppView] = Field(max_length=512)
 
 
-class IconBatchRequest(WireModel):
-    ids: list[IconId] = Field(min_length=1, max_length=64)
+# ``GET /integrations/icons?ids=a,b``: a read, so showing a screen never sends a change.
+ICON_IDS = TypeAdapter(Annotated[list[IconId], Field(min_length=1, max_length=64)])
 
 
 class AppIconData(WireModel):

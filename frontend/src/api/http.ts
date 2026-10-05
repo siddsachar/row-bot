@@ -1177,7 +1177,7 @@ export class HttpTransport implements ClientTransport {
     return wire.getApps(this.base, this.session(), { query }, signal);
   }
   integrationIcons(icons: string[], signal?: AbortSignal) {
-    return wire.readAppIcons(this.base, this.session(), { ids: icons }, signal);
+    return wire.readAppIcons(this.base, this.session(), icons, signal);
   }
   integrationItems(
     options: {

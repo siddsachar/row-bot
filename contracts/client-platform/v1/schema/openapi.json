@@ -10364,7 +10364,7 @@
       }
     },
     "/api/v1/integrations/icons": {
-      "post": {
+      "get": {
         "parameters": [
           {
             "in": "header",
@@ -10385,16 +10385,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "./IconBatchRequest.schema.json"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {

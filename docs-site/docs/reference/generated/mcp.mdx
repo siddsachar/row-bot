@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # MCP
 
 <!-- generated-from: src/row_bot/mcp_client/recommended_servers.json -->
-<!-- inventory-hash: c426c890e3f6f417 -->
+<!-- inventory-hash: 5a8700d47bbf740d -->
 
 <GeneratedNotice source="src/row_bot/mcp_client/recommended_servers.json" />
 
@@ -16,7 +16,9 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 
 | ID | Server | Description | Transport | Command | Native overlap |
 | --- | --- | --- | --- | --- | --- |
-| github-github-mcp-server | GitHub MCP Server | Official GitHub MCP server for repositories, issues, pull requests, code search, and workflows. | stdio | docker |  |
+| github-hosted | GitHub | GitHub's own hosted MCP server: repositories, issues, pull requests, code search and Actions runs, with a fine-grained personal access token. | streamable_http |  |  |
+| github-oauth-app | GitHub with your own OAuth app | GitHub's own hosted MCP server, signing in through an OAuth app you create in your GitHub settings. | streamable_http |  |  |
+| github-github-mcp-server | GitHub MCP Server on this computer | Official GitHub MCP server for repositories, issues, pull requests, code search, and workflows. | stdio | docker |  |
 | microsoft-playwright | Playwright MCP | Browser automation through accessibility snapshots for testing and data extraction. | stdio | npx | browser |
 | chromedevtools-chrome-devtools-mcp | Chrome DevTools MCP | Inspect and debug Chrome pages through DevTools-oriented MCP tools. | stdio | npx | browser |
 | upstash-context7 | Context7 | Up-to-date library and framework documentation for coding agents. | streamable_http |  | web_search |

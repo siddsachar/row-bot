@@ -4447,13 +4447,16 @@ def create_router(
         from row_bot.application.client_integrations import list_apps
         return await respond(request, dto.AppList, await call(list_apps, query))
 
-    @router.post("/integrations/icons")
-    async def integration_icons(request: Request) -> JSONResponse:
-        """Many local icons in one answer (bundled marks, letter avatars, rasters cached by an update)."""
+    @router.get("/integrations/icons")
+    async def integration_icons(request: Request, ids: str = "") -> JSONResponse:
+        """Many local icons in one read (bundled marks, letter avatars, rasters cached by an update)."""
         await session(request, lane="view")
-        body = await _body(request, dto.IconBatchRequest, 8192)
+        try:
+            wanted = dto.ICON_IDS.validate_python(ids.split(",") if ids else [])
+        except ValidationError:
+            raise ProtocolError("invalid_command", 422) from None
         from row_bot.application.client_integrations import read_icons
-        return await respond(request, dto.IconBatch, await call(read_icons, list(body.ids)))
+        return await respond(request, dto.IconBatch, await call(read_icons, list(wanted)))
 
     @router.get("/integrations/presets")
     async def integration_presets(request: Request) -> JSONResponse:

@@ -17,7 +17,7 @@ from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after p
 
 MODELS = {name: getattr(schemas, name) for name in (
     "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
-    "AppRef", "AppView", "AppList", "IconBatchRequest", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
+    "AppRef", "AppView", "AppList", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
     "PlanReview", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
@@ -111,7 +111,7 @@ OPERATIONS = (
     ('get', '/integrations/catalog-schedule', None, 'CatalogSchedule'),
     ('put', '/integrations/catalog-schedule', 'CatalogSchedule', 'CatalogSchedule'),
     ('get', '/integrations/apps', None, 'AppList'),
-    ('post', '/integrations/icons', 'IconBatchRequest', 'IconBatch'),
+    ('get', '/integrations/icons', None, 'IconBatch'),
     ('get', '/integrations/presets', None, 'AccessPresetList'),
     ('get', '/integrations/items', None, 'IntegrationEntryPage'),
     ('post', '/integrations/items/search', 'IntegrationSearchRequest', 'IntegrationEntryPage'),
@@ -1180,8 +1180,8 @@ export const setCatalogSchedule = (base: string, proof: SessionProof, body: Cata
   jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'PUT', validateWire('CatalogSchedule', body), undefined, signal);
 export const getApps = (base: string, proof: SessionProof, options: {query?: string} = {}, signal?: AbortSignal): Promise<AppList> =>
   jsonRequest(base, '/integrations/apps' + query(options), 'AppList', proof, 'GET', undefined, undefined, signal);
-export const readAppIcons = (base: string, proof: SessionProof, body: IconBatchRequest, signal?: AbortSignal): Promise<IconBatch> =>
-  jsonRequest(base, '/integrations/icons', 'IconBatch', proof, 'POST', validateWire('IconBatchRequest', body), undefined, signal);
+export const readAppIcons = (base: string, proof: SessionProof, ids: string[], signal?: AbortSignal): Promise<IconBatch> =>
+  jsonRequest(base, '/integrations/icons' + query({ids: ids.join(',')}), 'IconBatch', proof, 'GET', undefined, undefined, signal);
 export const getAccessPresets = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AccessPresetList> =>
   jsonRequest(base, '/integrations/presets', 'AccessPresetList', proof, 'GET', undefined, undefined, signal);
 export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>

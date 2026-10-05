@@ -112,8 +112,8 @@ def test_apps_and_icons_are_served_from_local_data_only(service, isolated, monke
         notion = next(app for app in apps if app["id"] == "notion")
         assert notion["icon"] == "si:notion" and notion["icon_license"]["license"] == "CC0-1.0"
         # Every icon a screen shows comes back in one answer, as data the page can draw at once.
-        found = client.post(BASE + "/icons", headers=headers,
-                            json={"ids": ["si:notion", "si:github", "letter:Q", "cached:" + "0" * 32, "si:notamark"]})
+        found = client.get(BASE + "/icons", headers=headers,  # A read: rendering a screen never sends a change.
+                           params={"ids": ",".join(["si:notion", "si:github", "letter:Q", "cached:" + "0" * 32, "si:notamark"])})
         assert found.status_code == 200, found.text
         icons_by_id = {item["id"]: item for item in found.json()["items"]}
         assert set(icons_by_id) == {"si:notion", "si:github", "letter:Q"}  # Unknown or uncached icons are left out.
@@ -121,4 +121,4 @@ def test_apps_and_icons_are_served_from_local_data_only(service, isolated, monke
         assert icons_by_id["si:notion"]["data"].startswith("data:image/svg+xml;base64,") and b"<script" not in mark
         assert icons_by_id["si:github"]["mono"] and not icons_by_id["letter:Q"]["mono"]  # A dark mark is flagged for dark mode.
         for refused in (["../../etc/passwd"], ["letter:QQ"], [], ["si:notion"] * 65):
-            assert client.post(BASE + "/icons", headers=headers, json={"ids": refused}).status_code == 422
+            assert client.get(BASE + "/icons", headers=headers, params={"ids": ",".join(refused)}).status_code == 422
