@@ -171,3 +171,14 @@ def test_onboarding_api_requires_session_and_returns_receipt(tmp_path, monkeypat
     assert result.json()["snapshot"]["profile"] == ["chat"]
     assert missing.status_code == 409
     assert missing.json()["code"] == "onboarding_model_required"
+
+
+def test_setup_center_offers_apps_and_skills_and_keeps_what_was_done_under_the_old_areas(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    (tmp_path / "app_config.json").write_text(json.dumps({
+        "onboarding_completed_steps": ["accounts", "channels"], "onboarding_skipped_steps": ["extensions"]}),
+        encoding="utf-8")
+    state = client_onboarding.read_onboarding()
+    ids = [step["id"] for step in state["steps"]]
+    assert {"apps", "skills"} <= set(ids) and not {"accounts", "channels", "extensions"} & set(ids)
+    assert "apps" in state["completed_steps"] and state["skipped_steps"] == []
