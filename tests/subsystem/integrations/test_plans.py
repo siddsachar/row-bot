@@ -60,16 +60,14 @@ def test_every_curated_recipe_has_a_valid_plan_and_only_supported_ones_can_start
     assert review("mcp:curated:makenotion-notion-mcp-server")[1]["digest"] == notion["digest"]
 
 
-def test_later_phase_steps_are_in_the_contract_as_unsupported():
+def test_a_local_app_check_and_python_tools_are_part_of_a_plan():
     from row_bot.integrations import apps
     row = facts.finish(facts.entry("mcp", "x", "Blender", installed=False, lifecycle="available",
                                    app=apps.catalog()[0]["blender"].ref()))
-    reference = {"cfg": {"transport": "stdio", "command": "uv", "args": ["tool", "run", "blender-mcp"]}}
-    plan = plans.compute(row, reference)
+    plan = plans.compute(row, {"cfg": {"transport": "stdio", "command": "uvx", "args": ["blender-mcp"]}})
     states = {s["type"]: s["state"] for s in plan["steps"]}
-    assert states["runtime"] == states["local_app_check"] == "unsupported" and not plan["supported"]
-    with pytest.raises(plans.PlanError, match="plan_unsupported"):
-        plans.start(context(), row, reference, digest=plan["digest"])
+    assert states["local_app_check"] == "pending" and plan["supported"]
+    assert next(s for s in plan["steps"] if s["type"] == "runtime" and s["runtime"]["id"] == "pypi_package")["state"] == "pending"
 
 
 def test_nothing_runs_without_the_consented_digest(item, owner):
@@ -362,6 +360,10 @@ def test_node_and_package_preparation_run_in_the_background_and_resume(item, own
     monkeypatch.setattr(requirements, "runtime_install_revision", lambda runtime: "r" * 64)
     prepared = []
     monkeypatch.setattr(installation, "inspect_mcp_package", lambda **k: {"preview_id": "p", "digest": "d", "action_digest": "a"})
+    from row_bot.mcp_client import packages
+    lock = {"kind": "npm", "name": "fixture-mcp", "version": "1.0.0", "integrity": "sha512-x", "digest": "sha256:lock",
+            "items": [{"path": "", "name": "fixture-mcp", "version": "1.0.0", "integrity": "sha512-x"}]}
+    monkeypatch.setattr(packages, "resolve", lambda cfg, check=None: lock)
 
     def prepare(**k):
         k["validate_review"]({"action_digest": "a"})
@@ -385,7 +387,11 @@ def test_node_and_package_preparation_run_in_the_background_and_resume(item, own
     assert plans.resume(ctx, plan_id)["state"] == "running" and runtimes.started[-1] == "mcp.runtime.install"
     runtimes.status = {key: "completed" for key in runtimes.status}
     monkeypatch.setattr(facts, "_requirements", lambda cfg: [])
-    paused = plans.resume(ctx, plan_id)
+    review_pause = plans.resume(ctx, plan_id)  # The exact package and its checksum, before anything is laid out.
+    assert review_pause["pause"] == "digest_changed" and prepared == []
+    assert next(s for s in review_pause["steps"] if s["id"] == "runtime1")["review"]["digest"] == "sha256:lock"
+    paused = plans.resume(context(runtimes=runtimes, read_policy=lambda operation: {}, local_owner=True,
+                                  review_digest="sha256:lock"), plan_id)
     assert paused["pause"] == "access" and len(prepared) == 1
     assert runtimes.started == ["mcp.runtime.resolve", "mcp.runtime.install"]
 

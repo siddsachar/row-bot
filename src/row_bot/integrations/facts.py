@@ -150,11 +150,16 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
         "requirements": list(server.get("requirements") or []),
         "runtime_status": str(server.get("runtime_status") or "not_connected")[:64],
         "package_prepared": bool(cfg.get("managed_launch") or cfg.get("plugin_prepared")),
-        "package_required": local and str(cfg.get("command", "")).lower() in {"npx", "npx.cmd"} and not cfg.get("managed_launch"),
+        "package_required": local and _locked_package(cfg) and not cfg.get("managed_launch"),
         "account_requirements": str(source.get("account_requirements") or ("Account required; consult publisher requirements."
             if mode in {"oauth", "api_key"} else "Account requirements not supplied."))[:512],
         "cost": str(source.get("cost") or "Cost and subscription requirements not supplied. Check the publisher before connecting.")[:512],
         "evidence": str(source.get("evidence") or "Saved connection settings; live account access has not been verified.")[:512]}
+
+
+def _locked_package(cfg: dict) -> bool:
+    from row_bot.mcp_client.packages import kind
+    return kind(cfg) is not None
 
 
 def mcp_blockers(setup: dict, runtime: dict, *, enabled: bool) -> list[dict]:

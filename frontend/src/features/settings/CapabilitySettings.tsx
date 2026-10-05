@@ -52,7 +52,7 @@ export type McpConfigurationPage = {
     tool_count: number | null;
     connection_present: boolean | null;
     requirements?: {
-      id: 'node' | 'uv' | 'playwright-chrome' | 'other';
+      id: 'node' | 'uv' | 'playwright-chrome' | 'docker' | 'other';
       label: string;
       available: boolean;
       managed: boolean;

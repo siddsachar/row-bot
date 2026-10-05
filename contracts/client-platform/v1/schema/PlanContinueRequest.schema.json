@@ -56,6 +56,12 @@
       "default": "",
       "title": "Preset"
     },
+    "review_digest": {
+      "default": "",
+      "maxLength": 80,
+      "title": "Review Digest",
+      "type": "string"
+    },
     "tools_digest": {
       "default": "",
       "maxLength": 64,

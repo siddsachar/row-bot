@@ -245,6 +245,74 @@
       "title": "PlanLocalApp",
       "type": "object"
     },
+    "PlanReview": {
+      "additionalProperties": false,
+      "description": "What a step found that nobody could know before it ran (exact packages and their checksums, or\nwhat a recipe runs): shown in place, and the step continues only with this digest.",
+      "properties": {
+        "digest": {
+          "maxLength": 80,
+          "title": "Digest",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PlanReviewItem"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "lines": {
+          "items": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Lines",
+          "type": "array"
+        },
+        "summary": {
+          "maxLength": 256,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "lines",
+        "items",
+        "digest"
+      ],
+      "title": "PlanReview",
+      "type": "object"
+    },
+    "PlanReviewItem": {
+      "additionalProperties": false,
+      "properties": {
+        "integrity": {
+          "maxLength": 128,
+          "title": "Integrity",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "integrity"
+      ],
+      "title": "PlanReviewItem",
+      "type": "object"
+    },
     "PlanRuntime": {
       "additionalProperties": false,
       "properties": {
@@ -253,6 +321,8 @@
             "node",
             "uv",
             "npm_package",
+            "pypi_package",
+            "oci_image",
             "mcpb",
             "docker",
             "playwright-chrome",
@@ -358,6 +428,17 @@
           "maxLength": 512,
           "title": "Message",
           "type": "string"
+        },
+        "review": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanReview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "runtime": {
           "anyOf": [

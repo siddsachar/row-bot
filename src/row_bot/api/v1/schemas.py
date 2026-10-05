@@ -1914,7 +1914,7 @@ class IntegrationSearchRequest(WireModel):
 
 
 class McpRequirementSummary(WireModel):
-    id: Literal["node", "uv", "playwright-chrome", "other"]
+    id: Literal["node", "uv", "playwright-chrome", "docker", "other"]
     label: str = Field(max_length=96)
     available: bool
     managed: bool
@@ -8037,8 +8037,23 @@ class PlanSignIn(WireModel):
 
 
 class PlanRuntime(WireModel):
-    id: Literal["node", "uv", "npm_package", "mcpb", "docker", "playwright-chrome", "other"]
+    id: Literal["node", "uv", "npm_package", "pypi_package", "oci_image", "mcpb", "docker", "playwright-chrome", "other"]
     label: str = Field(max_length=96)
+
+
+class PlanReviewItem(WireModel):
+    name: str = Field(max_length=256)
+    version: str = Field(max_length=128)
+    integrity: str = Field(max_length=128)
+
+
+class PlanReview(WireModel):
+    """What a step found that nobody could know before it ran (exact packages and their checksums, or
+    what a recipe runs): shown in place, and the step continues only with this digest."""
+    summary: str = Field(max_length=256)
+    lines: list[Annotated[str, StringConstraints(max_length=256)]] = Field(max_length=8)
+    items: list[PlanReviewItem] = Field(max_length=200)
+    digest: str = Field(max_length=80)
 
 
 class PlanLocalApp(WireModel):
@@ -8075,6 +8090,7 @@ class PlanStep(WireModel):
     runtime: PlanRuntime | None = None
     local_app: PlanLocalApp | None = None
     access: PlanAccess | None = None
+    review: PlanReview | None = None
 
 
 class PlanConsent(WireModel):
@@ -8188,6 +8204,8 @@ class PlanContinueRequest(WireModel):
     inputs: dict[Annotated[str, StringConstraints(max_length=128)], Annotated[str, StringConstraints(max_length=16384)]] = Field(
         default_factory=dict, max_length=16)
     tools_digest: str = Field(default="", max_length=64)
+    # The digest of what the person just reviewed in place (a step's review), so a changed review can't continue.
+    review_digest: str = Field(default="", max_length=80)
     overrides: ToolOverrides | None = Field(default=None, max_length=256)
 
 

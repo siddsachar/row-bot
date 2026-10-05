@@ -266,8 +266,8 @@ def _package_server(server_id: str, target: dict | None):
 
 
 def inspect_mcp_package(*, owner_id: str, server_id: str, configuration_revision: str, target: dict | None = None,
-        validate: Callable[[], None] = lambda: None) -> dict:
-    """Inspect pinned npm bytes under the existing managed-requirement owner."""
+        validate: Callable[[], None] = lambda: None, lock: dict | None = None) -> dict:
+    """Lay out a reviewed package lock (npm, PyPI or an image) under the existing managed-requirement owner."""
     from row_bot.application import capability_configuration_controls as configuration
     from row_bot.mcp_client import targets, packages
     child = targets.normalize(target)
@@ -275,7 +275,7 @@ def inspect_mcp_package(*, owner_id: str, server_id: str, configuration_revision
     saved, _, cfg = _package_server(server_id, child)
     if configuration._revision(saved) != configuration_revision:
         raise RuntimeInstallationError("revision_conflict")
-    result = packages.inspect(owner_id, cfg)
+    result = packages.inspect(owner_id, cfg, lock, check=validate)
     validate()
     if configuration._revision(_package_server(server_id, child)[0]) != configuration_revision:
         raise RuntimeInstallationError("revision_conflict")

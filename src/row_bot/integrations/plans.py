@@ -75,6 +75,7 @@ class Context:
     read_policy: Callable[[str], dict] | None = None
     inputs: dict = field(default_factory=dict)
     tools_digest: str = ""
+    review_digest: str = ""  # What the person reviewed in place (a package lock): a step continues only on it.
 
 
 def _now() -> float:
@@ -105,29 +106,22 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
         done = not (setup["auth_mode"] == "api_key" and not signed_in) and not setup["inputs_missing"]
         steps.append(_step("inputs", "done" if done else "pending",
                            "Add your key" if all(f["secret"] for f in fields) else "Add your settings", inputs=fields))
-    command = str(cfg.get("command") or "").lower().removesuffix(".cmd").removesuffix(".exe")
-    if not hosted and command.endswith(("uv", "uvx")):
-        steps.append(_step("runtime", "unsupported", "Set up Python tools", "Python-based tools arrive in a later update.",
-                           runtime={"id": "uv", "label": "uv"}))
-    elif not hosted and command.endswith("docker"):
-        steps.append(_step("runtime", "unsupported", "Set up containers", "Container-based tools arrive in a later update.",
-                           runtime={"id": "docker", "label": "Docker"}))
+    from row_bot.mcp_client import packages
+    package = packages.kind(cfg) if not hosted else None
     for requirement in [] if hosted else requirements:
-        if requirement["available"] or requirement["id"] == "uv":
+        if requirement["available"]:
             continue
-        supported = requirement["id"] == "node" and requirement["installable"]
+        supported = requirement["id"] in {"node", "uv"} and requirement["installable"]
         steps.append(_step("runtime", "pending" if supported else "unsupported", "Set up " + requirement["label"],
-                           "" if supported else requirement["label"] + " must be installed separately.",
+                           "" if supported else f"Install {requirement['label']}, then try again.",
                            runtime={"id": requirement["id"], "label": requirement["label"]}))
     if setup["package_required"]:
-        steps.append(_step("runtime", title="Prepare the package", runtime={"id": "npm_package", "label": "npm package"}))
+        found = {"npm": ("npm_package", "npm package"), "pypi": ("pypi_package", "Python package"), "oci": ("oci_image", "container image")}
+        steps.append(_step("runtime", title="Prepare the " + found[package][1],
+                           runtime={"id": found[package][0], "label": found[package][1]}))
     for index, step in enumerate(s for s in steps if s["type"] == "runtime"):
         step["id"] = f"runtime{index or ''}"
-    local_app = app or apps.catalog()[0].get((row["app"] or {}).get("id", ""))
-    if local_app and local_app.local_app:
-        steps.append(_step("local_app_check", "unsupported", "Open " + local_app.name,
-                           "Checking for " + local_app.local_app + " arrives in a later update.",
-                           local_app={"label": local_app.local_app, "help_url": local_app.docs_url}))
+    steps += _local_app_step(app or apps.catalog()[0].get((row["app"] or {}).get("id", "")))
     method = "oauth_client" if (cfg.get("source") or {}).get("oauth_client") == "required" else "oauth_dcr"
     if setup["auth_mode"] == "oauth":
         steps.append(_step("sign_in", "done" if signed_in else "pending", "Sign in to " + name,
@@ -166,6 +160,41 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
                    "args": cfg.get("args", []), "headers": sorted(cfg.get("headers") or {}), "env": sorted(cfg.get("env") or {}),
                    "auth": setup["auth_mode"], "bindings": setup["bindings"], "source": cfg.get("source") or {}}
     return steps, consent, declaration
+
+
+def _local_app_step(app: apps.App | None) -> list[dict]:
+    """For an app that works with a desktop app on this computer: check that it is open (a loopback port
+    or a process name, never anything off this computer), with "Open it, then check again" until it is."""
+    if app is None or not app.local_check:
+        return []
+    return [_step("local_app_check", title="Open " + app.name,
+                  local_app={"label": app.local_app or app.name, "help_url": app.docs_url})]
+
+
+def local_app_open(check: dict) -> bool:
+    """Whether the app is open: something listens on its loopback port, or a process has its exact name."""
+    import socket
+    if "port" in check:
+        try:
+            with socket.create_connection(("127.0.0.1", int(check["port"])), timeout=1):
+                return True
+        except OSError:
+            return False
+    import psutil
+    wanted = str(check.get("process", "")).lower()
+    for process in psutil.process_iter(["name"]):
+        if str(process.info.get("name") or "").lower().removesuffix(".exe") == wanted:
+            return True
+    return False
+
+
+def _local_app(ctx: Context, record: dict, step: dict) -> str:
+    app = apps.catalog()[0].get(record.get("app_id", ""))
+    if app is None or not app.local_check or local_app_open(dict(app.local_check)):
+        step["message"] = ""
+        return "done"
+    step["message"] = f"Open {step['local_app']['label']}, then check again."[:512]
+    return "resume"
 
 
 def _fields(cfg: dict, setup: dict, app: apps.App | None) -> list[dict]:
@@ -265,6 +294,8 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         what = "skill" if kind == "skill" else "package"
         steps = [_step("consent", title="Before you add " + name), _step("test", title=f"Check the {what}"),
                  _step("enable", title="Add and turn on" if kind == "skill" else "Add " + name)]
+        if kind == "plugin":  # A package for a desktop app (Blender): the app is open when it is used.
+            steps += _local_app_step(apps.catalog()[0].get((row["app"] or {}).get("id", "")))
         consent["downloads"] = [row["source_url"] or name]
         if reference.get("kind") not in {"skill", "plugin"}:
             steps[1].update(state="unsupported", message="Add this one from its marketplace page for now.")
@@ -281,7 +312,8 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
     if available and listed and all(s["state"] != "unsupported" for s in steps):
         steps[-1].update(state="unsupported", message=listed[:512] or "Row-Bot can't add this one yet.")
     unsupported = next((s for s in steps if s["state"] == "unsupported"), None)
-    plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "installed_id": "", "kind": kind, "name": name, "intent": intent,
+    plan = {"schema_version": 1, "plan_id": None, "item_id": row["id"], "app_id": (row["app"] or {}).get("id", ""),
+            "installed_id": "", "kind": kind, "name": name, "intent": intent,
             "state": "ready", "pause": None, "message": "", "steps": steps, "consent": consent,
             "supported": unsupported is None, "unsupported_reason": unsupported["message"] if unsupported else ""}
     plan["digest"] = _digest({"item_id": row["id"], "intent": intent, "declaration": declaration, "consent": consent,
@@ -297,7 +329,8 @@ def next_action(plan: dict) -> dict:
     elif state == "ready":
         kind = plan["intent"] if plan["intent"] in {"connect", "add", "turn_on", *_DONE} else "continue_setup"
     elif state == "paused":
-        kind = {"inputs": "add_key", "access": "continue_setup", "digest_changed": "fix", "resume": "continue_setup"}.get(pause, "none")
+        kind = {"inputs": "add_key", "access": "continue_setup", "digest_changed": "continue_setup", "resume": "continue_setup"}.get(
+            pause, "none")
     else:
         kind = "retry" if state in {"failed", "uncertain"} else "try" if state == "completed" and plan["intent"] not in _DONE else "none"
     return {"kind": kind, "label": "Allow" if pause == "access" else facts.LABELS[kind]}
@@ -306,7 +339,7 @@ def next_action(plan: dict) -> dict:
 def view(plan: dict) -> dict:
     """The public plan; owner command records and references stay private."""
     value = {key: copy.deepcopy(item) for key, item in plan.items()
-             if not key.startswith("_") and key not in {"reference", "owner", "target", "server_id", "preset", "overrides"}}
+             if not key.startswith("_") and key not in {"reference", "owner", "target", "server_id", "preset", "overrides", "app_id"}}
     value["next_action"] = next_action(plan)
     value["consent_token"] = ""
     return value
@@ -642,9 +675,22 @@ def _observe_sign_in(ctx: Context, record: dict, step: dict) -> str:
     return ""
 
 
+PACKAGES = {"npm_package", "pypi_package", "oci_image"}
+
+
+def _package_problem(code: str) -> str:
+    """A package that can't be prepared, in plain words."""
+    return {"mcp_package_node_required": "Set up Node.js first.", "mcp_package_uv_required": "Set up uv first.",
+            "mcp_package_docker_required": "Docker Desktop isn't running on this computer. Open it, then try again.",
+            "mcp_package_integrity_changed": "The package changed since you checked it. Try again to review the new version.",
+            "mcp_package_version_required": "It doesn't name an exact version to review.",
+            "mcp_package_container_access_unsupported": "It asks Docker for access to this computer that Row-Bot doesn't grant.",
+            }.get(code.split(":", 1)[0], "The package couldn't be prepared. Try again, or check it in advanced settings.")
+
+
 def _observe_runtime(ctx: Context, record: dict, step: dict) -> str:
     stage = next((s for s in ("install", "resolve") if (step["id"] + ":" + s) in record["_commands"]), None)
-    if step["runtime"]["id"] == "npm_package" or stage is None or ctx.runtimes is None:
+    if step["runtime"]["id"] in PACKAGES or stage is None or ctx.runtimes is None:
         return _observe_commands(ctx, record, step)
     receipt = _runtime_receipt(ctx, record, step, stage)
     return "resume" if receipt["status"] in {"completed", "rejected"} or receipt.get("installation", {}).get("quiesced") else ""
@@ -888,15 +934,31 @@ def _runtime_receipt(ctx: Context, record: dict, step: dict, stage: str) -> dict
 
 
 def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
-    if step["runtime"]["id"] == "npm_package":
+    if step["runtime"]["id"] in PACKAGES:
         from row_bot.application.mcp_runtime_installation import inspect_mcp_package, prepare_mcp_package
+        from row_bot.mcp_client import packages
         if not ctx.local_owner:
             raise PlanError("owner_local_only")
+        lock = record.setdefault("_locks", {}).get(step["id"])
+        if lock is None:  # Exact versions and checksums, from the registry; nothing is installed or run.
+            try:
+                lock = packages.resolve(_saved(record["target"], record["server_id"])[1], check=ctx.validate)
+            except (ValueError, OSError, TimeoutError) as error:
+                raise PlanError("package_unresolved", _package_problem(str(error))) from None
+            record["_locks"][step["id"]] = lock
+        step["review"] = packages.review(lock)
+        if ctx.review_digest != lock["digest"] and step["id"] + ":package" not in record["_commands"]:
+            step["message"] = "Check what will be installed, then continue."
+            return "digest_changed"  # The person sees exactly what will be installed before it is.
+        step["message"] = ""
 
         def build():
             revision = _revision(ctx, record)
-            inspected = inspect_mcp_package(owner_id=ctx.owner_id, server_id=record["server_id"], configuration_revision=revision,
-                                            target=record["target"], validate=ctx.validate)
+            try:
+                inspected = inspect_mcp_package(owner_id=ctx.owner_id, server_id=record["server_id"], configuration_revision=revision,
+                                                target=record["target"], validate=ctx.validate, lock=lock)
+            except ValueError as error:
+                raise PlanError("package_unavailable", _package_problem(str(error))) from None
             return {"command_id": str(uuid4()), "revision": revision, "preview_id": inspected["preview_id"],
                     "digest": inspected["digest"], "action_digest": inspected["action_digest"]}, inspected
         saved, review = _once(record, step["id"] + ":package", build)
@@ -1335,6 +1397,7 @@ def _enable(ctx: Context, record: dict, step: dict) -> str:
 _HANDLERS: dict[tuple[str, str], Callable[[Context, dict, dict], str]] = {
     ("mcp", "consent"): _mcp_consent, ("mcp", "inputs"): _mcp_inputs, ("mcp", "runtime"): _mcp_runtime,
     ("mcp", "sign_in"): _mcp_sign_in, ("mcp", "test"): _mcp_test, ("mcp", "access"): _mcp_access, ("mcp", "enable"): _mcp_enable,
+    ("mcp", "local_app_check"): _local_app, ("plugin", "local_app_check"): _local_app,
     ("skill", "consent"): _done, ("skill", "test"): _skill_test, ("skill", "enable"): _enable,
     ("plugin", "consent"): _done, ("plugin", "test"): _package_test, ("plugin", "enable"): _enable,
 }

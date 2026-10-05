@@ -18,7 +18,8 @@ from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after p
 MODELS = {name: getattr(schemas, name) for name in (
     "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
     "AppRef", "AppView", "AppList", "IconBatchRequest", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
-    "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanLocalApp",
+    "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
+    "PlanReview", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
     "PlanStartRequest", "PlanContinueRequest", "IntegrationAbout", "IntegrationFile", "IntegrationRequirement", "IntegrationWay",
     "IntegrationResolveRequest", "IntegrationSettleRequest",

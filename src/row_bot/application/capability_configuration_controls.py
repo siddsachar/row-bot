@@ -231,6 +231,9 @@ def read_mcp_configuration(
     )
 
 
+_KNOWN_RUNTIMES = {"node", "uv", "playwright-chrome", "docker"}
+
+
 def requirement_summaries(server: dict) -> tuple[dict[str, Any], ...]:
     """Public runtime requirement checks for one saved server (no private launch fields)."""
     from row_bot.mcp_client.requirements import check_server_requirements
@@ -238,8 +241,8 @@ def requirement_summaries(server: dict) -> tuple[dict[str, Any], ...]:
     try:
         return tuple(
             {
-                "id": check.requirement.id if check.requirement.id in {"node", "uv", "playwright-chrome"} else "other",
-                "label": check.requirement.label[:96] if check.requirement.id in {"node", "uv", "playwright-chrome"} else "Other runtime",
+                "id": check.requirement.id if check.requirement.id in _KNOWN_RUNTIMES else "other",
+                "label": check.requirement.label[:96] if check.requirement.id in _KNOWN_RUNTIMES else "Other runtime",
                 "available": check.available,
                 "managed": check.requirement.managed,
                 "installable": check.installable and check.requirement.id in {"node", "uv"},

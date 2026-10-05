@@ -6,6 +6,8 @@
         "node",
         "uv",
         "npm_package",
+        "pypi_package",
+        "oci_image",
         "mcpb",
         "docker",
         "playwright-chrome",

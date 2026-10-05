@@ -66,7 +66,7 @@ def test_missing_runtime_is_emitted_from_live_requirements(isolated, monkeypatch
     assert row["blockers"][0]["code"] == "missing_runtime" and row["readiness"] == "needs_runtime"
     assert row["next_action"]["kind"] == "install_runtime"
     monkeypatch.setattr(facts, "_requirements", lambda cfg: [])
-    assert _work()["blockers"][0]["code"] == "not_connected"
+    assert _work()["blockers"][0]["code"] == "package_preparation"  # Its Python package is prepared before it runs.
 
 
 def test_reads_reuse_the_index_until_an_owner_publishes(isolated, monkeypatch):

@@ -50,6 +50,7 @@ class App:
     featured_rank: int | None = None
     placeholder: bool = False
     local_app: str = ""
+    local_check: tuple = ()  # (("port", 9876),) or (("process", "blender"),): how to tell the app is open.
     checked: str = ""
     sources: tuple[str, ...] = ()
 
@@ -67,6 +68,15 @@ class App:
                 "icon_license": license_of(self.icon)}
 
 
+def _local_check(check: dict) -> bool:
+    """A check that only ever looks at this computer: a loopback port above 1023, or an exact process name."""
+    if not check:
+        return True
+    if set(check) == {"port"}:
+        return type(check["port"]) is int and 1024 <= check["port"] <= 65535
+    return set(check) == {"process"} and bool(re.fullmatch(r"[a-z0-9._-]{1,64}", str(check["process"])))
+
+
 def letter(name: str) -> str:
     """A letter-avatar icon id for anything without a mark."""
     found = re.search(r"[A-Za-z0-9]", name or "")
@@ -77,7 +87,8 @@ def _app(row: dict) -> App:
     vendor, facts = row.pop("vendor", {}) or {}, row.pop("facts", {}) or {}
     tuples = {key: tuple(row.get(key, ())) for key in ("refs", "variants", "synonyms", "jobs", "example_prompts")}
     return App(**{**row, **tuples, "domains": tuple(vendor.get("domains", ())), "github_orgs": tuple(vendor.get("github_orgs", ())),
-                  "checked": facts.get("checked", ""), "sources": tuple(facts.get("sources", ()))})
+                  "checked": facts.get("checked", ""), "sources": tuple(facts.get("sources", ())),
+                  "local_check": tuple(sorted((row.get("local_check") or {}).items()))})
 
 
 @cache
@@ -97,7 +108,8 @@ def catalog() -> tuple[dict[str, App], dict[str, str]]:
                 or not all(re.fullmatch(r"[A-Za-z0-9-]{1,39}", org) for org in app.github_orgs)
                 or not all(link.startswith("https://") and len(link) <= 512 for link in links)
                 or (app.icon and not re.fullmatch(r"si:[a-z0-9]{1,64}", app.icon))
-                or (app.featured_rank is not None and (app.featured_rank < 1 or app.featured_rank in ranks))):
+                or (app.featured_rank is not None and (app.featured_rank < 1 or app.featured_rank in ranks))
+                or not _local_check(dict(app.local_check))):
             raise ValueError("invalid_app_catalog: " + app.id)
         ranks.add(app.featured_rank)
         apps[app.id] = app

@@ -4590,7 +4590,8 @@ def create_router(
         current = await session(request, lane="mutation")
         body = await _body(request, dto.PlanContinueRequest, 131072)
         from row_bot.integrations.plans import resume
-        context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest)
+        context = await plan_context(request, current, inputs=dict(body.inputs), tools_digest=body.tools_digest,
+                                     review_digest=body.review_digest)
         result = await call(resume, context, str(plan_id), preset=body.preset,
             overrides=None if body.overrides is None else dict(body.overrides), background=True)
         return await respond(request, dto.InstallPlan, result)

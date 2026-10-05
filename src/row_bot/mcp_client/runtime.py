@@ -609,14 +609,17 @@ class McpServerRuntime:
                     if str(data) != self.cfg["plugin_data"]:
                         raise RuntimeError("plugin_data_owner_changed")
                     data.mkdir(parents=True, exist_ok=True)
-            command = _resolve_stdio_command(command, env)
             args = [str(arg) for arg in launch_cfg.get("args") or []]
+            package_launch = None
             if self.cfg.get("environment_mode") == "minimal" or self.cfg.get("managed_launch"):
-                from row_bot.mcp_client.packages import requirement, resolve_launch
-                filled = requirement(launch_cfg)
-                package_launch = resolve_launch(self.cfg, args=filled[2] if filled else None)
-                if package_launch:
-                    command, args = package_launch
+                # A locked package runs from its reviewed private folder; it is never fetched now.
+                from row_bot.mcp_client import packages
+                if packages.kind(self.cfg):
+                    package_launch = packages.resolve_launch(self.cfg, args=packages.arguments(launch_cfg))
+            if package_launch:
+                command, args = package_launch
+            else:
+                command = _resolve_stdio_command(command, env)
             if launch is not None:
                 # Prepared workers retain their isolated HOME and runtime paths.
                 # Only explicitly reviewed credential bindings augment that environment.

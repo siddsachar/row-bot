@@ -313,6 +313,56 @@ function InputsForm({
   );
 }
 
+/** What a step found that nobody could know earlier (exact packages and checksums), before it acts. */
+function ReviewPanel({
+  review,
+  busy,
+  onContinue,
+}: {
+  review: NonNullable<PlanStep['review']>;
+  busy: boolean;
+  onContinue: (digest: string) => void;
+}) {
+  return (
+    <div className="plan-wait stack plan-review">
+      <p>
+        <strong>{review.summary}</strong>
+      </p>
+      <ul className="app-facts">
+        {review.lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {review.items.length > 0 && (
+        <Disclosure
+          summary="Exactly what will be installed"
+          meta={String(review.items.length)}
+        >
+          <ul className="plan-review-items">
+            {review.items.map((item) => (
+              <li key={`${item.name}@${item.version}`}>
+                <span>
+                  {item.name} {item.version}
+                </span>
+                <code>{item.integrity}</code>
+              </li>
+            ))}
+          </ul>
+        </Disclosure>
+      )}
+      <div className="app-dialog-actions">
+        <Button
+          variant="primary"
+          disabled={busy}
+          onClick={() => onContinue(review.digest)}
+        >
+          Install
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** The plan's progress and the one thing it is waiting for, if anything. */
 export function PlanProgress({
   control,
@@ -378,7 +428,22 @@ export function PlanProgress({
           )}
         </div>
       )}
-      {plan.pause === 'resume' && (
+      {plan.pause === 'resume' && step?.local_app ? (
+        <div className="plan-wait button-row">
+          {step.local_app.help_url && (
+            <a href={step.local_app.help_url} target="_blank" rel="noreferrer">
+              How to set up {step.local_app.label}
+            </a>
+          )}
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void control.resume()}
+          >
+            Check again
+          </Button>
+        </div>
+      ) : plan.pause === 'resume' ? (
         <Button
           variant="primary"
           disabled={busy}
@@ -386,8 +451,16 @@ export function PlanProgress({
         >
           Continue
         </Button>
-      )}
-      {plan.pause === 'digest_changed' && (
+      ) : null}
+      {plan.pause === 'digest_changed' && step?.review ? (
+        <ReviewPanel
+          review={step.review}
+          busy={busy}
+          onContinue={(digest) =>
+            void control.resume({ review_digest: digest })
+          }
+        />
+      ) : plan.pause === 'digest_changed' ? (
         <Button
           variant="primary"
           disabled={busy}
@@ -395,7 +468,7 @@ export function PlanProgress({
         >
           Review again
         </Button>
-      )}
+      ) : null}
       <div className="app-dialog-actions">
         {!done && plan.state !== 'running' && (
           <Button disabled={busy} onClick={() => void control.cancel()}>

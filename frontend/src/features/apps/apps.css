@@ -388,3 +388,19 @@ a.app-way:hover {
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }
+.plan-review-items {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-review-items li {
+  display: grid;
+  min-width: 0;
+}
+.plan-review-items code {
+  color: var(--text-muted);
+  font-size: 0.8em;
+  overflow-wrap: anywhere;
+}
