@@ -3,6 +3,7 @@ import { Blob as NodeBlob } from 'node:buffer';
 import { webcrypto } from 'node:crypto';
 import { downloadArtifactExport } from '../../../contracts/client-platform/v1/typescript/client';
 import type { ArtifactExport } from './types';
+import { sha256Hex } from '../platform/crypto';
 
 const proof = {
   client_session_id: '00000000-0000-4000-8000-000000000001',
@@ -53,6 +54,7 @@ it.each([null, 'identity', 'gzip', 'br', 'deflate'])(
       'chat',
       'binding',
       descriptor,
+      sha256Hex,
     );
     expect(await result.text()).toBe('<html>saved design</html>');
     expect(result.type).toBe('text/html');
@@ -91,10 +93,17 @@ it.each(['overflow', 'truncated', 'digest', 'encoding', 'length'])(
       ),
     );
     await expect(
-      downloadArtifactExport('', proof, 'chat', 'binding', {
-        ...descriptor,
-        ...(reason === 'digest' ? { sha256: '0'.repeat(64) } : {}),
-      }),
+      downloadArtifactExport(
+        '',
+        proof,
+        'chat',
+        'binding',
+        {
+          ...descriptor,
+          ...(reason === 'digest' ? { sha256: '0'.repeat(64) } : {}),
+        },
+        sha256Hex,
+      ),
     ).rejects.toThrow('protocol_incompatible');
     expect(body.locked).toBe(false);
     if (['overflow', 'encoding', 'length'].includes(reason))

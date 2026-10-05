@@ -2202,6 +2202,35 @@ describe('event order, atomic reset and commands', () => {
     }
     expect(transport.counters.commands).toBe(260);
   });
+  it('sends a command from a plain-HTTP network page without secure-only crypto', async () => {
+    // A computer opening Row-Bot at http://<network address> has
+    // getRandomValues but neither crypto.randomUUID nor crypto.subtle.
+    vi.stubGlobal('crypto', {
+      getRandomValues: (array: Uint8Array<ArrayBuffer>) =>
+        webcrypto.getRandomValues(array),
+    });
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    const command: Command = {
+      command_id: '00000000-0000-4000-8000-000000000015',
+      client_session_id: value.getSnapshot().handshake!.client_session_id,
+      type: 'conversation.rename',
+      expected_revision: '1',
+      payload: { title: 'Synthetic rename' },
+    };
+    await expect(
+      value.command('conversation-a', command, 'plain-http-page'),
+    ).resolves.toMatchObject({ status: 'completed' });
+    expect(transport.counters.commands).toBe(1);
+    await expect(
+      value.retryCommand(
+        'conversation-a',
+        { ...command, payload: { title: 'Different rename' } },
+        'plain-http-page',
+      ),
+    ).rejects.toMatchObject({ code: 'idempotency_mismatch' });
+  });
   it.each(['dispose', 'reconnect'] as const)(
     'does not dispatch delayed command verification across %s',
     async (transition) => {

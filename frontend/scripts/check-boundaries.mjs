@@ -47,7 +47,7 @@ export function violations(path, source) {
       ? node.text
       : ts.isElementAccessExpression(node) &&
           ts.isStringLiteral(node.argumentExpression) &&
-          /^(?:window|globalThis|navigator)$/.test(
+          /^(?:window|globalThis|navigator|crypto)$/.test(
             node.expression.getText(file),
           )
         ? node.argumentExpression.text
@@ -61,6 +61,10 @@ export function violations(path, source) {
       )
     )
       result.push('native/browser capability outside platform');
+    // Browsers give crypto.subtle only to secure pages; a plain-HTTP network
+    // page hashes through platform/crypto's sha256Hex instead.
+    if (!platform && name === 'subtle')
+      result.push('secure-page crypto outside platform');
     ts.forEachChild(node, visit);
   }
   visit(file);
@@ -90,6 +94,8 @@ const forbidden = [
   ],
   ['src/ui/fixture.ts', 'import { x } from "@/api"'],
   ['src/features/fixture.ts', 'const board = navigator["clipboard"]'],
+  ['src/api/fixture.ts', 'crypto["subtle"].digest("SHA-256", data)'],
+  ['src/api/fixture.ts', 'const { subtle } = globalThis.crypto'],
 ];
 for (const [path, source] of forbidden) {
   if (!violations(path, source).length)
@@ -100,6 +106,7 @@ for (const [path, source] of [
   ['src/ui/x.ts', 'import { Button } from "./primitives"'],
   ['src/api/x.ts', 'const request = fetch; request("/api/v1")'],
   ['src/platform/x.ts', 'navigator.clipboard.readText()'],
+  ['src/platform/x.ts', 'crypto.subtle.digest("SHA-256", data)'],
 ]) {
   if (violations(path, source).length)
     throw new Error(`Allowed boundary self-test failed: ${path}`);
@@ -113,7 +120,7 @@ for await (const path of files('src')) {
     errors.push(`${name}: ${message}`);
 }
 console.log(
-  `TypeScript import/network boundary: ${count} source files, ${errors.length} violations; ${forbidden.length} negative and 4 allowed fixtures passed`,
+  `TypeScript import/network boundary: ${count} source files, ${errors.length} violations; ${forbidden.length} negative and 5 allowed fixtures passed`,
 );
 if (errors.length) {
   console.error(errors.join('\n'));
