@@ -1,4 +1,10 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Button } from '../ui/primitives';
 import { appPwaClient, PwaClient } from './client';
 
@@ -19,9 +25,33 @@ export default function PwaStatus({ client }: { client?: PwaClient }) {
     state.updateAvailable ||
     state.installAvailable ||
     Boolean(actionError);
+  // The composer keeps clear of it (styles.css), so it needs the height,
+  // which grows when the text wraps on a narrow screen.
+  const status = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = status.current;
+    if (!visible || !element) return;
+    const root = document.documentElement;
+    const publish = () =>
+      root.style.setProperty(
+        '--pwa-status-height',
+        `${element.offsetHeight}px`,
+      );
+    publish();
+    const observer =
+      typeof ResizeObserver === 'function'
+        ? new ResizeObserver(publish)
+        : undefined;
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty('--pwa-status-height');
+    };
+  }, [visible]);
   return (
     <aside
       className="pwa-status"
+      ref={status}
       aria-label="App install and connection status"
       hidden={!visible}
       data-testid="pwa-status"
