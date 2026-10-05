@@ -27,12 +27,14 @@ import copy
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from typing import Any
 from uuid import uuid4
 
 from row_bot.integrations import apps, facts, presets, safe, sources
+from row_bot.integrations.safe import public_url as public_link
 
 logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()  # Guards the sets below; held only briefly.
@@ -126,13 +128,19 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
         steps.append(_step("local_app_check", "unsupported", "Open " + local_app.name,
                            "Checking for " + local_app.local_app + " arrives in a later update.",
                            local_app={"label": local_app.local_app, "help_url": local_app.docs_url}))
+    method = "oauth_client" if (cfg.get("source") or {}).get("oauth_client") == "required" else "oauth_dcr"
     if setup["auth_mode"] == "oauth":
         steps.append(_step("sign_in", "done" if signed_in else "pending", "Sign in to " + name,
-                           sign_in={"method": "oauth_dcr", "authorization_url": None}))
-    elif setup["auth_mode"] == "unsupported" or (hosted and setup["auth_mode"] == "unknown" and not signed_in
-                                                  and (cfg.get("source") or {}).get("requires_auth")):
-        steps.append(_step("sign_in", "unsupported", "Sign in to " + name, "Signing in to this app arrives in a later update.",
-                           sign_in={"method": "oauth_dcr", "authorization_url": None}))
+                           sign_in={"method": method, "authorization_url": None}))
+    elif setup["auth_mode"] == "unsupported":
+        steps.append(_step("sign_in", "unsupported", "Sign in to " + name, "Row-Bot can't sign in to this app yet.",
+                           sign_in={"method": method, "authorization_url": None}))
+    elif hosted and setup["auth_mode"] == "unknown" and not signed_in:
+        # Whether it asks for a sign-in is found out when its connection is first checked.
+        asks = bool((cfg.get("source") or {}).get("requires_auth"))
+        steps.append(_step("sign_in", "pending" if asks else "skipped", "Sign in to " + name,
+                           "" if asks else f"Only if {name} asks you to sign in.",
+                           sign_in={"method": method, "authorization_url": None}))
     installed = row["lifecycle"] != "available"
     accepted = setup["catalog_accepted"] and not codes & {"tools_changed", "tools_not_accepted"}
     retest = bool(codes & {"connection_failed", "expired", "tools_changed", "tools_not_accepted", "sign_in_required", "key_required"})
@@ -535,16 +543,17 @@ def _run(ctx: Context, record: dict) -> dict:
         record.update(state="running", pause=None, message="")
         if record.get("_recipe") and _recipe(record) != record["_recipe"]:
             raise PlanError("plan_changed")
-        for step in record["steps"]:
-            if step["state"] in {"done", "skipped"}:
-                continue
+        # The first step still to do, each time: a step may switch an earlier one on (a sign-in found at test).
+        while (step := next((s for s in record["steps"] if s["state"] not in {"done", "skipped"}), None)) is not None:
             record["current_step"] = step["id"]
             step["state"] = "running"
             _save(record)
             with safe.checked(ctx.validate):  # Stopping or signing out ends a download the step started.
                 outcome = _HANDLERS[(record["kind"], step["type"])](ctx, record, step)
-            if outcome == "done":
-                step["state"] = "done"
+            if outcome in {"done", "skipped"}:
+                step["state"] = outcome
+                continue
+            if outcome == "again":
                 continue
             if outcome != "running":
                 step["state"] = "waiting"
@@ -807,6 +816,9 @@ def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
         return "done" if seen == "resume" else "sign_in"
     if not ctx.redirect_uri:
         raise PlanError("mcp_auth_callback_unavailable", "Signing in needs Row-Bot open on this computer.")
+    client = _sign_in_client(ctx, record, step)
+    if client is False:
+        return "inputs"
     revision = _revision(ctx, record)
     review = review_auth(server_id=record["server_id"], configuration_revision=revision, action="start", mode="oauth",
                          label=record["name"], validate=ctx.validate, target=record["target"])
@@ -814,9 +826,59 @@ def _mcp_sign_in(ctx: Context, record: dict, step: dict) -> str:
     _save(record)
     result = execute_auth(owner_id=ctx.owner_id, command_id=record["_auth"], server_id=record["server_id"],
         configuration_revision=revision, action="start", mode="oauth", label=record["name"], redirect_uri=ctx.redirect_uri,
-        validate=ctx.validate, validate_review=_bound(review), target=record["target"])
+        client=client, validate=ctx.validate, validate_review=_bound(review), target=record["target"])
     step["sign_in"]["authorization_url"] = result.get("authorization_url")
     return "sign_in"
+
+
+def _sign_in_client(ctx: Context, record: dict, step: dict) -> dict | None | bool:
+    """How Row-Bot signs in: with the person's own OAuth app when the app needs one (or the person gave
+    one before); otherwise with Row-Bot's published client metadata (CIMD) or a client registered for this
+    connection (DCR), whichever the server's sign-in service supports. ``False``: the person's own app is
+    needed, so the step waits for its client ID and secret, which go only to the keychain."""
+    from urllib.parse import urlsplit
+    from row_bot.mcp_client import auth
+    cfg = _saved(record["target"], record["server_id"])[1]
+    source = cfg.get("source") or {}
+    ref = (cfg.get("auth") or {}).get("credential_ref")
+    if ref:
+        try:
+            saved = auth.read_credentials(ref)
+            if saved.get("client_source") == "own" and saved.get("client"):
+                step["sign_in"]["method"] = "oauth_client"
+                return saved["client"]  # Signing in again keeps the person's own app.
+        except auth.McpAuthError:
+            pass
+    found = record.get("_signs_in")
+    if found is None and source.get("oauth_client") != "required":
+        try:
+            found = record["_signs_in"] = auth.discover_sign_in(_address(cfg))
+        except auth.McpAuthError:
+            found = {"required": True}  # Unreachable now; the SDK's own discovery reports it when signing in.
+    loopback = urlsplit(ctx.redirect_uri).hostname in {"127.0.0.1", "localhost", "::1"}
+    own = source.get("oauth_client") == "required" or bool(found and found.get("metadata") is not None and not found.get("dcr")
+                                                           and not (found.get("cimd") and loopback))
+    if not own:
+        step["sign_in"]["method"] = "oauth_cimd" if found and found.get("cimd") and loopback else "oauth_dcr"
+        return None
+    step["sign_in"]["method"] = "oauth_client"
+    callback = "http://127.0.0.1" + auth.CALLBACK_PATH if loopback else ctx.redirect_uri
+    step["inputs"] = [
+        {"key": "client_id", "label": "Client ID", "secret": False, "required": True, "target": "header", "name": "client_id",
+         "template": "", "default": "", "choices": [], "format": "string",
+         "help_url": public_link(source.get("oauth_client_url")) or getattr(apps.match(facts._mcp_refs(cfg)), "docs_url", ""),
+         "description": f"From an OAuth app you create for Row-Bot. Use {callback} as its callback URL."[:512]},
+        {"key": "client_secret", "label": "Client secret", "secret": True, "required": False, "target": "header",
+         "name": "client_secret", "template": "", "default": "", "choices": [], "format": "string", "help_url": "",
+         "description": "Kept only in your system keychain."}]
+    client_id, secret = str(ctx.inputs.get("client_id") or "").strip(), str(ctx.inputs.get("client_secret") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._~:/+=-]{1,256}", client_id) or len(secret) > 512 or any(c in secret for c in "\r\n\0"):
+        step["message"] = f"{record['name']} needs your own OAuth app to sign in. Add its client ID to continue."
+        return False
+    step["message"] = ""
+    return {"client_id": client_id, **({"client_secret": secret} if secret else {}), "redirect_uris": [ctx.redirect_uri],
+            "token_endpoint_auth_method": "client_secret_post" if secret else "none",
+            "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]}
 
 
 def _runtime_receipt(ctx: Context, record: dict, step: dict, stage: str) -> dict:
@@ -872,7 +934,25 @@ def _mcp_runtime(ctx: Context, record: dict, step: dict) -> str:
     return "running"
 
 
+def _address(cfg: dict) -> str:
+    """The connection's address with the person's own values (a tenant) filled in."""
+    from row_bot.integrations import inputs
+    return inputs.resolve(cfg, {}, partial=True)["url"] if cfg.get("inputs") else cfg.get("url", "")
+
+
 def _mcp_test(ctx: Context, record: dict, step: dict) -> str:
+    sign_in = next((s for s in record["steps"] if s["type"] == "sign_in"), None)
+    if sign_in is not None and sign_in["state"] == "skipped" and "_signs_in" not in record:
+        # One unauthenticated request shows whether the app asks for a sign-in; if it does, sign in first.
+        from row_bot.mcp_client.auth import McpAuthError, discover_sign_in
+        try:
+            record["_signs_in"] = discover_sign_in(_address(_saved(record["target"], record["server_id"])[1]))
+        except McpAuthError:
+            record["_signs_in"] = {"required": False}  # Unreachable: the connection check says why.
+        if record["_signs_in"]["required"]:
+            sign_in.update(state="pending", message="")
+            step["state"] = "pending"
+            return "again"
     outcome = _connection(ctx, record, "test:probe", "test")
     if outcome.get("state") == "tested":
         record["_test"] = outcome["command_id"]

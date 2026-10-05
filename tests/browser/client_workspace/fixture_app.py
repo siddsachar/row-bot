@@ -2194,6 +2194,8 @@ def p5_apps(x_fixture_token: str = Header(default=""), x_fixture_origin: str = H
         server.session = SimpleNamespace(list_tools=list_tools)
     runtime.sdk_available = lambda: True
     runtime.McpServerRuntime._connect = connect
+    # Synthetic hosted apps never ask for a sign-in they don't declare; declared ones register a client.
+    auth.discover_sign_in = lambda url: {"required": False, "metadata": True, "dcr": True}
 
     async def run_oauth(flow, label, client):
         state = secrets.token_urlsafe(24)

@@ -135,9 +135,10 @@ def _fill(text: str, found: dict, *, url_part: str = "") -> str:
     return _PLACEHOLDER.sub(value, text)
 
 
-def resolve(cfg: dict, secrets: dict) -> dict:
+def resolve(cfg: dict, secrets: dict, *, partial: bool = False) -> dict:
     """A copy of a saved connection with every declared input filled in, for one connection only.
-    Optional inputs left empty drop their header, variable or argument; a required one refuses."""
+    Optional inputs left empty drop their header, variable or argument; a required one refuses
+    (``partial``: for the address alone, before any key is saved)."""
     declared = check(cfg.get("inputs"))
     if not declared:
         return cfg
@@ -145,7 +146,7 @@ def resolve(cfg: dict, secrets: dict) -> dict:
     found.update({key: str(value) for key, value in (cfg.get("input_values") or {}).items() if type(value) is str})
     found.update({key: value for key, value in secrets.items() if key in found})
     for item in declared:
-        if item["required"] and not found.get(item["key"]):
+        if item["required"] and not found.get(item["key"]) and not (partial and item["secret"]):
             raise InputError("mcp_inputs_required")
     resolved = dict(cfg)
     used = {item["key"] for item in declared}

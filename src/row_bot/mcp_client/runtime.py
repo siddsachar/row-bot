@@ -90,6 +90,16 @@ _catalog: dict[str, dict[str, McpToolInfo]] = {}
 _statuses: dict[str, McpServerStatus] = {}
 
 
+def _failure(exc: BaseException) -> str:
+    """An error's text, including what failed inside a task group (a refused sign-in often does)."""
+    parts, pending = [], [exc]
+    while pending and len(parts) < 8:
+        current = pending.pop(0)
+        parts.append(str(current) if current is exc else type(current).__name__ + ": " + str(current))
+        pending += list(getattr(current, "exceptions", ()))
+    return " | ".join(parts)[:2000]
+
+
 def _get_effective_config() -> dict[str, Any]:
     cfg = mcp_config.get_config()
     try:
@@ -554,7 +564,7 @@ class McpServerRuntime:
             self._status(status="dependency_missing", last_error=str(exc))
             log_event("mcp.server.dependency_missing", level=logging.WARNING, server=self.name, error=str(exc))
         except Exception as exc:
-            self._status(status="failed", last_error=str(exc))
+            self._status(status="failed", last_error=_failure(exc))
             log_event("mcp.server.failed", level=logging.WARNING, server=self.name, error=str(exc), traceback=traceback.format_exc())
         finally:
             await self.close()
@@ -1478,8 +1488,10 @@ def get_passive_tool_records() -> list[dict[str, Any]]:
     return records
 
 
+# A refresh that failed (or a token that stopped working) leaves the SDK wanting a browser it doesn't have.
 _SIGN_IN_FAILURES = ("mcp_sign_in_required", "mcp_credentials_unavailable", "mcp_credentials_endpoint_changed",
-                     "401 Unauthorized", "invalid_grant")
+                     "401 Unauthorized", "invalid_grant", "No redirect handler", "Token exchange failed", "OAuthFlowError",
+                     "OAuthTokenError")
 
 
 def get_passive_server_statuses(names: tuple[str, ...]) -> dict[str, dict[str, Any]]:

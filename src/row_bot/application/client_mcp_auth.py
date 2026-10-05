@@ -141,10 +141,19 @@ def _publish(flow: Flow, metadata: dict) -> None:
 
 
 async def _run_oauth(flow: Flow, label: str, client: dict | None):
+    """Sign in with the person's own client when they gave one; otherwise the server's authorization
+    service picks Row-Bot's published client metadata (CIMD) when it supports it, else registers
+    a client for this connection (DCR). The client and its secret stay in this connection's keychain entry."""
     storage = auth.TokenStorage(flow.ref, auth.binding(flow.name, flow.cfg), validate=flow.authority, staged=True)
     if client:
         from mcp.shared.auth import OAuthClientInformationFull
         storage.data["client"] = OAuthClientInformationFull.model_validate(client).model_dump(mode="json")
+        storage.data["client_source"] = "own"
+    url = flow.cfg["url"]
+    if flow.cfg.get("inputs"):  # An address with the person's own values (a tenant) filled in.
+        from row_bot.integrations import inputs
+        url = inputs.resolve(flow.cfg, {}, partial=True)["url"]
+    loopback = urlsplit(flow.callback_uri).hostname in {"127.0.0.1", "localhost", "::1"}
     async def redirect(url: str) -> None:
         flow.authority()
         auth.public_endpoint(url)
@@ -160,12 +169,13 @@ async def _run_oauth(flow: Flow, label: str, client: dict | None):
         if not flow.code:
             raise auth.McpAuthError("mcp_auth_denied")
         return flow.code, flow.oauth_state
-    provider = auth.oauth_provider(flow.cfg["url"], flow.callback_uri, storage, redirect=redirect, callback=callback)
+    provider = auth.oauth_provider(url, flow.callback_uri, storage, redirect=redirect, callback=callback,
+                                   client_metadata_url=None if client or not loopback else auth.CLIENT_METADATA_URL)
     import httpx
     async with httpx.AsyncClient(auth=provider, timeout=30, follow_redirects=False, trust_env=False, transport=auth.PublicTransport()) as client_http:
         # This explicit unauthenticated request drives only authorization. Tool
         # discovery is a separate reviewed runtime command after sign-in.
-        await client_http.post(flow.cfg["url"], headers={"MCP-Protocol-Version": "2025-11-25", "Accept": "application/json, text/event-stream"},
+        await client_http.post(url, headers={"MCP-Protocol-Version": "2025-11-25", "Accept": "application/json, text/event-stream"},
             json={"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "Row-Bot", "version": "1"}}})
     flow.authority()
     if not storage.data.get("tokens"):

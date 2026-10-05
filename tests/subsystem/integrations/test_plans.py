@@ -166,6 +166,8 @@ def test_key_input_pauses_and_the_secret_stays_in_the_keychain(item, owner):
 
 
 def test_browser_sign_in_pauses_and_resumes_after_the_callback(item, owner, monkeypatch):
+    from row_bot.mcp_client import auth as auth_module
+    monkeypatch.setattr(auth_module, "discover_sign_in", lambda url: {"required": False, "metadata": True, "dcr": True})
     from row_bot.application import client_mcp_auth
     document = json.loads(config.CONFIG_PATH.read_text())
     document["servers"]["Synthetic"] = {"transport": "streamable_http", "url": "https://example.test/mcp", "enabled": False,
@@ -410,6 +412,8 @@ def test_adding_a_skill_checks_it_then_adds_it_turned_on(tmp_path, monkeypatch, 
 
 
 def test_a_sign_in_that_never_started_fails_cleanly_and_frees_the_item(item, owner, monkeypatch):
+    from row_bot.mcp_client import auth as auth_module
+    monkeypatch.setattr(auth_module, "discover_sign_in", lambda url: {"required": False, "metadata": True, "dcr": True})
     from row_bot.application import client_mcp_auth
     from row_bot.mcp_client.auth import McpAuthError
     document = json.loads(config.CONFIG_PATH.read_text())

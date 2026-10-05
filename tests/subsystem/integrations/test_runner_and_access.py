@@ -395,7 +395,9 @@ def test_a_skill_or_package_link_keeps_only_its_address(owner):
     assert detail["about"]["source_url"] == "https://github.com/example/tools"
 
 
-def test_connecting_a_catalog_entry_saves_it_at_consent_and_reports_the_installed_item(owner):
+def test_connecting_a_catalog_entry_saves_it_at_consent_and_reports_the_installed_item(owner, monkeypatch):
+    from row_bot.mcp_client import auth as auth_module
+    monkeypatch.setattr(auth_module, "discover_sign_in", lambda url: {"required": False, "metadata": True, "dcr": True})
     page = api.resolve_reference(owner_id="owner", reference="https://mcp.example.com/mcp")
     item_id = page["items"][0]["id"]
     _, plan = api.read_item(owner_id="owner", item_id=item_id, revision=page["revision"])

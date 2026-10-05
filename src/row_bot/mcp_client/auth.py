@@ -24,6 +24,10 @@ import httpx
 from row_bot import secret_store
 
 _NAMESPACE = "mcp_connections"
+# Row-Bot's OAuth client identity for servers that accept Client ID Metadata Documents: a static file
+# published with the docs site (docs-site/static/oauth/client-metadata.json). It holds no secret.
+CLIENT_METADATA_URL = "https://row-bot.ai/oauth/client-metadata.json"
+CALLBACK_PATH = "/api/v1/settings/mcp/auth/callback"
 _REF = re.compile(r"[a-f0-9]{32}")
 _LIMIT = 64 * 1024
 _STORE_LOCK = threading.RLock()
@@ -278,7 +282,8 @@ class _SafeSdkLog(logging.Filter):
         return True
 
 
-def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redirect=None, callback=None):
+def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redirect=None, callback=None,
+                   client_metadata_url: str | None = None):
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata
     public_endpoint(url)
@@ -306,6 +311,8 @@ def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redire
                         storage.data["metadata"] = metadata.model_dump(mode="json")
                     if outgoing.headers.get("authorization", "").startswith("Bearer ") and origin(str(outgoing.url)) != origin(url):
                         raise McpAuthError("mcp_auth_origin_mismatch")
+                    if "accept" not in outgoing.headers:  # Some token endpoints (GitHub's) answer JSON only when asked.
+                        outgoing.headers["Accept"] = "application/json"
                     response = yield outgoing
                     if 300 <= response.status_code < 400:
                         raise McpAuthError("mcp_auth_redirect_refused")
@@ -318,13 +325,63 @@ def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redire
 
     provider = BoundOAuth(url, OAuthClientMetadata(client_name="Row-Bot", redirect_uris=[callback_uri],
         grant_types=["authorization_code", "refresh_token"], response_types=["code"], token_endpoint_auth_method="none"),
-        storage, redirect_handler=redirect, callback_handler=callback, timeout=300)
+        storage, redirect_handler=redirect, callback_handler=callback, timeout=300, client_metadata_url=client_metadata_url)
     if storage.data.get("metadata"):
         provider.context.oauth_metadata = OAuthMetadata.model_validate(storage.data["metadata"])
         provider.context.auth_server_url = storage.data["issuer"]
     # SDK 1.29 initializes saved tokens but not their expiry timestamp.
     provider.context.token_expiry_time = storage.data.get("expires_at")
     return provider
+
+
+async def _discover(url: str) -> dict:
+    from mcp.client.auth import utils
+    from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+    public_endpoint(url)
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False, transport=PublicTransport()) as client:
+        response = await client.post(url, headers={"MCP-Protocol-Version": "2025-11-25", "Accept": "application/json, text/event-stream"},
+            json={"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                  "clientInfo": {"name": "Row-Bot", "version": "1"}}})
+        if response.status_code not in {401, 403}:
+            return {"required": False}
+        resource = utils.extract_resource_metadata_from_www_auth(response)
+        found: dict = {"required": True, "issuer": "", "cimd": False, "dcr": False}
+        protected = None
+        for candidate in utils.build_protected_resource_metadata_discovery_urls(resource, url):
+            public_endpoint(candidate)
+            answer = await client.get(candidate, headers={"MCP-Protocol-Version": "2025-11-25"})
+            if answer.status_code == 200 and len(answer.content) <= 65536:
+                try:
+                    protected = ProtectedResourceMetadata.model_validate_json(answer.content)
+                    break
+                except ValueError:
+                    continue
+        if protected is None or not protected.authorization_servers:
+            return {**found, "required": response.status_code == 401}  # A key, not a sign-in, or no metadata at all.
+        server = str(protected.authorization_servers[0])
+        for candidate in utils.build_oauth_authorization_server_metadata_discovery_urls(server, url):
+            public_endpoint(candidate)
+            answer = await client.get(candidate, headers={"MCP-Protocol-Version": "2025-11-25"})
+            if answer.status_code == 200 and len(answer.content) <= 65536:
+                try:
+                    metadata = OAuthMetadata.model_validate_json(answer.content)
+                except ValueError:
+                    continue
+                return {**found, "issuer": str(metadata.issuer), "cimd": metadata.client_id_metadata_document_supported is True,
+                        "dcr": bool(metadata.registration_endpoint), "metadata": True}
+        return {**found, "issuer": server, "metadata": False}
+
+
+def discover_sign_in(url: str) -> dict:
+    """Whether a hosted server asks for a sign-in, and how a client may sign in there: one unauthenticated
+    request to the connection's own address, then its published metadata (RFC 9728, RFC 8414). Called
+    only inside a plan the person agreed to; nothing is sent but these reads."""
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:  # A plan step may already be inside an event loop.
+        try:
+            return pool.submit(asyncio.run, _discover(url)).result(timeout=60)
+        except (httpx.HTTPError, OSError, McpAuthError, concurrent.futures.TimeoutError):
+            raise McpAuthError("mcp_sign_in_discovery_failed") from None
 
 
 def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[dict, dict]:

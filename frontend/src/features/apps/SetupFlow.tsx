@@ -465,6 +465,8 @@ function facts(plan: InstallPlan, name: string) {
       lines.push(`Downloads ${consent.downloads.join(', ')}.`);
     if (types.get('sign_in') === 'pending')
       lines.push(`You sign in to ${name} in your browser.`);
+    else if (types.get('sign_in') === 'skipped')
+      lines.push(`If ${name} asks, you sign in to it in your browser.`);
     const asks = plan.steps.find((step) => step.type === 'inputs');
     if (asks?.state === 'pending')
       lines.push(
