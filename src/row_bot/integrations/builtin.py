@@ -56,11 +56,11 @@ def _tool_on(tool: str) -> bool:
     return value if isinstance(value, bool) else True
 
 
-def _accounts(chat_tools: bool = False) -> list[dict]:
+def _accounts(chat_tools: bool = False, only: str = "") -> list[dict]:
     from row_bot.application.client_account_oauth import read_account_auth
     found = []
     for account, (name, tools) in ACCOUNTS.items():
-        if chat_tools and not tools:
+        if (chat_tools and not tools) or (only and account != only):
             continue
         try:
             if account == "github":
@@ -109,10 +109,12 @@ def _channels() -> list[dict]:
     return found
 
 
-def _tools() -> list[dict]:
+def _tools(only: str = "") -> list[dict]:
     from row_bot.api_keys import key_status
     found = []
     for tool, (name, keys) in TOOLS.items():
+        if only and tool != only:
+            continue
         try:
             saved = all(key_status(key).get("configured") is True for key in keys)
         except Exception:
@@ -134,9 +136,14 @@ def rows(validate: Callable[[], None] = lambda: None, *, chat_tools: bool = Fals
 
 def read(item_id: str, validate: Callable[[], None] = lambda: None) -> dict | None:
     """One built-in way by its id (``builtin:account:google``), or None."""
-    if not item_id.startswith("builtin:"):
+    kind, _, ref = item_id.removeprefix("builtin:").partition(":")
+    if not item_id.startswith("builtin:") or not ref:
         return None
-    return next((row for row in rows(validate) if row["id"] == item_id), None)
+    validate()  # Only the owner the id names is read.
+    found = {"account": lambda: _accounts(only=ref), "channel": _channels, "tool": lambda: _tools(only=ref)}.get(kind)
+    row = next((row for row in found() if row["id"] == item_id), None) if found else None
+    validate()
+    return row
 
 
 def app_ways(app: apps.App) -> list[dict]:

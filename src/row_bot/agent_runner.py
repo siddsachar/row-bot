@@ -447,9 +447,22 @@ def _is_task_stopped(exc: BaseException) -> bool:
     return exc.__class__.__name__ == "TaskStoppedError"
 
 
-def _delegating_app_scope() -> dict | None:
+def _delegating_app_scope(parent_thread_id: str) -> dict | None:
+    """What an agent a chat starts leaves out: the delegating turn's own exclusions, and always the apps
+    the chat has switched off (for an agent started with /agent, or resumed later, too)."""
     from row_bot.agent import current_app_scope
-    return current_app_scope()
+    from row_bot.integrations.scope import turn_scope
+    from row_bot.threads import get_thread_apps_off
+    inherited = current_app_scope()
+    try:
+        found = turn_scope(parent_thread_id, "", None, inherited)
+    except Exception as exc:
+        if inherited or get_thread_apps_off(parent_thread_id):  # Never widen what the chat left out.
+            raise AgentRunnerError("This chat's apps could not be read.") from exc
+        found = None
+    if not found:
+        return None
+    return {"exclude_servers": found["exclude_servers"], "exclude_tools": found["exclude_tools"], "focus": [], "skills": []}
 
 
 def _build_child_config(
@@ -713,7 +726,7 @@ def spawn_agent_run(
         parent_run_id=parent_run_id,
         profile_snapshot=profile_snapshot,
         tool_allowlist=tool_allowlist,
-        app_scope=_delegating_app_scope() if parent_thread_id else None,
+        app_scope=_delegating_app_scope(parent_thread_id) if parent_thread_id else None,
     )
     if tool_allowlist:
         try:

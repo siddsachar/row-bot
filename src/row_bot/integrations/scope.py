@@ -18,7 +18,7 @@ def _mcp_items(strict: bool = False) -> list[dict]:
     """Connections (standalone or in a package) with the server their chat tools come from. ``strict``:
     refuse when a source could not be read, rather than leave its apps out of the answer."""
     rows, errors = facts.inventory()
-    if strict and errors:
+    if strict and any(error.get("source") != "skills" for error in errors):
         raise RuntimeError("apps_unreadable")
     return [item for row in rows for item in (row, *row["children"]) if item["kind"] == "mcp" and item.get("server")]
 

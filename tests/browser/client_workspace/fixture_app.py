@@ -543,7 +543,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
                                                           name="suggest_apps", content=result)])
             yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message,
                                 "name": "suggest_apps", "args": args, "content": result}
-            yield from _natural_final(call, thread, "Connect Notion and I'll find the page.", "connect")
+            yield from _natural_final(call, thread, f"Connect {args['need']} and I'll pick this up.", "connect")
         finally:
             call["quiesced"] = True
         return

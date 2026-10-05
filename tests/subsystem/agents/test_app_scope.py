@@ -316,3 +316,39 @@ def test_an_app_switched_off_here_never_comes_back_when_apps_cannot_be_read(apps
     errors.append({"source": "plugins", "code": "source_unavailable"})  # Now its source could not be read.
     with pytest.raises(RuntimeError, match="apps_unreadable"):
         scope.turn_scope("chat", "Find the roadmap", None)  # The turn refuses rather than let Notion back in.
+
+
+def test_an_agent_started_outside_a_turn_still_leaves_out_what_the_chat_switched_off(platform, monkeypatch):  # noqa: F811
+    from row_bot import agent_runner, threads
+    parent = threads.create_thread("Parent")
+    monkeypatch.setattr(scope, "_items", lambda strict=False: [_item("mcp:notion", "Notion", "Notion"),
+                                                               _item("mcp:linear", "Linear", "Linear")])
+    threads.set_thread_app(parent, "mcp:notion", False)
+    seen = []
+    monkeypatch.setattr(agent_runner, "_invoke_agent", lambda prompt, tools, config, *, stop_event: (
+        seen.append(config["configurable"].get("app_scope")) or "Child done"))
+    agent_runner.spawn_agent_run("Summarise the issues.", parent_thread_id=parent, enabled_tool_names=["mcp"], wait=True)
+    assert seen == [{"exclude_servers": ["Notion"], "exclude_tools": [], "focus": [], "skills": []}]  # As /agent starts one.
+
+
+def test_reading_one_built_in_way_reads_only_its_own_owner(monkeypatch):
+    from row_bot import github_account
+    from row_bot.integrations import builtin
+    monkeypatch.setattr(github_account, "shared_github_status", lambda: pytest.fail("Google's row ran the GitHub CLI"))
+    monkeypatch.setattr("row_bot.application.channel_controls.read_channels",
+                        lambda **_: pytest.fail("Google's row read the channels"))
+    row = builtin.read("builtin:account:google")
+    assert row is not None and row["id"] == "builtin:account:google"
+    assert builtin.read("builtin:tool:web_search")["id"] == "builtin:tool:web_search"
+    assert builtin.read("builtin:account:nobody") is None and builtin.read("mcp:notion") is None
+
+
+def test_the_skills_catalog_failing_never_refuses_a_turn(apps, monkeypatch):
+    from row_bot.integrations import builtin, facts
+    monkeypatch.setattr(scope, "_items", _ITEMS)
+    monkeypatch.setattr(scope, "_mcp_items", _MCP_ITEMS)
+    monkeypatch.setattr(builtin, "rows", lambda validate=None, chat_tools=False: [])
+    monkeypatch.setattr(facts, "inventory", lambda validate=None: (
+        [item for item in apps.items if item["id"] != "mcp:notion"], [{"source": "skills", "status": "error"}]))
+    apps.off.append("mcp:notion")  # Removed since; only the skills catalog failed to read.
+    assert scope.turn_scope("chat", "Find the roadmap", None) is None
