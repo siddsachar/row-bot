@@ -1005,10 +1005,10 @@ class ClientPlatformService:
             self.projection.publish(target, "resource.changed", {"revision": revision})
             return {"conversation_id": target, "revision": revision, "status": "completed"}
         if kind == "conversation.apps":
-            from row_bot.integrations import facts
+            from row_bot.integrations import builtin, facts
             from row_bot.threads import set_thread_app
-            item = facts.read(str(payload["item_id"]))
-            if item is None or item["kind"] != "mcp":
+            item = facts.read(str(payload["item_id"])) or builtin.read(str(payload["item_id"]))
+            if item is None or item["kind"] not in {"mcp", "builtin"}:
                 raise ClientPlatformError("not_found")
             revision = str(set_thread_app(target, item["id"], bool(payload["on"])))
             self.projection.publish(target, "resource.changed", {"revision": revision})

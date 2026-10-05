@@ -128,10 +128,6 @@
       "title": "Name",
       "type": "string"
     },
-    "placeholder": {
-      "title": "Placeholder",
-      "type": "boolean"
-    },
     "publisher": {
       "maxLength": 128,
       "title": "Publisher",
@@ -171,7 +167,6 @@
     "category",
     "icon",
     "verified",
-    "placeholder",
     "summary",
     "jobs",
     "example_prompts",

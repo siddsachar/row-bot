@@ -604,6 +604,9 @@ def _github_cli_status():
 
 
 def _github_cli_token(timeout: int = 6) -> str:
+    # Like the keychain, the GitHub CLI's own sign-in is real user state that test mode never reads.
+    if str(os.environ.get("ROW_BOT_TEST_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return ""
     try:
         from row_bot.developer.executables import resolve_github_cli
 

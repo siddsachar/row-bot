@@ -652,7 +652,7 @@ def app_of_tool(name: Any, args: Any = None) -> dict | None:
     runtime = str(name or "")
     if runtime == "tool_invoke" and isinstance(args, dict):
         runtime = str(args.get("name") or "")
-    if not runtime.startswith(("mcp_", "plugin_")):
+    if not runtime:
         return None
     try:
         from row_bot.integrations.scope import app_for_tool

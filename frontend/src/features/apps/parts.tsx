@@ -201,7 +201,7 @@ export function Publisher({ entry }: { entry: IntegrationEntry }) {
     );
   return (
     <span className="app-publisher">
-      {['bundled', 'accounts'].includes(entry.source)
+      {['bundled', 'builtin'].includes(entry.source)
         ? 'Built in'
         : entry.publisher || 'Community'}
     </span>

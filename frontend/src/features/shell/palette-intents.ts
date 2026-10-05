@@ -19,8 +19,8 @@ export type PaletteIntent = {
 const channel = (id: string, name: string, more: string[] = []) => ({
   id: `connect-${id}`,
   label: `Connect ${name}`,
-  detail: 'Channels settings',
-  href: `/settings/channels#${id}`,
+  detail: 'Apps',
+  href: `/settings/apps/${id}`,
   phrases: [id, `connect ${id}`, `${id} bot`, ...more],
 });
 
@@ -73,22 +73,22 @@ export const PALETTE_INTENTS: readonly PaletteIntent[] = [
   {
     id: 'connect-google',
     label: 'Connect Google',
-    detail: 'Gmail and Calendar · Accounts settings',
-    href: '/settings/accounts#google',
+    detail: 'Gmail and Calendar · Apps',
+    href: '/settings/apps/google',
     phrases: ['google', 'connect google', 'google calendar'],
   },
   {
     id: 'connect-github',
     label: 'Connect GitHub',
-    detail: 'Accounts settings',
-    href: '/settings/accounts#github',
+    detail: 'Apps',
+    href: '/settings/apps/github',
     phrases: ['github', 'connect github'],
   },
   {
     id: 'connect-x',
     label: 'Connect X',
-    detail: 'Accounts settings',
-    href: '/settings/accounts#x',
+    detail: 'Apps',
+    href: '/settings/apps/x',
     phrases: ['twitter', 'connect twitter', 'connect x'],
   },
   {

@@ -22,7 +22,8 @@ _SEARCHES = TtlCache(1200, 64)
 _SEARCH_SLOTS = threading.BoundedSemaphore(4)
 SOURCE_DEADLINE = 8.0
 # "app" is everything that is not a skill: connections and the packages that bring them.
-_KINDS = {"all": {"skill", "mcp", "plugin"}, "app": {"mcp", "plugin"}, "skill": {"skill"}, "mcp": {"mcp"}, "plugin": {"plugin"}}
+_KINDS = {"all": {"skill", "mcp", "plugin", "builtin"}, "app": {"mcp", "plugin", "builtin"}, "skill": {"skill"},
+          "mcp": {"mcp"}, "plugin": {"plugin"}, "builtin": {"builtin"}}
 
 
 def _digest(value) -> str:
@@ -33,7 +34,9 @@ def _method(row: dict) -> str:
     """How an app connects, for its card: signs in, takes a key, is hosted, or runs on this computer."""
     if row["kind"] == "plugin":
         return "local"
-    if row["kind"] != "mcp" or row["canonical_identity"].startswith("account:"):
+    if row["kind"] == "builtin":
+        return "built_in"
+    if row["kind"] != "mcp":
         return ""
     setup = row.get("setup")
     if setup:
@@ -64,6 +67,8 @@ def _installed(*, query: str, kind: str, cursor: str | None, limit: int, validat
     if kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 50:
         raise ClientPlatformError("invalid_integration_query")
     rows, errors = facts.inventory(validate)
+    from row_bot.integrations import builtin
+    rows = rows + [row for row in builtin.rows(validate) if row["lifecycle"] != "available"]  # Set up: one of your apps.
     rows = [entry(row) for row in sorted(rows, key=lambda item: (item["name"].casefold(), item["id"]))
             if (row["kind"] in _KINDS[kind] or any(c["kind"] in _KINDS[kind] for c in row["children"]))
             and catalog.matches(query, row["name"], row["description"], (row["app"] or {}).get("name", ""))]
@@ -364,7 +369,8 @@ def upload_file(*, owner_id: str, data: bytes, filename: str, validate: Callable
 
 def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], None]) -> tuple[dict, dict]:
     """An installed item, an entry from this owner's search, or a local catalog entry, with what owners need."""
-    row = facts.read(item_id, validate)
+    from row_bot.integrations import builtin
+    row = facts.read(item_id, validate) or builtin.read(item_id, validate)
     if row is not None:
         reference: dict = {}
         if row["kind"] == "mcp":
@@ -396,17 +402,23 @@ def _ways(row: dict) -> list[dict]:
     rows = [sources["recommended"].row(e)[0] for e in CURATED_STARTER_CATALOG
             if apps.match(["curated:" + e.id.lower(), *apps.recipe_refs(e.install)]) is app]
     rows += [sources["official"].row(e)[0] for e in index.by_app(app.id)]
-    if app.placeholder:
-        rows.append(sources["accounts"].row(app)[0])
+    from row_bot.integrations import builtin
+    rows += builtin.app_ways(app)
     try:
         from row_bot.plugins import hermes_catalog
         rows += [sources["hermes"].row(e)[0] for e in hermes_catalog.read_catalog()["entries"]
                  if apps.match(["hermes:" + e["id"].removeprefix("hermes:"), *apps.repository_refs(e["url"])]) is app]
     except (OSError, ValueError, KeyError):
         pass
+    def variant(way: dict) -> int:  # The app's own order of ways (its recommended one first).
+        kind = {"built_in": next((r["owner_ref"].split(":", 1)[0] for r in rows if r["id"] == way["id"]), ""),
+                "local": "local_mcp"}.get(way["method"], "hosted_mcp")
+        kind = {"account": "account", "channel": "channel", "tool": "api_key_tool"}.get(kind, kind)
+        return app.variants.index(kind) if kind in app.variants else len(app.variants)
     found, seen = [], set()
     for way in sorted((entry(facts.finish(r)) for r in rows), key=lambda w: (
-            not w["verified"], w["compatibility"] == "unsupported", w["method"] == "local", w["name"].casefold(), w["id"])):
+            w["compatibility"] == "unsupported", variant(w), not w["verified"], w["method"] == "local", w["name"].casefold(),
+            w["id"])):
         identity = next((r["canonical_identity"] for r in rows if r["id"] == way["id"]), "") or way["id"]
         if identity in seen:
             continue

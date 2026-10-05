@@ -96,6 +96,16 @@ function SuggestedApp({
               Continue
             </Button>
           ) : action &&
+            entry?.kind === 'builtin' &&
+            !['none', 'try'].includes(action.kind) ? (
+            // Part of Row-Bot: it is set up in its own settings.
+            <Link
+              className="button primary"
+              to={`${idPath('app', itemId)}&edit=1`}
+            >
+              {action.label}
+            </Link>
+          ) : action &&
             !['none', 'try'].includes(action.kind) &&
             !control.plan ? (
             <Button

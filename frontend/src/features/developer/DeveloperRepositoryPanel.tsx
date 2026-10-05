@@ -932,7 +932,7 @@ export default function DeveloperRepositoryPanel(
                   <div className="transcript-card-actions">
                     <AppLink
                       className="button primary"
-                      to="/settings/accounts#github"
+                      to="/settings/apps/github"
                     >
                       Connect GitHub
                     </AppLink>

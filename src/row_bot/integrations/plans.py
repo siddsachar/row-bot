@@ -243,7 +243,7 @@ def _hub_record(row: dict):
 
 def changeable(row: dict, intent: str) -> bool:
     """Whether an installed item supports Turn off, Remove or Check for updates."""
-    if row["lifecycle"] == "available":
+    if row["lifecycle"] == "available" or row["kind"] == "builtin":  # A built-in way changes in its own page.
         return False
     if intent == "turn_off":
         return row["lifecycle"] == "installed" and (row["parent_id"] is None or row["kind"] == "mcp")
@@ -272,6 +272,8 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
     catalog reference. ``cleanup`` (Remove only) also deletes saved keys and data.
     """
     kind, available, action = row["kind"], row["lifecycle"] == "available", row["next_action"]["kind"]
+    if kind == "builtin":
+        return None  # Set up in its own page, scoped to it; Row-Bot's owners run no plan for it.
     intent = intent or ("connect" if available and kind == "mcp" else "add" if available else
                         "turn_on" if action == "turn_on" else "fix" if action not in {"try", "none", "delete_data"} else "")
     if (not intent or intent not in INTENTS or (intent in {"access", "settings"} and (kind != "mcp" or available))
@@ -290,9 +292,6 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         # Removing what a package left behind is deleting its data, so that is what is agreed.
         consent["cleanup"] = intent == "remove" and (bool(cleanup) or row["lifecycle"] == "data_retained")
         declaration = {"revision": row["revision"], "lifecycle": row["lifecycle"]}
-    elif reference.get("kind") == "account":  # Connected from Accounts or Channels until they join Apps.
-        steps = [_step("consent", title="Before you connect"), _step("enable", "unsupported", "Connect " + name,
-                 next((b["message"] for b in row["blockers"] if b["code"] == "unsupported"), ""))]
     elif kind == "mcp" and reference.get("kind") == "hermes_mcp":
         # The recipe is read at its pin once agreed, shown in place, and only then saved; its own steps follow.
         steps = [_step("consent", title="Before you connect"), _step("test", title="Check the connection"),

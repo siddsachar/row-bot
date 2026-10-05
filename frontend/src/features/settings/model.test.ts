@@ -42,8 +42,6 @@ describe('settings navigation metadata', () => {
       'Tools',
       'Skills',
       'Apps',
-      'Accounts',
-      'Channels',
       'System',
       'Devices & remote access',
       'Updates',
@@ -70,8 +68,6 @@ describe('settings navigation metadata', () => {
       'documents',
       'tools',
       'skills',
-      'accounts',
-      'channels',
       'utilities',
       'mcp',
       'plugins',
@@ -83,9 +79,6 @@ describe('settings navigation metadata', () => {
   it('redirects legacy ids and moved pages to their new home and row', () => {
     for (const [alias, target] of [
       ['Cloud', 'providers'],
-      ['Google', 'accounts'],
-      ['Gmail', 'accounts'],
-      ['Calendar', 'accounts'],
       ['Wiki', 'knowledge'],
       ['Migration', 'data'],
       ['Search', 'tools'],
@@ -124,15 +117,23 @@ describe('settings navigation metadata', () => {
       ),
     ).toBe('/settings/apps?view=advanced');
     expect(settingsHref('providers')).toBe('/settings/providers');
+    // Accounts and channels are apps: their old pages and rows open the app.
+    expect(settingsHref('accounts', 'google')).toBe('/settings/apps/google');
+    expect(settingsHref('gmail')).toBe('/settings/apps/google');
+    expect(settingsHref('channels', '#telegram')).toBe(
+      '/settings/apps/telegram',
+    );
+    expect(settingsHref('accounts')).toBe('/settings/apps');
+    expect(settingsHref('channels')).toBe(
+      '/settings/apps?category=communication',
+    );
     expect(resolveSetting('unknown')).toBeUndefined();
     for (const redirect of Object.values(settingsRedirects))
       expect(resolveSetting(redirect.leaf)?.id).toBe(redirect.leaf);
   });
 
   it('searches pages by name, group, keyword and alias', () => {
-    expect(searchSettings('gmail').map((leaf) => leaf.id)).toEqual([
-      'accounts',
-    ]);
+    expect(searchSettings('gmail').map((leaf) => leaf.id)).toEqual(['apps']);
     expect(searchSettings('theme').map((leaf) => leaf.id)).toEqual([
       'appearance',
     ]);

@@ -87,8 +87,9 @@ def test_github_is_one_card_whose_page_offers_a_token_its_own_oauth_app_or_this_
     assert "mcp:official:io.github.github/github-mcp-server@1.13.0" in {a["item_id"] for a in first["attributions"]}
     detail, _ = api.read_item(owner_id="owner", item_id=first["id"], revision=page["revision"])
     ways = [(way["id"], way["method"], way["recommended"]) for way in detail["about"]["ways"]]
+    # The app's own order: GitHub's hosted server first, then Row-Bot's built-in GitHub account, then local.
     assert ways == [("mcp:curated:github-hosted", "api_key", True), ("mcp:curated:github-oauth-app", "hosted_sign_in", False),
-                    ("mcp:curated:github-github-mcp-server", "local", False)]
+                    ("builtin:account:github", "built_in", False), ("mcp:curated:github-github-mcp-server", "local", False)]
 
 
 def test_a_job_reaches_the_apps_that_do_it_before_the_community(local, monkeypatch):
@@ -98,9 +99,10 @@ def test_a_job_reaches_the_apps_that_do_it_before_the_community(local, monkeypat
     assert first == ["google", "microsoft-365", "resend"] or first[:2] == ["google", "resend"]
     assert page["items"][-1]["id"] == "mcp:official:io.github.fan/send-email@1.0.0"
     google = page["items"][0]
-    assert google["source"] == "accounts" and google["publisher"] == "Row-Bot" and google["method"] == ""
-    _, plan = api.read_item(owner_id="owner", item_id=google["id"], revision=page["revision"])
-    assert not plan["supported"] and "Settings › Accounts" in plan["unsupported_reason"]
+    assert google["id"] == "builtin:account:google" and google["source"] == "builtin" and google["method"] == "built_in"
+    detail, plan = api.read_item(owner_id="owner", item_id=google["id"], revision=page["revision"])
+    # Set up in Row-Bot's own Google page, scoped to it: no plan of its own.
+    assert plan is None and detail["entry"]["next_action"] == {"kind": "set_up", "label": "Set up"}
 
 
 def test_reading_one_plan_slowly_never_holds_up_another(monkeypatch):

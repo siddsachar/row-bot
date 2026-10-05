@@ -344,7 +344,7 @@ def _channel_problems() -> list[dict[str, str]]:
                 continue
             reader = getattr(channel, "link_status", None)
             link = reader() if callable(reader) else None
-            sheet = _open(f"/settings/channels#{name}", label)
+            sheet = _open(f"/settings/apps/{name}", label)
             if isinstance(link, dict) and link.get("state") in {"starting", "scan"}:
                 problems.append(_problem(f"channel:{name}", f"{label} is waiting for a scan",
                     "Scan its code in Settings › Channels to link your phone.", "channels", sheet))

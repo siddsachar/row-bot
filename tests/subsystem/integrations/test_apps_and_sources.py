@@ -22,8 +22,10 @@ def test_every_curated_recipe_and_seed_package_has_an_app_identity():
     assert apps.match(["hermes:blender"]).name == "Blender"
     assert apps.match(apps.repository_refs("https://github.com/NousResearch/hermes-plugin-blender")).id == "blender"
     assert apps.match(apps.repository_refs("row-bot:local-text-tools")).id == "local-text-tools"
-    placeholders = {app.id for app in apps.catalog()[0].values() if app.placeholder}
-    assert placeholders >= {"google", "x", "telegram", "whatsapp", "discord", "sms"}
+    # Row-Bot's own accounts, channels and key tools belong to their apps too.
+    assert {apps.match([ref]).id for ref in ("account:google", "account:x", "channel:telegram", "channel:whatsapp",
+                                             "channel:discord", "channel:sms", "tool:web_search")} == {
+        "google", "x", "telegram", "whatsapp", "discord", "sms", "tavily"}
     assert apps.match(["account:github"]).id == apps.match(["curated:github-github-mcp-server"]).id == "github"
 
 

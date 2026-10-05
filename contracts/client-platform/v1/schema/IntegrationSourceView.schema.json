@@ -113,7 +113,8 @@
         "enum": [
           "skill",
           "mcp",
-          "plugin"
+          "plugin",
+          "builtin"
         ],
         "type": "string"
       },

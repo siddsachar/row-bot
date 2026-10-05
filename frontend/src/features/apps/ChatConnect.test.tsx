@@ -27,7 +27,6 @@ function entry(fields: Partial<IntegrationEntry> = {}): IntegrationEntry {
       category: 'productivity',
       icon: 'letter:N',
       verified: true,
-      placeholder: false,
       featured_rank: 3,
     },
     icon: 'letter:N',

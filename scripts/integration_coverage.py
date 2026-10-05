@@ -115,16 +115,18 @@ def main() -> None:
     }
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "coverage.json").write_text(json.dumps(report, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
-    connectable = [app for app in featured if by_app[app.id][""] or by_app[app.id][UNDECLARED]]
-    placeholders = [app for app in featured if app.placeholder and not sum(by_app[app.id].values())]
+    # A built-in way (Row-Bot's own account, channel or key tool) connects an app with no catalog entry.
+    built_in = [app for app in featured if any(ref.split(":", 1)[0] in {"account", "channel", "tool"} for ref in app.refs)]
+    connectable = [app for app in featured if by_app[app.id][""] or by_app[app.id][UNDECLARED] or app in built_in]
     lines = [
         "# Integration coverage", "",
         f"Generated {report['generated_at']} from the shipped Registry mirror ({mirror['count']:,} records, watermark "
         f"{mirror['watermark']}), {len(rows):,} catalog entries in all.", "",
         f"- **Complete plans:** {complete:,} of {len(rows):,} entries ({complete / max(len(rows), 1):.1%}), of which "
         f"{reasons[UNDECLARED]:,} are hosted servers that declare no sign-in (their first test shows whether they need one).",
-        f"- **Featured apps with at least one complete plan:** {len(connectable)} of {len(featured)} "
-        f"({len(placeholders)} more are accounts or channels that join Apps in Phase 5).", "",
+        f"- **Featured apps that connect:** {len(connectable)} of {len(featured)}, "
+        f"{len([app for app in built_in if app in connectable])} of them through a built-in way "
+        "(an account, a channel or a tool that takes your key).", "",
         "## By source", "", "| Source | Entries | Complete | Top blocker |", "| --- | ---: | ---: | --- |",
     ]
     for source, counts in sorted(by_source.items(), key=lambda item: -sum(item[1].values())):
@@ -135,7 +137,7 @@ def main() -> None:
     lines += ["", "## Featured apps without a complete plan", "", "| Rank | App | Entries | Reasons |", "| ---: | --- | ---: | --- |"]
     for app in featured:
         if app not in connectable:
-            why = "; ".join(f"{r} ({n})" for r, n in by_app[app.id].most_common()) or "no catalog entry yet (account or channel)"
+            why = "; ".join(f"{r} ({n})" for r, n in by_app[app.id].most_common()) or "no catalog entry yet"
             lines.append(f"| {app.featured_rank} | {app.name} | {sum(by_app[app.id].values())} | {why} |")
     (args.output / "coverage.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"{complete:,} of {len(rows):,} entries complete; {len(connectable)} of {len(featured)} featured apps -> {args.output}")

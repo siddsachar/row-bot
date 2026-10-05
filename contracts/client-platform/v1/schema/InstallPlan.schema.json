@@ -8,6 +8,7 @@
             "connect",
             "add",
             "install",
+            "set_up",
             "continue_setup",
             "sign_in",
             "add_key",
@@ -622,7 +623,8 @@
       "enum": [
         "skill",
         "mcp",
-        "plugin"
+        "plugin",
+        "builtin"
       ],
       "title": "Kind",
       "type": "string"

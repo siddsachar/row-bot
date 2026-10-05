@@ -3987,10 +3987,13 @@ export function AccountsSnapshotPanel({
   snapshot,
   mutation,
   showActions = false,
+  only,
 }: {
   snapshot: SettingsSnapshot['accounts'];
   mutation: SettingsMutationIO;
   showActions?: boolean;
+  /** One account only, as its app's settings (Apps › Google › Settings). */
+  only?: 'github' | 'google' | 'x';
 }) {
   if (snapshot.availability !== 'available')
     return (
@@ -4010,22 +4013,28 @@ export function AccountsSnapshotPanel({
   const count = (state: AccountState) =>
     states.filter((item) => item === state).length;
   const changed = () => reloadAccounts(mutation);
+  const shown = (account: 'github' | 'google' | 'x') =>
+    !only || only === account;
   return (
     <div className="stack settings-snapshot-page settings-accounts-page">
-      <SettingsStatus
-        tone={count('connected') ? 'success' : 'neutral'}
-        more={[
-          count('reconnect') ? `${count('reconnect')} needs reconnecting` : '',
-          count('unchecked') ? `${count('unchecked')} not checked yet` : '',
-          count('not_connected')
-            ? `${count('not_connected')} not connected`
-            : '',
-        ]}
-      >
-        {count('connected')} connected
-      </SettingsStatus>
+      {!only && (
+        <SettingsStatus
+          tone={count('connected') ? 'success' : 'neutral'}
+          more={[
+            count('reconnect')
+              ? `${count('reconnect')} needs reconnecting`
+              : '',
+            count('unchecked') ? `${count('unchecked')} not checked yet` : '',
+            count('not_connected')
+              ? `${count('not_connected')} not connected`
+              : '',
+          ]}
+        >
+          {count('connected')} connected
+        </SettingsStatus>
+      )}
       <SettingsGroup label="Accounts" className="settings-accounts">
-        {showActions ? (
+        {!shown('github') ? null : showActions ? (
           <ConnectedGitHubAccess onChanged={changed}>
             {(access) => (
               <GitHubAccount
@@ -4042,7 +4051,7 @@ export function AccountsSnapshotPanel({
             access={null}
           />
         )}
-        {showActions ? (
+        {!shown('google') ? null : showActions ? (
           <ConnectedAccountAuth account="google" onChanged={changed}>
             {(auth) => (
               <GoogleAccount
@@ -4061,7 +4070,7 @@ export function AccountsSnapshotPanel({
             auth={null}
           />
         )}
-        {showActions ? (
+        {!shown('x') ? null : showActions ? (
           <ConnectedAccountAuth account="x" onChanged={changed}>
             {(auth) => (
               <XAccount account={snapshot.x} mutation={mutation} auth={auth} />
@@ -4443,9 +4452,12 @@ export function DocumentEmbeddingSnapshot({
 export function ToolConfigurationSnapshot({
   snapshot,
   mutation,
+  only,
 }: {
   snapshot: SettingsSnapshot['tools'];
   mutation: SettingsMutationIO;
+  /** One tool's switch and key only, as its app's settings (Apps › Tavily › Settings). */
+  only?: string;
 }) {
   const toolPresentation: Record<
     string,
@@ -4497,10 +4509,11 @@ export function ToolConfigurationSnapshot({
     }))
     .filter(
       (tool) =>
-        !normalizedQuery ||
-        `${tool.displayLabel} ${tool.description}`
-          .toLocaleLowerCase()
-          .includes(normalizedQuery),
+        (!only || tool.tool_id === only) &&
+        (!normalizedQuery ||
+          `${tool.displayLabel} ${tool.description}`
+            .toLocaleLowerCase()
+            .includes(normalizedQuery)),
     )
     .sort(
       (left, right) =>
@@ -4508,6 +4521,96 @@ export function ToolConfigurationSnapshot({
           (toolPresentation[right.tool_id]?.order ?? Number.MAX_SAFE_INTEGER) ||
         left.displayLabel.localeCompare(right.displayLabel),
     );
+  const toolList = (expanded = false) => (
+    <ul className="settings-toggle-list settings-row-list">
+      {tools.map((tool) => {
+        // A tool that needs a key says so before it is turned on (U50).
+        const missingKey =
+          tool.credentials.length > 0 &&
+          tool.credentials.some((credential) => !credential.configured);
+        return (
+          <li key={tool.tool_id}>
+            <div className="settings-row-list-text">
+              <strong>{tool.displayLabel}</strong>
+              <small>
+                {tool.description}
+                {!tool.available ? ' · Unavailable' : ''}
+                {tool.configured_fields.length
+                  ? ` · ${tool.configured_fields.length} configured fields`
+                  : ''}
+              </small>
+              {missingKey && (
+                <small className="settings-tool-needs-key">
+                  {tool.enabled
+                    ? 'On, but it has no key yet: it fails until you add one below.'
+                    : 'Needs its key first: add it under Credentials & setup.'}
+                </small>
+              )}
+            </div>
+            {tool.available && tool.enabled != null ? (
+              <SwitchSetting
+                mutation={mutation}
+                field={`${tool.tool_id}.enabled`}
+                label={`Enable ${tool.displayLabel}`}
+                value={tool.enabled}
+                bare
+              />
+            ) : (
+              <StateChip warning>Unavailable</StateChip>
+            )}
+            {(tool.credentials.length > 0 || tool.setupUrl) && (
+              <details
+                className="settings-snapshot-disclosure settings-tool-detail"
+                open={expanded || missingKey || undefined}
+              >
+                <summary>Credentials &amp; setup</summary>
+                {tool.setupUrl && (
+                  <p className="settings-help">
+                    Create the provider credential at{' '}
+                    <a href={tool.setupUrl} target="_blank" rel="noreferrer">
+                      {new URL(tool.setupUrl).hostname}
+                    </a>
+                    , then save it below. Credentials remain write-only and
+                    masked.
+                  </p>
+                )}
+                {tool.credentials.map((credential) =>
+                  tool.tool_id === 'web_search' ||
+                  tool.tool_id === 'wolfram_alpha' ? (
+                    <SecretSetting
+                      key={credential.name}
+                      mutation={mutation}
+                      field={`${tool.tool_id}.credential`}
+                      label={credential.label}
+                      configured={credential.configured}
+                      source={credential.source}
+                      fingerprint={credential.fingerprint}
+                    />
+                  ) : (
+                    <div
+                      className="settings-secret-summary"
+                      key={credential.name}
+                    >
+                      <div className="settings-secret-text">
+                        <span className="settings-secret-label">
+                          {credential.label}
+                        </span>
+                        <span className="settings-secret-state">
+                          {credential.configured
+                            ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
+                            : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </details>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
   if (snapshot.availability !== 'available')
     return (
       <Section
@@ -4517,6 +4620,18 @@ export function ToolConfigurationSnapshot({
       >
         <StateChip warning>Tool settings unavailable</StateChip>
       </Section>
+    );
+  if (only)
+    return (
+      <div className="stack settings-snapshot-page">
+        <Section
+          title={tools[0]?.displayLabel ?? 'Tool'}
+          description="Turn it on, and save the key it uses. Keys stay in your system keychain."
+          icon={BookOpen}
+        >
+          {toolList(true)}
+        </Section>
+      </div>
     );
   return (
     <div className="stack settings-snapshot-page">
@@ -4586,98 +4701,7 @@ export function ToolConfigurationSnapshot({
             placeholder="Filter by name or purpose"
           />
         </label>
-        <ul className="settings-toggle-list settings-row-list">
-          {tools.map((tool) => {
-            // A tool that needs a key says so before it is turned on (U50).
-            const missingKey =
-              tool.credentials.length > 0 &&
-              tool.credentials.some((credential) => !credential.configured);
-            return (
-              <li key={tool.tool_id}>
-                <div className="settings-row-list-text">
-                  <strong>{tool.displayLabel}</strong>
-                  <small>
-                    {tool.description}
-                    {!tool.available ? ' · Unavailable' : ''}
-                    {tool.configured_fields.length
-                      ? ` · ${tool.configured_fields.length} configured fields`
-                      : ''}
-                  </small>
-                  {missingKey && (
-                    <small className="settings-tool-needs-key">
-                      {tool.enabled
-                        ? 'On, but it has no key yet: it fails until you add one below.'
-                        : 'Needs its key first: add it under Credentials & setup.'}
-                    </small>
-                  )}
-                </div>
-                {tool.available && tool.enabled != null ? (
-                  <SwitchSetting
-                    mutation={mutation}
-                    field={`${tool.tool_id}.enabled`}
-                    label={`Enable ${tool.displayLabel}`}
-                    value={tool.enabled}
-                    bare
-                  />
-                ) : (
-                  <StateChip warning>Unavailable</StateChip>
-                )}
-                {(tool.credentials.length > 0 || tool.setupUrl) && (
-                  <details
-                    className="settings-snapshot-disclosure settings-tool-detail"
-                    open={missingKey || undefined}
-                  >
-                    <summary>Credentials &amp; setup</summary>
-                    {tool.setupUrl && (
-                      <p className="settings-help">
-                        Create the provider credential at{' '}
-                        <a
-                          href={tool.setupUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {new URL(tool.setupUrl).hostname}
-                        </a>
-                        , then save it below. Credentials remain write-only and
-                        masked.
-                      </p>
-                    )}
-                    {tool.credentials.map((credential) =>
-                      tool.tool_id === 'web_search' ||
-                      tool.tool_id === 'wolfram_alpha' ? (
-                        <SecretSetting
-                          key={credential.name}
-                          mutation={mutation}
-                          field={`${tool.tool_id}.credential`}
-                          label={credential.label}
-                          configured={credential.configured}
-                          source={credential.source}
-                          fingerprint={credential.fingerprint}
-                        />
-                      ) : (
-                        <div
-                          className="settings-secret-summary"
-                          key={credential.name}
-                        >
-                          <div className="settings-secret-text">
-                            <span className="settings-secret-label">
-                              {credential.label}
-                            </span>
-                            <span className="settings-secret-state">
-                              {credential.configured
-                                ? `Saved${credential.fingerprint ? ` · ${maskedTail(credential.fingerprint)}` : ''}`
-                                : 'Not set'}
-                            </span>
-                          </div>
-                        </div>
-                      ),
-                    )}
-                  </details>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        {toolList()}
         {!tools.length && (
           <p className="settings-help">No research tools match this search.</p>
         )}

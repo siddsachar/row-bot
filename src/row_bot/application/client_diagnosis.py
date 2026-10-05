@@ -61,7 +61,7 @@ _PRIVATE_PATH = re.compile(
 _PLACES: dict[str, tuple[str, str]] = {
     "cloud-api": ("/settings/providers", "Providers"),
     "tunnel": ("/settings/access#tunnel", "Public link"),
-    "github": ("/settings/accounts#github", "GitHub"),
+    "github": ("/settings/apps/github", "GitHub"),
     "workflows": ("/?tab=workflows", "Workflows"),
     "knowledge": ("/settings/knowledge#memory-graph", "Memory"),
     "faiss-index": ("/settings/knowledge#memory-graph", "Memory"),
@@ -209,7 +209,7 @@ def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None
     name = entry["name"]
     if check_id.startswith("channel:"):
         channel = channel_id(check_id.removeprefix("channel:"))
-        href = f"/settings/channels#{channel}"
+        href = f"/settings/apps/{channel}"
         if entry["status"] == "warn" and entry["detail"] == "Stopped":
             return _fix("restart_channel", href, name, channel)
         return _fix("open", href, name)
@@ -217,7 +217,7 @@ def fix_for_check(check_id: str, entry: dict[str, Any]) -> dict[str, Any] | None
         return _fix("choose_model", "/settings/models#default-model", "Default model")
     if check_id in _ACCOUNTS:
         account, label = _ACCOUNTS[check_id]
-        return _fix("reconnect_account", f"/settings/accounts#{account}", label, account)
+        return _fix("reconnect_account", f"/settings/apps/{account}", label, account)
     if check_id in _PLACES:
         href, label = _PLACES[check_id]
         return _fix("open", href, label)

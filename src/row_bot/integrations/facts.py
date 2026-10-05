@@ -43,7 +43,8 @@ BLOCKING = {
     "not_connected": ("needs_setup", "continue_setup"),
     "unsupported": (None, "none"),
 }
-LABELS = {"connect": "Connect", "add": "Add", "install": "Add", "continue_setup": "Continue setup", "sign_in": "Sign in",
+LABELS = {"connect": "Connect", "add": "Add", "install": "Add", "set_up": "Set up", "continue_setup": "Continue setup",
+          "sign_in": "Sign in",
           "add_key": "Add key", "install_runtime": "Continue setup", "open_app": "Check again", "turn_on": "Turn on",
           "fix": "Fix", "retry": "Retry", "try": "Try it", "delete_data": "Delete saved data", "turn_off": "Turn off",
           "remove": "Remove", "update": "Update", "none": ""}
@@ -82,7 +83,7 @@ def status(kind: str, lifecycle: str, blockers: list[dict]) -> dict:
     if blocking:
         readiness, action = BLOCKING[blocking[0]["code"]]
     elif lifecycle == "available":
-        readiness, action = None, {"mcp": "connect", "skill": "add"}.get(kind, "install")
+        readiness, action = None, {"mcp": "connect", "skill": "add", "builtin": "set_up"}.get(kind, "install")
     elif lifecycle == "data_retained":
         readiness, action = None, "delete_data"
     else:

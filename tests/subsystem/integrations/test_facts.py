@@ -77,7 +77,8 @@ def test_reads_reuse_the_index_until_an_owner_publishes(isolated, monkeypatch):
     monkeypatch.setattr(plugin_commands, "read_integration_packages", lambda **k: calls.append(1) or original(**k))
     page = api.read_items(owner_id="owner")
     for row in page["items"]:
-        assert api.entry(facts.read(row["id"]))["id"] == row["id"]
+        if row["kind"] != "builtin":  # Built-in ways are read from their owners, not this index.
+            assert api.entry(facts.read(row["id"]))["id"] == row["id"]
     assert len(calls) == 1
     _server(enabled=True)
     api.read_items(owner_id="owner")

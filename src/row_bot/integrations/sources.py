@@ -480,30 +480,22 @@ class FeaturedSkills(Source):
         return featured_skills().get(reference.removeprefix("featured:"))
 
 
-class Accounts(Source):
-    """Apps Row-Bot connects through its own Accounts and Channels pages for now, so a job like
-    "send email" still finds them. Phase 5 brings those connections into Apps and replaces this."""
-    id, kind, label = "accounts", "mcp", "Accounts and channels"
-    message = "Apps Row-Bot connects through Settings › Accounts or Channels."
-
-    def row(self, app: apps.App) -> tuple[dict, dict]:
-        where = "Channels" if "channel" in app.variants else "Accounts"
-        row = _available("mcp", "account:" + app.id, app.name, app=app, source=self.id, description=app.summary,
-            publisher="Row-Bot", compatibility="unsupported", canonical_identity="account:" + app.id,
-            unsupported=f"Connect {app.name} in Settings › {where} for now. It joins Apps in a later update.")
-        return row, {"kind": "account", "app": app.id}
+class Builtin(Source):
+    """Row-Bot's own accounts, channels and key-based tools, read from their owners, so a job like
+    "send email" finds Google and each one opens like any app."""
+    id, kind, label = "builtin", "mcp", "Built in"
+    message = "Ways to connect that are part of Row-Bot: accounts, channels and tools that take your key."
 
     def search(self, search: Search) -> Found:
+        from row_bot.integrations import builtin
         found = Found()
-        for app in apps.catalog()[0].values() if search.query.strip() else ():
-            if app.placeholder and matches(search.query, apps.text(app)):
-                found.add(*self.row(app))
+        known = apps.catalog()[0]
+        for row in builtin.rows(search.validate):
+            app = known.get((row["app"] or {}).get("id", ""))
+            if matches(search.query, row["name"], row["description"], apps.text(app) if app else ""):
+                found.add(row, {"kind": "builtin"})
         found.statuses.append(self.status(status="cached"))
         return found
-
-    def lookup(self, reference: str) -> apps.App | None:
-        app = apps.catalog()[0].get(reference.removeprefix("account:"))
-        return app if app and app.placeholder else None
 
 
 class Unavailable(Source):
@@ -515,7 +507,7 @@ class Unavailable(Source):
 
 # Public contracts checked 2026-10-03; evidence in docs/INTEGRATION_SOURCES.md. Order is ranking precedence.
 SOURCES: dict[str, Source] = {source.id: source for source in (
-    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Accounts(),
+    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Builtin(),
     Skills("clawhub", "ClawHub", "Public v1 skill search and complete version downloads."),
     Skills("github", "GitHub", "Maintainer skill repositories through the existing GitHub owner."),
     Hermes(), Native(), Examples(),
@@ -541,9 +533,6 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     elif kind == "skill" and reference.startswith("featured:"):
         skill = SOURCES["featured_skills"].lookup(reference)
         found = SOURCES["featured_skills"].row(skill, set()) if skill else None
-    elif kind == "mcp" and source_id == "account":
-        app = SOURCES["accounts"].lookup(reference)
-        found = SOURCES["accounts"].row(app) if app else None
     elif kind == "plugin" and reference.startswith("hermes:"):
         entry = SOURCES["hermes"].lookup(reference)
         found = SOURCES["hermes"].row(entry) if entry else None

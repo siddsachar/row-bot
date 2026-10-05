@@ -25,7 +25,8 @@ export const settingsGroups = [
   {
     id: 'connections',
     label: 'Connections',
-    leaves: ['apps', 'accounts', 'channels'],
+    // Accounts and channels are apps too (Apps › Google, Apps › Telegram).
+    leaves: ['apps'],
   },
   {
     id: 'system',
@@ -50,8 +51,6 @@ const leafLabels: Record<SettingsLeafId, string> = {
   tools: 'Tools',
   skills: 'Skills',
   apps: 'Apps',
-  accounts: 'Accounts',
-  channels: 'Channels',
   system: 'System',
   access: 'Devices & remote access',
   updates: 'Updates',
@@ -71,9 +70,7 @@ export const settingsKeywords: Record<SettingsLeafId, string> = {
   tracker: 'habits tracking health',
   tools: 'utilities built-in search web research compression custom tools',
   skills: 'skill library slash commands instructions clawhub create import',
-  apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes',
-  accounts: 'github google gmail calendar x twitter oauth',
-  channels: 'telegram discord slack sms whatsapp messaging',
+  apps: 'integrations mcp plugins packages connectors servers marketplace discover connect catalogs runtimes accounts github google gmail calendar x twitter oauth channels telegram discord slack sms whatsapp messaging',
   system: 'shell browser computer use workspace folder logging files',
   access:
     'access remote tunnel invitations sessions tailscale mobile phone qr pair wifi public',
@@ -110,9 +107,6 @@ export const settingsRedirects: Record<
   wiki: { leaf: 'knowledge', anchor: 'wiki-vault' },
   memory: { leaf: 'knowledge' },
   cloud: { leaf: 'providers' },
-  google: { leaf: 'accounts', anchor: 'google' },
-  gmail: { leaf: 'accounts', anchor: 'google' },
-  calendar: { leaf: 'accounts', anchor: 'google' },
   migration: { leaf: 'data', anchor: 'migration' },
   backup: { leaf: 'data', anchor: 'backup' },
   search: { leaf: 'tools', anchor: 'search-tools' },
@@ -166,11 +160,47 @@ export function legacyIntegrationHref(
   return '/settings/apps';
 }
 
+/**
+ * Settings › Accounts and › Channels joined Apps: an account or channel is an
+ * app's built-in way to connect, so its old link opens that app's page.
+ */
+const CONNECTION_APPS: Record<string, string> = {
+  google: 'google',
+  gmail: 'google',
+  calendar: 'google',
+  github: 'github',
+  x: 'x',
+  telegram: 'telegram',
+  whatsapp: 'whatsapp',
+  discord: 'discord',
+  slack: 'slack',
+  sms: 'sms',
+};
+export const CONNECTION_PAGES = new Set([
+  'accounts',
+  'channels',
+  'google',
+  'gmail',
+  'calendar',
+]);
+
+export function connectionHref(key: string, anchor = '') {
+  const page = key.toLowerCase();
+  const app =
+    CONNECTION_APPS[anchor.replace(/^#/, '').split('.')[0]] ??
+    CONNECTION_APPS[page];
+  if (app) return `/settings/apps/${app}`;
+  return page === 'channels'
+    ? '/settings/apps?category=communication'
+    : '/settings/apps';
+}
+
 /** The canonical href for a leaf id, legacy id or moved page. */
 export function settingsHref(value: string, anchor = '') {
   const key = value.toLowerCase();
   if (['integrations', 'plugins', 'mcp'].includes(key))
     return legacyIntegrationHref(key, new URLSearchParams(), anchor);
+  if (CONNECTION_PAGES.has(key)) return connectionHref(key, anchor);
   const redirect = settingsRedirects[key];
   const leaf = resolveSetting(key);
   if (!leaf) return undefined;
@@ -207,6 +237,8 @@ export type SettingsRow = {
   anchor: string;
   label: string;
   keywords?: string;
+  /** A row that is its own page (an app). */
+  href?: string;
 };
 
 export const settingsRows: SettingsRow[] = [
@@ -387,14 +419,41 @@ export const settingsRows: SettingsRow[] = [
     label: 'Runtimes (Node.js, uv)',
     keywords: 'node python uv mcp',
   },
-  { leaf: 'accounts', anchor: 'github', label: 'GitHub account' },
   {
-    leaf: 'accounts',
-    anchor: 'google',
-    label: 'Google account',
-    keywords: 'gmail calendar',
+    leaf: 'apps',
+    anchor: '',
+    label: 'GitHub account',
+    href: '/settings/apps/github',
   },
-  { leaf: 'accounts', anchor: 'x', label: 'X account', keywords: 'twitter' },
+  {
+    leaf: 'apps',
+    anchor: '',
+    label: 'Google account',
+    keywords: 'gmail calendar drive',
+    href: '/settings/apps/google',
+  },
+  {
+    leaf: 'apps',
+    anchor: '',
+    label: 'X account',
+    keywords: 'twitter',
+    href: '/settings/apps/x',
+  },
+  ...(
+    [
+      ['telegram', 'Telegram'],
+      ['whatsapp', 'WhatsApp'],
+      ['discord', 'Discord'],
+      ['slack', 'Slack'],
+      ['sms', 'Text messages'],
+    ] as const
+  ).map(([id, label]) => ({
+    leaf: 'apps' as const,
+    anchor: '',
+    label: `${label} channel`,
+    keywords: 'messaging channel sms',
+    href: `/settings/apps/${id}`,
+  })),
   {
     leaf: 'system',
     anchor: 'workspace-folder',
@@ -478,6 +537,7 @@ export function searchSettingsRows(query: string) {
 }
 
 export function settingsRowHref(row: SettingsRow) {
+  if (row.href) return row.href;
   if (row.leaf === 'apps') return `/settings/apps?view=advanced#${row.anchor}`;
   return (
     settingsHref(row.leaf, row.anchor) ?? `/settings/${row.leaf}#${row.anchor}`

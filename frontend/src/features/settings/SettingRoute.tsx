@@ -21,6 +21,8 @@ import { Button, EmptyState, ErrorState, Skeleton } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
 import {
   AGENT_PROFILE_SETTINGS,
+  CONNECTION_PAGES,
+  connectionHref,
   legacyIntegrationHref,
   resolveSetting,
   settingsHref,
@@ -62,6 +64,7 @@ import AccessNetwork from './AccessNetwork';
 import AccessTailscale from './AccessTailscale';
 import { pickSettingsFolder } from './settings-folder';
 import {
+  AccountsSnapshotPanel,
   DocumentEmbeddingSnapshot,
   DocumentModelSetting,
   StartPublicLink,
@@ -235,6 +238,9 @@ export default function SettingRoute() {
   }
   if (AGENT_PROFILE_SETTINGS.has(setting.toLowerCase()))
     return <AgentProfilesMoved />;
+  if (CONNECTION_PAGES.has(setting.toLowerCase()))
+    // Accounts and channels are apps now: their old links open the app.
+    return <Navigate to={connectionHref(setting, location.hash)} replace />;
   if (!leaf) return <Navigate to="/settings/providers" replace />;
   if (leaf.id !== setting.toLowerCase()) {
     // Legacy ids and moved pages land on their new home (and row).
@@ -305,6 +311,50 @@ export default function SettingRoute() {
   ) : null;
   /** The advanced editor for one app or skill: its raw settings, never a whole list. */
   const editor = (kind: 'app' | 'skill', id: string) => {
+    // A built-in way (an account, a channel, a key tool) opens its own page, scoped to it.
+    const builtIn = /(?:^|:)builtin:(account|channel|tool):(.+)$/.exec(id);
+    if (builtIn && !settingsSnapshot) return snapshotState;
+    if (builtIn?.[1] === 'account') {
+      const accounts = mutationFor('accounts');
+      return accounts ? (
+        <AccountsSnapshotPanel
+          snapshot={settingsSnapshot!.accounts}
+          mutation={accounts}
+          showActions
+          only={builtIn[2] as 'github' | 'google' | 'x'}
+        />
+      ) : (
+        snapshotState
+      );
+    }
+    if (builtIn?.[1] === 'tool') {
+      const tools = mutationFor('tools');
+      return tools ? (
+        <ToolConfigurationSnapshot
+          snapshot={settingsSnapshot!.tools}
+          mutation={tools}
+          only={builtIn[2]}
+        />
+      ) : (
+        snapshotState
+      );
+    }
+    if (builtIn?.[1] === 'channel' && channelOwner?.get())
+      return (
+        <ChannelSettings
+          session={channelOwner.get()!}
+          load={controller.channels}
+          review={controller.reviewChannel}
+          execute={(command, review) =>
+            controller.executeChannel({
+              ...command,
+              payload: { ...command.payload, review_id: review.review_id },
+            })
+          }
+          loadLink={controller.channelLink}
+          only={builtIn[2]}
+        />
+      );
     if (kind === 'skill' && skillsOwner?.get())
       return (
         <SkillsSettings
@@ -649,19 +699,6 @@ export default function SettingRoute() {
             snapshot={settingsSnapshot?.knowledge}
             refreshToken={knowledgeRefresh}
           />
-        ) : leaf.id === 'channels' && channelOwner?.get() ? (
-          <ChannelSettings
-            session={channelOwner.get()!}
-            load={controller.channels}
-            review={controller.reviewChannel}
-            execute={(command, review) =>
-              controller.executeChannel({
-                ...command,
-                payload: { ...command.payload, review_id: review.review_id },
-              })
-            }
-            loadLink={controller.channelLink}
-          />
         ) : leaf.id === 'documents' ? (
           <div className="stack settings-snapshot-page settings-documents-flow">
             <SettingsGroup title="Add documents" surface={false}>
@@ -779,9 +816,7 @@ export default function SettingRoute() {
               </SettingsDangerZone>
             )}
           </div>
-        ) : ['voice', 'accounts', 'tracker', 'system', 'access'].includes(
-            leaf.id,
-          ) ? (
+        ) : ['voice', 'tracker', 'system', 'access'].includes(leaf.id) ? (
           settingsSnapshot && mutation ? (
             <>
               {leaf.id === 'access' ? (
@@ -810,7 +845,6 @@ export default function SettingRoute() {
                 pickFolder={(signal) =>
                   pickSettingsFolder(platform, controller, signal)
                 }
-                showAccountActions
                 writeClipboard={platform.writeClipboard}
                 accessNetwork={
                   leaf.id === 'access' ? (

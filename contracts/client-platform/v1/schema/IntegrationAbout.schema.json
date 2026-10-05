@@ -62,7 +62,8 @@
             "api_key",
             "hosted",
             "local",
-            ""
+            "",
+            "built_in"
           ],
           "title": "Method",
           "type": "string"

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import type { ClientController } from '../../api/controller';
@@ -196,3 +202,19 @@ it('Apps › Advanced › Add a custom connection opens the add dialog of the MC
     '/settings/apps/custom?edit=1',
   );
 });
+
+it.each([
+  ['/settings/accounts#google', '/settings/apps/google'],
+  ['/settings/accounts#github', '/settings/apps/github'],
+  ['/settings/channels#telegram', '/settings/apps/telegram'],
+  ['/settings/gmail', '/settings/apps/google'],
+  ['/settings/channels', '/settings/apps?category=communication'],
+])(
+  'the old %s link opens that app, where its account or channel is a way to connect',
+  async (path, target) => {
+    renderAt(path, appsController());
+    await waitFor(() =>
+      expect(screen.getByLabelText('Location')).toHaveTextContent(target),
+    );
+  },
+);

@@ -24,6 +24,7 @@ import Phase4RetainedSettings, {
   type Phase4RetainedSetting,
 } from './Phase4RetainedSettings';
 import {
+  AccountsSnapshotPanel,
   DocumentEmbeddingSnapshot,
   DocumentModelSetting,
   PreferencesSnapshotPanel,
@@ -385,18 +386,26 @@ beforeEach(() => {
   };
 });
 
-function renderSetting(setting: Phase4RetainedSetting) {
+function renderSetting(setting: Phase4RetainedSetting | 'accounts') {
   // Access reads and writes the System snapshot page.
   mutation.page = setting === 'access' ? 'system' : setting;
   return render(
     <MemoryRouter>
       <OverlayProvider>
-        <Phase4RetainedSettings
-          setting={setting}
-          snapshot={snapshot}
-          mutation={mutation}
-          selectedConversationId="conversation-a"
-        />
+        {setting === 'accounts' ? (
+          // Accounts are apps now; each app's settings show its account.
+          <AccountsSnapshotPanel
+            snapshot={snapshot.accounts}
+            mutation={mutation}
+          />
+        ) : (
+          <Phase4RetainedSettings
+            setting={setting}
+            snapshot={snapshot}
+            mutation={mutation}
+            selectedConversationId="conversation-a"
+          />
+        )}
       </OverlayProvider>
     </MemoryRouter>,
   );
@@ -1460,17 +1469,15 @@ it('updates the Accounts header after Check without reloading the page (B263)', 
   function Page() {
     const [current, setCurrent] = useState<SettingsSnapshot>(saved);
     return (
-      <Phase4RetainedSettings
-        setting="accounts"
-        snapshot={current}
+      <AccountsSnapshotPanel
+        snapshot={current.accounts}
         mutation={{
           ...mutation,
           page: 'accounts',
           refreshSnapshot,
           onSnapshot: setCurrent,
         }}
-        selectedConversationId={null}
-        showAccountActions
+        showActions
       />
     );
   }
@@ -1841,4 +1848,22 @@ it('saves Open in and the Dream Cycle hours at once, confirmed by the floating n
       expect.any(AbortSignal),
     ),
   );
+});
+
+it('shows one account alone as its app’s own settings', () => {
+  mutation.page = 'accounts';
+  const { container } = render(
+    <MemoryRouter>
+      <OverlayProvider>
+        <AccountsSnapshotPanel
+          snapshot={snapshot.accounts}
+          mutation={mutation}
+          only="google"
+        />
+      </OverlayProvider>
+    </MemoryRouter>,
+  );
+  expect(container.querySelectorAll('.settings-account')).toHaveLength(1);
+  expect(screen.getByText('Google')).toBeVisible();
+  expect(screen.queryByText('GitHub')).toBeNull();
 });

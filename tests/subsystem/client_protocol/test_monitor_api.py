@@ -185,9 +185,9 @@ def test_each_attention_problem_offers_its_one_fix(tmp_path, monkeypatch):
     problems = client_monitor.read_attention(include_update=False)["problems"]
 
     assert [(problem["id"], problem["fix"]) for problem in problems] == [
-        ("channel:telegram", {"kind": "restart_channel", "href": "/settings/channels#telegram",
+        ("channel:telegram", {"kind": "restart_channel", "href": "/settings/apps/telegram",
                               "target": "telegram", "name": "Telegram"}),
-        ("channel:whatsapp", {"kind": "open", "href": "/settings/channels#whatsapp",
+        ("channel:whatsapp", {"kind": "open", "href": "/settings/apps/whatsapp",
                               "target": None, "name": "WhatsApp"}),
         ("tunnel", {"kind": "open", "href": "/settings/access#tunnel", "target": None, "name": "Public link"}),
         ("mcp", {"kind": "open", "href": "/settings/apps", "target": None, "name": "Apps"}),

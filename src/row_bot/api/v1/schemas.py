@@ -7884,9 +7884,9 @@ class McpPackageCommand(McpPackageRequest):
 
 
 # Apps & Skills: one typed model over the existing owners (row_bot.integrations).
-IntegrationKind = Literal["skill", "mcp", "plugin"]
+IntegrationKind = Literal["skill", "mcp", "plugin", "builtin"]
 AccessPresetId = Literal["read_only", "ask", "full"]
-NextActionKind = Literal["connect", "add", "install", "continue_setup", "sign_in", "add_key", "install_runtime", "open_app",
+NextActionKind = Literal["connect", "add", "install", "set_up", "continue_setup", "sign_in", "add_key", "install_runtime", "open_app",
                          "turn_on", "fix", "retry", "try", "delete_data", "turn_off", "remove", "update", "none"]
 PlanIntent = Literal["connect", "add", "turn_on", "fix", "access", "settings", "turn_off", "remove", "update"]
 ToolState = Literal["use", "ask", "off"]
@@ -7950,7 +7950,6 @@ class AppRef(WireModel):
     icon: IconId
     # Published by the app's vendor, by rule (Registry namespace or vendor endpoint), never by name.
     verified: bool
-    placeholder: bool
     featured_rank: int | None = Field(default=None, ge=1, le=10000)
 
 
@@ -8023,7 +8022,7 @@ class IntegrationEntry(WireModel):
     signals: IntegrationSignals | None = None
     source: str = Field(max_length=80)
     # How it connects, for the card: signs in, takes a key, hosted, or runs on this computer ("" for skills).
-    method: Literal["hosted_sign_in", "api_key", "hosted", "local", ""] = ""
+    method: Literal["hosted_sign_in", "api_key", "hosted", "local", "built_in", ""] = ""
     publisher: str = Field(max_length=160)
     version: str = Field(max_length=128)
     installed: bool
@@ -8178,7 +8177,7 @@ class IntegrationWay(WireModel):
     """One way to connect an app (a hosted endpoint, a local package, an account...), from local catalogs."""
     id: str = Field(min_length=1, max_length=512)
     name: str = Field(max_length=256)
-    method: Literal["hosted_sign_in", "api_key", "hosted", "local", ""]
+    method: Literal["hosted_sign_in", "api_key", "hosted", "local", "", "built_in"]
     verified: bool
     publisher: str = Field(max_length=160)
     supported: bool

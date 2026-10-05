@@ -151,3 +151,22 @@ def test_a_settled_tool_step_names_its_app_even_when_found_through_discovery(ide
     ]
     items = [item for group in project_assistant_row_traces(records)[0]["traces"] for item in group["items"]]
     assert [item.get("app") for item in items] == [identities, identities, None]
+
+
+def test_a_built_in_app_follows_the_same_rules_through_its_own_tools(apps):
+    import row_bot.agent as agent
+    apps.items.append({"id": "builtin:account:google", "kind": "builtin", "tools": ["gmail", "calendar"],
+                       "name": "Google account", "app": {"id": "google", "name": "Google"}, "icon": "si:google",
+                       "lifecycle": "installed", "readiness": "ready", "parent_id": None, "children": []})
+    apps.off.append("builtin:account:google")
+    found = scope.turn_scope("chat", "What's on today?", None)
+    assert found["exclude_tools"] == ["calendar", "gmail"] and found["exclude_servers"] == []
+    apps.off.clear()
+    focused = scope.turn_scope("chat", "@Google what's on today?", None)
+    assert focused["focus"] == ["builtin:account:google"] and focused["exclude_tools"] == []
+    assert "Notion" in focused["exclude_servers"]
+    assert scope.turn_scope("chat", "@Google what's on today?", ["web_search"]) is None  # Outside the profile: ignored.
+    core = [{"tool": SimpleNamespace(name="send_gmail_message"), "source": "core", "parent": "gmail"},
+            {"tool": SimpleNamespace(name="calculate"), "source": "core", "parent": "calculator"}]
+    kept, _ = agent._apply_app_scope(core, [], found)
+    assert [entry["parent"] for entry in kept] == ["calculator"]  # Row-Bot's own tools stay.

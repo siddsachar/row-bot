@@ -45,10 +45,6 @@
           "title": "Name",
           "type": "string"
         },
-        "placeholder": {
-          "title": "Placeholder",
-          "type": "boolean"
-        },
         "publisher": {
           "maxLength": 128,
           "title": "Publisher",
@@ -65,8 +61,7 @@
         "publisher",
         "category",
         "icon",
-        "verified",
-        "placeholder"
+        "verified"
       ],
       "title": "AppRef",
       "type": "object"
@@ -130,7 +125,8 @@
           "enum": [
             "skill",
             "mcp",
-            "plugin"
+            "plugin",
+            "builtin"
           ],
           "title": "Kind",
           "type": "string"
@@ -541,7 +537,8 @@
           "enum": [
             "skill",
             "mcp",
-            "plugin"
+            "plugin",
+            "builtin"
           ],
           "title": "Kind",
           "type": "string"
@@ -563,6 +560,7 @@
             "api_key",
             "hosted",
             "local",
+            "built_in",
             ""
           ],
           "title": "Method",
@@ -711,6 +709,7 @@
             "connect",
             "add",
             "install",
+            "set_up",
             "continue_setup",
             "sign_in",
             "add_key",
@@ -816,7 +815,8 @@
             "api_key",
             "hosted",
             "local",
-            ""
+            "",
+            "built_in"
           ],
           "title": "Method",
           "type": "string"

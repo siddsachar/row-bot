@@ -203,9 +203,7 @@ const INTENTS: {
     query: 'connect telegram',
     first: /^Connect Telegram/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith(
-        '/settings/channels#telegram',
-      ),
+      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps/telegram'),
   },
   {
     query: 'api key',
@@ -255,7 +253,7 @@ const INTENTS: {
     query: 'connect gmail',
     first: /^Connect Google/,
     ran: (h) =>
-      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/accounts#google'),
+      expect(h.onOpenSetting).toHaveBeenCalledWith('/settings/apps/google'),
   },
 ];
 

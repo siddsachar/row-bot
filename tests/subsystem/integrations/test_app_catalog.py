@@ -6,7 +6,13 @@ from row_bot.integrations import apps, icons, index
 from row_bot.integrations.safe import TtlCache
 from row_bot.mcp_client import marketplace, registry_snapshot
 
-ROUTES = ("curated:", "registry:", "endpoint:", "account:", "channel:", "hermes:", "bundled:")
+ROUTES = ("curated:", "registry:", "endpoint:", "account:", "channel:", "tool:", "hermes:", "bundled:")
+BUILT_IN = ("account:", "channel:", "tool:")
+
+
+def built_in_only(app: apps.App) -> bool:
+    """Connected only through Row-Bot's own pages (an account, a channel, a key tool)."""
+    return all(ref.startswith(BUILT_IN) for ref in app.refs)
 
 
 def featured() -> list[apps.App]:
@@ -19,8 +25,8 @@ def test_every_featured_app_has_a_real_route_sourced_facts_and_an_icon():
     assert {app.category for app in ranked} == set(apps.CATEGORIES)
     for app in apps.catalog()[0].values():
         assert any(ref.startswith(ROUTES) for ref in app.refs), app.id
-        assert app.jobs and app.synonyms and len(app.example_prompts) >= (0 if app.placeholder else 2), app.id
-        assert app.placeholder or app.sources or app.id == "local-text-tools", app.id  # Vendor docs recorded.
+        assert app.jobs and app.synonyms and len(app.example_prompts) >= (0 if built_in_only(app) else 2), app.id
+        assert built_in_only(app) or app.sources or app.id == "local-text-tools", app.id  # Vendor docs recorded.
         assert app.icon == "" or icons.license_of(app.icon)["license"], app.id
         assert app.ref()["icon"].startswith(("si:", "letter:"))
 
@@ -57,8 +63,8 @@ def test_discover_opens_on_featured_apps_and_the_top_50_connect_by_name(shipped)
     ranks = [row["app"]["featured_rank"] for row in page["items"]]
     assert ranks == sorted(ranks)  # Featured order, never alphabetical.
     for app in featured()[:50]:
-        if app.placeholder or not any(ref.startswith(("curated:", "registry:", "endpoint:")) for ref in app.refs):
-            continue  # Accounts and channels join Apps in Phase 5.
+        if not any(ref.startswith(("curated:", "registry:", "endpoint:")) for ref in app.refs):
+            continue  # Built-in ways are found through their own source.
         rows = api.read_items(owner_id="owner", scope="catalog", kind="mcp", query=app.name, limit=5)["items"]
         assert rows and rows[0]["app"] and rows[0]["app"]["id"] == app.id, app.id
 

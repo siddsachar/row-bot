@@ -6,6 +6,7 @@
         "connect",
         "add",
         "install",
+        "set_up",
         "continue_setup",
         "sign_in",
         "add_key",

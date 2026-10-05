@@ -371,7 +371,6 @@ it('puts vendor apps first, the community after, and shows hidden results on req
                 category: 'productivity',
                 icon: 'si:notion',
                 verified: true,
-                placeholder: false,
                 featured_rank: 4,
               },
             }),
@@ -1103,4 +1102,58 @@ it('starts the fix at once when opened from Needs you, and only once', async () 
   await waitFor(() =>
     expect(screen.getByLabelText('Location')).not.toHaveTextContent('fix=1'),
   );
+});
+
+it('sets up a built-in way in its own settings, scoped to it, with no plan of its own', async () => {
+  const google = entry({
+    id: 'builtin:account:google',
+    kind: 'builtin',
+    name: 'Google account',
+    source: 'builtin',
+    method: 'built_in',
+    publisher: 'Row-Bot',
+    next_action: { kind: 'set_up', label: 'Set up' },
+  });
+  const { controller } = show(
+    '/settings/apps/item?id=builtin%3Aaccount%3Agoogle',
+    {
+      integrationDetail: vi.fn(async () =>
+        detail({
+          entry: google,
+          plan: null,
+          about: {
+            ...detail().about,
+            ways: [
+              {
+                id: 'builtin:account:google',
+                name: 'Google account',
+                method: 'built_in',
+                verified: false,
+                publisher: 'Row-Bot',
+                supported: true,
+                recommended: true,
+              },
+              {
+                id: 'mcp:official:com.google/gmail@1.0.0',
+                name: 'Gmail',
+                method: 'hosted_sign_in',
+                verified: true,
+                publisher: 'Google',
+                supported: false,
+                recommended: false,
+              },
+            ],
+          },
+        }),
+      ),
+      reviewInstallPlan: vi.fn(),
+    },
+  );
+  expect(await screen.findByText('Built in')).toBeVisible();
+  expect(screen.getByText('Built in · Row-Bot · Recommended')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Set up' }));
+  expect(
+    await screen.findByText('Editor for builtin:account:google'),
+  ).toBeVisible();
+  expect(controller.reviewInstallPlan).not.toHaveBeenCalled();
 });

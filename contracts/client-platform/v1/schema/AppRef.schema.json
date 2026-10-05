@@ -43,10 +43,6 @@
       "title": "Name",
       "type": "string"
     },
-    "placeholder": {
-      "title": "Placeholder",
-      "type": "boolean"
-    },
     "publisher": {
       "maxLength": 128,
       "title": "Publisher",
@@ -63,8 +59,7 @@
     "publisher",
     "category",
     "icon",
-    "verified",
-    "placeholder"
+    "verified"
   ],
   "title": "AppRef",
   "type": "object"

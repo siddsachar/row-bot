@@ -15,15 +15,20 @@ MAX_FOCUS = 8
 
 
 def _items() -> list[dict]:
-    """Every connection a chat could use (standalone or included in a package), with its server name."""
+    """Every app a chat could use: connections (standalone or in a package) with their server name, and
+    Row-Bot's built-in ways that bring chat tools (Google's Gmail and Calendar, X, web search)."""
+    from row_bot.integrations import builtin
     rows, _ = facts.inventory()
-    return [item for row in rows for item in (row, *row["children"]) if item["kind"] == "mcp" and item.get("server")]
+    found = [item for row in rows for item in (row, *row["children"]) if item["kind"] == "mcp" and item.get("server")]
+    return found + [row for row in builtin.rows() if row.get("tools")]
 
 
 def _allowed(item: dict, allow: list[str] | tuple[str, ...] | None) -> bool:
     """Whether the agent profile's tool rules let this app's tools in at all (the ceiling)."""
     if allow is None:
         return True
+    if item["kind"] == "builtin":
+        return any(tool in allow for tool in item.get("tools") or [])
     from row_bot.mcp_client.safety import sanitize_name_component
     prefix = f"mcp_{sanitize_name_component(item['server'])}_"
     package = (item.get("parent_id") or "").removeprefix("plugin:")
@@ -94,12 +99,14 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
     usable = {_name(item): item["id"] for item in items if item["id"] not in off and item["lifecycle"] == "installed"
               and item["readiness"] == "ready" and _allowed(item, allow)}
     focus = _mentioned(text, usable, "@") if text else []
-    servers = {item["server"] for item in items if item["id"] in off or (focus and item["id"] not in focus)}
+    left_out = [item for item in items if item["id"] in off or (focus and item["id"] not in focus)]
+    servers = {item["server"] for item in left_out if item.get("server")}
+    parents = {tool for item in left_out for tool in item.get("tools") or []}
     skills = _mentioned(text, _skill_names(), "/") if text else []
     previous = previous or {}
     servers |= {str(name) for name in previous.get("exclude_servers") or []}
     skills = list(dict.fromkeys([*skills, *(str(name) for name in previous.get("skills") or [])]))[:MAX_FOCUS]
-    tools = sorted({str(name) for name in previous.get("exclude_tools") or []})
+    tools = sorted(parents | {str(name) for name in previous.get("exclude_tools") or []})
     if not (servers or skills or tools):
         return None
     return {"exclude_servers": sorted(servers), "exclude_tools": tools, "focus": focus, "skills": skills}
@@ -107,10 +114,12 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
 
 def app_for_tool(tool_name: str) -> dict | None:
     """The app a chat tool belongs to (``{item_id, name, icon}``), from its runtime name; None for Row-Bot's own."""
+    from row_bot.integrations import builtin
     from row_bot.mcp_client import runtime
-    server = runtime.server_for_tool(tool_name)
+    server = runtime.server_for_tool(tool_name) if tool_name.startswith("mcp_") else None
     if not server:
-        return None
+        parent = builtin.tool_parent(tool_name)
+        return builtin.tool_app(parent) if parent else None
     item = next((item for item in _items() if item["server"] == server), None)
     if item is None:
         return None

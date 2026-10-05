@@ -20,7 +20,7 @@ CATEGORIES = ("productivity", "developer", "data", "design", "communication", "f
 VARIANTS = ("hosted_mcp", "local_mcp", "package", "account", "channel", "api_key_tool", "broker")
 AUTH = ("", "oauth", "api_key", "none", "account", "mixed")
 _DOCKER_FLAGS = {"-i", "-t", "-it", "-d", "--rm", "--interactive", "--tty", "--detach", "--init", "--privileged", "--read-only"}
-_REF = re.compile(r"(curated|registry|endpoint|npm|pypi|oci|repo|hermes|bundled|account|channel):[a-z0-9@._/+-]{1,200}")
+_REF = re.compile(r"(curated|registry|endpoint|npm|pypi|oci|repo|hermes|bundled|account|channel|tool):[a-z0-9@._/+-]{1,200}")
 _DOMAIN = re.compile(r"(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 _PATH = Path(__file__).with_name("apps.json")
 # Hosting domains whose subdomains belong to anyone; never a vendor domain for the badge.
@@ -48,7 +48,6 @@ class App:
     key_url: str = ""
     icon: str = ""
     featured_rank: int | None = None
-    placeholder: bool = False
     local_app: str = ""
     local_check: tuple = ()  # (("port", 9876),) or (("process", "blender"),): how to tell the app is open.
     checked: str = ""
@@ -57,7 +56,7 @@ class App:
     def ref(self, *, verified: bool = False) -> dict:
         """The small public identity carried by every entry of this app."""
         return {"id": self.id, "name": self.name, "publisher": self.publisher, "category": self.category,
-                "icon": self.icon or letter(self.name), "verified": verified, "placeholder": self.placeholder,
+                "icon": self.icon or letter(self.name), "verified": verified,
                 "featured_rank": self.featured_rank}
 
     def view(self) -> dict:

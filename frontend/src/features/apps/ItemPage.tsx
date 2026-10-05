@@ -47,6 +47,7 @@ import {
 } from './parts';
 
 const WAYS: Record<string, string> = {
+  built_in: 'Built in',
   hosted_sign_in: 'Hosted · Sign-in',
   api_key: 'Hosted · API key',
   hosted: 'Hosted',
@@ -267,6 +268,10 @@ function Detail({
     );
     const fix = detail.entry.next_action;
     if (['none', 'try', 'delete_data', 'retry'].includes(fix.kind)) return;
+    if (detail.entry.kind === 'builtin') {
+      navigate(`${idPath(kind, detail.entry.id)}&edit=1`, { replace: true });
+      return;
+    }
     if (!control.plan && (!detail.plan || detail.plan.supported))
       void control.review('', fix.label);
   }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -298,8 +303,13 @@ function Detail({
         : `${app?.example_prompts[0] ?? `Use ${name} to `}`;
     workspace?.newChat?.(prompt);
   };
+  // A built-in way (an account, a channel, a key tool) is set up and changed in
+  // its own settings, scoped to it here: Row-Bot runs no plan for it.
+  const builtIn = entry.kind === 'builtin';
+  const ownSettings = `${idPath(kind, entry.id)}&edit=1`;
   const start = () => {
     if (action.kind === 'try') tryIt();
+    else if (builtIn) navigate(ownSettings);
     else if (action.kind === 'delete_data') void control.review('remove');
     else void control.review('', action.label);
   };
@@ -326,7 +336,12 @@ function Detail({
       label: 'Check for updates',
       onSelect: () => void control.review('update'),
     });
-  if (entry.installed && (entry.kind !== 'mcp' || !entry.parent_id))
+  if (builtIn && entry.installed)
+    menu.push({
+      label: 'Open its settings',
+      onSelect: () => navigate(ownSettings),
+    });
+  else if (entry.installed && (entry.kind !== 'mcp' || !entry.parent_id))
     menu.push({
       label: 'Advanced settings',
       onSelect: () => {
@@ -422,11 +437,13 @@ function Detail({
           <StatusLine>
             {entry.kind === 'skill'
               ? 'Instructions stay on this computer.'
-              : about.destination
-                ? `What you ask goes to ${hostOf(about.destination)}.`
-                : about.runs_locally
-                  ? 'Runs on this computer.'
-                  : 'Hosted by its publisher.'}
+              : builtIn
+                ? `Part of Row-Bot: it works through your own ${name} sign-in or key.`
+                : about.destination
+                  ? `What you ask goes to ${hostOf(about.destination)}.`
+                  : about.runs_locally
+                    ? 'Runs on this computer.'
+                    : 'Hosted by its publisher.'}
           </StatusLine>
         </div>
       </SettingsGroup>
@@ -510,7 +527,22 @@ function Detail({
           </div>
         </SettingsGroup>
       )}
-      {entry.kind !== 'skill' && entry.installed && (
+      {builtIn && (
+        <SettingsGroup title="Settings">
+          <StatusLine
+            action={
+              <Link className="settings-link" to={ownSettings}>
+                {entry.installed ? 'Open' : 'Set up'}
+              </Link>
+            }
+          >
+            {entry.installed
+              ? `Change how ${name} works in its own settings.`
+              : `Set up ${name} in its own settings, then use it in any chat.`}
+          </StatusLine>
+        </SettingsGroup>
+      )}
+      {entry.kind !== 'skill' && !builtIn && entry.installed && (
         <SettingsGroup title="Settings">
           {settings.length > 0 && (
             <StatusLine
