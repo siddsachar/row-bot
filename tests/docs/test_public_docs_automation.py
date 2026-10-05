@@ -52,9 +52,17 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert any(page["path"] == "index.mdx" for page in inventory["docs_pages"])
     controls = inventory["settings_controls"]
     assert {row["page_id"] for row in controls} <= {page["id"] for page in inventory["settings"]}
+
+    def opens_its_row(row: dict) -> bool:
+        route = urlsplit(row["app_route"])
+        page = f"/app-v2/settings/{row['page_id']}"
+        # A row that is its own page (an app such as Google) opens that page.
+        return (route.path == page and route.fragment == row["anchor"]) or (
+            route.path.startswith(page + "/") and not route.fragment
+        )
+
     assert all(
-        urlsplit(row["app_route"]).path == f"/app-v2/settings/{row['page_id']}"
-        and urlsplit(row["app_route"]).fragment == row["anchor"]
+        opens_its_row(row)
         and row["source"] == f"frontend/src/features/settings/model.ts#{row['anchor']}"
         for row in controls
     )

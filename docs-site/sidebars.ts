@@ -69,8 +69,6 @@ const sidebars: SidebarsConfig = {
         'settings/tools',
         'settings/skills',
         'settings/apps',
-        'settings/accounts',
-        'settings/channels',
         'settings/preferences',
       ],
     },

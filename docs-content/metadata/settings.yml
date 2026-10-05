@@ -62,29 +62,18 @@ pages:
     security: Adding a skill turns it on; scripts inside a skill never run when it is
       added.
   apps:
-    description: Find and connect the services Row-Bot can work in, choose what each
-      app may do, turn apps off or remove them, and manage catalogs and custom
-      connections.
+    description: Find and connect the services Row-Bot can work in, including the
+      GitHub, Google and X accounts, messaging channels and key-based tools built into
+      Row-Bot; choose what each app may do, change its settings, turn apps off or
+      remove them, and manage catalogs and custom connections.
     docs_route: /docs/settings/apps
     security: Nothing is fetched or run until you agree; deleting, sending, paying,
-      publishing, running code and unknown actions always ask first.
+      publishing, running code and unknown actions always ask first. Signing in to an
+      account opens an external authorisation flow, and a running channel can receive
+      or deliver real messages.
     dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot
-      prepares after you agree.
-  accounts:
-    description: Connect the GitHub, Google, and X accounts used by tools and setup
-      flows.
-    docs_route: /docs/settings/accounts
-    screenshot_id: settings-accounts
-    security: Connecting an account opens an external authorisation flow.
-  channels:
-    description: Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and
-      health checks.
-    docs_route: /docs/settings/channels
-    screenshot_id: settings-channels
-    dependencies: The matching channel extra and third-party account configuration are
-      required.
-    security: Starting an adapter can receive or deliver real messages; review targets
-      first.
+      prepares after you agree. Channels need the matching channel extra and
+      third-party account configuration.
   system:
     description: Configure the workspace folder, what Row-Bot may do (commands, files,
       browser and Computer Use), and logging.

@@ -510,7 +510,8 @@ def collect_settings_controls() -> list[dict[str, Any]]:
                 "label": str(row["label"]),
                 "anchor": anchor,
                 "keywords": str(row.get("keywords") or ""),
-                "app_route": f"{app_route}#{anchor}",
+                # A row that is its own page (an app) opens that page.
+                "app_route": f"{REACT_BASE}{row['href']}" if row.get("href") else f"{app_route}#{anchor}",
                 "docs_route": page["docs_route"],
                 "source": f"{model['source']}#{anchor}",
             }

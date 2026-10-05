@@ -8,7 +8,7 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Settings Controls
 
 <!-- generated-from: frontend/src/features/settings/model.ts -->
-<!-- inventory-hash: 5a8700d47bbf740d -->
+<!-- inventory-hash: 54a0566e00619368 -->
 
 <GeneratedNotice source="frontend/src/features/settings/model.ts" />
 
@@ -134,36 +134,22 @@ Security: Adding a skill turns it on; scripts inside a skill never run when it i
 
 Group: Connections. Open in Row-Bot: `/app-v2/settings/apps`. Guide: [/docs/settings/apps](/docs/settings/apps).
 
-Dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot prepares after you agree.
+Dependencies: Apps that run on this computer may need Node.js or uv, which Row-Bot prepares after you agree. Channels need the matching channel extra and third-party account configuration.
 
-Security: Nothing is fetched or run until you agree; deleting, sending, paying, publishing, running code and unknown actions always ask first.
+Security: Nothing is fetched or run until you agree; deleting, sending, paying, publishing, running code and unknown actions always ask first. Signing in to an account opens an external authorisation flow, and a running channel can receive or deliver real messages.
 
 | Setting | Search keywords | Open in Row-Bot | Source |
 | --- | --- | --- | --- |
 | App catalogs | update registry hermes mcp | `/app-v2/settings/apps#catalogs` | `frontend/src/features/settings/model.ts#catalogs` |
 | Runtimes (Node.js, uv) | node python uv mcp | `/app-v2/settings/apps#chats` | `frontend/src/features/settings/model.ts#chats` |
-
-## Accounts Controls
-
-Group: Connections. Open in Row-Bot: `/app-v2/settings/accounts`. Guide: [/docs/settings/accounts](/docs/settings/accounts).
-
-Security: Connecting an account opens an external authorisation flow.
-
-| Setting | Search keywords | Open in Row-Bot | Source |
-| --- | --- | --- | --- |
-| GitHub account |  | `/app-v2/settings/accounts#github` | `frontend/src/features/settings/model.ts#github` |
-| Google account | gmail calendar | `/app-v2/settings/accounts#google` | `frontend/src/features/settings/model.ts#google` |
-| X account | twitter | `/app-v2/settings/accounts#x` | `frontend/src/features/settings/model.ts#x` |
-
-## Channels Controls
-
-Group: Connections. Open in Row-Bot: `/app-v2/settings/channels`. Guide: [/docs/settings/channels](/docs/settings/channels).
-
-Dependencies: The matching channel extra and third-party account configuration are required.
-
-Security: Starting an adapter can receive or deliver real messages; review targets first.
-
-_This page has no individually searchable settings._
+| GitHub account |  | `/app-v2/settings/apps/github` | `frontend/src/features/settings/model.ts#github` |
+| Google account | gmail calendar | `/app-v2/settings/apps/google` | `frontend/src/features/settings/model.ts#google` |
+| X account | twitter | `/app-v2/settings/apps/x` | `frontend/src/features/settings/model.ts#x` |
+| Telegram channel | messaging channel | `/app-v2/settings/apps/telegram` | `frontend/src/features/settings/model.ts#telegram` |
+| WhatsApp channel | messaging channel | `/app-v2/settings/apps/whatsapp` | `frontend/src/features/settings/model.ts#whatsapp` |
+| Discord channel | messaging channel | `/app-v2/settings/apps/discord` | `frontend/src/features/settings/model.ts#discord` |
+| Slack channel | messaging channel | `/app-v2/settings/apps/slack` | `frontend/src/features/settings/model.ts#slack` |
+| Text messages channel | messaging channel | `/app-v2/settings/apps/sms` | `frontend/src/features/settings/model.ts#sms` |
 
 ## System Controls
 

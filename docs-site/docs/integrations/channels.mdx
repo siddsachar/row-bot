@@ -1,36 +1,32 @@
 ---
 title: "Channels"
-description: "Connect Row-Bot to messaging channels, delivery defaults, pairing, tunnels, and safe external behavior."
+description: "Connect Row-Bot to messaging channels as apps: setup steps, pairing, public addresses, delivery, and safe external behavior."
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Channels
 
-Channels connect Row-Bot to external messaging platforms such as Telegram, WhatsApp, Discord, Slack, and SMS-style providers when configured. Use channels when you want to message Row-Bot outside the desktop app or send workflow results somewhere specific.
+Channels connect Row-Bot to external messaging platforms: Telegram, WhatsApp, Discord, Slack, and SMS through Twilio. Use channels when you want to message Row-Bot outside the desktop app or send workflow results somewhere specific.
 
-<Screenshot id="settings-channels" alt="Row-Bot Channels settings." caption="Channels settings show connector configuration, credentials, tunnel use, pairing, and start/stop controls." />
+Each channel is an app in **Settings › Apps**, under the **Communication** category: **Telegram**, **WhatsApp**, **Discord**, **Slack** and **Text messages** (SMS). On the app's page the channel is a **Built in** way to connect. Slack's page also lists Slack's own hosted server, which lets Row-Bot work in your Slack workspace rather than talk to you through it. A package can bring a channel too; it is listed with its package.
 
 ## Setup Workflow
 
-1. Open Settings › Channels.
-2. Expand the channel you want.
-3. Add the required token, URL, phone/account detail, or provider-specific field.
-4. Set up the public link in Settings › Devices & remote access if the channel requires an inbound webhook.
-5. Save the channel.
-6. Start the channel.
-7. Pair or approve users before trusting private messages.
-8. Test with a low-risk message.
+1. Open **Settings › Apps** and choose the channel's app, or type "connect telegram" (or the channel you want) in the command palette.
+2. Choose **Set up** (or **Open** once it is set up). The channel's own settings open, showing only that channel.
+3. Follow **Connect _channel_**. Each step says what to do where, links to the platform's page (such as **Open @BotFather** for Telegram), and has its field in place: paste a value and choose **Save** for it.
+4. Choose **Start _channel_**. A channel that needs a public address, such as SMS, opens your tunnel by itself; its setup is the public link in **Settings › Devices & remote access**. WhatsApp's first start installs its bridge, then shows a code to scan with your phone.
+5. Pair or approve your account before trusting private messages: **Get pairing code for _channel_**, then send the code to the bot from the account you want to approve.
+6. **Send a test message to me** to check it works with a low-risk message.
 
 ## Controls
 
-- **Save** stores channel settings.
-- **Start** begins the channel runtime.
-- **Stop** shuts the channel runtime down.
-- **Tunnel controls** connect a channel to a public webhook URL when needed.
-- **DM Pairing Code** approves a user before private-message access.
-- **Paired Users** lists approved users and lets you revoke access.
-- **Setup Guide** explains platform-specific prerequisites.
+- **Save** and **Clear** beside each field store or remove that value. Saved values are never shown again.
+- **Start _channel_** begins the channel; it starts again with Row-Bot until you stop it. **Stop _channel_** shuts it down.
+- **Reachable at** shows the public address a channel uses, with **Copy**.
+- **Get pairing code for _channel_** shows a code that approves the account that sends it; it expires after one hour. Some channels approve people their own way and say so.
+- **Paired accounts** lists who is approved, with **Revoke** for each.
+- **Reset session** (WhatsApp) unlinks your phone and shows a new code to scan.
+- **More settings** holds the channel's other fields.
 - **`/reasoning`** shows or changes the reasoning choice for that channel conversation's active model. Run it without an argument to see the exact valid choices.
 
 ## Safety
@@ -43,6 +39,7 @@ When work starts from a channel and a child agent asks for approval, Row-Bot sen
 
 - If Telegram encounters one transient network failure during initialization, Row-Bot cleans up the partial runtime and retries once. Persistent network failures remain stopped with an actionable diagnostic; invalid bot tokens are not retried.
 - If Telegram starts but its command menu cannot be registered, polling remains available and the menu failure is logged as non-fatal.
-- If a channel cannot start, check required fields and tunnel state. Automatic tunnel startup runs outside the UI event loop, so a slow tunnel helper should report status without freezing app startup.
+- If a channel cannot start, check its fields and the public link. Automatic tunnel startup runs outside the UI event loop, so a slow tunnel helper should report status without freezing app startup.
+- If a channel stopped, Monitor offers **Restart _channel_** for it.
 - If inbound messages fail, verify webhook URLs and platform permissions.
-- If the wrong person has access, revoke them from Paired Users.
+- If the wrong person has access, revoke them from **Paired accounts**.

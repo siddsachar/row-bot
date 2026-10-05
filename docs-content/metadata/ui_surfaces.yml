@@ -375,25 +375,25 @@ surfaces:
     status: ready
     source_files: [frontend/src/features/apps/Library.tsx, frontend/src/features/apps/ItemPage.tsx, src/row_bot/skills.py]
   settings_accounts:
-    title: Accounts settings
-    app_route: /app-v2/settings/accounts
+    title: An account's app page (GitHub, Google or X) and its built-in way to connect
+    app_route: /app-v2/settings/apps/google
     state: all external accounts disconnected
     scenario: configured
-    docs_page: /docs/settings/accounts
-    screenshot_id: settings-accounts
-    capture_type: automated
+    docs_page: /docs/integrations/accounts
+    no_image_reason: Accounts are apps now and the Accounts settings page is gone; the app page has no approved screenshot yet.
+    capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/Phase4RetainedSettings.tsx, frontend/src/features/settings/AccountAuthControls.tsx, frontend/src/features/settings/GitHubAccessControls.tsx]
+    source_files: [frontend/src/features/apps/ItemPage.tsx, frontend/src/features/settings/SettingsSnapshotPanels.tsx, frontend/src/features/settings/AccountAuthControls.tsx, frontend/src/features/settings/GitHubAccessControls.tsx, src/row_bot/integrations/builtin.py]
   settings_channels:
-    title: Channels settings
-    app_route: /app-v2/settings/channels
+    title: A channel's app page (Telegram, WhatsApp, Discord, Slack or SMS) and its built-in way to connect
+    app_route: /app-v2/settings/apps/telegram
     state: fictional adapters configured but stopped
     scenario: configured
-    docs_page: /docs/settings/channels
-    screenshot_id: settings-channels
-    capture_type: automated
+    docs_page: /docs/integrations/channels
+    no_image_reason: Channels are apps now and the Channels settings page is gone; the app page has no approved screenshot yet.
+    capture_type: manual
     status: ready
-    source_files: [frontend/src/features/settings/ChannelSettings.tsx, src/row_bot/channels/registry.py]
+    source_files: [frontend/src/features/apps/ItemPage.tsx, frontend/src/features/settings/ChannelSettings.tsx, src/row_bot/integrations/builtin.py, src/row_bot/channels/registry.py]
   settings_mcp:
     title: Apps › Advanced (catalogs, apps in chats, custom connection)
     app_route: /app-v2/settings/apps?view=advanced
@@ -566,7 +566,7 @@ surfaces:
     source_files: [frontend/src/features/shell/ComputerUseCard.tsx, src/row_bot/computer_use/service.py]
   live_provider_connections:
     title: Live provider, Codex, and xAI connection states
-    app_route: Providers and Accounts settings with real provider credentials or OAuth
+    app_route: Providers settings and account apps with real provider credentials or OAuth
     state: requires live accounts and could incur provider calls or cost
     scenario: live-manual
     docs_page: /docs/configuration/models-and-providers

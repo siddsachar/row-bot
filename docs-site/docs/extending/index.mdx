@@ -33,7 +33,7 @@ For the conceptual differences between tools, Skills, plugins, MCP, channels, an
 
 Third-party dependency telemetry is not Row-Bot telemetry. Review and accept any dependency behaviour before installation, and never allow it to receive Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the explicit feature you chose.
 
-Connect apps and packages in [Settings › Apps](/docs/settings/apps) and add skills in [Settings › Skills](/docs/settings/skills). Open an item's page, read what will happen, and agree; Row-Bot then does the setup and asks what the app may do. Raw settings for one item stay under its **⋯ › Advanced settings**.
+Connect apps and packages in [Settings › Apps](/docs/settings/apps), where your accounts and channels are apps too, and add skills in [Settings › Skills](/docs/settings/skills). Open an item's page, read what will happen, and agree; Row-Bot then does the setup and asks what the app may do. Raw settings for one item stay under its **⋯ › Advanced settings**.
 
 ## How Apps And Skills Are Set Up
 
@@ -41,7 +41,9 @@ This section is for developers working on Row-Bot or building against its local 
 
 **Plans.** For each action on an item, the server computes an install plan: an ordered list of typed steps (`consent`, `inputs`, `runtime`, `local_app_check`, `sign_in`, `test`, `access`, `enable`). `POST /api/v1/integrations/plans/review` returns the plan with a consent token bound to the session and the plan's digest. `POST /api/v1/integrations/plans` starts it with that token; the server runs it in the background, and the client polls `GET /api/v1/integrations/plans/{id}`. A plan paused for input resumes with `POST …/plans/{id}/continue` and stops with `POST …/plans/{id}/cancel`, keeping completed steps. A paused plan expires after 30 minutes. When the outcome of a step is uncertain, the plan reports it rather than re-running it.
 
-**Intents.** `connect`, `add`, `turn_on`, `fix`, `access`, `turn_off`, `remove` (with `cleanup` to also delete saved keys and data, bound to the consent) and `update`.
+**Intents.** `connect`, `add`, `turn_on`, `fix`, `access`, `settings` (change a connected MCP app's declared inputs: one `inputs` step with every setting, then `test`, `access`, which pauses only when the tools changed, and `enable`, which reconnects only if it was on), `turn_off`, `remove` (with `cleanup` to also delete saved keys and data, bound to the consent) and `update`.
+
+**Built-in ways.** `integrations/builtin.py` lists Row-Bot's own accounts, channels and key tools as items (`builtin:account:<id>`, `builtin:channel:<id>`, `builtin:tool:<id>`) with their status read from their owners. They have no plan: their page opens the owner's settings scoped to that item (`?edit=1`). Each keeps its owner's credentials; an account's token is never another app's key.
 
 **Endpoints.** All under `/api/v1/integrations/`: `sources` (and `sources/{id}/update`), `apps`, `icons` (a batch of logos as data URIs), `presets`, `items`, `items/search`, `items/resolve`, `items/settle`, `uploads`, `detail`, `plans/review`, `plans`, `plans/{id}`, `plans/{id}/continue`, `plans/{id}/cancel` and `catalog-schedule`. `items` reads installed items or the local catalog index (by `scope`); `items/search` with `refresh` is the explicit **Search online catalogs**; `items/resolve` identifies a pasted link without fetching it (an app link with a query string is refused, since keys belong in the keychain); `uploads` stages a picked file and is limited to Row-Bot on this computer; `items/settle` is the **Retry** on an unfinished change: it checks that item's unfinished owner commands again and settles each only when its owner proves how it ended, never re-sending one. The old `/settings/integrations` API routes are removed.
 

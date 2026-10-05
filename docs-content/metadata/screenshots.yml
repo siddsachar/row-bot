@@ -358,24 +358,6 @@ screenshots:
     route: /app-v2/settings/tools
     capture_selector: '#workspace-columns'
     expected_text: ["Search", "research and built-in tools", "Capability loading"]
-  settings-accounts:
-    <<: *desktop
-    title: Accounts settings
-    output: settings-accounts.png
-    alt: Accounts settings with GitHub, Google and X not connected and the steps to connect GitHub; no account details are shown.
-    docs_pages: [/docs/settings/accounts]
-    route: /app-v2/settings/accounts
-    capture_selector: '#workspace-columns'
-    expected_text: ["Services Row-Bot can use for you", "GitHub"]
-  settings-channels:
-    <<: *desktop
-    title: Channels settings
-    output: settings-channels.png
-    alt: Channels settings listing Telegram, Slack, SMS, Discord and WhatsApp with their state; none is running.
-    docs_pages: [/docs/settings/channels, /docs/integrations/channels]
-    route: /app-v2/settings/channels
-    capture_selector: '#workspace-columns'
-    expected_text: ["Messaging platforms Row-Bot can talk through", "Telegram"]
   settings-preferences:
     <<: *desktop
     title: Preferences settings

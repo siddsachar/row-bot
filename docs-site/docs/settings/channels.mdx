@@ -1,52 +1,13 @@
 ---
 title: "Settings: Channels"
-description: "Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks."
+description: "Settings no longer has a Channels page; Telegram, WhatsApp, Discord, Slack and SMS are apps in Settings › Apps."
+unlisted: true
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Channels
 
-Channels let Row-Bot receive or send messages through external apps. Use them when you want Row-Bot available outside the desktop window or when workflows should deliver results somewhere specific.
+Settings no longer has a Channels page. Each channel is an app now: open **Settings › Apps** and choose **Telegram**, **WhatsApp**, **Discord**, **Slack** or **Text messages** (SMS); the **Communication** category lists them together. On the app's page the channel is a **Built in** way to connect, and **Set up** (or **Open** once it is set up) opens that one channel's own settings: its connect steps, **Start** and **Stop**, pairing, and paired accounts.
 
-<Screenshot id="settings-channels" alt="Settings: Channels in Row-Bot." caption="The Channels page configures messaging connectors, credentials, tunnel use, pairing, and start and stop controls." />
+Read [Settings: Apps](/docs/settings/apps#built-in-ways-to-connect) and [Channels](/docs/integrations/channels).
 
-## Where To Find It
-
-Open **Settings**, then choose **Channels** in the **Connections** group, or search for it with **Find a setting**.
-
-## Controls
-
-- Each channel expands into credential fields, status, and controls.
-- Save stores that channel's settings.
-- Start and Stop control the channel runtime.
-- Tunnel settings connect the channel to an externally reachable webhook when required. The tunnel itself is the public link in **Settings › Devices & remote access**.
-- DM Pairing Code helps approve a user before private-message access is allowed.
-- Paired Users shows who is approved and allows revocation.
-- Setup Guide explains provider-specific prerequisites.
-
-## Common Workflow
-
-1. Set up the public link in **Settings › Devices & remote access** if the channel needs a webhook.
-2. Add the channel's required token, URL, or account details.
-3. Save, then Start the channel.
-4. Pair or approve users before trusting inbound private messages.
-5. Use workflow delivery defaults to decide where automated results go.
-
-## What Is Saved
-
-Channel settings are global. Messages sent through a channel leave the local app and follow that platform's rules.
-
-## Privacy And Safety
-
-Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
-
-## Control-Level Reference
-
-The [generated Settings Controls reference](/docs/reference/generated/settings-controls#channels-controls) lists every searchable setting on this page with its deep link, search keywords, and any dependency or security notes.
-
-## Troubleshooting
-
-- If a channel will not start, check required fields and tunnel status. If it stopped, Monitor offers **Restart** for it.
-- If messages do not arrive, verify webhook URLs and platform permissions.
-- If a user should no longer have access, revoke them from Paired Users.
+Old Channels links open the matching app in Row-Bot, or the Communication apps when they named no channel.

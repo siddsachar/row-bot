@@ -1,6 +1,6 @@
 ---
 title: "Chat"
-description: "Use Row-Bot conversations: the composer, models, attachments, tools, approvals in place, the details card, names, and the conversation library."
+description: "Use Row-Bot conversations: the composer, models, attachments, apps and skills in a chat, tools, approvals in place, the details card, names, and the conversation library."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -29,9 +29,36 @@ A new conversation is named from the first words of your first message straight 
 - **Model** chooses the model for this conversation. See [Model Picker](/docs/chat/model-picker).
 - **Thinking** appears beside the model only when that exact model exposes supported reasoning choices. See [Reasoning Controls](/docs/chat/reasoning-controls).
 - **Approvals** sets how actions are reviewed in this conversation: **Ask** (approve each consequential action), **Block**, or **Auto**.
-- The **+** menu (**Add files and more**) holds **Attach file**, **Add resource…** (a design or code folder), **Skills…**, **Agent profile**, and **Mode**: **Agent** uses tools and agents, **Chat only** answers without tools.
-- **Skill chips** above the composer show the skills in use, including default ones; × removes one from this conversation.
+- The **+** menu (**Add files and more**) holds **Attach file**, **Add resource…** (a design or code folder), **Skills…**, **Apps**, **Agent profile**, and **Mode**: **Agent** uses tools and agents, **Chat only** answers without tools.
+- **Skill chips** above the composer show the skills in use, including default ones; × removes one from this conversation. **Skills…** (or `/skills`) opens **Smart Skills**, which ends with **Find more skills** to open Settings › Skills.
 - **Voice** buttons use Dictate or Talk when voice is set up.
+
+## Apps In A Chat
+
+The apps you connect in [Settings › Apps](/docs/settings/apps) can be used in every chat. **+ › Apps** says how many are on in this chat (such as "2 on", or "None yet") and lists each ready app with its logo and a check box:
+
+- Clear an app's check box to stop this chat using it, and check it again to bring it back. This changes only this chat; other chats and the app's own settings stay as they are. An app you connect later starts checked.
+- An app this chat's agent profile doesn't include is listed but can't be checked: "This chat's agent profile doesn't use it."
+- Only ready apps are listed. One that needs a sign-in or a key, or is turned off in Settings, appears once it is fixed on its app page.
+- **Find more apps** opens Settings › Apps.
+
+### Mention An App Or A Skill
+
+- Type `@` to mention something. The list's **Apps** group shows this chat's apps with their logos ("Use only this app for this message"), beside **Agents**, **Resources** and **Files**. Mentioning an app focuses that message on it: for that turn Row-Bot uses only the apps you mentioned.
+- Type `/` and choose a skill from the **Skills** group. Chosen while your message has other text, `/skill-name` stays in the message and focuses that turn on the skill. Chosen in an empty message, it turns the skill on for the whole chat, and it shows as a skill chip.
+- A message can mention up to 8 apps and 8 skills.
+
+Switches and mentions only narrow what a chat can use; they never widen it. The chat's agent profile sets the limit. A mention never turns on an app that is off in this chat, not connected, or outside the profile; a mentioned skill must already be on and allowed by the profile; and approvals still apply as usual.
+
+### When No App Can Do It Yet
+
+If you ask for something none of your apps can do, Row-Bot can suggest apps from its own catalog, the copy kept on this computer. A card says "Row-Bot can do this with one of these apps." and lists up to three. Each shows what Row-Bot's catalog knows about it, never text from the model or a web page: its logo and name, who publishes it (**by _publisher_** with a check when the service's own vendor publishes it, **Built in**, the publisher's name, or **Community**) and its status.
+
+- **Details** opens the app's page in Settings › Apps.
+- **Connect** (or **Sign in**, **Set up** or whatever the app needs next) opens the same **Connect _app_** sheet and setup as Settings › Apps, right in the chat, ending with **Here's what _app_ can do** and **Allow**. For an app built into Row-Bot, **Set up** opens its own settings instead.
+- When the app is ready, its row offers **Continue**. That sends "@_App_ is connected now. Please continue with my request." as your next message, focused on that app.
+
+Suggesting is all Row-Bot does on its own: it looks only in the local catalog, and never installs or connects anything, agrees for you, or asks for keys in the chat. If no app fits, it says so and doesn't point you to websites or downloads.
 
 ## Attachments
 
@@ -50,7 +77,7 @@ Its **⋯** menu offers **Manage conversation**, **Manage browser** and **Delete
 
 ## Approvals
 
-When Row-Bot needs your decision, an approval card appears in the conversation with **Approve** and **Deny**. Approvals wait until you answer, and they also show in the sidebar's attention indicator, on Overview and in Buddy, so you can decide from wherever you are. See [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal).
+When Row-Bot needs your decision, an approval card appears in the conversation with **Approve** and **Deny**. When the action belongs to an app, the card shows the app's logo and name, and so does the tool step for anything an app did. Approvals wait until you answer, and they also show in the sidebar's attention indicator, on Overview and in Buddy, so you can decide from wherever you are. See [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal).
 
 ## Beginner Workflow
 
@@ -100,5 +127,6 @@ Local model runs can stay on your machine. Hosted models, web search, browser ac
 - If the Thinking control is missing or a saved choice resets, read [Reasoning Controls](/docs/chat/reasoning-controls#troubleshooting).
 - If attachments are ignored, check that their tiles finished uploading and that they are relevant to the prompt.
 - If a tool is unavailable, check the composer's **Mode**, the conversation's agent profile, approval mode, and Settings.
+- If an app isn't used, check that it is checked in **+ › Apps** for this chat and that it is **Ready** in [Settings › Apps](/docs/settings/apps). A mention can only narrow a turn to apps the chat already has on.
 - If an external tool is enabled but not selected automatically, use a more specific request or review [Progressive Tools And Skills](/docs/guides/progressive-tools-and-skills).
 - If a reply is stuck, press **Stop**, then retry with a narrower prompt.

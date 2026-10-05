@@ -1,15 +1,15 @@
 ---
 title: "Settings: Apps"
-description: "Find and connect the services Row-Bot can work in, choose what each app may do, and turn apps off or remove them."
+description: "Find and connect the services Row-Bot can work in, including your accounts and messaging channels, choose what each app may do, change its settings, and turn apps off or remove them."
 ---
 
 # Settings: Apps
 
-Apps are the services Row-Bot can work in, such as Notion, GitHub or a tool that runs on this computer. **Settings › Apps** is where you find them, connect them, choose what each one may do, and turn them off or remove them.
+Apps are the services Row-Bot can work in, such as Notion, GitHub or a tool that runs on this computer. Your GitHub, Google and X accounts, the Telegram, WhatsApp, Discord, Slack and SMS channels, and the tools that use your own key are apps too. **Settings › Apps** is where you find them, connect them, choose what each one may do, change their settings, and turn them off or remove them.
 
 ## Where To Find It
 
-Open **Settings**, then choose **Apps** in the **Connections** group, or search for it with **Find a setting**. The command palette's **Connect an app** opens it too.
+Open **Settings**, then choose **Apps** in the **Connections** group, or search for it with **Find a setting**. The command palette's **Connect an app** opens it too, and requests such as "connect google" or "connect telegram" open that app's page. In a chat, **+ › Apps › Find more apps** opens it; see [Apps in a chat](/docs/chat/#apps-in-a-chat).
 
 ## Find An App
 
@@ -18,7 +18,7 @@ Search is instant and local: Row-Bot searches catalog copies kept on this comput
 The page lists:
 
 - **Your apps**: the apps you have added, with anything that needs attention first. Each shows its status: **Ready**, **Off**, **Sign in needed**, **Key needed**, **Finish setup** or **Needs attention**.
-- **Featured**, then category chips (Productivity, Developer, Data, Design, Communication, Finance and Local tools), then **All apps**.
+- **Featured**, then category chips (Productivity, Developer, Data, Design, Communication, Finance and Local tools), then **All apps**. **Communication** lists the messaging channels.
 
 While the app catalog is first being built, the page says **Preparing the app catalog…** and more apps appear in a moment.
 
@@ -30,14 +30,43 @@ Each card shows the app's logo, its name and what it does, and who publishes it:
 
 Open an app to see its page (for example `/settings/apps/notion`). The header shows its logo, name, publisher and status, one main action, and a **⋯** menu.
 
-The main action is whatever comes next: **Connect**, **Add**, **Sign in**, **Sign in again**, **Add key**, **Continue setup**, **Turn on**, **Fix**, **Retry**, **Try it** or **Delete saved data**. The **⋯** menu holds **Turn off**, **Check for updates**, **Advanced settings** and **Remove…**.
+The main action is whatever comes next: **Connect**, **Add**, **Set up**, **Sign in**, **Sign in again**, **Add key**, **Continue setup**, **Check again**, **Turn on**, **Fix**, **Retry**, **Try it** or **Delete saved data**. The **⋯** menu holds **Turn off**, **Check for updates**, **Advanced settings** and **Remove…**; for a built-in way to connect it holds **Open its settings**.
 
 - **Overview**: what it does, things to ask, and where your data goes.
-- **Ways to connect**: every way to connect this app, the recommended one first. GitHub, for example, offers its hosted server with a token, the same server with your own OAuth app, or its server on this computer.
 - **Access**: what it may do, grouped as **Looks things up**, **Makes changes** and **Always asks first**, with a count such as "8 of 12 actions on" and **Choose** to change it.
-- **Settings**: the account, a saved key (kept in your system keychain), and anything it needs on this computer.
+- **Settings**: for a connected app, the account, whether a key is saved (in your system keychain), each setting, and anything it needs on this computer, with **Change settings**. See [Change settings after setup](#change-settings-after-setup). For a built-in way, **Set up** or **Open** opens its own settings.
+- **Ways to connect**: when an app can be connected more than one way, every way, the recommended one first. See [Ways to connect](#ways-to-connect).
 - **Included**: for a package, the apps and skills it brought. Each of those says **Installed as part of _package_**.
 - **Details**: source, version, licence, other catalogs it is listed in, and its identifier.
+
+## Ways To Connect
+
+Some apps can be connected in more than one way: through a server the service hosts, through a server that runs on this computer, or through a way built into Row-Bot. The app's page lists them under **Ways to connect**, the recommended one first and marked **Recommended**. Each way says how it connects (**Built in**, **Hosted · Sign-in**, **Hosted · API key**, **Hosted** or **Runs on this computer**) and who publishes it; the one you are looking at says **This one**. Choose another way to open its page.
+
+For example:
+
+- **GitHub**: GitHub's hosted server (with a token, or with your own OAuth app), then the GitHub account built into Row-Bot, then GitHub's server on this computer.
+- **Google**: the Google account built into Row-Bot first.
+- **Slack**: Slack's hosted server, then the Slack channel built into Row-Bot.
+- **Tavily**: Row-Bot's built-in **Web search** with your Tavily key, then Tavily's hosted server, then its server on this computer.
+
+Each way keeps its own credentials. A GitHub account token and a GitHub server connection, for example, never share a token: connecting one doesn't sign in the other.
+
+## Built-In Ways To Connect
+
+Some ways to connect are part of Row-Bot itself, so their cards and pages say **Built in**:
+
+- the **GitHub**, **Google** and **X** accounts;
+- the **Telegram**, **WhatsApp**, **Discord**, **Slack** and **Text messages** (SMS) channels;
+- tools that use your own key: **Web search** (a Tavily key) and **Wolfram Alpha**.
+
+A built-in way is set up and changed in its own settings, not with a setup sheet. Its **Set up** (or **Open** once it is set up), and **⋯ › Open its settings**, open those settings for that one account, channel or tool only, with **Back** to the app page:
+
+- an account opens its step-by-step guide, **Check**, **Reconnect** and **Disconnect**, and what Row-Bot may do with it. See [Accounts And Authorisation](/docs/integrations/accounts).
+- a channel opens its connect steps, **Start** and **Stop**, pairing and paired accounts. See [Channels](/docs/integrations/channels).
+- a key tool opens its switch and its key, which stays in your system keychain.
+
+Old links to the Accounts and Channels settings pages open the matching app, for example **Apps › Google** or **Apps › Telegram**.
 
 ## Connect An App
 
@@ -50,7 +79,7 @@ The main action is whatever comes next: **Connect**, **Add**, **Sign in**, **Sig
 
 - **Add your key** or **Add your settings**: a key or token is kept in your system keychain; a setting such as a workspace, region or folder is saved with the app. **Where do I get this?** opens the service's own page for it. Optional settings can be left empty.
 - **Sign in to _app_**: when Row-Bot first connects, it checks whether the service asks you to sign in, so an app whose listing doesn't say can still sign in. Row-Bot signs in through your browser with its own published details, or registers itself with the service. A few services, such as GitHub, accept only your own OAuth app: Row-Bot asks for its client ID and client secret (both kept in the keychain) and shows the callback address to register, `http://127.0.0.1/api/v1/settings/mcp/auth/callback`. If a sign-in expires and can't be renewed, the app says **Sign in needed**.
-- **Prepare the npm package**, **Python package**, **container image** or **bundle**: an app that runs on this computer is installed into its own folder, never system-wide. Before anything installs, Row-Bot shows **Exactly what will be installed**: each package's exact version and checksum, checked again when it installs. Install scripts never run. Python apps use Row-Bot's own uv and Python. Container images need Docker Desktop, already installed, and never get access to your folders, ports or network. If what an app would install changes after you agreed, Row-Bot shows it again and waits.
+- **Get ready to run _app_** and **Install what _app_ needs**: an app that runs on this computer may need Node.js or uv, which Row-Bot sets up for its own use, and an npm package, Python package, container image or bundle, which is installed into its own folder, never system-wide. Before anything installs, Row-Bot shows **Exactly what will be installed**: each package's exact version and checksum, checked again when it installs. Install scripts never run. Python apps use Row-Bot's own uv and Python. Container images need Docker Desktop, already installed, and never get access to your folders, ports or network. If what an app would install changes after you agreed, Row-Bot shows it again and waits.
 - **Open _program_**: apps that work with a program on this computer, such as Blender, check that it is running. Open it, then choose **Check again**.
 
 Searching and reading an app's page never install or run anything; nothing installs until you agree and choose **Install**.
@@ -73,12 +102,24 @@ Some apps overlap with what Row-Bot already does, for example Notion with docume
 Deleting, sending, paying, publishing, running code and anything Row-Bot can't identify always ask first, whatever you choose. Full access only covers routine changes such as creating or editing. Apps connected before this version keep asking before routine changes until you choose otherwise.
 :::
 
+## Change Settings After Setup
+
+A connected app's settings stay editable. Its **Settings** section shows what it is set to now: the account, whether a key is saved, each setting (a switch reads **Yes** or **No**), and where it runs. **Change settings** opens **Settings for _app_** with every setting the app has, optional ones too:
+
+- A saved key is never shown. Its field stays empty and says **Saved in your system keychain. Leave it blank to keep it.** Type a new key only to replace it.
+- **Save** keeps your changes, and Row-Bot checks the connection again. If the app now offers actions it didn't have before, Row-Bot asks what they may do first; the rest keep the access you chose.
+- An app that was on reconnects with the new settings; one that was off stays off until you turn it on. The page then says **Settings saved.**
+
+A built-in way's settings are changed in its own settings: choose **Open**, or **⋯ › Open its settings**.
+
 ## Turn Off Or Remove
 
 Both are in the app's **⋯** menu.
 
 - **Turn off** stops Row-Bot using the app. Its settings and saved keys are kept.
 - **Remove…** opens **Remove _app_**. Keys and data are kept unless you switch on **Also delete saved keys and data**. Removing a package removes everything it brought.
+
+A built-in way has neither; use its own settings instead, such as an account's access switches or **Disconnect**, a channel's **Stop**, or a key tool's switch.
 
 ## Add From Link Or File
 
@@ -100,7 +141,7 @@ An app's **⋯ › Advanced settings** opens the raw settings for that one app o
 
 ## Old Links
 
-Settings no longer has Integrations, MCP or Plugins pages. Old links to them open **Apps**, or **Apps › Advanced** for catalogs and runtimes, or the item they named. Skills are on their own page: see [Settings: Skills](/docs/settings/skills).
+Settings no longer has Integrations, MCP, Plugins, Accounts or Channels pages. Old links to them open **Apps**, or **Apps › Advanced** for catalogs and runtimes, or the item they named: an old account or channel link opens that app, such as **Apps › Google** or **Apps › Telegram**, and an old Channels link that named no channel opens the **Communication** apps. Skills are on their own page: see [Settings: Skills](/docs/settings/skills).
 
 ## Privacy And Safety
 
@@ -112,9 +153,10 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 
 ## Troubleshooting
 
-- **Sign in needed** or **Key needed**: open the app and use the main action.
+- **Sign in needed** or **Key needed**: open the app and use the main action. Overview's **Needs you** lists these apps too, with the fix.
 - **Install Docker Desktop, then try again**: the app runs as a container image; install Docker Desktop or choose another way to connect on the app's page.
 - A program-based app keeps asking to **Check again**: make sure the program and its add-on (for Blender, its MCP add-on) are running on this computer.
 - **Needs attention**: open the app and choose **Fix** or **Retry**.
-- If an app's tools are missing in chat, check that it is **Ready**, that **Use apps** is on and **Apps in chats** offers app tools, and that the chat's agent profile allows it.
+- If an app's tools are missing in chat, check that it is **Ready**, that it is checked in that chat's **+ › Apps**, that **Use apps** is on and **Apps in chats** offers app tools, and that the chat's agent profile allows it.
+- A built-in account or channel that won't work: choose **Open** on its app page and use its own **Check**, **Reconnect** or **Start**.
 - If a catalog says **Couldn't update**, Row-Bot keeps using the last copy; try **Update** later.

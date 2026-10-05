@@ -50,11 +50,13 @@ Start with what Row-Bot already tells you. The sidebar's attention indicator app
 
 ## Apps, Skills, Channels And Accounts
 
+- Channels and accounts are apps in **Settings › Apps** (for example **Apps › Telegram** or **Apps › Google**); **Open** on the app's page opens their own settings.
 - Channels need credentials, sometimes a public link, a running state, and user pairing. A stopped channel shows **Restart** in Monitor.
-- Accounts whose sign-in expired show **Reconnect** in Monitor and Overview.
+- Accounts whose sign-in expired show **Sign in to _app_** in Overview's **Needs you** and **Reconnect** in Monitor.
+- If Google asks you to sign in again every week, your Google app is still in Testing; see [Accounts And Authorisation](/docs/integrations/accounts#google).
 - An app that is not **Ready** shows what it needs in **Settings › Apps**: **Sign in needed**, **Key needed**, **Finish setup** or **Needs attention**. Open it and use its main action, such as **Sign in again**, **Add key**, **Continue setup**, **Fix** or **Retry**.
 - If an app page says **Finishing your last change…**, choose **Retry**. Row-Bot checks whether the change finished and does not repeat it blindly.
-- If an app's tools never appear in chat, check that it is **Ready** and that **Apps › Advanced › Apps in chats** offers app tools.
+- If an app's tools never appear in chat, check that it is **Ready**, that it is checked in the chat's **+ › Apps**, and that **Apps › Advanced › Apps in chats** offers app tools.
 - Skills need to be in **Your skills** in **Settings › Skills** and relevant to the prompt; you can also call one with its slash command.
 
 ## Remote Access And Server Mode
