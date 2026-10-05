@@ -6822,9 +6822,16 @@ class TraceMediaReference(WireModel):
     mime_type: str = Field(max_length=128)
 
 
+class TraceAppRef(WireModel):
+    """An app a Connect card offers: its catalog id, name and logo, re-read from local data."""
+    item_id: str = Field(min_length=1, max_length=512)
+    name: str = Field(max_length=128)
+    icon: str = Field(max_length=128)
+
+
 class TraceSpecialization(WireModel):
     kind: Literal[
-        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+        "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps"
     ]
     skill_id: str = Field(default="", max_length=180)
     display_name: str = Field(default="", max_length=180)
@@ -6840,9 +6847,11 @@ class TraceSpecialization(WireModel):
     resource_kind: Literal["", "design", "code"] = ""
     resource_id: str = Field(default="", max_length=256)
     binding_id: str = Field(default="", max_length=256)
-    # setup_needed: a Connect card for an account or channel.
+    # setup_needed: a Connect card for an account or channel (chats from before apps joined it).
     setup_target: str = Field(default="", max_length=64)
     settings_page: Literal["", "accounts", "channels"] = ""
+    # connect_apps: apps from Row-Bot's catalog the person may connect; nothing is installed by the card.
+    apps: list[TraceAppRef] = Field(default_factory=list, max_length=3)
 
 
 class TranscriptTraceItem(WireModel):

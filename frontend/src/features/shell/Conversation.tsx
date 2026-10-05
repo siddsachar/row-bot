@@ -2223,11 +2223,14 @@ export default function Conversation({
       if (id && bound)
         await unbindWithUndo(controller, overlay.notify, id, bound);
     },
-    // The connection's own connect sheet opens (Phase 15); email is Gmail.
-    connect: (page, target) =>
+    // An older card opens that connection's app page; email is Google.
+    connect: (_page, target) =>
       navigate(
-        `/settings/${page}#${encodeURIComponent(target === 'email' ? 'google' : target)}`,
+        `/settings/apps/${encodeURIComponent(target === 'email' ? 'google' : target)}`,
       ),
+    // The person's own message, focused on the app they just connected.
+    continueWith: (name) =>
+      send(`@${name} is connected now. Please continue with my request.`),
   };
   // Retry and Send again resend the last message as it was: its words and
   // its files, never the files' names as text (B136). A follow-up note is

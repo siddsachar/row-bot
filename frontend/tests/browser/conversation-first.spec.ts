@@ -68,22 +68,22 @@ test('a folder the work needs is chosen on a card in the chat (B277)', async ({
   ).toBeVisible();
 });
 
-test('an account the work needs shows a Connect card that opens its connect sheet', async ({
+test('an app the work needs shows a Connect card that opens its consent sheet', async ({
   page,
 }, testInfo) => {
   await newConversation(page);
-  await send(page, 'Read my calendar connect fixture');
-  const card = page.getByRole('group', { name: 'Connect Google', exact: true });
-  await expect(card).toContainText('Row-Bot needs Google for this.');
+  await send(page, 'Find my Notion page connect fixture');
+  const card = page.getByRole('group', { name: 'Apps to connect', exact: true });
+  const notion = card.getByRole('listitem', { name: 'Notion', exact: true });
+  // The card names the app as Row-Bot's catalog knows it.
+  await expect(notion).toContainText('by Notion');
   await screenshot(page, testInfo, 'connect-card');
-  await card
-    .getByRole('button', { name: 'Connect Google', exact: true })
-    .click();
-  // The card opens Google's own connect sheet (Phase 15).
-  await expect(page).toHaveURL(/\/settings\/accounts#google$/);
-  await expect(
-    page.getByRole('region', { name: 'Connect Google', exact: true }),
-  ).toBeVisible();
+  await notion.getByRole('button', { name: 'Connect', exact: true }).click();
+  // Connecting is the app's own consent sheet, right in the chat.
+  const sheet = page.getByRole('dialog', { name: 'Connect Notion', exact: true });
+  await expect(sheet).toContainText('What you ask goes to mcp.notion.com.');
+  await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(sheet).toHaveCount(0);
 });
 
 test('a pasted screenshot and two dropped files attach to the message', async ({

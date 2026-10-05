@@ -116,3 +116,40 @@ def app_for_tool(tool_name: str) -> dict | None:
         return None
     app = item.get("app") or {}
     return {"id": app.get("id", ""), "item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"]}
+
+
+MAX_SUGGESTIONS = 3
+
+
+def suggestions(need: str) -> list[dict]:
+    """Apps that could do what a chat needs, from the local catalogs only (no network): vendors and
+    featured apps first, then the community. Only catalog ids come back; nothing is installed."""
+    from row_bot.application.client_integrations import read_items
+    need = " ".join(str(need or "").split())[:200]
+    if not need:
+        return []
+    page = read_items(owner_id="chat-suggestions", query=need, kind="app", scope="catalog", limit=24)
+    found = []
+    for row in page["items"]:
+        card = app_card(row["id"])
+        if card is not None and row["compatibility"] != "unsupported":
+            found.append(card)
+        if len(found) == MAX_SUGGESTIONS:
+            break
+    return found
+
+
+def app_card(item_id: str) -> dict | None:
+    """One suggested app as a chat card shows it, re-read by id from installed items or the local
+    catalogs; an id nothing local knows (or a skill) is dropped. Its name and logo come from here,
+    never from the text that asked for it."""
+    from row_bot.integrations import sources
+    if not isinstance(item_id, str) or not 0 < len(item_id) <= 512:
+        return None
+    row = facts.read(item_id)
+    if row is None:
+        found = sources.catalog_entry(item_id)
+        row = found[0] if found else None
+    if row is None or row["kind"] == "skill":
+        return None
+    return {"item_id": row["id"], "name": _name(row)[:128], "icon": row["icon"]}

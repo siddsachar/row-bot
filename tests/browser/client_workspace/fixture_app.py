@@ -485,25 +485,25 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
             call["quiesced"] = True
         return
     if "connect fixture" in text:
-        # The work needs an account: request_connection leaves a Connect card.
+        # The work needs an app: suggest_apps leaves a Connect card with apps from the local catalog.
         from row_bot.threads import append_checkpoint_messages
-        from row_bot.tools.conversation_setup_tool import request_connection
+        from row_bot.tools.conversation_setup_tool import suggest_apps
         call = predecessor._record("submit", config, "connect-card")
         thread = call["conversation_id"]
         identity = f"connect:{call['generation_id']}"
         tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
-        args = {"service": "google", "reason": "Reading your calendar needs Google."}
+        args = {"need": "Notion"}
         try:
             append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
-                tool_calls=[{"id": tool_id, "name": "request_connection", "args": args}])])
+                tool_calls=[{"id": tool_id, "name": "suggest_apps", "args": args}])])
             yield "tool_call", {"tool_call_id": tool_id, "message_id": tool_message,
-                                "name": "request_connection", "args": args}
-            result = request_connection(**args)
+                                "name": "suggest_apps", "args": args}
+            result = suggest_apps(**args)
             append_checkpoint_messages(thread, [ToolMessage(id=tool_message, tool_call_id=tool_id,
-                                                          name="request_connection", content=result)])
+                                                          name="suggest_apps", content=result)])
             yield "tool_done", {"tool_call_id": tool_id, "message_id": tool_message,
-                                "name": "request_connection", "args": args, "content": result}
-            yield from _natural_final(call, thread, "Connect Google and I'll read the calendar.", "connect")
+                                "name": "suggest_apps", "args": args, "content": result}
+            yield from _natural_final(call, thread, "Connect Notion and I'll find the page.", "connect")
         finally:
             call["quiesced"] = True
         return

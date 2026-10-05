@@ -48,6 +48,7 @@ function actions(resource: ResourceView | null = view): CardActions {
     undo: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
     connect: vi.fn(),
+    continueWith: vi.fn(),
   };
 }
 

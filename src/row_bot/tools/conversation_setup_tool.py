@@ -8,8 +8,9 @@ is bound for the turn (a turn captures its bindings when it starts).
 
 ``create_code_folder`` with Developer tools off asks to turn them on through
 the usual approval (shown as a "Turn on Developer tools" card) instead of
-letting files land loosely in the workspace. ``request_connection`` shows a
-"Connect …" card for an account or channel the work needs.
+letting files land loosely in the workspace. ``suggest_apps`` looks for apps that
+could do the work in Row-Bot's local catalogs and leaves a Connect card for them;
+connecting is the person's choice, through the app's normal consent.
 
 ``use_code_folder`` and ``clone_repository`` bring in a folder the person
 already has or a repository (B277). The model never gives a path: a folder the
@@ -45,20 +46,6 @@ _DESIGN_WORDS = {
     "landing": "landing page",
     "app_mockup": "app mockup",
     "storyboard": "storyboard",
-}
-Connection = Literal[
-    "google", "github", "x", "telegram", "slack", "discord", "sms", "whatsapp", "email",
-]
-_CONNECTIONS: dict[str, tuple[str, str]] = {
-    "google": ("Google", "accounts"),
-    "github": ("GitHub", "accounts"),
-    "x": ("X", "accounts"),
-    "telegram": ("Telegram", "channels"),
-    "slack": ("Slack", "channels"),
-    "discord": ("Discord", "channels"),
-    "sms": ("SMS", "channels"),
-    "whatsapp": ("WhatsApp", "channels"),
-    "email": ("Email", "channels"),
 }
 
 GUIDANCE = (
@@ -288,22 +275,28 @@ def create_code_folder(name: str = "") -> str:
     return _created("code", result, title, continues)
 
 
-def request_connection(service: Connection, reason: str = "") -> str:
-    """Show a Connect card for an account or channel the work needs."""
-    label, page = _CONNECTIONS.get(str(service), ("", ""))
-    if not label:
-        return _json({"ok": False, "error": "Unknown connection."})
+def suggest_apps(need: str) -> str:
+    """Suggest apps from Row-Bot's local catalogs that could do the work; a card offers to connect them."""
+    from row_bot.integrations.scope import suggestions
+    try:
+        found = suggestions(need)
+    except Exception:
+        logger.warning("App suggestions are unavailable", exc_info=True)
+        found = []
+    if not found:
+        return _json({"ok": True, "kind": "no_apps", "display_summary": "No app found",
+                      "next": "No app in Row-Bot's catalog does this. Say so briefly. Don't suggest websites, "
+                              "downloads or commands to install anything."})
+    names = [app["name"] for app in found]
     return _json({
         "ok": True,
-        "kind": "setup_needed",
-        "setup_kind": "connection",
-        "target": str(service),
-        "label": label,
-        "settings_page": page,
-        "reason": str(reason or "")[:300],
-        "display_summary": f"Asked to connect {label}",
-        "next": f"The person sees a Connect {label} card. Tell them what you will do once it is "
-                "connected, then stop.",
+        "kind": "connect_apps",
+        "apps": [app["item_id"] for app in found],
+        "names": names,
+        "display_summary": "Suggested " + ", ".join(names),
+        "next": "The person sees a card to connect " + ", ".join(names) + ". Nothing is installed or connected "
+                "unless they choose to, and they see what each app can do first. Say in one sentence what you "
+                "will do once it is connected, then stop; they press Continue when it's ready.",
     })
 
 
@@ -504,9 +497,9 @@ class _CodeFolderInput(BaseModel):
     name: str = Field(default="", description="A short folder name from the request, e.g. “Tiny date app”.")
 
 
-class _ConnectionInput(BaseModel):
-    service: Connection = Field(description="The account or channel the work needs.")
-    reason: str = Field(default="", description="One short sentence on why it is needed.")
+class _AppsInput(BaseModel):
+    need: str = Field(max_length=200, description="What the person wants done or the service they named, e.g. "
+                                                  "'read my calendar' or 'Notion'.")
 
 
 class _UseFolderInput(BaseModel):
@@ -531,8 +524,7 @@ class ConversationSetupTool(BaseTool):
     @property
     def description(self) -> str:
         return ("Create a design or a code folder for this conversation when the work needs one, use a "
-                "folder the person already has, clone a repository, or ask the person to connect an "
-                "account.")
+                "folder the person already has, clone a repository, or suggest an app to connect.")
 
     @property
     def enabled_by_default(self) -> bool:
@@ -540,7 +532,7 @@ class ConversationSetupTool(BaseTool):
 
     def execute(self, query: str) -> str:
         return ("Use create_design, create_code_folder, use_code_folder, clone_repository or "
-                "request_connection.")
+                "suggest_apps.")
 
     def as_langchain_tools(self) -> list:
         return [
@@ -591,14 +583,15 @@ class ConversationSetupTool(BaseTool):
                 args_schema=_CloneInput,
             ),
             StructuredTool.from_function(
-                func=request_connection,
-                name="request_connection",
+                func=suggest_apps,
+                name="suggest_apps",
                 description=(
-                    "When the work needs an account or channel that is not connected (Google for "
-                    "Gmail or Calendar, GitHub, X, or a messaging channel), show the person a Connect "
-                    "card instead of sending them to Settings."
+                    "When the work needs an app or service you have no tool for (email, a calendar, "
+                    "Notion, Linear, a messaging channel), look it up in Row-Bot's own catalog and show "
+                    "the person a card to connect it. It never installs or connects anything; the person "
+                    "decides. Use it instead of sending them to Settings or to a website."
                 ),
-                args_schema=_ConnectionInput,
+                args_schema=_AppsInput,
             ),
         ]
 

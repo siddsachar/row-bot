@@ -25,9 +25,9 @@ TraceStatus = Literal[
 ]
 TraceGroupKind = Literal["generic", "browser", "computer"]
 TraceSpecializationKind = Literal[
-    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed"
+    "skill_load", "delegated_agent", "media", "resource_created", "resource_bound", "setup_needed", "connect_apps"
 ]
-CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed"})
+CARD_SPECIALIZATIONS = frozenset({"resource_created", "resource_bound", "setup_needed", "connect_apps"})
 # A design or code folder a turn created, or a folder it brought in (B277).
 _RESOURCE_CARDS: dict[tuple[str, str], TraceSpecializationKind] = {
     ("create_design", "resource_created"): "resource_created",
@@ -121,6 +121,8 @@ class TraceSpecialization:
     binding_id: str = ""
     setup_target: str = ""
     settings_page: str = ""
+    # connect_apps: catalog apps the person may connect, re-read by id (never the model's words).
+    apps: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -565,7 +567,11 @@ def _card_specialization(name: str, payload: dict[str, Any] | None) -> TraceSpec
             return None
         return TraceSpecialization(kind=card, display_name=display, resource_kind=kind,
                                    resource_id=resource, binding_id=binding)
-    if name == "request_connection" and payload.get("kind") == "setup_needed":
+    if name == "suggest_apps" and payload.get("kind") == "connect_apps" and isinstance(payload.get("apps"), list):
+        from row_bot.integrations.scope import MAX_SUGGESTIONS, app_card
+        apps = tuple(card for item in payload["apps"][:MAX_SUGGESTIONS] if (card := app_card(item)) is not None)
+        return TraceSpecialization(kind="connect_apps", apps=apps) if apps else None
+    if name == "request_connection" and payload.get("kind") == "setup_needed":  # Chats from before Phase 5.
         target = _clean_text(payload.get("target"), 64)
         page = _CONNECTION_PAGES.get(target, "")
         display = _clean_text(payload.get("label"), 180)
@@ -700,6 +706,7 @@ def _public_specialization(
             "binding_id": specialization.binding_id,
             "setup_target": specialization.setup_target,
             "settings_page": specialization.settings_page,
+            "apps": [dict(app) for app in specialization.apps],
         }
         if specialization.kind in CARD_SPECIALIZATIONS
         else {}

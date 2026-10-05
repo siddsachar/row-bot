@@ -333,6 +333,35 @@
       "title": "TraceAgentReference",
       "type": "object"
     },
+    "TraceAppRef": {
+      "additionalProperties": false,
+      "description": "An app a Connect card offers: its catalog id, name and logo, re-read from local data.",
+      "properties": {
+        "icon": {
+          "maxLength": 128,
+          "title": "Icon",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "name",
+        "icon"
+      ],
+      "title": "TraceAppRef",
+      "type": "object"
+    },
     "TraceMediaReference": {
       "additionalProperties": false,
       "properties": {
@@ -367,6 +396,14 @@
           "title": "Agent Runs",
           "type": "array"
         },
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/TraceAppRef"
+          },
+          "maxItems": 3,
+          "title": "Apps",
+          "type": "array"
+        },
         "binding_id": {
           "default": "",
           "maxLength": 256,
@@ -398,7 +435,8 @@
             "media",
             "resource_created",
             "resource_bound",
-            "setup_needed"
+            "setup_needed",
+            "connect_apps"
           ],
           "title": "Kind",
           "type": "string"

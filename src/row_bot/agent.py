@@ -1239,9 +1239,9 @@ def _setup_guidance(tool_names: list[str]) -> str:
                 "If they choose Not now, it stays off: don't ask again unless they ask."
             )
         parts.append(
-            "ACCOUNTS AND CHANNELS: if the work needs an account or channel that is not connected "
-            "(Google for Gmail or Calendar, GitHub, X, or a messaging channel), call request_connection "
-            "so the person gets a Connect card, then stop."
+            "APPS: if the work needs an app, account or channel you have no tool for (email, a calendar, "
+            "Notion, a messaging channel), call suggest_apps so the person gets a card to connect it, "
+            "then stop. Only the person connects apps; never suggest installing anything another way."
         )
     return (" " + " ".join(parts)) if parts else ""
 

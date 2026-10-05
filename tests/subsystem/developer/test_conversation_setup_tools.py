@@ -261,21 +261,22 @@ def test_the_model_is_told_when_to_create_and_when_not_to(monkeypatch):
     assert "deck, slides, a presentation" in context
     assert "in the chat or the app only" in context
     assert "Never write a project's files loosely" in context
-    assert "request_connection" in context
+    assert "suggest_apps" in context
     assert "If they choose Not now, it stays off" in context
 
 
 def test_cards_and_setup_approvals_are_specialised():
     from row_bot.application.approval_projection import project_approval_context
     from row_bot.application.conversation_traces import specialize_tool_result
-    from row_bot.tools.conversation_setup_tool import request_connection
 
     created = specialize_tool_result({"name": "create_code_folder", "content": json.dumps({
         "ok": True, "kind": "resource_created", "resource_kind": "code", "resource_id": "workspace-1",
         "binding_id": "binding-1", "name": "Tiny date app", "display_summary": "Created code folder"})})
     assert (created.kind, created.resource_kind, created.binding_id, created.display_name) == (
         "resource_created", "code", "binding-1", "Tiny date app")
-    connect = specialize_tool_result({"name": "request_connection", "content": request_connection("google")})
+    # A Connect card from a chat before apps joined it still shows (and now opens the app's page).
+    connect = specialize_tool_result({"name": "request_connection", "content": json.dumps({
+        "ok": True, "kind": "setup_needed", "target": "google", "label": "Google"})})
     assert (connect.kind, connect.setup_target, connect.settings_page) == ("setup_needed", "google", "accounts")
     approval = project_approval_context({"tool": "row_bot_update_setting", "label": "Turn on Web Search",
                                          "description": "Row-Bot needs Web Search for this.",

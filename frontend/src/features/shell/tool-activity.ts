@@ -117,6 +117,7 @@ const EXACT: Record<string, Verb> = {
     GitBranch,
   ),
   request_connection: verb('Asked to connect', 'Asking to connect', Plug),
+  suggest_apps: verb('Suggested apps', 'Looking for apps', Plug),
   export_to_pdf: verb('Exported a PDF', 'Exporting a PDF', FileText),
   save_memory: verb('Saved a memory', 'Saving a memory', Brain),
   search_memory: verb('Searched memory', 'Searching memory', Brain),
