@@ -801,3 +801,31 @@ def test_a_stopping_hosted_session_may_end_itself_and_send_nothing_else():
     for request in (httpx.Request("POST", url), httpx.Request("DELETE", "https://mcp.example.test/other")):
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(guard(request))
+
+
+def test_a_stopping_signed_in_session_may_end_itself_but_never_renews_to_do_it():
+    import asyncio
+    import time
+    import httpx
+    import pytest
+    from row_bot.mcp_client import auth
+
+    def stopping():
+        raise asyncio.CancelledError
+    url = "https://mcp.example.test/mcp"
+
+    async def first(provider, request):
+        flow = provider.async_auth_flow(request)
+        try:
+            return await anext(flow)
+        finally:
+            await flow.aclose()
+
+    def provider(expires_at):
+        storage = auth.TokenStorage("a" * 32, "b" * 64, validate=stopping, data={"binding": "b" * 64, "expires_at": expires_at,
+            "tokens": {"access_token": "synthetic-access", "token_type": "Bearer", "refresh_token": "synthetic-refresh"}})
+        return auth.oauth_provider(url, "http://127.0.0.1:8766" + auth.CALLBACK_PATH, storage)
+    sent = asyncio.run(first(provider(time.time() + 3600), httpx.Request("DELETE", url)))
+    assert sent.method == "DELETE" and sent.headers["authorization"] == "Bearer synthetic-access"
+    with pytest.raises(asyncio.CancelledError):  # Anything else stays stopped.
+        asyncio.run(first(provider(time.time() + 3600), httpx.Request("POST", url)))

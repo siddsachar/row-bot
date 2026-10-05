@@ -236,6 +236,12 @@ def delete_bound_credentials(ref: str, expected_binding: str) -> bool:
 
 
 
+def _session_end(method: str, address: str, endpoint: str) -> bool:
+    """While a connection stops, the one request still sent is the MCP library's DELETE that ends the
+    session at the connection's own address; refusing it left every hosted session "cleanup unconfirmed"."""
+    return method == "DELETE" and urlsplit(address)[:3] == urlsplit(endpoint)[:3]
+
+
 class TokenStorage:
     """SDK TokenStorage, staging sign-in separately from a working account."""
     def __init__(self, ref: str, expected_binding: str, *, validate=lambda: None, staged: bool = False, data: dict | None = None):
@@ -311,7 +317,15 @@ def oauth_provider(url: str, callback_uri: str, storage: TokenStorage, *, redire
             try:
                 outgoing = await anext(flow)
                 while True:
-                    storage.validate()
+                    try:
+                        storage.validate()
+                    except asyncio.CancelledError:
+                        if not _session_end(request.method, str(request.url), url):
+                            raise
+                        if not _session_end(outgoing.method, str(outgoing.url), url):
+                            # Never renew a sign-in just to end a session: an ordinary error, which the
+                            # library's session ending absorbs, so closing still completes.
+                            raise McpAuthError("mcp_runtime_stopping") from None
                     public_endpoint(str(outgoing.url))
                     metadata = self.context.oauth_metadata
                     if metadata is not None:
@@ -445,15 +459,12 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
         options["auth"] = oauth_provider(effective["url"], metadata["callback_uri"], options["auth"])
     if cfg.get("transport", "stdio") != "stdio":
         endpoint_origin = origin(effective["url"])
-        endpoint = urlsplit(effective["url"])[:3]
 
         async def request_guard(request):
             try:
                 validate()
             except asyncio.CancelledError:
-                # Stopping: the one request still sent is the one that ends this session at its own address
-                # (the SDK's DELETE on close). Refusing it left every hosted session "cleanup unconfirmed".
-                if request.method != "DELETE" or urlsplit(str(request.url))[:3] != endpoint:
+                if not _session_end(request.method, str(request.url), effective["url"]):
                     raise
             if options.get("auth"):
                 public_endpoint(str(request.url))
