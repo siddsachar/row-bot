@@ -63,7 +63,24 @@ def test_declared_headers_variables_and_arguments_become_inputs(envelope):
     assert {i["key"]: i["flag"] for i in entry.install["inputs"]} == {"notes_token": "", "workspace": "--workspace"}
 
 
+def test_package_runtimes_are_pinned_and_dozens_of_optional_settings_stay_at_their_defaults(envelope):
+    envelope["server"].pop("remotes")
+    envelope["server"]["packages"] = [{"registryType": "pypi", "identifier": "notes", "version": "1.2.3", "transport": {"type": "stdio"},
+        "runtimeArguments": [{"type": "named", "name": "--from", "value": "notes[mcp]"}, {"type": "positional", "value": "notes-mcp"}]}]
+    (entry,) = marketplace.registry_entries({"servers": [envelope]})
+    assert entry.install["args"] == ["--from", "notes[mcp]==1.2.3", "notes-mcp"]  # The record's own version, never unpinned.
+    settings = [{"type": "named", "name": f"--option{n}", "description": "A tuning option"} for n in range(40)]
+    envelope["server"]["packages"] = [{"registryType": "npm", "identifier": "fixture-notes", "version": "1.2.3", "transport": {"type": "stdio"},
+        "packageArguments": [*settings, {"type": "named", "name": "--apiSecret"}],
+        "environmentVariables": [{"name": f"NOTES_{n}", "format": "number"} for n in range(40)] + [{"name": "NOTES_KEY", "isRequired": True}]}]
+    (entry,) = marketplace.registry_entries({"servers": [envelope]})
+    assert entry.install["args"] == ["fixture-notes@1.2.3", "--apiSecret", "{apisecret}"]  # A secret flag is never a bare switch.
+    assert entry.install["env"] == {"NOTES_KEY": "{notes_key}"}
+    assert [(i["key"], i["secret"], i["required"]) for i in entry.install["inputs"]] == [("notes_key", True, True), ("apisecret", True, False)]
+
+
 @pytest.mark.parametrize(("declaration", "reason"), [
+    ({"packages": [{"registryType": "oci", "identifier": "ghcr.io/example/notes", "transport": {"type": "stdio"}}]}, "no fixed version"),
     ({"remotes": [{"type": "streamable-http", "url": "https://x.example.test/mcp",
                    "headers": [{"name": "payment-signature", "isRequired": True}]}]}, "x402"),
     ({"remotes": [{"type": "streamable-http", "url": "https://{host}/mcp", "variables": {"host": {}}}]}, "add it from a link"),

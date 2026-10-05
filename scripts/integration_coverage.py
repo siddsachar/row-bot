@@ -23,6 +23,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 HERMES = ROOT / ".local" / "integration-reach-audit" / "hermes.json"
+# What each pinned Hermes package is, read from its manifest only (as a catalog update does).
+MANIFESTS = HERMES.with_name("hermes-manifests.json")
 # Complete, but a hosted server that declares no sign-in: the first test shows whether it needs one.
 UNDECLARED = "complete; hosted, sign-in not declared"
 
@@ -73,6 +75,15 @@ def main() -> None:
         os.environ["ROW_BOT_DATA_DIR"] = data
         if args.hermes:
             shutil.copyfile(args.hermes, Path(data) / "hermes_catalog_cache.json")
+        if args.hermes and MANIFESTS.exists():
+            from row_bot.plugins.portable import SCHEMA
+            classified = {}
+            for entry in json.loads(MANIFESTS.read_text(encoding="utf-8"))["entries"]:
+                manifest = entry.get("manifest") or {}
+                portable = isinstance(manifest.get("data"), dict) and manifest["data"].get("$schema") == SCHEMA
+                if manifest.get("status") in {200, 404}:
+                    classified[entry["sha"] + ":" + entry.get("subdir", "")] = "portable" if portable else "native"
+            (Path(data) / "hermes_classification.json").write_text(json.dumps(classified), encoding="utf-8")
         from row_bot.integrations import apps, index
         mirror = index.ensure()
         reasons: Counter = Counter()

@@ -164,8 +164,14 @@ def _filled(spec: dict, *, target: str, name: str, inputs: dict, flag: str = "",
 
 
 def _arguments(arguments: object, inputs: dict) -> list[str]:
+    from row_bot.integrations import inputs as declared
     argv: list[str] = []
-    for argument in arguments if isinstance(arguments, list) else []:
+    listed = arguments if isinstance(arguments, list) else []
+    # A flag with nothing but a name is a switch (``--stdio``), unless it names a secret or the package
+    # lists so many that they are its settings, not switches it needs: then each is an optional input.
+    bare = [a for a in listed if isinstance(a, dict) and a.get("type") == "named" and not any(
+        key in a for key in ("value", "valueHint", "default", "isSecret", "isRequired", "choices", "format"))]
+    for argument in listed:
         if not isinstance(argument, dict) or argument.get("type") not in {"positional", "named"}:
             raise _Declared(_UNSUPPORTED_PACKAGE)
         if argument["type"] == "positional":
@@ -177,8 +183,7 @@ def _arguments(arguments: object, inputs: dict) -> list[str]:
         flag = str(argument.get("name") or "")
         if not re.fullmatch(r"--?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", flag):
             raise _Declared(_UNSUPPORTED_PACKAGE)
-        given = any(key in argument for key in ("value", "valueHint", "default", "isSecret", "isRequired", "choices", "format"))
-        if not given:
+        if argument in bare and len(bare) <= 8 and not declared.secretish(flag.lstrip("-")):
             argv.append(flag)  # A plain switch.
             continue
         argv += [flag, _filled(argument, target="argument", name=str(argument.get("valueHint") or flag.lstrip("-")),
@@ -261,19 +266,23 @@ def _package(package: dict) -> dict:
     elif kind == "pypi":
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", identifier) or not re.fullmatch(r"[A-Za-z0-9.!+_-]{1,64}", version):
             raise _Declared(_UNSUPPORTED_PACKAGE)
-        spec = identifier + "==" + version
+        spec, entry = identifier + "==" + version, identifier
         for flag in flags:
             word, value = str(flag.get("name") or flag.get("value") or ""), str(flag.get("value") or "")
-            if word == "--from" and re.fullmatch(re.escape(identifier) + r"(\[[A-Za-z0-9,_-]+\])?==[A-Za-z0-9.!+_-]+", value):
-                spec = value
+            if word == "--from" and re.fullmatch(re.escape(identifier) + r"(\[[A-Za-z0-9,_-]+\])?(==[A-Za-z0-9.!+_-]+)?", value):
+                spec = value if "==" in value else value + "==" + version  # Extras of this record's own package, pinned.
+            elif (flag.get("type") == "positional" and "value" in flag and entry == identifier and spec != identifier + "==" + version
+                  and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value)):
+                entry = value  # The console script to run from that package (``uvx --from pkg[mcp]==1.0 pkg-mcp``).
             elif word != "--python":
                 raise _Declared(_UNSUPPORTED_PACKAGE)
-        install = {"transport": "stdio", "command": "uvx", "args": ["--from", spec, identifier, *arguments]}
+        install = {"transport": "stdio", "command": "uvx", "args": ["--from", spec, entry, *arguments]}
     else:
         tagged = ":" in identifier.rsplit("/", 1)[-1] or "@sha256:" in identifier
         image = identifier if tagged else identifier + ":" + (version or "latest")
-        if (not re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+(:[A-Za-z0-9._-]{1,128}|@sha256:[0-9a-f]{64})", image)
-                or image.endswith(":latest")):
+        if image.endswith(":latest"):
+            raise _Declared("Its container image has no fixed version, so what runs could change without review.")
+        if not re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+(:[A-Za-z0-9._-]{1,128}|@sha256:[0-9a-f]{64})", image):
             raise _Declared(_UNSUPPORTED_PACKAGE)
         kept: list[str] = []
         for flag in flags:
@@ -292,6 +301,26 @@ def _package(package: dict) -> dict:
             kept += [word] + ([str(value)] if value is not None else [])
         passed = [part for name in env for part in ("-e", name)]
         install = {"transport": "stdio", "command": "docker", "args": ["run", "-i", "--rm", *kept, *passed, image, *arguments]}
+    if len(inputs) > declared.LIMIT:
+        # Dozens of tuning options (one server lists 84): keep what the person must give or keeps secret;
+        # the rest stay at the server's own defaults.
+        dropped = {key for key, item in inputs.items() if not item["required"] and not item["secret"]}
+        flags = {inputs[key]["flag"] for key in dropped if inputs[key]["flag"]}
+        inputs = {key: item for key, item in inputs.items() if key not in dropped}
+
+        def unused(text: str) -> bool:
+            keys = set(_VARIABLE.findall(text))
+            return bool(keys) and keys <= dropped
+        gone = {name for name, text in env.items() if unused(text)}
+        env = {name: text for name, text in env.items() if name not in gone}
+        kept: list[str] = []
+        for arg in install["args"]:
+            if unused(arg) or (install["command"] == "docker" and arg in gone and kept[-1:] == ["-e"]):
+                if kept and kept[-1] in flags | {"-e"}:
+                    kept.pop()  # A named argument goes with its value; ``-e NAME`` with its variable.
+                continue
+            kept.append(arg)
+        install["args"] = kept
     if env:
         install["env"] = env
     if inputs:

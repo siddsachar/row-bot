@@ -9,8 +9,8 @@ The Model Context Protocol (MCP) lets a separate program or hosted service offer
 
 ## Connect A Server
 
-- **From a catalog**: search **Settings › Apps**, open the app and choose **Connect** or **Add**. Row-Bot shows what will happen, then prepares any runtime (Node.js or uv), signs you in or asks for a key, checks the connection, and asks what the app can do.
-- **From a link**: **Add from link or file** accepts a server's https address or a GitHub repository.
+- **From a catalog**: search **Settings › Apps**, open the app and choose **Connect** or **Add**. Row-Bot shows what will happen, then prepares any runtime (Node.js or uv) and the server's package in its own folder, asks for any key or setting, checks the connection (and signs you in if the service asks), and asks what the app can do.
+- **From a link or file**: **Add from link or file** accepts a server's https address, a GitHub repository, or a `.mcpb` bundle.
 - **By its settings**: **Apps › Advanced › Add a custom connection** opens the connection editor for a server that isn't in a catalog.
 
 Use separate connections with their own names for separate accounts, such as Work and Personal. Keys are kept in your system keychain. **Apps › Advanced › Apps in chats** controls whether chats are offered app tools, and shows the shared Node.js and uv runtimes.
