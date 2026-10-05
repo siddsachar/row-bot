@@ -484,6 +484,44 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "app tool fixture" in text or "is connected now" in text:
+        # Apps in chat: a step through the connected synthetic app (its logo and name on the step), then
+        # one change that asks first (its approval names the app). What the turn left out is recorded.
+        from row_bot.mcp_client import runtime
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "app-tool")
+        call["app_scope"] = config["configurable"].get("app_scope")
+        thread = call["conversation_id"]
+        try:
+            if "is connected now" in text:
+                yield from _natural_final(call, thread, "Continuing with what you asked.", "app-continue")
+                return
+            with runtime._runtime_lock:
+                found = next(((info.prefixed_name, info.server_name) for tools in runtime._catalog.values()
+                              for info in tools.values() if info.name == "search_pages"), None)
+            assert found, "app tool fixture needs a connected synthetic app"
+            identity = f"app-tool:{call['generation_id']}"
+            search_id, delete_id = fixture_id(identity + ":search"), fixture_id(identity + ":delete")
+            result_id = fixture_id(identity + ":result")
+            delete_name = found[0].removesuffix("search_pages") + "delete_page"
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": search_id, "name": found[0], "args": {"query": "roadmap"}}])])
+            yield "tool_call", {"tool_call_id": search_id, "message_id": result_id, "name": f"MCP: search_pages ({found[1]})",
+                                "raw_name": found[0], "runtime_name": found[0], "args": {"query": "roadmap"}}
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=search_id, name=found[0],
+                                                          content="Found the Roadmap page.")])
+            yield "tool_done", {"tool_call_id": search_id, "message_id": result_id, "name": f"MCP: search_pages ({found[1]})",
+                                "raw_name": found[0], "args": {"query": "roadmap"}, "content": "Found the Roadmap page."}
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":delete-call"), content="",
+                tool_calls=[{"id": delete_id, "name": delete_name, "args": {"page": "Old notes"}}])])
+            yield "tool_call", {"tool_call_id": delete_id, "name": f"MCP: delete_page ({found[1]})", "raw_name": delete_name,
+                                "runtime_name": delete_name, "args": {"page": "Old notes"}}
+            yield "interrupt", [{"__interrupt_id": fixture_id(identity + ":approval"), "tool": delete_name,
+                                 "label": "Delete a page", "description": "Delete a page for good.",
+                                 "args": {"page": "Old notes"}}]
+        finally:
+            call["quiesced"] = True
+        return
     if "connect fixture" in text:
         # The work needs an app: suggest_apps leaves a Connect card with apps from the local catalog.
         from row_bot.threads import append_checkpoint_messages
@@ -2263,6 +2301,21 @@ def _synthetic_registry() -> dict:
         for tag in (version, "latest"):
             documents[f"https://registry.npmjs.org/{name}/{tag}"] = document
     return {"tarballs": served, "documents": documents}
+
+
+@app.post("/__p5_fixture/apps/sign-out")
+def p5_apps_sign_out(x_fixture_token: str = Header(default="")) -> dict:
+    """The synthetic service ended every signed-in app's sign-in: each now needs you (Home lists it)."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot.integrations import facts
+    from row_bot.mcp_client import config, runtime
+    names = [name for name, cfg in config.read_saved_configuration().document.get("servers", {}).items()
+             if (cfg.get("auth") or {}).get("mode") == "oauth"]
+    for name in names:
+        runtime._update_status(name, status="failed",
+                               last_error="unhandled errors | OAuthFlowError: No redirect handler provided for authorization code grant")
+    facts.invalidate()
+    return {"signed_out": names}
 
 
 @app.post("/__p5_fixture/connect-anything")

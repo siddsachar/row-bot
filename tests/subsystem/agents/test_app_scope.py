@@ -128,6 +128,9 @@ def test_tools_of_apps_left_out_are_never_bound_and_kept_ones_still_ask_first(mo
 
 @pytest.fixture
 def identities(apps, monkeypatch):
+    apps.items.insert(0, {"id": "builtin:account:google", "kind": "builtin", "tools": ["gmail"], "name": "Google account",
+                       "app": {"id": "google", "name": "Google"}, "icon": "si:google", "lifecycle": "installed",
+                       "readiness": "ready", "parent_id": None, "children": []})  # Built-in ways have no server.
     servers = {"mcp_notion_delete_page": "Notion", "mcp_notion_search": "Notion"}
     monkeypatch.setattr("row_bot.mcp_client.runtime.server_for_tool", servers.get)
     return {"item_id": "mcp:notion", "name": "Notion", "icon": "letter:N"}

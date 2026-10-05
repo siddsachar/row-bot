@@ -334,3 +334,25 @@ def test_a_chat_switch_and_a_mention_reach_the_turn_and_only_narrow_it(service, 
         assert seen[-1]["exclude_servers"] == ["Notion"] and seen[-1]["focus"] == []
         submit("@Notion and @Linear, what changed?")  # Notion stays off; the mention focuses on Linear only.
         assert seen[-1]["exclude_servers"] == ["Notion"] and seen[-1]["focus"] == ["mcp:linear"]
+
+
+def test_an_approval_read_over_http_names_the_app_asking(service, composer_library, monkeypatch):
+    from row_bot.integrations import scope
+    from tests.helpers.client_platform_fakes import ScriptedAgentStream
+
+    monkeypatch.setattr(scope, "app_for_tool", lambda name: {"item_id": "mcp:notion", "name": "Notion", "icon": "si:notion"}
+                        if name == "mcp_notion_delete_page" else None)
+    fake = ScriptedAgentStream((("interrupt", [{"__interrupt_id": "app-interrupt", "tool": "mcp_notion_delete_page",
+                                                 "description": "Delete a page", "args": {"page": "Old"}}]),))
+    service.stream_factory = fake.stream
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _create(client, headers)["conversation_id"]
+        submitted = _command(client, headers, "conversation.submit", {"submission_id": str(uuid4()), "text": "Tidy up",
+            "attachment_refs": [], "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}},
+            target=conversation, revision=service.get_conversation(conversation)["revision"])
+        handle = service.registry.get(submitted.json()["execution_id"])
+        assert handle.producer_done.wait(5)
+        view = client.get(f"/api/v1/approvals/{handle.approval_id}", headers=headers)
+        assert view.status_code == 200, view.text
+        assert view.json()["app"] == {"item_id": "mcp:notion", "name": "Notion", "icon": "si:notion"}

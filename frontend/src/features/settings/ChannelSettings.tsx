@@ -788,6 +788,7 @@ export default function ChannelSettings({
           {passiveChannels.map((channel) => (
             <details
               className="settings-account-panel"
+              open={only ? true : undefined}
               key={channel.channel_id}
             >
               <summary>

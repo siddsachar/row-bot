@@ -73,14 +73,20 @@ test('an app the work needs shows a Connect card that opens its consent sheet', 
 }, testInfo) => {
   await newConversation(page);
   await send(page, 'Find my Notion page connect fixture');
-  const card = page.getByRole('group', { name: 'Apps to connect', exact: true });
+  const card = page.getByRole('group', {
+    name: 'Apps to connect',
+    exact: true,
+  });
   const notion = card.getByRole('listitem', { name: 'Notion', exact: true });
   // The card names the app as Row-Bot's catalog knows it.
   await expect(notion).toContainText('by Notion');
   await screenshot(page, testInfo, 'connect-card');
   await notion.getByRole('button', { name: 'Connect', exact: true }).click();
   // Connecting is the app's own consent sheet, right in the chat.
-  const sheet = page.getByRole('dialog', { name: 'Connect Notion', exact: true });
+  const sheet = page.getByRole('dialog', {
+    name: 'Connect Notion',
+    exact: true,
+  });
   await expect(sheet).toContainText('What you ask goes to mcp.notion.com.');
   await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(sheet).toHaveCount(0);

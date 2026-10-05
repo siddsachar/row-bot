@@ -120,7 +120,7 @@ def app_for_tool(tool_name: str) -> dict | None:
     if not server:
         parent = builtin.tool_parent(tool_name)
         return builtin.tool_app(parent) if parent else None
-    item = next((item for item in _items() if item["server"] == server), None)
+    item = next((item for item in _items() if item.get("server") == server), None)
     if item is None:
         return None
     return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"]}

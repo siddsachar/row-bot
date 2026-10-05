@@ -10065,6 +10065,7 @@ def create_router(
                 "safe_argument_summary",
                 "requesting_trace_id",
                 "setup",
+                "app",
                 "policy_revision",
             )
             if k in view

@@ -441,6 +441,20 @@ a.app-way:hover {
 .chat-connect-text strong {
   overflow-wrap: anywhere;
 }
+/* + → Apps: logo, name, then the check at the end, like the menu it opens from. */
+.composer-apps-menu .menu-item {
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 220px;
+}
+.composer-apps-menu .menu-item > svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.composer-apps-menu .menu-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .composer-apps-menu .app-icon {
   flex: none;
 }
