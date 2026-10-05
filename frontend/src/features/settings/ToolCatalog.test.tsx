@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import type { ToolCatalogPage } from '../../api/types';
+import { networkFailure } from '../../api/network-failure';
 import ToolCatalog from './ToolCatalog';
 
 type Tool = ToolCatalogPage['items'][number];
@@ -386,7 +387,7 @@ it('keeps confirmed entries on a pagination failure and retries only on request'
   const load = vi
     .fn()
     .mockResolvedValueOnce(page([tool('Confirmed')], 'next'))
-    .mockRejectedValueOnce(new TypeError('private network detail'))
+    .mockRejectedValueOnce(networkFailure('private network detail'))
     .mockResolvedValueOnce(page([tool('Recovered')]));
   render(<ToolCatalog load={load} />);
   await openCatalog();
