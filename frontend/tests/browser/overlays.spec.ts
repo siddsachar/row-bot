@@ -156,19 +156,28 @@ test('settings aliases route to retained unified settings', async ({
   await page
     .getByRole('searchbox', { name: 'Find a setting', exact: true })
     .fill('gmail');
-  const accounts = page
-    .getByRole('navigation', { name: 'Settings sections', exact: true })
-    .getByRole('link', { name: 'Accounts', exact: true });
-  await accounts.click();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts/);
+  const sections = page.getByRole('navigation', {
+    name: 'Settings sections',
+    exact: true,
+  });
+  // Accounts are apps: the Google account row opens Google's app page.
+  await sections
+    .getByRole('list', { name: 'Matching settings', exact: true })
+    .getByRole('link', { name: 'Google account', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/app-v2\/settings\/apps\/google$/);
   // Compact Settings name the current page in the section picker.
   if (page.viewportSize()!.width < 900)
     await expect(
       page.getByRole('combobox', { name: 'Settings section', exact: true }),
-    ).toHaveValue('accounts');
-  else await expect(accounts).toHaveAttribute('aria-current', 'page');
+    ).toHaveValue('apps');
+  else
+    await expect(
+      sections.getByRole('link', { name: 'Apps', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+  // The client's mock data has no apps; the route and its section are what this checks.
   await expect(
-    page.getByRole('heading', { name: 'Accounts', exact: true }),
+    page.getByRole('heading', { name: 'Apps', exact: true, level: 2 }),
   ).toBeVisible();
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'accounts-setting-retained');

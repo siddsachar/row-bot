@@ -359,7 +359,7 @@ test('retained settings expose real capability state without leaving the unified
   ).toEqual([]);
   await writeEvidence(info, 'retained-settings-result.json', {
     conversation,
-    routes: ['voice', 'accounts', 'tracker', 'tools', 'system'],
+    routes: ['voice', 'apps/github', 'tracker', 'tools', 'system'],
     draft_retained: true,
     provider_calls: 0,
   });

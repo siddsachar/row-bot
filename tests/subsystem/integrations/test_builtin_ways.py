@@ -37,7 +37,11 @@ def owners(monkeypatch):
                           {"channel_id": "slack", "display_name": "Slack", "source": {"kind": "core"},
                            "configured": False, "running": False, "reachability_problem": None},
                           {"channel_id": "rss", "display_name": "RSS", "source": {"kind": "plugin", "plugin_id": "rss"},
-                           "configured": True, "running": True, "reachability_problem": None}]}
+                           "configured": True, "running": True, "reachability_problem": None},
+                          # Ready to link but never linked: "configured" by its owner, not set up by anyone.
+                          {"channel_id": "whatsapp", "display_name": "WhatsApp", "source": {"kind": "core"},
+                           "configured": True, "running": False, "reachability_problem": None, "fields": [],
+                           "paired_identities": [], "link_state": None}]}
     monkeypatch.setattr("row_bot.application.client_account_oauth.read_account_auth",
                         lambda account: {"state": state[account]})
     monkeypatch.setattr(github_account, "shared_github_status", lambda: SimpleNamespace(state=state["github"]))
@@ -57,6 +61,7 @@ def test_accounts_channels_and_key_tools_appear_as_apps_with_their_owners_status
     assert rows["builtin:account:x"]["next_action"] == {"kind": "set_up", "label": "Set up"}
     assert (rows["builtin:channel:telegram"]["lifecycle"], rows["builtin:channel:slack"]["lifecycle"]) == ("installed", "available")
     assert "builtin:channel:rss" not in rows  # A package's own channel is listed with its package.
+    assert rows["builtin:channel:whatsapp"]["lifecycle"] == "available"  # Not yours until it is linked.
     assert rows["builtin:tool:web_search"]["app"]["id"] == "tavily"
     assert rows["builtin:tool:wolfram_alpha"]["lifecycle"] == "available"  # No key yet.
     owners["google"] = "expired"

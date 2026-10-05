@@ -98,7 +98,11 @@ def _channels() -> list[dict]:
         if source.get("kind") == "plugin":
             continue  # A package's channel is listed with its package.
         problem = item.get("reachability_problem")
-        if item.get("configured") is not True:
+        # Set up by the person: a saved setting, a linked or paired account, or running. A channel that needs
+        # nothing saved (WhatsApp links by scanning) reads "configured" before anyone has set it up.
+        used = (item.get("running") is True or item.get("link_state") == "linked" or bool(item.get("paired_identities"))
+                or any(field.get("configured") is True for field in item.get("fields") or []))
+        if item.get("configured") is not True or not used:
             lifecycle, blockers = "available", []
         else:
             lifecycle = "installed" if item.get("running") is True else "off"
