@@ -436,3 +436,188 @@ test('Apps works with the keyboard and names everything for screen readers', asy
   await screenshot(page, info, 'apps-home-320');
   await page.setViewportSize(viewport);
 });
+
+/** Light and dark evidence of one view, and 320 px where the view is a page of its own. */
+async function views(page: Page, info: TestInfo, name: string, narrow = false) {
+  await checkLayout(page, info, `${name}-light`);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await assertNoOverflow(page);
+  await screenshot(page, info, `${name}-dark`);
+  await page.emulateMedia({ colorScheme: 'light' });
+  if (narrow) {
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 320, height: 800 });
+    await assertNoOverflow(page);
+    await screenshot(page, info, `${name}-320`);
+    await page.setViewportSize(viewport);
+  }
+}
+
+test('GitHub is one card, and its token goes only to the keychain', async ({
+  page,
+  context,
+}, info) => {
+  await seed(page, '/__p5_fixture/connect-anything');
+  await openApps(page, context);
+  await find(page, 'send email');
+  await expect(
+    page
+      .getByRole('link')
+      .filter({ hasText: /Resend/ })
+      .first(),
+  ).toBeVisible();
+  await views(page, info, 'p4-search-send-email', true);
+  await find(page, 'github');
+  const card = page.getByRole('link', { name: /^GitHub/ }).first();
+  await expect(card).toBeVisible();
+  await views(page, info, 'p4-search-github', true);
+  await card.click();
+  await expect(page.getByRole('heading', { name: 'GitHub' })).toBeVisible();
+  const ways = page.getByRole('region', { name: 'Ways to connect' });
+  await expect(ways.getByText('GitHub with your own OAuth app')).toBeVisible();
+  await expect(
+    ways.getByText('GitHub MCP Server on this computer'),
+  ).toBeVisible();
+  await views(page, info, 'p4-github-detail', true);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Connect', exact: true })
+    .click();
+  const token = page.getByLabel('Personal access token');
+  await expect(token).toHaveAttribute('type', 'password');
+  await expect(page.getByLabel('Read only')).toHaveValue('true');
+  await expect(
+    page.getByRole('link', { name: 'Where do I get this?' }),
+  ).toHaveAttribute(
+    'href',
+    'https://github.com/settings/personal-access-tokens/new',
+  );
+  await views(page, info, 'p4-inputs', true);
+  await token.fill('synthetic-github-token');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Allow', exact: true })
+    .click();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(page.getByText('synthetic-github-token')).toHaveCount(0);
+});
+
+test('a server that asks to sign in when first checked signs in before anything else', async ({
+  page,
+  context,
+}, info) => {
+  await seed(page, '/__p5_fixture/connect-anything');
+  await openApps(page, context);
+  await page.getByRole('button', { name: 'Add from link or file' }).click();
+  await page
+    .getByRole('textbox', { name: /^Link/ })
+    .fill('https://signs-in.example.test/mcp');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Continue', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const consent = page.getByRole('dialog');
+  await expect(
+    consent.getByText(/asks, you sign in to it in your browser/),
+  ).toBeVisible();
+  const signIn = context.waitForEvent('page');
+  await consent.getByRole('button', { name: 'Connect', exact: true }).click();
+  const provider = await signIn;
+  await expect(
+    page.getByText(/Finish signing in to .* in your browser/),
+  ).toBeVisible();
+  await views(page, info, 'p4-detected-sign-in');
+  await provider.getByRole('link', { name: 'Allow' }).click();
+  await provider.close();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Allow', exact: true })
+    .click();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+});
+
+test('a local app shows exactly what it installs, then waits for its program', async ({
+  page,
+  context,
+}, info) => {
+  await seed(page, '/__p5_fixture/connect-anything');
+  await openApps(page, context);
+  await page
+    .getByRole('link', { name: /^Blender Build/ })
+    .first()
+    .click();
+  await page
+    .getByRole('button', { name: /^(Continue setup|Turn on|Connect)$/ })
+    .click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /^(Continue setup|Turn on|Connect)$/ })
+    .click();
+  await expect(
+    page.getByText('fixture-blender-bridge 1.0.0').first(),
+  ).toBeVisible();
+  await page.getByText('Exactly what will be installed').click();
+  await expect(page.locator('.plan-review-items code').first()).toContainText(
+    'sha512-',
+  );
+  await views(page, info, 'p4-runtime-consent', true);
+  await page.getByRole('button', { name: 'Install', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible();
+  await expect(
+    page.getByText('Open Blender 5.1 with its MCP add-on, then check again.'),
+  ).toBeVisible();
+  await views(page, info, 'p4-local-app-check', true);
+  await seed(page, '/__p5_fixture/connect-anything/program');
+  await page.getByRole('button', { name: 'Check again' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Allow', exact: true })
+    .click();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+});
+
+test('a picked bundle is checked, reviewed and asks for its own settings', async ({
+  page,
+  context,
+}, info) => {
+  await seed(page, '/__p5_fixture/connect-anything');
+  await openApps(page, context);
+  const bundle = await (
+    await page.request.get('/__p5_fixture/connect-anything/bundle', {
+      headers: headers(),
+    })
+  ).json();
+  await page.getByRole('button', { name: 'Add from link or file' }).click();
+  await page.getByLabel('Or choose a file').setInputFiles({
+    name: bundle.name,
+    mimeType: 'application/zip',
+    buffer: Buffer.from(bundle.data, 'base64'),
+  });
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Continue', exact: true })
+    .click();
+  await expect(
+    page.getByRole('heading', { name: /field-notes|Field notes/ }),
+  ).toBeVisible();
+  await views(page, info, 'p4-mcpb-import', true);
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Connect', exact: true })
+    .click();
+  await expect(
+    page.getByText(/Not signed, so Row-Bot can't tell who made it/),
+  ).toBeVisible();
+  await views(page, info, 'p4-mcpb-review');
+  await page.getByRole('button', { name: 'Install', exact: true }).click();
+  await expect(page.getByLabel('Notes key')).toHaveAttribute(
+    'type',
+    'password',
+  );
+  await expect(page.getByLabel('Notes folder (optional)')).toHaveValue('notes');
+});

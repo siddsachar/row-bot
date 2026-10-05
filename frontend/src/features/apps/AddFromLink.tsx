@@ -88,7 +88,7 @@ export default function AddFromLink({
         )}
         <Field
           label="Or choose a file"
-          hint=".zip or .skill for skills and packages; .mcpb bundles arrive in a later update."
+          hint=".zip or .skill for skills and packages, or a .mcpb app bundle."
         >
           <Input
             type="file"

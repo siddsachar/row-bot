@@ -24,7 +24,7 @@
       "headers": {"Authorization": "Bearer {token}", "X-MCP-Readonly": "{read_only}"},
       "inputs": [
         {"key": "token", "label": "Personal access token", "description": "A fine-grained token from GitHub settings, limited to the repositories Row-Bot may use.", "secret": true, "required": true, "target": "header", "name": "Authorization", "default": "", "choices": [], "help_url": "https://github.com/settings/personal-access-tokens/new", "format": "string", "flag": ""},
-        {"key": "read_only", "label": "Read only", "description": "Only GitHub's tools that read. Choose false to also allow changes; Row-Bot still asks before each one.", "secret": false, "required": true, "target": "header", "name": "X-MCP-Readonly", "default": "true", "choices": ["true", "false"], "help_url": "", "format": "string", "flag": ""}
+        {"key": "read_only", "label": "Read only", "description": "Only GitHub's tools that read. Choose No to also allow changes; Row-Bot still asks before each one.", "secret": false, "required": true, "target": "header", "name": "X-MCP-Readonly", "default": "true", "choices": ["true", "false"], "help_url": "", "format": "boolean", "flag": ""}
       ]
     },
     "metadata": {
@@ -58,7 +58,7 @@
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {"X-MCP-Readonly": "{read_only}"},
       "inputs": [
-        {"key": "read_only", "label": "Read only", "description": "Only GitHub's tools that read. Choose false to also allow changes; Row-Bot still asks before each one.", "secret": false, "required": true, "target": "header", "name": "X-MCP-Readonly", "default": "true", "choices": ["true", "false"], "help_url": "", "format": "string", "flag": ""}
+        {"key": "read_only", "label": "Read only", "description": "Only GitHub's tools that read. Choose No to also allow changes; Row-Bot still asks before each one.", "secret": false, "required": true, "target": "header", "name": "X-MCP-Readonly", "default": "true", "choices": ["true", "false"], "help_url": "", "format": "boolean", "flag": ""}
       ]
     },
     "metadata": {

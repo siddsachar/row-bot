@@ -2213,6 +2213,126 @@ def p5_apps(x_fixture_token: str = Header(default=""), x_fixture_origin: str = H
     return {'ready': True}
 
 
+_connect_anything = {"program_open": False}
+
+
+def _synthetic_tarball(files: dict) -> bytes:
+    import io
+    import tarfile
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as output:
+        for name, text in files.items():
+            data = text.encode()
+            info = tarfile.TarInfo("package/" + name)
+            info.size, info.mode = len(data), 0o644
+            output.addfile(info, io.BytesIO(data))
+    return stream.getvalue()
+
+
+def _synthetic_registry() -> dict:
+    """npm registry bytes for the packages these journeys install: a package with its own
+    shrinkwrap (so the review lists every dependency) and a self-contained one."""
+    def integrity(raw: bytes) -> str:
+        return "sha512-" + base64.b64encode(hashlib.sha512(raw).digest()).decode()
+    served, documents = {}, {}
+    deps = {name: _synthetic_tarball({"package.json": json.dumps({"name": name, "version": version}), "index.js": ""})
+            for name, version in (("zod", "3.25.76"), ("minimatch", "10.0.3"), ("diff", "8.0.2"))}
+    versions = {"zod": "3.25.76", "minimatch": "10.0.3", "diff": "8.0.2"}
+    for name, raw in deps.items():
+        url = f"https://registry.npmjs.org/{name}/-/{name}-{versions[name]}.tgz"
+        served[url] = raw
+    shrinkwrap = {"name": "@modelcontextprotocol/server-filesystem", "version": "2026.1.14", "lockfileVersion": 3, "packages": {
+        "": {"name": "@modelcontextprotocol/server-filesystem", "version": "2026.1.14"},
+        **{f"node_modules/{name}": {"version": versions[name], "resolved": f"https://registry.npmjs.org/{name}/-/{name}-{versions[name]}.tgz",
+                                    "integrity": integrity(raw)} for name, raw in deps.items()}}}
+    packages_ = {
+        "@modelcontextprotocol/server-filesystem": ("2026.1.14", {"package.json": json.dumps({
+            "name": "@modelcontextprotocol/server-filesystem", "version": "2026.1.14", "bin": "dist/index.js",
+            "dependencies": {name: "^" + version for name, version in versions.items()}}),
+            "dist/index.js": "", "npm-shrinkwrap.json": json.dumps(shrinkwrap)}, True),
+        "fixture-blender-bridge": ("1.0.0", {"package.json": json.dumps({"name": "fixture-blender-bridge", "version": "1.0.0",
+                                                                         "bin": "main.js"}), "main.js": ""}, False)}
+    for name, (version, files, shrinkwrapped) in packages_.items():
+        raw = _synthetic_tarball(files)
+        url = f"https://registry.npmjs.org/{name}/-/{name.rsplit('/', 1)[-1]}-{version}.tgz"
+        served[url] = raw
+        document = {"name": name, "version": version, "bin": json.loads(files["package.json"])["bin"],
+                    "dist": {"tarball": url, "integrity": integrity(raw)}}
+        if shrinkwrapped:
+            document.update(dependencies={n: "^" + v for n, v in versions.items()}, _hasShrinkwrap=True)
+        for tag in (version, "latest"):
+            documents[f"https://registry.npmjs.org/{name}/{tag}"] = document
+    return {"tarballs": served, "documents": documents}
+
+
+@app.post("/__p5_fixture/connect-anything")
+def p5_connect_anything(x_fixture_token: str = Header(default=""), x_fixture_origin: str = Header(default="")) -> dict:
+    """Phase 4 on this machine only: a server that asks to sign in once tested, a package whose exact
+    versions are reviewed before installing (registry bytes are synthetic), a program that must be
+    open, and a bundle picked from disk. Nothing leaves this computer."""
+    p5_apps(x_fixture_token, x_fixture_origin)
+    from urllib.parse import unquote, urlsplit
+    from row_bot.integrations import apps, facts, plans
+    from row_bot.mcp_client import auth, config, packages, requirements
+    auth.discover_sign_in = lambda url: ({"required": True, "metadata": True, "dcr": False, "cimd": True}
+        if urlsplit(url).hostname == "signs-in.example.test" else {"required": False, "metadata": True, "dcr": True})
+    requirements.check_requirement = lambda requirement, env=None: requirements.RuntimeCheck(requirement=requirement, available=True)
+    registry = _synthetic_registry()
+
+    def fetch(url, **_):
+        found = registry["tarballs"].get(url)
+        if found is None:
+            found = registry["documents"].get(unquote(url))
+            found = None if found is None else json.dumps(found).encode()
+        if found is None:
+            raise ValueError("mcp_package_source_invalid")
+        return found
+    packages._fetch = fetch
+    # A synthetic bridge to Blender: an installed app that needs the program open on this computer.
+    match = apps.match
+    apps.match = lambda refs: apps.catalog()[0]["blender"] if "npm:fixture-blender-bridge" in refs else match(refs)
+    plans.local_app_open = lambda check: _connect_anything["program_open"]
+    _connect_anything["program_open"] = False
+    document = config.load_config()
+    document.setdefault("servers", {})["Blender bridge"] = {
+        "enabled": False, "transport": "stdio", "command": "npx", "args": ["-y", "fixture-blender-bridge@1.0.0"],
+        "environment_mode": "minimal", "source": {"marketplace": "custom"}}
+    config.save_config(document)
+    facts.invalidate()
+    return {"ready": True}
+
+
+@app.post("/__p5_fixture/connect-anything/program")
+def p5_connect_anything_program(x_fixture_token: str = Header(default="")) -> dict:
+    """The person opens the program: its check passes from now on."""
+    predecessor._authorize(x_fixture_token)
+    _connect_anything["program_open"] = True
+    return {"open": True}
+
+
+@app.get("/__p5_fixture/connect-anything/bundle")
+def p5_connect_anything_bundle(x_fixture_token: str = Header(default="")) -> dict:
+    """A synthetic, unsigned .mcpb for the file picker: a Node server with one key and one folder."""
+    predecessor._authorize(x_fixture_token)
+    import io
+    import zipfile
+    manifest = {"manifest_version": "0.3", "name": "field-notes", "display_name": "Field notes", "version": "1.2.0",
+        "description": "Search and read the notes in one folder.", "author": {"name": "Fixture Author"}, "license": "MIT",
+        "server": {"type": "node", "entry_point": "server/index.js", "mcp_config": {
+            "command": "node", "args": ["${__dirname}/server/index.js", "--root", "${user_config.folder}"],
+            "env": {"NOTES_TOKEN": "${user_config.api_key}"}}},
+        "user_config": {
+            "api_key": {"type": "string", "title": "Notes key", "description": "The key from your notes service.",
+                        "sensitive": True, "required": True},
+            "folder": {"type": "directory", "title": "Notes folder", "description": "Where your notes are.",
+                       "default": "notes"}}}
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as output:
+        output.writestr("manifest.json", json.dumps(manifest))
+        output.writestr("server/index.js", "// synthetic server; never run by this fixture")
+    return {"name": "field-notes.mcpb", "data": base64.b64encode(stream.getvalue()).decode()}
+
+
 @app.get("/__p5_fixture/oauth/approve")
 def p5_oauth_approve(state: str, allow: str = ""):
     """The synthetic provider's consent page: Allow completes the sign-in; leaving it doesn't."""
