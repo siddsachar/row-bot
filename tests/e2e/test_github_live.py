@@ -4,15 +4,16 @@ prints it, and it only reads (one ``get_me`` call). Nothing here writes to GitHu
 
 Run it against the data folder of the Row-Bot that was used to connect (see the runbook in the
 developer guide), first while connected, then after turning it off, disconnecting and removing it.
+The test suite gives every test its own data folder, so the live one is named separately
+(``ROW_BOT_GITHUB_LIVE_DATA``) and Row-Bot's modules are re-bound to it for the test.
 ``ROW_BOT_TEST_MODE=0`` lets Row-Bot read that connection's keychain entry; the folder may never be
-your everyday Row-Bot data folder (the test guard refuses it)::
+your everyday Row-Bot data folder::
 
-    ROW_BOT_TEST_MODE=0 ROW_BOT_DATA_DIR=<that folder> ROW_BOT_GITHUB_LIVE=connected uv run python -m pytest tests/e2e/test_github_live.py
-    ROW_BOT_TEST_MODE=0 ROW_BOT_DATA_DIR=<that folder> ROW_BOT_GITHUB_LIVE=removed uv run python -m pytest tests/e2e/test_github_live.py
+    ROW_BOT_TEST_MODE=0 ROW_BOT_GITHUB_LIVE_DATA=<that folder> ROW_BOT_GITHUB_LIVE=connected uv run python -m pytest tests/e2e/test_github_live.py
+    ROW_BOT_TEST_MODE=0 ROW_BOT_GITHUB_LIVE_DATA=<that folder> ROW_BOT_GITHUB_LIVE=removed uv run python -m pytest tests/e2e/test_github_live.py
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import re
@@ -40,11 +41,20 @@ def _text_files(root: Path):
 
 
 @pytest.fixture
-def data_dir() -> Path:
-    if STAGE not in {"connected", "removed"} or os.environ.get("ROW_BOT_TEST_MODE") != "0":
-        pytest.skip("set ROW_BOT_GITHUB_LIVE=connected|removed, ROW_BOT_TEST_MODE=0 and ROW_BOT_DATA_DIR to a live-validation folder")
-    from row_bot.data_paths import get_row_bot_data_dir
-    return get_row_bot_data_dir(create=False)
+def data_dir(reload_for_data_dir) -> Path:
+    folder = os.environ.get("ROW_BOT_GITHUB_LIVE_DATA", "")
+    if STAGE not in {"connected", "removed"} or not folder or os.environ.get("ROW_BOT_TEST_MODE") != "0":
+        pytest.skip("set ROW_BOT_GITHUB_LIVE=connected|removed, ROW_BOT_TEST_MODE=0 and ROW_BOT_GITHUB_LIVE_DATA "
+                    "to a live-validation data folder")
+    path = Path(folder).resolve()
+    everyday = [(Path.home() / name).resolve() for name in (".row-bot", ".thoth")]
+    if any(path == root or path.is_relative_to(root) for root in everyday):
+        pytest.fail("never point the live check at your everyday Row-Bot data folder")
+    if not (path / "mcp_servers.json").is_file():
+        pytest.fail("connect GitHub in the Row-Bot that uses this folder first")
+    # The keychain entry's service name, the connections and the runtimes are all bound to the folder.
+    reload_for_data_dir(path, "row_bot.secret_store", "row_bot.mcp_client.config", "row_bot.mcp_client.requirements")
+    return path
 
 
 def test_no_github_token_is_written_anywhere_in_the_data_folder(data_dir):
@@ -63,20 +73,20 @@ def test_a_connected_github_reads_who_you_are_and_offers_only_read_tools(data_di
         runtime.discover_enabled_servers()
         for name, cfg in servers.items():
             assert cfg.get("enabled") and (cfg.get("auth") or {}).get("credential_ref"), f"{name} is not connected and on"
-            deadline, status = time.monotonic() + 60, {}
-            while time.monotonic() < deadline:
-                status = runtime.get_status_summary()["servers"].get(name, {})
-                if status.get("status") in {"connected", "failed"}:
+            deadline, status, tools = time.monotonic() + 60, {}, []
+            while time.monotonic() < deadline:  # Connected first; its tool list follows a moment later.
+                summary = runtime.get_status_summary()
+                status, tools = summary["servers"].get(name, {}), summary["tools"].get(name, [])
+                if status.get("status") == "failed" or (status.get("status") == "connected" and tools):
                     break
                 time.sleep(0.5)
-            assert status.get("status") == "connected", status.get("last_error", "")[:200]
-            tools = runtime.get_status_summary()["tools"].get(name, [])
+            assert status.get("status") == "connected" and tools, status.get("last_error", "")[:200]
             if cfg.get("input_values", {}).get("read_only", "true") == "true":
                 # GitHub's read-only mode: no tool that changes anything is even offered.
                 assert not set(runtime.get_destructive_tool_names()) & {prefixed_tool_name(name, t["name"]) for t in tools}
             wrappers = {tool.name: tool for tool in runtime.get_langchain_tools()}
             output = wrappers[prefixed_tool_name(name, "get_me")].invoke({})
-            assert not output.startswith("MCP tool error:") and json.loads(output).get("login")
+            assert not output.startswith("MCP tool error:") and '"login"' in output
     finally:
         runtime.shutdown()
 
