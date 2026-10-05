@@ -1334,7 +1334,7 @@ export const saveArtifactExport = (base: string, proof: SessionProof, conversati
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/save`, 'ArtifactSavedExport', proof, 'POST', {}, undefined, signal);
 export const revealArtifactExport = (base: string, proof: SessionProof, conversation: string, binding: string, exportId: string, body: ArtifactExportReveal, signal?: AbortSignal): Promise<ArtifactExportRevealResult> =>
   jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(exportId)}/reveal`, 'ArtifactExportRevealResult', proof, 'POST', body, undefined, signal);
-export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, signal?: AbortSignal): Promise<Blob> {
+export async function downloadArtifactExport(base: string, proof: SessionProof, conversation: string, binding: string, descriptor: ArtifactExport, sha256Hex: (data: ArrayBuffer) => Promise<string>, signal?: AbortSignal): Promise<Blob> {
   validateWire<ArtifactExport>('ArtifactExport', descriptor);
   const response = await fetch(`${base}/api/v1/conversations/${id(conversation)}/artifacts/${id(binding)}/exports/${id(descriptor.export_id)}/download`, {
     credentials: 'same-origin', cache: 'no-store', headers: proofHeaders(proof), signal,
@@ -1366,8 +1366,8 @@ export async function downloadArtifactExport(base: string, proof: SessionProof, 
   }
   if (size !== descriptor.size_bytes) throw new Error('protocol_incompatible');
   const blob = new Blob(parts, {type: descriptor.media_type});
-  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
-  if (Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('') !== descriptor.sha256)
+  // The caller hashes: pages opened over plain HTTP have no crypto.subtle.
+  if (await sha256Hex(await blob.arrayBuffer()) !== descriptor.sha256)
     throw new Error('protocol_incompatible');
   return blob;
 }

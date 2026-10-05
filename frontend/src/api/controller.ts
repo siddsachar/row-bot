@@ -6,6 +6,7 @@ import {
 import { aborted, clientError, failureStatus } from './errors';
 import { Acknowledgements } from './acknowledgements';
 import { isPanelDescriptor } from './types';
+import { sha256Hex } from '../platform/crypto';
 import type {
   ClientState,
   DictationScope,
@@ -129,13 +130,7 @@ function intentVerifier(
       return value;
     },
   );
-  return crypto.subtle
-    .digest('SHA-256', new TextEncoder().encode(canonical))
-    .then((buffer) =>
-      [...new Uint8Array(buffer)]
-        .map((value) => value.toString(16).padStart(2, '0'))
-        .join(''),
-    );
+  return sha256Hex(new TextEncoder().encode(canonical));
 }
 
 /** A BroadcastChannel (or a test double) shared by same-origin windows. */
