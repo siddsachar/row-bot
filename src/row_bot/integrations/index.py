@@ -149,7 +149,8 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
                     line = json.dumps(compact(entry), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
                     digest.update((b"\n" if count else b"") + line.encode("utf-8"))
                     copy = best[(_words_of(entry.name), _words_of(entry.description))] != name_key
-                    quality = 1 if low_quality(entry) else 2 if copy else 0
+                    preferred = found["verified"] or found["featured"] is not None  # Never hidden by the floor.
+                    quality = 0 if preferred else 1 if low_quality(entry) else 2 if copy else 0
                     # Rows are stored compressed (their text repeats); icons get a column for updates.
                     cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, icon, quality, row)"
                         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (name_key, entry.name, found["app"], int(found["verified"]),
@@ -325,7 +326,7 @@ def search(query: str, *, limit: int = LIMIT, now: float | None = None, everythi
     floor = "" if everything else " AND e.quality = 0"
     db = _connect(folder() / index["file"])
     try:
-        where = "WHERE (e.name = :wanted OR substr(e.name, 1, length(:prefix)) = :prefix)"
+        where = "WHERE (lower(e.name) = :wanted OR substr(lower(e.name), 1, length(:prefix)) = :prefix)"
         if _NAMESPACE.fullmatch(wanted) and db.execute("SELECT 1 FROM entries e " + where + " LIMIT 1", values).fetchone():
             matched, strong = where, "1"  # "io.github.zoom" or "com.notion/mcp" names a namespace: exactly that.
         elif words:
@@ -336,7 +337,7 @@ def search(query: str, *, limit: int = LIMIT, now: float | None = None, everythi
         top = db.execute(select + matched + floor + " " + _ORDER.format(strong=strong), values).fetchall()
         # One count for both: everything that matched, and how much of it the floor leaves out.
         found, low = db.execute("SELECT count(*), total(e.quality > 0) FROM entries e " + matched, values).fetchone()
-        hidden = 0 if everything or not (words or matched == where) else int(low)
+        hidden = 0 if everything else int(low)
         total = found - (0 if everything else int(low))
         results = [(expand(json.loads(zlib.decompress(row[5]))), {"app": row[1], "verified": bool(row[2]), "setup": row[3],
                                                                    "updated": row[4]}) for row in top]

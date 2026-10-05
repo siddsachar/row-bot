@@ -923,3 +923,39 @@ it('stops every app at once from Advanced with the reviewed policy command', asy
   );
   await waitFor(() => expect(use).not.toBeChecked());
 });
+
+it('a required choice with nothing chosen says so instead of showing an option it would not send', async () => {
+  const region = {
+    key: 'region',
+    label: 'Region',
+    description: '',
+    secret: false,
+    required: true,
+    target: 'header' as const,
+    name: 'X-Region',
+    template: '',
+    default: '',
+    choices: ['eu', 'us'],
+    help_url: '',
+    format: 'string' as const,
+  };
+  const waiting = plan({
+    plan_id: 'b1b1b1b1-0000-4000-8000-000000000009',
+    state: 'paused',
+    pause: 'inputs',
+    current_step: 'inputs',
+    steps: [
+      step('consent', 'done'),
+      step('inputs', 'waiting', { inputs: [region] }),
+    ],
+  });
+  show('/settings/apps/item?id=mcp%3Acurated%3Anotion', {
+    integrationDetail: vi.fn(async () => detail({ plan: waiting })),
+    reviewInstallPlan: vi.fn(async () => waiting),
+  });
+  const select = await screen.findByLabelText('Region');
+  expect(select).toHaveValue('');
+  expect(
+    within(select).getByRole('option', { name: 'Choose…' }),
+  ).toBeDisabled();
+});

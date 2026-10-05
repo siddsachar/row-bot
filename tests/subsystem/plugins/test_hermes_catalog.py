@@ -149,7 +149,7 @@ def test_an_update_classifies_each_pin_from_its_manifest_only_and_never_twice(ca
     assert asked == [f"https://raw.githubusercontent.com/example/{name}/{pin * 40}/plugin.json"
                      for name, pin in (("portable", "b"), ("native", "c"), ("throttled", "d"))]
     rows = {e["name"]: e for e in hermes_catalog.read_catalog()["entries"]}
-    assert rows["native"]["compatibility"] == "unsupported" and "Hermes app" in rows["native"]["reason"]
+    assert rows["native"]["compatibility"] == "unsupported" and "no Agent Plugins manifest" in rows["native"]["reason"]
     assert rows["portable"]["portable"] and rows["portable"]["compatibility"] == "not_inspected"
     assert rows["throttled"]["compatibility"] == "not_inspected" and not rows["throttled"]["portable"]
     asked.clear()

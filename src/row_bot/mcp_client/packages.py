@@ -29,12 +29,16 @@ import subprocess
 import sys
 import tarfile
 import time
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 from uuid import uuid4
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.integrations.safe import TtlCache, fetch
 from row_bot.package_files import check_package_tree, contained_path, relative_package_path
+
+if TYPE_CHECKING:
+    from row_bot.mcp_client.bundles import Bundle
 
 _NAME = r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+"
 _PREVIEWS = TtlCache(1200, 32, full="mcp_package_preview_capacity")
@@ -350,7 +354,7 @@ def _oci_lock(cfg: dict, check: Callable[[], None]) -> dict:
             "items": [{"path": "", "name": repository, "version": tag, "integrity": digest}], "integrity": digest}
 
 
-def bundle_install(upload: str, bundle) -> dict:
+def bundle_install(upload: str, bundle: Bundle) -> dict:
     """The recipe for a checked bundle: its own launch, with ``{bundle}`` for its unpacked folder and its
     settings as declared inputs. Bundles that install packages when they start (``uv``) aren't run."""
     command = bundle.command

@@ -294,8 +294,8 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         what = "skill" if kind == "skill" else "package"
         steps = [_step("consent", title="Before you add " + name), _step("test", title=f"Check the {what}"),
                  _step("enable", title="Add and turn on" if kind == "skill" else "Add " + name)]
-        if kind == "plugin":  # A package for a desktop app (Blender): the app is open when it is used.
-            steps += _local_app_step(apps.catalog()[0].get((row["app"] or {}).get("id", "")))
+        if kind == "plugin":  # A package for a desktop app (Blender): its program is open before it is turned on.
+            steps[-1:-1] = _local_app_step(apps.catalog()[0].get((row["app"] or {}).get("id", "")))
         consent["downloads"] = [row["source_url"] or name]
         if reference.get("kind") not in {"skill", "plugin"}:
             steps[1].update(state="unsupported", message="Add this one from its marketplace page for now.")
@@ -483,7 +483,12 @@ def cancel(ctx: Context, plan_id: str) -> dict:
 def read_plan(ctx: Context, plan_id: str) -> dict:
     """The plan's state, reconciled from owner receipts. Reading never sends a command."""
     with _plan_lock(plan_id):  # Observing never interleaves with this plan's runner, a cancel or another reader.
-        return _read(ctx, plan_id)
+        found = _read(ctx, plan_id)
+    if found.get("state") in {"completed", "failed", "cancelled", "expired"}:
+        with _LOCK:  # Nothing runs a finished plan again: its lock need not outlive it.
+            if plan_id not in _RUNNING:
+                _PLAN_LOCKS.pop(plan_id, None)
+    return found
 
 
 def _read(ctx: Context, plan_id: str) -> dict:
@@ -875,7 +880,8 @@ def _mcp_inputs(ctx: Context, record: dict, step: dict) -> str:
             review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate,
                                                                     target=record["target"])
             return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
-        command, review = _once(record, "inputs:values", build)
+        # Keyed by the values: settings corrected after a refused key are a new change, never a replay.
+        command, review = _once(record, "inputs:values:" + _digest(plain)[:16], build)
         _completed(configuration.execute_mcp_configuration_command(owner_id=ctx.mcp_owner_id, key=command["command_id"],
             command=command, validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
     if not (keys or secret):

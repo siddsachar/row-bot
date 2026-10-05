@@ -266,7 +266,12 @@ function InputsForm({
                 value={value}
                 onChange={(event) => change(event.target.value)}
               >
-                {!input.required && <option value="">Not set</option>}
+                {/* A required choice with nothing chosen yet shows that, never a first option it won't send. */}
+                {(!input.required || !choices.includes(value)) && (
+                  <option value="" disabled={input.required}>
+                    {input.required ? 'Choose…' : 'Not set'}
+                  </option>
+                )}
                 {choices.map((choice) => (
                   <option key={choice} value={choice}>
                     {input.format === 'boolean'

@@ -13,13 +13,16 @@ _DESTRUCTIVE_RE = re.compile(
     r"grant|permission|permissions|reset|overwrite|eval)(_|$)",
     re.IGNORECASE,
 )
-# A change to these reaches other people, publishes, runs code or grants access: high impact. A file or a
-# repository is one too: a repository write (create_or_update_file) is a commit, as in Row-Bot's own git rules.
+# A change to these reaches other people, publishes, runs code or grants access: high impact. A repository
+# is one too: a repository write (create_or_update_file) is a commit, as in Row-Bot's own git rules.
 _SENSITIVE_RE = re.compile(
     r"(^|_)(emails?|messages?|releases?|scripts?|passwords?|roles?|members?|collaborators?|tokens?|secrets?|keys?|"
-    r"admins?|owners?|webhooks?|pull_requests?|users?|visibility|memberships?|files?|repository|repositories|repos?)(_|$)",
+    r"admins?|owners?|webhooks?|pull_requests?|users?|visibility|memberships?|repository|repositories|repos?)(_|$)",
     re.IGNORECASE,
 )
+# A routine change the description places in a repository ("a file in a GitHub repository") is a commit too;
+# the same verb on a file on this computer stays a routine change.
+_REPOSITORY_RE = re.compile(r"(^|_)(repository|repositories|repo|repos)(_|$)", re.IGNORECASE)
 # Routine changes inside the app: ask unless the user chose Full access for the tool.
 _ROUTINE_RE = re.compile(
     r"(^|_)(create|add|update|edit|write|set|rename|move|put|patch|modify|insert|append|save|assign|duplicate)(_|$)",
@@ -78,13 +81,13 @@ def is_destructive_tool(tool_name: str, description: str = "", tool_obj: Any = N
         read_only_hint = _annotation_value(tool_obj, "readOnlyHint")
         if destructive_hint is True:
             return True
-        if _DESTRUCTIVE_RE.search(normalized_name) or _sensitive_change(normalized_name):
+        if _DESTRUCTIVE_RE.search(normalized_name) or _sensitive_change(normalized_name, description):
             return True
         if read_only_hint is True:
             return False
     if normalized_name in _BROWSER_SESSION_SAFE_TOOLS:
         return False
-    if _sensitive_change(normalized_name):
+    if _sensitive_change(normalized_name, description):
         return True
     haystack = f"{tool_name} {description or ''}"
     normalized = sanitize_name_component(haystack)
@@ -95,9 +98,10 @@ def _changes(name: str) -> bool:
     return bool(_ROUTINE_RE.search(name) or _ROUTINE_FIRST_RE.match(name))
 
 
-def _sensitive_change(name: str) -> bool:
-    """create_release, add_collaborator, set_password: a routine verb on something high impact."""
-    return _changes(name) and bool(_SENSITIVE_RE.search(name))
+def _sensitive_change(name: str, description: str = "") -> bool:
+    """create_release, add_collaborator, set_password: a routine verb on something high impact, or on
+    something its description puts in a repository."""
+    return _changes(name) and bool(_SENSITIVE_RE.search(name) or _REPOSITORY_RE.search(sanitize_name_component(description)))
 
 
 def tool_enabled_by_default(is_destructive: bool) -> bool:

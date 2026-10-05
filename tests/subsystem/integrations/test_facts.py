@@ -59,7 +59,8 @@ def test_refused_saved_sign_in_is_expired_without_reading_the_keychain(isolated,
 
 
 def test_missing_runtime_is_emitted_from_live_requirements(isolated, monkeypatch):
-    _server(transport="stdio", command="uvx", args=["mcp-server-fetch"], tools={"catalog": {}}, enabled=True)
+    _server(transport="stdio", command="uvx", args=["mcp-server-fetch"], tools={"catalog": {}}, enabled=True,
+            environment_mode="minimal")  # As a catalog recipe saves it; the person's own uvx line runs as written.
     monkeypatch.setattr(facts, "_requirements", lambda cfg: [{"id": "uv", "label": "uv", "available": False,
         "managed": True, "installable": True, "source": "missing"}])
     row = _work()

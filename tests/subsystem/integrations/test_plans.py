@@ -70,7 +70,7 @@ def test_a_local_app_check_and_python_tools_are_part_of_a_plan():
     from row_bot.integrations import apps
     row = facts.finish(facts.entry("mcp", "x", "Blender", installed=False, lifecycle="available",
                                    app=apps.catalog()[0]["blender"].ref()))
-    plan = plans.compute(row, {"cfg": {"transport": "stdio", "command": "uvx", "args": ["blender-mcp"]}})
+    plan = plans.compute(row, {"cfg": {"transport": "stdio", "command": "uvx", "args": ["blender-mcp"], "environment_mode": "minimal"}})
     states = {s["type"]: s["state"] for s in plan["steps"]}
     assert states["local_app_check"] == "pending" and plan["supported"]
     assert next(s for s in plan["steps"] if s["type"] == "runtime" and s["runtime"]["id"] == "pypi_package")["state"] == "pending"

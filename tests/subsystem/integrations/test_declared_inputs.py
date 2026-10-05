@@ -130,3 +130,14 @@ def test_a_key_inside_a_pasted_link_is_never_saved_with_the_address():
     assert key not in json.dumps([detail, plan])
     asks = next(s for s in plan["steps"] if s["type"] == "inputs")["inputs"]
     assert [(i["label"], i["secret"], i["target"]) for i in asks] == [("Key from your link", True, "url_variable")]
+
+
+def test_a_declared_key_is_asked_for_whatever_its_source_calls_the_sign_in():
+    cfg = {"transport": "stdio", "command": "node", "env": {"API_KEY": "{api_key}"}, "source": {"kind": "plugin"},
+           "inputs": [declared("api_key", "env", "API_KEY", secret=True, required=True)]}
+    setup = facts.mcp_setup({}, cfg)  # A plugin's mcp.json names no sign-in at all.
+    assert setup["auth_mode"] == "api_key" and facts.mcp_blockers(setup, {}, enabled=False)[0]["code"] == "key_required"
+    hosted = {"transport": "streamable_http", "url": "https://notes.example.test/mcp", "headers": {"X-Key": "{api_key}"},
+              "source": {"auth_mode": "oauth"}, "inputs": [declared("api_key", "header", "X-Key", secret=True, required=True)]}
+    # A sign-in's tokens would replace the key in the one credential, so the two are refused together.
+    assert facts.mcp_setup({}, hosted)["auth_mode"] == "unsupported"

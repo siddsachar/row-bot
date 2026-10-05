@@ -136,6 +136,10 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
             raise McpAuthError("invalid_mcp_auth")
     except (McpAuthError, inputs.InputError):
         declared, bindings, mode = [], [], "unsupported"
+    if any(item["secret"] for item in declared):
+        # A declared secret is kept as a key, whatever the source called its sign-in (a plugin's mcp.json says
+        # nothing). A sign-in's tokens would replace that key in the one credential: not supported together.
+        mode = "unsupported" if mode == "oauth" else "api_key" if mode in {"unknown", "none"} else mode
     destination = "Local process"
     if not local:
         try:
@@ -158,8 +162,12 @@ def mcp_setup(server: dict, cfg: dict) -> dict:
 
 
 def _locked_package(cfg: dict) -> bool:
+    """Whether its launch needs a reviewed package: an npx recipe (as before), or any package a catalog
+    recipe runs (its minimal environment is what makes the runtime use the reviewed folder). A connection
+    the person wrote themselves that runs uvx or docker keeps running as they wrote it."""
     from row_bot.mcp_client.packages import kind
-    return kind(cfg) is not None
+    found = kind(cfg)
+    return found == "npm" or (found is not None and cfg.get("environment_mode") == "minimal")
 
 
 def mcp_blockers(setup: dict, runtime: dict, *, enabled: bool) -> list[dict]:
@@ -170,10 +178,10 @@ def mcp_blockers(setup: dict, runtime: dict, *, enabled: bool) -> list[dict]:
         found.append(blocker("auth_unsupported"))
     elif setup["auth_mode"] in {"oauth", "api_key"} and not setup["credential_configured"]:
         found.append(blocker("sign_in_required" if setup["auth_mode"] == "oauth" else "key_required"))
-    if setup.get("inputs_missing"):
-        found.append(blocker("inputs_required"))
     elif setup["credential_configured"] and state in _FAILED | {"disconnected"} and runtime.get("sign_in_failed"):
         found.append(blocker("expired"))
+    if setup.get("inputs_missing"):
+        found.append(blocker("inputs_required"))
     if state in _FAILED and not runtime.get("sign_in_failed"):
         found.append(blocker("cleanup_incomplete" if state == "cleanup_incomplete" else "connection_failed"))
     if state == "dependency_missing" or any(not r["available"] for r in setup["requirements"]):

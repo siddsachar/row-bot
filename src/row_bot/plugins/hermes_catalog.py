@@ -127,7 +127,8 @@ def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambd
             repo, subdir, pin = repository_pin(raw["repo"], raw.get("subdir", ""), raw["sha"])
             removed = removed_reason(raw["name"], repo, saved)
             kind = classified.get(pin + ":" + subdir, "")
-            why = (removed or ("Made for the Hermes app itself; Row-Bot can't run it." if kind == "native" else
+            why = (removed or ("It has no Agent Plugins manifest at its pinned version, so Row-Bot can't run it."
+                                if kind == "native" else
                       "A portable package; Row-Bot checks what's inside when you add it." if kind == "portable" else
                       "Inspect the pinned package to check its portable components."))
             entries.append({"id": "hermes:" + raw["name"], "name": str(raw.get("title") or raw["name"])[:160],

@@ -74,7 +74,6 @@ def gate(tools):
     ("send_message", None, "mutation", True),
     ("add_comment", None, "mutation", True),  # Reaches other people.
     ("upload_file", None, "mutation", True),  # Moves local data out.
-    ("create_or_update_file", None, "mutation", True),  # A repository write is a commit.
     ("push_files", None, "mutation", True),
     ("merge_pull_request", None, "mutation", True),
     ("create_repository", None, "mutation", True),
@@ -89,6 +88,12 @@ def test_classification_separates_routine_changes_from_high_impact_ones(name, an
     tool = {"annotations": annotations} if annotations else None
     assert safety.classify_tool_effect(name, "", tool) == effect
     assert safety.is_destructive_tool(name, "", tool) is high_impact
+
+
+def test_a_file_write_is_high_impact_in_a_repository_and_routine_on_this_computer():
+    assert safety.is_destructive_tool("create_or_update_file", "Create or update a single file in a GitHub repository")
+    assert not safety.is_destructive_tool("edit_file", "Make line-based edits to a text file in an allowed folder")
+    assert safety.classify_tool_effect("edit_file", "Make line-based edits to a text file in an allowed folder") == "mutation"
 
 
 def test_a_tool_only_described_as_a_change_always_asks_unless_hinted_read_only():
