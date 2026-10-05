@@ -24,6 +24,8 @@ _ENV = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 NEVER_ENV = {"PATH", "PATHEXT", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "NODE_OPTIONS", "NODE_PATH", "LD_PRELOAD",
              "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "SYSTEMROOT", "COMSPEC", "WINDIR", "HOME",
              "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PLUGIN_ROOT", "PLUGIN_DATA"}
+# Second-level labels shared by everyone under a country domain (co.uk, com.au): not one service's domain.
+_SHARED = {"co", "com", "net", "org", "gov", "ac", "edu", "ne", "or", "go"}
 _SECRETISH = re.compile(r"(api|access|auth|bearer|client)?_?(key|token|secret|password|passwd|pat|credential|signature)s?$|^pat$",
                         re.IGNORECASE)
 
@@ -86,8 +88,10 @@ def check_url(template: str, declared: list[dict]) -> None:
         raise InputError("input_url_unsupported")
     if "{" in host:
         fixed = host.rsplit("}", 1)[1]
-        if not fixed.startswith(".") or fixed.count(".") < 2 or "{" in fixed or ":" in fixed:
-            raise InputError("input_url_unsupported")
+        labels = fixed.lower().split(".")[1:]
+        if (not fixed.startswith(".") or fixed.count(".") < 2 or "{" in fixed or ":" in fixed or any(label.isdigit() for label in labels)
+                or (len(labels) == 2 and len(labels[1]) == 2 and labels[0] in _SHARED)):
+            raise InputError("input_url_unsupported")  # {x}.co.uk or {x}.0.0.1 would name anyone's address.
     known = {item["key"] for item in declared}
     if any(name not in known for name in _PLACEHOLDER.findall(template)):
         raise InputError("invalid_inputs")

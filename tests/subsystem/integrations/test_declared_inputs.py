@@ -52,7 +52,8 @@ def test_a_typed_authorization_value_is_sent_with_one_scheme(template, typed, se
     assert inputs.resolve(cfg, {"key": typed})["headers"]["Authorization"] == sent
 
 
-@pytest.mark.parametrize("url", ["https://{host}/mcp", "https://{tenant}.com/mcp", "https://x.{rest}/mcp", "http://{t}.example.test/mcp"])
+@pytest.mark.parametrize("url", ["https://{host}/mcp", "https://{tenant}.com/mcp", "https://x.{rest}/mcp", "http://{t}.example.test/mcp",
+                                 "https://{tenant}.co.uk/mcp", "https://{tenant}.0.0.1/mcp"])
 def test_a_url_variable_can_never_choose_the_destination(url):
     with pytest.raises(inputs.InputError):
         inputs.check_url(url, [declared("host", "url_variable", "host"), declared("tenant", "url_variable", "tenant"),
@@ -107,9 +108,19 @@ def test_a_key_goes_only_to_the_keychain_and_a_setting_to_the_configuration(decl
     assert SECRET not in json.dumps([admissions.receipt("owner", plan_id), done, detail])
     launch, _ = auth.transport_options("Synthetic", saved)
     assert launch["env"] == {"NOTES_TOKEN": SECRET, "NOTES_SPACE": "work"}  # Filled in for one connection only.
+    # And never in what the connection reports when it fails, however an address quoted it.
+    from urllib.parse import quote
+    from row_bot.mcp_client.logging import redact
+    assert SECRET not in redact(f"401 for url 'https://x.test/s/{quote(SECRET)}/mcp' ({SECRET})", launch["_redact"])
     facts.invalidate()
     after = next(row for row in facts.inventory()[0] if row["name"] == "Synthetic")
     assert not {b["code"] for b in after["blockers"]} & {"key_required", "inputs_required"}
+
+
+def test_a_saved_sign_in_or_key_belongs_to_the_address_its_values_complete():
+    cfg = {"transport": "streamable_http", "url": "https://{tenant}.notes.example.test/mcp", "input_values": {"tenant": "acme"},
+           "inputs": [declared("tenant", "url_variable", "tenant", required=True)]}
+    assert auth.binding("Notes", cfg) != auth.binding("Notes", {**cfg, "input_values": {"tenant": "other"}})
 
 
 def test_a_portable_plugin_asks_for_its_placeholders_instead_of_sending_them_literally():

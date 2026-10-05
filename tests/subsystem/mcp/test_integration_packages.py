@@ -181,8 +181,9 @@ def test_a_python_package_installs_only_hashed_wheels_into_its_own_environment(d
     command, args = packages.resolve_launch(cfg)
     assert Path(command).is_relative_to(root) and args == ["--fast"]
     (root / "site/Lib/site-packages/fixture/__pycache__").mkdir()
-    (root / "site/Lib/site-packages/fixture/__pycache__/x.pyc").write_bytes(b"cache")
-    assert packages.resolve_launch(cfg)  # Byte-code caches are not a change.
+    (root / "site/Lib/site-packages/fixture/__pycache__/x.pyc").write_bytes(b"planted")
+    with pytest.raises(ValueError, match="integrity_changed"):  # Launches write no byte-code, so any is a change.
+        packages.resolve_launch(cfg)
     (root / "site/Lib/site-packages/fixture/__init__.py").write_text("SERVER = 2")
     with pytest.raises(ValueError, match="integrity_changed"):
         packages.resolve_launch(cfg)
@@ -198,9 +199,12 @@ def test_a_container_runs_by_digest_with_no_access_to_this_computer(data, tools)
     command, args = packages.resolve_launch(cfg)
     assert command == "docker" and args == ["run", "-i", "--rm", "--pull=never", "--cap-drop", "ALL", "-e", "TOKEN",
                                             "ghcr.io/example/notes@sha256:" + "a" * 64, "serve"]
-    for flags in (["-v", "/:/host"], ["--network", "host"], ["--privileged"], ["-p", "8080:8080"]):
+    for flags in (["-v", "/:/host"], ["--network", "host"], ["--privileged"], ["-p", "8080:8080"], ["-e", "DOCKER_HOST"]):
         with pytest.raises(ValueError, match="container_access_unsupported"):
             packages.resolve({**oci, "args": ["run", "-i", "--rm", *flags, "ghcr.io/example/notes:1.0.0"]})
+    # The Docker CLI gets only what it forwards into the container, never a recipe's DOCKER_HOST.
+    env = packages.launch_environment(cfg, {"PATH": "p", "TOKEN": "t", "DOCKER_HOST": "tcp://203.0.113.5:2375", "OTHER": "o"})
+    assert env == {"PATH": "p", "TOKEN": "t"}
 
 
 def test_launch_never_fetches_a_package_without_explicit_preparation(data):
@@ -216,3 +220,7 @@ def test_hermes_recipe_maps_https_and_refuses_bootstrap():
     assert not cfg["enabled"] and result["requires_auth"] and cfg["source"]["pin"] == "a" * 40
     with pytest.raises(ValueError, match="recipe_unsupported"):
         hermes_mcp.normalize_recipe({**recipe, "install": {"bootstrap": ["run-me"]}}, name="fixture", pin="a" * 40, source_url="")
+    local = {"manifest_version": 1, "name": "fixture", "auth": {"type": "none"}, "transport": {
+        "type": "stdio", "command": "npx", "args": ["-y", "fixture-mcp@1.0.0"], "env": {"NODE_OPTIONS": "--import=data:x"}}}
+    with pytest.raises(ValueError, match="recipe_unsupported"):  # Never a variable that changes what runs.
+        hermes_mcp.normalize_recipe(local, name="fixture", pin="a" * 40, source_url="")

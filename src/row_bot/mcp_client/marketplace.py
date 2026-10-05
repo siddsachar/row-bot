@@ -151,8 +151,7 @@ def _filled(spec: dict, *, target: str, name: str, inputs: dict, flag: str = "",
         for var in dict.fromkeys(_VARIABLE.findall(value)):
             key = declared.key_of(var)
             value = value.replace("{" + var + "}", "{" + key + "}")
-            implied = var not in variables and (declared.secretish(var) or declared.secretish(carrier or name)
-                                                or bool(spec.get("isSecret")))
+            implied = declared.secretish(var) or declared.secretish(carrier or name) or bool(spec.get("isSecret"))
             add(key, variables.get(var, {}), var, implied)
         return value
     key = declared.key_of(name)
@@ -291,7 +290,8 @@ def _package(package: dict) -> dict:
                 continue
             if word == "-e" and isinstance(value, str) and "=" in value:
                 name, _, template = value.partition("=")
-                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) or name.upper() in declared.NEVER_ENV:
+                if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) or name.upper() in declared.NEVER_ENV
+                        or name.upper().startswith(("DOCKER_", "BUILDKIT_", "COMPOSE_"))):
                     raise _Declared(_UNSUPPORTED_PACKAGE)
                 env[name] = _filled({**flag, "value": template}, target="env", name=name, inputs=inputs, carrier=name)
                 continue
@@ -299,6 +299,8 @@ def _package(package: dict) -> dict:
                 raise _Declared("It asks Docker for access to this computer (folders, ports or the network) that "
                                 "Row-Bot doesn't grant.")
             kept += [word] + ([str(value)] if value is not None else [])
+        if any(name.upper().startswith(("DOCKER_", "BUILDKIT_", "COMPOSE_")) for name in env):
+            raise _Declared(_UNSUPPORTED_PACKAGE)  # The Docker CLI reads these itself: never the recipe's to set.
         passed = [part for name in env for part in ("-e", name)]
         install = {"transport": "stdio", "command": "docker", "args": ["run", "-i", "--rm", *kept, *passed, image, *arguments]}
     if len(inputs) > declared.LIMIT:

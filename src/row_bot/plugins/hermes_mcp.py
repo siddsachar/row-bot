@@ -83,19 +83,24 @@ def normalize_recipe(raw: dict, *, name: str, pin: str, source_url: str) -> dict
         package = requirement(cfg)
         if package is None or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[\w.-]+)?", package[1]) or mode == "oauth":
             raise ValueError("hermes_recipe_unsupported")
-        if type(cfg["env"]) is not dict or any(type(v) is not str or "${" in v for v in cfg["env"].values()):
-            raise ValueError("hermes_recipe_unsupported")
+        from row_bot.integrations.inputs import NEVER_ENV
+        if type(cfg["env"]) is not dict or len(cfg["env"]) > 64 or any(
+                type(v) is not str or "${" in v or len(v) > 4096 or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", str(k))
+                or str(k).upper() in NEVER_ENV for k, v in cfg["env"].items()):
+            raise ValueError("hermes_recipe_unsupported")  # Never PATH, NODE_OPTIONS or anything that changes what runs.
     else:
         raise ValueError("hermes_recipe_unsupported")
     from row_bot.integrations import inputs
     declared = []
     for variable in credentials.get("env", []):  # Keys the recipe needs become declared inputs, kept in the keychain.
         variable_name = variable.get("name", "") if isinstance(variable, dict) else ""
+        if isinstance(variable, dict) and type(variable.get("description", "")) is not str:
+            raise ValueError("hermes_recipe_unsupported")
         if (cfg["transport"] != "stdio" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", variable_name)
                 or variable_name.upper() in inputs.NEVER_ENV):
             raise ValueError("hermes_recipe_unsupported")
         declared.append(inputs.declaration(inputs.key_of(variable_name), target="env", name=variable_name, secret=True,
-                                           required=True, description=str(variable.get("description") or "")[:512]))
+                                           required=True, description=(variable.get("description") or "")[:512]))
         cfg["env"][variable_name] = "{" + declared[-1]["key"] + "}"
     if declared:
         cfg["inputs"] = declared

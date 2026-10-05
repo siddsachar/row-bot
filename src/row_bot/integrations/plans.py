@@ -399,7 +399,7 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     if preset and preset not in presets.PRESETS:
         raise PlanError("invalid_access_preset")
     if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"}) or any(
-            s["type"] == "runtime" and s["runtime"]["id"] == "npm_package" for s in plan["steps"])):
+            s["type"] == "runtime" and s["runtime"]["id"] in PACKAGES for s in plan["steps"])):
         raise PlanError("owner_local_only")
     installed = row["lifecycle"] != "available"
     target = row.get("target") if installed else None
@@ -756,6 +756,8 @@ def _hermes_recipe(ctx: Context, record: dict, step: dict) -> str | None:
     lines = ([f"Connects to {cfg['url']}."] if cfg.get("url") else
              [f"Runs {' '.join([cfg['command'], *cfg.get('args', [])])[:200]} on this computer."])
     lines += [f"Asks for {', '.join(i['name'] for i in cfg.get('inputs', []))}, kept in your system keychain."] if cfg.get("inputs") else []
+    fixed = [name for name, value in (cfg.get("env") or {}).items() if "{" not in value]
+    lines += [f"Sets {', '.join(fixed)} for it."] if fixed else []
     step["review"] = {"summary": f"{record['name']} recipe at {reference['pin'][:12]}", "lines": [line[:256] for line in lines],
                       "items": [], "digest": "sha256:" + hashlib.sha256(found["import_json"].encode()).hexdigest()}
     if ctx.review_digest != step["review"]["digest"]:

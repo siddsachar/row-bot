@@ -3,7 +3,7 @@ quality floor that "Show all results" lifts. Local fixture catalogs only."""
 import pytest
 
 from row_bot.application import client_integrations as api
-from row_bot.integrations import index, plans
+from row_bot.integrations import plans
 from row_bot.integrations.safe import TtlCache
 from row_bot.mcp_client import marketplace
 from tests.helpers.registry import search_catalog, use_registry

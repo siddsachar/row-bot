@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from row_bot.cancellation import current_cancellation_scope
 from row_bot.mcp_client import config as mcp_config
-from row_bot.mcp_client.logging import log_event, mask_mapping
+from row_bot.mcp_client.logging import log_event, mask_mapping, redact
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
 from row_bot.mcp_client.results import normalize_call_result
 from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, is_destructive_tool, prefixed_tool_name,
@@ -473,6 +473,7 @@ class McpServerRuntime:
     def __init__(self, name: str, cfg: dict[str, Any]) -> None:
         self.name = name
         self.cfg = cfg
+        self._redact: tuple[str, ...] = ()  # Secret values this connection was given, never shown in its errors.
         self.runtime_id = str(uuid.uuid4())
         self.state = "not_started"
         self.session: Any = None
@@ -561,11 +562,12 @@ class McpServerRuntime:
         except asyncio.CancelledError:
             raise
         except McpStdioCommandNotFound as exc:
-            self._status(status="dependency_missing", last_error=str(exc))
-            log_event("mcp.server.dependency_missing", level=logging.WARNING, server=self.name, error=str(exc))
+            self._status(status="dependency_missing", last_error=redact(str(exc), self._redact))
+            log_event("mcp.server.dependency_missing", level=logging.WARNING, server=self.name, error=redact(str(exc), self._redact))
         except Exception as exc:
-            self._status(status="failed", last_error=_failure(exc))
-            log_event("mcp.server.failed", level=logging.WARNING, server=self.name, error=str(exc), traceback=traceback.format_exc())
+            self._status(status="failed", last_error=redact(_failure(exc), self._redact))
+            log_event("mcp.server.failed", level=logging.WARNING, server=self.name, error=redact(str(exc), self._redact),
+                      traceback=redact(traceback.format_exc(), self._redact))
         finally:
             await self.close()
             released = self._confirm_release()
@@ -578,6 +580,7 @@ class McpServerRuntime:
     async def _connect(self) -> None:
         from row_bot.mcp_client.auth import transport_options
         launch_cfg, auth_options = transport_options(self.name, self.cfg, validate=self._validate_launch)
+        self._redact = tuple(launch_cfg.pop("_redact", ()))  # Kept out of every error this connection reports.
         transport = str(self.cfg.get("transport") or "stdio")
         self.exit_stack = AsyncExitStack()
         if transport == "stdio":
@@ -618,6 +621,9 @@ class McpServerRuntime:
                     package_launch = packages.resolve_launch(self.cfg, args=packages.arguments(launch_cfg))
             if package_launch:
                 command, args = package_launch
+                env = packages.launch_environment(self.cfg, env)
+                if packages.kind(self.cfg) in {"pypi", "mcpb"}:
+                    env["PYTHONDONTWRITEBYTECODE"] = "1"  # The reviewed folder stays exactly as it was checked.
                 if packages.kind(self.cfg) == "mcpb":
                     root = packages.bundle_root(self.cfg)
                     env = {key: value.replace("{bundle}", root) for key, value in env.items()}
@@ -1068,7 +1074,7 @@ async def probe_server_async(name: str, server_cfg: dict[str, Any], *,
             "destructive_tool_count": sum(1 for info in normalized.values() if info.destructive),
         }
     except Exception as exc:
-        outcome = {"ok": False, "error": str(exc), "tools": []}
+        outcome = {"ok": False, "error": redact(str(exc), getattr(runtime, "_redact", ())), "tools": []}
     finally:
         await runtime.close()
         runtime._probe_result = outcome

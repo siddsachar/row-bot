@@ -97,9 +97,12 @@ class PublicTransport(httpx.AsyncBaseTransport):
 
 
 def binding(name: str, cfg: dict) -> str:
-    # An endpoint/argv change cannot adopt credentials from another service.
+    # An endpoint/argv change cannot adopt credentials from another service; neither can another value of
+    # the address's own variables (another tenant of the same service).
+    places = {item.get("key") for item in cfg.get("inputs") or [] if isinstance(item, dict) and item.get("target") == "url_variable"}
+    values = {key: value for key, value in (cfg.get("input_values") or {}).items() if key in places}
     data = [name, cfg.get("source", {}), cfg.get("transport"), cfg.get("url", ""),
-        cfg.get("command", ""), cfg.get("args", [])]
+        cfg.get("command", ""), cfg.get("args", [])] + ([values] if values else [])
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
@@ -402,6 +405,7 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
     ref = metadata.get("credential_ref")
     options = {}
     secrets: dict = {}
+    hidden: list[str] = []
     if ref:
         if metadata.get("binding") != binding(name, cfg):
             raise McpAuthError("mcp_credentials_endpoint_changed")
@@ -429,6 +433,7 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
                 if item["kind"] == "input":  # A declared input: filled into its templates below.
                     secrets[item["key"]] = value
                     continue
+                hidden.append(value)
                 effective.setdefault("headers" if item["kind"] == "header" else "env", {})[item["name"]] = item.get("prefix", "") + value
     if cfg.get("inputs"):
         from row_bot.integrations import inputs
@@ -451,4 +456,6 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
                 follow_redirects=False, trust_env=False, event_hooks={"request": [request_guard]},
                 transport=PublicTransport() if options.get("auth") else None)
         options["httpx_client_factory"] = factory
+    # What must never appear in an error or a log line about this connection (a key in its address too).
+    effective["_redact"] = [value for value in [*hidden, *secrets.values()] if len(value) >= 4]
     return effective, options

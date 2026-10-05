@@ -79,8 +79,17 @@ def test_package_runtimes_are_pinned_and_dozens_of_optional_settings_stay_at_the
     assert [(i["key"], i["secret"], i["required"]) for i in entry.install["inputs"]] == [("notes_key", True, True), ("apisecret", True, False)]
 
 
+def test_a_credential_is_secret_by_its_name_even_when_its_listing_forgets_to_say(envelope):
+    remote = envelope["server"]["remotes"][0]
+    remote["headers"] = [{"name": "Authorization", "value": "Bearer {access_token}", "variables": {"access_token": {"isRequired": True}}}]
+    (entry,) = marketplace.registry_entries({"servers": [envelope]})
+    assert entry.install["inputs"][0]["secret"] and entry.metadata["auth_mode"] == "api_key"
+
+
 @pytest.mark.parametrize(("declaration", "reason"), [
     ({"packages": [{"registryType": "oci", "identifier": "ghcr.io/example/notes", "transport": {"type": "stdio"}}]}, "no fixed version"),
+    ({"packages": [{"registryType": "oci", "identifier": "ghcr.io/example/notes:1.0.0", "transport": {"type": "stdio"},
+                    "environmentVariables": [{"name": "DOCKER_HOST", "value": "tcp://203.0.113.5:2375"}]}]}, "unsupported"),
     ({"remotes": [{"type": "streamable-http", "url": "https://x.example.test/mcp",
                    "headers": [{"name": "payment-signature", "isRequired": True}]}]}, "x402"),
     ({"remotes": [{"type": "streamable-http", "url": "https://{host}/mcp", "variables": {"host": {}}}]}, "add it from a link"),

@@ -97,7 +97,8 @@ def _oci(cfg: dict) -> tuple[str, list[str], list[str]]:
     flags, index = [], 3
     while index < len(args) and args[index].startswith("-"):
         flag = args[index]
-        if flag == "-e" and index + 1 < len(args) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", args[index + 1]):
+        if (flag == "-e" and index + 1 < len(args) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", args[index + 1])
+                and not args[index + 1].upper().startswith(DOCKER_CLI)):
             flags += args[index:index + 2]
             index += 2
         elif flag in {"--cap-drop", "--security-opt"} and index + 1 < len(args) and args[index + 1] in {"ALL", "no-new-privileges"}:
@@ -112,6 +113,22 @@ def _oci(cfg: dict) -> tuple[str, list[str], list[str]]:
                                                args[index]):
         raise ValueError("mcp_package_recipe_unsupported")
     return args[index], flags, args[index + 1:]
+
+
+# Variables the Docker CLI reads for itself (DOCKER_HOST, DOCKER_CONTEXT, …): a recipe never sets them.
+DOCKER_CLI = ("DOCKER_", "BUILDKIT_", "COMPOSE_")
+
+
+def launch_environment(cfg: dict, env: dict) -> dict:
+    """The environment a locked package's launcher gets. ``docker`` receives the base environment and
+    only the variables its ``-e`` flags forward into the container; everything else is for the server."""
+    if kind(cfg) != "oci":
+        return env
+    _image, flags, _rest = _oci(cfg)
+    forwarded = {flags[i + 1] for i in range(len(flags) - 1) if flags[i] == "-e"}
+    allowed = forwarded | {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG", "LC_ALL"}
+    return {key: value for key, value in env.items() if key in allowed and not key.upper().startswith(DOCKER_CLI)
+            or key in forwarded}
 
 
 def _fetch(url: str, *, maximum: int = _MAX) -> bytes:
@@ -396,8 +413,9 @@ def review(lock: dict) -> dict:
                       "Installed in a private folder for this app; nothing is installed for the whole computer."],
              "oci": ["Docker runs this image by its exact digest, with network access and no folders from this computer.",
                      "It gets only the settings you add here."],
-             "mcpb": [("Signed by " + lock["signature"]["signer"] + ". Row-Bot checked the signature against the bundle, "
-                       "not who the signer is.") if lock.get("signature", {}).get("status") == "signed" else
+             "mcpb": [("Signed with a certificate that names itself " + lock["signature"]["signer"] + " (fingerprint "
+                       + str(lock["signature"].get("fingerprint", ""))[:16] + "…). Row-Bot checked the signature matches the "
+                       "bundle; nobody checked that name.") if lock.get("signature", {}).get("status") == "signed" else
                       "Not signed, so Row-Bot can't tell who made it. Add it only if you trust where it came from.",
                       "Unpacked into a private folder and run on this computer, with the settings you add here."]}[lock["kind"]]
     if skipped:
@@ -462,10 +480,10 @@ def _manifest(root: Path) -> dict:
 
 
 def _site_digest(root: Path) -> str:
-    """A Python install's tree without byte-code caches, which the interpreter may write while running."""
+    """A Python install's whole tree; its launches never write byte-code (``PYTHONDONTWRITEBYTECODE``)."""
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*")):
-        if path.is_file() and "__pycache__" not in path.parts:
+        if path.is_file():
             digest.update(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
     return "sha256:" + digest.hexdigest()
 
@@ -622,7 +640,7 @@ def resolve_launch(cfg: dict, *, args: list[str] | None = None) -> tuple[str, li
         if command.startswith("python"):
             if not Path(str(launch["entry"])).is_file():
                 raise ValueError("mcp_package_python_unavailable")
-            return str(launch["entry"]), ["-s", *filled]
+            return str(launch["entry"]), ["-B", "-s", *filled]
         return str(contained_path(root, command.removeprefix("{bundle}/"))), filled
     if found == "pypi":
         if _site_digest(root / "site") != launch.get("digest"):
