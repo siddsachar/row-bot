@@ -617,6 +617,8 @@ def spawn_agent_run(
             f"Nested Agent depth {depth} exceeds the configured maximum of "
             f"{runtime_settings.max_spawn_depth}."
         )
+    # Read before anything is created, so a refusal leaves nothing behind.
+    app_scope = _delegating_app_scope(parent_thread_id) if parent_thread_id else None
     effective_developer_workspace_id = parent_developer_workspace_id
     workspace_path = ""
     worktree_allocation: dict[str, Any] | None = None
@@ -726,7 +728,7 @@ def spawn_agent_run(
         parent_run_id=parent_run_id,
         profile_snapshot=profile_snapshot,
         tool_allowlist=tool_allowlist,
-        app_scope=_delegating_app_scope(parent_thread_id) if parent_thread_id else None,
+        app_scope=app_scope,
     )
     if tool_allowlist:
         try:
