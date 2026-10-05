@@ -784,3 +784,20 @@ def test_the_sdks_own_transport_errors_never_log_an_address(caplog):
     except RuntimeError:
         logging.getLogger("mcp.client.sse").error("Error in post_writer", exc_info=True)
     assert "MCP transport error (RuntimeError)" in caplog.text and key not in caplog.text
+
+
+def test_a_stopping_hosted_session_may_end_itself_and_send_nothing_else():
+    import asyncio
+    import httpx
+    import pytest
+    from row_bot.mcp_client import auth
+
+    def stopping():
+        raise asyncio.CancelledError
+    url = "https://mcp.example.test/mcp"
+    _, options = auth.transport_options("Hosted", {"transport": "streamable_http", "url": url}, validate=stopping)
+    guard = options["httpx_client_factory"]().event_hooks["request"][0]
+    asyncio.run(guard(httpx.Request("DELETE", url)))  # Ends the session the server gave; cleanup can finish.
+    for request in (httpx.Request("POST", url), httpx.Request("DELETE", "https://mcp.example.test/other")):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(guard(request))

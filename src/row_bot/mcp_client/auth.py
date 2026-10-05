@@ -445,8 +445,16 @@ def transport_options(name: str, cfg: dict, *, validate=lambda: None) -> tuple[d
         options["auth"] = oauth_provider(effective["url"], metadata["callback_uri"], options["auth"])
     if cfg.get("transport", "stdio") != "stdio":
         endpoint_origin = origin(effective["url"])
+        endpoint = urlsplit(effective["url"])[:3]
+
         async def request_guard(request):
-            validate()
+            try:
+                validate()
+            except asyncio.CancelledError:
+                # Stopping: the one request still sent is the one that ends this session at its own address
+                # (the SDK's DELETE on close). Refusing it left every hosted session "cleanup unconfirmed".
+                if request.method != "DELETE" or urlsplit(str(request.url))[:3] != endpoint:
+                    raise
             if options.get("auth"):
                 public_endpoint(str(request.url))
             elif origin(str(request.url)) != endpoint_origin:
