@@ -119,9 +119,12 @@ export function usePlan(
               intent: value.intent,
               digest: value.digest,
               consent_token: value.consent_token ?? '',
-              preset: choice.preset,
+              // The settings form sends no access choice; an undefined field fails the request's check.
+              ...(choice.preset ? { preset: choice.preset } : {}),
+              ...(choice.tools_digest !== undefined
+                ? { tools_digest: choice.tools_digest }
+                : {}),
               overrides: choice.overrides ?? {},
-              tools_digest: choice.tools_digest,
               inputs: choice.inputs ?? {},
             }),
       );

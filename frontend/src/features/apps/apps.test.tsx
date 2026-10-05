@@ -1058,6 +1058,9 @@ it('changes settings after setup: Yes/No, a saved key never shown, and Stop besi
       }),
     ),
   );
+  // No access choice is sent at all: the request's own check refuses an undefined field.
+  const [body] = vi.mocked(controller.startInstallPlan).mock.calls[0];
+  expect(Object.values(body).includes(undefined)).toBe(false);
 });
 
 it('puts Stop in the same row as what the plan waits for', async () => {

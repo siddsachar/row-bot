@@ -67,25 +67,25 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   await newConversation(page);
 
   // The agent suggests an app from the local catalog: the card shows it as the catalog does.
-  await send(page, 'Find my Notion page connect fixture');
+  await send(page, 'Find my meeting notes connect fixture Granola');
   const card = page.getByRole('group', { name: 'Apps to connect' });
-  const notion = card.getByRole('listitem', { name: 'Notion', exact: true });
-  await expect(notion).toContainText('by Notion');
+  const granola = card.getByRole('listitem', { name: 'Granola', exact: true });
+  await expect(granola).toContainText('by Granola');
   await assertNoOverflow(page);
   await screenshot(page, testInfo, 'chat-connect-card');
 
   // Connecting is the app's own consent sheet and plan, right in the chat.
-  await notion.getByRole('button', { name: 'Connect', exact: true }).click();
-  const consent = page.getByRole('dialog', { name: 'Connect Notion' });
-  await expect(consent).toContainText('What you ask goes to mcp.notion.com.');
+  await granola.getByRole('button', { name: 'Connect', exact: true }).click();
+  const consent = page.getByRole('dialog', { name: 'Connect Granola' });
+  await expect(consent).toContainText('What you ask goes to mcp.granola.ai.');
   await approveSignIn(context, () =>
     consent.getByRole('button', { name: 'Connect', exact: true }).click(),
   );
   const access = page.getByRole('dialog', {
-    name: "Here's what Notion can do",
+    name: "Here's what Granola can do",
   });
   await access.getByRole('button', { name: 'Allow', exact: true }).click();
-  const ready = card.getByRole('listitem', { name: 'Notion, Ready' });
+  const ready = card.getByRole('listitem', { name: 'Granola, Ready' });
   await expect(ready).toBeVisible();
   await screenshot(page, testInfo, 'chat-connect-ready');
 
@@ -101,9 +101,9 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   expect(resumed.app_scope?.focus).toHaveLength(1);
 
   // A step through the app shows its logo and name, and its change asks first, named too.
-  await send(page, 'app tool fixture');
+  await send(page, 'app tool fixture Granola');
   const approval = page.getByRole('complementary', {
-    name: /Approval required for .* in Notion$/,
+    name: /Approval required for .* in Granola$/,
   });
   await expect(approval).toBeVisible();
   await expect(approval.locator('.app-icon')).toBeVisible();
@@ -112,7 +112,7 @@ test('an app found in the chat connects there, names itself on its steps, and fo
     .first()
     .click();
   await expect(page.locator('.activity-step-app').first()).toContainText(
-    'Notion',
+    'Granola',
   );
   await screenshot(page, testInfo, 'chat-app-steps');
   await approval.getByRole('button', { name: 'Deny', exact: true }).click();
@@ -123,21 +123,21 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   ).toBeVisible();
 
   // @ lists the chat's apps; choosing one keeps the mention in the message.
-  await composer(page).fill('Look this up in @No');
+  await composer(page).fill('Look this up in @Gra');
   const mentions = page.getByRole('listbox', { name: 'Mentions' });
   const mention = mentions
     .getByRole('group', { name: 'Apps' })
-    .getByRole('option', { name: /^Notion/ });
+    .getByRole('option', { name: /^Granola/ });
   await expect(mention).toBeVisible();
   await screenshot(page, testInfo, 'chat-mention');
   await mention.click();
-  await expect(composer(page)).toHaveValue('Look this up in @Notion ');
+  await expect(composer(page)).toHaveValue('Look this up in @Granola ');
 
   // + → Apps switches it off for this chat only; a turn then leaves it out.
   await page.getByRole('button', { name: 'Add files and more' }).click();
   await page.getByRole('menuitem', { name: /^Apps/ }).click();
   const apps = page.getByRole('menu', { name: /^Apps/ });
-  const toggle = apps.getByRole('menuitemcheckbox', { name: 'Notion' });
+  const toggle = apps.getByRole('menuitemcheckbox', { name: 'Granola' });
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await expect(
     apps.getByRole('menuitem', { name: 'Find more apps' }),
@@ -147,21 +147,21 @@ test('an app found in the chat connects there, names itself on its steps, and fo
   await expect(toggle).toHaveAttribute('aria-checked', 'false');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
-  await send(page, 'Now app tool fixture again is connected now');
+  await send(page, 'Granola is connected now');
   await expect
     .poll(async () => (await lastCall(page)).app_scope?.exclude_servers ?? [])
     .toHaveLength(1);
 
   // Signed out by the service: Home's Needs you offers its fix, one click away.
-  await seed(page, '/__p5_fixture/apps/sign-out');
+  await seed(page, '/__p5_fixture/apps/sign-out?name=granola');
   await page.goto('/app-v2/');
   const needs = page.getByRole('list', { name: 'Needs you' });
-  await expect(needs.getByText('Sign in to Notion')).toBeVisible();
+  await expect(needs.getByText('Sign in to Granola')).toBeVisible();
   await screenshot(page, testInfo, 'home-needs-you');
   await needs.getByRole('button', { name: 'Sign in again' }).click();
   await expect(page).toHaveURL(/\/settings\/apps\/item\?id=/);
   await expect(
-    page.getByRole('dialog', { name: /Sign in again|Fix Notion/ }),
+    page.getByRole('dialog', { name: /Sign in again|Fix Granola/ }),
   ).toBeVisible();
 });
 

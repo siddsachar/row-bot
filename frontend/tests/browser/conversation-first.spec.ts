@@ -219,6 +219,8 @@ test('a delegated agent can be messaged and stopped from Agents', async ({
       exact: true,
     });
     await expect(child).toBeVisible();
+    // The card re-orders its sections once its details load; hover after.
+    await expect(card.getByText('Loading details')).toHaveCount(0);
     await child.hover();
     await card
       .getByRole('button', { name: 'Message Synthetic child', exact: true })

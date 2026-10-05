@@ -496,9 +496,11 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
             if "is connected now" in text:
                 yield from _natural_final(call, thread, "Continuing with what you asked.", "app-continue")
                 return
+            wanted = text.split("app tool fixture", 1)[1].strip().casefold()
             with runtime._runtime_lock:
                 found = next(((info.prefixed_name, info.server_name) for tools in runtime._catalog.values()
-                              for info in tools.values() if info.name == "search_pages"), None)
+                              for info in tools.values() if info.name == "search_pages"
+                              and wanted in info.server_name.casefold()), None)
             assert found, "app tool fixture needs a connected synthetic app"
             identity = f"app-tool:{call['generation_id']}"
             search_id, delete_id = fixture_id(identity + ":search"), fixture_id(identity + ":delete")
@@ -530,7 +532,7 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         thread = call["conversation_id"]
         identity = f"connect:{call['generation_id']}"
         tool_id, tool_message = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
-        args = {"need": "Notion"}
+        args = {"need": text.split("connect fixture", 1)[1].strip(" :") or "Notion"}
         try:
             append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
                 tool_calls=[{"id": tool_id, "name": "suggest_apps", "args": args}])])
@@ -2304,13 +2306,13 @@ def _synthetic_registry() -> dict:
 
 
 @app.post("/__p5_fixture/apps/sign-out")
-def p5_apps_sign_out(x_fixture_token: str = Header(default="")) -> dict:
-    """The synthetic service ended every signed-in app's sign-in: each now needs you (Home lists it)."""
+def p5_apps_sign_out(name: str = "", x_fixture_token: str = Header(default="")) -> dict:
+    """The synthetic service ended a signed-in app's sign-in (``name`` in its server name): it needs you."""
     p4_provider_credentials(x_fixture_token)
     from row_bot.integrations import facts
     from row_bot.mcp_client import config, runtime
-    names = [name for name, cfg in config.read_saved_configuration().document.get("servers", {}).items()
-             if (cfg.get("auth") or {}).get("mode") == "oauth"]
+    names = [server for server, cfg in config.read_saved_configuration().document.get("servers", {}).items()
+             if (cfg.get("auth") or {}).get("mode") == "oauth" and name.casefold() in server.casefold()]
     for name in names:
         runtime._update_status(name, status="failed",
                                last_error="unhandled errors | OAuthFlowError: No redirect handler provided for authorization code grant")

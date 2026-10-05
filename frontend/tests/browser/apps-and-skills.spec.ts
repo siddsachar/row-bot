@@ -503,6 +503,25 @@ test('GitHub is one card, and its token goes only to the keychain', async ({
     .click();
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();
   await expect(page.getByText('synthetic-github-token')).toHaveCount(0);
+
+  // Its settings stay editable: the saved token is never shown, blank keeps it.
+  const settings = page
+    .getByRole('article', { name: 'GitHub' })
+    .getByRole('region', { name: 'Settings', exact: true });
+  await expect(settings).toContainText(/Read only\s*Yes/);
+  await settings
+    .getByRole('button', { name: 'Change settings', exact: true })
+    .click();
+  const form = page.getByRole('dialog', { name: 'Settings for GitHub' });
+  const saved = form.getByLabel('Personal access token (optional)');
+  await expect(saved).toHaveValue('');
+  await expect(saved).toHaveAttribute('placeholder', '••••••••');
+  await form.getByLabel('Read only').selectOption('false');
+  await views(page, info, 'p5-change-settings', true);
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Settings saved.')).toBeVisible();
+  await expect(settings).toContainText(/Read only\s*No/);
+  await expect(page.getByText('synthetic-github-token')).toHaveCount(0);
 });
 
 test('a server that asks to sign in when first checked signs in before anything else', async ({

@@ -307,11 +307,10 @@ test('retained settings expose real capability state without leaving the unified
     page.getByRole('region', { name: 'Talk', exact: true }),
   ).toBeVisible();
 
-  await openSettingThroughCommands(page, {
-    label: 'Accounts',
-    path: '/app-v2/settings/accounts',
-  });
-  // One row per account (B263): GitHub's setup is offered in place.
+  // Accounts are apps now: GitHub's account opens as GitHub's own settings, scoped to it.
+  await page.goto(
+    '/app-v2/settings/apps/item?id=builtin%3Aaccount%3Agithub&edit=1',
+  );
   await expect(
     page.getByRole('region', { name: 'Connect GitHub', exact: true }),
   ).toBeVisible();

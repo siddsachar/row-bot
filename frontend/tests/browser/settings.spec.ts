@@ -233,8 +233,6 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     'tools',
     'skills',
     'apps',
-    'accounts',
-    'channels',
     'system',
     'access',
     'updates',
@@ -274,8 +272,9 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
   }
 
   // Legacy ids and moved pages land on their new page and row.
+  // Accounts and channels are apps: their old links open the app.
   await page.goto('/app-v2/settings/google');
-  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts#google$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/apps\/google$/);
   await page.goto('/app-v2/settings/wiki');
   await expect(page).toHaveURL(/\/app-v2\/settings\/knowledge#wiki-vault$/);
   await page.goto('/app-v2/settings/utilities');
@@ -284,13 +283,13 @@ test('Owner-review Settings shell keeps every routed owner in one grouped respon
     page.getByRole('heading', { name: 'Built-in tools', exact: true }),
   ).toBeVisible();
   await page.goto('/app-v2/settings/models');
-  await page.goto('/app-v2/settings/accounts');
+  await page.goto('/app-v2/settings/tracker');
   await page.goBack();
   await expect(page).toHaveURL(/\/app-v2\/settings\/models$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/app-v2\/settings\/accounts$/);
+  await expect(page).toHaveURL(/\/app-v2\/settings\/tracker$/);
   await page.reload();
-  await expect(settingsHeading).toHaveText('Accounts');
+  await expect(settingsHeading).toHaveText('Tracker');
   await expect(settingsHeading).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -370,7 +369,10 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
   });
   expect(setup.ok()).toBe(true);
 
-  await page.goto('/app-v2/settings/channels');
+  // A channel is an app's built-in way to connect: its own settings, scoped to it.
+  await page.goto(
+    '/app-v2/settings/apps/item?id=builtin%3Achannel%3Ap4_control&edit=1',
+  );
   const channels = page.getByRole('region', {
     name: 'Channels',
     exact: true,
