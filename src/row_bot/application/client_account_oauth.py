@@ -117,7 +117,9 @@ def _install_google_credentials(raw: str) -> None:
             raise ValueError
         auth = urlparse(client["auth_uri"])
         token = urlparse(client["token_uri"])
-        if auth.scheme != "https" or auth.hostname != "accounts.google.com" or token.scheme != "https" or token.hostname != "oauth2.googleapis.com":
+        # Google's own hosts only; older client files name the token endpoint on accounts.google.com.
+        if (auth.scheme != "https" or auth.hostname != "accounts.google.com" or token.scheme != "https"
+                or token.hostname not in {"oauth2.googleapis.com", "accounts.google.com"}):
             raise ValueError
         redirects = client.get("redirect_uris")
         if not isinstance(redirects, list) or not any(

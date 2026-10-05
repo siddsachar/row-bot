@@ -47,6 +47,26 @@ def test_google_credential_import_validates_and_keeps_existing_on_failure(tmp_pa
         owner.execute_account_auth(**_command(before, "start"))
 
 
+@pytest.mark.parametrize(("token_uri", "accepted"), [
+    ("https://accounts.google.com/o/oauth2/token", True),  # Older client files still name this one.
+    ("https://evil.example.test/token", False),
+    ("http://oauth2.googleapis.com/token", False),
+])
+def test_a_google_client_file_must_name_only_googles_own_sign_in_hosts(tmp_path, monkeypatch, token_uri, accepted):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
+    from row_bot.tools import registry
+    monkeypatch.setattr(registry, "set_tool_config", lambda *_args: None)
+    before = owner.read_account_auth(account="google")
+    file = json.dumps({"installed": {"client_id": "fixture-client", "client_secret": "fixture-secret",
+                                     "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": token_uri,
+                                     "redirect_uris": ["http://localhost"]}})
+    if accepted:
+        assert owner.execute_account_auth(**_command(before, "import_credentials", credentials_json=file))["phase"] == "completed"
+    else:
+        with pytest.raises(Exception, match="account_credentials_invalid"):
+            owner.execute_account_auth(**_command(before, "import_credentials", credentials_json=file))
+
+
 def test_google_auth_cancellation_discards_late_credentials(tmp_path, monkeypatch):
     profile = tmp_path / "profile"
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(profile))

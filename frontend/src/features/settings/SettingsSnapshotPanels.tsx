@@ -3720,33 +3720,49 @@ function GoogleAccount({
       feedback={auth?.feedback}
       guide={[
         {
-          id: 'apis',
-          text: 'In Google Cloud, create a project and turn on the Gmail API and the Google Calendar API.',
+          id: 'project',
+          text: 'Sign in to Google Cloud and create a project for Row-Bot. Any name works.',
           link: {
-            href: ACCOUNT_LINKS.googleLibrary,
-            label: 'Open the API library',
+            href: ACCOUNT_LINKS.googleProject,
+            label: 'Create a project',
           },
         },
         {
-          id: 'consent',
-          text: 'Set up the OAuth consent screen and add yourself as a test user.',
+          id: 'apis',
+          text: 'Turn on the Gmail and Google Calendar APIs for that project, in one step.',
           link: {
-            href: ACCOUNT_LINKS.googleConsent,
-            label: 'Open the consent screen',
+            href: ACCOUNT_LINKS.googleApis,
+            label: 'Turn on both APIs',
+          },
+        },
+        {
+          id: 'branding',
+          text: 'Give your sign-in a name, such as “My Row-Bot”, and your email address.',
+          link: {
+            href: ACCOUNT_LINKS.googleBranding,
+            label: 'Open Branding',
+          },
+        },
+        {
+          id: 'audience',
+          text: 'Choose External, then add your own Google address as a test user.',
+          link: {
+            href: ACCOUNT_LINKS.googleAudience,
+            label: 'Open Audience',
           },
         },
         {
           id: 'client',
-          text: 'Create an OAuth client ID of type Desktop app, download its file and choose it under Google sign-in file.',
+          text: 'Create a client of type Desktop app and download its file straight away: Google shows its secret only then. Choose that file under Google sign-in file; any file name works.',
           link: {
-            href: ACCOUNT_LINKS.googleCredentials,
-            label: 'Open credentials',
+            href: ACCOUNT_LINKS.googleClient,
+            label: 'Create the client',
           },
           done: configured,
         },
         {
           id: 'authenticate',
-          text: 'Sign in to Google in your browser.',
+          text: 'Sign in to Google in your browser. While your Google app is in Testing, Google asks you to sign in again every 7 days; publishing it in Audience stops that, and Google then warns that the app is unverified, which is fine for your own use.',
           done: signedIn(state),
           children: usable && (
             <div className="action-cluster">
