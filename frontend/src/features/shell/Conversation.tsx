@@ -79,6 +79,7 @@ import SafeMarkdown from './chat-parity-markdown';
 import TranscriptTrace from './TranscriptTrace';
 import SlashPalette, { type SlashPaletteHandle } from './SlashPalette';
 import MentionPalette, { type MentionItem } from './MentionPalette';
+import { AppIcon } from '../apps/parts';
 import {
   goalRequest,
   profileChoice,
@@ -1031,6 +1032,13 @@ export default function Conversation({
       return;
     }
     if (command.handler_kind === 'activate_skill' && command.skill_id) {
+      // A skill named in a message is used for that message; the Skills
+      // menu (or the command on its own) keeps one on for the whole chat.
+      const rest = controller.getDraft(id).text;
+      if (rest.slice(0, token.start).trim() || rest.slice(token.end).trim()) {
+        replaceSlashToken(token, `${command.token} `);
+        return;
+      }
       replaceSlashToken(token);
       await skillAction('activate', command.skill_id);
       return;
@@ -2536,6 +2544,18 @@ export default function Conversation({
   // "@" mentions: a keyboard path to agent profile, write target and files.
   const selectedTargets = id ? (targetSelection[id] ?? defaultTargetIds) : [];
   const mentionItems: MentionItem[] = [
+    // An app mention stays in the message and focuses that turn on the app.
+    ...(composerSnapshot?.apps ?? [])
+      .filter((app) => app.on && app.available)
+      .map((app) => ({
+        id: `app:${app.item_id}`,
+        group: 'Apps',
+        label: app.name,
+        description: 'Use only this app for this message',
+        icon: <AppIcon icon={app.icon} size={16} />,
+        replacement: `@${app.name} `,
+        onChoose: () => undefined,
+      })),
     ...profileChoices(state.workspace?.profiles ?? []).map((profile) => ({
       id: `profile:${profile.id}`,
       group: 'Agents',
@@ -3449,7 +3469,9 @@ export default function Conversation({
                 items={mentionItems}
                 disabled={busy || composerBusy}
                 inputRef={composerRef}
-                onConsume={(token) => replaceSlashToken(token)}
+                onConsume={(token, replacement) =>
+                  replaceSlashToken(token, replacement)
+                }
               />
               <div className="composer-toolbar" ref={toolbarRef}>
                 {!singleLine && composerControls}

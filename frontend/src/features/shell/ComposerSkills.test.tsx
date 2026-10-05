@@ -198,3 +198,23 @@ it('reports unavailable libraries truthfully', async () => {
     'The Skills library is unavailable.',
   );
 });
+
+it('leads to the Skills library to find more', async () => {
+  const findMore = vi.fn();
+  render(
+    <Anchored
+      composer={composer}
+      disabled={false}
+      action={vi.fn().mockResolvedValue(undefined)}
+      onFindMore={findMore}
+    />,
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Add files and more' })),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Find more skills' })),
+  );
+  expect(findMore).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('dialog', { name: 'Smart Skills' })).toBeNull();
+});

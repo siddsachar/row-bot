@@ -50,6 +50,8 @@ _THREAD_META_COLUMNS = {
     "resource_revision": "INTEGER NOT NULL DEFAULT 0",
     "client_revision": "INTEGER NOT NULL DEFAULT 0",
     "client_runtime_mode": "TEXT NOT NULL DEFAULT 'agent'",
+    # Apps switched off in this chat (item ids); every other ready app stays on, as before.
+    "apps_off_json": "TEXT NOT NULL DEFAULT ''",
 }
 
 THREAD_NAME_SOURCE_AUTO = "auto"
@@ -1104,6 +1106,37 @@ def get_thread_composer_context(thread_id: str) -> dict:
         "agent_profile_slug": str(row[2] or ""),
         "client_revision": int(row[3] or 0),
     }
+
+
+def get_thread_apps_off(thread_id: str) -> list[str]:
+    """The apps (item ids) switched off in one chat; unknown or unreadable means none."""
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        row = conn.execute("SELECT apps_off_json FROM thread_meta WHERE thread_id = ?", (thread_id,)).fetchone()
+    try:
+        value = json.loads(row[0]) if row and row[0] else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [item for item in value if isinstance(item, str)][:256] if isinstance(value, list) else []
+
+
+def set_thread_app(thread_id: str, item_id: str, on: bool) -> int:
+    """Switch one app on or off for one chat; returns the chat's new client revision."""
+    _ensure_thread_db()
+    with closing(sqlite3.connect(DB_PATH, timeout=30)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT apps_off_json, client_revision FROM thread_meta WHERE thread_id = ?",
+                           (thread_id,)).fetchone()
+        if row is None:
+            raise ValueError("conversation_missing")
+        try:
+            off = [item for item in json.loads(row[0] or "[]") if isinstance(item, str)]
+        except (json.JSONDecodeError, TypeError):
+            off = []
+        off = [item for item in off if item != item_id] + ([] if on else [item_id])
+        conn.execute("UPDATE thread_meta SET apps_off_json = ?, updated_at = ?, client_revision = client_revision + 1 "
+                     "WHERE thread_id = ?", (json.dumps(off[-256:]), datetime.now().isoformat(), thread_id))
+        return int(row[1] or 0) + 1
 
 
 def set_thread_skills_override(thread_id: str, skill_names: list[str] | None) -> None:

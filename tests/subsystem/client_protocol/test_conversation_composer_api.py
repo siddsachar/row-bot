@@ -290,3 +290,47 @@ def test_removing_a_default_skill_changes_only_that_chat(
         # A chat started afterwards still begins with the Settings default.
         later = _create(client, headers)["conversation_id"]
         assert active(client, headers, later) == seeded
+
+
+def test_a_chat_switch_and_a_mention_reach_the_turn_and_only_narrow_it(service, composer_library, monkeypatch):
+    from langchain_core.messages import AIMessage
+
+    from row_bot.integrations import facts, scope
+    from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream
+
+    items = [{"id": f"mcp:{name.lower()}", "kind": "mcp", "server": name, "name": name, "icon": "letter:" + name[0],
+              "app": {"id": name.lower(), "name": name}, "lifecycle": "installed", "readiness": "ready",
+              "parent_id": None, "children": []} for name in ("Notion", "Linear")]
+    monkeypatch.setattr(scope, "_items", lambda: items)
+    monkeypatch.setattr(facts, "read", lambda item_id, validate=None: next((i for i in items if i["id"] == item_id), None))
+    fake = ScriptedAgentStream(*[(CheckpointCommit((AIMessage(id=f"answer-{n}", content="Done"),), f"answer-{n}"),
+                                  ("done", None)) for n in range(2)])
+    seen = []
+
+    def stream(text, enabled, config, *, stop_event=None):
+        seen.append(config["configurable"].get("app_scope"))
+        yield from fake.stream(text, enabled, config, stop_event=stop_event)
+    service.stream_factory = stream
+    with _client(service) as client:
+        _, headers = bootstrap(client)
+        conversation = _create(client, headers)["conversation_id"]
+        listed = _query(client, headers, conversation).json()["apps"]
+        assert [(a["name"], a["on"]) for a in listed] == [("Linear", True), ("Notion", True)]
+        switched = _command(client, headers, "conversation.apps", {"item_id": "mcp:notion", "on": False}, target=conversation)
+        assert switched.status_code == 200, switched.text
+        assert {a["name"]: a["on"] for a in _query(client, headers, conversation).json()["apps"]} == {"Linear": True,
+                                                                                                    "Notion": False}
+        unknown = _command(client, headers, "conversation.apps", {"item_id": "mcp:nothing", "on": True}, target=conversation,
+                           revision=service.get_conversation(conversation)["revision"])
+        assert unknown.json()["code"] == "not_found"
+
+        def submit(text):
+            response = _command(client, headers, "conversation.submit", {"submission_id": str(uuid4()), "text": text,
+                "attachment_refs": [], "model_selection": {"provider_id": "fixture", "model_ref": "fixture::model"}},
+                target=conversation, revision=service.get_conversation(conversation)["revision"])
+            assert response.status_code == 202, response.text
+            assert service.registry.get(response.json()["execution_id"]).producer_done.wait(5)
+        submit("What changed this week?")
+        assert seen[-1]["exclude_servers"] == ["Notion"] and seen[-1]["focus"] == []
+        submit("@Notion and @Linear, what changed?")  # Notion stays off; the mention focuses on Linear only.
+        assert seen[-1]["exclude_servers"] == ["Notion"] and seen[-1]["focus"] == ["mcp:linear"]

@@ -82,6 +82,7 @@ export default function ComposerSkills({
   action,
   open: controlledOpen,
   onOpenChange,
+  onFindMore,
   children,
 }: {
   composer: ConversationComposer;
@@ -89,6 +90,8 @@ export default function ComposerSkills({
   action: ComposerSkillAction;
   open?: boolean;
   onOpenChange?(open: boolean): void;
+  /** Opens the Skills library. */
+  onFindMore?(): void;
   /** Content containing the `SkillsAnchor`. */
   children: ReactNode;
 }) {
@@ -166,6 +169,17 @@ export default function ComposerSkills({
           >
             Reset Skills for this chat
           </Button>
+          {onFindMore && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setOpen(false);
+                onFindMore();
+              }}
+            >
+              Find more skills
+            </Button>
+          )}
           <Popover.Close asChild>
             <Button variant="ghost">Close Skills</Button>
           </Popover.Close>

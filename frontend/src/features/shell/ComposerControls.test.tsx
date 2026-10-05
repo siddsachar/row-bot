@@ -451,3 +451,70 @@ it('hands Add resource the + trigger so focus can return to it', async () => {
     screen.getByRole('button', { name: 'Add files and more' }),
   );
 });
+
+it('switches a ready app on or off for this chat, shows why the profile leaves one out, and finds more', async () => {
+  const composer = {
+    schema_version: 1 as const,
+    conversation_id: 'conversation-a',
+    conversation_revision: '17',
+    composer_revision: 'composer-1',
+    library: { availability: 'available' as const, revision: 'library-1' },
+    smart_skills_off: false,
+    active_skills: [],
+    suggestions: [],
+    commands: [],
+    command_total: 0,
+    commands_truncated: false,
+    apps: [
+      {
+        item_id: 'mcp:linear',
+        app_id: 'linear',
+        name: 'Linear',
+        icon: 'letter:L',
+        on: true,
+        available: true,
+      },
+      {
+        item_id: 'mcp:notion',
+        app_id: 'notion',
+        name: 'Notion',
+        icon: 'letter:N',
+        on: false,
+        available: true,
+      },
+      {
+        item_id: 'mcp:figma',
+        app_id: 'figma',
+        name: 'Figma',
+        icon: 'letter:F',
+        on: true,
+        available: false,
+        reason: "This chat's agent profile doesn't use it.",
+      },
+    ],
+  };
+  render(<ComposerControls composer={composer} onError={vi.fn()} />);
+  const more = await menu('Add files and more');
+  expect(more.getByRole('menuitem', { name: /^Apps.*1 on/ })).toBeVisible();
+  const apps = await submenu(more, /^Apps/);
+  expect(
+    apps.getByRole('menuitemcheckbox', { name: 'Linear' }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(
+    apps.getByRole('menuitemcheckbox', { name: /^Figma/ }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  expect(apps.getByText(/agent profile doesn't use it/)).toBeVisible();
+  await act(async () =>
+    fireEvent.click(apps.getByRole('menuitemcheckbox', { name: 'Notion' })),
+  );
+  expect(mock.controller.intent).toHaveBeenCalledWith(
+    'conversation-a',
+    'conversation.apps',
+    { item_id: 'mcp:notion', on: true },
+    '17',
+  );
+  await act(async () =>
+    fireEvent.click(apps.getByRole('menuitem', { name: 'Find more apps' })),
+  );
+  expect(mock.navigate).toHaveBeenCalledWith('/settings/apps');
+});

@@ -143,6 +143,14 @@ def _settled_denial(events: Iterable[tuple], *, conversation_id: str, identity: 
     yield ("done", message)
 
 
+def _accepted_app_scope(conversation_id: str) -> dict | None:
+    """What the turn being continued left out (see integrations.scope); continuing never widens it."""
+    from row_bot.application.client_queue import _staged
+    _, values = _staged(conversation_id)
+    scope = ((values.get("accepted_context") or {}).get("configurable") or {}).get("app_scope")
+    return scope if isinstance(scope, dict) else None
+
+
 def _withdraw_turn_approvals(conversation_id: str, generation_id: str = "") -> list[str]:
     """Withdraw the conversation's waiting approvals (only one turn's, with ``generation_id``)."""
     from row_bot.tasks import _get_conn
@@ -952,6 +960,15 @@ class ClientPlatformService:
             revision = str(changed["conversation_revision"])
             self.projection.publish(target, "resource.changed", {"revision": revision})
             return {"conversation_id": target, "revision": revision, "status": "completed"}
+        if kind == "conversation.apps":
+            from row_bot.integrations import facts
+            from row_bot.threads import set_thread_app
+            item = facts.read(str(payload["item_id"]))
+            if item is None or item["kind"] != "mcp":
+                raise ClientPlatformError("not_found")
+            revision = str(set_thread_app(target, item["id"], bool(payload["on"])))
+            self.projection.publish(target, "resource.changed", {"revision": revision})
+            return {"conversation_id": target, "revision": revision, "status": "completed"}
         if kind in {"conversation.bind", "conversation.unbind"}:
             from row_bot.conversation_resources import bind, unbind, ResourceError
             try:
@@ -1159,6 +1176,22 @@ class ClientPlatformService:
                 if field in frozen_config:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
+        # Apps: the profile is the ceiling; this chat's switches and the message's mentions only narrow
+        # it. A queued or continued turn keeps what it left out, and today's switches still apply.
+        from row_bot.integrations.scope import turn_scope
+        previous = frozen_config.get("app_scope") if frozen_context is not None else (
+            _accepted_app_scope(conversation_id) if resume else None)
+        try:
+            narrowed = turn_scope(conversation_id, "" if resume or frozen_context is not None else text,
+                                  config["configurable"].get("tool_allowlist"), previous)
+        except Exception:
+            from row_bot.threads import get_thread_apps_off
+            _LOG.warning("Apps for %s could not be read", conversation_id, exc_info=True)
+            if previous or get_thread_apps_off(conversation_id):
+                raise ClientPlatformError("dependency_unavailable") from None  # Never widen what this chat switched off.
+            narrowed = None
+        if narrowed is not None:
+            config["configurable"]["app_scope"] = narrowed
         from row_bot.application.reasoning_controls import freeze_reasoning, restore_resume_reasoning
         if resume:
             restore_resume_reasoning(config["configurable"], conversation_id,

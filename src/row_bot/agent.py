@@ -3321,6 +3321,11 @@ _current_agent_run_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVa
 _current_external_discovery_active_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
     "current_external_discovery_active", default=False
 )
+# What this turn leaves out (apps switched off in the chat, or not mentioned) and the skills it
+# mentions; see integrations.scope. It only ever removes tools.
+_current_app_scope_var: _contextvars.ContextVar[dict | None] = _contextvars.ContextVar(
+    "current_app_scope", default=None
+)
 
 
 def _preparation_carrier_key(config: dict | None = None) -> str:
@@ -3421,6 +3426,7 @@ def _set_active_runtime_context(
     channel_streaming: bool = False,
     agent_run_id: str = "",
     external_discovery_active: bool = False,
+    app_scope: dict | None = None,
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -3442,6 +3448,7 @@ def _set_active_runtime_context(
     _current_channel_streaming_var.set(bool(channel_streaming))
     _current_agent_run_id_var.set(agent_run_id or "")
     _current_external_discovery_active_var.set(bool(external_discovery_active))
+    _current_app_scope_var.set(dict(app_scope) if isinstance(app_scope, dict) else None)
     _current_authorized_skill_records_var.set(None)
     _current_effective_tool_parent_names_var.set(())
     _current_bound_tool_schema_tokens_var.set(0)
@@ -4035,6 +4042,8 @@ def _resolve_active_skill_records(authorized_records: tuple) -> list:
         selected.extend(str(name) for name in state.get("pinned", []))
     if not is_background:
         selected.extend(str(name) for name in state.get("auto_loaded", []))
+        # Mentioned in this message: loaded for this turn only, and only if already authorized above.
+        selected.extend(str(name) for name in (_current_app_scope_var.get(None) or {}).get("skills") or [])
 
     ordered: list = []
     seen: set[str] = set()
@@ -4162,6 +4171,25 @@ def _bind_profile_tool(tool: Any, *, source: str, parent: str,
     return tool.model_copy(update=updates)
 
 
+def _apply_app_scope(core: list[dict], external: list[dict], scope: dict) -> tuple[list[dict], list[dict]]:
+    """Leave out the tools of apps this turn doesn't use. Only removes: the profile's ceiling
+    and every approval stay as they are."""
+    servers = {str(name) for name in scope.get("exclude_servers") or []}
+    parents = {str(name) for name in scope.get("exclude_tools") or []}
+    if not (servers or parents):
+        return core, external
+
+    def kept(entry: dict) -> bool:
+        if entry["parent"] in parents:
+            return False
+        source = str(entry.get("source") or "")
+        if source == "mcp":
+            from row_bot.mcp_client import runtime as mcp_runtime
+            return mcp_runtime.server_for_tool(str(getattr(entry["tool"], "name", "") or "")) not in servers
+        return not (":mcp:" in source and source.rsplit(":mcp:", 1)[1] in servers)
+    return [entry for entry in core if kept(entry)], [entry for entry in external if kept(entry)]
+
+
 def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     model_override: str | None = None,
                     tool_allowlist: list[str] | tuple[str, ...] | set[str] | None = None):
@@ -4215,6 +4243,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         enabled_tool_names,
         allow_set,
     )
+    app_scope = _current_app_scope_var.get(None) or {}
+    eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
     for entry in eager_core_entries + external_entries:
         # Graph-local copies keep approval/error wrappers off shared registrations.
         entry['tool'] = entry['tool'].model_copy()
@@ -4303,6 +4333,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"external_resume:{force_external_discovery}",
         f"capabilities:{discovery_fingerprint}",
         f"skills:{skill_fingerprint}",
+        f"apps:{sorted(app_scope.get('exclude_servers') or [])}:{sorted(app_scope.get('exclude_tools') or [])}",
     })
     # Designer tool schemas are scoped to the captured project, not whichever
     # project a client currently shows.
@@ -4644,6 +4675,7 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -5221,6 +5253,7 @@ def stream_chat_only(
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     set_active_model_override(model_label)
     _readiness_started = time.perf_counter()
@@ -5571,6 +5604,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
     if runtime_mode == "chat_only" or auto_allowed:
@@ -5671,6 +5705,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         (config.get("configurable") or {}).get("developer_context", "") or ""
@@ -5822,6 +5857,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -5912,6 +5948,7 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
+        app_scope=configurable.get("app_scope"),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""

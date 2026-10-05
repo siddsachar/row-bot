@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type RefObject } from 'react';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
+  Blocks,
   Bot,
   Check,
   ChevronRight,
@@ -8,6 +9,7 @@ import {
   FolderPlus,
   Paperclip,
   Plus,
+  Search,
   ShieldBan,
   ShieldCheck,
   ShieldQuestion,
@@ -35,6 +37,7 @@ import {
   splitModelLabel,
 } from './model-choices';
 import { describeContextUsage, Ring } from './ContextUsage';
+import { AppIcon } from '../apps/parts';
 import { currentProfileChoice, profileChoices } from './agent-profiles';
 
 const APPROVAL_LABELS = { approve: 'Ask', block: 'Block', allow_all: 'Auto' };
@@ -135,6 +138,28 @@ export default function ComposerControls({
     ? splitModelLabel(currentModel.label).name
     : modelRefName(controls.model_selection?.model_ref) || 'Choose model';
   const context = describeContextUsage(contextUsage);
+  const apps = composer?.apps ?? [];
+  const appsOn = apps.filter((app) => app.on && app.available).length;
+  /** One app on or off for this chat only; the agent profile still decides what it may use. */
+  async function switchApp(itemId: string, on: boolean) {
+    if (operation.current || blocked || !id) return;
+    operation.current = true;
+    setSaving(true);
+    try {
+      await controller.intent(
+        id,
+        'conversation.apps',
+        { item_id: itemId, on },
+        workspace!.revision,
+      );
+      onError('');
+    } catch (cause) {
+      onError(clientError(cause).message);
+    } finally {
+      operation.current = false;
+      setSaving(false);
+    }
+  }
   async function save(patch: Partial<ConversationControls>) {
     if (operation.current || blocked || !id || !controls) return;
     operation.current = true;
@@ -208,6 +233,7 @@ export default function ComposerControls({
             action={onSkillAction}
             open={skillsOpen}
             onOpenChange={onSkillsOpenChange}
+            onFindMore={() => navigate('/settings/skills')}
           >
             <Hint label="Add files and more">
               <SkillsAnchor asChild>{trigger}</SkillsAnchor>
@@ -340,6 +366,58 @@ export default function ComposerControls({
                   {composer.active_skills.length} active
                 </span>
               </Dropdown.Item>
+            )}
+            {composer && (
+              <Dropdown.Sub>
+                <Dropdown.SubTrigger className="menu-item" disabled={blocked}>
+                  <Blocks size={16} aria-hidden />
+                  <span className="menu-item-label">Apps</span>
+                  <span className="menu-item-meta">
+                    {apps.length ? `${appsOn} on` : 'None yet'}
+                  </span>
+                  <ChevronRight size={14} aria-hidden />
+                </Dropdown.SubTrigger>
+                <Dropdown.Portal>
+                  <Dropdown.SubContent
+                    className="menu surface-effect composer-apps-menu"
+                    sideOffset={4}
+                    collisionPadding={12}
+                    aria-label="Apps in this chat"
+                  >
+                    {apps.map((app) => (
+                      <Dropdown.CheckboxItem
+                        key={app.item_id}
+                        className="menu-item"
+                        checked={app.on && app.available}
+                        disabled={!app.available || blocked}
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={(checked) =>
+                          void switchApp(app.item_id, checked === true)
+                        }
+                      >
+                        <AppIcon icon={app.icon} size={18} />
+                        <span className="menu-item-label">
+                          {app.name}
+                          {!app.available && <small>{app.reason}</small>}
+                        </span>
+                        <Dropdown.ItemIndicator>
+                          <Check size={16} aria-hidden />
+                        </Dropdown.ItemIndicator>
+                      </Dropdown.CheckboxItem>
+                    ))}
+                    {apps.length > 0 && (
+                      <Dropdown.Separator className="menu-separator" />
+                    )}
+                    <Dropdown.Item
+                      className="menu-item"
+                      onSelect={() => navigate('/settings/apps')}
+                    >
+                      <Search size={16} aria-hidden />
+                      <span className="menu-item-label">Find more apps</span>
+                    </Dropdown.Item>
+                  </Dropdown.SubContent>
+                </Dropdown.Portal>
+              </Dropdown.Sub>
             )}
             <Dropdown.Separator className="menu-separator" />
             <Dropdown.Sub>

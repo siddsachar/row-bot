@@ -187,6 +187,56 @@
       "title": "ChartBlock",
       "type": "object"
     },
+    "ComposerApp": {
+      "additionalProperties": false,
+      "description": "A ready app this chat can use: its switch here, and whether the agent profile allows it.",
+      "properties": {
+        "app_id": {
+          "maxLength": 64,
+          "title": "App Id",
+          "type": "string"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "icon": {
+          "maxLength": 128,
+          "title": "Icon",
+          "type": "string"
+        },
+        "item_id": {
+          "maxLength": 512,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "title": "Name",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "app_id",
+        "name",
+        "icon",
+        "on",
+        "available"
+      ],
+      "title": "ComposerApp",
+      "type": "object"
+    },
     "ComposerLibrary": {
       "additionalProperties": false,
       "properties": {
@@ -485,6 +535,14 @@
           },
           "maxItems": 64,
           "title": "Active Skills",
+          "type": "array"
+        },
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/ComposerApp"
+          },
+          "maxItems": 64,
+          "title": "Apps",
           "type": "array"
         },
         "command_total": {

@@ -1393,6 +1393,20 @@ def get_langchain_tools(
     return wrappers
 
 
+def server_for_tool(name: str) -> str | None:
+    """The server a chat tool's runtime name comes from: one of its tools, or its resource and
+    prompt helpers. Reads what is already known; never connects."""
+    helpers = ("list_resources", "read_resource", "list_prompts", "get_prompt")
+    with _runtime_lock:
+        for tools in _catalog.values():
+            for info in tools.values():
+                if info.prefixed_name == name:
+                    return info.server_name
+        servers = list(_servers)
+    return next((server for server in servers for helper in helpers
+                 if name == f"mcp_{sanitize_name_component(server)}_{helper}"), None)
+
+
 def get_plugin_langchain_tools(
     plugin_id: str,
     allow_names: Iterable[str] | None = None,

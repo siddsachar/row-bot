@@ -89,6 +89,12 @@ class ConversationControls(WireModel):
     reasoning: ReasoningControl | None = None
 
 
+class ConversationAppPayload(WireModel):
+    """Switch one ready app on or off for this chat; turns only ever narrow what the profile allows."""
+    item_id: str = Field(min_length=1, max_length=512)
+    on: bool
+
+
 class ConversationSkillPayload(WireModel):
     action: Literal["activate", "remove", "dismiss", "reset"]
     composer_revision: str = Field(min_length=1, max_length=128)
@@ -5931,6 +5937,7 @@ class Command(WireModel):
         "approval.resolve",
         "conversation.controls",
         "conversation.skills",
+        "conversation.apps",
         "resource.setup",
         "resource.continue",
         "resource.discard",
@@ -6111,6 +6118,7 @@ COMMAND_PAYLOADS = {
     "approval.resolve": ApprovalPayload,
     "conversation.controls": ConversationControls,
     "conversation.skills": ConversationSkillPayload,
+    "conversation.apps": ConversationAppPayload,
     "resource.setup": ResourceSetupPayload,
     "resource.continue": SetupContinuePayload,
     "resource.discard": ResourceDiscardPayload,
@@ -7243,6 +7251,17 @@ class SlashCommandSpec(WireModel):
     skill_id: str | None = Field(default=None, max_length=256)
 
 
+class ComposerApp(WireModel):
+    """A ready app this chat can use: its switch here, and whether the agent profile allows it."""
+    item_id: str = Field(max_length=512)
+    app_id: str = Field(max_length=64)
+    name: str = Field(max_length=128)
+    icon: str = Field(max_length=128)
+    on: bool
+    available: bool
+    reason: str = Field(default="", max_length=256)
+
+
 class ConversationComposer(WireModel):
     schema_version: Literal[1]
     conversation_id: OpaqueId
@@ -7255,6 +7274,7 @@ class ConversationComposer(WireModel):
     commands: list[SlashCommandSpec] = Field(max_length=256)
     command_total: int = Field(ge=0, le=4096)
     commands_truncated: bool
+    apps: list[ComposerApp] = Field(default_factory=list, max_length=64)
 
 
 class ConversationComposerQuery(WireModel):

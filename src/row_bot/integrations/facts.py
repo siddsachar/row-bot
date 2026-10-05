@@ -459,7 +459,7 @@ def _live(row: dict, statuses: dict, validate: Callable[[], None], pending: dict
         # A connection someone deliberately switched off is off, not unfinished.
         row["blockers"] = row["blockers"] + ([] if excluded else mcp_blockers(setup, runtime, enabled=enabled))
         row.update(setup=setup, account_label=str((cfg.get("auth") or {}).get("label", ""))[:128],
-                   lifecycle="installed" if enabled else "off")
+                   lifecycle="installed" if enabled else "off", server=private["name"])  # Where its chat tools come from.
     if row["parent_id"] is None:
         codes = {b["code"] for b in row["blockers"]}
         row["blockers"] = [b for b in _reconcile(row, validate, pending) if b["code"] not in codes] + row["blockers"]

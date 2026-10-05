@@ -2027,6 +2027,65 @@
       "title": "CloneWorkspaceSetupPayload",
       "type": "object"
     },
+    "ConversationAppPayload": {
+      "additionalProperties": false,
+      "description": "Switch one ready app on or off for this chat; turns only ever narrow what the profile allows.",
+      "properties": {
+        "item_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "on"
+      ],
+      "title": "ConversationAppPayload",
+      "type": "object"
+    },
+    "ConversationAppsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationAppPayload"
+        },
+        "type": {
+          "const": "conversation.apps",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationAppsCommand",
+      "type": "object"
+    },
     "ConversationBindCommand": {
       "additionalProperties": false,
       "properties": {
@@ -11189,6 +11248,7 @@
       "buddy.remove": "#/$defs/BuddyRemoveCommand",
       "buddy.update": "#/$defs/BuddyUpdateCommand",
       "channel.control": "#/$defs/ChannelControlCommand",
+      "conversation.apps": "#/$defs/ConversationAppsCommand",
       "conversation.bind": "#/$defs/ConversationBindCommand",
       "conversation.controls": "#/$defs/ConversationControlsCommand",
       "conversation.create": "#/$defs/ConversationCreateCommand",
@@ -11361,6 +11421,9 @@
     },
     {
       "$ref": "#/$defs/ConversationSkillsCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationAppsCommand"
     },
     {
       "$ref": "#/$defs/ResourceSetupCommand"

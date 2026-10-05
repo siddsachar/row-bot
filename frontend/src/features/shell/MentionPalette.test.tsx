@@ -9,7 +9,10 @@ function Harness({
   onConsume,
 }: {
   items: MentionItem[];
-  onConsume: (token: { start: number; end: number }) => void;
+  onConsume: (
+    token: { start: number; end: number },
+    replacement?: string,
+  ) => void;
 }) {
   const [text, setText] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -125,4 +128,30 @@ it('opens again when a dismissed "@" is deleted and typed again', () => {
   fireEvent.change(input, { target: { value: '', selectionStart: 0 } });
   fireEvent.change(input, { target: { value: '@', selectionStart: 1 } });
   expect(screen.getByRole('listbox', { name: 'Mentions' })).toBeVisible();
+});
+
+it('keeps an app mention in the message instead of removing what was typed', async () => {
+  const consume = vi.fn();
+  render(
+    <Harness
+      items={[
+        {
+          id: 'app:mcp:linear',
+          group: 'Apps',
+          label: 'Linear',
+          icon: null,
+          replacement: '@Linear ',
+          onChoose: vi.fn(),
+        },
+      ]}
+      onConsume={consume}
+    />,
+  );
+  const input = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(input, { target: { value: 'Ask @lin', selectionStart: 8 } });
+  await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+  expect(consume).toHaveBeenCalledWith(
+    expect.objectContaining({ start: 4, end: 8 }),
+    '@Linear ',
+  );
 });

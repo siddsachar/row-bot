@@ -13,6 +13,7 @@ import type {
   IntegrationDetail,
   IntegrationEntry,
   InstallPlan,
+  PlanInput,
   PlanStep,
 } from '../../api/types';
 import type { ClientPlatform } from '../../platform';
@@ -961,7 +962,9 @@ it('a required choice with nothing chosen says so instead of showing an option i
 });
 
 it('changes settings after setup: Yes/No, a saved key never shown, and Stop beside the primary button', async () => {
-  const input = (fields: Record<string, unknown>) => ({
+  const input = (
+    fields: Partial<PlanInput> & Pick<PlanInput, 'key' | 'label' | 'name'>,
+  ): PlanInput => ({
     description: '',
     required: true,
     target: 'header' as const,
@@ -987,7 +990,7 @@ it('changes settings after setup: Yes/No, a saved key never shown, and Stop besi
       name: 'X-MCP-Readonly',
       default: 'true',
       choices: ['true', 'false'],
-      format: 'boolean' as const,
+      format: 'boolean',
     }),
   ];
   const ready = entry({

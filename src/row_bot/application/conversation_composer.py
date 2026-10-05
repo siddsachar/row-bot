@@ -269,6 +269,11 @@ def _read_snapshot(
         limit=3,
     )
     commands, command_total = _command_rows(manual_skills, command_query, command_limit)
+    try:
+        from row_bot.integrations.scope import chat_apps
+        apps = chat_apps(conversation_id)
+    except Exception:  # The composer still works when apps can't be read.
+        apps = []
     profile_policy = profile.get("skill_policy_json") or {} if profile else {}
     revision = _digest({
         "activation": activation,
@@ -288,6 +293,7 @@ def _read_snapshot(
             "enabled": profile.get("enabled", True) if profile else False,
             "skill_policy": profile_policy,
         },
+        "apps": apps,
     })
     return {
         "schema_version": 1,
@@ -311,6 +317,7 @@ def _read_snapshot(
         "commands": commands,
         "command_total": command_total,
         "commands_truncated": len(commands) < command_total,
+        "apps": apps,
     }
 
 
