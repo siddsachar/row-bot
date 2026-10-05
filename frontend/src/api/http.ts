@@ -1176,8 +1176,8 @@ export class HttpTransport implements ClientTransport {
   integrationApps(query: string, signal?: AbortSignal) {
     return wire.getApps(this.base, this.session(), { query }, signal);
   }
-  integrationIcon(icon: string, signal?: AbortSignal) {
-    return wire.readAppIcon(this.base, this.session(), icon, signal);
+  integrationIcons(icons: string[], signal?: AbortSignal) {
+    return wire.readAppIcons(this.base, this.session(), { ids: icons }, signal);
   }
   integrationItems(
     options: {
@@ -1185,6 +1185,7 @@ export class HttpTransport implements ClientTransport {
       kind?: string;
       scope?: 'installed' | 'catalog';
       cursor?: string;
+      all?: 'true';
     },
     signal?: AbortSignal,
   ) {

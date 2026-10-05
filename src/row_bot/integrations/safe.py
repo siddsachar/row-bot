@@ -1,7 +1,9 @@
 """One safe path for catalog traffic, display links, short-lived previews and files."""
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 import ipaddress
 import os
 from pathlib import Path
@@ -19,6 +21,19 @@ _REDIRECTS = {301, 302, 303, 307, 308}
 _CREDENTIALS = {"authorization", "cookie", "proxy-authorization"}
 # IPv6 forms that carry an IPv4 address: NAT64 and the deprecated IPv4-compatible block.
 _EMBEDDED = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("::/96"))
+# The check of the work a fetch belongs to (a plan step): its stop or a sign-out ends the download.
+_CHECK: ContextVar[Callable[[], None] | None] = ContextVar("row_bot_fetch_check", default=None)
+
+
+@contextmanager
+def checked(check: Callable[[], None]) -> Iterator[None]:
+    """Every fetch inside (however deep in a catalog adapter) calls ``check`` per hop and while it
+    reads, so stopping a plan or signing out stops a download that is already running."""
+    token = _CHECK.set(check)
+    try:
+        yield
+    finally:
+        _CHECK.reset(token)
 
 
 def public_url(value: object, *, limit: int = 2048) -> str:
@@ -99,7 +114,8 @@ class _Pinned(httpx.HTTPTransport):
 def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: float = 20,
           headers: Mapping[str, str] | None = None, redirects: int = 0,
           exact_redirects: Mapping[str, str] | None = None, meta: dict | None = None,
-          refused: str = "package_source_not_supported", too_large: str = "package_download_too_large") -> bytes:
+          refused: str = "package_source_not_supported", too_large: str = "package_download_too_large",
+          method: str = "GET", check: Callable[[], None] | None = None) -> bytes:
     """Bounded https GET without automatic redirects.
 
     ``hosts`` is a reviewed allow-list; ``None`` admits any public name. A direct
@@ -111,12 +127,18 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
     ``source -> destination`` pair allows one reviewed migration off the list.
     Bodies are never decompressed, so ``max_bytes`` bounds what is held, and the
     whole fetch has one deadline as well as the per-read ``timeout``. ``meta``
-    receives the final response's status and headers.
+    receives the final response's status and headers. ``check`` (or the one set by
+    ``checked``) runs before each hop and about four times a second while reading,
+    and stops the fetch by raising. ``HEAD`` returns no body.
     """
+    check = check or _CHECK.get() or (lambda: None)
+    if method not in {"GET", "HEAD"}:
+        raise ValueError(refused)
     allowed = None if hosts is None else frozenset(hosts)
     pairs, budget, sent, previous, reviewed = dict(exact_redirects or {}), redirects, dict(headers or {}), "", False
     deadline = time.monotonic() + timeout * 6
     while True:
+        check()
         parts = urlsplit(url)
         if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
                 or parts.fragment or parts.port not in {None, 443} or (allowed is not None and not reviewed and parts.hostname not in allowed)):
@@ -131,7 +153,7 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
             options["transport"] = _Pinned(parts.hostname, _public_address(parts.hostname, refused))
         # A fresh client per hop: no cookie or connection state crosses origins.
         with httpx.Client(**options) as client:
-            with client.stream("GET", url, headers={"User-Agent": "Row-Bot", **sent, "Accept-Encoding": "identity"}) as response:
+            with client.stream(method, url, headers={"User-Agent": "Row-Bot", **sent, "Accept-Encoding": "identity"}) as response:
                 if response.status_code in _REDIRECTS:
                     location = response.headers.get("location", "")
                     reviewed = pairs.pop(url, None) == location
@@ -145,13 +167,17 @@ def fetch(url: str, *, hosts: Iterable[str] | None, max_bytes: int, timeout: flo
                     meta.update(status=response.status_code, headers={k.lower(): v for k, v in response.headers.items()})
                 if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
                     raise ValueError(refused)
-                data = bytearray()
-                for chunk in response.iter_bytes():  # Identity only, so nothing is decompressed.
+                data, checked_at = bytearray(), time.monotonic()
+                for chunk in response.iter_bytes() if method == "GET" else ():  # Identity only: nothing is decompressed.
                     data.extend(chunk)
                     if len(data) > max_bytes:
                         raise ValueError(too_large)
                     if time.monotonic() > deadline:
                         raise TimeoutError("source_timeout")
+                    if time.monotonic() - checked_at >= 0.25:
+                        check()
+                        checked_at = time.monotonic()
+                check()
                 return bytes(data)
 
 

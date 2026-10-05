@@ -145,7 +145,7 @@ class McpClientFoundationTests(unittest.TestCase):
     def test_xquik_catalog_entry_is_disabled_high_risk_and_approval_gated(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
-        from row_bot.mcp_client.conflicts import conflicts_for_entry, requires_manual_tool_selection
+        from row_bot.mcp_client.conflicts import conflicts_for_entry, overlap_note
         from row_bot.mcp_client.safety import is_destructive_tool
 
         xquik = next(entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.id == "xquik-mcp")
@@ -160,7 +160,7 @@ class McpClientFoundationTests(unittest.TestCase):
         xquik_config = marketplace.entry_to_server_config(xquik)
         self.assertFalse(xquik_config["enabled"])
         self.assertEqual(xquik_config["headers"], {"x-api-key": ""})
-        self.assertTrue(requires_manual_tool_selection("xquik", xquik_config))
+        self.assertEqual(overlap_note("xquik", xquik_config), "Row-Bot also has its own X tools.")
 
         executor_description = "Execute API calls against your Xquik account."
         self.assertTrue(is_destructive_tool("xquik", executor_description))
@@ -179,20 +179,20 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(source["overlaps_native"], ["browser"])
         self.assertEqual(source["conflicts"][0]["capability"], "browser")
 
-    def test_conflict_policy_uses_manual_selection_for_overlap_and_high_risk(self) -> None:
-        from row_bot.mcp_client.conflicts import conflicts_for_server, requires_manual_tool_selection, unique_server_name
+    def test_an_overlap_with_row_bot_is_only_a_note(self) -> None:
+        from row_bot.mcp_client.conflicts import conflicts_for_server, overlap_note, unique_server_name
 
         overlap_cfg = {
             "name": "playwright",
             "source": {"overlaps_native": ["browser"], "risk_level": "medium"},
         }
-        self.assertTrue(requires_manual_tool_selection("playwright", overlap_cfg))
+        self.assertEqual(overlap_note("playwright", overlap_cfg), "Row-Bot also has its own Browser tools.")
         self.assertEqual(conflicts_for_server("playwright", overlap_cfg)[0].capability, "browser")
 
         high_risk_cfg = {"name": "stripe", "source": {"risk_level": "high"}}
-        self.assertTrue(requires_manual_tool_selection("stripe", high_risk_cfg))
+        self.assertEqual(overlap_note("stripe", high_risk_cfg), "")
         web_search_overlap_cfg = {"name": "context7", "source": {"overlaps_native": ["web_search"], "risk_level": "low"}}
-        self.assertTrue(requires_manual_tool_selection("context7", web_search_overlap_cfg))
+        self.assertEqual(overlap_note("context7", web_search_overlap_cfg), "Row-Bot also has its own Web Search tools.")
         self.assertEqual(unique_server_name("Playwright MCP", {"playwright-mcp"}), "playwright-mcp-2")
 
     def test_probe_server_normalizes_cancelled_and_timed_out_handshakes(self) -> None:

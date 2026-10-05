@@ -146,13 +146,17 @@ export interface ClientTransport {
     signal?: AbortSignal,
   ): Promise<Wire.CatalogSchedule>;
   integrationApps?(query: string, signal?: AbortSignal): Promise<Wire.AppList>;
-  integrationIcon?(icon: string, signal?: AbortSignal): Promise<Blob>;
+  integrationIcons?(
+    icons: string[],
+    signal?: AbortSignal,
+  ): Promise<Wire.IconBatch>;
   integrationItems?(
     options: {
       query?: string;
       kind?: string;
       scope?: 'installed' | 'catalog';
       cursor?: string;
+      all?: 'true';
     },
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationEntryPage>;

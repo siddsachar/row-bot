@@ -97,7 +97,7 @@ def test_actual_test_metadata_survives_cleanup_and_explicit_acceptance_never_ret
     assert rows["unrecognized"].enabled_after_accept is False and rows["unrecognized"].requires_approval
     request = command(tested)
     reviewed = controls.review_mcp_catalog_command(owner_id="synthetic-owner", **request["payload"], validate=lambda: None)
-    assert reviewed["tool_count"] == 3 and reviewed["manual_selection_required"] is False
+    assert reviewed["tool_count"] == 3
     monkeypatch.setattr(owner.runtime, "launch_server_owned", lambda *_a, **_k: pytest.fail("Acceptance retested server"))
     saved = execute(request)
     assert saved["status"] == "completed" and saved["mcp_configuration"]["saved_disabled"] is None
@@ -126,12 +126,13 @@ def test_existing_explicit_choices_and_unknown_fields_survive_acceptance(owner):
     assert {"get_record", "delete_record", "unrecognized"}.issubset(current["require_approval"])
 
 
-def test_overlap_requires_explicit_manual_tool_selection(owner):
+def test_an_overlap_with_row_bot_is_a_note_and_risky_tools_still_ask(owner):
     owner.document["servers"]["Synthetic"]["source"] = {"overlaps_native": ["memory"]}
     config.CONFIG_PATH.write_text(json.dumps(owner.document), encoding="utf-8")
     tested = run_test()
-    assert read(tested).manual_selection_required is True
-    assert all(item.enabled_after_accept is False for item in read(tested).items)
+    rows = {item.name: item for item in read(tested).items}
+    assert rows["get_record"].enabled_after_accept is True  # Lookups are not held back by the overlap.
+    assert rows["delete_record"].requires_approval and rows["unrecognized"].requires_approval
     assert execute(command(tested))["status"] == "completed"
 
 

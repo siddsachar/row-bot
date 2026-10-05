@@ -29,14 +29,15 @@ from row_bot.integrations.safe import write_atomic
 if TYPE_CHECKING:
     from row_bot.mcp_client.marketplace import MarketplaceEntry
 
-SCHEMA = 2
+SCHEMA = 3
 LIMIT = 200
 _GENERATION = re.compile(r"registry-[0-9a-f]{16}\.sqlite3")
 _LOCK = threading.RLock()
 _READY: dict = {}
 _TABLES = """
 CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, title TEXT NOT NULL, app TEXT NOT NULL,
-    verified INTEGER NOT NULL, featured INTEGER, setup INTEGER NOT NULL, updated INTEGER NOT NULL, icon TEXT, row BLOB NOT NULL);
+    verified INTEGER NOT NULL, featured INTEGER, setup INTEGER NOT NULL, updated INTEGER NOT NULL, icon TEXT,
+    quality INTEGER NOT NULL, row BLOB NOT NULL);
 CREATE INDEX entries_app ON entries(app) WHERE app != '';
 CREATE VIRTUAL TABLE fts USING fts5(name, title, publisher, app_text, description, content='',
     tokenize='unicode61 remove_diacritics 2', prefix='2 3');
@@ -70,6 +71,36 @@ def epoch(day: str) -> int:
         return 0
 
 
+# Placeholder and test records: template titles and descriptions, staging namespaces. Hidden unless asked for.
+_TEMPLATE_TITLES = {"my mcp server", "my mcp serv", "my server", "my first mcp server", "my mcp", "mcp", "mcp server", "server",
+                    "test", "test server", "test mcp server", "mcp test server", "demo", "demo server", "example server",
+                    "example mcp server", "sample server", "sample mcp server", "hello world", "untitled"}
+_TEMPLATE = re.compile(r"(description of|this is) (my|the|your|an?) (mcp )?server.*|non functional server.*|"
+                       r"(an? |my |the )?(simple )?(mcp )?(test|demo|example|sample) (mcp )?server( for testing)?|"
+                       r"todo|tbd|lorem ipsum.*|placeholder|description|hello world|(an? |my )?mcp server")
+
+
+def owner_label(namespace: str) -> str:
+    """The part of a Registry namespace that names its owner: ``io.github.acme`` and ``com.acme`` both give
+    ``acme``. Prefixes like ``io.github`` or ``com`` would otherwise match half the Registry."""
+    parts = namespace.casefold().split(".")
+    if parts[:2] == ["io", "github"] and len(parts) > 2:
+        return ".".join(parts[2:])
+    return parts[1] if len(parts) > 1 else parts[0]
+
+
+def _words_of(text: str) -> str:
+    return " ".join(re.findall(r"[^\W_]+", str(text or "").casefold()))
+
+
+def low_quality(entry: MarketplaceEntry) -> bool:
+    """A placeholder or test record: a template title or description, or a staging namespace."""
+    name = (entry.metadata or {}).get("canonical_name") or entry.id
+    title, description = _words_of(entry.name), _words_of(entry.description)
+    return (not description or bool(_TEMPLATE.fullmatch(description)) or title in _TEMPLATE_TITLES
+            or ".staging." in "." + name.split("/", 1)[0] + ".")
+
+
 def derive(entry: MarketplaceEntry) -> dict:
     """What ranking needs about one record: its app, vendor verification, setup tier and freshness."""
     metadata = entry.metadata or {}
@@ -96,6 +127,12 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
     with _LOCK:
         from row_bot.mcp_client.registry_snapshot import compact
         by_name = {(entry.metadata or {}).get("canonical_name") or entry.id: entry for entry in entries}
+        derived = {name: derive(entry) for name, entry in by_name.items()}
+        # Copies of one listing (same title and description) collapse into the best: vendor, featured, ready, fresh.
+        best: dict = {}
+        for name in sorted(by_name, key=lambda n: (not derived[n]["verified"], derived[n]["featured"] is None,
+                                                   derived[n]["setup"], -derived[n]["updated"], n)):
+            best.setdefault((_words_of(by_name[name].name), _words_of(by_name[name].description)), name)
         digest = hashlib.sha256()
         root = folder(create=True)
         previous = (pointer() or {}).get("file", "")
@@ -108,20 +145,22 @@ def build(entries: Iterable, *, captured_at: float, watermark: str, etag: str = 
                 for count, name_key in enumerate(sorted(by_name)):
                     if cancelled():
                         raise ValueError("integration_search_cancelled")
-                    entry = by_name[name_key]
-                    found = derive(entry)
+                    entry, found = by_name[name_key], derived[name_key]
                     line = json.dumps(compact(entry), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
                     digest.update((b"\n" if count else b"") + line.encode("utf-8"))
+                    copy = best[(_words_of(entry.name), _words_of(entry.description))] != name_key
+                    quality = 1 if low_quality(entry) else 2 if copy else 0
                     # Rows are stored compressed (their text repeats); icons get a column for updates.
-                    cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, icon, row)"
-                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (name_key, entry.name, found["app"], int(found["verified"]),
-                        found["featured"], found["setup"], found["updated"], (entry.metadata or {}).get("icon"),
+                    cursor = db.execute("INSERT INTO entries(name, title, app, verified, featured, setup, updated, icon, quality, row)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (name_key, entry.name, found["app"], int(found["verified"]),
+                        found["featured"], found["setup"], found["updated"], (entry.metadata or {}).get("icon"), quality,
                         zlib.compress(line.encode("utf-8"))))
-                    # Index the server part and the namespace; "io.github." alone would match half the Registry.
+                    # Only words people search for: the server part, a real title and the namespace's owner,
+                    # never "io", "github" or "com" from the namespace itself.
                     namespace, _, server = name_key.rpartition("/")
                     db.execute("INSERT INTO fts(rowid, name, title, publisher, app_text, description) VALUES (?, ?, ?, ?, ?, ?)",
-                               (cursor.lastrowid, server, entry.name, namespace.removeprefix("io.github."), found["app_text"],
-                                entry.description))
+                               (cursor.lastrowid, server, server if entry.name == name_key else entry.name,
+                                owner_label(namespace), found["app_text"], entry.description))
                 db.commit()
                 if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                     raise ValueError("catalog_index_corrupt")
@@ -264,33 +303,58 @@ def _match(words: list[str], columns: str = "") -> str:
 
 
 # ``sources.order`` in SQL, so SQLite keeps only the top rows however many match.
-_ORDER = """ORDER BY NOT (lower(e.title) = :wanted OR lower(e.name) = :wanted OR e.app IN (SELECT value FROM json_each(:apps))),
-    NOT (e.featured IS NOT NULL OR e.verified), NOT ({strong}), COALESCE(e.featured, 1000000), e.setup,
+_ORDER = """ORDER BY NOT (e.featured IS NOT NULL OR e.verified),
+    NOT (lower(e.title) = :wanted OR lower(e.name) = :wanted OR e.app IN (SELECT value FROM json_each(:apps))),
+    NOT ({strong}), COALESCE(e.featured, 1000000), e.setup,
     CASE WHEN e.updated = 0 THEN 0 WHEN :now - e.updated <= 7776000 THEN -2 WHEN :now - e.updated <= 31536000 THEN -1 ELSE 0 END,
     lower(e.title), e.name LIMIT :limit"""
+_NAMESPACE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+(/[a-z0-9._-]*)?")
 
 
-def search(query: str, *, limit: int = LIMIT, now: float | None = None) -> tuple[list[tuple], int, dict]:
+def search(query: str, *, limit: int = LIMIT, now: float | None = None, everything: bool = False) -> tuple[list[tuple], int, dict, int]:
     """Ranked records for a query (the empty query lists app records only), the number that
-    matched, and the index in use. Every result is ``(entry, derived)``."""
+    matched, the index in use, and how many placeholder or duplicate records were left out
+    (``everything`` keeps them). A query that is itself a namespace matches that namespace
+    exactly. Every result is ``(entry, derived)``."""
     from row_bot.mcp_client.registry_snapshot import expand
     index, words, wanted = current(), _words(query), query.casefold().strip()
     named = [app.id for app in apps.catalog()[0].values() if wanted and app.name.casefold() == wanted]
-    values = {"wanted": wanted or "\0", "apps": json.dumps(named), "now": time.time() if now is None else now, "limit": limit}
+    values = {"wanted": wanted or "\0", "apps": json.dumps(named), "now": time.time() if now is None else now, "limit": limit,
+              "prefix": wanted.rstrip("/") + "/"}
     select = "SELECT e.id, e.app, e.verified, e.setup, e.updated, e.row FROM entries e "
+    floor = "" if everything else " AND e.quality = 0"
     db = _connect(folder() / index["file"])
     try:
-        if words:
+        where = "WHERE (e.name = :wanted OR substr(e.name, 1, length(:prefix)) = :prefix)"
+        if _NAMESPACE.fullmatch(wanted) and db.execute("SELECT 1 FROM entries e " + where + " LIMIT 1", values).fetchone():
+            matched, strong = where, "1"  # "io.github.zoom" or "com.notion/mcp" names a namespace: exactly that.
+        elif words:
             values |= {"query": _match(words), "strong": _match(words, "name title publisher app_text")}
-            strong = "e.id IN (SELECT rowid FROM fts WHERE fts MATCH :strong)"
-            top = db.execute(select + "JOIN fts ON fts.rowid = e.id WHERE fts MATCH :query " + _ORDER.format(strong=strong),
-                             values).fetchall()
-            total = db.execute("SELECT count(*) FROM fts WHERE fts MATCH :query", values).fetchone()[0]
+            matched, strong = "JOIN fts ON fts.rowid = e.id WHERE fts MATCH :query", "e.id IN (SELECT rowid FROM fts WHERE fts MATCH :strong)"
         else:
-            top = db.execute(select + "WHERE e.app != '' " + _ORDER.format(strong="1"), values).fetchall()
-            total = db.execute("SELECT count(*) FROM entries WHERE app != ''").fetchone()[0]
+            matched, strong = "WHERE e.app != ''", "1"
+        top = db.execute(select + matched + floor + " " + _ORDER.format(strong=strong), values).fetchall()
+        # One count for both: everything that matched, and how much of it the floor leaves out.
+        found, low = db.execute("SELECT count(*), total(e.quality > 0) FROM entries e " + matched, values).fetchone()
+        hidden = 0 if everything or not (words or matched == where) else int(low)
+        total = found - (0 if everything else int(low))
         results = [(expand(json.loads(zlib.decompress(row[5]))), {"app": row[1], "verified": bool(row[2]), "setup": row[3],
                                                                    "updated": row[4]}) for row in top]
-        return results, total, index
+        return results, total, index, hidden
     finally:
         db.close()
+
+
+def by_app(app_id: str, *, limit: int = 32) -> list[MarketplaceEntry]:
+    """An app's own records (its ways to connect), best first; never placeholders or copies."""
+    from row_bot.mcp_client.registry_snapshot import expand
+    try:
+        db = _connect(folder() / current()["file"])
+    except LookupError:
+        return []
+    try:
+        found = db.execute("SELECT row FROM entries WHERE app = ? AND quality = 0 ORDER BY NOT verified, setup, updated DESC, name "
+                           "LIMIT ?", (app_id, limit)).fetchall()
+    finally:
+        db.close()
+    return [expand(json.loads(zlib.decompress(row[0]))) for row in found]

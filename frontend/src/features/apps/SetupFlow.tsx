@@ -421,8 +421,7 @@ function facts(plan: InstallPlan, name: string) {
       lines.push(
         'Adds the skill and turns it on. Scripts in it never run when you add it.',
       );
-    if (consent.turns_on_mcp)
-      lines.push('Apps are off in Row-Bot until now; this turns them on.');
+    if (consent.turns_on_mcp) lines.push('This also turns on apps in Row-Bot.');
   }
   return lines;
 }

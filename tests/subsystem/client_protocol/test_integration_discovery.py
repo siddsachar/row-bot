@@ -106,7 +106,7 @@ def test_fair_merge_pagination_and_proven_identity(catalogs, monkeypatch):
             lifecycle="available", source=source, compatibility="not_inspected")) for i in range(count)]
         # One proven identical deployment, plus same names with distinct identities.
         rows[0]["canonical_identity"] = "mcp:endpoint:proven"
-        return rows, [SOURCES[source].status(status="cached")], {r["id"]: {"kind": "native", "plugin_id": r["id"]} for r in rows}
+        return rows, [SOURCES[source].status(status="cached")], {r["id"]: {"kind": "native", "plugin_id": r["id"]} for r in rows}, 0
     monkeypatch.setattr(api, "_search_source", source)
     args = {"owner_id": "owner", "sources": ["official", "recommended"], "limit": 4}
     first = search_catalog(**args)
@@ -135,7 +135,7 @@ def test_parallel_sources_and_cancellation_suppress_late_results(catalogs, monke
         barrier.wait(timeout=1)
         entered.set()
         release.wait(timeout=1)
-        return [facts.finish(facts.entry("mcp", source, source))], [SOURCES[source].status()], {}
+        return [facts.finish(facts.entry("mcp", source, source))], [SOURCES[source].status()], {}, 0
     monkeypatch.setattr(api, "_search_source", source)
     outcomes = []
     def search():
@@ -160,7 +160,7 @@ def test_deadline_keeps_partial_results(catalogs, monkeypatch):
         if name == "clawhub":
             entered.set()
             release.wait(timeout=1)
-            return [], [], {}
+            return [], [], {}, 0
         assert entered.wait(timeout=1)
         return original(name, **kwargs)
     monkeypatch.setattr(api, "_search_source", source)
@@ -203,7 +203,8 @@ def test_registry_search_is_local_never_builds_and_has_provenance(catalogs, isol
 @pytest.mark.parametrize("state", ["deleted", "deprecated", "changed", "missing"])
 def test_stale_registry_entry_fails_its_consented_plan_and_saves_nothing(catalogs, isolated, monkeypatch, state, tmp_path):
     from row_bot.mcp_client import config, registry_snapshot
-    envelope = {"server": {"name": "org.fixture/tool", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://example.test/mcp"}]},
+    envelope = {"server": {"name": "org.fixture/tool", "version": "1.0.0", "description": "Fixture tool for tests",
+                           "remotes": [{"type": "streamable-http", "url": "https://example.test/mcp"}]},
         "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active"}}}
     use_registry(monkeypatch, tmp_path, marketplace.registry_entries({"servers": [copy.deepcopy(envelope)]}))
     page = search_catalog(sources=["official"], query="fixture")
@@ -307,7 +308,8 @@ def test_registry_setup_revalidated_from_envelope_at_configuration_publication(s
     from row_bot.integrations import sources
     from row_bot.mcp_client import config, registry_snapshot
     from tests.subsystem.client_protocol.test_mcp_configuration_api import review, send
-    envelope = {"server": {"name": "org.fixture/tool", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://example.test/mcp"}]},
+    envelope = {"server": {"name": "org.fixture/tool", "version": "1.0.0", "description": "Fixture tool for tests",
+                           "remotes": [{"type": "streamable-http", "url": "https://example.test/mcp"}]},
         "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active"}}}
     if change in {"env", "runtime", "registry", "unchanged_package"}:
         envelope["server"].pop("remotes")

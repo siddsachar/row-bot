@@ -46,13 +46,70 @@
       "title": "IntegrationRequirement",
       "type": "object"
     },
+    "IntegrationWay": {
+      "additionalProperties": false,
+      "description": "One way to connect an app (a hosted endpoint, a local package, an account...), from local catalogs.",
+      "properties": {
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "hosted_sign_in",
+            "api_key",
+            "hosted",
+            "local",
+            ""
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "publisher": {
+          "maxLength": 160,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "recommended": {
+          "default": false,
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "supported": {
+          "title": "Supported",
+          "type": "boolean"
+        },
+        "verified": {
+          "title": "Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "method",
+        "verified",
+        "publisher",
+        "supported"
+      ],
+      "title": "IntegrationWay",
+      "type": "object"
+    },
     "PlanAccess": {
       "additionalProperties": false,
       "properties": {
-        "manual": {
-          "default": false,
-          "title": "Manual",
-          "type": "boolean"
+        "note": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Note",
+          "type": "string"
         },
         "preset": {
           "enum": [
@@ -236,6 +293,14 @@
       "maxLength": 2048,
       "title": "Source Url",
       "type": "string"
+    },
+    "ways": {
+      "items": {
+        "$ref": "#/$defs/IntegrationWay"
+      },
+      "maxItems": 24,
+      "title": "Ways",
+      "type": "array"
     }
   },
   "required": [

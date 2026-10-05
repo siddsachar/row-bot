@@ -17,10 +17,10 @@ from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after p
 
 MODELS = {name: getattr(schemas, name) for name in (
     "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
-    "AppRef", "AppView", "AppList", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
+    "AppRef", "AppView", "AppList", "IconBatchRequest", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
-    "PlanStartRequest", "PlanContinueRequest", "IntegrationAbout", "IntegrationFile", "IntegrationRequirement",
+    "PlanStartRequest", "PlanContinueRequest", "IntegrationAbout", "IntegrationFile", "IntegrationRequirement", "IntegrationWay",
     "IntegrationResolveRequest", "IntegrationSettleRequest",
     "IntegrationAttribution", "IntegrationSourceStatus", "IntegrationSearchRequest", "McpAuthReviewRequest", "McpAuthReview", "McpAuthCommand", "McpAuthStatus", "McpPackageRequest", "McpPackageReview", "McpPackageCommand",
     "Command", "Event", "Handshake", "Problem", "Outcome", "ResourceBinding",
@@ -110,7 +110,7 @@ OPERATIONS = (
     ('get', '/integrations/catalog-schedule', None, 'CatalogSchedule'),
     ('put', '/integrations/catalog-schedule', 'CatalogSchedule', 'CatalogSchedule'),
     ('get', '/integrations/apps', None, 'AppList'),
-    ('get', '/integrations/icons/{icon_id}', None, 'bytes'),
+    ('post', '/integrations/icons', 'IconBatchRequest', 'IconBatch'),
     ('get', '/integrations/presets', None, 'AccessPresetList'),
     ('get', '/integrations/items', None, 'IntegrationEntryPage'),
     ('post', '/integrations/items/search', 'IntegrationSearchRequest', 'IntegrationEntryPage'),
@@ -1179,18 +1179,11 @@ export const setCatalogSchedule = (base: string, proof: SessionProof, body: Cata
   jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'PUT', validateWire('CatalogSchedule', body), undefined, signal);
 export const getApps = (base: string, proof: SessionProof, options: {query?: string} = {}, signal?: AbortSignal): Promise<AppList> =>
   jsonRequest(base, '/integrations/apps' + query(options), 'AppList', proof, 'GET', undefined, undefined, signal);
-export async function readAppIcon(base: string, proof: SessionProof, icon: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(`${base}/api/v1/integrations/icons/${id(icon)}`, {
-    credentials: 'same-origin', cache: 'default', headers: proofHeaders(proof), signal,
-  });
-  if (!response.ok) throw validateWire<Problem>('Problem', await response.json());
-  const data = await response.blob();
-  if (data.size > 262144) throw new Error('protocol_incompatible');
-  return data;
-}
+export const readAppIcons = (base: string, proof: SessionProof, body: IconBatchRequest, signal?: AbortSignal): Promise<IconBatch> =>
+  jsonRequest(base, '/integrations/icons', 'IconBatch', proof, 'POST', validateWire('IconBatchRequest', body), undefined, signal);
 export const getAccessPresets = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AccessPresetList> =>
   jsonRequest(base, '/integrations/presets', 'AccessPresetList', proof, 'GET', undefined, undefined, signal);
-export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
+export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items' + query(options), 'IntegrationEntryPage', proof, 'GET', undefined, undefined, signal);
 export const searchIntegrationItems = (base: string, proof: SessionProof, body: IntegrationSearchRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items/search', 'IntegrationEntryPage', proof, 'POST', validateWire('IntegrationSearchRequest', body), undefined, signal);

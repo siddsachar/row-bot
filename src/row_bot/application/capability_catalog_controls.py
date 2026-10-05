@@ -14,7 +14,6 @@ from row_bot.application import capability_configuration_controls as configurati
 from row_bot.application import capability_policy_controls as policy
 from row_bot.integrations import presets
 from row_bot.mcp_client import config, targets
-from row_bot.mcp_client.conflicts import requires_manual_tool_selection
 from row_bot.mcp_client.safety import is_destructive_tool
 from row_bot.runtime import admissions
 
@@ -110,7 +109,6 @@ class McpTestedCatalogPage:
     server_id: str
     test_command_id: str
     availability: str
-    manual_selection_required: bool | None
     items: tuple[McpCatalogTool, ...]
     total: int | None
     next_cursor: str | None
@@ -157,7 +155,7 @@ def _captured(owner_id, server_id, test_command_id, saved):
 
 
 def _document(saved, server_id, captured, preset=None, overrides=None):
-    name, server = policy._server(saved, server_id)
+    name, _server = policy._server(saved, server_id)
     if name is None:
         raise Error("not_found")
     document = copy.deepcopy(saved.document)
@@ -169,7 +167,6 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
     enabled, catalog = tools.setdefault("enabled", {}), tools.setdefault("catalog", {})
     tools["accepted_names"] = [row["name"] for row in captured["tools"]]
     approvals = set(tools.get("require_approval", []))
-    manual = requires_manual_tool_selection(name, server)
     for row in captured["tools"]:
         tool_name = row["name"]
         old = catalog.get(tool_name, {})
@@ -183,19 +180,16 @@ def _document(saved, server_id, captured, preset=None, overrides=None):
         if updated["requires_approval"] and presets.locked(updated):  # A routine change asks until it is allowed.
             approvals.add(tool_name)
         if tool_name not in enabled and preset is None:
-            enabled[tool_name] = not (manual or updated["destructive"] or row["effect"] in {"unknown", "mutation"})
+            enabled[tool_name] = not (updated["destructive"] or row["effect"] in {"unknown", "mutation"})
     tools["require_approval"] = sorted(approvals)
     added = [row["name"] for row in captured["tools"] if row["name"] not in enabled]
     if preset is not None:
-        if manual:  # Manual selection: each tool stays off unless the user turns it on.
-            enabled.update(dict.fromkeys(added, False))
-        # A preset applies only to tools this acceptance adds (none when chosen one by one);
-        # explicit choices apply to any accepted tool.
+        # A preset applies only to tools this acceptance adds; explicit choices apply to any accepted tool.
         try:
-            presets.apply(tools, preset, [] if manual else added, overrides)
+            presets.apply(tools, preset, added, overrides)
         except ValueError:
             raise Error("approval_required") from None
-    return document, (name,), manual
+    return document, (name,)
 
 
 def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: str,
@@ -213,7 +207,7 @@ def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: s
         saved = config.read_saved_configuration(target)
         revision = configuration._revision(saved)
         captured = _captured(owner_id, server_id, test_command_id, saved)
-        document, names, manual = _document(saved, server_id, captured)
+        document, names = _document(saved, server_id, captured)
         rows = policy._tool_policies(server_id, document["servers"][names[0]]["tools"])
         matches = sorted((McpCatalogTool(rows[row["name"]].tool_id, rows[row["name"]].name,
             rows[row["name"]].enabled, bool(rows[row["name"]].requires_approval), bool(rows[row["name"]].destructive), row["effect"])
@@ -224,7 +218,7 @@ def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: s
         if cursor is not None:
             raise Error("cursor_expired") from None
         return McpTestedCatalogPage(1, revision, server_id, test_command_id,
-            "stale" if getattr(error, "code", "") == "mcp_catalog_stale" else "unavailable", None, (), None, None)
+            "stale" if getattr(error, "code", "") == "mcp_catalog_stale" else "unavailable", (), None, None)
     fingerprint = configuration._digest([owner_id, server_id, test_command_id, captured])
     offset = 0
     if cursor is not None:
@@ -245,7 +239,7 @@ def read_tested_mcp_catalog(*, owner_id: str, server_id: str, test_command_id: s
         value = [revision, fingerprint, query, offset + len(items), limit]
         next_cursor = base64.urlsafe_b64encode(json.dumps([value, configuration._digest(value)], separators=(",", ":")).encode()).decode().rstrip("=")
     validate()
-    return McpTestedCatalogPage(1, revision, server_id, test_command_id, availability, manual, items, len(matches), next_cursor)
+    return McpTestedCatalogPage(1, revision, server_id, test_command_id, availability, items, len(matches), next_cursor)
 
 
 def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target: dict | None = None) -> list[dict]:
@@ -256,7 +250,7 @@ def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target:
     if config.configuration_recovery_required(target=target):
         raise Error("mcp_catalog_unavailable")
     captured = _captured(owner_id, server_id, test_command_id, saved)
-    document, names, _manual = _document(saved, server_id, captured)
+    document, names = _document(saved, server_id, captured)
     catalog = document["servers"][names[0]]["tools"]["catalog"]
     return [{"name": row["name"], **{key: catalog[row["name"]].get(key) for key in
              ("description", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
@@ -287,11 +281,11 @@ def review_mcp_catalog_command(*, owner_id: str, configuration_revision: str, se
         if current != configuration_revision:
             raise Error("revision_conflict", current)
         captured = _captured(owner_id, server_id, test_command_id, saved)
-        _next, _names, manual = _document(saved, server_id, captured, preset, overrides)
+        _document(saved, server_id, captured, preset, overrides)
         validate()
         return {"configuration_revision": current, "server_id": server_id, "test_command_id": test_command_id,
             "operation": "accept_catalog", "action_digest": admissions.keyed_digest({"revision": current, "intent": intent}),
-            "tool_count": len(captured["tools"]), "manual_selection_required": manual, "saved_disabled": None}
+            "tool_count": len(captured["tools"]), "saved_disabled": None}
 
 
 def execute_mcp_catalog_command(*, owner_id: str, key: str, command: dict, validate: Callable[[], None],
@@ -306,9 +300,7 @@ def execute_mcp_catalog_command(*, owner_id: str, key: str, command: dict, valid
     mapped = {**command, "payload": {"configuration_revision": payload["configuration_revision"], "intent": intent}}
     def next_document(saved: config.SavedMcpConfiguration, _intent: dict) -> tuple[dict, tuple[str, ...]]:
         captured = _captured(owner_id, payload["server_id"], payload["test_command_id"], saved)
-        document, names, _manual = _document(saved, payload["server_id"], captured, payload.get("preset"),
-                                             payload.get("overrides"))
-        return document, names
+        return _document(saved, payload["server_id"], captured, payload.get("preset"), payload.get("overrides"))
     return configuration._execute_saved_change(owner_id=owner_id, key=key, command=mapped, validate=validate,
         validate_review=validate_review, command_type="mcp.catalog.accept", next_document=next_document, saved_disabled=None,
         target=target)

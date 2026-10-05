@@ -1907,6 +1907,7 @@ class IntegrationSearchRequest(WireModel):
     sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
     kind: Literal["all", "app", "skill", "mcp", "plugin"] = "all"
     refresh: bool = False
+    # "Show all results": unsupported, placeholder and duplicate records too.
     include_incompatible: bool = False
     cursor: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=96)
@@ -4169,7 +4170,6 @@ class McpTestedCatalogPage(WireModel):
     server_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     test_command_id: UUID
     availability: Literal["available", "recovery_required", "stale", "unavailable"]
-    manual_selection_required: bool | None
     items: list[McpCatalogTool] = Field(max_length=50)
     total: int | None = Field(ge=0, le=1000)
     next_cursor: str | None = Field(max_length=2048)
@@ -4263,7 +4263,6 @@ class McpCatalogReview(McpCatalogRequest):
     operation: Literal["accept_catalog"]
     action_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     tool_count: int = Field(ge=0, le=1000)
-    manual_selection_required: bool
     saved_disabled: None
     nonce: str = Field(min_length=1, max_length=128)
 
@@ -7942,6 +7941,22 @@ class AppList(WireModel):
     items: list[AppView] = Field(max_length=512)
 
 
+class IconBatchRequest(WireModel):
+    ids: list[IconId] = Field(min_length=1, max_length=64)
+
+
+class AppIconData(WireModel):
+    id: IconId
+    data: str = Field(max_length=360000, pattern=r"^data:image/(svg\+xml|png);base64,[A-Za-z0-9+/]+=*$")
+    # A dark single-colour mark: the client inverts it in dark mode.
+    mono: bool = False
+
+
+class IconBatch(WireModel):
+    schema_version: Literal[1]
+    items: list[AppIconData] = Field(max_length=64)
+
+
 class IntegrationSignals(WireModel):
     downloads: int | None = Field(default=None, ge=0)
     stars: int | None = Field(default=None, ge=0)
@@ -7997,6 +8012,8 @@ class IntegrationEntryPage(WireModel):
     total: int = Field(ge=0)
     next_cursor: str | None = Field(max_length=256)
     sources: list[IntegrationSourceStatus] = Field(max_length=64)
+    # Placeholder, test and duplicate records left out; "Show all results" brings them back.
+    hidden: int = Field(default=0, ge=0)
 
 
 class PlanInput(WireModel):
@@ -8041,7 +8058,8 @@ class PlanAccess(WireModel):
     preset: Literal["read_only", "ask", "full", "custom"]
     tools: list[PlanTool] = Field(max_length=256)
     tools_digest: str = Field(max_length=64)
-    manual: bool = False  # Its tools overlap Row-Bot's own: each is chosen one by one, no preset.
+    # One line when Row-Bot has its own tools for the same job; presets apply as for any app.
+    note: str = Field(default="", max_length=256)
 
 
 class PlanStep(WireModel):
@@ -8100,6 +8118,17 @@ class IntegrationRequirement(WireModel):
     available: bool
 
 
+class IntegrationWay(WireModel):
+    """One way to connect an app (a hosted endpoint, a local package, an account...), from local catalogs."""
+    id: str = Field(min_length=1, max_length=512)
+    name: str = Field(max_length=256)
+    method: Literal["hosted_sign_in", "api_key", "hosted", "local", ""]
+    verified: bool
+    publisher: str = Field(max_length=160)
+    supported: bool
+    recommended: bool = False
+
+
 class IntegrationAbout(WireModel):
     """What a detail page shows beyond the card. Identifiers appear only under Details."""
     license: str = Field(max_length=256)
@@ -8118,6 +8147,8 @@ class IntegrationAbout(WireModel):
     profiles: list[Annotated[str, StringConstraints(max_length=80)]] = Field(max_length=32)
     # Changes this item supports, for its menu.
     actions: list[Literal["turn_off", "update", "remove"]] = Field(max_length=3)
+    # Every way to connect its app, recommended first.
+    ways: list[IntegrationWay] = Field(default_factory=list, max_length=24)
 
 
 class IntegrationDetail(WireModel):

@@ -50,13 +50,13 @@ def test_search_ranks_featured_and_verified_first_then_setup_and_freshness(local
     rows = [
         listing("io.github.someone/notion-helper", "Notion helper", url="https://helper.example.test/mcp", updated="2026-10-01"),
         listing("com.notion/mcp", "Notion", url="https://mcp.notion.com/mcp", updated="2025-01-01"),
-        listing("org.old/notion-notes", "Notes for notion", npm="old-notes", updated="2024-01-01"),
-        listing("org.fresh/notion-notes", "Notes for notion", npm="fresh-notes", updated="2026-09-01"),
+        listing("org.old/notion-notes", "Notes for notion", npm="old-notes", updated="2024-01-01", description="Older notes"),
+        listing("org.fresh/notion-notes", "Notes for notion", npm="fresh-notes", updated="2026-09-01", description="Fresh notes"),
         listing("org.none/notion-docs", "Notion docs", updated="2026-09-01"),
         listing("org.other/weather", "Weather", url="https://weather.example.test/mcp"),
     ]
     use_registry(monkeypatch, local, rows)
-    results, total, _ = index.search("notion", now=1791000000)
+    results, total, _, _hidden = index.search("notion", now=1791000000)
     names = [entry.metadata["canonical_name"] for entry, _ in results]
     assert total == 5 and "org.other/weather" not in names
     assert names[0] == "com.notion/mcp" and results[0][1]["verified"]
@@ -102,7 +102,7 @@ def test_registry_and_curated_listings_of_one_deployment_merge_with_the_vendor_b
     assert typed["verified"] and typed["app"]["verified"] and typed["icon"] == "si:notion"
 
 
-def test_ranking_key_orders_exact_then_preferred_then_setup_then_freshness():
+def test_ranking_key_orders_preferred_then_exact_then_setup_then_freshness():
     def key(**fields):
         base = dict(exact=False, preferred=False, strong=True, featured_rank=None, setup=0, updated=0, popularity=0,
                     precedence=0, name="b", ident="b", now=1_000_000_000)
@@ -110,7 +110,8 @@ def test_ranking_key_orders_exact_then_preferred_then_setup_then_freshness():
     ranked = sorted([key(name="setup1", setup=1), key(name="stale", updated=1), key(name="fresh", updated=999_999_000),
                      key(name="featured", preferred=True, featured_rank=3), key(name="exact", exact=True),
                      key(name="popular", popularity=10), key(name="weak", strong=False)])
-    assert [k[-2] for k in ranked] == ["exact", "featured", "fresh", "popular", "stale", "setup1", "weak"]
+    # A community record never outranks a featured or vendor-verified one on its name alone.
+    assert [k[-2] for k in ranked] == ["featured", "exact", "fresh", "popular", "stale", "setup1", "weak"]
 
 
 @pytest.mark.slow

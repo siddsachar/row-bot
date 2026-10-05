@@ -86,11 +86,10 @@ export default function AccessSheet({
   >({});
   useEffect(() => {
     if (open && access) {
-      const kept = access.preset === 'custom' || access.manual;
       setPreset(access.preset === 'custom' ? 'ask' : access.preset);
-      // A custom policy, or tools chosen one by one, stay as they are until the person changes one.
+      // A custom policy stays as it is until the person changes a tool.
       setOverrides(
-        kept
+        access.preset === 'custom'
           ? Object.fromEntries(
               access.tools.map((tool) => [tool.name, tool.state]),
             )
@@ -99,7 +98,6 @@ export default function AccessSheet({
     }
   }, [open, access]);
   const tools = access?.tools ?? [];
-  const manual = Boolean(access?.manual);
   const title = change
     ? `Change what ${name} can do`
     : `Here's what ${name} can do`;
@@ -107,57 +105,47 @@ export default function AccessSheet({
     <ModalTask
       open={open}
       title={title}
-      description={
-        manual
-          ? 'Turn on what it may do. You can change this later.'
-          : 'Choose how much it can do on its own. You can change this later.'
-      }
+      description="Choose how much it can do on its own. You can change this later."
       onOpenChange={(value) => {
         if (!value) onCancel();
       }}
     >
       <div className="stack access-sheet">
-        {manual ? (
-          <p className="settings-help" role="status">
-            {name}&apos;s tools overlap with what Row-Bot already does, so each
-            stays off until you turn it on below.
-          </p>
-        ) : (
-          <fieldset className="access-presets">
-            <legend className="visually-hidden">Access</legend>
-            {PRESETS.map(([id, label, description]) => (
-              <label
-                key={id}
-                className="access-preset"
-                data-selected={preset === id}
-              >
-                <input
-                  type="radio"
-                  name="access-preset"
-                  value={id}
-                  checked={preset === id}
-                  onChange={() => {
-                    // Picking a preset sets every tool from it; Customise can then adjust single tools.
-                    setPreset(id);
-                    setOverrides({});
-                  }}
-                  data-initial-focus={preset === id ? true : undefined}
-                />
-                <span>
-                  <strong>{label}</strong>
-                  <small>{description}</small>
-                </span>
-              </label>
-            ))}
-          </fieldset>
-        )}
+        <fieldset className="access-presets">
+          <legend className="visually-hidden">Access</legend>
+          {PRESETS.map(([id, label, description]) => (
+            <label
+              key={id}
+              className="access-preset"
+              data-selected={preset === id}
+            >
+              <input
+                type="radio"
+                name="access-preset"
+                value={id}
+                checked={preset === id}
+                onChange={() => {
+                  // Picking a preset sets every tool from it; Customise can then adjust single tools.
+                  setPreset(id);
+                  setOverrides({});
+                }}
+                data-initial-focus={preset === id ? true : undefined}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        {access?.note && <p className="settings-help">{access.note}</p>}
         {tools.length ? (
           <ToolGroups tools={tools} />
         ) : (
           <p className="settings-help">It has no tools to choose yet.</p>
         )}
         {tools.length > 0 && (
-          <Disclosure summary="Customise" defaultOpen={manual}>
+          <Disclosure summary="Customise">
             <ul className="access-tools">
               {tools.map((tool) => (
                 <li key={tool.name} className="access-tool-choice">
@@ -177,7 +165,7 @@ export default function AccessSheet({
                       setOverrides(next);
                     }}
                   >
-                    {!manual && <option value="">As chosen above</option>}
+                    <option value="">As chosen above</option>
                     {!tool.always_asks && (
                       <option value="use">Use without asking</option>
                     )}

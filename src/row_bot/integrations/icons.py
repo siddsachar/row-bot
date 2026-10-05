@@ -110,6 +110,28 @@ def render(icon: str) -> tuple[bytes, str]:
     raise ValueError("not_found")
 
 
+def _dark(hex_color: str) -> bool:
+    """A near-black single-colour mark (GitHub, Notion, X) that vanishes on a dark background."""
+    red, green, blue = (int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue < 0.2
+
+
+def batch(icons: Iterable[str]) -> list[dict]:
+    """Many icons in one answer, as data URIs, so a grid shows every logo on first paint. ``mono``
+    marks a dark single-colour mark the client inverts in dark mode. Local data only."""
+    import base64
+    found = []
+    for icon in dict.fromkeys(icons):
+        try:
+            data, media_type = render(icon)
+        except ValueError:
+            continue
+        mark = marks().get(icon[3:]) if icon.startswith("si:") else None
+        found.append({"id": icon, "data": f"data:{media_type};base64," + base64.b64encode(data).decode("ascii"),
+                      "mono": bool(mark and _dark(mark["hex"]))})
+    return found
+
+
 def reencode(data: bytes) -> bytes:
     """Decode one raster image and re-encode it as a small PNG without metadata.
 

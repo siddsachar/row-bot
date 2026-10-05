@@ -571,6 +571,12 @@
   },
   "additionalProperties": false,
   "properties": {
+    "hidden": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Hidden",
+      "type": "integer"
+    },
     "items": {
       "items": {
         "$ref": "#/$defs/IntegrationEntry"

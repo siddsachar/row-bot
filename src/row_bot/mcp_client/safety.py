@@ -13,10 +13,11 @@ _DESTRUCTIVE_RE = re.compile(
     r"grant|permission|permissions|reset|overwrite|eval)(_|$)",
     re.IGNORECASE,
 )
-# A change to these reaches other people, publishes, runs code or grants access: high impact.
+# A change to these reaches other people, publishes, runs code or grants access: high impact. A file or a
+# repository is one too: a repository write (create_or_update_file) is a commit, as in Row-Bot's own git rules.
 _SENSITIVE_RE = re.compile(
     r"(^|_)(emails?|messages?|releases?|scripts?|passwords?|roles?|members?|collaborators?|tokens?|secrets?|keys?|"
-    r"admins?|owners?|webhooks?|pull_requests?|users?|visibility|memberships?)(_|$)",
+    r"admins?|owners?|webhooks?|pull_requests?|users?|visibility|memberships?|files?|repository|repositories|repos?)(_|$)",
     re.IGNORECASE,
 )
 # Routine changes inside the app: ask unless the user chose Full access for the tool.

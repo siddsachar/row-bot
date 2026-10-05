@@ -12,7 +12,6 @@ import re
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.mcp_client import config, targets
-from row_bot.mcp_client.conflicts import requires_manual_tool_selection
 from row_bot.mcp_client.safety import classify_tool_effect, is_destructive_tool
 
 Error = configuration.CapabilityConfigurationError
@@ -214,15 +213,12 @@ def _next_policy_document(saved, intent, *, child: bool = False):
         from row_bot.integrations import presets
         if intent["preset"] not in presets.PRESETS or type(tools.get("catalog")) is not dict:
             raise Error("invalid_command")
-        manual = requires_manual_tool_selection(name, target)
         overrides = intent.get("overrides") or {}
-        if manual and not overrides:
-            raise Error("mcp_policy_unavailable")  # Conflicting or high-risk tools are chosen one by one.
         _tool_policies(intent["server_id"], tools)  # Retain strict existing safety shapes.
         if set(overrides) - set(tools.get("accepted_names") or tools["catalog"]):
             raise Error("invalid_command")
         try:
-            presets.apply(tools, intent["preset"], [] if manual else None, overrides)
+            presets.apply(tools, intent["preset"], None, overrides)
         except ValueError:
             raise Error("approval_required") from None
     elif operation == "utility_enabled":

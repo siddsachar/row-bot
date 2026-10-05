@@ -8,36 +8,106 @@ import './apps.css';
 
 type Controller = ReturnType<typeof useRuntime>['controller'];
 
-/** Icons come only from Row-Bot's local icon route, loaded once per session as blobs. */
-const icons = new Map<string, Promise<string>>();
+type Icon = { src: string; mono: boolean };
+
+/** Icons come only from Row-Bot's local icon route: every icon a screen asks for in one tick
+ * travels in one request, and each is kept for the session. Letter avatars need no request. */
+const icons = new Map<string, Promise<Icon>>();
+let waiting: {
+  controller: Controller;
+  ids: Map<string, (icon: Icon | null) => void>;
+} | null = null;
+
+function loadIcon(controller: Controller, icon: string) {
+  let found = icons.get(icon);
+  if (found) return found;
+  found = new Promise<Icon>((resolve, reject) => {
+    if (!waiting) {
+      const batch = (waiting = { controller, ids: new Map() });
+      setTimeout(() => {
+        waiting = null;
+        const ids = [...batch.ids.keys()];
+        for (let start = 0; start < ids.length; start += 64) {
+          const part = ids.slice(start, start + 64);
+          batch.controller.integrationIcons(part).then(
+            (value) => {
+              const byId = new Map(value.items.map((item) => [item.id, item]));
+              for (const id of part) {
+                const item = byId.get(id);
+                batch.ids.get(id)?.(
+                  item ? { src: item.data, mono: item.mono } : null,
+                );
+              }
+            },
+            () => part.forEach((id) => batch.ids.get(id)?.(null)),
+          );
+        }
+      }, 0);
+    }
+    waiting.ids.set(icon, (value) => {
+      if (value) resolve(value);
+      else {
+        icons.delete(icon);
+        reject(new Error('icon_unavailable'));
+      }
+    });
+  });
+  icons.set(icon, found);
+  return found;
+}
+
+const palette = [
+  '#4F46E5',
+  '#0E7490',
+  '#B45309',
+  '#047857',
+  '#BE185D',
+  '#6D28D9',
+  '#1D4ED8',
+  '#B91C1C',
+];
 
 export function AppIcon({ icon, size = 40 }: { icon: string; size?: number }) {
   const { controller } = useRuntime();
-  const [url, setUrl] = useState('');
+  const letter = /^letter:([A-Z0-9])$/.exec(icon)?.[1];
+  const [loaded, setLoaded] = useState<Icon | null>(null);
   useEffect(() => {
+    if (letter) return;
     let alive = true;
-    if (!icons.has(icon))
-      icons.set(
-        icon,
-        controller.integrationIcon(icon).then(
-          (blob) => URL.createObjectURL(blob),
-          (error) => {
-            icons.delete(icon);
-            throw error;
-          },
-        ),
-      );
-    icons.get(icon)!.then(
-      (value) => alive && setUrl(value),
+    loadIcon(controller, icon).then(
+      (value) => alive && setLoaded(value),
       () => undefined,
     );
     return () => {
       alive = false;
     };
-  }, [controller, icon]);
+  }, [controller, icon, letter]);
+  if (letter)
+    return (
+      <span
+        className="app-icon app-letter"
+        aria-hidden
+        style={{
+          width: size,
+          height: size,
+          fontSize: size * 0.45,
+          background: palette[letter.charCodeAt(0) % palette.length],
+        }}
+      >
+        {letter}
+      </span>
+    );
   return (
     <span className="app-icon" style={{ width: size, height: size }}>
-      {url && <img src={url} alt="" width={size} height={size} />}
+      {loaded && (
+        <img
+          src={loaded.src}
+          alt=""
+          width={size}
+          height={size}
+          data-mono={loaded.mono || undefined}
+        />
+      )}
     </span>
   );
 }
@@ -120,20 +190,27 @@ const methods: Record<string, string> = {
   local: 'Runs on this computer',
 };
 
+/** "by" only for a vendor verified by rule; otherwise who actually published it, or Community. */
 export function Publisher({ entry }: { entry: IntegrationEntry }) {
-  const name = entry.app?.publisher || entry.publisher;
   if (entry.verified)
     return (
       <span className="app-publisher" data-verified="true">
         <BadgeCheck size={14} aria-hidden />
-        by {name}
+        by {entry.app?.publisher || entry.publisher}
       </span>
     );
   return (
     <span className="app-publisher">
-      {entry.kind === 'skill' && name ? `by ${name}` : 'Community'}
+      {['bundled', 'accounts'].includes(entry.source)
+        ? 'Built in'
+        : entry.publisher || 'Community'}
     </span>
   );
+}
+
+/** A featured app, or one whose publisher is verified; the rest is "More from the community". */
+export function fromApp(entry: IntegrationEntry) {
+  return Boolean(entry.verified || entry.app?.featured_rank);
 }
 
 /** The one line a card shows about what it does. */

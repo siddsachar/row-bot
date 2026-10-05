@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "maxLength": 360000,
+      "pattern": "^data:image/(svg\\+xml|png);base64,[A-Za-z0-9+/]+=*$",
+      "title": "Data",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^(si:[a-z0-9]{1,64}|letter:[A-Z0-9]|cached:[0-9a-f]{32})$",
+      "title": "Id",
+      "type": "string"
+    },
+    "mono": {
+      "default": false,
+      "title": "Mono",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "data"
+  ],
+  "title": "AppIconData",
+  "type": "object"
+}

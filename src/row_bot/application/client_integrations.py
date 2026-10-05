@@ -33,7 +33,7 @@ def _method(row: dict) -> str:
     """How an app connects, for its card: signs in, takes a key, is hosted, or runs on this computer."""
     if row["kind"] == "plugin":
         return "local"
-    if row["kind"] != "mcp":
+    if row["kind"] != "mcp" or row["canonical_identity"].startswith("account:"):
         return ""
     setup = row.get("setup")
     if setup:
@@ -91,22 +91,23 @@ def _error_status(exc: Exception) -> str:
     return "malformed" if isinstance(exc, (ValueError, TypeError, KeyError, AttributeError)) else "error"
 
 
-def _search_source(source: str, *, owner_id: str, query: str, refresh: bool,
-                   cancelled: Callable[[], bool], validate: Callable[[], None]) -> tuple[list, list, dict]:
+def _search_source(source: str, *, owner_id: str, query: str, refresh: bool, everything: bool,
+                   cancelled: Callable[[], bool], validate: Callable[[], None]) -> tuple[list, list, dict, int]:
     """One source adapter's results; a failing source never hides the others."""
     adapter = catalog.SOURCES[source]
     try:
-        found = adapter.search(catalog.Search(owner_id, query, refresh, cancelled, validate))
+        found = adapter.search(catalog.Search(owner_id, query, refresh, cancelled, validate, everything))
     except Exception as exc:
-        return [], [adapter.status(status=_error_status(exc), message="This source is unavailable. Other results remain available.")], {}
-    return found.rows, found.statuses, found.references
+        return [], [adapter.status(status=_error_status(exc), message="This source is unavailable. Other results remain available.")], {}, 0
+    return found.rows, found.statuses, found.references, found.hidden
 
 
-def _remember(owner_id: str, key: str, items: list[dict], statuses: list[dict], references: dict) -> dict:
+def _remember(owner_id: str, key: str, items: list[dict], statuses: list[dict], references: dict, hidden: int = 0) -> dict:
     """Keep one owner's result list, so its entries can be opened and set up from it."""
     revision = _digest([key, [entry(row) for row in items], list(references)])
     references = {item["id"]: references[item["id"]] for item in items if item["id"] in references}
-    page = {"schema_version": 1, "revision": revision, "items": items, "total": len(items), "sources": statuses}
+    page = {"schema_version": 1, "revision": revision, "items": items, "total": len(items), "sources": statuses,
+            "hidden": hidden}
     _SEARCHES.put((owner_id, revision), (key, page, references))
     return page
 
@@ -114,7 +115,8 @@ def _remember(owner_id: str, key: str, items: list[dict], statuses: list[dict], 
 def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, refresh: bool,
             include_incompatible: bool, cursor: str | None, limit: int, cancelled: Callable[[], bool],
             validate: Callable[[], None]) -> tuple[dict, int]:
-    """One bounded fan-out; immutable owner-bound pagination and late-result suppression."""
+    """One bounded fan-out; immutable owner-bound pagination and late-result suppression.
+    ``include_incompatible`` ("Show all results") also keeps unsupported, placeholder and duplicate records."""
     registry = catalog.SOURCES
     validate()
     if kind not in _KINDS or len(query) > 256 or not 1 <= limit <= 96:
@@ -140,7 +142,7 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
 
     def check_cancelled() -> bool:
         return stopped.is_set() or cancelled()
-    items, statuses, references, pending = [], [], {}, {}
+    items, statuses, references, pending, hidden = [], [], {}, {}, 0
 
     def start(source: str) -> concurrent.futures.Future:
         deadline = time.monotonic() + SOURCE_DEADLINE
@@ -148,12 +150,12 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
 
         def run() -> None:
             if not _SEARCH_SLOTS.acquire(timeout=SOURCE_DEADLINE):
-                future.set_result(([], [registry[source].status(status="busy", message="Catalog search capacity reached; retry shortly.")], {}))
+                future.set_result(([], [registry[source].status(status="busy", message="Catalog search capacity reached; retry shortly.")], {}, 0))
                 return
             try:
                 if not check_cancelled() and time.monotonic() < deadline:
                     future.set_result(_search_source(source, owner_id=owner_id, query=query, refresh=refresh,
-                        cancelled=lambda: check_cancelled() or time.monotonic() >= deadline, validate=validate))
+                        everything=include_incompatible, cancelled=lambda: check_cancelled() or time.monotonic() >= deadline, validate=validate))
             except BaseException as exc:
                 future.set_exception(exc)
             finally:
@@ -178,7 +180,8 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
                 if future not in done:
                     statuses.append(registry[source].status(status="timeout", message="Catalog deadline reached; other results remain available."))
                     continue
-                rows, states, refs = future.result()
+                rows, states, refs, left_out = future.result()
+                hidden += left_out
                 for row in rows:
                     row["attributions"] = [{"source": source, "item_id": row["id"], "url": row["source_url"],
                         "publisher": row["publisher"], "version": row["version"], "pin": row["pin"]}]
@@ -191,7 +194,7 @@ def _search(*, owner_id: str, query: str, sources: list[str] | None, kind: str, 
         # Unsupported entries appear only when searched for, with their reason.
         shown = [r for r in items if include_incompatible or query.strip() or r["compatibility"] != "unsupported"]
         statuses.sort(key=lambda status: status["source"])
-        return _remember(owner_id, key, catalog.rank(shown, query), statuses, references), 0
+        return _remember(owner_id, key, catalog.rank(shown, query), statuses, references, hidden), 0
     finally:
         stopped.set()
 
@@ -239,13 +242,10 @@ def list_apps(query: str = "") -> dict:
     return {"schema_version": 1, "items": [app.view() for app in known]}
 
 
-def read_icon(icon_id: str) -> tuple[bytes, str]:
-    """An icon from bundled marks, letter avatars or the update-time cache; never fetched here."""
+def read_icons(icon_ids: list[str]) -> dict:
+    """Icons from bundled marks, letter avatars or the update-time cache, in one answer; never fetched here."""
     from row_bot.integrations import icons
-    try:
-        return icons.render(icon_id)
-    except ValueError as exc:
-        raise ClientPlatformError("not_found") from exc
+    return {"schema_version": 1, "items": icons.batch(icon_ids)}
 
 
 def list_presets() -> dict:
@@ -253,13 +253,14 @@ def list_presets() -> dict:
 
 
 def read_items(*, owner_id: str, query: str = "", kind: str = "all", scope: str = "installed", cursor: str | None = None,
-               limit: int = 50, validate: Callable[[], None] = lambda: None) -> dict:
-    """Installed items, or the local catalogs. Neither contacts a source."""
+               limit: int = 50, everything: bool = False, validate: Callable[[], None] = lambda: None) -> dict:
+    """Installed items, or the local catalogs (``everything``: placeholder and duplicate records too). Neither
+    contacts a source."""
     if scope == "installed":
         return _installed(query=query, kind=kind, cursor=cursor, limit=limit, validate=validate)
     if scope != "catalog":
         raise ClientPlatformError("invalid_integration_query")
-    page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, include_incompatible=False,
+    page, offset = _search(owner_id=owner_id, query=query, sources=None, kind=kind, refresh=False, include_incompatible=everything,
         cursor=cursor, limit=limit, cancelled=lambda: False, validate=validate)
     return _page(page, offset, limit)
 
@@ -352,6 +353,40 @@ def _resolve(owner_id: str, item_id: str, revision: str, validate: Callable[[], 
     return local
 
 
+def _ways(row: dict) -> list[dict]:
+    """Every way to connect this item's app, from local catalogs only: vendor-published first, then
+    the ones Row-Bot can set up completely, hosted before local."""
+    from row_bot.integrations import apps, index
+    from row_bot.mcp_client.marketplace import CURATED_STARTER_CATALOG
+    app = apps.catalog()[0].get((row["app"] or {}).get("id", ""))
+    if app is None or row["kind"] == "skill":
+        return []
+    sources = catalog.SOURCES
+    rows = [sources["recommended"].row(e)[0] for e in CURATED_STARTER_CATALOG
+            if apps.match(["curated:" + e.id.lower(), *apps.recipe_refs(e.install)]) is app]
+    rows += [sources["official"].row(e)[0] for e in index.by_app(app.id)]
+    if app.placeholder:
+        rows.append(sources["accounts"].row(app)[0])
+    try:
+        from row_bot.plugins import hermes_catalog
+        rows += [sources["hermes"].row(e)[0] for e in hermes_catalog.read_catalog()["entries"]
+                 if apps.match(["hermes:" + e["id"].removeprefix("hermes:"), *apps.repository_refs(e["url"])]) is app]
+    except (OSError, ValueError, KeyError):
+        pass
+    found, seen = [], set()
+    for way in sorted((entry(facts.finish(r)) for r in rows), key=lambda w: (
+            not w["verified"], w["compatibility"] == "unsupported", w["method"] == "local", w["name"].casefold(), w["id"])):
+        identity = next((r["canonical_identity"] for r in rows if r["id"] == way["id"]), "") or way["id"]
+        if identity in seen:
+            continue
+        seen.add(identity)
+        found.append({"id": way["id"], "name": way["name"], "method": way["method"], "verified": way["verified"],
+                      "publisher": way["publisher"], "supported": way["compatibility"] != "unsupported"})
+    for index_, way in enumerate(found[:24]):
+        way["recommended"] = index_ == 0 and way["supported"]
+    return found[:24]
+
+
 def _about(row: dict, validate: Callable[[], None], plan: dict | None) -> dict:
     """What the detail page shows beyond the card: settings, access, source facts and, for skills, what's inside."""
     setup, local = row.get("setup") or {}, row["kind"] == "skill"
@@ -361,7 +396,7 @@ def _about(row: dict, validate: Callable[[], None], plan: dict | None) -> dict:
              "saved_key": bool(setup.get("credential_configured")) and setup.get("auth_mode") == "api_key",
              "signs_in": setup.get("auth_mode") == "oauth", "signed_in": bool(setup.get("credential_configured")),
              "requirements": [{"label": r["label"][:96], "available": bool(r["available"])} for r in setup.get("requirements", [])][:16],
-             "access": plans.current_access(row), "package": "", "files": [], "profiles": [],
+             "access": plans.current_access(row), "package": "", "files": [], "profiles": [], "ways": _ways(row),
              "actions": [intent for intent in ("turn_off", "update", "remove") if plans.changeable(row, intent)]}
     if plan is not None and row["lifecycle"] == "available":  # Not set up yet: say what the plan would do.
         about.update(destination=next(iter(plan["consent"]["destinations"]), ""),

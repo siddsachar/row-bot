@@ -180,6 +180,14 @@ def registry_refs(name: str) -> list[str]:
     return ["registry:" + name.lower(), "registry:" + name.split("/", 1)[0].lower()] if "/" in name else []
 
 
+def publisher_of(namespace: str) -> str:
+    """Who published a Registry record, read from its namespace: a GitHub account or a domain."""
+    parts = [part for part in namespace.split(".") if part]
+    if [part.lower() for part in parts[:2]] == ["io", "github"] and len(parts) > 2:
+        return ".".join(parts[2:]) + " on GitHub"
+    return ".".join(reversed(parts))
+
+
 def repository_refs(source_identity: str) -> list[str]:
     """A package's pinned source repository (GitHub) or bundled example."""
     if source_identity.startswith("row-bot:"):

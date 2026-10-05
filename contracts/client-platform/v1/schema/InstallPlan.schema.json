@@ -42,10 +42,11 @@
     "PlanAccess": {
       "additionalProperties": false,
       "properties": {
-        "manual": {
-          "default": false,
-          "title": "Manual",
-          "type": "boolean"
+        "note": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Note",
+          "type": "string"
         },
         "preset": {
           "enum": [

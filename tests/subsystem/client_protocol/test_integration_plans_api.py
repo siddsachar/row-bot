@@ -1,5 +1,6 @@
 """The typed /integrations API over HTTP: sources, items, plans and presets, with fakes only."""
 # ruff: noqa: F811 -- shared isolated fixtures
+import base64
 import json
 from uuid import uuid4
 
@@ -110,10 +111,14 @@ def test_apps_and_icons_are_served_from_local_data_only(service, isolated, monke
         apps = client.get(BASE + "/apps", headers=headers).json()["items"]
         notion = next(app for app in apps if app["id"] == "notion")
         assert notion["icon"] == "si:notion" and notion["icon_license"]["license"] == "CC0-1.0"
-        mark = client.get(BASE + "/icons/si:notion", headers=headers)
-        assert mark.status_code == 200 and mark.headers["content-type"].startswith("image/svg+xml")
-        assert b"<script" not in mark.content and mark.headers["content-security-policy"] == "default-src 'none'; sandbox"
-        letter = client.get(BASE + "/icons/letter:Q", headers=headers)
-        assert letter.status_code == 200 and b">Q</text>" in letter.content
-        for missing in ("cached:" + "0" * 32, "si:not-a-mark", "../../etc/passwd", "letter:QQ"):
-            assert client.get(BASE + "/icons/" + missing, headers=headers).status_code == 404
+        # Every icon a screen shows comes back in one answer, as data the page can draw at once.
+        found = client.post(BASE + "/icons", headers=headers,
+                            json={"ids": ["si:notion", "si:github", "letter:Q", "cached:" + "0" * 32, "si:notamark"]})
+        assert found.status_code == 200, found.text
+        icons_by_id = {item["id"]: item for item in found.json()["items"]}
+        assert set(icons_by_id) == {"si:notion", "si:github", "letter:Q"}  # Unknown or uncached icons are left out.
+        mark = base64.b64decode(icons_by_id["si:notion"]["data"].split(",", 1)[1])
+        assert icons_by_id["si:notion"]["data"].startswith("data:image/svg+xml;base64,") and b"<script" not in mark
+        assert icons_by_id["si:github"]["mono"] and not icons_by_id["letter:Q"]["mono"]  # A dark mark is flagged for dark mode.
+        for refused in (["../../etc/passwd"], ["letter:QQ"], [], ["si:notion"] * 65):
+            assert client.post(BASE + "/icons", headers=headers, json={"ids": refused}).status_code == 422

@@ -32,10 +32,11 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from row_bot.integrations import apps, facts, presets, sources
+from row_bot.integrations import apps, facts, presets, safe, sources
 
 logger = logging.getLogger(__name__)
-_LOCK = threading.RLock()
+_LOCK = threading.RLock()  # Guards the sets below; held only briefly.
+_PLAN_LOCKS: dict[str, threading.RLock] = {}
 _RUNNING: set[str] = set()
 _CANCELLED: set[str] = set()
 EXPIRES = 30 * 60
@@ -146,7 +147,7 @@ def _mcp_steps(row: dict, cfg: dict, intent: str) -> tuple[list[dict], dict, dic
     steps.append(_step("test", "done" if checked or intent == "access" else "pending", "Check the connection"))
     steps.append(_step("access", "done" if checked and intent != "access" else "pending", f"Choose what {name} can do",
                        access={"preset": presets.current(cfg.get("tools") or {}) if accepted else presets.DEFAULT,
-                               "tools": [], "tools_digest": "", "manual": False}))
+                               "tools": [], "tools_digest": "", "note": ""}))
     steps.append(_step("enable", "pending" if intent == "access" else "done" if row["lifecycle"] == "installed"
                        and row["readiness"] == "ready" else "pending", "Save access" if intent == "access" else "Turn on " + name))
     if intent == "access":  # Saving access changes access only; setup still to do needs its own consent.
@@ -220,6 +221,9 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
         # Removing what a package left behind is deleting its data, so that is what is agreed.
         consent["cleanup"] = intent == "remove" and (bool(cleanup) or row["lifecycle"] == "data_retained")
         declaration = {"revision": row["revision"], "lifecycle": row["lifecycle"]}
+    elif reference.get("kind") == "account":  # Connected from Accounts or Channels until they join Apps.
+        steps = [_step("consent", title="Before you connect"), _step("enable", "unsupported", "Connect " + name,
+                 next((b["message"] for b in row["blockers"] if b["code"] == "unsupported"), ""))]
     elif kind == "mcp" and reference.get("kind") == "hermes_mcp":  # Recipes become declared inputs in Phase 4.
         steps = [_step("consent", title="Before you connect"), _step("inputs", "unsupported", "Add your settings",
                  "Recipes from this catalog arrive in a later update.", inputs=[]), _step("enable", title="Turn on " + name)]
@@ -301,6 +305,12 @@ def _save(record: dict, *, terminal: bool = False) -> None:
         admissions.command_progress(record["owner"], record["plan_id"], value)
 
 
+def _plan_lock(plan_id: str) -> threading.RLock:
+    """One plan's lock: a slow read of one plan never holds up another plan."""
+    with _LOCK:
+        return _PLAN_LOCKS.setdefault(plan_id, threading.RLock())
+
+
 def _target(ctx: Context, item_id: str) -> str:
     owner = hashlib.sha256(ctx.owner_id.encode()).hexdigest()[:32]
     return f"integrations:plan:{owner}:{item_id}"
@@ -345,7 +355,8 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     if "entry" in reference and not isinstance(reference["entry"], dict):
         reference["entry"] = asdict(reference["entry"])
     if plan["intent"] in _DONE:
-        reference.update(source_url=row["source_url"], pin=row["pin"], lifecycle=row["lifecycle"])
+        reference.update(source_url=row["source_url"], pin=row["pin"], lifecycle=row["lifecycle"],
+                         identity=row["canonical_identity"])
     plan_id = plan_id or str(uuid4())
     record = {**plan, "plan_id": plan_id, "owner": ctx.owner_id, "state": "running", "preset": preset or presets.DEFAULT,
               "overrides": _overrides(overrides), "reference": {k: v for k, v in reference.items() if k != "cfg"},
@@ -402,7 +413,7 @@ def cancel(ctx: Context, plan_id: str) -> dict:
     record, open_ = _load(ctx.owner_id, plan_id)
     if not open_:
         return view(record)
-    with _LOCK:
+    with _plan_lock(plan_id), _LOCK:
         if plan_id in _RUNNING:
             _CANCELLED.add(plan_id)
             raise PlanError("operation_pending")
@@ -419,7 +430,7 @@ def cancel(ctx: Context, plan_id: str) -> dict:
 
 def read_plan(ctx: Context, plan_id: str) -> dict:
     """The plan's state, reconciled from owner receipts. Reading never sends a command."""
-    with _LOCK:  # Observing never interleaves with the plan's runner, a cancel or another reader.
+    with _plan_lock(plan_id):  # Observing never interleaves with this plan's runner, a cancel or another reader.
         return _read(ctx, plan_id)
 
 
@@ -468,7 +479,7 @@ def _spawn(work: Callable[[], None]) -> None:
 def _launch(ctx: Context, record: dict, background: bool) -> dict:
     """Reserve the plan, then run it here or on a background thread; the client polls ``read_plan``."""
     plan_id = record["plan_id"]
-    with _LOCK:
+    with _plan_lock(plan_id), _LOCK:
         if plan_id in _RUNNING:
             raise PlanError("operation_pending")
         _RUNNING.add(plan_id)
@@ -519,7 +530,8 @@ def _run(ctx: Context, record: dict) -> dict:
             record["current_step"] = step["id"]
             step["state"] = "running"
             _save(record)
-            outcome = _HANDLERS[(record["kind"], step["type"])](ctx, record, step)
+            with safe.checked(ctx.validate):  # Stopping or signing out ends a download the step started.
+                outcome = _HANDLERS[(record["kind"], step["type"])](ctx, record, step)
             if outcome == "done":
                 step["state"] = "done"
                 continue
@@ -846,10 +858,9 @@ def _recipe(record: dict) -> str:
     return _digest({key: cfg.get(key) for key in ("transport", "url", "command", "args")})
 
 
-def _manual(target: dict | None, server_id: str) -> bool:
-    from row_bot.mcp_client.conflicts import requires_manual_tool_selection
-    name, cfg = _saved(target, server_id)
-    return requires_manual_tool_selection(name, cfg)
+def _note(target: dict | None, server_id: str) -> str:
+    from row_bot.mcp_client.conflicts import overlap_note
+    return overlap_note(*_saved(target, server_id))
 
 
 def _tools(ctx: Context | None, record: dict) -> list[dict]:
@@ -880,14 +891,15 @@ def current_access(row: dict) -> dict | None:
         return None
     record = {"target": None if row.get("target") in (None, {"kind": "standalone"}) else row["target"], "server_id": row["owner_ref"]}
     saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {})
-    tools, manual = _tools(None, record), _manual(record["target"], record["server_id"])
-    return {"preset": presets.current(saved) if saved.get("catalog") else presets.DEFAULT, "tools_digest": _digest([tools, manual]),
-            "tools": [_tool_view(t, presets.actual(saved, t["name"])) for t in tools[:256]], "manual": manual}
+    tools = _tools(None, record)
+    return {"preset": presets.current(saved) if saved.get("catalog") else presets.DEFAULT, "tools_digest": _digest(tools),
+            "tools": [_tool_view(t, presets.actual(saved, t["name"])) for t in tools[:256]],
+            "note": _note(record["target"], record["server_id"])}
 
 
 def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
-    tools, manual = _tools(ctx, record), _manual(record["target"], record["server_id"])
-    digest, chosen = _digest([tools, manual]), record.get("overrides") or {}
+    tools = _tools(ctx, record)
+    digest, chosen = _digest(tools), record.get("overrides") or {}
     # A re-check keeps the tools accepted before as they are; the preset applies to new ones.
     saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {}) if record.get("_test") else {}
     kept = set(saved.get("accepted_names") or [])
@@ -897,15 +909,13 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
             return chosen[tool["name"]]
         if tool["name"] in kept:
             return presets.actual(saved, tool["name"])
-        return "off" if manual else presets.tool_state(record["preset"], tool)  # Chosen one by one: off until chosen.
+        return presets.tool_state(record["preset"], tool)
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]],
-                      "manual": manual}
+                      "note": _note(record["target"], record["server_id"])}
     if ctx.tools_digest == digest:
         step["message"] = ""
         return "done"
-    step["message"] = ("The tools changed. Review them again." if ctx.tools_digest else
-                       "Its tools overlap with Row-Bot's own, so each stays off until you turn it on." if manual else
-                       "Review what this app can do, then allow it.")
+    step["message"] = "The tools changed. Review them again." if ctx.tools_digest else "Review what this app can do, then allow it."
     return "access"
 
 
@@ -1051,7 +1061,11 @@ def _package_test(ctx: Context, record: dict, step: dict) -> str:
         step["message"] = "Checks passed."
         return "done"
     if record["intent"] == "update":
-        summary = inspect_package(owner_id=ctx.owner_id, reference=reference["source_url"])
+        # A package added from the Hermes catalog updates to the catalog's pin, never the repository's head.
+        from row_bot.plugins import hermes_catalog
+        listed = next((e for e in hermes_catalog.read_catalog()["entries"] if reference.get("identity")
+                       and "plugin:" + e["source_identity"] == reference["identity"].rsplit("@", 1)[0]), None)
+        summary = inspect_package(owner_id=ctx.owner_id, reference=listed["id"] if listed else reference["source_url"])
         if summary["plugin_id"] != record["item_id"].removeprefix("plugin:"):
             raise PlanError("plan_changed")
         if summary["pin"] and summary["pin"] == reference["pin"]:

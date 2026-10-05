@@ -78,6 +78,7 @@ class Search:
     refresh: bool = False
     cancelled: Callable[[], bool] = lambda: False
     validate: Callable[[], None] = lambda: None
+    everything: bool = False  # Also placeholder, test and duplicate records ("Show all results").
 
 
 @dataclass
@@ -85,6 +86,7 @@ class Found:
     rows: list[dict] = field(default_factory=list)
     statuses: list[dict] = field(default_factory=list)
     references: dict = field(default_factory=dict)
+    hidden: int = 0
 
     def add(self, row: dict, reference: dict) -> None:
         self.rows.append(facts.finish(row))
@@ -154,17 +156,22 @@ class _McpCatalog(Source):
         metadata = entry.metadata or {}
         # A Registry record attaches and earns the badge only through its namespace, which the Registry
         # verifies; any publisher can point a record at a vendor's endpoint. Reviewed recipes use both.
+        canonical = metadata.get("canonical_name", "")
         refs = (["curated:" + entry.id.lower()] + apps.recipe_refs(entry.install) if self.id == "recommended"
-                else apps.registry_refs(metadata.get("canonical_name", "")))
+                else apps.registry_refs(canonical))
         app = apps.match(refs)
+        name, publisher = entry.name, entry.publisher
+        if canonical:  # A Registry record: its server part when it has no title, its owner as publisher.
+            name = canonical.rpartition("/")[2] if name == canonical else name
+            publisher = apps.publisher_of(canonical.partition("/")[0])
         supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")))
         known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not (entry.install or {}).get("url") or bool(
             app and app.auth in {"oauth", "api_key", "none"})
-        row = _available("mcp", entry.source + ":" + entry.id, entry.name, app=app, source=entry.source,
+        row = _available("mcp", entry.source + ":" + entry.id, name, app=app, source=entry.source,
             verified=apps.verified(app, refs), setup_tier=0 if supported and known else 1 if supported else 2,
             updated_at=_day(metadata.get("updated_at", "")), icon=icons.entry_icon(app, metadata.get("icon", ""), entry.name),
             unsupported="" if supported else "No supported launch recipe is available; use advanced configuration.",
-            description=entry.description[:2048], source_url=public_url(entry.url), publisher=entry.publisher[:160],
+            description=entry.description[:2048], source_url=public_url(entry.url), publisher=publisher[:160],
             compatibility="not_inspected" if supported else "unsupported", license=metadata.get("license", ""),
             evidence=metadata.get("evidence", "Publisher listing only; live service untested."),
             pin=metadata.get("version_policy", ""), actions=["preview"] if supported else [], version=str(metadata.get("version", ""))[:128],
@@ -211,7 +218,7 @@ class Registry(_McpCatalog):
         from row_bot.integrations import index
         from row_bot.mcp_client.registry_snapshot import MAX_AGE, read_header
         try:
-            results, total, current = index.search(search.query)
+            results, total, current, hidden = index.search(search.query, everything=search.everything)
         except LookupError:  # Start-up has not finished building the local mirror; show what it is built from.
             import lzma
             try:
@@ -221,7 +228,7 @@ class Registry(_McpCatalog):
             return Found(statuses=[self.status(status="pending", message="Preparing the Registry on this computer.",
                 fetched_at=shipped.get("captured_at"), snapshot_version="v0.1" if shipped else "",
                 snapshot_digest=shipped.get("digest", ""))])
-        found = Found()
+        found = Found(hidden=hidden)
         for entry, _derived in results:
             found.add(*self.row(entry))
         fetched = max(current["captured_at"], current.get("updated_at", 0))
@@ -462,6 +469,32 @@ class FeaturedSkills(Source):
         return featured_skills().get(reference.removeprefix("featured:"))
 
 
+class Accounts(Source):
+    """Apps Row-Bot connects through its own Accounts and Channels pages for now, so a job like
+    "send email" still finds them. Phase 5 brings those connections into Apps and replaces this."""
+    id, kind, label = "accounts", "mcp", "Accounts and channels"
+    message = "Apps Row-Bot connects through Settings › Accounts or Channels."
+
+    def row(self, app: apps.App) -> tuple[dict, dict]:
+        where = "Channels" if "channel" in app.variants else "Accounts"
+        row = _available("mcp", "account:" + app.id, app.name, app=app, source=self.id, description=app.summary,
+            publisher="Row-Bot", compatibility="unsupported", canonical_identity="account:" + app.id,
+            unsupported=f"Connect {app.name} in Settings › {where} for now. It joins Apps in a later update.")
+        return row, {"kind": "account", "app": app.id}
+
+    def search(self, search: Search) -> Found:
+        found = Found()
+        for app in apps.catalog()[0].values() if search.query.strip() else ():
+            if app.placeholder and matches(search.query, apps.text(app)):
+                found.add(*self.row(app))
+        found.statuses.append(self.status(status="cached"))
+        return found
+
+    def lookup(self, reference: str) -> apps.App | None:
+        app = apps.catalog()[0].get(reference.removeprefix("account:"))
+        return app if app and app.placeholder else None
+
+
 class Unavailable(Source):
     access = "unavailable"
 
@@ -471,7 +504,7 @@ class Unavailable(Source):
 
 # Public contracts checked 2026-10-03; evidence in docs/INTEGRATION_SOURCES.md. Order is ranking precedence.
 SOURCES: dict[str, Source] = {source.id: source for source in (
-    Curated(), Registry(), HermesMcp(), FeaturedSkills(),
+    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Accounts(),
     Skills("clawhub", "ClawHub", "Public v1 skill search and complete version downloads."),
     Skills("github", "GitHub", "Maintainer skill repositories through the existing GitHub owner."),
     Hermes(), Native(), Examples(),
@@ -497,6 +530,9 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     elif kind == "skill" and reference.startswith("featured:"):
         skill = SOURCES["featured_skills"].lookup(reference)
         found = SOURCES["featured_skills"].row(skill, set()) if skill else None
+    elif kind == "mcp" and source_id == "account":
+        app = SOURCES["accounts"].lookup(reference)
+        found = SOURCES["accounts"].row(app) if app else None
     elif kind == "plugin" and reference.startswith("hermes:"):
         entry = SOURCES["hermes"].lookup(reference)
         found = SOURCES["hermes"].row(entry) if entry else None
@@ -514,17 +550,19 @@ def _day(value: str) -> int:
 
 def order(*, exact: bool, preferred: bool, strong: bool, featured_rank: int | None, setup: int, updated: float,
           popularity: int, precedence: int, name: str, ident: str, now: float | None = None) -> tuple:
-    """The one ranking key, inside the Registry index and across sources: an exact name, then
-    featured or vendor-verified, a strong text hit, featured order, known authentication with an
-    installable plan, freshness (90 days, a year), source popularity, and stable ties."""
+    """The one ranking key, inside the Registry index and across sources: featured or
+    vendor-verified first (a community record never wins on its name alone), then an exact name,
+    a strong text hit, featured order, known authentication with an installable plan, freshness
+    (90 days, a year), source popularity, and stable ties."""
     age = (time.time() if now is None else now) - updated if updated else None
     fresh = 0 if age is None else 2 if age <= 90 * 86400 else 1 if age <= 365 * 86400 else 0
-    return (not exact, not preferred, not strong, featured_rank or 1_000_000, setup, -fresh, -popularity, precedence,
+    return (not preferred, not exact, not strong, featured_rank or 1_000_000, setup, -fresh, -popularity, precedence,
             name.casefold(), ident)
 
 
 def rank(rows: list[dict], query: str) -> list[dict]:
-    """Merge rows that share any source-neutral identity, keeping every attribution; then one order."""
+    """Merge rows that share any source-neutral identity, keeping every attribution; then one order,
+    and one card per app: an app's other ways to connect are on its page (skills are never grouped)."""
     sources, words, wanted = list(SOURCES), tokens(query), query.casefold().strip()
     known = apps.catalog()[0]
 
@@ -557,7 +595,14 @@ def rank(rows: list[dict], query: str) -> list[dict]:
                 primary["verified"] = primary["app"]["verified"] = True
         for identity in keys:
             merged.setdefault(identity, primary)
-    return sorted(shown, key=key)
+    seen: set[str] = set()
+    grouped = []
+    for row in sorted(shown, key=key):
+        app = (row["app"] or {}).get("id") if row["kind"] != "skill" else None
+        if app is None or app not in seen:
+            grouped.append(row)
+            seen.add(app or "")
+    return grouped
 
 
 def describe(entry) -> dict:

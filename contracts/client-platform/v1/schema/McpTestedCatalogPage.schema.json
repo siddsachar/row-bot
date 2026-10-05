@@ -87,17 +87,6 @@
       "title": "Items",
       "type": "array"
     },
-    "manual_selection_required": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Manual Selection Required"
-    },
     "next_cursor": {
       "anyOf": [
         {
@@ -145,7 +134,6 @@
     "server_id",
     "test_command_id",
     "availability",
-    "manual_selection_required",
     "items",
     "total",
     "next_cursor"

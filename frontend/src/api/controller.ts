@@ -2287,14 +2287,15 @@ export class ClientController {
   ) => this.query(() => this.transport.setCatalogSchedule?.(body, signal));
   integrationApps = (query = '', signal?: AbortSignal) =>
     this.query(() => this.transport.integrationApps?.(query, signal));
-  integrationIcon = (icon: string, signal?: AbortSignal) =>
-    this.query(() => this.transport.integrationIcon?.(icon, signal));
+  integrationIcons = (icons: string[], signal?: AbortSignal) =>
+    this.query(() => this.transport.integrationIcons?.(icons, signal));
   integrationItems = (
     options: {
       query?: string;
       kind?: string;
       scope?: 'installed' | 'catalog';
       cursor?: string;
+      all?: 'true';
     },
     signal?: AbortSignal,
   ) => this.query(() => this.transport.integrationItems?.(options, signal));

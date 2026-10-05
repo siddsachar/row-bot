@@ -174,7 +174,14 @@ function show(
     openExternal: vi.fn(async () => ({ status: 'ok' })),
   } as unknown as ClientPlatform;
   const fake = {
-    integrationIcon: vi.fn(async () => new Blob(['x'], { type: 'image/png' })),
+    integrationIcons: vi.fn(async (ids: string[]) => ({
+      schema_version: 1,
+      items: ids.map((id) => ({
+        id,
+        data: 'data:image/svg+xml;base64,PHN2Zy8+',
+        mono: id === 'si:github',
+      })),
+    })),
     integrationApps: vi.fn(async () => ({ schema_version: 1, items: [] })),
     ...controller,
   } as unknown as ClientController;
@@ -312,18 +319,121 @@ it('offers a way on when nothing matches', async () => {
   ).toBeVisible();
 });
 
-it('loads icons only from the local icon route, as blobs', async () => {
+it('loads every icon on screen in one local request, and draws letters itself', async () => {
   const { controller } = show('/settings/apps', {
-    integrationItems: vi.fn(async () => page([entry({ icon: 'si:notion' })])),
+    integrationItems: vi.fn(async (options: { scope?: string }) =>
+      page(
+        options.scope === 'installed'
+          ? []
+          : [
+              entry({ icon: 'si:notion' }),
+              entry({
+                id: 'mcp:curated:github',
+                name: 'GitHub',
+                icon: 'si:github',
+              }),
+              entry({ id: 'mcp:curated:acme', name: 'Acme', icon: 'letter:A' }),
+            ],
+      ),
+    ),
   });
   await screen.findAllByRole('link', { name: /^Notion/ });
   await waitFor(() =>
-    expect(controller.integrationIcon).toHaveBeenCalledWith('si:notion'),
+    expect(document.querySelectorAll('.app-icon img')).toHaveLength(2),
   );
+  expect(controller.integrationIcons).toHaveBeenCalledTimes(1);
+  expect(controller.integrationIcons).toHaveBeenCalledWith(
+    expect.arrayContaining(['si:notion', 'si:github']),
+  );
+  expect(document.querySelector('.app-letter')?.textContent).toBe('A');
+  // A dark single-colour mark is flagged so dark mode can invert it.
+  expect(document.querySelectorAll('.app-icon img[data-mono]')).toHaveLength(1);
+});
+
+it('puts vendor apps first, the community after, and shows hidden results on request', async () => {
+  const items = vi.fn(async (options: { scope?: string; all?: string }) =>
+    options.scope === 'installed'
+      ? page([])
+      : {
+          ...page([
+            entry({
+              id: 'mcp:official:io.github.fan/notion@1.0.0',
+              name: 'notion',
+              publisher: 'fan on GitHub',
+            }),
+            entry({
+              verified: true,
+              app: {
+                id: 'notion',
+                name: 'Notion',
+                publisher: 'Notion',
+                category: 'productivity',
+                icon: 'si:notion',
+                verified: true,
+                placeholder: false,
+                featured_rank: 4,
+              },
+            }),
+          ]),
+          hidden: options.all ? 0 : 3,
+        },
+  );
+  show('/settings/apps?q=notion', { integrationItems: items });
+  const community = await screen.findByRole('heading', {
+    name: 'More from the community',
+  });
+  const section = community.closest('section') as HTMLElement;
+  expect(within(section).getByText('fan on GitHub')).toBeVisible();
+  expect(within(section).queryByText(/by Notion/)).toBeNull();
+  expect(screen.getByText('by Notion')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Show all results' }));
   await waitFor(() =>
-    expect(
-      document.querySelector('.app-icon img')?.getAttribute('src'),
-    ).toMatch(/^blob:/),
+    expect(items).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'catalog', all: 'true' }),
+      expect.anything(),
+    ),
+  );
+});
+
+it("lists an app's other ways to connect, recommended first", async () => {
+  const value = detail();
+  value.about.ways = [
+    {
+      id: 'mcp:curated:notion',
+      name: 'Notion MCP',
+      method: 'hosted_sign_in',
+      verified: true,
+      publisher: 'Notion',
+      supported: true,
+      recommended: true,
+    },
+    {
+      id: 'mcp:official:io.github.makenotion/notion-mcp-server@2.0.0',
+      name: 'notion-mcp-server',
+      method: 'local',
+      verified: true,
+      publisher: 'makenotion on GitHub',
+      supported: true,
+      recommended: false,
+    },
+  ];
+  show('/settings/apps/item?id=mcp:curated:notion', {
+    integrationDetail: vi.fn(async () => value),
+  });
+  const group = (
+    await screen.findByRole('heading', { name: 'Ways to connect' })
+  ).closest('section') as HTMLElement;
+  expect(within(group).getByText('This one')).toBeVisible();
+  expect(within(group).getByText(/Recommended/)).toBeVisible();
+  expect(
+    within(group).getByRole('link', { name: /notion-mcp-server/ }),
+  ).toHaveAttribute(
+    'href',
+    expect.stringContaining(
+      encodeURIComponent(
+        'mcp:official:io.github.makenotion/notion-mcp-server@2.0.0',
+      ),
+    ),
   );
 });
 
@@ -725,7 +835,7 @@ it('checks an unfinished change again when no plan owns it, and never starts a n
   expect(controller.reviewInstallPlan).not.toHaveBeenCalled();
 });
 
-it('lets each tool be chosen one by one when its app overlaps Row-Bot, with no preset to pick', async () => {
+it('offers the presets to an app that overlaps Row-Bot, with a one-line note', async () => {
   const onAllow = vi.fn();
   render(
     <AccessSheet
@@ -737,20 +847,20 @@ it('lets each tool be chosen one by one when its app overlaps Row-Bot, with no p
       onAllow={onAllow}
       access={{
         preset: 'ask',
-        manual: true,
+        note: 'Row-Bot also has its own Documents tools.',
         tools_digest: digest,
         tools: [
           {
             name: 'search',
             title: 'Search',
             effect: 'read_only',
-            state: 'off',
+            state: 'use',
           },
           {
             name: 'delete_page',
             title: 'Delete page',
             effect: 'mutation',
-            state: 'off',
+            state: 'ask',
             always_asks: true,
           },
         ],
@@ -760,21 +870,16 @@ it('lets each tool be chosen one by one when its app overlaps Row-Bot, with no p
   const dialog = await screen.findByRole('dialog', {
     name: "Here's what Notion can do",
   });
-  expect(within(dialog).queryByRole('radio')).toBeNull();
+  expect(within(dialog).getAllByRole('radio')).toHaveLength(3);
   expect(
-    within(dialog).getByText(/each\s+stays off until you turn it on/),
+    within(dialog).getByText('Row-Bot also has its own Documents tools.'),
   ).toBeVisible();
-  fireEvent.change(
-    within(dialog).getByRole('combobox', { name: 'What Search may do' }),
-    {
-      target: { value: 'use' },
-    },
-  );
+  fireEvent.click(within(dialog).getByRole('radio', { name: /Full access/ }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Allow' }));
   expect(onAllow).toHaveBeenCalledWith({
-    preset: 'ask',
+    preset: 'full',
     tools_digest: digest,
-    overrides: { search: 'use', delete_page: 'off' },
+    overrides: {},
   });
 });
 

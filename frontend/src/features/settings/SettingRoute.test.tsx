@@ -68,7 +68,7 @@ function appsController(extra: Record<string, unknown> = {}) {
       sources: [],
     })),
     integrationApps: vi.fn(async () => ({ schema_version: 1, items: [] })),
-    integrationIcon: vi.fn(async () => new Blob()),
+    integrationIcons: vi.fn(async () => ({ schema_version: 1, items: [] })),
     ...extra,
   } as unknown as ClientController;
 }

@@ -10363,19 +10363,9 @@
         }
       }
     },
-    "/api/v1/integrations/icons/{icon_id}": {
-      "get": {
+    "/api/v1/integrations/icons": {
+      "post": {
         "parameters": [
-          {
-            "in": "path",
-            "name": "icon_id",
-            "required": true,
-            "schema": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "X-Client-Session",
@@ -10395,14 +10385,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./IconBatchRequest.schema.json"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
-              "application/octet-stream": {
+              "application/json": {
                 "schema": {
-                  "format": "binary",
-                  "maxLength": 26214400,
-                  "type": "string"
+                  "$ref": "./IconBatch.schema.json"
                 }
               }
             },

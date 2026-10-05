@@ -4446,16 +4446,13 @@ def create_router(
         from row_bot.application.client_integrations import list_apps
         return await respond(request, dto.AppList, await call(list_apps, query))
 
-    @router.get("/integrations/icons/{icon_id}")
-    async def integration_icon(icon_id: str, request: Request) -> Response:
-        """Local icon bytes only (bundled marks, letter avatars, rasters cached by an update)."""
-        current = await session(request, lane="view")
-        from row_bot.application.client_integrations import read_icon
-        data, media_type = await call(read_icon, icon_id)
-        security.session(await _context(request), current.id, current.csrf)
-        return Response(data, media_type=media_type, headers={**HEADERS, "Content-Disposition": "inline",
-            "Content-Security-Policy": "default-src 'none'; sandbox",
-            "Cache-Control": "private, max-age=86400"})
+    @router.post("/integrations/icons")
+    async def integration_icons(request: Request) -> JSONResponse:
+        """Many local icons in one answer (bundled marks, letter avatars, rasters cached by an update)."""
+        await session(request, lane="view")
+        body = await _body(request, dto.IconBatchRequest, 8192)
+        from row_bot.application.client_integrations import read_icons
+        return await respond(request, dto.IconBatch, await call(read_icons, list(body.ids)))
 
     @router.get("/integrations/presets")
     async def integration_presets(request: Request) -> JSONResponse:
@@ -4465,11 +4462,11 @@ def create_router(
 
     @router.get("/integrations/items")
     async def integration_items(request: Request, query: str = "", kind: str = "all", scope: str = "installed",
-                                cursor: str | None = None, limit: int = 50) -> JSONResponse:
+                                cursor: str | None = None, limit: int = 50, all: bool = False) -> JSONResponse:
         current = await session(request)
         from row_bot.application.client_integrations import read_items
         result = await call(read_items, owner_id=await integration_owner(request), query=query, kind=kind, scope=scope,
-            cursor=cursor, limit=limit, validate=dispatch_validation(request, current))
+            cursor=cursor, limit=limit, everything=all, validate=dispatch_validation(request, current))
         return await respond(request, dto.IntegrationEntryPage, result)
 
     @router.post("/integrations/items/search")

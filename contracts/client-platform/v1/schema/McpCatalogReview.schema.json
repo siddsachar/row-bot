@@ -56,10 +56,6 @@
       "title": "Configuration Revision",
       "type": "string"
     },
-    "manual_selection_required": {
-      "title": "Manual Selection Required",
-      "type": "boolean"
-    },
     "nonce": {
       "maxLength": 128,
       "minLength": 1,
@@ -114,7 +110,6 @@
     "operation",
     "action_digest",
     "tool_count",
-    "manual_selection_required",
     "saved_disabled",
     "nonce"
   ],

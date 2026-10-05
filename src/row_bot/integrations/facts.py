@@ -306,6 +306,7 @@ def _package(plugin: dict, validate: Callable[[], None]) -> dict:
         license=plugin.get("license", "")[:256], source_url=public_url(plugin.get("source_url")), version=plugin["version"][:128],
         pin=plugin.get("pin", ""), enabled=plugin["enabled"], installed=plugin["installed"], revision=plugin.get("manifest_revision") or "",
         compatibility="partial" if plugin.get("diagnostics") else "supported", children=children, actions=actions, app=app,
+        canonical_identity="plugin:" + str(plugin.get("source_identity", "")) + "@" + str(plugin.get("pin", "")),
         lifecycle="data_retained" if plugin.get("retained") else "installed" if plugin["enabled"] else "off", blockers=blockers)
 
 

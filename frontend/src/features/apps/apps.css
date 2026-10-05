@@ -13,6 +13,16 @@
   height: 70%;
   object-fit: contain;
 }
+.app-letter {
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
+}
+/* Single-colour dark marks (GitHub, Notion, X) would vanish on a dark surface. */
+:root[data-theme='dark'] .app-icon img[data-mono] {
+  filter: invert(1);
+}
 .app-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
@@ -348,4 +358,33 @@
   .access-tool-choice {
     grid-template-columns: 1fr;
   }
+}
+.app-ways {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-way {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+a.app-way:hover {
+  background: var(--surface-sunken);
+}
+.app-way-text {
+  display: grid;
+  min-width: 0;
+}
+.app-way-text small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }

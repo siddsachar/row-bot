@@ -435,31 +435,23 @@ def test_an_unfinished_plan_is_returned_with_the_item_and_reconciles_through_fac
     assert facts.reconcile_command("owner", plan_id, "mcp", lambda: None) == {"command_id": plan_id, "settled": True, "message": ""}
 
 
-def test_servers_needing_manual_tool_choice_turn_on_only_the_tools_the_user_chooses(item, owner):
+def test_an_app_overlapping_row_bot_gets_its_preset_and_a_note_while_risky_tools_still_ask(item, owner):
     document = json.loads(config.CONFIG_PATH.read_text())
-    document["servers"]["Synthetic"]["source"] = {"risk_level": "high"}
+    document["servers"]["Synthetic"]["source"] = {"overlaps_native": ["documents"], "risk_level": "high"}
     config.CONFIG_PATH.write_text(json.dumps(document))
     facts.invalidate()
     _, plan = review(item)
     plan_id = str(uuid4())
     paused = api.start_plan(context(), plan_id=plan_id, item_id=item, digest=plan["digest"], preset="full")
-    access = next(s for s in paused["steps"] if s["type"] == "access")
-    assert access["access"]["manual"] and {t["state"] for t in access["access"]["tools"]} == {"off"}
-    assert "turn it on" in access["message"]
-    done = plans.resume(context(tools_digest=access["access"]["tools_digest"]), plan_id, overrides={"get_record": "use"})
-    assert done["state"] == "completed"  # The preset applies to nothing; only the explicit choice turns a tool on.
-    assert [name for name, on in saved_tools()["enabled"].items() if on] == ["get_record"]
-    facts.invalidate()
-    _, change = review(item, intent="access")
-    assert change["supported"]  # Choosing again works one tool at a time too.
-    from row_bot.application import capability_policy_controls as policy
-    from row_bot.application.capability_configuration_controls import read_mcp_configuration
-    revision = read_mcp_configuration(validate=lambda: None).revision
-    server_id = next(row for row in facts.inventory()[0] if row["id"] == item)["owner_ref"]
-    with pytest.raises(ValueError, match="mcp_policy_unavailable"):
-        policy.review_mcp_policy_command(revision, {"operation": "preset", "server_id": server_id, "preset": "full"},
-                                         validate=lambda: None)  # A preset alone never chooses for the user.
-    assert [name for name, on in saved_tools()["enabled"].items() if on] == ["get_record"]
+    access = next(s for s in paused["steps"] if s["type"] == "access")["access"]
+    assert access["note"] == "Row-Bot also has its own Documents tools."
+    states = {tool["name"]: tool["state"] for tool in access["tools"]}
+    assert states == {"get_record": "use", "delete_record": "ask", "unrecognized": "ask"}  # The preset applies as anywhere.
+    done = plans.resume(context(tools_digest=access["tools_digest"]), plan_id)
+    assert done["state"] == "completed"
+    tools = saved_tools()
+    assert {"delete_record", "unrecognized"} <= set(tools["require_approval"])  # Destructive and unknown still ask.
+    assert "delete_record" not in tools.get("run_without_asking", [])
 
 
 def test_blank_values_in_an_installed_configuration_are_not_missing_settings():

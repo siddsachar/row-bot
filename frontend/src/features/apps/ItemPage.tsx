@@ -9,7 +9,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
-import type { IntegrationDetail, IntegrationEntry } from '../../api/types';
+import type {
+  IntegrationDetail,
+  IntegrationEntry,
+  IntegrationWay,
+} from '../../api/types';
 import {
   Button,
   Disclosure,
@@ -33,6 +37,31 @@ import {
   statusOf,
   useAppCatalog,
 } from './parts';
+
+const WAYS: Record<string, string> = {
+  hosted_sign_in: 'Hosted · Sign-in',
+  api_key: 'Hosted · API key',
+  hosted: 'Hosted',
+  local: 'Runs on this computer',
+};
+
+function WayText({ way }: { way: IntegrationWay }) {
+  return (
+    <span className="app-way-text">
+      <strong>{way.name}</strong>
+      <small>
+        {[
+          WAYS[way.method] ?? '',
+          way.verified ? `by ${way.publisher}` : way.publisher,
+          way.recommended ? 'Recommended' : '',
+          way.supported ? '' : 'Not available yet',
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </small>
+    </span>
+  );
+}
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -378,15 +407,18 @@ function Detail({
             >
               {about.access.tools.filter((tool) => tool.state !== 'off').length}{' '}
               of {about.access.tools.length} actions on ·{' '}
-              {about.access.manual
-                ? 'Chosen one by one'
-                : {
-                    read_only: 'Read only',
-                    ask: 'Ask before changes',
-                    full: 'Full access',
-                    custom: 'Custom',
-                  }[about.access.preset]}
+              {
+                {
+                  read_only: 'Read only',
+                  ask: 'Ask before changes',
+                  full: 'Full access',
+                  custom: 'Custom',
+                }[about.access.preset]
+              }
             </StatusLine>
+            {about.access.note && (
+              <p className="settings-help">{about.access.note}</p>
+            )}
             <ToolGroups tools={about.access.tools} />
           </div>
           <AccessSheet
@@ -464,6 +496,26 @@ function Detail({
                 : 'Hosted by its publisher'}
             </Fact>
           </dl>
+        </SettingsGroup>
+      )}
+      {(about.ways ?? []).length > 1 && (
+        <SettingsGroup title="Ways to connect">
+          <ul className="app-ways">
+            {(about.ways ?? []).map((way) => (
+              <li key={way.id}>
+                {way.id === entry.id ? (
+                  <span className="app-way" aria-current="true">
+                    <WayText way={way} />
+                    <span className="app-chip">This one</span>
+                  </span>
+                ) : (
+                  <Link className="app-way" to={idPath('app', way.id)}>
+                    <WayText way={way} />
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
         </SettingsGroup>
       )}
       {entry.children.length > 0 && (

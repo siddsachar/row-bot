@@ -67,6 +67,21 @@ def http(monkeypatch):
     return install
 
 
+def test_stopping_the_work_ends_a_fetch_already_reading(http, monkeypatch):
+    clock = iter(range(0, 1000))
+    monkeypatch.setattr(safe.time, "monotonic", lambda: next(clock) / 2)  # Each read is half a second apart.
+    http(lambda request: httpx.Response(200, content=b"x" * 10))
+    stopped = []
+
+    def check():
+        if stopped:
+            raise RuntimeError("plan_cancelled")
+    assert safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10, check=check) == b"x" * 10
+    stopped.append(True)
+    with safe.checked(check), pytest.raises(RuntimeError, match="plan_cancelled"):
+        safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10)
+
+
 def test_reviewed_host_is_bounded_and_never_follows_redirects(http):
     sent = http(lambda request: httpx.Response(200, content=b"x" * 10))
     assert safe.fetch("https://catalog.example/a.json", hosts=ALLOWED, max_bytes=10) == b"x" * 10

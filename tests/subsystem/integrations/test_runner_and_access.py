@@ -74,6 +74,12 @@ def gate(tools):
     ("send_message", None, "mutation", True),
     ("add_comment", None, "mutation", True),  # Reaches other people.
     ("upload_file", None, "mutation", True),  # Moves local data out.
+    ("create_or_update_file", None, "mutation", True),  # A repository write is a commit.
+    ("push_files", None, "mutation", True),
+    ("merge_pull_request", None, "mutation", True),
+    ("create_repository", None, "mutation", True),
+    ("create_branch", None, "mutation", False),
+    ("get_file_contents", None, "read_only", False),
     ("lookup", {"destructiveHint": True}, "mutation", True),
     ("frobnicate", None, "unknown", False),
     ("frobnicate", {"readOnlyHint": False, "destructiveHint": False}, "unknown", False),  # Hints never relax.
@@ -267,6 +273,25 @@ def test_an_update_that_changes_nothing_the_package_can_do_is_applied(monkeypatc
     plan = plans.compute(row, {}, intent="update")
     done = plans.start(ctx(), row, {}, digest=plan["digest"], intent="update")
     assert (done["state"], done["message"], sent) == ("completed", "Updated.", ["update"])
+
+
+def test_a_package_added_from_hermes_updates_to_the_catalog_pin_not_the_repository_head(monkeypatch):
+    from row_bot.application import client_plugin_lifecycle as lifecycle
+    from row_bot.plugins import hermes_catalog
+    from row_bot.plugins.lifecycle_review import NO_CHANGES
+    source = "https://github.com/example/kit"
+    row = facts.finish(facts.entry("plugin", "kit", "Kit", installed=True, lifecycle="installed", pin="a" * 40,
+                                   source_url=source, canonical_identity="plugin:" + source + "@" + "a" * 40))
+    monkeypatch.setattr(hermes_catalog, "read_catalog", lambda **_: {"entries": [
+        {"id": "hermes:kit", "source_identity": source, "pin": "b" * 40}]})
+    inspected = []
+    monkeypatch.setattr(hermes_catalog, "inspect_package", lambda **kwargs: inspected.append(kwargs["reference"]) or {
+        "plugin_id": "kit", "pin": "b" * 40, "preview_id": "preview", "skills": [], "servers": []})
+    monkeypatch.setattr(lifecycle, "review_plugin_lifecycle", lambda action, plugin_id, **_: {"changes": [NO_CHANGES], "revision": "r"})
+    monkeypatch.setattr(lifecycle, "execute_plugin_lifecycle", lambda command, **_: {"status": "completed"})
+    plan = plans.compute(row, {}, intent="update")
+    assert plans.start(ctx(), row, {}, digest=plan["digest"], intent="update")["state"] == "completed"
+    assert inspected == ["hermes:kit"]  # The catalog's pinned entry, never the repository's moving head.
 
 
 def test_removing_what_a_package_left_behind_is_agreed_as_deleting_its_data():

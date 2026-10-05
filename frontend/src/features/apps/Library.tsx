@@ -12,7 +12,13 @@ import {
   Skeleton,
 } from '../../ui/primitives';
 import AddFromLink from './AddFromLink';
-import { attentionOrder, categories, ItemCard, useAppCatalog } from './parts';
+import {
+  attentionOrder,
+  categories,
+  fromApp,
+  ItemCard,
+  useAppCatalog,
+} from './parts';
 
 const NOUN = {
   app: ['app', 'apps', 'Your apps'],
@@ -56,6 +62,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const [adding, setAdding] = useState(false);
   const [retry, setRetry] = useState(0);
   const [look, setLook] = useState(0); // Only the catalog waits on "Preparing…".
+  const [everything, setEverything] = useState(false);
   const headingId = useId();
   const [one, many, yours] = NOUN[kind];
   useEffect(() => {
@@ -103,7 +110,15 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
     const abort = new AbortController();
     setOnline(false);
     controller
-      .integrationItems({ scope: 'catalog', kind, query }, abort.signal)
+      .integrationItems(
+        {
+          scope: 'catalog',
+          kind,
+          query,
+          ...(everything ? { all: 'true' as const } : {}),
+        },
+        abort.signal,
+      )
       .then(
         (value) => {
           setPage(value);
@@ -113,7 +128,8 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           !abort.signal.aborted && setError(clientError(cause).message),
       );
     return () => abort.abort();
-  }, [controller, kind, query, retry, look]);
+  }, [controller, kind, query, retry, look, everything]);
+  useEffect(() => setEverything(false), [query]);
   useEffect(() => {
     if (!preparing) return;
     // While the Registry index is being prepared, look again shortly.
@@ -129,6 +145,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
           kind,
           refresh: true,
           limit: 50,
+          include_incompatible: everything,
         }),
       );
       setOnline(true);
@@ -147,6 +164,7 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
         kind,
         query,
         cursor: page.next_cursor,
+        ...(everything ? { all: 'true' as const } : {}),
       });
       setPage({ ...next, items: [...page.items, ...next.items] });
     } catch (cause) {
@@ -165,6 +183,10 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
   const featured =
     query || category ? [] : shown.filter(isFeatured).slice(0, 8);
   const rest = shown.filter((entry) => !featured.includes(entry));
+  // Apps from their vendors (or featured) first; everything else is the community's.
+  const community =
+    kind === 'app' ? rest.filter((entry) => !fromApp(entry)) : [];
+  const leading = rest.filter((entry) => !community.includes(entry));
   const mine = (installed ?? []).filter(
     (entry) =>
       !query ||
@@ -274,13 +296,31 @@ export default function Library({ kind }: { kind: 'app' | 'skill' }) {
               : `Add a ${one} from a link or a file.`}
           </EmptyState>
         )}
-        <Cards items={rest} revision={page?.revision} />
-        {page?.next_cursor && (
-          <Button disabled={busy} onClick={() => void more()}>
-            Show more
-          </Button>
-        )}
+        <Cards items={leading} revision={page?.revision} />
       </section>
+      {community.length > 0 && (
+        <section aria-labelledby={`${headingId}-community`}>
+          <h3 id={`${headingId}-community`}>More from the community</h3>
+          <Cards items={community} revision={page?.revision} />
+        </section>
+      )}
+      {(page?.next_cursor || (Boolean(page?.hidden) && !everything)) && (
+        <div className="button-row">
+          {page?.next_cursor && (
+            <Button disabled={busy} onClick={() => void more()}>
+              Show more
+            </Button>
+          )}
+          {Boolean(page?.hidden) && !everything && (
+            <Button
+              className="settings-link"
+              onClick={() => setEverything(true)}
+            >
+              Show all results
+            </Button>
+          )}
+        </div>
+      )}
       <AddFromLink open={adding} kind={kind} onClose={() => setAdding(false)} />
     </div>
   );
