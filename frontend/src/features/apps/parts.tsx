@@ -199,11 +199,14 @@ export function Publisher({ entry }: { entry: IntegrationEntry }) {
         by {entry.app?.publisher || entry.publisher}
       </span>
     );
+  // Not verified as the service's own: always says so, whatever name it gives itself.
   return (
     <span className="app-publisher">
       {['bundled', 'builtin'].includes(entry.source)
         ? 'Built in'
-        : entry.publisher || 'Community'}
+        : entry.publisher
+          ? `Community · ${entry.publisher}`
+          : 'Community'}
     </span>
   );
 }

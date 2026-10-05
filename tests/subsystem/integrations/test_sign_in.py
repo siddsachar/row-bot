@@ -235,3 +235,25 @@ def test_discovery_reads_no_more_than_its_cap(monkeypatch):
     pulled.clear()
     assert auth.discover_sign_in(MCP) == {"required": True, "issuer": "", "cimd": False, "dcr": False}
     assert reads and len(pulled) <= len(reads) * (65536 // 4096 + 1)  # Each candidate address stopped at the cap.
+
+
+def test_discovery_asks_for_and_reads_only_uncompressed_metadata(monkeypatch):
+    """A compressed reply could grow far past the cap once unpacked, so discovery never unpacks one."""
+    import gzip
+    import json as _json
+    asked = []
+    document = gzip.compress(_json.dumps({"resource": MCP, "authorization_servers": ["https://auth.fake.example"]}).encode())
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(401, headers={"www-authenticate":
+                'Bearer resource_metadata="https://mcp.fake.example/.well-known/oauth-protected-resource/mcp"'})
+        asked.append((str(request.url), request.headers.get("accept-encoding")))
+        if "oauth-protected-resource" in str(request.url):
+            return httpx.Response(200, content=document, headers={"content-encoding": "gzip"})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(auth, "PublicTransport", lambda: httpx.MockTransport(handle))
+    assert auth.discover_sign_in(MCP) == {"required": True, "issuer": "", "cimd": False, "dcr": False}
+    assert asked and all(encoding == "identity" for _, encoding in asked)
+    assert not any("oauth-authorization-server" in url for url, _ in asked)  # The packed document was never read.

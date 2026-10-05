@@ -447,6 +447,11 @@ def _is_task_stopped(exc: BaseException) -> bool:
     return exc.__class__.__name__ == "TaskStoppedError"
 
 
+def _delegating_app_scope() -> dict | None:
+    from row_bot.agent import current_app_scope
+    return current_app_scope()
+
+
 def _build_child_config(
     *,
     run_id: str,
@@ -459,6 +464,7 @@ def _build_child_config(
     parent_run_id: str = "",
     profile_snapshot: Mapping[str, Any],
     tool_allowlist: Sequence[str] | None = None,
+    app_scope: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     configurable = {
         "thread_id": child_thread_id,
@@ -483,6 +489,8 @@ def _build_child_config(
         configurable["developer_workspace_id"] = developer_workspace_id
     if designer_project_id:
         configurable["designer_project_id"] = designer_project_id
+    if app_scope:  # The apps the delegating turn left out stay out for its agent too.
+        configurable["app_scope"] = dict(app_scope)
     return {"configurable": configurable}
 
 
@@ -705,6 +713,7 @@ def spawn_agent_run(
         parent_run_id=parent_run_id,
         profile_snapshot=profile_snapshot,
         tool_allowlist=tool_allowlist,
+        app_scope=_delegating_app_scope() if parent_thread_id else None,
     )
     if tool_allowlist:
         try:

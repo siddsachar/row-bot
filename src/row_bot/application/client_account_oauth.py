@@ -117,10 +117,15 @@ def _install_google_credentials(raw: str) -> None:
             raise ValueError
         auth = urlparse(client["auth_uri"])
         token = urlparse(client["token_uri"])
-        # Google's own hosts only; older client files name the token endpoint on accounts.google.com.
+        # Google's own hosts only; older client files name the token endpoint on accounts.google.com. No
+        # backslash, user or port: parsers disagree about where such an address goes.
         if (auth.scheme != "https" or auth.hostname != "accounts.google.com" or token.scheme != "https"
-                or token.hostname not in {"oauth2.googleapis.com", "accounts.google.com"}):
+                or token.hostname not in {"oauth2.googleapis.com", "accounts.google.com"}
+                or any(ch in client[key] for key in ("auth_uri", "token_uri") for ch in ("\\", "@"))
+                or any(part.port is not None or part.username is not None for part in (auth, token))):
             raise ValueError
+        # What is saved names Google's current endpoints, whatever the file spelled.
+        client.update(auth_uri="https://accounts.google.com/o/oauth2/auth", token_uri="https://oauth2.googleapis.com/token")
         redirects = client.get("redirect_uris")
         if not isinstance(redirects, list) or not any(
             isinstance(value, str) and value in {"http://localhost", "http://127.0.0.1"}

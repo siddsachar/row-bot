@@ -88,7 +88,7 @@ def test_setup_shows_the_real_state(tmp_path, monkeypatch):
     # Developer tools are on by default (decision 13): done, never "skipped".
     assert "developer" in snapshot["live_done"]
     assert "developer" in snapshot["completed_steps"]
-    assert snapshot["skipped_steps"] == ["channels"]
+    assert snapshot["skipped_steps"] == ["apps"]  # Channels joined Apps: a step skipped then reads as Apps.
     # "Models" is done only while a default model exists.
     assert "models" not in snapshot["completed_steps"]
     (tmp_path / "model_settings.json").write_text(json.dumps({"model": "model:codex:gpt-5.6-sol"}), encoding="utf-8")

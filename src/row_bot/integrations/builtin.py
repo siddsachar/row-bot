@@ -7,11 +7,10 @@ Credentials stay where each owner keeps them: an account's token is never anothe
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import json
 import logging
 import sys
-import time
 
 from row_bot.integrations import apps, facts
 
@@ -57,10 +56,12 @@ def _tool_on(tool: str) -> bool:
     return value if isinstance(value, bool) else True
 
 
-def _accounts() -> list[dict]:
+def _accounts(chat_tools: bool = False) -> list[dict]:
     from row_bot.application.client_account_oauth import read_account_auth
     found = []
     for account, (name, tools) in ACCOUNTS.items():
+        if chat_tools and not tools:
+            continue
         try:
             if account == "github":
                 from row_bot import github_account
@@ -122,10 +123,11 @@ def _tools() -> list[dict]:
     return found
 
 
-def rows(validate: Callable[[], None] = lambda: None) -> list[dict]:
-    """Every built-in way to connect, with its status from its owner."""
+def rows(validate: Callable[[], None] = lambda: None, *, chat_tools: bool = False) -> list[dict]:
+    """Every built-in way to connect, with its status from its owner. ``chat_tools``: only those that bring
+    chat tools (Google, X, key tools), read without the GitHub CLI or the channel registry."""
     validate()
-    found = [*_accounts(), *_channels(), *_tools()]
+    found = [*_accounts(chat_tools), *_tools()] if chat_tools else [*_accounts(), *_channels(), *_tools()]
     validate()
     return found
 
@@ -153,30 +155,23 @@ def tool_app(parent: str) -> dict | None:
     return None
 
 
-_PARENTS: dict[str, str] = {}
-_READ: set[str] = set()  # Tools whose chat tool names are known (they appear once the tool is set up).
-_LOOKED = [float("-inf")]  # When tools not set up yet were last asked for their chat tool names.
+_PARENTS: dict[str, str] = {}  # A chat tool's runtime name -> its built-in tool, as the agent bound it.
+
+
+def _parents() -> list[str]:
+    return [tool for _, tools in ACCOUNTS.values() for tool in tools] + list(TOOLS)
+
+
+def remember_tools(bound: Mapping[str, str]) -> None:
+    """Note which built-in tool each bound chat tool came from (runtime name -> tool), when a turn binds
+    its tools. Building a tool can sign in or check a token over the network, so a read never does."""
+    parents = set(_parents())
+    _PARENTS.update({str(name): str(parent) for name, parent in bound.items() if parent in parents and name})
 
 
 def tool_parent(name: str) -> str | None:
     """Which built-in way's tool a chat tool's runtime name belongs to (``send_gmail_message`` -> gmail)."""
-    parents = [tool for _, tools in ACCOUNTS.values() for tool in tools] + list(TOOLS)
-    if name in parents:
-        return name
-    registry = sys.modules.get("row_bot.tools.registry")  # Chat tools exist only once tools are loaded.
-    # Asking a tool for its chat tools builds them, so one not set up yet is asked again only now and then.
-    if registry is not None and name not in _PARENTS and time.monotonic() - _LOOKED[0] > 30:
-        _LOOKED[0] = time.monotonic()
-        for parent in (parent for parent in parents if parent not in _READ):
-            tool = registry.get_tool(parent)
-            try:
-                names = [lc.name for lc in tool.as_langchain_tools()] if tool is not None else []
-            except Exception:
-                names = []
-            if names:
-                _READ.add(parent)
-                _PARENTS.update(dict.fromkeys(names, parent))
-    return _PARENTS.get(name)
+    return name if name in _parents() else _PARENTS.get(name)
 
 
 def _identity(ref: str, name: str) -> dict:

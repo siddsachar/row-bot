@@ -368,11 +368,12 @@ _DISCOVERY_LIMIT = 65536
 async def _metadata(client: httpx.AsyncClient, url: str) -> bytes | None:
     """A published metadata document, read only up to its size cap; None when absent or too large."""
     public_endpoint(url)
-    async with client.stream("GET", url, headers={"MCP-Protocol-Version": "2025-11-25"}) as answer:
-        if answer.status_code != 200:
+    # Uncompressed only, counted as it arrives: a small compressed reply can't grow past the cap in memory.
+    async with client.stream("GET", url, headers={"MCP-Protocol-Version": "2025-11-25", "Accept-Encoding": "identity"}) as answer:
+        if answer.status_code != 200 or answer.headers.get("content-encoding", "identity").strip().lower() not in {"", "identity"}:
             return None
         body = bytearray()
-        async for chunk in answer.aiter_bytes():
+        async for chunk in answer.aiter_bytes():  # Identity only (checked above): nothing is unpacked.
             body += chunk
             if len(body) > _DISCOVERY_LIMIT:
                 return None

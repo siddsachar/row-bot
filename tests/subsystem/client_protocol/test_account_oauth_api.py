@@ -51,6 +51,9 @@ def test_google_credential_import_validates_and_keeps_existing_on_failure(tmp_pa
     ("https://accounts.google.com/o/oauth2/token", True),  # Older client files still name this one.
     ("https://evil.example.test/token", False),
     ("http://oauth2.googleapis.com/token", False),
+    ("https://evil.example.test\\@oauth2.googleapis.com/token", False),  # Parsers disagree on where this goes.
+    ("https://user@oauth2.googleapis.com/token", False),
+    ("https://oauth2.googleapis.com:8443/token", False),
 ])
 def test_a_google_client_file_must_name_only_googles_own_sign_in_hosts(tmp_path, monkeypatch, token_uri, accepted):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))
@@ -62,6 +65,8 @@ def test_a_google_client_file_must_name_only_googles_own_sign_in_hosts(tmp_path,
                                      "redirect_uris": ["http://localhost"]}})
     if accepted:
         assert owner.execute_account_auth(**_command(before, "import_credentials", credentials_json=file))["phase"] == "completed"
+        saved = json.loads((tmp_path / "profile" / "gmail" / "credentials.json").read_text(encoding="utf-8"))["installed"]
+        assert saved["token_uri"] == "https://oauth2.googleapis.com/token"  # Saved as Google's own, whatever it said.
     else:
         with pytest.raises(Exception, match="account_credentials_invalid"):
             owner.execute_account_auth(**_command(before, "import_credentials", credentials_json=file))

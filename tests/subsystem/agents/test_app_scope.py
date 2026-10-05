@@ -16,6 +16,7 @@ from tests.subsystem.agents.test_agent_tool_filtering import (  # noqa: F401 -- 
 )
 
 pytestmark = pytest.mark.subsystem
+_ITEMS, _MCP_ITEMS = scope._items, scope._mcp_items  # The real readers, before any fixture replaces them.
 
 
 def _item(item_id, server, name, *, readiness="ready", lifecycle="installed", parent=None):
@@ -31,8 +32,8 @@ def apps(monkeypatch):
              _item("plugin:kit:mcp:figma", "plugin_kit_figma", "Figma", parent="plugin:kit")]
     off: list[str] = []
     profile: dict = {}
-    monkeypatch.setattr(scope, "_items", lambda: items)
-    monkeypatch.setattr(scope, "_mcp_items", lambda: [item for item in items if item["kind"] == "mcp"])
+    monkeypatch.setattr(scope, "_items", lambda strict=False: items)
+    monkeypatch.setattr(scope, "_mcp_items", lambda strict=False: [item for item in items if item["kind"] == "mcp"])
     monkeypatch.setattr(scope, "_skill_names", lambda: {"/writer": ("writer",), "/secret-skill": ("secret-skill",)})
     monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: list(off))
     monkeypatch.setattr(scope, "_profile_allow", lambda conversation_id: profile.get("allow"))
@@ -206,7 +207,7 @@ def _turn(platform, label, text, kind="conversation.submit"):
 @pytest.fixture
 def platform_apps(platform, monkeypatch):  # noqa: F811 -- the shared platform harness
     items = [_item("mcp:notion", "Notion", "Notion"), _item("mcp:linear", "Linear", "Linear")]
-    monkeypatch.setattr(scope, "_items", lambda: items)
+    monkeypatch.setattr(scope, "_items", lambda strict=False: items)
     seen: list = []
     return platform, seen
 
@@ -265,3 +266,53 @@ def test_a_queued_message_narrows_by_its_own_mentions_not_the_turn_it_waited_beh
         later.release.set()
         assert platform.registry.get(first["execution_id"]).producer_done.wait(10)
         platform.registry.stop("conversation-a")
+
+
+def test_an_agent_a_turn_delegates_to_never_gains_the_apps_the_turn_left_out(platform, monkeypatch):  # noqa: F811
+    import row_bot.agent as agent
+    from row_bot import agent_runner, threads
+    parent = threads.create_thread("Parent")
+    seen = []
+
+    def child(prompt, enabled_tool_names, config, *, stop_event):
+        seen.append(config["configurable"].get("app_scope"))
+        return "Child done"
+    monkeypatch.setattr(agent_runner, "_invoke_agent", child)
+    token = agent._current_app_scope_var.set({"exclude_servers": ["Notion"], "exclude_tools": ["gmail"],
+                                              "focus": ["mcp:linear"], "skills": ["writer"]})
+    try:
+        agent_runner.spawn_agent_run("Summarise the issues.", parent_thread_id=parent, enabled_tool_names=["mcp"],
+                                     wait=True)
+    finally:
+        agent._current_app_scope_var.reset(token)
+    assert seen == [{"exclude_servers": ["Notion"], "exclude_tools": ["gmail"], "focus": [], "skills": []}]
+
+
+def test_a_built_in_tool_is_named_from_what_a_turn_bound_and_a_read_builds_no_tool(monkeypatch):
+    from row_bot.integrations import builtin
+    from row_bot.tools import registry
+
+    def building(name):
+        return SimpleNamespace(as_langchain_tools=lambda: pytest.fail(f"a read built {name}'s tools"))
+    monkeypatch.setattr(registry, "get_tool", building)
+    monkeypatch.setattr(builtin, "_PARENTS", {})
+    monkeypatch.setattr("row_bot.mcp_client.runtime.server_for_tool", lambda name: None)
+    assert scope.app_for_tool("send_gmail_message") is None  # Not bound yet: no name, and nothing built.
+    builtin.remember_tools({"send_gmail_message": "gmail", "calculate": "calculator"})
+    assert scope.app_for_tool("send_gmail_message")["item_id"] == "builtin:account:google"
+    assert scope.app_for_tool("calculate") is None  # Row-Bot's own tools belong to no app.
+
+
+def test_an_app_switched_off_here_never_comes_back_when_apps_cannot_be_read(apps, monkeypatch):
+    from row_bot.integrations import builtin, facts
+    monkeypatch.setattr(scope, "_items", _ITEMS)
+    monkeypatch.setattr(scope, "_mcp_items", _MCP_ITEMS)
+    monkeypatch.setattr(builtin, "rows", lambda validate=None, chat_tools=False: [])
+    readable = [item for item in apps.items if item["id"] != "mcp:notion"]
+    errors: list = []
+    monkeypatch.setattr(facts, "inventory", lambda validate=None: (readable, list(errors)))
+    apps.off.append("mcp:notion")
+    assert scope.turn_scope("chat", "Find the roadmap", None) is None  # Removed since: nothing left to leave out.
+    errors.append({"source": "plugins", "code": "source_unavailable"})  # Now its source could not be read.
+    with pytest.raises(RuntimeError, match="apps_unreadable"):
+        scope.turn_scope("chat", "Find the roadmap", None)  # The turn refuses rather than let Notion back in.

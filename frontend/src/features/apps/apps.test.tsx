@@ -383,7 +383,7 @@ it('puts vendor apps first, the community after, and shows hidden results on req
     name: 'More from the community',
   });
   const section = community.closest('section') as HTMLElement;
-  expect(within(section).getByText('fan on GitHub')).toBeVisible();
+  expect(within(section).getByText('Community · fan on GitHub')).toBeVisible();
   expect(within(section).queryByText(/by Notion/)).toBeNull();
   expect(screen.getByText('by Notion')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Show all results' }));

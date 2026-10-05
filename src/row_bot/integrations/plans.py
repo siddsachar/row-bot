@@ -1174,6 +1174,11 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
     saved = (_saved(record["target"], record["server_id"])[1].get("tools") or {}) if record.get("_test") else {}
     kept = set(saved.get("accepted_names") or [])
 
+    def unchanged(tool: dict) -> bool:  # Accepted before, exactly as it is now.
+        old = (saved.get("catalog") or {}).get(tool["name"])
+        return tool["name"] in kept and isinstance(old, dict) and all(
+            old.get(key) == tool.get(key) for key in ("description", "input_schema", "effect"))
+
     def state(tool: dict) -> str:
         if tool["name"] in chosen:
             return chosen[tool["name"]]
@@ -1182,7 +1187,7 @@ def _mcp_access(ctx: Context, record: dict, step: dict) -> str:
         return presets.tool_state(record["preset"], tool)
     step["access"] = {"preset": record["preset"], "tools_digest": digest, "tools": [_tool_view(t, state(t)) for t in tools[:256]],
                       "note": _note(record["target"], record["server_id"])}
-    if ctx.tools_digest == digest or (record["intent"] == "settings" and all(t["name"] in kept for t in tools)):
+    if ctx.tools_digest == digest or (record["intent"] == "settings" and all(unchanged(t) for t in tools)):
         step["message"] = ""
         return "done"
     step["message"] = "The tools changed. Review them again." if ctx.tools_digest else "Review what this app can do, then allow it."
@@ -1240,10 +1245,12 @@ def _mcp_enable(ctx: Context, record: dict, step: dict) -> str:
         command, review = _once(record, "enable:accept", build)
         _completed(catalog.execute_mcp_catalog_command(owner_id=ctx.mcp_owner_id, key=command["command_id"], command=command,
             validate=ctx.validate, validate_review=_bound(review), target=record["target"]))
-    if record["intent"] == "settings" and record.get("_keep_off"):
-        record["_done_message"] = "Settings saved. It stays off until you turn it on."
-        return "done"
     if record["intent"] == "settings":
+        # Saving settings never turns anything on: an app that was off stays off, and so does MCP if it was
+        # switched off meanwhile. (Saving a setting pauses the app itself; it is switched back on below.)
+        if record.get("_keep_off") or (record["target"] is None and not _mcp_on()):
+            record["_done_message"] = "Settings saved. It stays off until you turn it on."
+            return "done"
         record["_done_message"] = "Settings saved."
     elif record["intent"] == "access":
         _policy(ctx, record, "enable:preset", {"operation": "preset", "server_id": record["server_id"], "preset": record["preset"],

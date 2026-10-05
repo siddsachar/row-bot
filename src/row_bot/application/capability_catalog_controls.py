@@ -253,7 +253,7 @@ def tested_tools(*, owner_id: str, server_id: str, test_command_id: str, target:
     document, names = _document(saved, server_id, captured)
     catalog = document["servers"][names[0]]["tools"]["catalog"]
     return [{"name": row["name"], **{key: catalog[row["name"]].get(key) for key in
-             ("description", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
+             ("description", "input_schema", "effect", "destructive", "requires_approval")}} for row in captured["tools"]]
 
 
 def _intent(server_id, test_command_id, preset=None, overrides=None):

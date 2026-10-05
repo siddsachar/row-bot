@@ -14,17 +14,20 @@ from row_bot.integrations import facts
 MAX_FOCUS = 8
 
 
-def _mcp_items() -> list[dict]:
-    """Connections (standalone or in a package) with the server their chat tools come from."""
-    rows, _ = facts.inventory()
+def _mcp_items(strict: bool = False) -> list[dict]:
+    """Connections (standalone or in a package) with the server their chat tools come from. ``strict``:
+    refuse when a source could not be read, rather than leave its apps out of the answer."""
+    rows, errors = facts.inventory()
+    if strict and errors:
+        raise RuntimeError("apps_unreadable")
     return [item for row in rows for item in (row, *row["children"]) if item["kind"] == "mcp" and item.get("server")]
 
 
-def _items() -> list[dict]:
+def _items(strict: bool = False) -> list[dict]:
     """Every app a chat could use: connections, and Row-Bot's built-in ways that bring chat tools
     (Google's Gmail and Calendar, X, web search)."""
     from row_bot.integrations import builtin
-    return _mcp_items() + [row for row in builtin.rows() if row.get("tools")]
+    return _mcp_items(strict) + [row for row in builtin.rows(chat_tools=True) if row.get("tools")]
 
 
 def _allowed(item: dict, allow: list[str] | tuple[str, ...] | None) -> bool:
@@ -105,7 +108,10 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
     apps, every other app; plus the skills it mentions, loaded for this turn only. ``previous``
     (the turn being continued) can only narrow it further. None: nothing to narrow."""
     from row_bot.threads import get_thread_apps_off
-    items, off = _items(), set(get_thread_apps_off(conversation_id))
+    off = set(get_thread_apps_off(conversation_id))
+    items = _items()
+    if off - {item["id"] for item in items}:  # An app switched off here is not in the answer: unreadable, or removed.
+        items = _items(strict=True)  # Refuse rather than let an unread app back in.
     ready = [item for item in items if item["lifecycle"] == "installed" and item["readiness"] == "ready"]
     usable: dict[str, tuple[str, ...]] = {}
     for item, shown in zip(ready, _shown(ready)):  # As the composer names them; a shared app name means each.

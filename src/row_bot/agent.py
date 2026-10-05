@@ -3328,6 +3328,14 @@ _current_app_scope_var: _contextvars.ContextVar[dict | None] = _contextvars.Cont
 )
 
 
+def current_app_scope() -> dict | None:
+    """What the running turn leaves out (see integrations.scope), for work it starts: an agent it
+    delegates to never gains the apps this turn left out."""
+    scope = _current_app_scope_var.get(None) or {}
+    excluded = {key: [str(name) for name in scope.get(key) or []] for key in ("exclude_servers", "exclude_tools")}
+    return {**excluded, "focus": [], "skills": []} if any(excluded.values()) else None
+
+
 def _preparation_carrier_key(config: dict | None = None) -> str:
     configurable = (config or {}).get("configurable") or {}
     generation_id = str(
@@ -4245,6 +4253,10 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     )
     app_scope = _current_app_scope_var.get(None) or {}
     eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
+    # Which built-in tool each chat tool came from, so its app is named later without building any tool.
+    from row_bot.integrations.builtin import remember_tools
+    remember_tools({str(getattr(entry["tool"], "name", "") or ""): str(entry["parent"])
+                    for entry in eager_core_entries if entry["source"] == "core"})
     for entry in eager_core_entries + external_entries:
         # Graph-local copies keep approval/error wrappers off shared registrations.
         entry['tool'] = entry['tool'].model_copy()
