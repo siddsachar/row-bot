@@ -15,7 +15,6 @@ import tarfile
 import tempfile
 import threading
 import time
-import urllib.request
 import urllib.parse
 import uuid
 import zipfile
@@ -706,46 +705,38 @@ def missing_command_message(command: str, check: RuntimeCheck | None = None) -> 
     return f"MCP stdio command '{command}' was not found on PATH. Install the command, restart Row-Bot, or edit this MCP server to use an absolute executable path."
 
 
-class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
-    max_redirections = 5
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _safe_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+# Runtime publishers and the hosts their release downloads move to. Nothing else is ever contacted.
+_HOSTS = frozenset({"nodejs.org", "api.github.com", "github.com", "objects.githubusercontent.com",
+                    "release-assets.githubusercontent.com"})
 
 
-def _request(url, *, method=None):
-    request = urllib.request.Request(_safe_url(url), method=method,
-        headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0", "Accept-Encoding": "identity"})
-    return urllib.request.build_opener(_HttpsRedirects()).open(request, timeout=30)
+def _fetched(url: str, maximum: int, *, method: str = "GET", timeout: float = 30, meta: dict | None = None,
+             check: Callable[[], None] = lambda: None) -> bytes:
+    """One bounded fetch through the one safe path: https only, reviewed hosts, each redirect hop
+    checked again, a size cap, one deadline, and the system proxy for these hosts only."""
+    from row_bot.integrations.safe import fetch
+    try:
+        return fetch(_safe_url(url), hosts=_HOSTS, max_bytes=maximum, timeout=timeout, redirects=5, method=method, meta=meta,
+                     check=check, headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0"},
+                     refused="runtime_source_refused", too_large="runtime_download_too_large")
+    except ValueError as exc:  # A refused host or an oversized answer fails like any other runtime problem.
+        if str(exc) in {"runtime_source_refused", "runtime_download_too_large"}:
+            raise RuntimeError("Runtime download refused: it exceeds its download budget or left the reviewed hosts") from None
+        raise
 
 
 def _remote_bytes(url, maximum=METADATA_BYTE_LIMIT):
-    with _request(url) as response:
-        deadline, value = time.monotonic() + 30, bytearray()
-        read = getattr(response, "read1", response.read)
-        while block := read(min(16384, maximum + 1 - len(value))):
-            value.extend(block)
-            if len(value) > maximum or time.monotonic() >= deadline:
-                raise RuntimeError("Runtime metadata exceeds its download budget")
-        return bytes(value)
+    return _fetched(url, maximum)
 
 
 def _download(url: str, destination: Path, progress: Callable[[str], None] | None = None,
               *, validate: Callable[[], None] = lambda: None) -> None:
     if progress:
         progress("Downloading the reviewed runtime archive")
-    deadline = time.monotonic() + 120
     validate()
-    with _request(url) as response, destination.open("xb") as handle:
-        size = 0
-        read = getattr(response, "read1", response.read)
-        while block := read(1024 * 1024):
-            validate()
-            size += len(block)
-            if size > ARCHIVE_BYTE_LIMIT or time.monotonic() >= deadline:
-                raise RuntimeError("Runtime archive exceeds its download budget")
-            handle.write(block)
+    data = _fetched(url, ARCHIVE_BYTE_LIMIT, timeout=20, check=validate)  # One deadline of two minutes in all.
+    with destination.open("xb") as handle:
+        handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
 
@@ -800,11 +791,12 @@ def _node_checksum(version: str, asset_name: str) -> str:
 
 
 def _remote_size(url):
-    with _request(url, method="HEAD") as response:
-        value = response.headers.get("Content-Length", "")
-        if not re.fullmatch(r"[0-9]{1,12}", value) or not 0 < int(value) <= ARCHIVE_BYTE_LIMIT:
-            raise RuntimeError("Runtime archive has no acceptable exact byte size")
-        return int(value)
+    meta: dict = {}
+    _fetched(url, 0, method="HEAD", meta=meta)
+    value = str(meta.get("headers", {}).get("content-length", ""))
+    if not re.fullmatch(r"[0-9]{1,12}", value) or not 0 < int(value) <= ARCHIVE_BYTE_LIMIT:
+        raise RuntimeError("Runtime archive has no acceptable exact byte size")
+    return int(value)
 
 
 def _archive_parts(name):
