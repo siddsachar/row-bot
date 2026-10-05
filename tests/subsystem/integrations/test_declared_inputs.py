@@ -53,7 +53,7 @@ def test_a_typed_authorization_value_is_sent_with_one_scheme(template, typed, se
 
 
 @pytest.mark.parametrize("url", ["https://{host}/mcp", "https://{tenant}.com/mcp", "https://x.{rest}/mcp", "http://{t}.example.test/mcp",
-                                 "https://{tenant}.co.uk/mcp", "https://{tenant}.0.0.1/mcp"])
+                                 "https://{tenant}.co.uk/mcp", "https://{tenant}.0.0.1/mcp", "https://{tenant}.com./mcp"])
 def test_a_url_variable_can_never_choose_the_destination(url):
     with pytest.raises(inputs.InputError):
         inputs.check_url(url, [declared("host", "url_variable", "host"), declared("tenant", "url_variable", "tenant"),

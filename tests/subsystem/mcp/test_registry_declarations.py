@@ -84,6 +84,11 @@ def test_a_credential_is_secret_by_its_name_even_when_its_listing_forgets_to_say
     remote["headers"] = [{"name": "Authorization", "value": "Bearer {access_token}", "variables": {"access_token": {"isRequired": True}}}]
     (entry,) = marketplace.registry_entries({"servers": [envelope]})
     assert entry.install["inputs"][0]["secret"] and entry.metadata["auth_mode"] == "api_key"
+    envelope["server"].pop("remotes")
+    envelope["server"]["packages"] = [{"registryType": "npm", "identifier": "fixture-notes", "version": "1.2.3",
+        "transport": {"type": "stdio"}, "packageArguments": [{"type": "named", "name": "--api-key", "valueHint": "your_value"}]}]
+    (entry,) = marketplace.registry_entries({"servers": [envelope]})
+    assert entry.install["inputs"][0]["secret"]  # Secret by its flag, whatever its hint says.
 
 
 @pytest.mark.parametrize(("declaration", "reason"), [

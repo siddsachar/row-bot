@@ -398,7 +398,8 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
         raise PlanError("plan_unsupported")
     if preset and preset not in presets.PRESETS:
         raise PlanError("invalid_access_preset")
-    if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"}) or any(
+    if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"})
+                                or reference.get("kind") == "hermes_mcp" or any(
             s["type"] == "runtime" and s["runtime"]["id"] in PACKAGES for s in plan["steps"])):
         raise PlanError("owner_local_only")
     installed = row["lifecycle"] != "available"

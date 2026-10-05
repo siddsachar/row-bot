@@ -89,7 +89,8 @@ def check_url(template: str, declared: list[dict]) -> None:
     if "{" in host:
         fixed = host.rsplit("}", 1)[1]
         labels = fixed.lower().split(".")[1:]
-        if (not fixed.startswith(".") or fixed.count(".") < 2 or "{" in fixed or ":" in fixed or any(label.isdigit() for label in labels)
+        if (not fixed.startswith(".") or fixed.count(".") < 2 or "{" in fixed or ":" in fixed
+                or any(not label or label.isdigit() for label in labels)  # {x}.com. is any .com host.
                 or (len(labels) == 2 and len(labels[1]) == 2 and labels[0] in _SHARED)):
             raise InputError("input_url_unsupported")  # {x}.co.uk or {x}.0.0.1 would name anyone's address.
     known = {item["key"] for item in declared}

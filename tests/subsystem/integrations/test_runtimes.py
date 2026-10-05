@@ -214,6 +214,10 @@ def test_a_hermes_recipe_is_read_after_consent_and_shown_before_it_is_saved(owne
     reference = {"kind": "hermes_mcp", "name": "notes", "pin": "e" * 40}
     plan = plans.compute(row, reference)
     assert plan["supported"] and not reads  # Nothing is read until the person agrees.
+    with pytest.raises(plans.PlanError, match="owner_local_only"):  # Its package is set up on this computer only.
+        plans.start(plans.Context(owner_id="owner", mcp_owner_id="owner", validate=lambda: None, local_owner=False),
+                    row, reference, digest=plan["digest"], plan_id=str(uuid4()))
+    assert not reads
     plan_id = str(uuid4())
     paused = plans.start(context(), row, reference, digest=plan["digest"], plan_id=plan_id)
     review = next(s for s in paused["steps"] if s["type"] == "consent")["review"]

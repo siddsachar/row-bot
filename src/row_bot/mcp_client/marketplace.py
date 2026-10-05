@@ -155,7 +155,7 @@ def _filled(spec: dict, *, target: str, name: str, inputs: dict, flag: str = "",
             add(key, variables.get(var, {}), var, implied)
         return value
     key = declared.key_of(name)
-    add(key, spec, name, declared.secretish(name))
+    add(key, spec, name, declared.secretish(name) or bool(carrier and declared.secretish(carrier)))
     if (target == "header" and name.lower() == "authorization" and not inputs[key]["choices"]
             and "bearer" in description.lower()):
         return "Bearer {" + key + "}"  # Most declarations describe the scheme but leave it to the person.
@@ -186,7 +186,7 @@ def _arguments(arguments: object, inputs: dict) -> list[str]:
             argv.append(flag)  # A plain switch.
             continue
         argv += [flag, _filled(argument, target="argument", name=str(argument.get("valueHint") or flag.lstrip("-")),
-                               inputs=inputs, flag=flag)]
+                               inputs=inputs, flag=flag, carrier=flag.lstrip("-"))]  # --api-key is secret by its name.
     return argv
 
 

@@ -773,3 +773,14 @@ class McpClientFoundationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+def test_the_sdks_own_transport_errors_never_log_an_address(caplog):
+    import logging
+    from row_bot.mcp_client import runtime  # noqa: F401 -- installs the transport log filter
+    key = "k7Qx9vR2mP4tL8wZ3nB6"
+    try:
+        raise RuntimeError(f"Client error '401' for url 'https://mcp.example.test/s/{key}/messages'")
+    except RuntimeError:
+        logging.getLogger("mcp.client.sse").error("Error in post_writer", exc_info=True)
+    assert "MCP transport error (RuntimeError)" in caplog.text and key not in caplog.text

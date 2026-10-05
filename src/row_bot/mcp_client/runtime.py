@@ -47,6 +47,23 @@ except Exception:  # pragma: no cover
 # The SDK logs each server's session id at INFO; ids stay out of Row-Bot's logs.
 logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
 
+
+class _TransportLog(logging.Filter):
+    """The SDK's own transport errors carry the request URL, which can hold a key the person gave for
+    the address: only that something failed is logged. Row-Bot's own failure line is redacted."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING and not getattr(record, "row_bot_withheld", False):
+            record.row_bot_withheld = True
+            kind = record.exc_info[0].__name__ if record.exc_info and record.exc_info[0] else ""
+            record.msg = "MCP transport error" + (f" ({kind})" if kind else "") + "; details withheld."
+            record.args, record.exc_info, record.exc_text = (), None, None
+        return True
+
+
+for _name in ("mcp.client.streamable_http", "mcp.client.sse"):
+    if not any(type(item).__name__ == "_TransportLog" for item in logging.getLogger(_name).filters):  # Once, even reloaded.
+        logging.getLogger(_name).addFilter(_TransportLog())
+
 try:
     from mcp.client.sse import sse_client
 except Exception:  # pragma: no cover
