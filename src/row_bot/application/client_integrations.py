@@ -417,8 +417,9 @@ def _ways(row: dict) -> list[dict]:
         return app.variants.index(kind) if kind in app.variants else len(app.variants)
     found, seen = [], set()
     for way in sorted((entry(facts.finish(r)) for r in rows), key=lambda w: (
-            w["compatibility"] == "unsupported", variant(w), not w["verified"], w["method"] == "local", w["name"].casefold(),
-            w["id"])):
+            # Reviewed ways (the vendor's own, or built into Row-Bot) before community ones, then the app's own order.
+            w["compatibility"] == "unsupported", not (w["verified"] or w["method"] == "built_in"), variant(w),
+            w["method"] == "local", w["name"].casefold(), w["id"])):
         identity = next((r["canonical_identity"] for r in rows if r["id"] == way["id"]), "") or way["id"]
         if identity in seen:
             continue

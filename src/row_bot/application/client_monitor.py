@@ -347,7 +347,7 @@ def _channel_problems() -> list[dict[str, str]]:
             sheet = _open(f"/settings/apps/{name}", label)
             if isinstance(link, dict) and link.get("state") in {"starting", "scan"}:
                 problems.append(_problem(f"channel:{name}", f"{label} is waiting for a scan",
-                    "Scan its code in Settings › Channels to link your phone.", "channels", sheet))
+                    "Scan its code on its page in Settings › Apps to link your phone.", "channels", sheet))
                 continue
             if channel.is_running():
                 check = getattr(channel, "reachability_problem", None)

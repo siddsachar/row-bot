@@ -647,18 +647,24 @@ def build_trace_item(
     )
 
 
-def app_of_tool(name: Any, args: Any = None) -> dict | None:
-    """The app behind a tool call, by its runtime name (a discovered tool's own name); never fails a read."""
+def app_of_tool(name: Any, args: Any = None, known: dict[str, dict | None] | None = None) -> dict | None:
+    """The app behind a tool call, by its runtime name (a discovered tool's own name); never fails a read.
+    ``known`` remembers answers across one read, so a transcript looks each tool up once."""
     runtime = str(name or "")
     if runtime == "tool_invoke" and isinstance(args, dict):
         runtime = str(args.get("name") or "")
     if not runtime:
         return None
+    if known is not None and runtime in known:
+        return known[runtime]
     try:
         from row_bot.integrations.scope import app_for_tool
-        return app_for_tool(runtime)
+        found = app_for_tool(runtime)
     except Exception:
-        return None
+        found = None
+    if known is not None:
+        known[runtime] = found
+    return found
 
 
 def _aggregate_status(items: tuple[TraceItem, ...]) -> TraceStatus:
@@ -831,6 +837,7 @@ def project_assistant_row_traces(
     output: list[dict[str, Any]] = []
     calls: dict[str, dict[str, Any]] = {}
     parent_calls: dict[str, list[dict[str, Any]]] = {}
+    known_apps: dict[str, dict | None] = {}
 
     for record_index, record in enumerate(records):
         if not isinstance(record, dict) or not isinstance(record.get("row"), dict):
@@ -875,7 +882,7 @@ def project_assistant_row_traces(
                 "call_order": call_order,
                 "group_order": grouped_orders[group_key],
                 "tool_name": name,
-                "app": app_of_tool(raw_call.get("name"), raw_call.get("args")),
+                "app": app_of_tool(raw_call.get("name"), raw_call.get("args"), known_apps),
                 "safe_input": safe_tool_input(raw_call.get("args")),
                 "parent_id": parent_id,
                 "parent_output_index": len(output) - 1,

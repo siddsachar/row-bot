@@ -11,6 +11,7 @@ from collections.abc import Callable
 import json
 import logging
 import sys
+import time
 
 from row_bot.integrations import apps, facts
 
@@ -50,6 +51,7 @@ def _tool_on(tool: str) -> bool:
         saved = json.loads((get_row_bot_data_dir(create=False) / "tools_config.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         saved = {}
+    saved = saved if isinstance(saved, dict) else {}
     tools = saved.get("tools") if isinstance(saved.get("tools"), dict) else saved
     value = tools.get(tool) if isinstance(tools, dict) else None
     return value if isinstance(value, bool) else True
@@ -153,6 +155,7 @@ def tool_app(parent: str) -> dict | None:
 
 _PARENTS: dict[str, str] = {}
 _READ: set[str] = set()  # Tools whose chat tool names are known (they appear once the tool is set up).
+_LOOKED = [float("-inf")]  # When tools not set up yet were last asked for their chat tool names.
 
 
 def tool_parent(name: str) -> str | None:
@@ -161,7 +164,9 @@ def tool_parent(name: str) -> str | None:
     if name in parents:
         return name
     registry = sys.modules.get("row_bot.tools.registry")  # Chat tools exist only once tools are loaded.
-    if registry is not None and name not in _PARENTS:
+    # Asking a tool for its chat tools builds them, so one not set up yet is asked again only now and then.
+    if registry is not None and name not in _PARENTS and time.monotonic() - _LOOKED[0] > 30:
+        _LOOKED[0] = time.monotonic()
         for parent in (parent for parent in parents if parent not in _READ):
             tool = registry.get_tool(parent)
             try:

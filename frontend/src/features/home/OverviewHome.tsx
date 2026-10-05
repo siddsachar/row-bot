@@ -1020,6 +1020,7 @@ export default function OverviewHome({
     })),
     // An app that is on but broken or signed out: its fix is one click away.
     ...apps
+      .flatMap((entry) => [entry, ...(entry.children ?? [])]) // A package's connections too.
       .filter(
         (entry) =>
           entry.lifecycle === 'installed' &&

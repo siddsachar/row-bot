@@ -251,14 +251,22 @@ export default function Home({
     [controller],
   );
   const loadApps = useCallback(
-    (signal?: AbortSignal) =>
+    async (signal?: AbortSignal) => {
       // Optional: a client without the Apps API simply lists no apps here.
-      Promise.resolve(
+      const read = (cursor?: string) =>
         controller.integrationItems?.(
-          { scope: 'installed', kind: 'app' },
+          { scope: 'installed', kind: 'app', ...(cursor ? { cursor } : {}) },
           signal,
-        ),
-      ),
+        );
+      let page = await read();
+      const items = [...(page?.items ?? [])];
+      // Every app, not just the first page, so none that needs you is missed.
+      for (let more = 0; page?.next_cursor && more < 8; more += 1) {
+        page = await read(page.next_cursor);
+        items.push(...(page?.items ?? []));
+      }
+      return page ? { ...page, items } : undefined;
+    },
     [controller],
   );
   const openApp = useCallback(

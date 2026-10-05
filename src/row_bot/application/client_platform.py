@@ -1221,12 +1221,12 @@ class ClientPlatformService:
                     config["configurable"][field] = deepcopy(frozen_config[field])
         freeze_profile(config["configurable"], frozen=frozen_context is not None)
         # Apps: the profile is the ceiling; this chat's switches and the message's mentions only narrow
-        # it. A queued or continued turn keeps what it left out, and today's switches still apply.
+        # it. A queued message narrows by its own mentions (never by the turn it waited behind); a
+        # continued turn keeps what it left out; today's switches always apply.
         from row_bot.integrations.scope import turn_scope
-        previous = frozen_config.get("app_scope") if frozen_context is not None else (
-            _accepted_app_scope(conversation_id) if resume else None)
+        previous = _accepted_app_scope(conversation_id) if resume else None
         try:
-            narrowed = turn_scope(conversation_id, "" if resume or frozen_context is not None else text,
+            narrowed = turn_scope(conversation_id, "" if resume else text,
                                   config["configurable"].get("tool_allowlist"), previous)
         except Exception:
             from row_bot.threads import get_thread_apps_off
@@ -1242,6 +1242,9 @@ class ClientPlatformService:
                                      pass_id=str((approval_context or {}).get("pass_id") or ""))
         freeze_reasoning(config["configurable"], conversation_id, revalidate=frozen_context is not None)
         queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
+        if frozen_context is not None:  # Remembered for a resume: this turn's own apps, not those it was queued behind.
+            kept = {key: value for key, value in queue_context["configurable"].items() if key != "app_scope"}
+            queue_context = {**queue_context, "configurable": {**kept, **({"app_scope": deepcopy(narrowed)} if narrowed else {})}}
         handle = self.admit_execution(conversation_id, config, text=None if resume else text,
             queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
             resume_pending=resume, attachments=None if resume else attachment_views,

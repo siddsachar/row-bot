@@ -290,12 +290,12 @@ async def _auto_start_channel_background(channel) -> None:
                 logger.debug("Channel notification reconciliation failed", exc_info=True)
         else:
             _startup_warning(
-                f"{display_name} didn't start. Check it in Settings › Channels.",
+                f"{display_name} didn't start. Check it in Settings › Apps.",
                 source="channels",
             )
     except Exception as exc:
         _startup_warning(
-            f"{display_name} didn't start. Check it in Settings › Channels.",
+            f"{display_name} didn't start. Check it in Settings › Apps.",
             source="channels",
         )
         logger.warning("Channel auto-start failed for %s: %s", channel_name, exc)

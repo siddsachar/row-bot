@@ -56,3 +56,12 @@ def test_a_card_shows_only_catalog_apps_by_id_whatever_the_tool_text_says(local)
     unknown = specialize_tool_result({"name": "suggest_apps", "content": json.dumps(
         {**injected, "apps": ["https://evil.example.test/mcp", "skill:featured:anything", "mcp:curated:not-a-recipe"]})})
     assert unknown is None  # Nothing the catalog knows: no card at all.
+
+
+def test_a_built_in_way_is_suggested_like_any_app_and_sets_up_in_its_own_settings(local):
+    answer = json.loads(suggest_apps("Gmail"))
+    assert answer["kind"] == "connect_apps" and answer["apps"][0] == "builtin:account:google"
+    card = scope.app_card("builtin:account:google")
+    assert card is not None and card["name"] == "Google"
+    assert json.loads(suggest_apps("Telegram"))["apps"][0] == "builtin:channel:telegram"
+    assert plans.compute(api._resolve("owner", "builtin:account:google", "", lambda: None)[0], {}) is None  # No plan.

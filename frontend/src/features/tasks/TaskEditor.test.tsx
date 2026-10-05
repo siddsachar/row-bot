@@ -134,7 +134,7 @@ it('shows schedule, delivery and policy in the rail of a new workflow with manua
   expect(app).toBeDisabled();
   expect(within(delivery).getAllByRole('checkbox')).toHaveLength(1);
   expect(
-    within(delivery).getByText(/Set up a channel in Settings › Channels/),
+    within(delivery).getByText(/Set up a channel in Settings › Apps/),
   ).toBeVisible();
   // New workflows are saved with the block policy, so the note says so.
   const policyNote = within(rail).getByText(/Change this after the first save/);

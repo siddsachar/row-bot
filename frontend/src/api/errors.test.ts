@@ -43,10 +43,10 @@ it('offers fixes that lead somewhere real', () => {
     if (!action) continue;
     kinds.add(action.kind);
     if (action.kind === 'open_setting') {
-      const leaf = new URL(
-        action.href,
-        'https://local.invalid',
-      ).pathname.replace(/^\/settings\//, '');
+      // An app's own page (Apps › GitHub) is a real place too.
+      const leaf = new URL(action.href, 'https://local.invalid').pathname
+        .replace(/^\/settings\//, '')
+        .replace(/^apps\/[a-z0-9-]+$/, 'apps');
       expect(leaves.has(leaf as never), `${code} → ${action.href}`).toBe(true);
       expect(action.label, code).toMatch(/^Open [A-Z]/);
     }

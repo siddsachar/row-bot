@@ -14,13 +14,17 @@ from row_bot.integrations import facts
 MAX_FOCUS = 8
 
 
-def _items() -> list[dict]:
-    """Every app a chat could use: connections (standalone or in a package) with their server name, and
-    Row-Bot's built-in ways that bring chat tools (Google's Gmail and Calendar, X, web search)."""
-    from row_bot.integrations import builtin
+def _mcp_items() -> list[dict]:
+    """Connections (standalone or in a package) with the server their chat tools come from."""
     rows, _ = facts.inventory()
-    found = [item for row in rows for item in (row, *row["children"]) if item["kind"] == "mcp" and item.get("server")]
-    return found + [row for row in builtin.rows() if row.get("tools")]
+    return [item for row in rows for item in (row, *row["children"]) if item["kind"] == "mcp" and item.get("server")]
+
+
+def _items() -> list[dict]:
+    """Every app a chat could use: connections, and Row-Bot's built-in ways that bring chat tools
+    (Google's Gmail and Calendar, X, web search)."""
+    from row_bot.integrations import builtin
+    return _mcp_items() + [row for row in builtin.rows() if row.get("tools")]
 
 
 def _allowed(item: dict, allow: list[str] | tuple[str, ...] | None) -> bool:
@@ -56,36 +60,42 @@ def _name(item: dict) -> str:
     return (item.get("app") or {}).get("name") or item["name"]
 
 
+def _shown(items: list[dict]) -> list[str]:
+    """How the composer names each app: its app's name, or "App (connection)" when two share one."""
+    names = [_name(item) for item in items]
+    return [(name if names.count(name) == 1 else f"{name} ({item['name']})")[:128] for item, name in zip(items, names)]
+
+
 def chat_apps(conversation_id: str) -> list[dict]:
     """The ready apps one chat can use, for the composer: on unless switched off here, and
     unavailable (with why) when the chat's agent profile leaves them out."""
     from row_bot.threads import get_thread_apps_off
     off, allow = set(get_thread_apps_off(conversation_id)), _profile_allow(conversation_id)
     ready = [item for item in _items() if item["lifecycle"] == "installed" and item["readiness"] == "ready"]
-    names = [_name(item) for item in ready]
     found = []
-    for item, name in zip(ready, names):
+    for item, name in zip(ready, _shown(ready)):
         allowed = _allowed(item, allow)
         found.append({"item_id": item["id"], "app_id": (item.get("app") or {}).get("id", ""),
-                      "name": (name if names.count(name) == 1 else f"{name} ({item['name']})")[:128], "icon": item["icon"],
-                      "on": item["id"] not in off, "available": allowed,
+                      "name": name, "icon": item["icon"], "on": item["id"] not in off, "available": allowed,
                       "reason": "" if allowed else "This chat's agent profile doesn't use it."})
     return sorted(found, key=lambda app: (app["name"].casefold(), app["item_id"]))[:64]
 
 
-def _mentioned(text: str, names: dict[str, str], sigil: str) -> list[str]:
-    """Which of ``names`` (shown name -> id) the text mentions as ``@name`` or ``/name``, longest first."""
+def _mentioned(text: str, names: dict[str, tuple[str, ...]], sigil: str) -> list[str]:
+    """Which ids ``names`` (shown name -> ids) the text mentions as ``@name`` or ``/name``. The longest
+    name wins where several start alike: "@Tavily (Web search)" is never also "@Tavily"."""
     found: list[str] = []
     for name in sorted(names, key=len, reverse=True):
         pattern = rf"(?<![\w{re.escape(sigil)}./]){re.escape(sigil + name.lstrip(sigil))}(?![\w-])"
-        if names[name] not in found and re.search(pattern, text, flags=re.IGNORECASE):
-            found.append(names[name])
+        text, count = re.subn(pattern, " ", text, flags=re.IGNORECASE)
+        if count:
+            found.extend(item for item in names[name] if item not in found)
     return found[:MAX_FOCUS]
 
 
-def _skill_names() -> dict[str, str]:
+def _skill_names() -> dict[str, tuple[str, ...]]:
     from row_bot import slash_commands
-    return {name: spec.skill_name for spec in slash_commands.get_command_specs() if spec.handler_key == "activate_skill"
+    return {name: (spec.skill_name,) for spec in slash_commands.get_command_specs() if spec.handler_key == "activate_skill"
             for name in spec.all_names}
 
 
@@ -96,8 +106,12 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
     (the turn being continued) can only narrow it further. None: nothing to narrow."""
     from row_bot.threads import get_thread_apps_off
     items, off = _items(), set(get_thread_apps_off(conversation_id))
-    usable = {_name(item): item["id"] for item in items if item["id"] not in off and item["lifecycle"] == "installed"
-              and item["readiness"] == "ready" and _allowed(item, allow)}
+    ready = [item for item in items if item["lifecycle"] == "installed" and item["readiness"] == "ready"]
+    usable: dict[str, tuple[str, ...]] = {}
+    for item, shown in zip(ready, _shown(ready)):  # As the composer names them; a shared app name means each.
+        if item["id"] not in off and _allowed(item, allow):
+            for name in {shown, _name(item)}:
+                usable[name] = (*usable.get(name, ()), item["id"])
     focus = _mentioned(text, usable, "@") if text else []
     left_out = [item for item in items if item["id"] in off or (focus and item["id"] not in focus)]
     servers = {item["server"] for item in left_out if item.get("server")}
@@ -120,7 +134,7 @@ def app_for_tool(tool_name: str) -> dict | None:
     if not server:
         parent = builtin.tool_parent(tool_name)
         return builtin.tool_app(parent) if parent else None
-    item = next((item for item in _items() if item.get("server") == server), None)
+    item = next((item for item in _mcp_items() if item["server"] == server), None)
     if item is None:
         return None
     return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"]}
@@ -151,10 +165,10 @@ def app_card(item_id: str) -> dict | None:
     """One suggested app as a chat card shows it, re-read by id from installed items or the local
     catalogs; an id nothing local knows (or a skill) is dropped. Its name and logo come from here,
     never from the text that asked for it."""
-    from row_bot.integrations import sources
+    from row_bot.integrations import builtin, sources
     if not isinstance(item_id, str) or not 0 < len(item_id) <= 512:
         return None
-    row = facts.read(item_id)
+    row = facts.read(item_id) or builtin.read(item_id)  # Built in: Google for email, Telegram, web search.
     if row is None:
         found = sources.catalog_entry(item_id)
         row = found[0] if found else None

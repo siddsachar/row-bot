@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from row_bot.integrations import scope
+from tests.contracts.client_platform.test_headless_lifecycle import platform  # noqa: F401 -- shared harness
 from tests.subsystem.agents.test_agent_tool_filtering import (  # noqa: F401 -- shared harness
     _bound_tools,
     _lc_tool,
@@ -31,7 +32,8 @@ def apps(monkeypatch):
     off: list[str] = []
     profile: dict = {}
     monkeypatch.setattr(scope, "_items", lambda: items)
-    monkeypatch.setattr(scope, "_skill_names", lambda: {"/writer": "writer", "/secret-skill": "secret-skill"})
+    monkeypatch.setattr(scope, "_mcp_items", lambda: [item for item in items if item["kind"] == "mcp"])
+    monkeypatch.setattr(scope, "_skill_names", lambda: {"/writer": ("writer",), "/secret-skill": ("secret-skill",)})
     monkeypatch.setattr("row_bot.threads.get_thread_apps_off", lambda conversation_id: list(off))
     monkeypatch.setattr(scope, "_profile_allow", lambda conversation_id: profile.get("allow"))
     return SimpleNamespace(items=items, off=off, profile=profile)
@@ -83,10 +85,25 @@ def test_a_continued_turn_keeps_what_it_left_out_and_todays_switches_still_apply
     assert set(resumed["exclude_servers"]) == {"Notion", "Sentry", "plugin_kit_figma", "Linear"}
 
 
+def test_apps_that_share_a_name_are_mentioned_as_the_composer_names_them(apps):
+    hosted = {**_item("mcp:tavily", "tavily", "Tavily"), "name": "Tavily MCP"}
+    built_in = {"id": "builtin:tool:web_search", "kind": "builtin", "tools": ["web_search"], "name": "Web search",
+                "app": {"id": "tavily", "name": "Tavily"}, "icon": "si:tavily", "lifecycle": "installed", "readiness": "ready",
+                "parent_id": None, "children": []}
+    apps.items.extend([hosted, built_in])
+    shown = {app["item_id"]: app["name"] for app in scope.chat_apps("chat")}
+    assert shown["mcp:tavily"] == "Tavily (Tavily MCP)" and shown["builtin:tool:web_search"] == "Tavily (Web search)"
+    picked = scope.turn_scope("chat", f"@{shown['mcp:tavily']} find the docs", None)
+    assert picked["focus"] == ["mcp:tavily"] and "web_search" in picked["exclude_tools"]
+    assert "tavily" not in picked["exclude_servers"]
+    either = scope.turn_scope("chat", "@Tavily find the docs", None)  # The shared name means both.
+    assert set(either["focus"]) == {"mcp:tavily", "builtin:tool:web_search"}
+
+
 def test_a_mentioned_skill_loads_for_that_turn_only_and_only_if_the_profile_allows_it(monkeypatch):
     import row_bot.agent as agent
-    assert scope._mentioned("/writer tighten this, not /secret-skillful", {"/writer": "writer", "/secret-skill": "s"}, "/") \
-        == ["writer"]
+    assert scope._mentioned("/writer tighten this, not /secret-skillful", {"/writer": ("writer",), "/secret-skill": ("s",)},
+                            "/") == ["writer"]
     monkeypatch.setattr("row_bot.threads.get_thread_skills_override", lambda thread_id: None)
     monkeypatch.setattr("row_bot.skills_activation.get_thread_activation_state",
                         lambda thread_id: {"disabled": [], "pinned": [], "auto_loaded": []})
@@ -173,3 +190,78 @@ def test_a_built_in_app_follows_the_same_rules_through_its_own_tools(apps):
             {"tool": SimpleNamespace(name="calculate"), "source": "core", "parent": "calculator"}]
     kept, _ = agent._apply_app_scope(core, [], found)
     assert [entry["parent"] for entry in kept] == ["calculator"]  # Row-Bot's own tools stay.
+
+
+def _turn(platform, label, text, kind="conversation.submit"):
+    from tests.contracts.client_platform.test_headless_lifecycle import command
+    from tests.helpers.client_platform_fakes import fixture_id
+    payload = {"submission_id": fixture_id(label), "text": text, "attachment_refs": [],
+               "model_selection": {"provider_id": "fixture", "model_ref": "fixture/model"}}
+    if kind == "conversation.steer":
+        payload = {"steering_id": fixture_id(label), "text": text}
+    return platform.execute(owner_id="fixture-owner", idempotency_key=fixture_id(label + ":key"),
+                            target="conversation-a", command=command(kind, label, payload))
+
+
+@pytest.fixture
+def platform_apps(platform, monkeypatch):  # noqa: F811 -- the shared platform harness
+    items = [_item("mcp:notion", "Notion", "Notion"), _item("mcp:linear", "Linear", "Linear")]
+    monkeypatch.setattr(scope, "_items", lambda: items)
+    seen: list = []
+    return platform, seen
+
+
+def _recording(fake, seen):
+    def stream(text, enabled, config, **kwargs):
+        seen.append((text, config["configurable"].get("app_scope")))
+        yield from fake.stream(text, enabled, config, **kwargs)
+
+    def resume(enabled, config, approved, **kwargs):
+        seen.append(("resume", config["configurable"].get("app_scope")))
+        yield from fake.resume(enabled, config, approved, **kwargs)
+    return stream, resume
+
+
+def test_a_turn_resumed_after_an_approval_keeps_what_its_mention_left_out(platform_apps):
+    from langchain_core.messages import AIMessage
+    from tests.contracts.client_platform.test_headless_lifecycle import command
+    from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, fixture_id
+    platform, seen = platform_apps
+    native = fixture_id("resumed-answer")
+    fake = ScriptedAgentStream((("interrupt", {"__interrupt_id": "app-interrupt", "tool": "mcp_linear_close_issue",
+                                               "description": "Close an issue"}),),
+                               (CheckpointCommit((AIMessage(content="Closed", id=native),), native), ("done", "Closed")))
+    platform.stream_factory, platform.resume_factory = _recording(fake, seen)
+    first = platform.registry.get(_turn(platform, "focused", "@Linear close the stale issue")["execution_id"])
+    assert first.producer_done.wait(10) and first.status == "waiting_approval"
+    receipt = platform.execute(owner_id="owner", idempotency_key="approve-focused", target=first.approval_id,
+                               command=command("approval.resolve", "approve-focused", {"decision": "approve"}))
+    assert platform.registry.get(receipt["execution_id"]).producer_done.wait(10)
+    (_, started), (kind, resumed) = seen
+    assert started["focus"] == ["mcp:linear"] and started["exclude_servers"] == ["Notion"]
+    assert kind == "resume" and resumed["exclude_servers"] == ["Notion"]  # Approving never brings Notion back.
+
+
+def test_a_queued_message_narrows_by_its_own_mentions_not_the_turn_it_waited_behind(platform_apps):
+    from langchain_core.messages import AIMessage
+    from tests.helpers.client_platform_fakes import CheckpointCommit, ScriptedAgentStream, StreamBarrier, fixture_id
+    platform, seen = platform_apps
+    barrier, later = StreamBarrier(), StreamBarrier()
+    done = [fixture_id(f"queued-answer-{n}") for n in range(2)]
+    fake = ScriptedAgentStream((barrier, CheckpointCommit((AIMessage(content="One", id=done[0]),), done[0]), ("done", "One")),
+                               (later, CheckpointCommit((AIMessage(content="Two", id=done[1]),), done[1]), ("done", "Two")))
+    platform.stream_factory, platform.resume_factory = _recording(fake, seen)
+    first = _turn(platform, "running", "@Linear what's open?")
+    try:
+        assert barrier.entered.wait(10)
+        _turn(platform, "waiting", "@Notion and the roadmap?", kind="conversation.steer")
+        barrier.release.set()
+        assert later.entered.wait(10)
+        assert seen[0][1]["focus"] == ["mcp:linear"]
+        assert seen[1][0] == "@Notion and the roadmap?" and seen[1][1]["focus"] == ["mcp:notion"]
+        assert seen[1][1]["exclude_servers"] == ["Linear"]
+    finally:
+        barrier.release.set()
+        later.release.set()
+        assert platform.registry.get(first["execution_id"]).producer_done.wait(10)
+        platform.registry.stop("conversation-a")

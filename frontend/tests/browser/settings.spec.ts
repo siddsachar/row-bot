@@ -377,14 +377,15 @@ test('Channels Plugins and Skills keep reviewed local settings through the real 
     name: 'Channels',
     exact: true,
   });
-  // Channels render as collapsed rows; non-destructive saves are reviewed by
+  // Non-destructive saves are reviewed by
   // the server and applied in one step (destructive actions still confirm).
   const channel = channels.getByRole('group', {
     name: 'Synthetic local channel channel',
     exact: true,
   });
   await expect(channel).toBeVisible();
-  await channel.locator('summary').click();
+  // Scoped to this one channel, its settings are open already.
+  await expect(channel).toHaveJSProperty('open', true);
   await channel.getByLabel(/^New Local label/).fill('browser-local');
   await channel
     .getByRole('button', { name: 'Save Local label', exact: true })

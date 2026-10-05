@@ -37,10 +37,11 @@ const CUSTOM_ENDPOINTS = open(
 );
 const IMAGE_MODEL = open('models', 'Image model', 'image-model');
 const VOICE = open('voice', 'Voice settings', 'dictation');
-const ACCOUNTS = open('accounts', 'Accounts');
-const GITHUB = open('accounts', 'GitHub account', 'github');
-const GOOGLE = open('accounts', 'Google account', 'google');
-const CHANNELS = open('channels', 'Channels');
+// Accounts and channels are apps: their fixes open the app.
+const ACCOUNTS = open('apps', 'Apps');
+const GITHUB = open('apps/github', 'GitHub');
+const GOOGLE = open('apps/google', 'Google');
+const CHANNELS = open('apps?category=communication', 'Apps');
 const PLUGINS = open('apps', 'Apps');
 const MCP = open('apps', 'Apps');
 const RUNTIMES = open('apps?view=advanced', 'Runtimes', 'chats');
