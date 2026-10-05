@@ -28,6 +28,7 @@ def _isolated_service():
 @pytest.fixture
 def service(tmp_path, monkeypatch):
     from row_bot import threads, tasks, agent_profiles
+    from row_bot.application.client_platform import settle_background
     from row_bot.tools import registry as tools
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
@@ -46,6 +47,8 @@ def service(tmp_path, monkeypatch):
     result.registry.shutdown()
     for handle in result.registry.active():
         assert handle.producer_done.wait(5)
+    # A finished turn's page refresh can still be reading this connection.
+    assert settle_background(10), "Fixture left background work running"
     connection.close()
 
 

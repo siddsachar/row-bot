@@ -22,7 +22,7 @@ pytestmark = pytest.mark.subsystem
 @pytest.fixture
 def isolated_service(tmp_path, monkeypatch):
     from row_bot import agent_profiles, tasks, threads
-    from row_bot.application.client_platform import ClientPlatformService
+    from row_bot.application.client_platform import ClientPlatformService, settle_background
     from row_bot.projection.conversation import ConversationProjection
     from row_bot.runtime.executions import GenerationRuntimeRegistry
 
@@ -41,6 +41,7 @@ def isolated_service(tmp_path, monkeypatch):
     result.projection = ConversationProjection(result.registry.server_epoch)
     yield result
     result.registry.shutdown()
+    assert settle_background(10), "Fixture left background work running"
     connection.close()
 
 

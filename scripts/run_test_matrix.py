@@ -110,8 +110,10 @@ def _browser(name: str, *playwright_args: str, engine: str = "chromium") -> Comm
 
 
 # pytest-xdist: one worker per CPU; a file's tests stay on one worker (module
-# fixtures, and tests that rely on their file's order).
-PARALLEL = ("-n", "auto", "--dist", "loadfile")
+# fixtures, and tests that rely on their file's order). A worker that crashes
+# fails the run at once: after a restart, loadfile hands finished files out
+# again and every worker waits forever (pytest-xdist 3.8).
+PARALLEL = ("-n", "auto", "--dist", "loadfile", "--max-worker-restart=0")
 
 
 def _pytest(name: str, *args: str, marker: str = DETERMINISTIC, env: dict[str, str] = TEST_ENV) -> CommandSpec:

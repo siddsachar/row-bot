@@ -389,6 +389,10 @@ def reload_for_data_dir(monkeypatch: pytest.MonkeyPatch):
     yield reload
     threads = sys.modules.get("row_bot.threads")
     if threads is not None and ("row_bot.threads" in saved or "row_bot.threads" in first_imported):
+        # A background page refresh may still be reading the connection closed below.
+        settle = getattr(sys.modules.get("row_bot.application.client_platform"), "settle_background", None)
+        if callable(settle):
+            assert settle(10), "Test left background work running"
         try:
             threads.conn.close()  # the test's connection; the restored one stays open
         except Exception:

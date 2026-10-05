@@ -36,6 +36,50 @@ class ClientPlatformError(ValueError):
 
 _COMMAND_LOCK = threading.RLock()
 _LOG = logging.getLogger(__name__)
+# Best-effort work run off the caller's thread (an outside change's page
+# refresh, a smart name). It reads module state such as threads.checkpointer
+# and its shared connection when it runs, so it stays owned until it ends:
+# whoever closes or replaces that state settles it first (settle_background).
+_BACKGROUND_LOCK = threading.Lock()
+_BACKGROUND: set[threading.Thread] = set()
+
+
+def run_in_background(target: Callable[[], None], *, name: str) -> None:
+    """Run ``target`` on a daemon thread that ``settle_background`` can wait for."""
+    def run() -> None:
+        try:
+            target()
+        finally:
+            with _BACKGROUND_LOCK:
+                _BACKGROUND.discard(thread)
+
+    thread = threading.Thread(target=run, daemon=True, name=name)
+    with _BACKGROUND_LOCK:
+        _BACKGROUND.add(thread)
+    try:
+        thread.start()
+    except BaseException:
+        with _BACKGROUND_LOCK:
+            _BACKGROUND.discard(thread)
+        raise
+
+
+def settle_background(timeout: float | None = None) -> bool:
+    """Wait for the background work started so far, and any it starts in turn.
+
+    True once none is left; False if some is still running at the timeout.
+    """
+    deadline = None if timeout is None else time.monotonic() + timeout
+    while True:
+        with _BACKGROUND_LOCK:
+            pending = [thread for thread in _BACKGROUND if thread is not threading.current_thread()]
+        if not pending:
+            return True
+        for thread in pending:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            thread.join(remaining)
 # The client shows a trailing marker as a "Stopped" chip (TranscriptMessage).
 _STOPPED_MARKER = "\n\n⏹️ *[Stopped]*"
 # Conversation listings by group. The sidebar's type filters (B239) read the
@@ -581,7 +625,7 @@ class ClientPlatformService:
             except Exception:
                 _LOG.debug("Could not publish an outside change to %s", conversation_id, exc_info=True)
 
-        threading.Thread(target=publish, daemon=True, name="conversation-changed").start()
+        run_in_background(publish, name="conversation-changed")
 
     def _paused_approval_generation(self, conversation_id: str) -> dict | None:
         """The paused turn of a conversation whose approval is still pending.

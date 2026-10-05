@@ -110,8 +110,9 @@ def after_turn(service: Any, conversation_id: str, *, status: str, reply: str, m
         message = _AWAITING_REPLY.pop(conversation_id, None)
         if message is None:
             return
-        threading.Thread(target=_smart_name, args=(service, conversation_id, message, reply, model_ref),
-                         daemon=True, name="conversation-naming").start()
+        from row_bot.application.client_platform import run_in_background
+        run_in_background(lambda: _smart_name(service, conversation_id, message, reply, model_ref),
+                          name="conversation-naming")
     except Exception:
         _LOG.warning("The smart name could not start for %s", conversation_id, exc_info=True)
 
