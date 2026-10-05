@@ -356,7 +356,7 @@ function ReviewPanel({
           disabled={busy}
           onClick={() => onContinue(review.digest)}
         >
-          Install
+          {review.items.length ? 'Install' : 'Continue'}
         </Button>
       </div>
     </div>

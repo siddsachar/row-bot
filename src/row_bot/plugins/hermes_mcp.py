@@ -50,6 +50,17 @@ def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambd
     return {**saved, "status": status, "message": message}
 
 
+def read_recipe(name: str, pin: str) -> dict:
+    """One recipe at its pinned commit, read after the person agreed and only parsed, never run."""
+    import yaml
+    from row_bot.plugins.hermes_catalog import _public_bytes
+    if not re.fullmatch(r"[a-z0-9_-]{1,80}", name) or not re.fullmatch(r"[a-f0-9]{40}", pin):
+        raise ValueError("hermes_recipe_unsupported")
+    url = f"https://raw.githubusercontent.com/NousResearch/hermes-agent/{pin}/optional-mcps/{name}/manifest.yaml"
+    raw = yaml.safe_load(_public_bytes(url, maximum=64 * 1024))
+    return normalize_recipe(raw, name=name, pin=pin, source_url=f"https://github.com/NousResearch/hermes-agent/tree/{pin}/optional-mcps/{name}")
+
+
 def normalize_recipe(raw: dict, *, name: str, pin: str, source_url: str) -> dict:
     from row_bot.plugins.portable import validate_remote
     from row_bot.mcp_client.packages import requirement
@@ -76,17 +87,21 @@ def normalize_recipe(raw: dict, *, name: str, pin: str, source_url: str) -> dict
             raise ValueError("hermes_recipe_unsupported")
     else:
         raise ValueError("hermes_recipe_unsupported")
-    bindings = []
-    for variable in credentials.get("env", []):
-        key = variable.get("name", "")
-        if cfg["transport"] != "stdio" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key):
+    from row_bot.integrations import inputs
+    declared = []
+    for variable in credentials.get("env", []):  # Keys the recipe needs become declared inputs, kept in the keychain.
+        variable_name = variable.get("name", "") if isinstance(variable, dict) else ""
+        if (cfg["transport"] != "stdio" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", variable_name)
+                or variable_name.upper() in inputs.NEVER_ENV):
             raise ValueError("hermes_recipe_unsupported")
-        bindings.append({"kind": "env", "name": key, "key": key})
-    if bindings:
-        cfg["auth"] = {"mode": "api_key", "bindings": bindings}
+        declared.append(inputs.declaration(inputs.key_of(variable_name), target="env", name=variable_name, secret=True,
+                                           required=True, description=str(variable.get("description") or "")[:512]))
+        cfg["env"][variable_name] = "{" + declared[-1]["key"] + "}"
+    if declared:
+        cfg["inputs"] = declared
     elif mode == "api_key":
         raise ValueError("hermes_recipe_unsupported")
-    cfg["source"] = {"marketplace": "hermes_mcp", "url": source_url, "pin": pin}
+    cfg["source"] = {"marketplace": "hermes_mcp", "url": source_url, "pin": pin, **({"auth_mode": "api_key"} if declared else {})}
     return {"name": name, "import_json": json.dumps({"mcpServers": {name: cfg}}), "requires_auth": mode != "none",
         "source_url": source_url, "notes": ["Hermes recipe at commit " + pin + "; no Hermes runtime is required.",
             "Authentication: " + mode + ". Review the tested tool list; upstream default tool selections are not automatically granted.",

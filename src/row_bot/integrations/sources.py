@@ -301,8 +301,9 @@ class Hermes(Source):
         app = apps.match(["hermes:" + entry["id"].removeprefix("hermes:")] + apps.repository_refs(entry["url"]))
         row = _available("plugin", entry["id"], entry["name"], app=app, source="hermes", description=entry["description"],
             publisher=entry["publisher"], source_url=public_url(entry["url"]), version=entry["version"], pin=entry["pin"],
-            # Only about one in ten is portable, and that is known only once added: rank below complete plans.
-            compatibility="unsupported" if entry["compatibility"] == "unsupported" else "not_inspected", setup_tier=2,
+            # Only about one in ten is portable: known from its manifest after a catalog update, else checked when added.
+            compatibility="unsupported" if entry["compatibility"] == "unsupported" else "not_inspected",
+            setup_tier=1 if entry.get("portable") else 2,
             platforms=entry["platforms"], actions=["preview"],
             unsupported=entry["reason"] if entry["compatibility"] == "unsupported" else "",
             canonical_identity="plugin:" + entry["source_identity"] + "@" + entry["pin"])
@@ -326,11 +327,12 @@ class Hermes(Source):
         return next((e for e in hermes_catalog.read_catalog()["entries"] if e["id"] == reference), None)
 
     def update(self, cancelled: Callable[[], bool]) -> dict:
+        """The catalog, then what each new pin is, read from its manifest only (never run)."""
         from row_bot.plugins import hermes_catalog
         catalog = hermes_catalog.read_catalog(refresh=True, cancelled=cancelled)
         if catalog["status"] != "live":
             raise ValueError("source_unavailable")
-        return {"entries": len(catalog["entries"])}
+        return {"entries": len(catalog["entries"]), **hermes_catalog.classify(cancelled=cancelled)}
 
 
 class Native(Source):

@@ -46,6 +46,53 @@ def _cache_path() -> Path:
     return get_row_bot_data_dir(create=False) / "hermes_catalog_cache.json"
 
 
+def _classified_path() -> Path:
+    return get_row_bot_data_dir(create=False) / "hermes_classification.json"
+
+
+def _classified() -> dict:
+    """What each pinned package is, from its manifest alone: ``portable`` or ``native`` (Hermes only)."""
+    path = _classified_path()
+    try:
+        if path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return {k: v for k, v in value.items() if v in {"portable", "native"}} if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def classify(*, cancelled: Callable[[], bool] = lambda: False, read: Callable[[str], bytes] | None = None,
+             pause: float = 0.05, deadline: float = 600) -> dict:
+    """Read only each pinned package's ``plugin.json`` (never its code, never run) during a catalog update:
+    an Agent Plugins manifest is portable; a package without one is a native Hermes plugin Row-Bot can't run.
+    Results are kept per pin, so later updates read only new pins; a throttled or failed read stays unknown."""
+    from row_bot.plugins.portable import SCHEMA
+    read = read or (lambda url: _public_bytes(url, maximum=64 * 1024))
+    found, stop = _classified(), time.monotonic() + deadline
+    for entry in read_catalog()["entries"]:
+        key = entry["pin"] + ":" + entry["subdirectory"]
+        if key in found or entry["compatibility"] == "unsupported":
+            continue
+        if cancelled() or time.monotonic() > stop:
+            break
+        path = entry["url"].removeprefix("https://github.com/")
+        url = f"https://raw.githubusercontent.com/{path}/{entry['pin']}/" + (entry["subdirectory"] + "/" if entry["subdirectory"] else "")
+        try:
+            manifest = json.loads(read(url + "plugin.json"))
+            found[key] = "portable" if isinstance(manifest, dict) and manifest.get("$schema") == SCHEMA else "native"
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                found[key] = "native"
+            elif exc.response.status_code in {403, 429}:
+                break  # Throttled: the rest wait for the next update.
+        except (ValueError, OSError, httpx.HTTPError):
+            continue
+        time.sleep(pause)
+    write_atomic(_classified_path(), json.dumps(found, sort_keys=True))
+    return {"portable": sum(v == "portable" for v in found.values()), "native": sum(v == "native" for v in found.values())}
+
+
 def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambda: False) -> dict:
     """Cache-only by default; an unavailable source never erases cached results."""
     saved = {}
@@ -72,18 +119,22 @@ def read_catalog(*, refresh: bool = False, cancelled: Callable[[], bool] = lambd
         except (ValueError, OSError, httpx.HTTPError):
             saved = previous
             status, reason = ("stale" if saved else "error"), "Hermes is unavailable; cached entries remain available."
-    entries = []
+    entries, classified = [], _classified()
     for raw in saved.get("entries", []) if isinstance(saved, dict) else []:
         try:
             if not isinstance(raw, dict) or not re.fullmatch(r"[a-z0-9_-]{1,64}", raw.get("name", "")):
                 continue
             repo, subdir, pin = repository_pin(raw["repo"], raw.get("subdir", ""), raw["sha"])
             removed = removed_reason(raw["name"], repo, saved)
+            kind = classified.get(pin + ":" + subdir, "")
+            why = (removed or ("Made for the Hermes app itself; Row-Bot can't run it." if kind == "native" else
+                      "A portable package; Row-Bot checks what's inside when you add it." if kind == "portable" else
+                      "Inspect the pinned package to check its portable components."))
             entries.append({"id": "hermes:" + raw["name"], "name": str(raw.get("title") or raw["name"])[:160],
                 "description": str(raw.get("description", ""))[:1000], "source": "hermes", "publisher": str(raw.get("maintainer", ""))[:160],
                 "url": repo, "source_identity": repo + ("#" + subdir if subdir else ""), "pin": pin, "subdirectory": subdir,
-                "version": str(raw.get("version", ""))[:128], "platforms": raw.get("platforms", [])[:12],
-                "compatibility": "unsupported" if removed else "not_inspected", "reason": removed or "Inspect the pinned package to check its portable components."})
+                "version": str(raw.get("version", ""))[:128], "platforms": raw.get("platforms", [])[:12], "portable": kind == "portable",
+                "compatibility": "unsupported" if removed or kind == "native" else "not_inspected", "reason": why})
         except (ValueError, KeyError, TypeError):
             continue
     return {"entries": entries, "removed": saved.get("removed", []), "status": status, "message": reason,

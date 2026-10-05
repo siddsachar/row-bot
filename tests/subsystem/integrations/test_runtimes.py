@@ -197,3 +197,38 @@ def test_a_bundle_runs_with_node_from_its_private_folder(bundled, tmp_path):
                                                        if key in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP"}}, "NOTES_TOKEN": "ok"})
     assert result.returncode == 0 and result.stdout, result.stderr
     assert json.loads(result.stdout.splitlines()[0])["result"]["serverInfo"]["version"] == "ok"
+
+
+def test_a_hermes_recipe_is_read_after_consent_and_shown_before_it_is_saved(owner, monkeypatch):
+    from row_bot.mcp_client import requirements
+    from row_bot.plugins import hermes_mcp
+    monkeypatch.setattr(requirements, "check_requirement",
+                        lambda requirement, env=None: requirements.RuntimeCheck(requirement=requirement, available=True))
+    reads = []
+    recipe = {"manifest_version": 1, "name": "notes", "transport": {"type": "http", "url": "https://mcp.notes.example.test/mcp"},
+              "auth": {"type": "none"}}
+    monkeypatch.setattr(hermes_mcp, "read_recipe", lambda name, pin: reads.append((name, pin)) or hermes_mcp.normalize_recipe(
+        recipe, name=name, pin=pin, source_url="https://github.com/NousResearch/hermes-agent"))
+    monkeypatch.setattr("row_bot.mcp_client.auth.discover_sign_in", lambda url: {"required": False})
+    row = facts.finish(facts.entry("mcp", "hermes_mcp:notes", "notes", installed=False, lifecycle="available"))
+    reference = {"kind": "hermes_mcp", "name": "notes", "pin": "e" * 40}
+    plan = plans.compute(row, reference)
+    assert plan["supported"] and not reads  # Nothing is read until the person agrees.
+    plan_id = str(uuid4())
+    paused = plans.start(context(), row, reference, digest=plan["digest"], plan_id=plan_id)
+    review = next(s for s in paused["steps"] if s["type"] == "consent")["review"]
+    assert paused["pause"] == "digest_changed" and review["lines"] == ["Connects to https://mcp.notes.example.test/mcp."]
+    assert not config.read_saved_configuration().document["servers"].get("notes")  # Shown before anything is saved.
+    done = plans.resume(context(review_digest=review["digest"]), plan_id)
+    assert done["pause"] == "access", done
+    assert config.read_saved_configuration().document["servers"]["notes"]["source"]["pin"] == "e" * 40
+    assert reads == [("notes", "e" * 40)]
+
+
+def test_a_recipes_keys_become_declared_inputs():
+    from row_bot.plugins import hermes_mcp
+    recipe = {"manifest_version": 1, "name": "notes", "auth": {"type": "api_key", "env": [{"name": "NOTES_TOKEN"}]},
+              "transport": {"type": "stdio", "command": "npx", "args": ["-y", "notes-mcp@1.2.3"]}}
+    cfg = json.loads(hermes_mcp.normalize_recipe(recipe, name="notes", pin="e" * 40, source_url="")["import_json"])["mcpServers"]["notes"]
+    assert cfg["env"] == {"NOTES_TOKEN": "{notes_token}"} and "auth" not in cfg
+    assert [(i["key"], i["secret"], i["target"]) for i in cfg["inputs"]] == [("notes_token", True, "env")]

@@ -273,9 +273,13 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
     elif reference.get("kind") == "account":  # Connected from Accounts or Channels until they join Apps.
         steps = [_step("consent", title="Before you connect"), _step("enable", "unsupported", "Connect " + name,
                  next((b["message"] for b in row["blockers"] if b["code"] == "unsupported"), ""))]
-    elif kind == "mcp" and reference.get("kind") == "hermes_mcp":  # Recipes become declared inputs in Phase 4.
-        steps = [_step("consent", title="Before you connect"), _step("inputs", "unsupported", "Add your settings",
-                 "Recipes from this catalog arrive in a later update.", inputs=[]), _step("enable", title="Turn on " + name)]
+    elif kind == "mcp" and reference.get("kind") == "hermes_mcp":
+        # The recipe is read at its pin once agreed, shown in place, and only then saved; its own steps follow.
+        steps = [_step("consent", title="Before you connect"), _step("test", title="Check the connection"),
+                 _step("access", title=f"Choose what {name} can do", access={"preset": presets.DEFAULT, "tools": [],
+                                                                            "tools_digest": "", "note": ""}),
+                 _step("enable", title="Turn on " + name)]
+        consent["downloads"] = [f"the {name} recipe from Hermes"]
         declaration = {"recipe": reference.get("name"), "pin": reference.get("pin")}
     elif kind == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
@@ -731,14 +735,49 @@ def _mcp_command(kind: str, **payload) -> dict:
     return {"command_id": str(uuid4()), "type": kind, "expected_revision": "0", "payload": payload}
 
 
+def _hermes_recipe(ctx: Context, record: dict, step: dict) -> str | None:
+    """A Hermes recipe is read at its pin now, after consent; what it connects to or runs is shown in place
+    before anything is saved, and only that exact recipe is saved."""
+    from row_bot.plugins import hermes_mcp
+    reference = record["reference"]
+    found = record.get("_hermes")
+    if found is None:
+        try:
+            found = hermes_mcp.read_recipe(reference["name"], reference["pin"])
+        except Exception as error:
+            raise PlanError("recipe_unsupported", "Row-Bot can't use this recipe: it needs setup Row-Bot doesn't do.") from error
+        record["_hermes"] = found
+    cfg = next(iter(json.loads(found["import_json"])["mcpServers"].values()))
+    lines = ([f"Connects to {cfg['url']}."] if cfg.get("url") else
+             [f"Runs {' '.join([cfg['command'], *cfg.get('args', [])])[:200]} on this computer."])
+    lines += [f"Asks for {', '.join(i['name'] for i in cfg.get('inputs', []))}, kept in your system keychain."] if cfg.get("inputs") else []
+    step["review"] = {"summary": f"{record['name']} recipe at {reference['pin'][:12]}", "lines": [line[:256] for line in lines],
+                      "items": [], "digest": "sha256:" + hashlib.sha256(found["import_json"].encode()).hexdigest()}
+    if ctx.review_digest != step["review"]["digest"]:
+        step["message"] = "Check what this recipe does, then continue."
+        return "digest_changed"
+    step["message"] = ""
+    return None
+
+
 def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
     """For a catalog entry, agreeing saves the connection, switched off."""
     if record.get("server_id"):
         return "done"
     from row_bot.application import capability_configuration_controls as configuration
     from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
+    recipe = record["reference"].get("kind") == "hermes_mcp"
+    if recipe and "consent:save" not in record["_commands"]:
+        paused = _hermes_recipe(ctx, record, step)
+        if paused:
+            return paused
 
     def build():
+        if recipe:
+            revision = _revision(ctx, record)
+            intent = {"operation": "import", "import_json": record["_hermes"]["import_json"]}
+            review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate)
+            return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
         listed = MarketplaceEntry(**record["reference"]["entry"])
         entry = listed
         if entry.source == "official":
@@ -757,6 +796,13 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
     record["server_id"] = result["mcp_configuration"]["server_ids"][0]
     record["installed_id"] = "mcp:" + record["server_id"]  # Where the saved connection lives from now on.
     record["_recipe"] = _recipe(record)
+    if recipe:  # The steps this recipe needs (keys, a package, a sign-in), now that it is known and saved.
+        row = {"app": None, "name": record["name"], "blockers": [], "lifecycle": "available", "readiness": None,
+               "target": None}
+        steps = _mcp_steps(row, _saved(None, record["server_id"])[1], record["intent"])[0][1:]
+        for index, later in enumerate(s for s in steps if s["type"] == "runtime"):
+            later["id"] = f"runtime{index or ''}"
+        record["steps"] = [step, *steps]
     return "done"
 
 

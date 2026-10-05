@@ -129,3 +129,29 @@ def test_malformed_cache_can_be_repaired_by_explicit_refresh(catalog_http, tmp_p
     assert hermes_catalog.read_catalog()["status"] == "empty"
     assert not requests
     assert hermes_catalog.read_catalog(refresh=True)["status"] == "live"
+
+
+def test_an_update_classifies_each_pin_from_its_manifest_only_and_never_twice(catalog_http, tmp_path):
+    from row_bot.plugins.portable import SCHEMA
+    entries = [{"name": "portable", "repo": "https://github.com/example/portable", "sha": "b" * 40},
+               {"name": "native", "repo": "https://github.com/example/native", "sha": "c" * 40},
+               {"name": "throttled", "repo": "https://github.com/example/throttled", "sha": "d" * 40}]
+    (tmp_path / "hermes_catalog_cache.json").write_text(json.dumps({"entries": entries, "removed": []}), encoding="utf-8")
+    asked = []
+
+    def read(url):
+        asked.append(url)
+        if "/portable/" in url:
+            return json.dumps({"$schema": SCHEMA, "name": "portable"}).encode()
+        status = 404 if "/native/" in url else 429
+        raise httpx.HTTPStatusError("no", request=httpx.Request("GET", url), response=httpx.Response(status))
+    assert hermes_catalog.classify(read=read, pause=0) == {"portable": 1, "native": 1}
+    assert asked == [f"https://raw.githubusercontent.com/example/{name}/{pin * 40}/plugin.json"
+                     for name, pin in (("portable", "b"), ("native", "c"), ("throttled", "d"))]
+    rows = {e["name"]: e for e in hermes_catalog.read_catalog()["entries"]}
+    assert rows["native"]["compatibility"] == "unsupported" and "Hermes app" in rows["native"]["reason"]
+    assert rows["portable"]["portable"] and rows["portable"]["compatibility"] == "not_inspected"
+    assert rows["throttled"]["compatibility"] == "not_inspected" and not rows["throttled"]["portable"]
+    asked.clear()
+    hermes_catalog.classify(read=read, pause=0)
+    assert asked == [asked[0]] and "/throttled/" in asked[0]  # Known pins are never read again.
