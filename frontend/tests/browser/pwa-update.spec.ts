@@ -1,5 +1,39 @@
+import type { Page } from '@playwright/test';
 import { expect, test, writeEvidence } from './evidence';
 import { captureSurface, openHome } from './surface-helpers';
+import { composer, newConversation } from './unified-helpers';
+
+/** An older worker controls the page and a newer one is waiting. */
+async function fakeWaitingUpdate(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const container = navigator.serviceWorker;
+    const waiting = new EventTarget() as EventTarget & {
+      state: ServiceWorkerState;
+      postMessage(value: unknown): void;
+    };
+    waiting.state = 'installed';
+    waiting.postMessage = (value: unknown) => {
+      sessionStorage.setItem('phase5-update-message', JSON.stringify(value));
+      queueMicrotask(() =>
+        container.dispatchEvent(new Event('controllerchange')),
+      );
+    };
+    const registration = new EventTarget() as EventTarget & {
+      waiting: typeof waiting;
+      installing: null;
+    };
+    registration.waiting = waiting;
+    registration.installing = null;
+    Object.defineProperty(container, 'controller', {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(container, 'register', {
+      configurable: true,
+      value: async () => registration,
+    });
+  });
+}
 
 test('manifest and installed service worker cache only immutable public assets', async ({
   context,
@@ -146,34 +180,7 @@ test('manifest and installed service worker cache only immutable public assets',
 test('an old controlled PWA presents an explicit update and activates only from the user action', async ({
   page,
 }, testInfo) => {
-  await page.addInitScript(() => {
-    const container = navigator.serviceWorker;
-    const waiting = new EventTarget() as EventTarget & {
-      state: ServiceWorkerState;
-      postMessage(value: unknown): void;
-    };
-    waiting.state = 'installed';
-    waiting.postMessage = (value: unknown) => {
-      sessionStorage.setItem('phase5-update-message', JSON.stringify(value));
-      queueMicrotask(() =>
-        container.dispatchEvent(new Event('controllerchange')),
-      );
-    };
-    const registration = new EventTarget() as EventTarget & {
-      waiting: typeof waiting;
-      installing: null;
-    };
-    registration.waiting = waiting;
-    registration.installing = null;
-    Object.defineProperty(container, 'controller', {
-      configurable: true,
-      value: {},
-    });
-    Object.defineProperty(container, 'register', {
-      configurable: true,
-      value: async () => registration,
-    });
-  });
+  await fakeWaitingUpdate(page);
   await openHome(page);
   const update = page.getByRole('button', {
     name: 'Update and reload',
@@ -200,4 +207,46 @@ test('an old controlled PWA presents an explicit update and activates only from 
     scope:
       'Deterministic ServiceWorkerContainer waiting-worker emulation verifies the React update contract. The preceding test exercises Chromium registration and CacheStorage against the shipped worker.',
   });
+});
+
+test('a waiting update never covers the composer or its Send button', async ({
+  page,
+}, testInfo) => {
+  await fakeWaitingUpdate(page);
+  await newConversation(page);
+  const notice = page.getByTestId('pwa-status');
+  await expect(
+    notice.getByRole('button', { name: 'Update and reload', exact: true }),
+  ).toBeVisible();
+  await composer(page).fill('Still sendable');
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const geometry: Record<string, unknown> = {};
+  for (const size of [
+    { name: 'phone', width: 390, height: 844 },
+    { name: 'desktop', width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect(send).toBeVisible();
+    const box = (await notice.boundingBox())!;
+    for (const part of [composer(page), send]) {
+      const other = (await part.boundingBox())!;
+      const overlaps =
+        box.x < other.x + other.width &&
+        other.x < box.x + box.width &&
+        box.y < other.y + other.height &&
+        other.y < box.y + box.height;
+      expect(overlaps, `${size.name}: the notice covers the composer`).toBe(
+        false,
+      );
+    }
+    // Nothing intercepts a click on Send (a trial click checks, sends nothing).
+    await send.click({ trial: true });
+    await captureSurface(
+      page,
+      testInfo,
+      `pwa-update-over-${size.name}-composer`,
+    );
+    geometry[size.name] = { notice: box, send: await send.boundingBox() };
+  }
+  await writeEvidence(testInfo, 'pwa-update-clear-of-composer', geometry);
 });
