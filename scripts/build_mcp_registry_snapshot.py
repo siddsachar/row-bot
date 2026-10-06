@@ -5,13 +5,15 @@
                     the network is unavailable and a saved capture exists
   --since SNAPSHOT  incremental: only records updated since that snapshot's watermark
   --input FILE      offline: a saved Registry envelope ({"servers": [...]})
+  --save-capture FILE  with --sync: also save every record read, so --input FILE
+                    --captured-at rebuilds the same bytes offline
 
 The output is reproducible: the same records and capture time give the same bytes.
 """
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -54,15 +56,21 @@ def main() -> None:
     parser.add_argument("--captured-at", default="", help="UTC ISO time of an --input capture")
     parser.add_argument("--output", type=Path, default=registry_snapshot.SHIPPED)
     parser.add_argument("--pause", type=float, default=0.5, help="seconds between Registry pages")
+    parser.add_argument("--save-capture", type=Path, help="with --sync, save the records read to this file")
     args = parser.parse_args()
     if args.input:
         entries, captured_at, watermark, complete = _from_capture(args.input, args.captured_at)
     else:
         base = registry_snapshot.read_snapshot(args.since) if args.since else None
-        started = time.time()
+        started, read = time.time(), []
+
+        def get(url: str, headers: dict, meta: dict) -> bytes:
+            body = registry_snapshot._get(url, headers, meta)
+            read.extend(json.loads(body).get("servers") or [])
+            return body
         try:
             result = registry_snapshot.sync(since=base["watermark"] if base else "", pause=args.pause,
-                                            deadline=3600, max_pages=2000)
+                                            deadline=3600, max_pages=2000, get=get)
         except Exception as exc:  # The network is unavailable: build from the saved capture instead.
             if not CAPTURE.exists():
                 raise
@@ -74,6 +82,10 @@ def main() -> None:
             for name in result["deleted"]:
                 merged.pop(name, None)
             entries, captured_at, watermark, complete = list(merged.values()), started, result["watermark"], True
+            if args.save_capture and not base:
+                stamp = datetime.fromtimestamp(round(started, 3), timezone.utc).isoformat()
+                args.save_capture.write_text(json.dumps({"fetched_at": stamp, "complete": True, "servers": read}),
+                                             encoding="utf-8")
     data = registry_snapshot.build_snapshot(entries, captured_at=round(captured_at, 3), watermark=watermark, complete=complete)
     args.output.write_bytes(data)
     header = registry_snapshot.read_header(args.output)

@@ -82,6 +82,21 @@ def test_sync_pages_politely_with_updated_since_etag_backoff_and_deletions():
     assert result["deleted"] == ["org.b/x"] and result["watermark"] == "2026-10-03T05:00:00.000000000Z" and result["etag"] == '"v2"'
 
 
+def test_sync_retries_a_page_that_timed_out_or_dropped_with_growing_waits():
+    page = json.dumps({"servers": [envelope("org.a/x")], "metadata": {}}).encode()
+    failures = [httpx.ReadTimeout("slow"), httpx.RemoteProtocolError("dropped"), httpx.ConnectError("reset")]
+    sleeps = []
+
+    def get(url, headers, meta):
+        if failures:
+            raise failures.pop(0)
+        return page
+    result = snapshot.sync(get=get, sleep=sleeps.append)
+    assert [e.metadata["canonical_name"] for e in result["entries"]] == ["org.a/x"] and sleeps == [1.0, 2.0, 4.0]
+    with pytest.raises(httpx.ReadTimeout):  # Five slow tries in a row: the sync stops.
+        snapshot.sync(get=lambda *a: (_ for _ in ()).throw(httpx.ReadTimeout("slow")), sleep=lambda s: None)
+
+
 def test_sync_not_modified_cancelled_and_runaway_cursors():
     def not_modified(url, headers, meta):
         response = httpx.Response(304, request=httpx.Request("GET", url))

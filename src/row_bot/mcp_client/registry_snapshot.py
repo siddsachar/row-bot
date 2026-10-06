@@ -115,14 +115,17 @@ def read_snapshot(path: Path | None = None) -> dict:
 
 def _get(url: str, headers: dict, meta: dict) -> bytes:
     from row_bot.integrations.safe import fetch
-    return fetch(url, hosts={"registry.modelcontextprotocol.io"}, max_bytes=4 * 1024 * 1024, timeout=30, headers=headers,
+    return fetch(url, hosts={"registry.modelcontextprotocol.io"}, max_bytes=4 * 1024 * 1024, timeout=60, headers=headers,
                  meta=meta, refused="registry_source_not_supported", too_large="registry_response_too_large")
 
 
 def _retry_after(exc: Exception, attempt: int) -> float | None:
-    """Seconds to wait before retrying a throttled or failed page, or None to give up."""
+    """Seconds to wait before retrying a throttled or failed page (a slow or dropped connection included),
+    or None to give up."""
+    import httpx
     status = getattr(getattr(exc, "response", None), "status_code", None)
-    if attempt >= 4 or not (status in {429, 500, 502, 503, 504} or isinstance(exc, (ConnectionError, TimeoutError, OSError))):
+    if attempt >= 4 or not (status in {429, 500, 502, 503, 504}
+                            or isinstance(exc, (ConnectionError, TimeoutError, OSError, httpx.TransportError))):
         return None
     try:
         wait = float(exc.response.headers.get("retry-after", ""))  # type: ignore[union-attr]
