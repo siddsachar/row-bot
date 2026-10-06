@@ -158,7 +158,7 @@ def test_started_agent_is_recorded_and_the_last_close_stops_it(ngrok, owned, con
 
     assert origin == "https://managed-8080.ngrok-free.app"
     assert json.loads(owned.read_text())["agents"] == [
-        _agent(AGENT_PID, 5000.0, os.getpid(), OWN_CREATED)
+        {**_agent(AGENT_PID, 5000.0, os.getpid(), OWN_CREATED), "name": "ngrok.exe"}
     ]
     assert contained == [AGENT_PID]
 

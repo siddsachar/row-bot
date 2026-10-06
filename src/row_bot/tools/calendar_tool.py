@@ -6,12 +6,9 @@ import copy
 import hashlib
 import json
 import logging
-import os
-import pathlib
 import random
 import re
 import ssl
-import tempfile
 import threading
 import time
 import uuid
@@ -24,23 +21,17 @@ from zoneinfo import ZoneInfo
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from row_bot.account_token_checks import record_token_check
+from row_bot import account_tokens
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools import registry
 from row_bot.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# Credential / token files live in the Row-Bot data directory.
+# Gmail and Calendar share one Google sign-in, kept in the system keychain (account_tokens).
 _DATA_DIR = get_row_bot_data_dir()
 _CALENDAR_DIR = _DATA_DIR / "calendar"
 _CALENDAR_DIR.mkdir(parents=True, exist_ok=True)
-
-# Re-use the same Google OAuth credentials.json as Gmail (same Cloud project),
-# but keep a separate token file because the scopes differ.
-_GMAIL_DIR = _DATA_DIR / "gmail"
-DEFAULT_CREDENTIALS_PATH = str(_GMAIL_DIR / "credentials.json")
-DEFAULT_TOKEN_PATH = str(_CALENDAR_DIR / "token.json")
 
 # Calendar operations — tiered by risk.
 _READ_OPS = ["get_current_datetime", "search_events"]
@@ -79,94 +70,8 @@ def _lock_for(
         return lock
 
 
-def _credential_lock(token_path: str) -> threading.Lock:
-    key = str(pathlib.Path(token_path).expanduser().resolve())
-    return _lock_for(_CREDENTIAL_LOCKS, key, threading.Lock)  # type: ignore[return-value]
-
-
-def _mutation_lock(token_path: str) -> threading.RLock:
-    key = str(pathlib.Path(token_path).expanduser().resolve())
-    return _lock_for(_MUTATION_LOCKS, key, threading.RLock)  # type: ignore[return-value]
-
-
-def _write_credentials_atomically(token_path: str, credentials: Any) -> None:
-    """Persist refreshed OAuth credentials without exposing a partial token file."""
-    path = pathlib.Path(token_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    os.close(fd)
-    temporary_path = pathlib.Path(temporary_name)
-    try:
-        temporary_path.write_text(credentials.to_json(), encoding="utf-8")
-        os.replace(temporary_path, path)
-    finally:
-        try:
-            temporary_path.unlink(missing_ok=True)
-        except OSError:
-            logger.debug("Could not clean temporary Calendar token file", exc_info=True)
-
-
-def _load_google_credentials(token_path: str) -> Any:
-    """Load independent credentials and refresh them single-flight if required."""
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-
-    path = pathlib.Path(token_path)
-    credentials = Credentials.from_authorized_user_file(str(path), CALENDAR_SCOPES)
-    if credentials.valid:
-        return credentials
-
-    with _credential_lock(str(path)):
-        # Another request may have refreshed the token while this request waited.
-        credentials = Credentials.from_authorized_user_file(str(path), CALENDAR_SCOPES)
-        if credentials.valid:
-            return credentials
-        if not credentials.refresh_token:
-            raise RuntimeError("Calendar token is invalid and has no refresh token")
-        credentials.refresh(Request())
-        if not credentials.valid:
-            raise RuntimeError("Calendar token refresh did not produce valid credentials")
-        _write_credentials_atomically(str(path), credentials)
-        return credentials
-
-
-def _check_google_token(token_path: str) -> tuple[str, str]:
-    """Probe a Google OAuth token and attempt a concurrency-safe silent refresh.
-
-    Settings › Accounts reports the verdict (B263).
-    """
-    result = _probe_google_token(token_path)
-    record_token_check(token_path, result[0])
-    return result
-
-
-def _probe_google_token(token_path: str) -> tuple[str, str]:
-    if not os.path.isfile(token_path):
-        return ("missing", "No token file found")
-    try:
-        from google.oauth2.credentials import Credentials
-
-        existing = Credentials.from_authorized_user_file(token_path, CALENDAR_SCOPES)
-        if existing.valid:
-            return ("valid", "Token is valid")
-        if not existing.refresh_token:
-            return ("expired", "Token expired and no refresh token available")
-        from row_bot.docs_capture import is_docs_real_data_capture
-
-        if is_docs_real_data_capture():
-            return ("expired", "Token refresh suppressed during authorized capture")
-        _load_google_credentials(token_path)
-        return ("refreshed", "Token refreshed successfully")
-    except Exception as exc:
-        error = str(exc).lower()
-        if "invalid_grant" in error or "revoked" in error:
-            return (
-                "expired",
-                "Refresh token expired or revoked — re-authenticate in Settings",
-            )
-        return ("error", f"Token check failed: {exc}")
+def _mutation_lock(account: str) -> threading.RLock:
+    return _lock_for(_MUTATION_LOCKS, account, threading.RLock)  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -526,9 +431,9 @@ class CalendarTool(BaseTool):
     def config_schema(self) -> dict[str, dict]:
         return {
             "credentials_path": {
-                "label": "credentials.json path",
+                "label": "Your own client file (kept outside Row-Bot)",
                 "type": "text",
-                "default": DEFAULT_CREDENTIALS_PATH,
+                "default": "",
             },
             "selected_operations": {
                 "label": "Allowed operations",
@@ -542,37 +447,21 @@ class CalendarTool(BaseTool):
     def destructive_tool_names(self) -> set[str]:
         return {"move_calendar_event", "delete_calendar_event"}
 
-    def _get_credentials_path(self) -> str:
-        return self.get_config("credentials_path", DEFAULT_CREDENTIALS_PATH)
-
-    def _get_token_path(self) -> str:
-        return DEFAULT_TOKEN_PATH
-
     def has_credentials_file(self) -> bool:
-        return os.path.isfile(self._get_credentials_path())
+        """Whether Google's Desktop client is saved (or the person keeps their own client file)."""
+        return account_tokens.google_client() is not None
 
     def is_authenticated(self) -> bool:
-        return os.path.isfile(self._get_token_path())
+        return account_tokens.read("google") is not None
 
     def check_token_health(self) -> tuple[str, str]:
-        return _check_google_token(self._get_token_path())
-
-    def authenticate(self) -> None:
-        """Run the interactive OAuth consent flow from Settings."""
-        from langchain_google_community.calendar.utils import get_google_credentials
-
-        get_google_credentials(
-            scopes=CALENDAR_SCOPES,
-            token_file=self._get_token_path(),
-            client_secrets_file=self._get_credentials_path(),
-        )
+        return account_tokens.check_google()
 
     def _build_api_resource(self) -> Any:
         """Build a fresh service and HTTP transport for one invocation only."""
         from langchain_google_community.calendar.utils import build_calendar_service
 
-        credentials = _load_google_credentials(self._get_token_path())
-        return build_calendar_service(credentials=credentials)
+        return build_calendar_service(credentials=account_tokens.google_credentials())
 
     def _get_selected_operations(self) -> list[str]:
         configured = self.get_config("selected_operations", DEFAULT_OPERATIONS)
@@ -591,7 +480,7 @@ class CalendarTool(BaseTool):
         mutate: bool = False,
         correlation: str = "",
     ) -> dict[str, Any]:
-        lock_context = _mutation_lock(self._get_token_path()) if mutate else nullcontext()
+        lock_context = _mutation_lock("google") if mutate else nullcontext()
         with lock_context:
             for attempt in range(1, _MAX_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
@@ -854,12 +743,12 @@ class CalendarTool(BaseTool):
 
     def _create_calendar_event(self, **kwargs: Any) -> str:
         payload = dict(kwargs)
-        with _mutation_lock(self._get_token_path()):
+        with _mutation_lock("google"):
             return _json_result(self._create_event_unlocked(payload))
 
     def _create_calendar_events(self, events: list[_CreateEventInput]) -> str:
         results = []
-        with _mutation_lock(self._get_token_path()):
+        with _mutation_lock("google"):
             for event in events:
                 payload = event.model_dump() if isinstance(event, BaseModel) else dict(event)
                 results.append(self._create_event_unlocked(payload))

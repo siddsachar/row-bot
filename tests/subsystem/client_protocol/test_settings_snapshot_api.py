@@ -466,9 +466,10 @@ def test_x_account_requires_saved_client_credentials_before_token_state(
 def test_account_snapshot_never_returns_google_credential_paths(tmp_path, monkeypatch):
     from row_bot.application import settings_snapshot
 
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "profile"))  # The person keeps the file elsewhere.
     private_path = tmp_path / "private" / "client-secret.json"
     private_path.parent.mkdir()
-    private_path.write_text("{}", encoding="utf-8")
+    private_path.write_text('{"installed": {"client_id": "fixture"}}', encoding="utf-8")
     credentials = {
         "GITHUB_TOKEN": {"configured": False, "source": "none", "fingerprint": ""},
         "X_CLIENT_ID": {"configured": False, "source": "none", "fingerprint": ""},

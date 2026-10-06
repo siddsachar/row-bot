@@ -20,7 +20,7 @@ import sys
 import time
 from typing import Any
 
-from row_bot.account_token_checks import token_file_state
+from row_bot import account_tokens
 from row_bot.data_paths import get_row_bot_data_dir
 
 _MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -1360,12 +1360,9 @@ def _accounts(
     gmail = _mapping(tool_configs.get("gmail"))
     calendar = _mapping(tool_configs.get("calendar"))
     x_config = _mapping(tool_configs.get("x"))
-    gmail_path = _text(
-        gmail.get("credentials_path") or root / "gmail" / "credentials.json", 4096
-    )
-    calendar_path = _text(
-        calendar.get("credentials_path") or root / "gmail" / "credentials.json", 4096
-    )
+    # Gmail and Calendar share one Google client and sign-in, both in the system keychain.
+    google_client = account_tokens.google_client(str(gmail.get("credentials_path") or "")) is not None
+    google_state = account_tokens.state("google")
     x_id = _credential_status("X_CLIENT_ID")
     x_secret = _credential_status("X_CLIENT_SECRET")
     gmail_ops = _strings(gmail.get("selected_operations")) or list(
@@ -1391,15 +1388,15 @@ def _accounts(
         "gmail": _account(
             account_id="gmail",
             enabled=_enabled("gmail", tools, registered),
-            configured=_local_path_is_file(gmail_path),
-            authentication_state=token_file_state(root / "gmail" / "token.json"),
+            configured=google_client,
+            authentication_state=google_state,
             operations=gmail_ops,
         ),
         "calendar": _account(
             account_id="calendar",
             enabled=_enabled("calendar", tools, registered),
-            configured=_local_path_is_file(calendar_path),
-            authentication_state=token_file_state(root / "calendar" / "token.json"),
+            configured=google_client,
+            authentication_state=google_state,
             operations=calendar_ops,
         ),
         "x": _account(
@@ -1407,7 +1404,7 @@ def _accounts(
             enabled=_enabled("x", tools, registered),
             configured=x_id["configured"] and x_secret["configured"],
             authentication_state=(
-                token_file_state(root / "x" / "token.json")
+                account_tokens.state("x")
                 if x_id["configured"] and x_secret["configured"]
                 else "not_configured"
             ),

@@ -28,7 +28,6 @@ agents are touched; an ngrok agent Row-Bot did not start is never stopped.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
@@ -38,85 +37,30 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol
 
+from row_bot import owned_processes
+
 log = logging.getLogger(__name__)
 
 
 # ── Owned ngrok agents ───────────────────────────────────────────────
 
 _OWNED_AGENTS_FILE = "ngrok-agents.json"
-_CREATE_TIME_SLACK = 2.0
-_owned_lock = threading.Lock()
 _job_handle = None  # Windows job object that ends agents with this process
 
 
 def owned_agents_path() -> Path:
-    from row_bot.data_paths import get_row_bot_data_dir
-
-    return get_row_bot_data_dir(create=False) / "runtime" / _OWNED_AGENTS_FILE
-
-
-def _read_owned(path: Path) -> list[dict]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    agents = value.get("agents") if isinstance(value, dict) else None
-    return [
-        dict(item) for item in agents or []
-        if isinstance(item, dict)
-        and all(isinstance(item.get(key), (int, float)) for key in ("pid", "created", "owner_pid", "owner_created"))
-    ]
-
-
-def _write_owned(path: Path, agents: list[dict]) -> None:
-    if not agents:
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"agents": agents}, indent=2), encoding="utf-8")
-    os.replace(temporary, path)
-
-
-def _process_started(pid: int) -> float | None:
-    """Creation time of a running process, or None when it is gone."""
-    try:
-        import psutil
-
-        return float(psutil.Process(int(pid)).create_time())
-    except Exception:
-        return None
-
-
-def _same_process(pid: int, created: float) -> bool:
-    started = _process_started(pid)
-    return started is not None and abs(started - float(created)) <= _CREATE_TIME_SLACK
+    return owned_processes.ledger_path(_OWNED_AGENTS_FILE)
 
 
 def record_owned_agent(pid: int, *, path: Path | None = None) -> None:
     """Remember an ngrok agent this process started, so any exit can stop it."""
-    created = _process_started(pid)
-    owner_created = _process_started(os.getpid())
-    if created is None or owner_created is None:
-        return
-    path = path or owned_agents_path()
-    with _owned_lock:
-        agents = [agent for agent in _read_owned(path) if int(agent["pid"]) != int(pid)]
-        agents.append({"pid": int(pid), "created": created, "owner_pid": os.getpid(),
-                       "owner_created": owner_created})
-        _write_owned(path, agents)
-    _contain_agent(pid)
+    if owned_processes.record(path or owned_agents_path(), pid):
+        _contain_agent(pid)
 
 
 def forget_owned_agents(*, path: Path | None = None) -> None:
     """Drop this process's records once its agents are stopped."""
-    path = path or owned_agents_path()
-    with _owned_lock:
-        agents = _read_owned(path)
-        _write_owned(path, [agent for agent in agents if int(agent["owner_pid"]) != os.getpid()])
+    owned_processes.forget(path or owned_agents_path())
 
 
 def cleanup_owned_agents(
@@ -131,44 +75,10 @@ def cleanup_owned_agents(
     pid, anything that is not ngrok) is never touched. Returns how many
     agents were stopped.
     """
-    path = path or owned_agents_path()
-    dead = {dead_owner} if isinstance(dead_owner, int) else set(dead_owner or ())
-    stopped = 0
-    with _owned_lock:
-        kept = []
-        for agent in _read_owned(path):
-            owner = int(agent["owner_pid"])
-            if owner == os.getpid() or (
-                owner not in dead and _same_process(owner, float(agent["owner_created"]))
-            ):
-                kept.append(agent)
-                continue
-            if _stop_agent(int(agent["pid"]), float(agent["created"])):
-                stopped += 1
-        _write_owned(path, kept)
+    stopped = owned_processes.cleanup(path or owned_agents_path(), dead_owner=dead_owner, name="ngrok")
     if stopped:
         log.info("Stopped %d ngrok agent(s) left by an earlier Row-Bot run", stopped)
     return stopped
-
-
-def _stop_agent(pid: int, created: float) -> bool:
-    try:
-        import psutil
-
-        process = psutil.Process(pid)
-        if abs(float(process.create_time()) - created) > _CREATE_TIME_SLACK:
-            return False
-        if "ngrok" not in process.name().lower():
-            return False
-        process.terminate()
-        try:
-            process.wait(timeout=3)
-        except psutil.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=3)
-        return True
-    except Exception:
-        return False
 
 
 def _contain_agent(pid: int) -> bool:

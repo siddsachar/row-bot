@@ -23,7 +23,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from row_bot.account_token_checks import record_token_check
+from row_bot import account_tokens
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -34,8 +34,7 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = get_row_bot_data_dir()
 _X_DIR = _DATA_DIR / "x"
 _X_DIR.mkdir(parents=True, exist_ok=True)
-_TOKEN_PATH = _X_DIR / "token.json"
-_TIER_PATH = _X_DIR / "tier_info.json"
+_TIER_PATH = _X_DIR / "tier_info.json"  # The sign-in itself is in the system keychain (account_tokens).
 
 # ── X API v2 base URL ───────────────────────────────────────────────────────
 _API_BASE = "https://api.x.com/2"
@@ -68,21 +67,13 @@ _USER_FIELDS = "name,username,description,public_metrics,verified,created_at,pro
 # ── Token management ────────────────────────────────────────────────────────
 
 def _load_token() -> dict | None:
-    """Load persisted OAuth token from disk."""
-    if _TOKEN_PATH.is_file():
-        try:
-            with open(_TOKEN_PATH) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            logger.warning("Failed to load X token from %s", _TOKEN_PATH)
-    return None
+    """The saved X sign-in, from the system keychain."""
+    return account_tokens.read("x")
 
 
 def _save_token(token: dict):
-    """Persist OAuth token to disk."""
-    _TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_TOKEN_PATH, "w") as f:
-        json.dump(token, f, indent=2)
+    """Save the X sign-in in the system keychain only (never a file)."""
+    account_tokens.write("x", token)
 
 
 def _token_expired(token: dict) -> bool:
@@ -112,11 +103,14 @@ def _refresh_token(token: dict, client_id: str, client_secret: str) -> dict | No
         resp.raise_for_status()
         new_token = resp.json()
         new_token["expires_at"] = time.time() + new_token.get("expires_in", 7200)
-        _save_token(new_token)
-        return new_token
     except Exception as exc:
         logger.error("X token refresh failed: %s", exc)
         return None
+    try:
+        _save_token(new_token)
+    except account_tokens.AccountTokenError:
+        logger.error("The refreshed X sign-in could not be saved; it is used for this request only")
+    return new_token
 
 
 # ── Rate limit tracking ─────────────────────────────────────────────────────
@@ -691,8 +685,8 @@ class XTool(BaseTool):
         return bool(self._get_client_id() and self._get_client_secret())
 
     def is_authenticated(self) -> bool:
-        """Check if a token file exists."""
-        return _TOKEN_PATH.is_file()
+        """Whether an X sign-in is saved."""
+        return _load_token() is not None
 
     def check_token_health(self) -> tuple[str, str]:
         """Probe the OAuth token and attempt silent refresh if needed.
@@ -707,7 +701,7 @@ class XTool(BaseTool):
         Settings › Accounts reports the verdict (B263).
         """
         result = self._probe_token_health()
-        record_token_check(_TOKEN_PATH, result[0])
+        account_tokens.record_check("x", result[0])
         return result
 
     def _probe_token_health(self) -> tuple[str, str]:

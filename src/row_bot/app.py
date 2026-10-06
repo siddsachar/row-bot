@@ -733,6 +733,14 @@ async def _run_startup_sequence():
         logger.warning("Plugin loading failed (non-fatal): %s", exc)
 
     _set("🔌 Starting MCP servers…")
+    # A run that crashed may have left local app programs running: stop only the ones it recorded as its
+    # own (pid and creation time), before any new one starts.
+    try:
+        from row_bot.mcp_client.runtime import cleanup_app_processes
+        with _startup_phase("owned_app_process_cleanup"):
+            await asyncio.to_thread(cleanup_app_processes)
+    except Exception as exc:
+        logger.warning("Owned app process cleanup skipped (non-fatal): %s", exc)
     try:
         from row_bot.mcp_client.runtime import discover_enabled_servers
         with _startup_phase("mcp_discovery"):
@@ -775,6 +783,19 @@ async def _run_startup_sequence():
             "Channel credential migration skipped; legacy fallback remains active: %s",
             exc,
         )
+    # Google and X sign-ins that earlier versions kept in files move into the system keychain; each file
+    # goes only once its copy reads back the same.
+    try:
+        from row_bot import account_tokens
+        with _startup_phase("account_token_migration"):
+            moved = await asyncio.to_thread(account_tokens.migrate)
+        if moved["migrated"]:
+            _safe_console_print(f"[startup] 🔐 Moved {moved['migrated']} account sign-in(s) into the system keychain")
+        if moved["kept"]:
+            logger.warning("%s account sign-in(s) stay in their old files until the system keychain can keep them",
+                           moved["kept"])
+    except Exception as exc:
+        logger.warning("Account sign-in migration skipped; old files stay in use: %s", exc)
     auto_start_channels = []
     with _startup_phase("channel_auto_start_plan"):
         for _ch in _ch_registry.all_channels():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextvars
 import copy
 import contextlib
 import datetime as _dt
@@ -106,6 +107,10 @@ _thread: threading.Thread | None = None
 _runtime_lock = threading.RLock()
 _servers: dict[str, "McpServerRuntime"] = {}
 _catalog: dict[str, dict[str, McpToolInfo]] = {}
+# Local app programs this runtime starts are recorded (pid and creation time) so that a later Row-Bot,
+# after a crash, stops the ones it provably owned (owned_processes).
+APP_PROCESSES = "app-processes.json"
+_spawning: contextvars.ContextVar["McpServerRuntime | None"] = contextvars.ContextVar("mcp_spawning", default=None)
 # Every chat tool name this runtime gave an agent -> (server, the server's own tool or helper name). Which
 # app a step belongs to is read only from here or the discovered catalog, never guessed from a name.
 _issued: dict[str, tuple[str, str]] = {}
@@ -527,6 +532,7 @@ class McpServerRuntime:
         self._release_confirmed = True
         self._release_inflight = False
         self._release_epoch = 0
+        self._child_pid: int | None = None  # The local program this connection started, if any.
 
     def _confirm_release(self) -> bool:
         """Persist exact completion before forgetting a client-owned transport."""
@@ -670,7 +676,11 @@ class McpServerRuntime:
                 env=env,
                 cwd=self.cfg.get("cwd") or None,
             )
-            read_stream, write_stream = await self.exit_stack.enter_async_context(stdio_client(params))
+            spawning = _spawning.set(self)  # The program the SDK starts now is this connection's.
+            try:
+                read_stream, write_stream = await self.exit_stack.enter_async_context(stdio_client(params))
+            finally:
+                _spawning.reset(spawning)
         elif transport in {"streamable_http", "http", "streamable-http"}:
             if streamablehttp_client is None:
                 raise RuntimeError("MCP Streamable HTTP transport is unavailable")
@@ -832,6 +842,10 @@ class McpServerRuntime:
                 return
         self.exit_stack = None
         self.cleanup_complete = True
+        if self._child_pid is not None:  # The SDK has ended the program and its tree.
+            from row_bot import owned_processes
+            owned_processes.forget(owned_processes.ledger_path(APP_PROCESSES), self._child_pid)
+            self._child_pid = None
         with _runtime_lock:
             current_status = _statuses.get(self.name)
             preserve_status = current_status and current_status.status in {"failed", "dependency_missing"}
@@ -858,6 +872,43 @@ class McpServerRuntime:
                 await asyncio.shield(task)
             return
         await self.close()
+
+
+def _record_app_processes() -> None:
+    """Note each local app program the MCP SDK starts for a connection (its pid and creation time), so a
+    later Row-Bot can stop it if this one dies without ending it."""
+    try:
+        from mcp.client import stdio as sdk_stdio
+    except Exception:
+        return
+    original = getattr(sdk_stdio, "_create_platform_compatible_process", None)
+    if original is None or getattr(original, "row_bot_records", False):
+        return
+
+    async def create(*args: Any, **kwargs: Any) -> Any:
+        process = await original(*args, **kwargs)
+        server, pid = _spawning.get(), getattr(process, "pid", None)
+        if server is not None and isinstance(pid, int):
+            from row_bot import owned_processes
+            server._child_pid = pid
+            if not owned_processes.record(owned_processes.ledger_path(APP_PROCESSES), pid, server=server.name):
+                log_event("mcp.server.unrecorded_process", level=logging.WARNING, server=server.name)
+        return process
+    create.row_bot_records = True  # type: ignore[attr-defined]
+    sdk_stdio._create_platform_compatible_process = create
+
+
+def cleanup_app_processes(*, dead_owner: int | Iterable[int] | None = None) -> int:
+    """Stop local app programs (with their process trees) that a Row-Bot which has since ended started and
+    recorded; nothing else. Returns how many were stopped."""
+    from row_bot import owned_processes
+    stopped = owned_processes.cleanup(owned_processes.ledger_path(APP_PROCESSES), dead_owner=dead_owner, tree=True)
+    if stopped:
+        log_event("mcp.server.orphans_stopped", count=stopped)
+    return stopped
+
+
+_record_app_processes()
 
 
 def discover_enabled_servers() -> None:

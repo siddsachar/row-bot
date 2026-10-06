@@ -14,27 +14,24 @@ import email.mime.text
 import logging
 import mimetypes
 import os
-import pathlib
 from pathlib import Path
 from typing import List, Optional, Union
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, field_validator
 
-from row_bot.account_token_checks import record_token_check
+from row_bot import account_tokens
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 
 logger = logging.getLogger(__name__)
 
-# Credential / token files live in the Row-Bot data directory.
+# The Google sign-in and client live in the system keychain (account_tokens); this folder holds
+# Gmail's own working files.
 _DATA_DIR = get_row_bot_data_dir()
 _GMAIL_DIR = _DATA_DIR / "gmail"
 _GMAIL_DIR.mkdir(parents=True, exist_ok=True)
-
-DEFAULT_CREDENTIALS_PATH = str(_GMAIL_DIR / "credentials.json")
-DEFAULT_TOKEN_PATH = str(_GMAIL_DIR / "token.json")
 
 # Gmail operations — grouped by risk level
 _READ_OPS = ["search_gmail", "get_gmail_message", "get_gmail_thread"]
@@ -45,48 +42,6 @@ DEFAULT_OPERATIONS = _READ_OPS + _COMPOSE_OPS  # send disabled by default
 
 # Full access scope
 GMAIL_SCOPES = ["https://mail.google.com/"]
-
-
-def _check_google_token(token_path: str) -> tuple[str, str]:
-    """Probe a Google OAuth *token_path* and attempt silent refresh.
-
-    Returns ``(status, detail)`` — see ``GmailTool.check_token_health``.
-    Settings › Accounts reports the verdict (B263).
-    """
-    result = _probe_google_token(token_path)
-    record_token_check(token_path, result[0])
-    return result
-
-
-def _probe_google_token(token_path: str) -> tuple[str, str]:
-    if not os.path.isfile(token_path):
-        return ("missing", "No token file found")
-    try:
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request
-
-        creds = Credentials.from_authorized_user_file(token_path)
-        if creds.valid:
-            return ("valid", "Token is valid")
-        # Access token expired — try silent refresh
-        if creds.expired and creds.refresh_token:
-            from row_bot.docs_capture import is_docs_real_data_capture
-
-            if is_docs_real_data_capture():
-                return ("expired", "Token refresh suppressed during authorized capture")
-            try:
-                creds.refresh(Request())
-                # Persist the refreshed token
-                pathlib.Path(token_path).write_text(creds.to_json())
-                return ("refreshed", "Token refreshed successfully")
-            except Exception as exc:
-                err = str(exc).lower()
-                if "invalid_grant" in err or "revoked" in err:
-                    return ("expired", "Refresh token expired or revoked — re-authenticate in Settings")
-                return ("error", f"Refresh failed: {exc}")
-        return ("expired", "Token expired and no refresh token available")
-    except Exception as exc:
-        return ("error", f"Token check failed: {exc}")
 
 
 # ── Path resolution (shared with Telegram tool) ─────────────────────────
@@ -297,9 +252,9 @@ class GmailTool(BaseTool):
     def config_schema(self) -> dict[str, dict]:
         return {
             "credentials_path": {
-                "label": "credentials.json path",
+                "label": "Your own client file (kept outside Row-Bot)",
                 "type": "text",
-                "default": DEFAULT_CREDENTIALS_PATH,
+                "default": "",
             },
             "selected_operations": {
                 "label": "Allowed operations",
@@ -310,17 +265,12 @@ class GmailTool(BaseTool):
         }
 
     # ── Auth helpers ─────────────────────────────────────────────────────────
-    def _get_credentials_path(self) -> str:
-        return self.get_config("credentials_path", DEFAULT_CREDENTIALS_PATH)
-
-    def _get_token_path(self) -> str:
-        return DEFAULT_TOKEN_PATH
-
     def has_credentials_file(self) -> bool:
-        return os.path.isfile(self._get_credentials_path())
+        """Whether Google's Desktop client is saved (or the person keeps their own client file)."""
+        return account_tokens.google_client() is not None
 
     def is_authenticated(self) -> bool:
-        return os.path.isfile(self._get_token_path())
+        return account_tokens.read("google") is not None
 
     def check_token_health(self) -> tuple[str, str]:
         """Probe the OAuth token and attempt silent refresh if needed.
@@ -334,31 +284,12 @@ class GmailTool(BaseTool):
         - ``"missing"`` — no token.json found
         - ``"error"``   — unexpected error during check
         """
-        return _check_google_token(self._get_token_path())
-
-    def authenticate(self):
-        """Run the OAuth consent flow (opens browser).  Must be called
-        when ``credentials.json`` exists but ``token.json`` does not."""
-        from langchain_google_community.gmail.utils import get_gmail_credentials
-
-        get_gmail_credentials(
-            token_file=self._get_token_path(),
-            scopes=GMAIL_SCOPES,
-            client_sercret_file=self._get_credentials_path(),
-        )
+        return account_tokens.check_google()
 
     def _build_api_resource(self):
-        from langchain_google_community.gmail.utils import (
-            build_resource_service,
-            get_gmail_credentials,
-        )
+        from langchain_google_community.gmail.utils import build_resource_service
 
-        credentials = get_gmail_credentials(
-            token_file=self._get_token_path(),
-            scopes=GMAIL_SCOPES,
-            client_sercret_file=self._get_credentials_path(),
-        )
-        return build_resource_service(credentials=credentials)
+        return build_resource_service(credentials=account_tokens.google_credentials())
 
     # ── Build toolkit tools ──────────────────────────────────────────────────
     def _get_selected_operations(self) -> list[str]:
