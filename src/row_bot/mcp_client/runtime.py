@@ -29,6 +29,7 @@ from row_bot.mcp_client import config as mcp_config
 from row_bot.mcp_client.logging import log_event, mask_mapping, redact
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
 from row_bot.mcp_client.results import normalize_call_result
+from row_bot.integrations.presets import locked as recorded_locked
 from row_bot.mcp_client.safety import (asks_first, classify_tool_effect, is_destructive_tool, prefixed_tool_name,
                                        sanitize_name_component, tool_enabled_by_default)
 
@@ -87,6 +88,7 @@ class McpToolInfo:
     title: str = ""  # The tool's own readable title, when the server gives one.
     ui: str = ""  # The ``ui://`` view it declares (MCP Apps), if any.
     visibility: tuple[str, ...] = ("model", "app")  # Who may call it: the agent ("model"), its view ("app").
+    locked: bool = False  # Asks every time in every approval mode: destructive, unknown effect, or recorded so.
 
 
 @dataclass
@@ -474,6 +476,8 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
         effect = classify_tool_effect(tool_name, description, tool)
         enabled = bool(saved_enabled.get(tool_name, tool_enabled_by_default(destructive or effect in {"unknown", "mutation"})))
         requires = asks_first(tool_name, destructive, effect, approval_overrides, allowed)
+        recorded = (tool_cfg.get("catalog") or {}).get(tool_name)
+        locked = destructive or effect == "unknown" or (isinstance(recorded, dict) and recorded_locked(recorded))
         normalized[tool_name] = McpToolInfo(
             server_name=server_name,
             name=tool_name,
@@ -488,6 +492,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             title=" ".join(str(title or "").split())[:96],
             ui=view,
             visibility=visibility,
+            locked=locked,
         )
     for info in normalized.values():
         info.enabled = info.enabled and _accepted_tool_matches(server_cfg, info)
@@ -509,6 +514,9 @@ def _sync_catalog_from_config(config: dict[str, Any] | None = None) -> None:
                 info.enabled = bool(enabled_map.get(info.name, tool_enabled_by_default(
                     info.destructive or effect in {"unknown", "mutation"}))) and _accepted_tool_matches(server_cfg, info)
                 info.requires_approval = asks_first(info.name, info.destructive, effect, approval_overrides, allowed)
+                recorded = (tools_cfg.get("catalog") or {}).get(info.name)
+                info.locked = info.destructive or effect == "unknown" or (isinstance(recorded, dict)
+                                                                          and recorded_locked(recorded))
             status = _statuses.get(server_name)
             if status:
                 status.tool_count = len(tools)
@@ -1644,6 +1652,15 @@ def get_destructive_tool_names(
                 and _mcp_runtime_name_allowed(info.prefixed_name, allow)
             )
         }
+
+
+def get_locked_tool_names(allow_names: Iterable[str] | None = None) -> set[str]:
+    """App tools that ask every time, even where everything else may run without asking (Allow all)."""
+    allow = _allow_names_set(allow_names)
+    _sync_catalog_from_config()
+    with _runtime_lock:
+        return {info.prefixed_name for tools in _catalog.values() for info in tools.values()
+                if info.enabled and info.locked and _mcp_runtime_name_allowed(info.prefixed_name, allow)}
 
 
 def get_plugin_destructive_tool_names(

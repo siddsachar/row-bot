@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after path bootstrap
 
 MODELS = {name: getattr(schemas, name) for name in (
+    "WorkflowTemplateApp", "WorkflowTemplate", "WorkflowTemplateList", "WorkflowTemplateCreated",
     "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
     "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
     "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
@@ -110,6 +111,8 @@ OPERATIONS = (
     ('get', '/integrations/sources', None, 'IntegrationSourceList'),
     ('post', '/integrations/sources/{source_id}/update', None, 'IntegrationSourceView'),
     ('put', '/integrations/sources/{source_id}/opt-in', 'SourceOptInChange', 'IntegrationSourceView'),
+    ('get', '/integrations/workflow-templates', None, 'WorkflowTemplateList'),
+    ('post', '/integrations/workflow-templates/{template_id}/use', None, 'WorkflowTemplateCreated'),
     ('get', '/integrations/catalog-schedule', None, 'CatalogSchedule'),
     ('put', '/integrations/catalog-schedule', 'CatalogSchedule', 'CatalogSchedule'),
     ('get', '/integrations/apps', None, 'AppList'),
@@ -1181,6 +1184,10 @@ export const getIntegrationSources = (base: string, proof: SessionProof, signal?
   jsonRequest(base, '/integrations/sources', 'IntegrationSourceList', proof, 'GET', undefined, undefined, signal);
 export const updateIntegrationSource = (base: string, proof: SessionProof, source: string, signal?: AbortSignal): Promise<IntegrationSourceView> =>
   jsonRequest(base, `/integrations/sources/${id(source)}/update`, 'IntegrationSourceView', proof, 'POST', undefined, undefined, signal);
+export const getWorkflowTemplates = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<WorkflowTemplateList> =>
+  jsonRequest(base, '/integrations/workflow-templates', 'WorkflowTemplateList', proof, 'GET', undefined, undefined, signal);
+export const useWorkflowTemplate = (base: string, proof: SessionProof, template: string, signal?: AbortSignal): Promise<WorkflowTemplateCreated> =>
+  jsonRequest(base, `/integrations/workflow-templates/${id(template)}/use`, 'WorkflowTemplateCreated', proof, 'POST', undefined, undefined, signal);
 export const setIntegrationSourceOptIn = (base: string, proof: SessionProof, source: string, body: SourceOptInChange, signal?: AbortSignal): Promise<IntegrationSourceView> =>
   jsonRequest(base, `/integrations/sources/${id(source)}/opt-in`, 'IntegrationSourceView', proof, 'PUT', validateWire('SourceOptInChange', body), undefined, signal);
 export const getCatalogSchedule = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CatalogSchedule> =>

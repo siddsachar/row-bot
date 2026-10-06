@@ -140,6 +140,11 @@ export interface ClientTransport {
     source: string,
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationSourceView>;
+  workflowTemplates?(signal?: AbortSignal): Promise<Wire.WorkflowTemplateList>;
+  useWorkflowTemplate?(
+    template: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkflowTemplateCreated>;
   setIntegrationSourceOptIn?(
     source: string,
     on: boolean,

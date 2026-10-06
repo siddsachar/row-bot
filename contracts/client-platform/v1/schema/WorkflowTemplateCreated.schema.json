@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 200,
+      "title": "Name",
+      "type": "string"
+    },
+    "task_id": {
+      "maxLength": 128,
+      "title": "Task Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "name"
+  ],
+  "title": "WorkflowTemplateCreated",
+  "type": "object"
+}

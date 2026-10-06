@@ -146,6 +146,18 @@ def turn_scope(conversation_id: str, text: str, allow: list[str] | tuple[str, ..
     return {"exclude_servers": sorted(servers), "exclude_tools": tools, "focus": focus, "skills": skills}
 
 
+def step_scope(item_ids: list[str] | tuple[str, ...] | None) -> dict | None:
+    """What a workflow step that names its apps leaves out: every other app, as an @mention of them
+    would (and only that: the workflow's profile and every approval still apply). None: it names none."""
+    wanted = list(dict.fromkeys(str(item_id) for item_id in item_ids or []))[:MAX_FOCUS]
+    if not wanted:
+        return None
+    left_out = [item for item in _items(strict=True) if item["id"] not in wanted]  # Unreadable: refuse.
+    return {"exclude_servers": sorted({item["server"] for item in left_out if item.get("server")}),
+            "exclude_tools": sorted({tool for item in left_out for tool in item.get("tools") or []}),
+            "focus": wanted, "skills": []}
+
+
 def app_for_tool(tool_name: str) -> dict | None:
     """The app a chat tool belongs to (``{item_id, name, icon, tool}``, ``tool`` being the tool's readable
     title), from its exact runtime name; None for Row-Bot's own and for a name no app issued."""

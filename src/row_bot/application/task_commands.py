@@ -144,6 +144,7 @@ def execute_task_command(*, owner_id: str, key: str, command: dict,
             steps = tuple(TaskGraphStepEdit(step["id"], step["type"], TaskGraphFields(**{
                 **step["fields"], "run_ids": None if step["fields"].get("run_ids") is None
                 else tuple(step["fields"]["run_ids"]),
+                "apps": None if step["fields"].get("apps") is None else tuple(step["fields"]["apps"]),
             })) for step in payload["steps"])
             update_saved_task_graph(task_id, steps, expected_revision=payload["task_revision"],
                                     validate=validate, record_commit=record_commit)

@@ -3,6 +3,24 @@
     "TaskGraphFields": {
       "additionalProperties": false,
       "properties": {
+        "apps": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 512,
+                "minLength": 3,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Apps"
+        },
         "channel": {
           "anyOf": [
             {

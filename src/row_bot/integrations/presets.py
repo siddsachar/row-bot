@@ -19,11 +19,13 @@ STATES = ("use", "ask", "off")
 
 
 def locked(row: dict) -> bool:
-    """Destructive, high impact, unknown, or declared to need approval: it asks in every preset.
+    """Destructive, high impact, unknown, declared to need approval, or a broker's tool that runs code or
+    acts for other apps: it asks in every preset (and in every approval mode).
 
     A routine change's ``requires_approval`` only reflects that it has not been allowed yet."""
     effect = row.get("effect", "unknown")
-    return bool(row.get("destructive")) or effect == "unknown" or (bool(row.get("requires_approval")) and effect != "mutation")
+    return (bool(row.get("destructive")) or effect == "unknown" or bool(row.get("runs_code") or row.get("always_asks"))
+            or (bool(row.get("requires_approval")) and effect != "mutation"))
 
 
 def tool_state(preset: str, row: dict) -> str:

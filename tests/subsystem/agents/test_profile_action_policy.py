@@ -640,3 +640,18 @@ def test_a_gated_structured_result_stays_data(runtime, monkeypatch):
     monkeypatch.setattr(runtime, "interrupt", lambda _request: True)
 
     assert tool.invoke({"path": "notes.txt"}) == '{"status": "success", "path": "notes.txt"}'
+
+
+def test_an_approval_locked_app_tool_asks_even_under_allow_all(runtime, monkeypatch):
+    """Allow all lets routine actions run; an app tool that is destructive or of unknown effect still asks,
+    and says so, so an unattended run waits for the person instead of approving it."""
+    asked, deleted = [], []
+    tool = StructuredTool.from_function(func=lambda page: deleted.append(page) or "Deleted", name="mcp_notes_delete_page",
+                                        description="Delete a page")
+    runtime._wrap_with_interrupt_gate(tool, always_ask=True)
+    runtime._approval_mode_var.set("allow_all")
+    monkeypatch.setattr(runtime, "interrupt", lambda request: asked.append(request) or False)
+    assert tool.invoke({"page": "Plans"}).startswith("Approval: asked; denied by you")
+    assert deleted == [] and asked[0]["always_ask"] is True and asked[0]["tool"] == "mcp_notes_delete_page"
+    runtime._approval_mode_var.set("block")
+    assert tool.invoke({"page": "Plans"}).startswith("BLOCKED") and len(asked) == 1

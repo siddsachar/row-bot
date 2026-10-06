@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "WorkflowTemplateApp": {
+      "additionalProperties": false,
+      "properties": {
+        "app_id": {
+          "maxLength": 80,
+          "title": "App Id",
+          "type": "string"
+        },
+        "connected": {
+          "title": "Connected",
+          "type": "boolean"
+        },
+        "icon": {
+          "maxLength": 200,
+          "title": "Icon",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 160,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "app_id",
+        "name",
+        "icon",
+        "connected"
+      ],
+      "title": "WorkflowTemplateApp",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A workflow that uses apps, created switched off and scheduled; never a webhook.",
+  "properties": {
+    "apps": {
+      "items": {
+        "$ref": "#/$defs/WorkflowTemplateApp"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Apps",
+      "type": "array"
+    },
+    "description": {
+      "maxLength": 512,
+      "title": "Description",
+      "type": "string"
+    },
+    "icon": {
+      "maxLength": 16,
+      "title": "Icon",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z0-9_]{1,64}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 160,
+      "title": "Name",
+      "type": "string"
+    },
+    "schedule_label": {
+      "maxLength": 80,
+      "title": "Schedule Label",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "description",
+    "icon",
+    "schedule_label",
+    "apps"
+  ],
+  "title": "WorkflowTemplate",
+  "type": "object"
+}

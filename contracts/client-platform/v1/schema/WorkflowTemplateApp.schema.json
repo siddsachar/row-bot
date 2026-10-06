@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "app_id": {
+      "maxLength": 80,
+      "title": "App Id",
+      "type": "string"
+    },
+    "connected": {
+      "title": "Connected",
+      "type": "boolean"
+    },
+    "icon": {
+      "maxLength": 200,
+      "title": "Icon",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 160,
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "app_id",
+    "name",
+    "icon",
+    "connected"
+  ],
+  "title": "WorkflowTemplateApp",
+  "type": "object"
+}

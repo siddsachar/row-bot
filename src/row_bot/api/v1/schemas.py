@@ -5292,6 +5292,9 @@ class TaskGraphFields(WireModel):
     run_ids: list[Annotated[str, StringConstraints(max_length=128)]] | None = Field(
         default=None, max_length=100
     )
+    apps: list[Annotated[str, StringConstraints(min_length=3, max_length=512)]] | None = Field(
+        default=None, max_length=8
+    )
 
 
 class TaskGraphStepEdit(WireModel):
@@ -7959,6 +7962,33 @@ class CatalogSchedule(WireModel):
     interval_days: Literal[1, 7, 30]
     # The catalogs to update (ids from GET /integrations/sources); null means every updatable one.
     sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
+
+
+class WorkflowTemplateApp(WireModel):
+    app_id: str = Field(max_length=80)
+    name: str = Field(max_length=160)
+    icon: str = Field(max_length=200)
+    connected: bool
+
+
+class WorkflowTemplate(WireModel):
+    """A workflow that uses apps, created switched off and scheduled; never a webhook."""
+    id: str = Field(pattern=r"^[a-z0-9_]{1,64}$")
+    name: str = Field(max_length=160)
+    description: str = Field(max_length=512)
+    icon: str = Field(max_length=16)
+    schedule_label: str = Field(max_length=80)
+    apps: list[WorkflowTemplateApp] = Field(min_length=1, max_length=4)
+
+
+class WorkflowTemplateList(WireModel):
+    schema_version: Literal[1]
+    items: list[WorkflowTemplate] = Field(max_length=32)
+
+
+class WorkflowTemplateCreated(WireModel):
+    task_id: str = Field(max_length=128)
+    name: str = Field(max_length=200)
 
 
 class SourceLink(WireModel):

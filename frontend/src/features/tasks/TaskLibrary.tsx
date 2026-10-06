@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -43,6 +44,7 @@ import TaskRun from './TaskRun';
 import { taskRuns } from './task-runs';
 import { taskEdits, taskMutation, type TaskCommandOwner } from './task-edits';
 import TaskGraphEditor from './TaskGraphEditor';
+import AppTemplates from './AppTemplates';
 import TaskSettingsEditor from './TaskSettingsEditor';
 import { webhookReach } from './webhook-reach';
 import { writeClipboardText } from '../../platform/clipboard';
@@ -1081,6 +1083,21 @@ export default function TaskLibrary() {
     ReadonlyArray<{ id: string; label: string }>
   >([]);
   const execution = useMemo(() => taskRuns(controller), [controller]);
+  // The apps set up here, for a prompt step to name the ones it uses (Apps owns them).
+  const loadApps = useCallback(
+    async (signal?: AbortSignal) =>
+      (
+        await controller.integrationItems(
+          { scope: 'installed', kind: 'app' },
+          signal,
+        )
+      ).items.map((app) => ({
+        id: app.id,
+        name: app.name,
+        icon: app.app?.icon ?? app.icon,
+      })),
+    [controller],
+  );
   const quickEdits = useMemo(() => taskEdits(controller), [controller]);
   const deleteOwner = useRef<TaskCommandOwner<void>>({ pending: null });
   const duplicateOwner = useRef<TaskCommandOwner<string>>({ pending: null });
@@ -1287,6 +1304,7 @@ export default function TaskLibrary() {
           session={selected.session}
           taskId={selected.session.taskId}
           load={controller.taskGraph}
+          loadApps={loadApps}
           save={selected.graph}
           onSaved={saved}
           onCancel={close}
@@ -1452,6 +1470,11 @@ export default function TaskLibrary() {
         onSetDeliveryDefaults={saveDeliveryDefaults}
         onGraph={(id, name) => taskEditSessions.open('graph', id, name)}
         onSettings={(id, name) => taskEditSessions.open('settings', id, name)}
+      />
+      <AppTemplates
+        load={controller.workflowTemplates}
+        create={controller.createFromWorkflowTemplate}
+        onCreated={() => setReload((value) => value + 1)}
       />
       <Drawer
         open={runsFor !== null}

@@ -45,6 +45,7 @@ class TaskGraphFields:
     timeout_seconds: int | None = None
     pass_output: bool | None = None
     run_ids: tuple[str, ...] | None = None
+    apps: tuple[str, ...] | None = None  # A prompt step's apps (item ids): it uses only those, as an @mention would.
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ class TaskGraphSnapshot:
 
 
 _FIELDS = {
-    "prompt": {"prompt", "next", "on_error", "max_retries", "retry_delay_seconds"},
+    "prompt": {"prompt", "next", "on_error", "max_retries", "retry_delay_seconds", "apps"},
     "condition": {"condition", "if_true", "if_false"},
     "approval": {"message", "timeout_minutes", "if_approved", "if_denied"},
     "subtask": {"task_id", "pass_output", "on_error", "next"},
@@ -109,6 +110,8 @@ def _project(step: dict) -> TaskGraphStep:
         values.setdefault("editing_safety", "worktree" if step.get("use_worktree")
                           else step.get("workspace_mode", "profile_default"))
         values.setdefault("return_mode", "wait" if step.get("wait", True) else "background")
+    if isinstance(values.get("apps"), list):
+        values["apps"] = tuple(values["apps"])
     if "run_ids" in values and values["run_ids"] is not None:
         raw = values["run_ids"]
         values["run_ids"] = tuple(item.strip() for item in raw.split(",") if item.strip()) if isinstance(raw, str) else tuple(raw)
@@ -210,6 +213,10 @@ def _validate_fields(kind: str, fields: TaskGraphFields, *, semantic: bool) -> N
                 _fail()
             for identity in value:
                 _identity(identity)
+        elif name == "apps":
+            if (not isinstance(value, tuple) or len(value) > 8 or len(set(value)) != len(value)
+                    or not all(isinstance(item, str) and re.fullmatch(r"[a-z]+:[^\x00-\x1f]{1,500}", item) for item in value)):
+                _fail()
         elif not isinstance(value, str) or len(value) > 16384 or "\x00" in value:
             _fail()
     if not semantic:

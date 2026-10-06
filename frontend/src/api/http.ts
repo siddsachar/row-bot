@@ -1167,6 +1167,17 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  workflowTemplates(signal?: AbortSignal) {
+    return wire.getWorkflowTemplates(this.base, this.session(), signal);
+  }
+  useWorkflowTemplate(template: string, signal?: AbortSignal) {
+    return wire.useWorkflowTemplate(
+      this.base,
+      this.session(),
+      template,
+      signal,
+    );
+  }
   setIntegrationSourceOptIn(source: string, on: boolean, signal?: AbortSignal) {
     return wire.setIntegrationSourceOptIn(
       this.base,

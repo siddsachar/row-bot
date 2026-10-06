@@ -12,6 +12,7 @@
     "agent_resume_unavailable": 409,
     "agent_run_finished": 409,
     "agent_work_not_resumable": 409,
+    "app_not_connected": 409,
     "approval_already_resolved": 409,
     "approval_expired": 409,
     "approval_required": 409,

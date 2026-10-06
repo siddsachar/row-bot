@@ -2279,6 +2279,10 @@ export class ClientController {
     this.query(() => this.transport.integrationSources?.(signal));
   updateIntegrationSource = (source: string, signal?: AbortSignal) =>
     this.query(() => this.transport.updateIntegrationSource?.(source, signal));
+  workflowTemplates = (signal?: AbortSignal) =>
+    this.query(() => this.transport.workflowTemplates?.(signal));
+  createFromWorkflowTemplate = (template: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.useWorkflowTemplate?.(template, signal));
   setIntegrationSourceOptIn = (
     source: string,
     on: boolean,

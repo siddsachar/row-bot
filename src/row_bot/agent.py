@@ -3644,8 +3644,9 @@ def _enrich_description(tool_name: str, label: str, args_str: str, kwargs: dict)
     return f"{label}: {args_str}"
 
 
-def _wrap_with_interrupt_gate(tool) -> None:
-    """Keep sync and async targets behind the same current approval decision."""
+def _wrap_with_interrupt_gate(tool, *, always_ask: bool = False) -> None:
+    """Keep sync and async targets behind the same current approval decision. ``always_ask``: an app tool
+    that is approval-locked (destructive or of unknown effect) asks even where everything else may run."""
     from functools import wraps
     from row_bot.tools.approval_gate import (
         APPROVAL_DENIED, APPROVAL_GIVEN, APPROVAL_NOT_NEEDED_AUTO, with_approval,
@@ -3659,6 +3660,8 @@ def _wrap_with_interrupt_gate(tool) -> None:
     def refusal(args, kwargs) -> tuple[str | None, str]:
         """The refusal (None when the call may run) and its result's approval line."""
         decision = decision_for_action(get_approval_mode())
+        if always_ask and decision == "allow":
+            decision = "ask"
         if decision == "block":
             return (f"BLOCKED: '{label}' is unavailable while this "
                     "thread is in Block approval mode. Do NOT retry this "
@@ -3681,6 +3684,7 @@ def _wrap_with_interrupt_gate(tool) -> None:
             "tool": tool.name, "label": label, "description": description,
             "args": kwargs or (args[0] if args else {}),
             "external_discovery_active": external_discovery_active,
+            **({"always_ask": True} if always_ask else {}),
         })
         if approval:
             return None, APPROVAL_GIVEN
@@ -4253,6 +4257,16 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     )
     app_scope = _current_app_scope_var.get(None) or {}
     eager_core_entries, external_entries = _apply_app_scope(eager_core_entries, external_entries, app_scope)
+    # App tools that ask even under Allow all: destructive, of unknown effect, or recorded so when accepted.
+    locked_names: set[str] = set()
+    if approval_mode == "allow_all" and any(entry["source"] == "mcp" for entry in external_entries):
+        try:
+            from row_bot.mcp_client import runtime as mcp_runtime
+            locked_names = mcp_runtime.get_locked_tool_names(allow_names=allow_set)
+        except Exception:
+            logger.debug("Locked app tools unknown; every app tool that asks keeps asking", exc_info=True)
+            locked_names = {str(getattr(entry["tool"], "name", "") or "") for entry in external_entries
+                            if entry["source"] == "mcp"} & destructive_names
     # Which built-in tool each chat tool came from, so its app is named later without building any tool.
     from row_bot.integrations.builtin import remember_tools
     remember_tools({str(getattr(entry["tool"], "name", "") or ""): str(entry["parent"])
@@ -4382,11 +4396,15 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                         for t in lc_tools:
                             if t.name in destructive_names:
                                 _wrap_with_interrupt_gate(t)
-                    # else: allow_all — keep everything, no gates
+                    # else: allow_all — keep everything; approval-locked app tools still ask.
+                    else:
+                        for t in lc_tools:
+                            if t.name in locked_names:
+                                _wrap_with_interrupt_gate(t, always_ask=True)
             else:
                 # Interactive sessions use the same app-wide approval mode:
                 # block=hide destructive tools; approve=wrap with interrupt();
-                # allow_all=keep everything, no gates.
+                # allow_all=keep everything; approval-locked app tools still ask.
                 if approval_mode == "block":
                     lc_tools = [t for t in lc_tools
                                 if t.name not in destructive_names]
@@ -4394,6 +4412,10 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     for t in lc_tools:
                         if t.name in destructive_names:
                             _wrap_with_interrupt_gate(t)
+                else:
+                    for t in lc_tools:
+                        if t.name in locked_names:
+                            _wrap_with_interrupt_gate(t, always_ask=True)
 
             lc_tools = _apply_provider_tool_schema_compatibility(
                 lc_tools,

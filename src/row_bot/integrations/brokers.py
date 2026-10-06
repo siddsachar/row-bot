@@ -84,9 +84,9 @@ def entries() -> list:
 
 def tool_rules(name: str) -> dict:
     """Stricter handling for Composio's own tools, wherever they appear: never looser."""
-    upper = name.upper()
+    upper = name.upper()  # The recorded effect stays the tool's own: an accepted tool is matched by it.
     if upper in RUNS_CODE:
-        return {"effect": "unknown", "requires_approval": True, "runs_code": True}
+        return {"requires_approval": True, "runs_code": True}
     if upper in ALWAYS_ASKS:
-        return {"effect": "unknown", "requires_approval": True}
+        return {"requires_approval": True, "always_asks": True}
     return {}

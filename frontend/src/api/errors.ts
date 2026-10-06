@@ -477,6 +477,10 @@ const CATALOG: Record<string, Entry> = {
     'Views from this app are off. Turn them on from its page in Apps.',
     'none',
   ],
+  app_not_connected: [
+    'Connect the app this template uses first, then try again.',
+    'none',
+  ],
   view_unavailable: ["This view isn't available. Try again later.", 'retry'],
   view_tool_refused: ["This view can't do that here.", 'none'],
   view_tool_denied: ["You didn't allow this action.", 'none'],

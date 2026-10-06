@@ -208,6 +208,20 @@ def update_source(source_id: str) -> dict:
     return next(item for item in list_sources()["items"] if item["id"] == source_id)
 
 
+def workflow_templates() -> dict:
+    """Workflow templates that use apps, with whether each app is connected; local data only."""
+    from row_bot.integrations import workflow_templates as templates
+    return {"schema_version": 1, "items": templates.listing()}
+
+
+def use_workflow_template(template_id: str) -> dict:
+    from row_bot.integrations import workflow_templates as templates
+    try:
+        return templates.use(template_id)
+    except ValueError as exc:
+        raise ClientPlatformError("app_not_connected" if str(exc) == "app_not_connected" else "not_found") from exc
+
+
 def set_source_opt_in(source_id: str, on: bool) -> dict:
     """The person turns a broker catalog on (after its disclosure) or off; its search and ways follow."""
     from row_bot.integrations import brokers

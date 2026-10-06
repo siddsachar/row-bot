@@ -4184,6 +4184,7 @@ def run_task_background(
                             )
                             config["configurable"]["generation_id"] = generation_id
                             config["configurable"]["root_objective"] = prompt
+                            _use_step_apps(config, step)
                             try:
                                 result = invoke_agent(
                                     prompt,
@@ -4297,7 +4298,7 @@ def run_task_background(
                                     step_succeeded = True
                                     break
 
-                                if approval_mode == "allow_all":
+                                if approval_mode == "allow_all" and not _always_asks(interrupts):
                                     logger.info(
                                         "Task '%s' step %d: interrupt in allow_all mode — auto-approving",
                                         task["name"], step_index + 1,
@@ -6953,8 +6954,8 @@ def _resume_graph_interrupted(
                 except Exception as exc2:
                     logger.error("Block-mode resume denial failed: %s", exc2)
                 # Fall through to success path
-            elif approval_mode == "allow_all":
-                # Allow_all — auto-approve the chained interrupt
+            elif approval_mode == "allow_all" and not _always_asks(interrupts):
+                # Allow_all — auto-approve the chained interrupt (an approval-locked app tool still asks)
                 logger.info(
                     "Task '%s' graph resume: chained interrupt in allow_all — auto-approving",
                     task["name"],
@@ -7334,6 +7335,7 @@ def _run_subtask_sync(
                 prompt = prompt.replace("{{parent_output}}", parent_output)
 
                 try:
+                    _use_step_apps(config, step)
                     result = invoke_agent(prompt, effective_tools, config,
                                          stop_event=stop_event)
                     if isinstance(result, dict) and result.get("type") == "terminal":
@@ -7348,7 +7350,7 @@ def _run_subtask_sync(
                     # agent triggered an interrupt(), handle it inline.
                     if isinstance(result, dict) and result.get("type") == "interrupt":
                         child_approval = get_task_approval_mode(child_task)
-                        if child_approval == "allow_all":
+                        if child_approval == "allow_all" and not _always_asks(result.get("interrupts") or []):
                             from row_bot.agent import resume_invoke_agent
                             _check_workflow_effect(validate)
                             result = resume_invoke_agent(
@@ -7737,6 +7739,23 @@ def _eval_llm_condition(prompt: str, context: dict) -> bool:
     except Exception as exc:
         logger.error("LLM condition evaluation failed: %s", exc)
     return False
+
+
+def _use_step_apps(config: dict, step: dict) -> None:
+    """A prompt step that names its apps uses only those, as an @mention would; its profile and every
+    approval still apply. A step that names none uses every app the workflow may."""
+    from row_bot.integrations.scope import step_scope
+    scope = step_scope(step.get("apps") if isinstance(step.get("apps"), list) else None)
+    if scope:
+        config["configurable"]["app_scope"] = scope
+    else:
+        config["configurable"].pop("app_scope", None)
+
+
+def _always_asks(interrupts: list) -> bool:
+    """An approval-locked app tool asked (destructive or of unknown effect): it waits for the person even
+    under Allow all, so a run pauses on it rather than approving it unattended."""
+    return any(isinstance(item, dict) and item.get("always_ask") for item in interrupts)
 
 
 def _resolve_step_index(steps: list[dict], target: str) -> int | None:

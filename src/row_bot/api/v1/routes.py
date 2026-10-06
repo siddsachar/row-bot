@@ -1016,6 +1016,7 @@ _STATUS.update(dict.fromkeys(('plan_changed', 'plan_unsupported', 'plan_not_resu
 _STATUS.update(dict.fromkeys(('integration_link_unsupported', 'invalid_upload', 'unsupported_upload', 'unsafe_upload',
                               'bundle_signature_invalid', 'bundle_unsupported'), 422))
 _STATUS['upload_too_large'] = 413
+_STATUS['app_not_connected'] = 409  # A workflow template whose app is not connected yet.
 
 # Codes a problem may carry without an entry in _STATUS (the status comes
 # from the raised error, else 409).
@@ -4427,6 +4428,20 @@ def create_router(
         await session(request, lane="mutation")
         from row_bot.application.client_integrations import update_source
         return await respond(request, dto.IntegrationSourceView, await call(update_source, source_id), status_code=202)
+
+    @router.get("/integrations/workflow-templates")
+    async def integration_workflow_templates(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.application.client_integrations import workflow_templates
+        return await respond(request, dto.WorkflowTemplateList, await call(workflow_templates))
+
+    @router.post("/integrations/workflow-templates/{template_id}/use")
+    async def integration_workflow_template_use(template_id: str, request: Request) -> JSONResponse:
+        """Create a template's workflow, switched off and scheduled; it never sets a webhook."""
+        await session(request, lane="mutation")
+        from row_bot.application.client_integrations import use_workflow_template
+        return await respond(request, dto.WorkflowTemplateCreated, await call(use_workflow_template, template_id),
+                             status_code=201)
 
     @router.put("/integrations/sources/{source_id}/opt-in")
     async def integration_source_opt_in(source_id: str, request: Request) -> JSONResponse:

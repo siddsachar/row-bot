@@ -21,6 +21,7 @@ import {
   Select,
   Skeleton,
 } from '../../ui/primitives';
+import StepApps, { type StepApp } from './StepApps';
 
 export interface TaskGraphEditorProps {
   session?: TaskEditSession;
@@ -36,6 +37,8 @@ export interface TaskGraphEditorProps {
   onTaskSettings?: () => void;
   /** Switch back to the builder for this workflow. */
   onBuilder?: () => void;
+  /** The apps set up on this computer, for a prompt step to name the ones it uses. */
+  loadApps?: (signal?: AbortSignal) => Promise<readonly StepApp[]>;
 }
 
 const kinds = {
@@ -72,6 +75,7 @@ const emptyFields = (): TaskGraphFields => ({
   timeout_seconds: null,
   pass_output: null,
   run_ids: null,
+  apps: null,
 });
 
 function initialFields(kind: string): TaskGraphFields {
@@ -142,6 +146,7 @@ export default function TaskGraphEditor({
   onCancel,
   onTaskSettings,
   onBuilder,
+  loadApps,
   session: injectedSession,
 }: TaskGraphEditorProps) {
   const session = useTaskEditSession(injectedSession, 'graph', taskId);
@@ -673,6 +678,13 @@ export default function TaskGraphEditor({
                     {step.type === 'prompt' && (
                       <>
                         {text('prompt', 'Prompt')}
+                        {loadApps && (
+                          <StepApps
+                            load={loadApps}
+                            value={step.fields.apps ?? null}
+                            onChange={(next) => change('apps', next)}
+                          />
+                        )}
                         <div className="field-row">
                           {number('max_retries', 'Maximum retries', 1, 10, 2)}
                           {number(
