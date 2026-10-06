@@ -2495,9 +2495,26 @@ def p6_app_workflow(x_fixture_token: str = Header(default="")) -> dict:
     return {"task_id": task_id}
 
 
+_p6_search_was_on = False
+
+
+@app.post("/__p6_fixture/web-search-key")
+def p6_web_search_key(x_fixture_token: str = Header(default="")) -> dict:
+    """Row-Bot's own web search, set up with a synthetic key in the in-memory keychain: a ready built-in way."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot import api_keys
+    from row_bot.tools import registry
+    global _p6_search_was_on
+    _p6_search_was_on = registry.is_enabled("web_search")
+    registry.set_enabled("web_search", True)
+    api_keys.set_key("TAVILY_API_KEY", "synthetic-search-key")
+    return {"ready": True}
+
+
 @app.post("/__p6_fixture/views/remove")
 def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
-    """Take the fixture Counter app and its workflow away again, so later journeys find Apps as they expect."""
+    """Take the fixture Counter app, its workflow and the synthetic search key away again, so later journeys
+    find Apps as they expect."""
     p4_provider_credentials(x_fixture_token)
     from row_bot import tasks
     from row_bot.integrations import facts
@@ -2511,6 +2528,11 @@ def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
     for task in tasks.list_tasks():
         if task.get("name") == "Counter morning digest":
             tasks.delete_task(task["id"])
+    from row_bot import api_keys
+    if api_keys.get_key("TAVILY_API_KEY") == "synthetic-search-key":
+        api_keys.delete_key("TAVILY_API_KEY")
+        from row_bot.tools import registry
+        registry.set_enabled("web_search", _p6_search_was_on)
     facts.invalidate()
     return {"removed": True}
 

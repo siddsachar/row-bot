@@ -52,6 +52,25 @@ test.afterEach(async ({ page }) => {
   await seed(page, '/__p6_fixture/views/remove');
 });
 
+test("the composer's Apps menu lists every ready app, Row-Bot's own ways too", async ({
+  page,
+  context,
+}, testInfo) => {
+  await seed(page, '/__p6_fixture/views');
+  await seed(page, '/__p6_fixture/web-search-key');
+  await blockFixtureServiceWorkers(context);
+  await newConversation(page);
+  await page.getByRole('button', { name: 'Add files and more' }).click();
+  await page.getByRole('menuitem', { name: /^Apps/ }).click();
+  const apps = page.getByRole('menu', { name: /^Apps/ });
+  // A connected app and a built-in way, each with its switch for this chat.
+  for (const name of ['Counter', 'Tavily'])
+    await expect(
+      apps.getByRole('menuitemcheckbox', { name, exact: true }),
+    ).toHaveAttribute('aria-checked', 'true');
+  await screenshot(page, testInfo, 'composer-apps-built-in');
+});
+
 test('an app view shows in its own sandbox, never reaches Row-Bot, and asks before it changes anything', async ({
   page,
   context,

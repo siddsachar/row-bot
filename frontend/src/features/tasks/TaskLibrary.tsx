@@ -1096,7 +1096,7 @@ export default function TaskLibrary() {
         found.push(
           ...page.items.map((app) => ({
             id: app.id,
-            name: app.name,
+            name: app.app?.name ?? app.name, // As the composer names it.
             icon: app.app?.icon ?? app.icon,
           })),
         );

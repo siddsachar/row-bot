@@ -287,6 +287,19 @@ describe('ViewBridge', () => {
     expect(moved.posted).toEqual([]);
   });
 
+  it('tells a started view when the page theme changes', async () => {
+    const view = setup();
+    view.bridge.themeChanged('light'); // Not started yet: nothing to tell.
+    expect(view.posted).toEqual([]);
+    await start(view);
+    view.bridge.themeChanged('light');
+    expect(view.posted.pop()).toEqual({
+      jsonrpc: '2.0',
+      method: 'ui/notifications/host-context-changed',
+      params: { theme: 'light' },
+    });
+  });
+
   it('asks the view to finish before it is removed', async () => {
     const view = setup();
     await start(view);

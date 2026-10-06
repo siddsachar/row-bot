@@ -96,6 +96,16 @@ export class ViewBridge {
     else void this.request(message);
   }
 
+  /** The page's theme changed: a started view hears it (`ui/notifications/host-context-changed`). */
+  themeChanged(theme: 'light' | 'dark') {
+    if (!this.initialized || this.ended) return;
+    this.post({
+      jsonrpc: '2.0',
+      method: 'ui/notifications/host-context-changed',
+      params: { theme },
+    });
+  }
+
   /** The view loaded another page: the view is gone. */
   navigated() {
     this.end(

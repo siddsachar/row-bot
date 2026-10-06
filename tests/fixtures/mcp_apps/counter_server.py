@@ -15,6 +15,8 @@ MEDIA_TYPE = "text/html;profile=mcp-app"
 VIEW = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Counter</title>
 <style>
+  :root { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
   body { font: 14px system-ui, sans-serif; margin: 12px; color: #1f2328; }
   :root[data-theme="dark"] body { color: #e6edf3; }
   button { font: inherit; padding: 4px 12px; }
@@ -50,6 +52,8 @@ VIEW = """<!doctype html>
       return;
     }
     if (message.method === 'ui/notifications/tool-result') show(message.params?.structuredContent?.count ?? '?');
+    else if (message.method === 'ui/notifications/host-context-changed' && message.params?.theme)
+      document.documentElement.dataset.theme = message.params.theme;
     else if (message.method === 'ui/resource-teardown') post({ id: message.id, result: {} });
     else if (message.id !== undefined) post({ id: message.id, error: { code: -32601, message: 'Method not found' } });
   });

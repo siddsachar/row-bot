@@ -116,7 +116,18 @@ export default function AppViewFrame({
     bridge.current = instance;
     const listener = (event: MessageEvent) => instance.handle(event);
     window.addEventListener('message', listener);
+    // The view follows the page's theme while it is open.
+    const themes = new MutationObserver(() =>
+      instance.themeChanged(
+        document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+      ),
+    );
+    themes.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
     return () => {
+      themes.disconnect();
       window.removeEventListener('message', listener);
       void instance.teardown();
       bridge.current = null;
