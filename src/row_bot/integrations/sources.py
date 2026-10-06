@@ -123,6 +123,10 @@ class Source:
     def update(self, cancelled: Callable[[], bool]) -> dict:
         raise ValueError("not_updatable")
 
+    def listed(self) -> bool:
+        """Shown among the catalogs; a source that can't exist on this computer is not."""
+        return True
+
 
 def _available(kind: str, ref: str, name: str, *, app: apps.App | None, unsupported: str = "", verified: bool = False,
                **fields) -> dict:
@@ -273,6 +277,39 @@ class Registry(_McpCatalog):
         except (OSError, ValueError):
             cached = 0
         return {"changed": len(result["entries"]) + len(result["deleted"]), "entries": current["count"], "icons": cached}
+
+
+class WindowsConnectors(_McpCatalog):
+    """Connectors Windows and installed apps register on this computer (Windows Insider builds with
+    Experimental agentic features on); hidden everywhere else."""
+    id, label, network = "windows", "Windows connectors", "explicit"
+    message = "Connectors Windows and your apps add on this computer, listed when you update. Windows asks before each is used."
+
+    @property
+    def eligibility(self) -> str:  # type: ignore[override]
+        from row_bot.integrations import windows_connectors
+        return "eligible" if windows_connectors.locate() else "unsupported"
+
+    def listed(self) -> bool:
+        return self.eligibility == "eligible"
+
+    def entries(self) -> list:
+        from row_bot.integrations import windows_connectors
+        return windows_connectors.entries()
+
+    def row(self, entry) -> tuple[dict, dict]:
+        row, reference = super().row(entry)
+        row["canonical_identity"] = "mcp:windows:" + entry.id
+        return row, reference
+
+    def search(self, search: Search) -> Found:
+        found = super().search(search) if self.listed() else Found()
+        found.statuses.append(self.status(status="cached"))
+        return found
+
+    def update(self, cancelled: Callable[[], bool]) -> dict:
+        from row_bot.integrations import windows_connectors
+        return windows_connectors.update(cancelled)
 
 
 class HermesMcp(Source):
@@ -508,7 +545,7 @@ class Unavailable(Source):
 
 # Public contracts checked 2026-10-03; evidence in docs/INTEGRATION_SOURCES.md. Order is ranking precedence.
 SOURCES: dict[str, Source] = {source.id: source for source in (
-    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Builtin(),
+    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Builtin(), WindowsConnectors(),
     Skills("clawhub", "ClawHub", "Public v1 skill search and complete version downloads."),
     Skills("github", "GitHub", "Maintainer skill repositories through the existing GitHub owner."),
     Hermes(), Native(), Examples(),
@@ -527,8 +564,8 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     kind, _, reference = item_id.partition(":")
     source_id = reference.partition(":")[0]
     found = None
-    if kind == "mcp" and source_id in {"curated", "official"}:
-        adapter = SOURCES["recommended" if source_id == "curated" else "official"]
+    if kind == "mcp" and source_id in {"curated", "official", "windows"}:
+        adapter = SOURCES[{"curated": "recommended"}.get(source_id, source_id)]
         entry = adapter.lookup(reference)
         found = adapter.row(entry) if entry else None
     elif kind == "skill" and reference.startswith("featured:"):

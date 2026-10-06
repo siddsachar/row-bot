@@ -195,7 +195,7 @@ def list_sources() -> dict:
     from row_bot.integrations import catalogs
     states = catalogs.states()
     return {"schema_version": 1, "items": [{**source.view(), "catalog": states.get(source.id)}
-                                           for source in catalog.SOURCES.values()]}
+                                           for source in catalog.SOURCES.values() if source.listed()]}
 
 
 def update_source(source_id: str) -> dict:
