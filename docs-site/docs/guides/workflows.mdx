@@ -44,6 +44,12 @@ Choose **Home**, then the **Workflows** tab. Overview's **New workflow** quick s
 - **Edit workflow steps** opens the step editor, with a builder and a step graph. Besides prompts, steps can be conditions, approvals, running another workflow, delegating to an agent, waiting for agents, and notifications.
 - **Workflow settings** chooses the model, whether runs reuse one conversation, a concurrency group, and the trigger: manual and scheduled runs only, **When another workflow completes**, or **Webhook (HTTP POST)**. A webhook trigger creates a private secret when you save; download its configuration and keep it private.
 
+## Workflows With Apps
+
+- **Start from a template**, below the workflow list, offers workflows that use apps: **GitHub pull-request digest**, **Linear triage** and **Notion weekly summary**. Each is created switched off, with a schedule and **Ask before actions** approvals; turn it on when it suits you. A template whose app isn't connected shows **Connect** instead. Templates never add a webhook or change how Row-Bot can be reached.
+- In the step editor, a prompt step's **Apps this step uses** limits that step to the apps you choose, as mentioning an app in chat does. With none chosen, the step can use every app the workflow may. The workflow's Agent profile and approvals still apply.
+- An app's high-impact tools, and tools whose effect is unknown, ask even when a workflow uses **Auto** approvals, so the run waits for you on them.
+
 ## Approvals In Workflows
 
 An approval step, or an action that needs approval, pauses the run until you answer. It waits as long as needed unless that step sets its own time limit. Answer it from the sidebar's attention indicator, Overview's **Needs you**, the workflow's conversation, Buddy, or a channel that supports approvals; an answer in one place resolves it everywhere. While a run waits, that workflow's next scheduled run is skipped and says so.

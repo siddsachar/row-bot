@@ -25,7 +25,23 @@ When you choose what an app can do, Row-Bot groups its tools by effect:
 
 A tool whose effect Row-Bot can't determine always asks. A server's own hints can only make a tool stricter; the one exception is a read-only hint, and it never outweighs a name that says the tool makes a change. Without that hint, a tool whose name doesn't say it makes a change but whose description does always asks. Connections set up before this version keep asking before routine changes until you choose otherwise.
 
-Approval mode, agent profiles and the model's tool support still apply on top of this. Turning a tool off locally does not revoke access at the service; use the service's own account controls for that.
+High-impact tools and tools whose effect Row-Bot can't determine ask even when a chat or workflow uses **Auto** approvals: Auto lets routine actions run, never these. Approval mode, agent profiles and the model's tool support still apply on top of this. Turning a tool off locally does not revoke access at the service; use the service's own account controls for that.
+
+## Interactive Views (MCP Apps)
+
+Some apps can show their results as an interactive view, such as a chart, a form or a board, under the step in chat. A view runs in its own sandbox: it can't read Row-Bot's page, cookies, storage, other conversations or Row-Bot's API, and it loads only from the addresses the app declares, which the view lists. Anything a view asks Row-Bot to do goes through the same access and approvals as any other call: a change waits for you on the usual approval card, shown in the view, and a view can only call its own app's tools.
+
+Views are on for apps whose setup included one. Turn them off for every app with **Apps › Advanced › Apps in chats › Show app views in chat**, or for one app on its page.
+
+## Windows Connectors
+
+On Windows Insider builds with Windows' On-device Agent Registry (build 26220.7344 or later, with **Settings › System › AI components › Experimental agentic features** on), **Apps › Advanced › Catalogs** lists **Windows connectors**: connectors that Windows and your installed apps provide. Choose **Update** to list them; Row-Bot asks Windows only then. Connecting one is the usual setup, and Windows also asks you to allow it. Row-Bot never adds, removes or configures Windows connectors. On other computers and older builds the catalog isn't shown.
+
+## Hosted Brokers (Composio)
+
+A broker is a separate hosted service that connects many apps through one account. **Composio** is off until you turn it on in **Apps › Advanced › Catalogs** with **Use Composio**, which first explains what it means: a separate Composio account, and the requests and results for apps you use through it pass through Composio, which keeps them for up to a year by default under its own terms. Links to Composio's terms, privacy policy and data processing agreement are shown there.
+
+While it's on, searching for an app also finds Composio, and an app's page offers a way such as **Notion via Composio** after the app's own ways to connect. Connecting signs you in to Composio (or takes a consumer key, kept in your keychain); you then connect each app in your Composio account. Composio's remote code tools start off, and its tools that act for other apps ask every time. Turn it off at any time from the same switch. Pipedream isn't available yet.
 
 ## Turn Off, Update And Remove
 
