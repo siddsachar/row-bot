@@ -302,6 +302,7 @@ def test_a_chat_switch_and_a_mention_reach_the_turn_and_only_narrow_it(service, 
               "app": {"id": name.lower(), "name": name}, "lifecycle": "installed", "readiness": "ready",
               "parent_id": None, "children": []} for name in ("Notion", "Linear")]
     monkeypatch.setattr(scope, "_items", lambda strict=False: items)
+    monkeypatch.setattr("row_bot.integrations.builtin.rows", lambda *args, **kwargs: [])  # Only these two apps.
     monkeypatch.setattr(facts, "read", lambda item_id, validate=None: next((i for i in items if i["id"] == item_id), None))
     fake = ScriptedAgentStream(*[(CheckpointCommit((AIMessage(id=f"answer-{n}", content="Done"),), f"answer-{n}"),
                                   ("done", None)) for n in range(2)])
