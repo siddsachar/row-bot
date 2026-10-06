@@ -103,6 +103,21 @@ def test_catalog_updates_start_only_on_request_and_the_schedule_is_opt_in(servic
         assert saved.json() == {"enabled": True, "interval_days": 30, "sources": None} == catalogs.schedule()
 
 
+def test_a_hosted_broker_is_off_until_the_person_turns_it_on(service, isolated):
+    with client_for(service) as client:
+        assert client.put(BASE + "/sources/composio/opt-in", json={"on": True}).status_code in {401, 403}
+        _, headers = bootstrap(client)
+        views = {s["id"]: s for s in client.get(BASE + "/sources", headers=headers).json()["items"]}
+        assert views["composio"]["enabled"] is False and views["composio"]["opt_in"]["on"] is False
+        assert "up to a year" in views["composio"]["opt_in"]["disclosure"]
+        assert all(view.get("opt_in") is None for key, view in views.items() if key != "composio")
+        turned = client.put(BASE + "/sources/composio/opt-in", headers=headers, json={"on": True})
+        assert turned.status_code == 200 and turned.json()["enabled"] is True and turned.json()["opt_in"]["on"] is True
+        assert client.put(BASE + "/sources/official/opt-in", headers=headers, json={"on": True}).status_code == 404
+        off = client.put(BASE + "/sources/composio/opt-in", headers=headers, json={"on": False}).json()
+        assert off["enabled"] is False
+
+
 def test_apps_and_icons_are_served_from_local_data_only(service, isolated, monkeypatch):
     from row_bot.integrations import icons
     monkeypatch.setattr(icons, "_download", lambda url: pytest.fail("an icon was fetched while rendering"))

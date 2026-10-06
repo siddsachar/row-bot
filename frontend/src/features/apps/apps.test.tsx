@@ -883,6 +883,82 @@ it('offers the presets to an app that overlaps Row-Bot, with a one-line note', a
   });
 });
 
+it('turns a hosted broker on only after its disclosure, and off at once', async () => {
+  const off = {
+    id: 'composio',
+    kinds: ['mcp'],
+    label: 'Composio',
+    access: 'public',
+    eligibility: 'explicit_only',
+    network: 'none',
+    enabled: false,
+    message: 'A separate hosted service.',
+    catalog: null,
+    opt_in: {
+      on: false,
+      disclosure:
+        'Composio is a separate company and service, with its own account.',
+      links: [{ label: 'Privacy policy', url: 'https://composio.dev/privacy' }],
+    },
+  };
+  const on = {
+    ...off,
+    eligibility: 'eligible',
+    enabled: true,
+    opt_in: { ...off.opt_in, on: true },
+  };
+  const controller = {
+    integrationSources: vi.fn(async () => ({
+      schema_version: 1,
+      items: [off],
+    })),
+    catalogSchedule: vi.fn(async () => null),
+    appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
+    mcpPolicy: vi.fn(async () => null),
+    setIntegrationSourceOptIn: vi
+      .fn()
+      .mockResolvedValueOnce(on)
+      .mockResolvedValueOnce(off),
+  };
+  show('/settings/apps?view=advanced', controller);
+  expect(
+    await screen.findByText('Off · a separate service with its own account', {
+      exact: false,
+    }),
+  ).toBeVisible();
+  const use = await screen.findByRole('switch', { name: 'Use Composio' });
+  fireEvent.click(use);
+  const before = screen.getByRole('region', {
+    name: 'Before you use Composio',
+  });
+  expect(before).toHaveTextContent('separate company');
+  expect(
+    within(before).getByRole('link', { name: 'Privacy policy' }),
+  ).toHaveAttribute('href', 'https://composio.dev/privacy');
+  expect(controller.setIntegrationSourceOptIn).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(before).getByRole('button', { name: 'Turn on Composio' }),
+  );
+  await waitFor(() =>
+    expect(controller.setIntegrationSourceOptIn).toHaveBeenCalledWith(
+      'composio',
+      true,
+    ),
+  );
+  await waitFor(() => expect(use).toBeChecked());
+  expect(
+    screen.queryByRole('region', { name: 'Before you use Composio' }),
+  ).toBeNull();
+  fireEvent.click(use);
+  await waitFor(() =>
+    expect(controller.setIntegrationSourceOptIn).toHaveBeenLastCalledWith(
+      'composio',
+      false,
+    ),
+  );
+  await waitFor(() => expect(use).not.toBeChecked());
+});
+
 it('stops every app at once from Advanced with the reviewed policy command', async () => {
   const page = {
     schema_version: 1,

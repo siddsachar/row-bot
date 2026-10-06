@@ -208,6 +208,16 @@ def update_source(source_id: str) -> dict:
     return next(item for item in list_sources()["items"] if item["id"] == source_id)
 
 
+def set_source_opt_in(source_id: str, on: bool) -> dict:
+    """The person turns a broker catalog on (after its disclosure) or off; its search and ways follow."""
+    from row_bot.integrations import brokers
+    try:
+        brokers.set_on(source_id, on)
+    except ValueError as exc:
+        raise ClientPlatformError("not_found") from exc
+    return next(item for item in list_sources()["items"] if item["id"] == source_id)
+
+
 def catalog_schedule(change: dict | None = None) -> dict:
     """The optional update schedule (off by default); ``change`` saves the user's choice."""
     from row_bot.integrations import catalogs
@@ -384,6 +394,7 @@ def _ways(row: dict) -> list[dict]:
     rows += [sources["official"].row(e)[0] for e in index.by_app(app.id)]
     from row_bot.integrations import builtin
     rows += builtin.app_ways(app)
+    rows += sources["composio"].app_ways(app)
     try:
         from row_bot.plugins import hermes_catalog
         rows += [sources["hermes"].row(e)[0] for e in hermes_catalog.read_catalog()["entries"]

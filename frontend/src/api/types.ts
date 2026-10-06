@@ -140,6 +140,11 @@ export interface ClientTransport {
     source: string,
     signal?: AbortSignal,
   ): Promise<Wire.IntegrationSourceView>;
+  setIntegrationSourceOptIn?(
+    source: string,
+    on: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.IntegrationSourceView>;
   catalogSchedule?(signal?: AbortSignal): Promise<Wire.CatalogSchedule>;
   setCatalogSchedule?(
     body: Wire.CatalogSchedule,

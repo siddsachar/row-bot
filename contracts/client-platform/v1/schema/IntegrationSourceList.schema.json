@@ -140,6 +140,17 @@
           ],
           "title": "Network",
           "type": "string"
+        },
+        "opt_in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceOptIn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -153,6 +164,58 @@
         "message"
       ],
       "title": "IntegrationSourceView",
+      "type": "object"
+    },
+    "SourceLink": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 80,
+          "title": "Label",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 512,
+          "pattern": "^https://",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "url"
+      ],
+      "title": "SourceLink",
+      "type": "object"
+    },
+    "SourceOptIn": {
+      "additionalProperties": false,
+      "description": "A catalog the person turns on themselves (a hosted broker): off by default, and what turning it on means.",
+      "properties": {
+        "disclosure": {
+          "maxLength": 1024,
+          "title": "Disclosure",
+          "type": "string"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/SourceLink"
+          },
+          "maxItems": 4,
+          "title": "Links",
+          "type": "array"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "on",
+        "disclosure",
+        "links"
+      ],
+      "title": "SourceOptIn",
       "type": "object"
     }
   },

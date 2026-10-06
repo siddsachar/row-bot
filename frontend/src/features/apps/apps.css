@@ -336,9 +336,22 @@
 }
 .catalog-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+}
+.catalog-disclosure {
+  flex-basis: 100%;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+.catalog-disclosure p {
+  margin: 0;
 }
 .catalog-list li > span {
   display: grid;
@@ -511,4 +524,12 @@ a.app-way:hover {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-12);
+}
+.catalog-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

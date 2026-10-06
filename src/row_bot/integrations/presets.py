@@ -30,6 +30,8 @@ def tool_state(preset: str, row: dict) -> str:
     """``use``, ``ask`` or ``off`` for one tool under one preset."""
     if preset not in PRESETS:
         raise ValueError("invalid_access_preset")
+    if row.get("runs_code"):
+        return "off"  # Runs code on someone else's computer (a broker's workbench): only if the person switches it on.
     if row.get("effect") == "read_only" and not locked(row):
         return "use"
     if preset == "read_only":

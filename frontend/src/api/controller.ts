@@ -2279,6 +2279,14 @@ export class ClientController {
     this.query(() => this.transport.integrationSources?.(signal));
   updateIntegrationSource = (source: string, signal?: AbortSignal) =>
     this.query(() => this.transport.updateIntegrationSource?.(source, signal));
+  setIntegrationSourceOptIn = (
+    source: string,
+    on: boolean,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.setIntegrationSourceOptIn?.(source, on, signal),
+    );
   catalogSchedule = (signal?: AbortSignal) =>
     this.query(() => this.transport.catalogSchedule?.(signal));
   setCatalogSchedule = (

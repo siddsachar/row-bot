@@ -312,6 +312,54 @@ class WindowsConnectors(_McpCatalog):
         return windows_connectors.update(cancelled)
 
 
+class Composio(_McpCatalog):
+    """A hosted broker: many apps through one Composio account. Off until the person turns it on in
+    Apps › Advanced › Catalogs, after its disclosure; found by Row-Bot's own list of app names."""
+    id, label, access = "composio", "Composio", "public"
+    message = "A separate hosted service that connects many apps through one Composio account."
+
+    @property
+    def eligibility(self) -> str:  # type: ignore[override]
+        from row_bot.integrations import brokers
+        return "eligible" if brokers.on() else "explicit_only"
+
+    def view(self) -> dict:
+        from row_bot.integrations import brokers
+        return {**super().view(), "opt_in": brokers.opt_in()}
+
+    def entries(self) -> list:
+        from row_bot.integrations import brokers
+        return brokers.entries() if brokers.on() else []
+
+    def row(self, entry) -> tuple[dict, dict]:
+        row, reference = super().row(entry)
+        if entry.id.endswith("-key"):  # The same endpoint with a key: another way, not the same card.
+            row["canonical_identity"] += "#consumer-key"
+        return row, reference
+
+    def search(self, search: Search) -> Found:
+        from row_bot.integrations import brokers
+        found = Found()
+        named = [name for name in brokers.app_names() if matches(search.query, name)] if search.query.strip() else []
+        for entry in self.entries():
+            if named or matches(search.query, entry.name, entry.description):
+                row, reference = self.row(entry)
+                if named:
+                    row["description"] = f"Connect {named[0]} and other apps through one Composio account. " + row["description"]
+                found.add(row, reference)
+        found.statuses.append(self.status(status="cached" if brokers.on() else "empty"))
+        return found
+
+    def app_ways(self, app: apps.App) -> list[dict]:
+        """"{App} via Composio", for an app on Row-Bot's list, while Composio is on."""
+        from row_bot.integrations import brokers
+        names = {name.casefold() for name in brokers.app_names()}
+        if not brokers.on() or not names & {app.name.casefold(), *(s.casefold() for s in app.synonyms)}:
+            return []
+        row = self.row(self.entries()[0])[0]
+        return [{**row, "name": f"{app.name} via Composio"}]
+
+
 class HermesMcp(Source):
     id, kind, label, access, network = "hermes_mcp", "mcp", "Hermes MCP recipes", "public", "explicit"
     message = "Pinned recipe metadata; inspect before setup."
@@ -545,7 +593,7 @@ class Unavailable(Source):
 
 # Public contracts checked 2026-10-03; evidence in docs/INTEGRATION_SOURCES.md. Order is ranking precedence.
 SOURCES: dict[str, Source] = {source.id: source for source in (
-    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Builtin(), WindowsConnectors(),
+    Curated(), Registry(), HermesMcp(), FeaturedSkills(), Builtin(), WindowsConnectors(), Composio(),
     Skills("clawhub", "ClawHub", "Public v1 skill search and complete version downloads."),
     Skills("github", "GitHub", "Maintainer skill repositories through the existing GitHub owner."),
     Hermes(), Native(), Examples(),
@@ -564,7 +612,7 @@ def catalog_entry(item_id: str) -> tuple[dict, dict] | None:
     kind, _, reference = item_id.partition(":")
     source_id = reference.partition(":")[0]
     found = None
-    if kind == "mcp" and source_id in {"curated", "official", "windows"}:
+    if kind == "mcp" and source_id in {"curated", "official", "windows", "composio"}:
         adapter = SOURCES[{"curated": "recommended"}.get(source_id, source_id)]
         entry = adapter.lookup(reference)
         found = adapter.row(entry) if entry else None

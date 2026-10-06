@@ -4428,6 +4428,14 @@ def create_router(
         from row_bot.application.client_integrations import update_source
         return await respond(request, dto.IntegrationSourceView, await call(update_source, source_id), status_code=202)
 
+    @router.put("/integrations/sources/{source_id}/opt-in")
+    async def integration_source_opt_in(source_id: str, request: Request) -> JSONResponse:
+        """Turn a catalog the person chooses (a hosted broker) on or off; on only after its disclosure."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.SourceOptInChange, 256)
+        from row_bot.application.client_integrations import set_source_opt_in
+        return await respond(request, dto.IntegrationSourceView, await call(set_source_opt_in, source_id, body.on))
+
     @router.get("/integrations/catalog-schedule")
     async def integration_catalog_schedule(request: Request) -> JSONResponse:
         await session(request)

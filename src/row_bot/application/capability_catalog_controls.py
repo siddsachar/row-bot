@@ -12,7 +12,7 @@ from uuid import UUID
 
 from row_bot.application import capability_configuration_controls as configuration
 from row_bot.application import capability_policy_controls as policy
-from row_bot.integrations import presets
+from row_bot.integrations import brokers, presets
 from row_bot.mcp_client import config, targets
 from row_bot.mcp_client.safety import is_destructive_tool
 from row_bot.runtime import admissions
@@ -86,6 +86,7 @@ def capture_tested_catalog(tested: dict) -> dict:
             row = {"name": name, "description": description, "input_schema": schema,
                 "destructive": destructive, "requires_approval": tool["requires_approval"] or destructive or effect == "unknown",
                 "effect": effect}
+            row.update(brokers.tool_rules(name))  # A broker's remote code and acting tools: only ever stricter.
             view, visibility = tool.get("ui", ""), tool.get("visibility") or ["model", "app"]
             if isinstance(view, str) and view.startswith("ui://") and len(view) <= 512:
                 row["view"] = view  # It shows an interactive view in chat (MCP Apps): part of what is agreed to.

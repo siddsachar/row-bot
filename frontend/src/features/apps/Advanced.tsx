@@ -16,6 +16,10 @@ import RuntimeInstallations from '../mcp/RuntimeInstallations';
 
 /** Where a catalog stands, in plain words. */
 function standing(source: IntegrationSourceView) {
+  if (source.opt_in)
+    return source.opt_in.on
+      ? 'On · a separate service with its own account'
+      : 'Off · a separate service with its own account';
   if (!['eligible', 'explicit_only'].includes(source.eligibility))
     return 'Not available yet';
   const update = source.catalog;
@@ -97,6 +101,65 @@ function UseApps() {
       </Field>
       {error && <StatusLine tone="danger">{error}</StatusLine>}
     </div>
+  );
+}
+
+/** A catalog the person turns on themselves (a hosted broker): on only after reading what it means, off at once. */
+function OptIn({
+  source,
+  onChange,
+}: {
+  source: IntegrationSourceView;
+  onChange: (next: IntegrationSourceView) => void;
+}) {
+  const { controller } = useRuntime();
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState('');
+  const optIn = source.opt_in;
+  if (!optIn) return null;
+  const save = async (on: boolean) => {
+    setError('');
+    try {
+      onChange(await controller.setIntegrationSourceOptIn(source.id, on));
+      setAsking(false);
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  };
+  return (
+    <>
+      <Toggle
+        label={`Use ${source.label}`}
+        checked={optIn.on || asking}
+        onChange={(event) =>
+          event.target.checked ? setAsking(true) : void save(false)
+        }
+      />
+      {asking && !optIn.on && (
+        <section
+          className="catalog-disclosure"
+          aria-label={`Before you use ${source.label}`}
+        >
+          <p>{optIn.disclosure}</p>
+          <ul className="catalog-links">
+            {optIn.links.map((link) => (
+              <li key={link.url}>
+                <a href={link.url} target="_blank" rel="noreferrer">
+                  {link.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <div className="button-row">
+            <Button variant="primary" onClick={() => void save(true)}>
+              Turn on {source.label}
+            </Button>
+            <Button onClick={() => setAsking(false)}>Cancel</Button>
+          </div>
+        </section>
+      )}
+      {error && <StatusLine tone="danger">{error}</StatusLine>}
+    </>
   );
 }
 
@@ -219,6 +282,14 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
                     Update
                   </Button>
                 )}
+                <OptIn
+                  source={source}
+                  onChange={(next) =>
+                    setSources((all) =>
+                      all.map((item) => (item.id === next.id ? next : item)),
+                    )
+                  }
+                />
               </li>
             ))}
           </ul>

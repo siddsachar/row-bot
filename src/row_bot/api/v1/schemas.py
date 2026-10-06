@@ -7961,6 +7961,22 @@ class CatalogSchedule(WireModel):
     sources: list[Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,40}$")]] | None = Field(default=None, max_length=32)
 
 
+class SourceLink(WireModel):
+    label: str = Field(max_length=80)
+    url: str = Field(max_length=512, pattern=r"^https://")
+
+
+class SourceOptIn(WireModel):
+    """A catalog the person turns on themselves (a hosted broker): off by default, and what turning it on means."""
+    on: bool
+    disclosure: str = Field(max_length=1024)
+    links: list[SourceLink] = Field(max_length=4)
+
+
+class SourceOptInChange(WireModel):
+    on: bool
+
+
 class IntegrationSourceView(WireModel):
     id: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
     kinds: list[IntegrationKind] = Field(min_length=1, max_length=3)
@@ -7971,6 +7987,7 @@ class IntegrationSourceView(WireModel):
     enabled: bool
     message: str = Field(max_length=512)
     catalog: CatalogUpdate | None = None
+    opt_in: SourceOptIn | None = None
 
 
 class IntegrationSourceList(WireModel):

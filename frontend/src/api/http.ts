@@ -1167,6 +1167,15 @@ export class HttpTransport implements ClientTransport {
       signal,
     );
   }
+  setIntegrationSourceOptIn(source: string, on: boolean, signal?: AbortSignal) {
+    return wire.setIntegrationSourceOptIn(
+      this.base,
+      this.session(),
+      source,
+      { on },
+      signal,
+    );
+  }
   catalogSchedule(signal?: AbortSignal) {
     return wire.getCatalogSchedule(this.base, this.session(), signal);
   }

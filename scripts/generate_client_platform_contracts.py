@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after path bootstrap
 
 MODELS = {name: getattr(schemas, name) for name in (
-    "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
+    "SourceLink", "SourceOptIn", "SourceOptInChange", "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
     "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
     "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
@@ -109,6 +109,7 @@ MODELS = {name: getattr(schemas, name) for name in (
 OPERATIONS = (
     ('get', '/integrations/sources', None, 'IntegrationSourceList'),
     ('post', '/integrations/sources/{source_id}/update', None, 'IntegrationSourceView'),
+    ('put', '/integrations/sources/{source_id}/opt-in', 'SourceOptInChange', 'IntegrationSourceView'),
     ('get', '/integrations/catalog-schedule', None, 'CatalogSchedule'),
     ('put', '/integrations/catalog-schedule', 'CatalogSchedule', 'CatalogSchedule'),
     ('get', '/integrations/apps', None, 'AppList'),
@@ -1180,6 +1181,8 @@ export const getIntegrationSources = (base: string, proof: SessionProof, signal?
   jsonRequest(base, '/integrations/sources', 'IntegrationSourceList', proof, 'GET', undefined, undefined, signal);
 export const updateIntegrationSource = (base: string, proof: SessionProof, source: string, signal?: AbortSignal): Promise<IntegrationSourceView> =>
   jsonRequest(base, `/integrations/sources/${id(source)}/update`, 'IntegrationSourceView', proof, 'POST', undefined, undefined, signal);
+export const setIntegrationSourceOptIn = (base: string, proof: SessionProof, source: string, body: SourceOptInChange, signal?: AbortSignal): Promise<IntegrationSourceView> =>
+  jsonRequest(base, `/integrations/sources/${id(source)}/opt-in`, 'IntegrationSourceView', proof, 'PUT', validateWire('SourceOptInChange', body), undefined, signal);
 export const getCatalogSchedule = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<CatalogSchedule> =>
   jsonRequest(base, '/integrations/catalog-schedule', 'CatalogSchedule', proof, 'GET', undefined, undefined, signal);
 export const setCatalogSchedule = (base: string, proof: SessionProof, body: CatalogSchedule, signal?: AbortSignal): Promise<CatalogSchedule> =>
