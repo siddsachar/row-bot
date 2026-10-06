@@ -421,6 +421,11 @@
           "maxLength": 128,
           "title": "Tool",
           "type": "string"
+        },
+        "view": {
+          "default": false,
+          "title": "View",
+          "type": "boolean"
         }
       },
       "required": [

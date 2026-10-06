@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "maxItems": 256,
+      "title": "Content",
+      "type": "array"
+    },
+    "isError": {
+      "default": false,
+      "title": "Iserror",
+      "type": "boolean"
+    },
+    "structuredContent": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Structuredcontent"
+    }
+  },
+  "title": "AppViewToolResult",
+  "type": "object"
+}

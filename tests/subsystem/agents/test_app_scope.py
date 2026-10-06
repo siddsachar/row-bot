@@ -180,7 +180,7 @@ def test_an_approval_names_the_app_asking_with_its_logo(identities):
     from row_bot.application.approval_projection import project_approval_context
     asked = project_approval_context({"tool": "mcp_notion_delete_page", "args": {"page": "Roadmap"},
                                       "description": "Delete a page"})
-    assert asked["app"] == {**identities, "tool": "Delete page"}  # "Allow Notion to delete page?"
+    assert asked["app"] == {**identities, "tool": "Delete page", "view": False}  # "Allow Notion to delete page?"
     assert "app" not in project_approval_context({"tool": "workspace_file_delete", "args": {}})  # Row-Bot's own.
 
 
@@ -193,7 +193,7 @@ def test_a_settled_tool_step_names_its_app_even_when_found_through_discovery(ide
                         {"id": "call-3", "name": "calculate", "args": {}}]},
     ]
     items = [item for group in project_assistant_row_traces(records)[0]["traces"] for item in group["items"]]
-    assert [item.get("app") for item in items] == [{**identities, "tool": "Search"}] * 2 + [None]
+    assert [item.get("app") for item in items] == [{**identities, "tool": "Search", "view": False}] * 2 + [None]
 
 
 def test_a_built_in_app_follows_the_same_rules_through_its_own_tools(apps):

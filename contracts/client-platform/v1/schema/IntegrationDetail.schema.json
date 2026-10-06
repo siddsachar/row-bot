@@ -66,6 +66,25 @@
       "title": "AppRef",
       "type": "object"
     },
+    "AppViewsAbout": {
+      "additionalProperties": false,
+      "properties": {
+        "everywhere": {
+          "title": "Everywhere",
+          "type": "boolean"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "on",
+        "everywhere"
+      ],
+      "title": "AppViewsAbout",
+      "type": "object"
+    },
     "InstallPlan": {
       "additionalProperties": false,
       "properties": {
@@ -338,6 +357,17 @@
           "maxLength": 2048,
           "title": "Source Url",
           "type": "string"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AppViewsAbout"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "ways": {
           "items": {
@@ -1369,6 +1399,16 @@
           "maxLength": 128,
           "title": "Title",
           "type": "string"
+        },
+        "view": {
+          "default": false,
+          "title": "View",
+          "type": "boolean"
+        },
+        "view_only": {
+          "default": false,
+          "title": "View Only",
+          "type": "boolean"
         }
       },
       "required": [

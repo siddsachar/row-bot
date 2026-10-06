@@ -83,9 +83,15 @@ def capture_tested_catalog(tested: dict) -> dict:
                 effect = "unknown"
             destructive = tool["destructive"] or is_destructive_tool(name, description)
             # Recorded safety is never lowered by a catalog edit or a missing hint.
-            rows.append({"name": name, "description": description, "input_schema": schema,
+            row = {"name": name, "description": description, "input_schema": schema,
                 "destructive": destructive, "requires_approval": tool["requires_approval"] or destructive or effect == "unknown",
-                "effect": effect})
+                "effect": effect}
+            view, visibility = tool.get("ui", ""), tool.get("visibility") or ["model", "app"]
+            if isinstance(view, str) and view.startswith("ui://") and len(view) <= 512:
+                row["view"] = view  # It shows an interactive view in chat (MCP Apps): part of what is agreed to.
+            if list(visibility) == ["app"]:
+                row["view_only"] = True  # Only its own view calls it; the agent never sees it.
+            rows.append(row)
         result = {"availability": "available", "tools": rows}
         return json.loads(_bounded_json(result))
     except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):

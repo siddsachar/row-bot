@@ -490,14 +490,14 @@ def read_pending_approvals() -> dict[str, Any]:
     shown = rows[:_MAX_APPROVALS]
     titles = _conversation_titles({
         str(row.get("source_thread_id") or row.get("parent_thread_id") or "")
-        for row in shown if row.get("resume_kind") in {"conversation", "parent_orchestration"}
+        for row in shown if row.get("resume_kind") in {"conversation", "parent_orchestration", "mcp_app"}
     } - {""})
     items = []
     for row in shown:
         kind = str(row.get("resume_kind") or "")
         conversation_id = str(row.get("source_thread_id") or row.get("parent_thread_id") or "") or None
         task_id = None
-        if kind == "conversation":
+        if kind in {"conversation", "mcp_app"}:  # A view's call waits in its chat.
             source, title = "conversation", titles.get(conversation_id or "") or "Untitled conversation"
         elif kind == "agent_run":
             source, title = "agent", str(row.get("source_label") or "") or "Agent"

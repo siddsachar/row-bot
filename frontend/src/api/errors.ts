@@ -473,6 +473,18 @@ const CATALOG: Record<string, Entry> = {
     RECONNECT,
   ],
   not_found: ['That is no longer available.', 'none'],
+  views_off: [
+    'Views from this app are off. Turn them on from its page in Apps.',
+    'none',
+  ],
+  view_unavailable: ["This view isn't available. Try again later.", 'retry'],
+  view_tool_refused: ["This view can't do that here.", 'none'],
+  view_tool_denied: ["You didn't allow this action.", 'none'],
+  view_rate_limited: [
+    'Too many requests from this view. Wait a moment.',
+    'retry',
+  ],
+  view_tool_failed: ["The app couldn't do that just now.", 'retry'],
   operation_pending: [
     'The earlier Tailscale step is still running. Check it again in a moment.',
     'retry',

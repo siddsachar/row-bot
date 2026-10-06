@@ -4464,6 +4464,64 @@ def create_router(
         from row_bot.application.client_integrations import list_presets
         return await respond(request, dto.AccessPresetList, list_presets())
 
+    def view_problem(error: Exception) -> ProtocolError:
+        status = {"not_found": 404, "views_off": 403, "view_tool_refused": 403, "view_tool_denied": 403,
+                  "view_rate_limited": 429, "invalid_command": 422, "view_tool_failed": 502}.get(str(error), 409)
+        return ProtocolError(str(error), status)
+
+    @router.post("/conversations/{conversation_id}/views")
+    async def app_view_render(conversation_id: str, request: Request) -> JSONResponse:
+        """Show one finished tool step's view (MCP Apps); the client loads its frame once."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.AppViewRenderRequest, 1024)
+        await readable_conversation(conversation_id)
+        from row_bot.integrations import views
+        try:
+            result = await call(views.render, conversation_id, body.call_id)
+        except views.ViewError as error:
+            raise view_problem(error) from None
+        return await respond(request, dto.AppViewRender, result)
+
+    @router.post("/views/{render_id}/tools/call")
+    async def app_view_tool_call(render_id: str, request: Request) -> JSONResponse:
+        """A view calling its own app; approvals apply as for any call, and may make this wait."""
+        await session(request, lane="mutation")
+        body = await _body(request, dto.AppViewToolCall, 96 * 1024)
+        from row_bot.integrations import views
+        record = views._RENDERS.get(render_id)
+        if record is None:
+            raise ProtocolError("not_found", 404)
+        await readable_conversation(record["conversation_id"])
+        try:
+            result = await call(views.call, render_id, body.name, body.arguments)
+        except views.ViewError as error:
+            raise view_problem(error) from None
+        return await respond(request, dto.AppViewToolResult, result)
+
+    @router.get("/integrations/views")
+    async def app_view_settings(request: Request) -> JSONResponse:
+        await session(request)
+        from row_bot.integrations import views
+        return await respond(request, dto.AppViewSettings, await call(views.settings))
+
+    @router.put("/integrations/views")
+    async def app_view_settings_change(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.AppViewSettings, 64 * 1024)
+        from row_bot.integrations import views
+        return await respond(request, dto.AppViewSettings, await call(views.set_enabled, body.enabled))
+
+    @router.put("/integrations/views/apps")
+    async def app_view_app_setting(request: Request) -> JSONResponse:
+        await session(request, lane="mutation")
+        body = await _body(request, dto.AppViewAppSetting, 1024)
+        from row_bot.integrations import views
+        try:
+            result = await call(views.set_app, body.item_id, body.enabled)
+        except views.ViewError as error:
+            raise view_problem(error) from None
+        return await respond(request, dto.AppViewSettings, result)
+
     @router.get("/integrations/items")
     async def integration_items(request: Request, query: str = "", kind: str = "all", scope: str = "installed",
                                 cursor: str | None = None, limit: int = 50, all: bool = False) -> JSONResponse:

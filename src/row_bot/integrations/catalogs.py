@@ -99,6 +99,15 @@ def _run(source: sources.Source, cancelled: Callable[[], bool]) -> None:
             _RUNNING.pop(source.id, None)
 
 
+def setting(key: str) -> object:
+    """One of the person's Apps settings kept beside the catalog schedule (app views, hosted brokers)."""
+    return (_read().get("settings") or {}).get(key)
+
+
+def set_setting(key: str, value: object) -> None:
+    _write(lambda saved: saved.update(settings={**(saved.get("settings") or {}), key: value}))
+
+
 def schedule() -> dict:
     """The user's choice: on or off (off by default), how often, and which catalogs (None: all)."""
     saved = _read().get("schedule") or {}

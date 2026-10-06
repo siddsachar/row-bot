@@ -900,6 +900,7 @@ it('stops every app at once from Advanced with the reviewed policy command', asy
   const controller = {
     integrationSources: vi.fn(async () => ({ schema_version: 1, items: [] })),
     catalogSchedule: vi.fn(async () => null),
+    appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
     mcpPolicy: vi
       .fn()
       .mockResolvedValueOnce(page)

@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "description": "The person's switch for app views in chat, and each app's own (by item id).",
+  "properties": {
+    "apps": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "title": "Apps",
+      "type": "object"
+    },
+    "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+    }
+  },
+  "title": "AppViewSettings",
+  "type": "object"
+}

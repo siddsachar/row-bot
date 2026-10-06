@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "description": "A tool call from a view: its own app's tool only, under the app's access and the chat's approvals.",
+  "properties": {
+    "arguments": {
+      "additionalProperties": true,
+      "title": "Arguments",
+      "type": "object"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "AppViewToolCall",
+  "type": "object"
+}

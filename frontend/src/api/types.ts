@@ -150,6 +150,25 @@ export interface ClientTransport {
     icons: string[],
     signal?: AbortSignal,
   ): Promise<Wire.IconBatch>;
+  renderAppView?(
+    conversation: string,
+    callId: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewRender>;
+  callAppViewTool?(
+    render: string,
+    body: Wire.AppViewToolCall,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewToolResult>;
+  appViewSettings?(signal?: AbortSignal): Promise<Wire.AppViewSettings>;
+  setAppViewSettings?(
+    body: Wire.AppViewSettings,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewSettings>;
+  setAppViewAppSetting?(
+    body: Wire.AppViewAppSetting,
+    signal?: AbortSignal,
+  ): Promise<Wire.AppViewSettings>;
   integrationItems?(
     options: {
       query?: string;

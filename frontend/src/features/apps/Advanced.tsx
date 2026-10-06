@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useRuntime } from '../../runtime';
 import { clientError } from '../../api/errors';
 import type {
+  AppViewSettings,
   CatalogSchedule,
   IntegrationSourceView,
   McpPolicyPage,
@@ -91,6 +92,44 @@ function UseApps() {
           label="Use apps"
           checked={page?.global_enabled === true}
           disabled={busy || !page?.revision || page.global_enabled === null}
+          onChange={(event) => void change(event.target.checked)}
+        />
+      </Field>
+      {error && <StatusLine tone="danger">{error}</StatusLine>}
+    </div>
+  );
+}
+
+/** "Show app views in chat": the person's switch for every app's views (on by default). */
+function AppViews() {
+  const { controller } = useRuntime();
+  const [settings, setSettings] = useState<AppViewSettings | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    controller.appViewSettings().then(setSettings, () => undefined);
+  }, [controller]);
+  const change = async (enabled: boolean) => {
+    if (!settings) return;
+    setError('');
+    try {
+      setSettings(
+        await controller.setAppViewSettings({ ...settings, enabled }),
+      );
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  };
+  return (
+    <div className="app-section">
+      <Field
+        label="Show app views in chat"
+        hint="Some apps show their results as an interactive view. Views run apart from Row-Bot and ask before changing anything."
+        layout="row"
+      >
+        <Toggle
+          label="Show app views in chat"
+          checked={settings?.enabled === true}
+          disabled={!settings}
           onChange={(event) => void change(event.target.checked)}
         />
       </Field>
@@ -226,6 +265,7 @@ export default function Advanced({ chat }: { chat: ReactNode }) {
       </SettingsGroup>
       <SettingsGroup title="Apps in chats" anchor="chats">
         <UseApps />
+        <AppViews />
         {chat}
         <RuntimeInstallations />
       </SettingsGroup>

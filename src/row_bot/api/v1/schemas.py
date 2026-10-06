@@ -6833,6 +6833,54 @@ class TraceAppRef(WireModel):
     name: str = Field(max_length=128)
     icon: str = Field(max_length=128)
     tool: str = Field(default="", max_length=128)
+    # The step can show its app's view in chat (MCP Apps).
+    view: bool = False
+
+
+class AppViewRenderRequest(WireModel):
+    """Show the view of one finished tool step in this chat (MCP Apps)."""
+    call_id: str = Field(min_length=1, max_length=256)
+
+
+class AppViewTool(WireModel):
+    name: str = Field(max_length=256)
+    title: str = Field(max_length=128)
+
+
+class AppViewRender(WireModel):
+    """One step's view: the frame address it loads once, what it was called with and its result."""
+    render_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+    frame_url: str = Field(max_length=128)
+    app: TraceAppRef
+    tool: AppViewTool
+    input: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    prefers_border: bool = True
+    # The https origins the view says it loads from; nothing else is allowed.
+    domains: list[str] = Field(default_factory=list, max_length=64)
+
+
+class AppViewToolCall(WireModel):
+    """A tool call from a view: its own app's tool only, under the app's access and the chat's approvals."""
+    name: str = Field(min_length=1, max_length=256)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class AppViewToolResult(WireModel):
+    content: list[dict[str, Any]] = Field(default_factory=list, max_length=256)
+    structuredContent: dict[str, Any] | None = None
+    isError: bool = False
+
+
+class AppViewSettings(WireModel):
+    """The person's switch for app views in chat, and each app's own (by item id)."""
+    enabled: bool = True
+    apps: dict[str, bool] = Field(default_factory=dict)
+
+
+class AppViewAppSetting(WireModel):
+    item_id: str = Field(min_length=1, max_length=512)
+    enabled: bool
 
 
 class TraceSpecialization(WireModel):
@@ -8110,6 +8158,9 @@ class PlanTool(WireModel):
     state: ToolState
     # Destructive, high impact or unknown: it asks every time, whatever the preset.
     always_asks: bool = True
+    # It shows an interactive view in chat (MCP Apps); ``view_only``: only that view calls it.
+    view: bool = False
+    view_only: bool = False
 
 
 class PlanAccess(WireModel):
@@ -8188,6 +8239,11 @@ class IntegrationWay(WireModel):
     recommended: bool = False
 
 
+class AppViewsAbout(WireModel):
+    on: bool
+    everywhere: bool
+
+
 class IntegrationAbout(WireModel):
     """What a detail page shows beyond the card. Identifiers appear only under Details."""
     license: str = Field(max_length=256)
@@ -8210,6 +8266,8 @@ class IntegrationAbout(WireModel):
     ways: list[IntegrationWay] = Field(default_factory=list, max_length=24)
     # Its declared settings and keys as they are now (a key only as saved or not), changed through a `settings` plan.
     settings: list[PlanInput] = Field(default_factory=list, max_length=32)
+    # An app that shows views in chat (MCP Apps): whether they show for it, and whether views are on at all.
+    views: AppViewsAbout | None = None
 
 
 class IntegrationDetail(WireModel):

@@ -159,7 +159,9 @@ def app_for_tool(tool_name: str) -> dict | None:
     item = next((item for item in _mcp_items() if item["server"] == server), None)
     if item is None:
         return None
-    return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"], "tool": runtime.tool_title(tool_name)}
+    from row_bot.integrations import views
+    return {"item_id": item["id"], "name": _name(item)[:128], "icon": item["icon"], "tool": runtime.tool_title(tool_name),
+            "view": views.has_view(tool_name)}
 
 
 MAX_SUGGESTIONS = 3

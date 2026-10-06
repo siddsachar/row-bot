@@ -130,7 +130,7 @@ if not is_docs_real_data_capture():
         logger.debug("Startup diagnostics failed", exc_info=True)
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from row_bot.app_port import get_app_host, get_app_port
 from row_bot.server import app, on_shutdown, on_startup
 
@@ -995,6 +995,16 @@ async def _startup_state_handler(request: Request) -> JSONResponse:  # noqa: ARG
     })
 
 
+async def _app_view_handler(request: Request) -> Response:
+    """An app's view (MCP Apps), served once to the sandboxed frame its render created, under its own CSP."""
+    from row_bot.integrations import views
+    try:
+        html, headers = views.frame(str(request.path_params.get("render_id") or ""))
+    except views.ViewError:
+        return Response("Not found", status_code=404, media_type="text/plain", headers={"Cache-Control": "no-store"})
+    return Response(html, media_type="text/html; charset=utf-8", headers=headers)
+
+
 async def _health_handler(request: Request) -> JSONResponse:  # noqa: ARG001
     """Expose process liveness without provider, route, or user details."""
     return JSONResponse(
@@ -1128,6 +1138,7 @@ app.add_route("/api/launcher-ping", _launcher_ping_handler, methods=["GET"])
 app.add_route("/api/startup-state", _startup_state_handler, methods=["GET"])
 app.add_route("/api/launcher-shutdown", _launcher_shutdown_handler, methods=["POST"])
 app.add_route("/api/webhook/{task_id}", _webhook_handler, methods=["POST"])
+app.add_route("/app-views/{render_id}", _app_view_handler, methods=["GET"])
 app.add_route("/", _root_handler, methods=["GET"])
 app.add_route("/favicon.ico", _favicon_handler, methods=["GET"])
 app.add_route("/healthz", _health_handler, methods=["GET"])

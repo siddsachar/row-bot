@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "item_id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Item Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id",
+    "enabled"
+  ],
+  "title": "AppViewAppSetting",
+  "type": "object"
+}

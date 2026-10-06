@@ -1,0 +1,366 @@
+"""App views in chat (MCP Apps, spec 2026-01-26): the server side of Row-Bot's host.
+
+A finished tool step whose tool declares a view (``_meta.ui.resourceUri``) can show it, when the person's
+switch for views and the app's own are on (an app's is on when what they agreed to included a view). The
+view's HTML is read from that app's own connection (``resources/read``, its exact media type, at most
+1 MiB) and served once, with a header CSP that admits nothing but the app's declared https domains, to a
+frame the client creates with ``sandbox="allow-scripts"`` only: an opaque origin, with no Row-Bot cookie,
+storage, page or API. A view's calls reach only its own app's tools that allow it (visibility ``app``), at
+most 20 a minute, and go through the app's access and the chat's approvals as any other call does:
+destructive, high-impact and unknown tools always ask, and a routine change asks unless the person chose
+to let it run.
+"""
+from __future__ import annotations
+
+import ipaddress
+import json
+import re
+import secrets
+import threading
+import time
+from typing import Any
+
+from row_bot.integrations.safe import TtlCache
+
+RENDER_SECONDS = 600
+CALLS_PER_MINUTE = 20
+APPROVAL_MINUTES = 5
+MAX_ARGUMENTS = 64 * 1024
+_RENDERS = TtlCache(RENDER_SECONDS, 256)
+_FRAMES = TtlCache(120, 256)  # Each view's HTML, served once to the frame its render created.
+_lock = threading.Lock()
+_calls: dict[str, list[float]] = {}
+_waiting: dict[str, tuple[threading.Event, list[bool]]] = {}
+
+
+class ViewError(ValueError):
+    """Why a view can't be shown, or a call from it can't run; ``str()`` is the code, ``message`` the words."""
+
+    def __init__(self, code: str, message: str = "") -> None:
+        super().__init__(code)
+        self.message = message or "This view isn't available."
+
+
+# --- The person's switches ----------------------------------------------------------------------------
+
+def _saved() -> dict:
+    from row_bot.integrations import catalogs
+    value = catalogs.setting("views")
+    return value if isinstance(value, dict) else {}
+
+
+def enabled() -> bool:
+    """The person's switch for app views in chat (on unless they turned it off)."""
+    return _saved().get("enabled") is not False
+
+
+def settings() -> dict:
+    saved = _saved()
+    apps = saved.get("apps") if isinstance(saved.get("apps"), dict) else {}
+    return {"enabled": enabled(), "apps": {key: value for key, value in apps.items() if isinstance(value, bool)}}
+
+
+def set_enabled(on: bool) -> dict:
+    from row_bot.integrations import catalogs
+    catalogs.set_setting("views", {**_saved(), "enabled": bool(on)})
+    return settings()
+
+
+def set_app(item_id: str, on: bool) -> dict:
+    """One app's views on or off (its page's switch)."""
+    from row_bot.integrations import catalogs, facts
+    if not isinstance(item_id, str) or facts.read(item_id) is None:
+        raise ViewError("not_found")
+    saved = _saved()
+    apps = {**(saved.get("apps") if isinstance(saved.get("apps"), dict) else {}), item_id: bool(on)}
+    catalogs.set_setting("views", {**saved, "apps": apps})
+    return settings()
+
+
+def _cfg(item: dict) -> dict:
+    from row_bot.application.capability_configuration_controls import _server_id
+    from row_bot.mcp_client import config, targets
+    saved = config.read_saved_configuration(targets.normalize(item.get("target") or {"kind": "standalone"}))
+    return next((cfg for name, cfg in saved.document.get("servers", {}).items() if _server_id(name) == item["owner_ref"]), {})
+
+
+def offered(item: dict) -> bool:
+    """Whether the app's views were part of what the person agreed to (a tool with a view was accepted)."""
+    catalog = ((_cfg(item).get("tools") or {}).get("catalog")) or {}
+    return any(isinstance(tool, dict) and tool.get("view") for tool in catalog.values())
+
+
+def app_on(item: dict) -> bool:
+    """An app's views show: the person's switch is on, and the app's own (its page) is on, which it is by
+    default when what they agreed to included a view."""
+    if not enabled():
+        return False
+    choice = settings()["apps"].get(item["id"])
+    return choice if choice is not None else offered(item)
+
+
+def about(item: dict) -> dict | None:
+    """What an app's page says about its views: none, or whether they show (and that it has them)."""
+    if item.get("kind") != "mcp" or item.get("lifecycle") == "available":
+        return None
+    from row_bot.mcp_client import runtime
+    server = item.get("server") or ""
+    current = any(info.ui for info in (runtime.tool_info(server, name) for name in runtime.tool_names(server)) if info)
+    if not (current or offered(item)):
+        return None
+    return {"on": app_on(item), "everywhere": enabled()}
+
+
+# --- What a view may load --------------------------------------------------------------------------------
+
+def _origin(value: object) -> str:
+    """One declared https origin (``https://cdn.example.com`` or ``https://*.example.com``), or ''. Never a
+    loopback, private or bare address, a single label or a shared public suffix."""
+    from row_bot.integrations.inputs import public_suffix
+    text = str(value or "").strip().lower().rstrip("/")
+    if not re.fullmatch(r"https://(\*\.)?[a-z0-9.-]{1,253}", text):
+        return ""
+    host = text.removeprefix("https://").removeprefix("*.")
+    try:
+        ipaddress.ip_address(host)
+        return ""
+    except ValueError:
+        pass
+    if ("." not in host or host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test"))
+            or any(not label for label in host.split(".")) or public_suffix(host)):
+        return ""
+    return text
+
+
+def declared_domains(csp: object) -> dict[str, list[str]]:
+    """The https origins an app's view declares (``_meta.ui.csp``), each kind at most 16."""
+    csp = csp if isinstance(csp, dict) else {}
+    found = {}
+    for key in ("resourceDomains", "connectDomains", "frameDomains", "baseUriDomains"):
+        values = csp.get(key) if isinstance(csp.get(key), list) else []
+        found[key] = list(dict.fromkeys(origin for origin in map(_origin, values[:64]) if origin))[:16]
+    return found
+
+
+def content_security_policy(csp: object) -> str:
+    """The view's whole policy: nothing but its own inline code and data, plus the app's declared https
+    domains; never ``'self'`` (which would be Row-Bot's origin), and the sandbox again, as a header."""
+    domains = declared_domains(csp)
+    resource = " ".join(domains["resourceDomains"])
+    return "; ".join([
+        "default-src 'none'",
+        f"script-src 'unsafe-inline' {resource}".strip(),
+        f"style-src 'unsafe-inline' {resource}".strip(),
+        f"img-src data: {resource}".strip(),
+        f"media-src data: {resource}".strip(),
+        f"font-src {resource or chr(39) + 'none' + chr(39)}",
+        "connect-src " + (" ".join(domains["connectDomains"]) or "'none'"),
+        "frame-src " + (" ".join(domains["frameDomains"]) or "'none'"),
+        "object-src 'none'",
+        "base-uri " + (" ".join(domains["baseUriDomains"]) or "'none'"),
+        "form-action 'none'",
+        "frame-ancestors 'self'",
+        "sandbox allow-scripts",
+    ])
+
+
+FRAME_HEADERS = {
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), clipboard-read=(), clipboard-write=(), usb=(), "
+                          "serial=(), payment=(), display-capture=()",
+}
+
+
+# --- Showing one view ------------------------------------------------------------------------------------
+
+def _step(conversation_id: str, call_id: str) -> tuple[dict, str | None]:
+    """The tool call (its runtime name and arguments) and its result text, by call id, as the chat kept them."""
+    from row_bot import threads
+    call, result = None, None
+    for message in threads.get_latest_checkpoint_messages(conversation_id):
+        call = call or next((item for item in getattr(message, "tool_calls", None) or [] if item.get("id") == call_id), None)
+        if getattr(message, "tool_call_id", None) == call_id:
+            content = message.content
+            result = content if isinstance(content, str) else "".join(
+                part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text")
+    if call is None:
+        raise ViewError("not_found")
+    return {"id": call["id"], "name": call["name"], "args": call.get("args") or {}}, result
+
+
+def _result(text: str | None) -> dict | None:
+    """The tool's result as its view expects it, from what the chat kept (the agent's text form)."""
+    if text is None:
+        return None
+    body = re.sub(r"\AApproval: [^\n]*\n?", "", text)  # The approval line Row-Bot adds is not the app's.
+    error = body.startswith("MCP tool error: ")
+    body = body.removeprefix("MCP tool error: ")
+    content, _, structured = body.partition("STRUCTURED_CONTENT:\n")
+    found: dict[str, Any] = {"content": [{"type": "text", "text": content.strip()}] if content.strip() else []}
+    try:
+        value = json.loads(structured) if structured else None
+    except ValueError:
+        value = None  # Cut short in the chat: the view gets the text only.
+    if isinstance(value, dict):
+        found["structuredContent"] = value
+    if error:
+        found["isError"] = True
+    return found
+
+
+def _app_of(server: str) -> dict | None:
+    from row_bot.integrations import scope
+    return next((item for item in scope._mcp_items() if item["server"] == server), None)
+
+
+def has_view(tool_name: str) -> bool:
+    """Whether a chat tool's step can show its app's view now (a read; nothing connects)."""
+    from row_bot.mcp_client import runtime
+    try:
+        found = runtime._issued_tool(tool_name)
+        info = runtime.tool_info(*found) if found else None
+        item = _app_of(found[0]) if info is not None and info.ui else None
+        return bool(item and app_on(item))
+    except Exception:
+        return False
+
+
+def render(conversation_id: str, call_id: str) -> dict:
+    """Prepare one step's view: what the client shows and the frame address it loads once."""
+    from row_bot.integrations import scope
+    from row_bot.mcp_client import runtime
+    call, text = _step(conversation_id, call_id)
+    found = runtime._issued_tool(str(call.get("name") or ""))
+    info = runtime.tool_info(*found) if found else None
+    if info is None or not info.ui:
+        raise ViewError("view_unavailable", "This step has no view.")
+    item = _app_of(info.server_name)
+    if item is None:
+        raise ViewError("view_unavailable", "The app this view belongs to isn't connected.")
+    if not app_on(item):
+        raise ViewError("views_off", "Views from this app are off.")
+    try:
+        view = runtime.view_operation(info.server_name, lambda rt, deadline: rt.read_view(info.ui, deadline=deadline),
+                                      timeout=30)
+    except (ValueError, RuntimeError, TimeoutError) as error:
+        raise ViewError("view_unavailable", "The app didn't send its view. Try again later.") from error
+    render_id = secrets.token_hex(16)
+    meta = view["meta"]
+    _RENDERS.put(render_id, {"conversation_id": conversation_id, "server": info.server_name, "item_id": item["id"],
+                             "created": time.monotonic()})
+    _FRAMES.put(render_id, {"html": view["html"], "csp": content_security_policy(meta.get("csp"))})
+    app = scope.app_for_tool(str(call.get("name") or "")) or {"item_id": item["id"], "name": item["name"],
+                                                               "icon": item["icon"], "tool": ""}
+    return {"render_id": render_id, "frame_url": f"/app-views/{render_id}", "app": app,
+            "tool": {"name": info.name, "title": runtime.tool_title(str(call.get("name") or "")) or info.name},
+            "input": call.get("args") or {}, "result": _result(text), "prefers_border": meta.get("prefersBorder") is not False,
+            "domains": sorted({origin for origins in declared_domains(meta.get("csp")).values() for origin in origins})}
+
+
+def frame(render_id: str) -> tuple[str, dict[str, str]]:
+    """The view's HTML and its headers, once: a second load (the view navigating, or anyone else) gets none."""
+    if not isinstance(render_id, str) or not re.fullmatch(r"[0-9a-f]{32}", render_id):
+        raise ViewError("not_found")
+    with _lock:
+        found = _FRAMES.get(render_id)
+        _FRAMES.put(render_id, None)
+    if not found:
+        raise ViewError("not_found")
+    return found["html"], {**FRAME_HEADERS, "Content-Security-Policy": found["csp"]}
+
+
+# --- A view calling its own app --------------------------------------------------------------------------
+
+def _rate(render_id: str) -> None:
+    now = time.monotonic()
+    with _lock:
+        recent = [at for at in _calls.get(render_id, []) if now - at < 60]
+        if len(recent) >= CALLS_PER_MINUTE:
+            raise ViewError("view_rate_limited", "Too many requests from this view. Wait a moment.")
+        _calls[render_id] = [*recent, now]
+
+
+def _approval_mode(conversation_id: str) -> str:
+    """The chat's own approval choice (Ask, Allow all or Block), as its turns use it."""
+    from row_bot.threads import _get_thread_approval_mode
+    return _get_thread_approval_mode(conversation_id)
+
+
+def gate(info: Any, approval_mode: str) -> str:
+    """``run``, ``ask`` or ``refuse`` for one call from a view, as for the agent: destructive, high-impact
+    and unknown tools ask in every mode but Block (which refuses them); a routine change asks unless the
+    app's access lets it run or the chat chose Allow all; a read runs."""
+    locked = bool(info.destructive) or info.effect == "unknown"
+    if locked:
+        return "refuse" if approval_mode == "block" else "ask"
+    if info.requires_approval:
+        return {"block": "refuse", "allow_all": "run"}.get(approval_mode, "ask")
+    return "run"
+
+
+def _ask(record: dict, info: Any, runtime_name: str, arguments: dict) -> bool:
+    """Ask the person in the chat, with the standard approval card, and wait for their answer."""
+    from row_bot.application.approval_projection import project_approval_context
+    from row_bot.application.client_platform import client_platform_service
+    from row_bot.tasks import create_approval_request
+    # ``id`` is the view's render id: its card in the chat shows this request (no turn is waiting on it).
+    interrupt = {"id": record["render_id"], "tool": runtime_name, "args": arguments, "label": info.title or info.name,
+                 "description": f"{info.title or info.name} (asked from its view in this chat)"}
+    public = project_approval_context(interrupt)
+    _, approval_id = create_approval_request(
+        record["render_id"], "", "view", public["reason"], timeout_minutes=APPROVAL_MINUTES, resume_kind="mcp_app",
+        source_thread_id=record["conversation_id"], parent_thread_id=record["conversation_id"],
+        approval_payload_json={"interrupt": interrupt, "render_id": record["render_id"]})
+    event, answer = threading.Event(), []
+    with _lock:
+        _waiting[approval_id] = (event, answer)
+    client_platform_service.projection.publish(record["conversation_id"], "approval.required", {
+        "status": "waiting_approval", "approval_id": approval_id, **public})
+    try:
+        event.wait(APPROVAL_MINUTES * 60 + 5)
+    finally:
+        with _lock:
+            _waiting.pop(approval_id, None)
+    return bool(answer and answer[0])
+
+
+def decided(approval_id: str, approved: bool) -> None:
+    """The person answered (or the request timed out, as a denial)."""
+    with _lock:
+        waiting = _waiting.get(approval_id)
+    if waiting is not None:
+        waiting[1].append(bool(approved))
+        waiting[0].set()
+
+
+def call(render_id: str, name: str, arguments: dict) -> dict:
+    """One tool call from a view: its own app's tool that allows it, under the app's access and the chat's
+    approvals. Returns the result as the view expects it."""
+    from row_bot.mcp_client import runtime
+    record = _RENDERS.get(render_id) if isinstance(render_id, str) else None
+    if record is None:
+        raise ViewError("not_found", "This view has ended. Open it again.")
+    record = {**record, "render_id": render_id}
+    if not isinstance(name, str) or not isinstance(arguments, dict) or len(json.dumps(arguments, default=str)) > MAX_ARGUMENTS:
+        raise ViewError("invalid_command")
+    _rate(render_id)
+    info = runtime.tool_info(record["server"], name)  # Only this view's own app: never another server.
+    if info is None or "app" not in info.visibility:
+        raise ViewError("view_tool_refused", "This view can't use that tool.")
+    if not info.enabled:
+        raise ViewError("view_tool_refused", "That tool is off for this app.")
+    item = _app_of(record["server"])
+    if item is None or not app_on(item):
+        raise ViewError("views_off", "Views from this app are off.")
+    decision = gate(info, _approval_mode(record["conversation_id"]))
+    if decision == "refuse":
+        raise ViewError("view_tool_refused", "This chat doesn't allow that kind of action.")
+    if decision == "ask" and not _ask(record, info, info.prefixed_name, arguments):
+        raise ViewError("view_tool_denied", "You didn't allow this action.")
+    try:
+        return runtime.view_operation(record["server"], lambda rt, deadline: rt.call_tool_for_view(
+            name, arguments, deadline=deadline), timeout=60)
+    except (RuntimeError, TimeoutError, ValueError) as error:
+        raise ViewError("view_tool_failed", "The app couldn't do that just now.") from error

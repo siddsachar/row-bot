@@ -314,7 +314,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({
             <TranscriptBlocks blocks={embeds} copyText={copyCode} />
           </div>
         )}
-        <TranscriptCards cards={cards} />
+        <TranscriptCards cards={cards} conversation={conversationId} />
         {!!media.length && (
           <div className="message-media-grid" data-count={media.length}>
             {media.map((item) => (

@@ -6578,6 +6578,10 @@ def respond_to_approval(resume_token: str, approved: bool,
             resume_token=resume_token,
             approved=approved,
         )
+    elif str(r.get("resume_kind") or "") == "mcp_app":
+        from row_bot.integrations import views
+
+        views.decided(approval_id, approved)  # A tool call from an app's view waits for this.
     else:
         resume_pipeline(resume_token, approved=approved)
     return True
@@ -6793,6 +6797,10 @@ def _apply_approval_timeout(r: dict) -> None:
             resume_token=str(r.get("resume_token") or ""),
             approved=False,
         )
+    elif str(r.get("resume_kind") or "") == "mcp_app":
+        from row_bot.integrations import views
+
+        views.decided(str(r["id"]), False)
     elif str(r.get("resume_kind") or "") != "conversation":
         _resume_pipeline(r["resume_token"], approved=False)
     logger.info("Approval request %s timed out for task %s",

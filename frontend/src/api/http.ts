@@ -1179,6 +1179,43 @@ export class HttpTransport implements ClientTransport {
   integrationIcons(icons: string[], signal?: AbortSignal) {
     return wire.readAppIcons(this.base, this.session(), icons, signal);
   }
+  renderAppView(conversation: string, callId: string, signal?: AbortSignal) {
+    return wire.renderAppView(
+      this.base,
+      this.session(),
+      conversation,
+      { call_id: callId },
+      signal,
+    );
+  }
+  callAppViewTool(
+    render: string,
+    body: import('./types').AppViewToolCall,
+    signal?: AbortSignal,
+  ) {
+    return wire.callAppViewTool(
+      this.base,
+      this.session(),
+      render,
+      body,
+      signal,
+    );
+  }
+  appViewSettings(signal?: AbortSignal) {
+    return wire.getAppViewSettings(this.base, this.session(), signal);
+  }
+  setAppViewSettings(
+    body: import('./types').AppViewSettings,
+    signal?: AbortSignal,
+  ) {
+    return wire.setAppViewSettings(this.base, this.session(), body, signal);
+  }
+  setAppViewAppSetting(
+    body: import('./types').AppViewAppSetting,
+    signal?: AbortSignal,
+  ) {
+    return wire.setAppViewAppSetting(this.base, this.session(), body, signal);
+  }
   integrationItems(
     options: {
       query?: string;

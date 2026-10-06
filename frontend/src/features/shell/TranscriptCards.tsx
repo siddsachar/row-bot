@@ -9,6 +9,7 @@ import type {
 import { clientError } from '../../api/errors';
 import { Button, Input } from '../../ui/primitives';
 import ChatConnect from '../apps/ChatConnect';
+import AppViewFrame from '../apps/AppViewFrame';
 
 /**
  * Cards the assistant leaves in a turn (decision 12): a design or code folder
@@ -35,7 +36,9 @@ export type TranscriptCard =
       label: string;
       page: 'accounts' | 'channels';
     }
-  | { kind: 'apps'; apps: TraceAppRef[] };
+  | { kind: 'apps'; apps: TraceAppRef[] }
+  /** A finished step whose app shows a view (MCP Apps). */
+  | { kind: 'view'; callId: string; app: TraceAppRef };
 
 type Specialization = NonNullable<
   TranscriptTraceGroup['items'][number]['specialization']
@@ -76,7 +79,9 @@ export function cardKey(card: TranscriptCard) {
     ? `resource:${card.bindingId}`
     : card.kind === 'apps'
       ? `apps:${card.apps.map((app) => app.item_id).join(',')}`
-      : `connect:${card.target}`;
+      : card.kind === 'view'
+        ? `view:${card.callId}`
+        : `connect:${card.target}`;
 }
 
 export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
@@ -84,7 +89,10 @@ export function tracedCards(groups: TranscriptTraceGroup[]): TranscriptCard[] {
   const cards: TranscriptCard[] = [];
   for (const group of groups)
     for (const item of group.items) {
-      const card = cardOf(item.specialization);
+      const card: TranscriptCard | null =
+        item.app?.view && item.status === 'succeeded'
+          ? { kind: 'view', callId: item.call_id, app: item.app }
+          : cardOf(item.specialization);
       if (!card || seen.has(cardKey(card))) continue;
       seen.add(cardKey(card));
       cards.push(card);
@@ -320,9 +328,12 @@ function AppsCard({
 export function TranscriptCards({
   cards,
   live = false,
+  conversation,
 }: {
   cards: TranscriptCard[];
   live?: boolean;
+  /** The chat a view belongs to; views show only where it is known. */
+  conversation?: string | null;
 }) {
   if (!cards.length) return null;
   return (
@@ -332,6 +343,15 @@ export function TranscriptCards({
           <ResourceCard key={cardKey(card)} card={card} live={live} />
         ) : card.kind === 'apps' ? (
           <AppsCard key={cardKey(card)} card={card} />
+        ) : card.kind === 'view' ? (
+          conversation ? (
+            <AppViewFrame
+              key={cardKey(card)}
+              conversation={conversation}
+              callId={card.callId}
+              app={card.app}
+            />
+          ) : null
         ) : (
           <ConnectCard key={cardKey(card)} card={card} />
         ),

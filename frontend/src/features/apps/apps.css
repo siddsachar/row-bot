@@ -475,3 +475,40 @@ a.app-way:hover {
 .approval-card-icon .app-icon {
   border-radius: 6px;
 }
+/* An app's view in chat (MCP Apps): its own sandboxed frame under a small header. */
+.app-view {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-raised, var(--surface-sunken));
+}
+.app-view[data-border='none'] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.app-view-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+.app-view-frame {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  max-height: 720px;
+  border: 0;
+  border-radius: calc(var(--radius-card) - 2px);
+  background: var(--surface-base, transparent);
+}
+.app-view-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}

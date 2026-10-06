@@ -1213,7 +1213,7 @@ def _tools(ctx: Context | None, record: dict) -> list[dict]:
 def _tool_view(tool: dict, state: str) -> dict:
     return {"name": tool["name"][:256], "title": tool["name"].replace("_", " ").replace("-", " ").strip().capitalize()[:128],
             "description": sources.plain_text(tool.get("description", ""), 512), "effect": tool["effect"], "state": state,
-            "always_asks": presets.locked(tool)}
+            "always_asks": presets.locked(tool), "view": bool(tool.get("view")), "view_only": tool.get("view_only") is True}
 
 
 def current_access(row: dict) -> dict | None:

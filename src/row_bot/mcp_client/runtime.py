@@ -85,6 +85,8 @@ class McpToolInfo:
     source: dict[str, Any] = field(default_factory=dict)
     effect: str = ""
     title: str = ""  # The tool's own readable title, when the server gives one.
+    ui: str = ""  # The ``ui://`` view it declares (MCP Apps), if any.
+    visibility: tuple[str, ...] = ("model", "app")  # Who may call it: the agent ("model"), its view ("app").
 
 
 @dataclass
@@ -384,6 +386,52 @@ def _tool_attr(tool: Any, *names: str, default: Any = None) -> Any:
     return default
 
 
+UI_EXTENSION = "io.modelcontextprotocol/ui"
+VIEW_MEDIA_TYPE = "text/html;profile=mcp-app"
+MAX_VIEW_BYTES = 1024 * 1024
+
+
+def _view_meta(tool: Any) -> tuple[str, tuple[str, ...]]:
+    """A tool's MCP Apps view (``_meta.ui.resourceUri``, or the older flat ``ui/resourceUri``) and who may
+    call it (``_meta.ui.visibility``: ``model``, ``app``); anything malformed means no view, callable by both."""
+    meta = _tool_attr(tool, "meta", "_meta", default=None)
+    if not isinstance(meta, dict):
+        return "", ("model", "app")
+    ui = meta.get("ui") if isinstance(meta.get("ui"), dict) else {}
+    uri = ui.get("resourceUri", meta.get("ui/resourceUri"))
+    view = uri if isinstance(uri, str) and uri.startswith("ui://") and len(uri) <= 512 and uri.isprintable() else ""
+    raw = ui.get("visibility")
+    visibility = tuple(v for v in ("model", "app") if isinstance(raw, list) and v in raw) or ("model", "app")
+    return view, visibility
+
+
+_SDK_SESSION = ClientSession
+if ClientSession is not None:
+    class _AppsSession(ClientSession):  # type: ignore[misc, valid-type]
+        """Says, when it connects, that Row-Bot can show an app's views (the MCP Apps extension), so a server
+        may describe them. Whether a view is shown is still Row-Bot's and the person's choice."""
+
+        async def send_request(self, request: Any, result_type: Any, *args: Any, **kwargs: Any) -> Any:
+            from mcp import types
+            root = getattr(request, "root", None)
+            if isinstance(root, types.InitializeRequest) and _views_offered():
+                capabilities = types.ClientCapabilities(**root.params.capabilities.model_dump(exclude_none=True),
+                                                        extensions={UI_EXTENSION: {"mimeTypes": [VIEW_MEDIA_TYPE]}})
+                request = types.ClientRequest(root.model_copy(
+                    update={"params": root.params.model_copy(update={"capabilities": capabilities})}))
+            return await super().send_request(request, result_type, *args, **kwargs)
+else:  # pragma: no cover - the SDK is missing
+    _AppsSession = None
+
+
+def _views_offered() -> bool:
+    try:
+        from row_bot.integrations import views
+        return views.enabled()
+    except Exception:
+        return False
+
+
 def _annotation_title(tool: Any) -> str:
     annotations = _tool_attr(tool, "annotations", default=None)
     return str(_tool_attr(annotations, "title", default="") or "") if annotations is not None else ""
@@ -420,6 +468,7 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             continue
         description = str(_tool_attr(tool, "description", default="") or "")
         title = _tool_attr(tool, "title", default="") or _annotation_title(tool)
+        view, visibility = _view_meta(tool)
         schema = _tool_attr(tool, "inputSchema", "input_schema", default={}) or {}
         destructive = is_destructive_tool(tool_name, description, tool)
         effect = classify_tool_effect(tool_name, description, tool)
@@ -437,6 +486,8 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             source=dict(server_cfg.get("source") or {}),
             effect=effect,
             title=" ".join(str(title or "").split())[:96],
+            ui=view,
+            visibility=visibility,
         )
     for info in normalized.values():
         info.enabled = info.enabled and _accepted_tool_matches(server_cfg, info)
@@ -701,7 +752,9 @@ class McpServerRuntime:
             )
         else:
             raise RuntimeError(f"Unsupported MCP transport: {transport}")
-        self.session = await self.exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+        # The SDK's own session says it can show app views; any other (a test's fake) is used as it is.
+        session_type = _AppsSession if ClientSession is _SDK_SESSION and _AppsSession is not None else ClientSession
+        self.session = await self.exit_stack.enter_async_context(session_type(read_stream, write_stream))
         await asyncio.wait_for(self.session.initialize(), timeout=float(self.cfg.get("connect_timeout", 30)))
         self._status(status="connected", last_connected_at=_now(), last_error="")
         log_event("mcp.server.connected", server=self.name, transport=transport, cfg=mask_mapping(self.cfg))
@@ -754,6 +807,40 @@ class McpServerRuntime:
                 log_event("mcp.tool.call", server=self.name, tool=tool_name)
                 result = await self.session.call_tool(tool_name, arguments or {})
                 return normalize_call_result(result, output_limit=output_limit)
+
+    async def read_view(self, uri: str, *, deadline: float) -> dict[str, Any]:
+        """One ``ui://`` view's HTML and its ``_meta.ui`` (CSP, border), from this connection only."""
+        import base64
+        async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+            async with self._session_lock:
+                if not self.session:
+                    raise RuntimeError(f"MCP server '{self.name}' is not connected")
+                result = await self.session.read_resource(uri)
+        for item in getattr(result, "contents", None) or []:
+            if getattr(item, "mimeType", None) != VIEW_MEDIA_TYPE or str(getattr(item, "uri", "")) != uri:
+                continue
+            text = getattr(item, "text", None)
+            data = text.encode("utf-8") if isinstance(text, str) else base64.b64decode(getattr(item, "blob", "") or "",
+                                                                                      validate=True)
+            if not data or len(data) > MAX_VIEW_BYTES:
+                raise ValueError("view_too_large")
+            meta = getattr(item, "meta", None) or {}
+            return {"html": data.decode("utf-8"), "meta": meta.get("ui") if isinstance(meta.get("ui"), dict) else {}}
+        raise ValueError("view_unavailable")
+
+    async def call_tool_for_view(self, tool_name: str, arguments: dict[str, Any], *, deadline: float) -> dict[str, Any]:
+        """A tool call for an app's own view: its result as the view expects it (content, structured content)."""
+        async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+            async with self._session_lock:
+                if not self.session:
+                    raise RuntimeError(f"MCP server '{self.name}' is not connected")
+                log_event("mcp.tool.call", server=self.name, tool=tool_name, initiator="view")
+                result = await self.session.call_tool(tool_name, arguments or {})
+        dumped = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        found = {key: dumped[key] for key in ("content", "structuredContent", "isError") if key in dumped}
+        if len(json.dumps(found, default=str)) > MAX_VIEW_BYTES:
+            return {"content": [{"type": "text", "text": "The result was too large to show here."}], "isError": True}
+        return found
 
     async def list_resources(self) -> str:
         if not self.session:
@@ -1404,8 +1491,8 @@ def get_langchain_tools(
         ]
     issued: dict[str, tuple[str, str]] = {}
     for info in infos:
-        if not _mcp_runtime_name_allowed(info.prefixed_name, allow):
-            continue
+        if not _mcp_runtime_name_allowed(info.prefixed_name, allow) or "model" not in info.visibility:
+            continue  # A tool only its own view may call is never the agent's.
         issued[info.prefixed_name] = (info.server_name, info.name)
         try:
             wrappers.append(StructuredTool.from_function(
@@ -1471,6 +1558,30 @@ def _issued_tool(name: str) -> tuple[str, str] | None:
             return _issued[name]
         return next(((info.server_name, info.name) for tools in _catalog.values() for info in tools.values()
                      if info.prefixed_name == name), None)
+
+
+def tool_names(server_name: str) -> list[str]:
+    """The tools one server has, as discovered; never connects."""
+    with _runtime_lock:
+        return list(_catalog.get(server_name) or {})
+
+
+def tool_info(server_name: str, tool_name: str) -> McpToolInfo | None:
+    """A discovered tool of one server, as known now; never connects."""
+    with _runtime_lock:
+        info = (_catalog.get(server_name) or {}).get(tool_name)
+        return copy.copy(info) if info is not None else None
+
+
+def view_operation(server_name: str, operation: Callable[["McpServerRuntime", float], Any], *, timeout: float = 60) -> Any:
+    """Run one view operation (read its HTML, call one of its tools) on that server's own connection."""
+    with _runtime_lock:
+        runtime = _servers.get(server_name)
+    if runtime is None or runtime.session is None:
+        raise RuntimeError("server_not_running")
+    deadline = time.monotonic() + timeout
+    return _future_result_with_generation_cancellation(_schedule(operation(runtime, deadline)), timeout=timeout + 1,
+                                                       stopped_message="Stopped.", label=f"mcp_view.{server_name}.cancel")
 
 
 def server_for_tool(name: str) -> str | None:

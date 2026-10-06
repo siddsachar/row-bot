@@ -17,7 +17,8 @@ from row_bot.api.v1 import schemas  # noqa: E402 -- load checkout source after p
 
 MODELS = {name: getattr(schemas, name) for name in (
     "IntegrationSourceView", "IntegrationSourceList", "CatalogUpdate", "CatalogSchedule", "AccessPresetView", "AccessPresetList",
-    "AppRef", "AppView", "AppList", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
+    "AppRef", "AppView", "AppList", "AppViewRenderRequest", "AppViewTool", "AppViewRender", "AppViewToolCall",
+    "AppViewToolResult", "AppViewSettings", "AppViewAppSetting", "AppIconData", "IconBatch", "IconLicense", "IntegrationSignals", "IntegrationBlocker",
     "IntegrationNextAction", "IntegrationEntry", "IntegrationEntryPage", "PlanInput", "PlanSignIn", "PlanRuntime", "PlanReviewItem",
     "PlanReview", "PlanLocalApp",
     "PlanTool", "PlanAccess", "PlanStep", "PlanConsent", "InstallPlan", "IntegrationDetail", "PlanReviewRequest",
@@ -113,6 +114,11 @@ OPERATIONS = (
     ('get', '/integrations/apps', None, 'AppList'),
     ('get', '/integrations/icons', None, 'IconBatch'),
     ('get', '/integrations/presets', None, 'AccessPresetList'),
+    ('post', '/conversations/{conversation_id}/views', 'AppViewRenderRequest', 'AppViewRender'),
+    ('post', '/views/{render_id}/tools/call', 'AppViewToolCall', 'AppViewToolResult'),
+    ('get', '/integrations/views', None, 'AppViewSettings'),
+    ('put', '/integrations/views', 'AppViewSettings', 'AppViewSettings'),
+    ('put', '/integrations/views/apps', 'AppViewAppSetting', 'AppViewSettings'),
     ('get', '/integrations/items', None, 'IntegrationEntryPage'),
     ('post', '/integrations/items/search', 'IntegrationSearchRequest', 'IntegrationEntryPage'),
     ('get', '/integrations/detail', None, 'IntegrationDetail'),
@@ -1184,6 +1190,16 @@ export const readAppIcons = (base: string, proof: SessionProof, ids: string[], s
   jsonRequest(base, '/integrations/icons' + query({ids: ids.join(',')}), 'IconBatch', proof, 'GET', undefined, undefined, signal);
 export const getAccessPresets = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AccessPresetList> =>
   jsonRequest(base, '/integrations/presets', 'AccessPresetList', proof, 'GET', undefined, undefined, signal);
+export const renderAppView = (base: string, proof: SessionProof, conversation: string, body: AppViewRenderRequest, signal?: AbortSignal): Promise<AppViewRender> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/views`, 'AppViewRender', proof, 'POST', validateWire('AppViewRenderRequest', body), undefined, signal);
+export const callAppViewTool = (base: string, proof: SessionProof, render: string, body: AppViewToolCall, signal?: AbortSignal): Promise<AppViewToolResult> =>
+  jsonRequest(base, `/views/${id(render)}/tools/call`, 'AppViewToolResult', proof, 'POST', validateWire('AppViewToolCall', body), undefined, signal);
+export const getAppViewSettings = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<AppViewSettings> =>
+  jsonRequest(base, '/integrations/views', 'AppViewSettings', proof, 'GET', undefined, undefined, signal);
+export const setAppViewSettings = (base: string, proof: SessionProof, body: AppViewSettings, signal?: AbortSignal): Promise<AppViewSettings> =>
+  jsonRequest(base, '/integrations/views', 'AppViewSettings', proof, 'PUT', validateWire('AppViewSettings', body), undefined, signal);
+export const setAppViewAppSetting = (base: string, proof: SessionProof, body: AppViewAppSetting, signal?: AbortSignal): Promise<AppViewSettings> =>
+  jsonRequest(base, '/integrations/views/apps', 'AppViewSettings', proof, 'PUT', validateWire('AppViewAppSetting', body), undefined, signal);
 export const getIntegrationItems = (base: string, proof: SessionProof, options: {query?:string;kind?:string;scope?:'installed'|'catalog';cursor?:string;all?:'true'}, signal?: AbortSignal): Promise<IntegrationEntryPage> =>
   jsonRequest(base, '/integrations/items' + query(options), 'IntegrationEntryPage', proof, 'GET', undefined, undefined, signal);
 export const searchIntegrationItems = (base: string, proof: SessionProof, body: IntegrationSearchRequest, signal?: AbortSignal): Promise<IntegrationEntryPage> =>

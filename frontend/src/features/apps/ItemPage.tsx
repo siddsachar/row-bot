@@ -20,9 +20,11 @@ import {
   Disclosure,
   EmptyState,
   ErrorState,
+  Field,
   Menu,
   Skeleton,
   StatusDot,
+  Toggle,
   type MenuAction,
 } from '../../ui/primitives';
 import { ModalTask } from '../../ui/overlays';
@@ -139,6 +141,52 @@ function useItemId(kind: 'app' | 'skill', param: string) {
     };
   }, [controller, kind, param]);
   return { found, missing };
+}
+
+/** An app that shows views in chat: they show unless switched off here (or for every app in Advanced). */
+function ViewsSwitch({
+  itemId,
+  views,
+}: {
+  itemId: string;
+  views: { on: boolean; everywhere: boolean };
+}) {
+  const { controller } = useRuntime();
+  const [on, setOn] = useState(views.on);
+  const [error, setError] = useState('');
+  const change = async (next: boolean) => {
+    setError('');
+    try {
+      const saved = await controller.setAppViewAppSetting({
+        item_id: itemId,
+        enabled: next,
+      });
+      setOn(saved.enabled !== false && (saved.apps?.[itemId] ?? next));
+    } catch (cause) {
+      setError(clientError(cause).message);
+    }
+  };
+  return (
+    <div className="app-section">
+      <Field
+        label="Show views in chat"
+        hint={
+          views.everywhere
+            ? 'Its results can open as an interactive view. A view runs apart from Row-Bot and asks before it changes anything.'
+            : 'App views are off for every app in Apps › Advanced.'
+        }
+        layout="row"
+      >
+        <Toggle
+          label="Show views in chat"
+          checked={on}
+          disabled={!views.everywhere}
+          onChange={(event) => void change(event.target.checked)}
+        />
+      </Field>
+      {error && <StatusLine tone="danger">{error}</StatusLine>}
+    </div>
+  );
 }
 
 export default function ItemPage({
@@ -589,6 +637,7 @@ function Detail({
                 : 'Hosted by its publisher'}
             </Fact>
           </dl>
+          {about.views && <ViewsSwitch itemId={entry.id} views={about.views} />}
         </SettingsGroup>
       )}
       {(about.ways ?? []).length > 1 && (

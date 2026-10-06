@@ -143,6 +143,7 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
       ],
     })),
     catalogSchedule: vi.fn(async () => ({ enabled: false, interval_days: 7 })),
+    appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
     mcpChat: vi.fn(async () => ({
       schema_version: 1,
       resource_revision: revision,
@@ -171,6 +172,11 @@ it('Apps › Advanced shows the catalogs, their schedule and chat access', async
       name: 'Offer MCP tools in chats',
     }),
   ).toBeChecked();
+  expect(
+    await within(chats).findByRole('switch', {
+      name: 'Show app views in chat',
+    }),
+  ).toBeChecked();
   // Opening the page only reads; nothing is updated or saved.
   expect(controller.integrationItems).not.toHaveBeenCalled();
 });
@@ -179,6 +185,7 @@ it('Apps › Advanced › Add a custom connection opens the add dialog of the MC
   const controller = appsController({
     integrationSources: vi.fn(async () => ({ schema_version: 1, items: [] })),
     catalogSchedule: vi.fn(async () => ({ enabled: false, interval_days: 7 })),
+    appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
     mcpConfiguration: vi.fn(async () => ({
       schema_version: 1,
       revision,

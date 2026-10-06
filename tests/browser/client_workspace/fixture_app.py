@@ -484,6 +484,28 @@ def stream(text: str, enabled_tools: list[str], config: dict, *, stop_event=None
         finally:
             call["quiesced"] = True
         return
+    if "app view fixture" in text:
+        # An app with an interactive view (MCP Apps): the step calls the fixture counter, whose view then
+        # shows under it in its own sandboxed frame.
+        from row_bot.threads import append_checkpoint_messages
+        call = predecessor._record("submit", config, "app-view")
+        thread = call["conversation_id"]
+        identity = f"app-view:{call['generation_id']}"
+        tool_id, result_id = fixture_id(identity + ":tool"), fixture_id(identity + ":result")
+        result = '3\n\nSTRUCTURED_CONTENT:\n{"count": 3}'
+        try:
+            append_checkpoint_messages(thread, [AIMessage(id=fixture_id(identity + ":tool-call"), content="",
+                tool_calls=[{"id": tool_id, "name": "mcp_counter_counter", "args": {"start": 3}}])])
+            yield "tool_call", {"tool_call_id": tool_id, "message_id": result_id, "name": "MCP: counter (Counter)",
+                                "raw_name": "mcp_counter_counter", "runtime_name": "mcp_counter_counter", "args": {"start": 3}}
+            append_checkpoint_messages(thread, [ToolMessage(id=result_id, tool_call_id=tool_id, name="mcp_counter_counter",
+                                                          content=result)])
+            yield "tool_done", {"tool_call_id": tool_id, "message_id": result_id, "name": "MCP: counter (Counter)",
+                                "raw_name": "mcp_counter_counter", "args": {"start": 3}, "content": result}
+            yield from _natural_final(call, thread, "Here is your counter.", "app-view")
+        finally:
+            call["quiesced"] = True
+        return
     if "app tool fixture" in text or "is connected now" in text:
         # Apps in chat: a step through the connected synthetic app (its logo and name on the step), then
         # one change that asks first (its approval names the app). What the turn left out is recorded.
@@ -2400,6 +2422,60 @@ def p5_oauth_approve(state: str, allow: str = ""):
                             f'<a href="?state={escape(quote(state))}&allow=1">Allow</a>')
     client_mcp_auth.accept_callback(state=state, code="synthetic-code")
     return HTMLResponse("<!doctype html><title>Signed in</title><p>Signed in to the synthetic service.</p>")
+
+
+
+@app.post("/__p6_fixture/views")
+def p6_views(x_fixture_token: str = Header(default="")) -> dict:
+    """An app with an interactive view (MCP Apps) on this machine only: the fixture counter's own view and
+    tools, from a synthetic session; it is saved, accepted (its view included) and connected."""
+    p4_provider_credentials(x_fixture_token)
+    import runpy
+    from types import SimpleNamespace
+    from row_bot.application.capability_catalog_controls import capture_tested_catalog
+    from row_bot.integrations import facts
+    from row_bot.mcp_client import config, runtime
+    fixture = runpy.run_path(str(Path(__file__).resolve().parents[3] / "tests/fixtures/mcp_apps/counter_server.py"))
+    tools = [{"name": "counter", "description": "Show the counter, starting from a number.", "inputSchema": {"type": "object"},
+              "_meta": {"ui": {"resourceUri": fixture["VIEW_URI"]}}},
+             {"name": "increment", "description": "Add to the counter (its view's button).", "inputSchema": {"type": "object"},
+              "_meta": {"ui": {"resourceUri": fixture["VIEW_URI"], "visibility": ["app"]}}},
+             {"name": "reset", "description": "Set the counter back to zero.", "inputSchema": {"type": "object"},
+              "_meta": {"ui": {"visibility": ["model"]}}}]
+    count = {"value": 3}
+
+    class Session:
+        async def list_tools(self):
+            return SimpleNamespace(tools=tools)
+
+        async def read_resource(self, uri):
+            return SimpleNamespace(contents=[SimpleNamespace(uri=uri, mimeType=fixture["MEDIA_TYPE"], text=fixture["VIEW"],
+                                                             blob=None, meta={"ui": {"prefersBorder": True}})])
+
+        async def call_tool(self, name, arguments):
+            count["value"] = int(arguments.get("start", 0)) if name == "counter" else count["value"] + int(arguments.get("by", 1))
+            dumped = {"content": [{"type": "text", "text": str(count["value"])}], "structuredContent": {"count": count["value"]},
+                      "isError": False}
+            return SimpleNamespace(**dumped, model_dump=lambda **_: dumped)
+    cfg = {"transport": "stdio", "command": "python", "args": ["counter_server.py"], "enabled": True,
+           "source": {"marketplace": "custom"}, "tools": {"enabled": {tool["name"]: True for tool in tools}}}
+    normalized = runtime._normalize_tools("Counter", cfg, tools)
+    captured = capture_tested_catalog({"ok": True, "tools": [info.__dict__ for info in normalized.values()]})
+    cfg["tools"].update(catalog={row["name"]: row for row in captured["tools"]},
+                        accepted_names=[row["name"] for row in captured["tools"]])
+    document = config.read_saved_configuration().document
+    document = {**document, "enabled": True, "servers": {**document.get("servers", {}), "Counter": cfg}}
+    config.CONFIG_PATH.write_text(json.dumps(document), encoding="utf-8")
+    server = runtime.McpServerRuntime("Counter", cfg)
+    server.session = Session()
+    with runtime._runtime_lock:
+        runtime._servers["Counter"] = server
+        runtime._catalog["Counter"] = runtime._normalize_tools("Counter", cfg, tools)
+        runtime._statuses["Counter"] = runtime.McpServerStatus(name="Counter", enabled=True, status="connected",
+                                                                tool_count=3, enabled_tool_count=3)
+    runtime.get_langchain_tools(allow_names=["mcp"], refresh=False)  # As a turn binds them: their names are known.
+    facts.invalidate()
+    return {"ready": True}
 
 
 if __name__ == "__main__":

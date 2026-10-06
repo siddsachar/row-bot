@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "description": "Show the view of one finished tool step in this chat (MCP Apps).",
+  "properties": {
+    "call_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Call Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "call_id"
+  ],
+  "title": "AppViewRenderRequest",
+  "type": "object"
+}

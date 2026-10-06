@@ -2289,6 +2289,31 @@ export class ClientController {
     this.query(() => this.transport.integrationApps?.(query, signal));
   integrationIcons = (icons: string[], signal?: AbortSignal) =>
     this.query(() => this.transport.integrationIcons?.(icons, signal));
+  /** One finished step's app view (MCP Apps): its frame address and what to send it. */
+  renderAppView = (
+    conversation: string,
+    callId: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.renderAppView?.(conversation, callId, signal),
+    );
+  /** A view calling its own app: Row-Bot applies the app's access and the chat's approvals. */
+  callAppViewTool = (
+    render: string,
+    body: import('./types').AppViewToolCall,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.callAppViewTool?.(render, body, signal));
+  appViewSettings = (signal?: AbortSignal) =>
+    this.query(() => this.transport.appViewSettings?.(signal));
+  setAppViewSettings = (
+    body: import('./types').AppViewSettings,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.setAppViewSettings?.(body, signal));
+  setAppViewAppSetting = (
+    body: import('./types').AppViewAppSetting,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.setAppViewAppSetting?.(body, signal));
   integrationItems = (
     options: {
       query?: string;

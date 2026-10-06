@@ -334,6 +334,16 @@
           "maxLength": 128,
           "title": "Title",
           "type": "string"
+        },
+        "view": {
+          "default": false,
+          "title": "View",
+          "type": "boolean"
+        },
+        "view_only": {
+          "default": false,
+          "title": "View Only",
+          "type": "boolean"
         }
       },
       "required": [

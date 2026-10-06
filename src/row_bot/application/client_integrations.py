@@ -415,7 +415,10 @@ def _about(row: dict, validate: Callable[[], None], plan: dict | None, cfg: dict
              "requirements": [{"label": r["label"][:96], "available": bool(r["available"])} for r in setup.get("requirements", [])][:16],
              "access": plans.current_access(row), "package": "", "files": [], "profiles": [], "ways": _ways(row),
              "actions": [intent for intent in ("turn_off", "update", "remove") if plans.changeable(row, intent)],
-             "settings": plans.settings(row, cfg or {})}
+             "settings": plans.settings(row, cfg or {}), "views": None}
+    if row["kind"] == "mcp" and row["lifecycle"] != "available":
+        from row_bot.integrations import views
+        about["views"] = views.about(row)
     if plan is not None and row["lifecycle"] == "available":  # Not set up yet: say what the plan would do.
         about.update(destination=next(iter(plan["consent"]["destinations"]), ""),
                      runs_locally=plan["consent"]["runs_locally"] and row["kind"] != "skill")
