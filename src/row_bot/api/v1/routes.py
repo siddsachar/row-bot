@@ -4517,7 +4517,7 @@ def create_router(
             raise ProtocolError("not_found", 404)
         await readable_conversation(record["conversation_id"])
         try:
-            result = await call(views.call, render_id, body.name, body.arguments)
+            result = await views.call(render_id, body.name, body.arguments)
         except views.ViewError as error:
             raise view_problem(error) from None
         return await respond(request, dto.AppViewToolResult, result)

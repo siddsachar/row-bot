@@ -12,6 +12,7 @@ to let it run.
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import re
@@ -30,8 +31,10 @@ _RENDERS = TtlCache(RENDER_SECONDS, 256)
 _FRAMES = TtlCache(120, 256)  # Each view's HTML, served once to the frame its render created.
 _CALLS = TtlCache(RENDER_SECONDS, 256)  # Each view's recent calls, for its rate limit.
 _lock = threading.Lock()
-_waiting: dict[str, tuple[threading.Event, list[bool]]] = {}
-_asking: set[str] = set()  # Views with a call waiting for the person: one each, and few at all (each holds a worker).
+_waiting: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Future]] = {}
+# Views with a call waiting for the person: one each, and few at all (each holds one of the few connections
+# a browser keeps to Row-Bot until it is answered; it holds no server thread).
+_asking: set[str] = set()
 MAX_WAITING = 3
 _OPERATIONS = threading.BoundedSemaphore(4)  # Reads of and calls to apps for views at once; more are refused.
 # Names that reach this computer or its network, whatever their address: private-use suffixes and public
@@ -341,30 +344,38 @@ def gate(info: Any, approval_mode: str) -> str:
     return "run"
 
 
-def _ask(record: dict, info: Any, runtime_name: str, arguments: dict) -> bool:
-    """Ask the person in the chat, with the standard approval card, and wait for their answer."""
+async def _ask(record: dict, info: Any, runtime_name: str, arguments: dict) -> bool:
+    """Ask the person in the chat, with the standard approval card, and wait for their answer (no thread
+    waits: their answer, or the request's timeout, resolves it)."""
     from row_bot.application.approval_projection import project_approval_context
     from row_bot.application.client_platform import client_platform_service
     from row_bot.tasks import create_approval_request
-    # ``id`` is the view's render id: its card in the chat shows this request (no turn is waiting on it).
-    interrupt = {"id": record["render_id"], "tool": runtime_name, "args": arguments, "label": info.title or info.name,
-                 "description": f"{info.title or info.name} (asked from its view in this chat)"}
-    public = project_approval_context(interrupt)
-    _, approval_id = create_approval_request(
-        record["render_id"], "", "view", public["reason"], timeout_minutes=APPROVAL_MINUTES, resume_kind="mcp_app",
-        source_thread_id=record["conversation_id"], parent_thread_id=record["conversation_id"],
-        approval_payload_json={"interrupt": interrupt, "render_id": record["render_id"]})
-    event, answer = threading.Event(), []
-    with _lock:
-        _waiting[approval_id] = (event, answer)
-    client_platform_service.projection.publish(record["conversation_id"], "approval.required", {
-        "status": "waiting_approval", "approval_id": approval_id, **public})
+    loop = asyncio.get_running_loop()
+    answer = loop.create_future()
+
+    def request() -> str:
+        # ``id`` is the view's render id: its card in the chat shows this request (no turn is waiting on it).
+        interrupt = {"id": record["render_id"], "tool": runtime_name, "args": arguments,
+                     "label": info.title or info.name, "description": f"{info.title or info.name} (asked from its view in this chat)"}
+        public = project_approval_context(interrupt)
+        _, approval_id = create_approval_request(
+            record["render_id"], "", "view", public["reason"], timeout_minutes=APPROVAL_MINUTES, resume_kind="mcp_app",
+            source_thread_id=record["conversation_id"], parent_thread_id=record["conversation_id"],
+            approval_payload_json={"interrupt": interrupt, "render_id": record["render_id"]})
+        with _lock:
+            _waiting[approval_id] = (loop, answer)
+        client_platform_service.projection.publish(record["conversation_id"], "approval.required", {
+            "status": "waiting_approval", "approval_id": approval_id, **public})
+        return approval_id
+
+    approval_id = await asyncio.to_thread(request)
     try:
-        event.wait(APPROVAL_MINUTES * 60 + 5)
+        return await asyncio.wait_for(answer, APPROVAL_MINUTES * 60 + 5)
+    except TimeoutError:
+        return False
     finally:
         with _lock:
             _waiting.pop(approval_id, None)
-    return bool(answer and answer[0])
 
 
 def decided(approval_id: str, approved: bool) -> None:
@@ -372,13 +383,15 @@ def decided(approval_id: str, approved: bool) -> None:
     with _lock:
         waiting = _waiting.get(approval_id)
     if waiting is not None:
-        waiting[1].append(bool(approved))
-        waiting[0].set()
+        loop, answer = waiting
+        try:
+            loop.call_soon_threadsafe(lambda: answer.done() or answer.set_result(bool(approved)))
+        except RuntimeError:  # The call it answers has ended.
+            pass
 
 
-def call(render_id: str, name: str, arguments: dict) -> dict:
-    """One tool call from a view: its own app's tool that allows it, under the app's access and the chat's
-    approvals. Returns the result as the view expects it."""
+def _admit(render_id: str, name: str, arguments: dict) -> tuple[dict, Any, Any, str]:
+    """Whether a view may make this call: its record, the tool, what it is bound to, and run, ask or refuse."""
     from row_bot.mcp_client import runtime
     record = _RENDERS.get(render_id) if isinstance(render_id, str) else None
     if record is None:
@@ -402,18 +415,12 @@ def call(render_id: str, name: str, arguments: dict) -> dict:
     decision = gate(info, _approval_mode(record["conversation_id"]))
     if decision == "refuse":
         raise ViewError("view_tool_refused", "This chat doesn't allow that kind of action.")
-    if decision == "ask":
-        with _lock:
-            if render_id in _asking or len(_asking) >= MAX_WAITING:
-                raise ViewError("view_busy", "This view is already waiting for your answer.")
-            _asking.add(render_id)
-        try:
-            allowed = _ask(record, info, info.prefixed_name, arguments)
-        finally:
-            with _lock:
-                _asking.discard(render_id)
-        if not allowed:
-            raise ViewError("view_tool_denied", "You didn't allow this action.")
+    return record, info, expected, decision
+
+
+def _run(record: dict, name: str, arguments: dict, expected: Any) -> dict:
+    from row_bot.mcp_client import runtime
+
     def validate() -> None:  # Checked again just before the call: a change of access since asking stops it.
         try:
             runtime._validate_bound_runtime(record["server"], expected, tool_name=name)
@@ -426,3 +433,22 @@ def call(render_id: str, name: str, arguments: dict) -> dict:
         raise
     except (RuntimeError, TimeoutError, ValueError) as error:
         raise ViewError("view_tool_failed", "The app couldn't do that just now.") from error
+
+
+async def call(render_id: str, name: str, arguments: dict) -> dict:
+    """One tool call from a view: its own app's tool that allows it, under the app's access and the chat's
+    approvals. Returns the result as the view expects it."""
+    record, info, expected, decision = await asyncio.to_thread(_admit, render_id, name, arguments)
+    if decision == "ask":
+        with _lock:
+            if render_id in _asking or len(_asking) >= MAX_WAITING:
+                raise ViewError("view_busy", "This view is already waiting for your answer.")
+            _asking.add(render_id)
+        try:
+            allowed = await _ask(record, info, info.prefixed_name, arguments)
+        finally:
+            with _lock:
+                _asking.discard(render_id)
+        if not allowed:
+            raise ViewError("view_tool_denied", "You didn't allow this action.")
+    return await asyncio.to_thread(_run, record, name, arguments, expected)

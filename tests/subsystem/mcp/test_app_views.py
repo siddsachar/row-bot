@@ -89,6 +89,11 @@ class _Done:
         self.value = value
 
 
+def call(render_id, name, arguments):
+    """One call from a view, as the route awaits it."""
+    return asyncio.run(views.call(render_id, name, arguments))
+
+
 def test_a_view_is_read_from_its_own_app_and_served_once_under_a_strict_policy(app):
     shown = views.render("chat-1", "call-1")
     assert shown["input"] == {"start": 3} and shown["tool"]["name"] == "counter"
@@ -130,13 +135,13 @@ def test_views_show_only_where_the_person_lets_them(app, monkeypatch):
 def test_a_view_calls_only_its_own_apps_tools_that_allow_it(app):
     render_id = views.render("chat-1", "call-1")["render_id"]
     with pytest.raises(views.ViewError, match="view_tool_refused"):
-        views.call(render_id, "reset", {})  # Only the agent may call it.
+        call(render_id, "reset", {})  # Only the agent may call it.
     with pytest.raises(views.ViewError, match="view_tool_refused"):
-        views.call(render_id, "steal", {})  # Another app's tool, whatever it allows.
+        call(render_id, "steal", {})  # Another app's tool, whatever it allows.
     with pytest.raises(views.ViewError, match="not_found"):
-        views.call("0" * 32, "update_counter", {})
+        call("0" * 32, "update_counter", {})
     app.mode["value"] = "allow_all"  # A routine change the person let run.
-    assert views.call(render_id, "update_counter", {"by": 1}) == {"content": [{"type": "text", "text": "4"}],
+    assert call(render_id, "update_counter", {"by": 1}) == {"content": [{"type": "text", "text": "4"}],
                                                                  "structuredContent": {"count": 4}, "isError": False}
     assert app.session.calls == [("update_counter", {"by": 1})]
 
@@ -169,7 +174,7 @@ def test_a_view_cannot_use_an_app_this_chat_has_switched_off(app):
     app.off.add("mcp:counter")
     app.mode["value"] = "allow_all"
     with pytest.raises(views.ViewError, match="view_tool_refused"):
-        views.call(render_id, "update_counter", {})
+        call(render_id, "update_counter", {})
     with pytest.raises(views.ViewError, match="views_off"):
         views.render("chat-1", "call-1")
     assert app.session.calls == []
@@ -179,13 +184,17 @@ def test_a_view_waits_on_one_answer_at_a_time(app, monkeypatch):
     """A view can't pile up calls that wait for the person (each would hold the server while it waits)."""
     import threading
     started, release = threading.Event(), threading.Event()
-    monkeypatch.setattr(views, "_ask", lambda *args: started.set() or release.wait(10))
+
+    async def ask(*args):
+        started.set()
+        return await asyncio.to_thread(release.wait, 10)
+    monkeypatch.setattr(views, "_ask", ask)
     render_id = views.render("chat-1", "call-1")["render_id"]
-    first = threading.Thread(target=lambda: views.call(render_id, "delete_counter", {}))
+    first = threading.Thread(target=lambda: call(render_id, "delete_counter", {}))
     first.start()
     assert started.wait(10)
     with pytest.raises(views.ViewError, match="view_busy"):
-        views.call(render_id, "delete_counter", {})
+        call(render_id, "delete_counter", {})
     release.set()
     first.join(10)
     assert app.session.calls == [("delete_counter", {})]
@@ -195,19 +204,19 @@ def test_few_views_wait_on_the_person_at_once(app, monkeypatch):
     monkeypatch.setattr(views, "_asking", {"a" * 32, "b" * 32, "c" * 32})  # Three other views are waiting.
     render_id = views.render("chat-1", "call-1")["render_id"]
     with pytest.raises(views.ViewError, match="view_busy"):
-        views.call(render_id, "delete_counter", {})
+        call(render_id, "delete_counter", {})
     assert app.session.calls == []
 
 
 def test_access_changed_while_asking_stops_the_call(app, monkeypatch):
     """What runs is what was asked about: switching the tool off (or any access change) meanwhile stops it."""
-    def answer_after_a_change(*args):
+    async def answer_after_a_change(*args):
         app.cfg["tools"]["enabled"]["delete_counter"] = False
         return True
     monkeypatch.setattr(views, "_ask", answer_after_a_change)
     render_id = views.render("chat-1", "call-1")["render_id"]
     with pytest.raises(views.ViewError, match="view_tool_refused"):
-        views.call(render_id, "delete_counter", {})
+        call(render_id, "delete_counter", {})
     assert app.session.calls == []
 
 
@@ -223,7 +232,7 @@ def test_a_call_that_asks_waits_for_the_persons_answer_on_the_standard_card(app,
 
     def view_call():
         try:
-            outcome["result"] = views.call(render_id, "delete_counter", {"id": "main"})
+            outcome["result"] = call(render_id, "delete_counter", {"id": "main"})
         except views.ViewError as error:
             outcome["error"] = str(error)
     for answer in (False, True):
@@ -251,13 +260,37 @@ def test_a_call_that_asks_waits_for_the_persons_answer_on_the_standard_card(app,
             assert outcome.pop("error") == "view_tool_denied" and app.session.calls == []
 
 
+def test_a_call_waiting_for_the_person_holds_no_server_thread(app, monkeypatch):
+    """While one view waits for an answer, another view's call still runs on a server with one thread."""
+    from concurrent.futures import ThreadPoolExecutor
+    from row_bot.application.client_platform import client_platform_service
+    published = []
+    monkeypatch.setattr(client_platform_service.projection, "publish",
+                        lambda conversation, kind, payload: published.append(payload))
+    asking, other = (views.render("chat-1", "call-1")["render_id"] for _ in range(2))
+
+    async def scenario():
+        asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=1))
+        waiting = asyncio.create_task(views.call(asking, "delete_counter", {}))
+        while not published:
+            await asyncio.sleep(0.01)
+        app.mode["value"] = "allow_all"  # The other call runs without asking.
+        result = await asyncio.wait_for(views.call(other, "update_counter", {"by": 1}), 10)
+        views.decided(published[0]["approval_id"], False)
+        with pytest.raises(views.ViewError, match="view_tool_denied"):
+            await asyncio.wait_for(waiting, 10)
+        return result
+    assert asyncio.run(scenario())["structuredContent"] == {"count": 4}
+    assert app.session.calls == [("update_counter", {"by": 1})]
+
+
 def test_a_view_is_limited_in_how_often_it_calls(app):
     app.mode["value"] = "allow_all"
     render_id = views.render("chat-1", "call-1")["render_id"]
     for _ in range(views.CALLS_PER_MINUTE):
-        views.call(render_id, "update_counter", {})
+        call(render_id, "update_counter", {})
     with pytest.raises(views.ViewError, match="view_rate_limited"):
-        views.call(render_id, "update_counter", {})
+        call(render_id, "update_counter", {})
 
 
 def test_row_bot_says_it_can_show_views_only_while_views_are_on(monkeypatch, tmp_path):
