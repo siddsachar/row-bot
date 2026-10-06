@@ -154,7 +154,8 @@ def test_list_reads_serve_one_snapshot_until_an_owner_changes(owners, keychain, 
     monkeypatch.setattr(builtin, "_tool_on", lambda name: True)
     monkeypatch.setattr(api_keys, "key_status", lambda name: {"configured": True})
     assert {row["id"]: row["lifecycle"] for row in builtin.rows()}["builtin:tool:wolfram_alpha"] == "available"
-    secret_store.set_secret("WOLFRAM_ALPHA_APPID", "a-key")  # The keychain says something changed.
+    monkeypatch.setattr(secret_store, "_change_listeners", [])  # Even with no one told (the module reloaded)...
+    secret_store.set_secret("WOLFRAM_ALPHA_APPID", "a-key")  # ...the keychain counts that something changed.
     assert {row["id"]: row["lifecycle"] for row in builtin.rows()}["builtin:tool:wolfram_alpha"] == "installed"
 
 

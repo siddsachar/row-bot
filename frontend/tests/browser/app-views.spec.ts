@@ -47,6 +47,11 @@ async function seed(page: Page, path: string) {
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+// The fixture app leaves with the journey: later ones (removing the last app, say) find Apps as they expect.
+test.afterEach(async ({ page }) => {
+  await seed(page, '/__p6_fixture/views/remove');
+});
+
 test('an app view shows in its own sandbox, never reaches Row-Bot, and asks before it changes anything', async ({
   page,
   context,

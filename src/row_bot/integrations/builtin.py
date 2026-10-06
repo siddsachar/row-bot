@@ -141,6 +141,11 @@ _snapshot: dict = {}
 _generation = 0
 
 
+def _now_generation() -> tuple[int, int]:
+    """This module's own count of owner changes, and the keychain's count of saved and removed secrets."""
+    return _generation, secret_store.change_count()
+
+
 def changed(*_: object) -> None:
     """An owner changed something a way reads (a key, a sign-in, a channel, a tool switch): the next
     read builds the snapshot again."""
@@ -155,8 +160,9 @@ def _key() -> str:
 
 def _build(key: str) -> list[dict]:
     with _built:
-        generation = _generation
-        if _snapshot.get("key") == key and _snapshot.get("generation") == generation                 and time.monotonic() - _snapshot["at"] <= MAX_AGE:
+        generation = _now_generation()
+        if (_snapshot.get("key") == key and _snapshot.get("generation") == generation
+                and time.monotonic() - _snapshot["at"] <= MAX_AGE):
             return _snapshot["rows"]  # Another read built it while this one waited.
         found = [*_accounts(), *_channels(), *_tools()]
         _snapshot.update(key=key, generation=generation, at=time.monotonic(), rows=found)
@@ -175,7 +181,7 @@ def rows(validate: Callable[[], None] = lambda: None, *, wait: bool = True) -> l
     validate()
     key = _key()
     current = _snapshot if _snapshot.get("key") == key else {}
-    if current and current["generation"] == _generation:
+    if current and current["generation"] == _now_generation():
         if time.monotonic() - current["at"] > MAX_AGE:
             _refresh(key)
         found = current["rows"]

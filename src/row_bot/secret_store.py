@@ -47,6 +47,7 @@ MAX_PERSISTENT_SERVER_SECRET_BYTES = MAX_SERVER_SECRET_BYTES + 1024
 
 _backend_override: Any | None = None
 _change_listeners: list[Callable[[str], None]] = []
+_changes = 0  # Secrets saved or removed so far: readers compare it, so a missed listener never leaves them stale.
 
 
 def on_change(listener: Callable[[str], None]) -> None:
@@ -55,8 +56,15 @@ def on_change(listener: Callable[[str], None]) -> None:
         _change_listeners.append(listener)
 
 
+def change_count() -> int:
+    """How many secrets have been saved or removed since this module loaded."""
+    return _changes
+
+
 def notify_change(namespace: str) -> None:
     """Tell listeners a secret in ``namespace`` changed (also used for session-only keys)."""
+    global _changes
+    _changes += 1
     for listener in list(_change_listeners):
         try:
             listener(namespace)

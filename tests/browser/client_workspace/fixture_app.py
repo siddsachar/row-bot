@@ -2478,5 +2478,42 @@ def p6_views(x_fixture_token: str = Header(default="")) -> dict:
     return {"ready": True}
 
 
+
+@app.post("/__p6_fixture/app-workflow")
+def p6_app_workflow(x_fixture_token: str = Header(default="")) -> dict:
+    """A switched-off, scheduled workflow whose prompt step uses the fixture Counter app (set up first)."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot import tasks
+    from row_bot.integrations import scope
+    item = next(item for item in scope._mcp_items() if item["server"] == "Counter")
+    task_id = tasks.create_task(
+        name="Counter morning digest", description="Every morning, the count and what changed.", icon="🔢",
+        schedule="daily:09:00", enabled=False, safety_mode="approve", apply_default_skills=False,
+        agent_profile_id=tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+        steps=[{"id": "read", "type": "prompt", "apps": [item["id"]],
+                "prompt": "Using Counter, show today's count and what changed since yesterday."}])
+    return {"task_id": task_id}
+
+
+@app.post("/__p6_fixture/views/remove")
+def p6_views_remove(x_fixture_token: str = Header(default="")) -> dict:
+    """Take the fixture Counter app and its workflow away again, so later journeys find Apps as they expect."""
+    p4_provider_credentials(x_fixture_token)
+    from row_bot import tasks
+    from row_bot.integrations import facts
+    from row_bot.mcp_client import config, runtime
+    document = config.read_saved_configuration().document
+    servers = {name: cfg for name, cfg in document.get("servers", {}).items() if name != "Counter"}
+    config.CONFIG_PATH.write_text(json.dumps({**document, "servers": servers}), encoding="utf-8")
+    with runtime._runtime_lock:
+        for registry in (runtime._servers, runtime._catalog, runtime._statuses):
+            registry.pop("Counter", None)
+    for task in tasks.list_tasks():
+        if task.get("name") == "Counter morning digest":
+            tasks.delete_task(task["id"])
+    facts.invalidate()
+    return {"removed": True}
+
+
 if __name__ == "__main__":
     main()

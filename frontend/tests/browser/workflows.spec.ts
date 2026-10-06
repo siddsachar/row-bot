@@ -7,7 +7,7 @@ import {
 } from './evidence';
 import { blockFixtureServiceWorkers } from './unified-helpers';
 import { captureBrowserDownload } from './download-helpers';
-import type { Page } from '@playwright/test';
+import type { Page, TestInfo } from '@playwright/test';
 
 async function seed(page: Page, kind: 'tasks' | 'tools', state = 'populated') {
   const token = process.env.ROW_BOT_BROWSER_CONTROL_TOKEN;
@@ -600,3 +600,60 @@ test('workflow rows and the new-workflow editor fit, retain drafts, and restore 
   await expect(page.locator('.workflow-metadata')).toContainText('1 step');
   await assertNoOverflow(page);
 });
+
+async function seedApps(page: Page, path: string) {
+  const origin = new URL(process.env.ROW_BOT_BROWSER_BASE_URL!).origin;
+  const response = await page.request.post(path, {
+    headers: {
+      'X-Fixture-Token': process.env.ROW_BOT_BROWSER_CONTROL_TOKEN!,
+      'X-Fixture-Origin': origin,
+      Origin: origin,
+    },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
+test('app templates start switched off and offer Connect, and a step names the apps it uses', async ({
+  page,
+}, info) => {
+  test.slow();
+  await seedApps(page, '/__p6_fixture/views');
+  await seedApps(page, '/__p6_fixture/app-workflow');
+  try {
+    await appTemplatesJourney(page, info);
+  } finally {
+    await seedApps(page, '/__p6_fixture/views/remove');
+  }
+});
+
+async function appTemplatesJourney(page: Page, info: TestInfo) {
+  await page.goto('/app-v2/?tab=workflows');
+  const templates = page.getByRole('region', { name: 'Start from a template' });
+  await expect(templates.getByText('GitHub pull-request digest')).toBeVisible();
+  // Linear isn't connected: its template offers Connect instead, never a workflow that can't work.
+  const linear = templates
+    .getByRole('listitem')
+    .filter({ hasText: 'Linear triage' });
+  await expect(
+    linear.getByRole('link', { name: 'Connect Linear' }),
+  ).toHaveAttribute('href', /\/settings\/apps\/linear$/);
+  await expect(linear.getByRole('button')).toHaveCount(0);
+  await expect(
+    templates.getByText('Every day at 09:00 · starts off').first(),
+  ).toBeVisible();
+  await templates.scrollIntoViewIfNeeded();
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'workflow-templates');
+
+  await searchWorkflows(page, 'Counter morning digest');
+  await chooseWorkflowAction(
+    page,
+    'Counter morning digest',
+    'Edit workflow steps',
+  );
+  await expect(
+    page.getByRole('switch', { name: 'Use Counter in this step' }),
+  ).toBeChecked();
+  await assertNoOverflow(page);
+  await screenshot(page, info, 'workflow-step-apps');
+}
