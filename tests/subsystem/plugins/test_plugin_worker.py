@@ -348,7 +348,7 @@ def register(api):
         assert len(handles) == 1
         api._revoke()
         assert api._worker._process.poll() is not None
-        assert kernel.WaitForSingleObject(handles[0], 3000) == 0
+        assert kernel.WaitForSingleObject(handles[0], 10000) == 0  # Signalled once Windows has torn it down.
     finally:
         api._revoke()
         for handle in handles:

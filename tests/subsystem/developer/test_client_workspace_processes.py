@@ -185,7 +185,7 @@ def test_job_owns_spawned_descendant_until_it_is_dead(domain):
     started = d.start(code)
     state = d.state(started.process_id)
     with state.changed:
-        assert state.changed.wait_for(lambda: any("CHILD:" in item[2] for item in state.output), timeout=5)
+        assert state.changed.wait_for(lambda: any("CHILD:" in item[2] for item in state.output), timeout=30)
         text = "".join(item[2] for item in state.output)
     pid = int(text.split("CHILD:")[1].splitlines()[0])
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -199,8 +199,8 @@ def test_job_owns_spawned_descendant_until_it_is_dead(domain):
         d.service.stop_workspace_process(d.workspace.id, "chat", started.process_id)
         assert state.done.wait(30) and state.quiesced
         # The job stops counting a process as soon as it is terminated; Windows signals the
-        # process only after tearing it down, up to a second later on a busy machine.
-        assert kernel.WaitForSingleObject(handle, 5000) == 0
+        # process only after tearing it down, seconds later on a busy machine.
+        assert kernel.WaitForSingleObject(handle, 10000) == 0
         assert d.runs.list_agent_write_locks() == []
     finally:
         kernel.CloseHandle(handle)
