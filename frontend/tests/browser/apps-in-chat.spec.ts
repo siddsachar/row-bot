@@ -181,12 +181,15 @@ test('accounts, channels and key tools are apps, set up in their own scoped sett
     ).toBeVisible();
     const ways = page.getByRole('region', { name: 'Ways to connect' });
     if (app === 'tavily') {
-      // Tavily's hosted server is a way too; its built-in web search tool comes first.
+      // Tavily's hosted server is a way too; the page leads with the recommended one, its built-in
+      // web search tool, and links to the others.
       await expect(ways.getByRole('listitem').first()).toContainText(
-        /Web search.*Built in/,
+        /Web search.*Built in.*Recommended.*This one/,
       );
+      await expect(
+        ways.getByRole('link', { name: /Tavily MCP Hosted/ }),
+      ).toBeVisible();
       await screenshot(page, testInfo, `app-${app}`);
-      await ways.getByRole('listitem').first().getByRole('link').click();
     }
     await expect(page.getByText(/Built in/).first()).toBeVisible();
     if (app !== 'tavily') await screenshot(page, testInfo, `app-${app}`);
