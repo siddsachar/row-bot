@@ -10,7 +10,10 @@ an API response.
 """
 from __future__ import annotations
 
+from functools import cache
+import lzma
 import math
+from pathlib import Path
 import re
 from urllib.parse import quote, urlsplit
 
@@ -24,8 +27,6 @@ _ENV = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 NEVER_ENV = {"PATH", "PATHEXT", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "NODE_OPTIONS", "NODE_PATH", "LD_PRELOAD",
              "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "SYSTEMROOT", "COMSPEC", "WINDIR", "HOME",
              "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "PLUGIN_ROOT", "PLUGIN_DATA"}
-# Second-level labels shared by everyone under a country domain (co.uk, com.au): not one service's domain.
-_SHARED = {"co", "com", "net", "org", "gov", "ac", "edu", "ne", "or", "go"}
 _SECRETISH = re.compile(r"(api|access|auth|bearer|client)?_?(key|token|secret|password|passwd|pat|credential|signature)s?$|^pat$",
                         re.IGNORECASE)
 
@@ -109,6 +110,42 @@ def check(declared: object) -> list[dict]:
     return [dict(item) for item in declared]
 
 
+@cache
+def _suffixes() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    """The Public Suffix List as bundled (ICANN and private sections; MPL-2.0, publicsuffix.org): its plain
+    rules, the parents of its wildcard rules, and its exceptions."""
+    text = lzma.decompress(Path(__file__).with_name("public_suffix_list.dat.xz").read_bytes()).decode("utf-8")
+    rules: set[str] = set()
+    wildcards: set[str] = set()
+    exceptions: set[str] = set()
+    for line in text.splitlines():
+        rule = line.strip().split(" ", 1)[0]
+        if not rule or rule.startswith("//"):
+            continue
+        try:
+            rule = ".".join(label if label in {"*", "!"} or label.isascii() else label.encode("idna").decode("ascii")
+                            for label in rule.lower().split("."))
+        except UnicodeError:
+            continue
+        if rule.startswith("!"):
+            exceptions.add(rule[1:])
+        elif rule.startswith("*."):
+            wildcards.add(rule[2:])
+        else:
+            rules.add(rule)
+    return frozenset(rules), frozenset(wildcards), frozenset(exceptions)
+
+
+def public_suffix(domain: str) -> bool:
+    """Whether names directly under ``domain`` belong to anyone (``co.uk``, ``github.io``, ``vercel.app``,
+    any top-level domain), so ``{x}.domain`` would not name one service."""
+    domain = domain.lower().strip(".")
+    rules, wildcards, exceptions = _suffixes()
+    if domain in exceptions:
+        return False
+    return "." not in domain or domain in rules or domain.partition(".")[2] in wildcards
+
+
 def check_url(template: str, declared: list[dict]) -> None:
     """A URL template may fill path segments, query values or subdomain labels, never the whole host:
     the destination a person agreed to (``*.example.com``) cannot move."""
@@ -121,8 +158,8 @@ def check_url(template: str, declared: list[dict]) -> None:
         labels = fixed.lower().split(".")[1:]
         if (not fixed.startswith(".") or fixed.count(".") < 2 or "{" in fixed or ":" in fixed
                 or any(not label or label.isdigit() for label in labels)  # {x}.com. is any .com host.
-                or (len(labels) == 2 and len(labels[1]) == 2 and labels[0] in _SHARED)):
-            raise InputError("input_url_unsupported")  # {x}.co.uk or {x}.0.0.1 would name anyone's address.
+                or public_suffix(fixed[1:])):
+            raise InputError("input_url_unsupported")  # {x}.co.uk, {x}.github.io or {x}.0.0.1 would name anyone's.
     known = {item["key"] for item in declared}
     if any(name not in known for name in _PLACEHOLDER.findall(template)):
         raise InputError("invalid_inputs")

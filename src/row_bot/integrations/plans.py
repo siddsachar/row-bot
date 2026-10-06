@@ -31,6 +31,7 @@ import re
 import threading
 import time
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from row_bot.integrations import apps, facts, inputs, presets, safe, sources
@@ -300,6 +301,16 @@ def compute(row: dict, reference: dict, *, intent: str = "", cleanup: bool = Fal
                  _step("enable", title="Turn on " + name)]
         consent["downloads"] = [f"the {name} recipe from Hermes"]
         declaration = {"recipe": reference.get("name"), "pin": reference.get("pin")}
+    elif kind == "mcp" and registry_bundle(reference):
+        # A Registry bundle is downloaded once agreed, used only if it matches its record's checksum, and saved;
+        # its own steps (settings, the reviewed install) follow.
+        steps = [_step("consent", title="Before you connect"), _step("test", title="Check the connection"),
+                 _step("access", title=f"Choose what {name} can do", access={"preset": presets.DEFAULT, "tools": [],
+                                                                            "tools_digest": "", "note": ""}),
+                 _step("enable", title="Turn on " + name)]
+        bundle = registry_bundle(reference)
+        consent["downloads"] = [f"{name} from {urlsplit(bundle['url']).hostname}, checked against its Registry checksum"]
+        declaration = {"bundle": bundle}
     elif kind == "mcp":
         from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
         entry = reference.get("entry")
@@ -422,7 +433,7 @@ def start(ctx: Context, row: dict, reference: dict, *, digest: str, intent: str 
     if preset and preset not in presets.PRESETS:
         raise PlanError("invalid_access_preset")
     if not ctx.local_owner and ((row["kind"] == "plugin" and plan["intent"] in {"add", "remove", "update"})
-                                or reference.get("kind") == "hermes_mcp" or any(
+                                or reference.get("kind") == "hermes_mcp" or registry_bundle(reference) or any(
             s["type"] == "runtime" and s["runtime"]["id"] in PACKAGES for s in plan["steps"])):
         raise PlanError("owner_local_only")
     installed = row["lifecycle"] != "available"
@@ -715,6 +726,8 @@ def _package_problem(code: str) -> str:
     """A package that can't be prepared, in plain words."""
     return {"mcp_package_node_required": "Set up Node.js first.", "mcp_package_uv_required": "Set up uv first.",
             "mcp_package_docker_required": "Docker Desktop isn't running on this computer. Open it, then try again.",
+            "mcp_package_docker_credentials": ("Docker couldn't use its sign-in helper to get this image. Open Docker "
+                                               "Desktop (and sign in there if the image is private), then try again."),
             "mcp_package_integrity_changed": "The package changed since you checked it. Try again to review the new version.",
             "mcp_package_version_required": "It doesn't name an exact version to review.",
             "mcp_package_container_access_unsupported": "It asks Docker for access to this computer that Row-Bot doesn't grant.",
@@ -795,6 +808,51 @@ def _hermes_recipe(ctx: Context, record: dict, step: dict) -> str | None:
     return None
 
 
+def registry_bundle(reference: dict) -> dict | None:
+    """The Registry bundle (its address and SHA-256) a catalog entry downloads, if it is one."""
+    entry = reference.get("entry")
+    install = (entry.get("install") if isinstance(entry, dict) else getattr(entry, "install", None)) or {}
+    bundle = install.get("bundle") or {}
+    return dict(bundle) if bundle.get("url") and str(bundle.get("sha256", "")).startswith("sha256:") else None
+
+
+def _bundle_recipe(ctx: Context, record: dict) -> None:
+    """Download a Registry bundle now, after consent, and keep it only if its SHA-256 is the one its record
+    declares; then read it as a picked file is read (manifest, contained paths, signature)."""
+    if record.get("_bundle_entry"):
+        return
+    import httpx
+
+    from row_bot.integrations import uploads
+    from row_bot.integrations.safe import fetch
+    from row_bot.mcp_client import bundles
+    from row_bot.mcp_client.marketplace import MarketplaceEntry
+    from row_bot.mcp_client.packages import bundle_install
+    from row_bot.mcp_client.registry_snapshot import revalidate_entry
+    listed = MarketplaceEntry(**record["reference"]["entry"])
+    bundle = registry_bundle(record["reference"])
+    try:
+        revalidate_entry(listed)  # The record still names exactly the file (and checksum) agreed to.
+    except ValueError as error:
+        raise PlanError("plan_changed") from error
+    try:
+        data = fetch(bundle["url"], hosts=None, max_bytes=bundles.MAX_BYTES, timeout=60, redirects=4, check=ctx.validate,
+                     refused="bundle_download_refused", too_large="bundle_too_large")
+    except (ValueError, ConnectionError, TimeoutError, httpx.HTTPError) as error:
+        raise PlanError("bundle_unavailable", "Row-Bot couldn't download this bundle. Try again later.") from error
+    if "sha256:" + hashlib.sha256(data).hexdigest() != bundle["sha256"]:
+        raise PlanError("bundle_checksum", "The bundle didn't match the checksum its Registry record gives, so Row-Bot "
+                                           "didn't use it.")
+    try:
+        staged = uploads.stage(data, (listed.name or "bundle")[:96] + ".mcpb")
+        install = bundle_install(staged["upload"], staged["bundle"])
+        install["bundle"]["url"] = bundle["url"]  # Where it came from, so its record can be checked again.
+    except (ValueError, OSError) as error:
+        raise PlanError("bundle_unsupported", "Row-Bot can't run this bundle on this computer.") from error
+    record["_bundle_entry"] = {**record["reference"]["entry"], "install": install, "transport": "stdio"}
+    _save(record)
+
+
 def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
     """For a catalog entry, agreeing saves the connection, switched off."""
     if record.get("server_id"):
@@ -802,10 +860,13 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
     from row_bot.application import capability_configuration_controls as configuration
     from row_bot.mcp_client.marketplace import MarketplaceEntry, entry_to_server_config
     recipe = record["reference"].get("kind") == "hermes_mcp"
+    bundled = registry_bundle(record["reference"]) is not None
     if recipe and "consent:save" not in record["_commands"]:
         paused = _hermes_recipe(ctx, record, step)
         if paused:
             return paused
+    if bundled and "consent:save" not in record["_commands"]:
+        _bundle_recipe(ctx, record)
 
     def build():
         if recipe:
@@ -813,9 +874,9 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
             intent = {"operation": "import", "import_json": record["_hermes"]["import_json"]}
             review = configuration.review_mcp_configuration_command(revision, intent, validate=ctx.validate)
             return _mcp_command("mcp.configuration.save", configuration_revision=revision, intent=intent), review
-        listed = MarketplaceEntry(**record["reference"]["entry"])
+        listed = MarketplaceEntry(**(record.get("_bundle_entry") or record["reference"]["entry"]))
         entry = listed
-        if entry.source == "official":
+        if entry.source == "official" and not bundled:  # A bundle was checked against its record when downloaded.
             from row_bot.mcp_client.registry_snapshot import revalidate_entry
             entry = revalidate_entry(entry)
         if entry_to_server_config(entry) != entry_to_server_config(listed):
@@ -831,7 +892,7 @@ def _mcp_consent(ctx: Context, record: dict, step: dict) -> str:
     record["server_id"] = result["mcp_configuration"]["server_ids"][0]
     record["installed_id"] = "mcp:" + record["server_id"]  # Where the saved connection lives from now on.
     record["_recipe"] = _recipe(record)
-    if recipe:  # The steps this recipe needs (keys, a package, a sign-in), now that it is known and saved.
+    if recipe or bundled:  # The steps this recipe needs (keys, a package, a sign-in), now that it is known and saved.
         row = {"app": None, "name": record["name"], "blockers": [], "lifecycle": "available", "readiness": None,
                "target": None}
         steps = _mcp_steps(row, _saved(None, record["server_id"])[1], record["intent"])[0][1:]

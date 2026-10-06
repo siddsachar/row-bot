@@ -1546,5 +1546,128 @@
         }
       ]
     }
+  },
+  {
+    "id": "firebase",
+    "name": "Firebase",
+    "description": "Firebase's own MCP server from the Firebase CLI: projects, Firestore, Authentication, Storage, Remote Config and Crashlytics, with your Firebase CLI sign-in.",
+    "source": "curated",
+    "url": "https://firebase.google.com/docs/ai-assistance/mcp-server",
+    "publisher": "Google",
+    "classification": "official",
+    "category": "Developer",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "stdio",
+    "requires_auth": false,
+    "recommended": true,
+    "capabilities": [
+      "databases",
+      "authentication",
+      "app_hosting",
+      "monitoring"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-06",
+    "notes": [
+      "Runs the Firebase CLI on this computer with your Firebase sign-in: run `firebase login` in a terminal once first.",
+      "Requests and the project data you choose go to Google under Firebase's terms."
+    ],
+    "metadata": {
+      "version_policy": "Pinned firebase-tools release; a newer one is reviewed before it runs.",
+      "license": "MIT",
+      "evidence": "Firebase documents `npx -y firebase-tools@latest mcp`; pinned to 15.32.1 (npm, 2026-10-06)."
+    },
+    "install": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "firebase-tools@15.32.1",
+        "mcp"
+      ]
+    }
+  },
+  {
+    "id": "sonarqube-cloud",
+    "name": "SonarQube Cloud",
+    "description": "SonarSource's own MCP server for SonarQube Cloud: code quality and security issues, quality gates and metrics for your projects.",
+    "source": "curated",
+    "url": "https://github.com/SonarSource/sonarqube-mcp-server",
+    "publisher": "SonarSource",
+    "classification": "official",
+    "category": "Developer",
+    "trust_tier": "official_vendor",
+    "risk_level": "medium",
+    "action_scope": "read_write",
+    "transport": "stdio",
+    "requires_auth": true,
+    "recommended": true,
+    "capabilities": [
+      "code_quality",
+      "security"
+    ],
+    "overlaps_native": [],
+    "last_reviewed": "2026-10-06",
+    "notes": [
+      "Runs SonarSource's container in Docker on this computer, by its exact version; your token stays in the system keychain.",
+      "For SonarQube Server, add it from SonarSource's instructions with your server's address instead."
+    ],
+    "metadata": {
+      "auth_mode": "api_key",
+      "version_policy": "Pinned image tag, run by the digest reviewed when you connect.",
+      "license": "SSAL (SonarSource Available License)",
+      "evidence": "SonarSource README (docker run -i --rm -e SONARQUBE_TOKEN -e SONARQUBE_ORG sonarsource/sonarqube-mcp); tag 1.28.0.4397 published 2026-09-29."
+    },
+    "install": {
+      "transport": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "-e",
+        "SONARQUBE_TOKEN",
+        "-e",
+        "SONARQUBE_ORG",
+        "sonarsource/sonarqube-mcp:1.28.0.4397"
+      ],
+      "env": {
+        "SONARQUBE_TOKEN": "{token}",
+        "SONARQUBE_ORG": "{organization}"
+      },
+      "inputs": [
+        {
+          "key": "token",
+          "label": "SonarQube Cloud token",
+          "description": "A token from your SonarQube Cloud account security page.",
+          "secret": true,
+          "required": true,
+          "target": "env",
+          "name": "SONARQUBE_TOKEN",
+          "default": "",
+          "choices": [],
+          "help_url": "https://sonarcloud.io/account/security",
+          "format": "string",
+          "flag": ""
+        },
+        {
+          "key": "organization",
+          "label": "Organization key",
+          "description": "Your SonarQube Cloud organization's key.",
+          "secret": false,
+          "required": true,
+          "target": "env",
+          "name": "SONARQUBE_ORG",
+          "default": "",
+          "choices": [],
+          "help_url": "",
+          "format": "string",
+          "flag": ""
+        }
+      ]
+    }
   }
 ]

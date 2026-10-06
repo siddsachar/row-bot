@@ -189,7 +189,10 @@ def test_a_python_package_installs_only_hashed_wheels_into_its_own_environment(d
         packages.resolve_launch(cfg)
 
 
-def test_a_container_runs_by_digest_with_no_access_to_this_computer(data, tools):
+def test_a_container_runs_by_digest_with_no_access_to_this_computer(data, tools, monkeypatch):
+    monkeypatch.setenv("APPDATA", "C:/Users/fixture/AppData/Roaming")
+    for name in ("LOCALAPPDATA", "PROGRAMDATA", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"):
+        monkeypatch.delenv(name, raising=False)
     oci = {"transport": "stdio", "command": "docker", "env": {"TOKEN": "{token}"},
            "args": ["run", "-i", "--rm", "--cap-drop", "ALL", "-e", "TOKEN", "ghcr.io/example/notes:1.0.0", "serve"]}
     lock = packages.resolve(oci)
@@ -202,9 +205,22 @@ def test_a_container_runs_by_digest_with_no_access_to_this_computer(data, tools)
     for flags in (["-v", "/:/host"], ["--network", "host"], ["--privileged"], ["-p", "8080:8080"], ["-e", "DOCKER_HOST"]):
         with pytest.raises(ValueError, match="container_access_unsupported"):
             packages.resolve({**oci, "args": ["run", "-i", "--rm", *flags, "ghcr.io/example/notes:1.0.0"]})
-    # The Docker CLI gets only what it forwards into the container, never a recipe's DOCKER_HOST.
+    # The Docker CLI gets only what it forwards into the container, never a recipe's DOCKER_HOST, plus what
+    # its own sign-in helper needs to find the person's Docker sign-in (never forwarded into the container).
     env = packages.launch_environment(cfg, {"PATH": "p", "TOKEN": "t", "DOCKER_HOST": "tcp://203.0.113.5:2375", "OTHER": "o"})
-    assert env == {"PATH": "p", "TOKEN": "t"}
+    assert env == {"PATH": "p", "TOKEN": "t", "APPDATA": "C:/Users/fixture/AppData/Roaming"}
+    assert "APPDATA" not in args and tools.calls[0]["env"]["APPDATA"] == "C:/Users/fixture/AppData/Roaming"
+
+
+def test_a_docker_sign_in_helper_that_fails_is_named_plainly(data, tools, monkeypatch):
+    from row_bot.integrations import plans
+
+    def refused(argv, **kwargs):
+        raise ValueError("mcp_package_tool_failed: error getting credentials - err: exec: docker-credential-desktop")
+    monkeypatch.setattr(packages, "_run", refused)
+    with pytest.raises(ValueError, match="mcp_package_docker_credentials") as raised:
+        packages.resolve({"transport": "stdio", "command": "docker", "args": ["run", "-i", "--rm", "ghcr.io/x/y:1.0"]})
+    assert "sign-in helper" in plans._package_problem(str(raised.value))
 
 
 def test_launch_never_fetches_a_package_without_explicit_preparation(data):

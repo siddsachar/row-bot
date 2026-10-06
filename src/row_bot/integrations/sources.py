@@ -169,7 +169,8 @@ class _McpCatalog(Source):
         if canonical:  # A Registry record: its server part when it has no title, its owner as publisher.
             name = canonical.rpartition("/")[2] if name == canonical else name
             publisher = apps.publisher_of(canonical.partition("/")[0])
-        supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")))
+        supported = bool(entry.install and (entry.install.get("url") or entry.install.get("command")
+                                            or (entry.install.get("bundle") or {}).get("url")))  # A Registry bundle.
         known = metadata.get("auth_mode") in {"oauth", "api_key", "none"} or not (entry.install or {}).get("url") or bool(
             app and app.auth in {"oauth", "api_key", "none"})
         row = _available("mcp", entry.source + ":" + entry.id, name, app=app, source=entry.source,

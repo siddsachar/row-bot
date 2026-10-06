@@ -225,6 +225,9 @@ def revalidate_configuration(cfg: dict) -> None:
     if not isinstance(source, dict) or source.get("marketplace") != "official":
         return
     install = {key: cfg[key] for key in ("transport", "url", "command", "args", "headers", "env") if cfg.get(key)}
+    bundle = cfg.get("bundle") if isinstance(cfg.get("bundle"), dict) else {}
+    if bundle.get("url"):  # A Registry bundle: its record names the file and checksum, the bundle how it runs.
+        install = {"transport": "stdio", "command": "", "args": [], "bundle": {"url": bundle["url"], "sha256": bundle.get("sha256")}}
     # Remote normalized configuration includes empty argv but the recipe does not.
     entry = MarketplaceEntry(id=source.get("id", ""), name=source.get("name", ""), description="", source="official",
         install=install, requires_auth=source.get("requires_auth", False),

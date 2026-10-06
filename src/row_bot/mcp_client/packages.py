@@ -117,6 +117,9 @@ def _oci(cfg: dict) -> tuple[str, list[str], list[str]]:
 
 # Variables the Docker CLI reads for itself (DOCKER_HOST, DOCKER_CONTEXT, …): a recipe never sets them.
 DOCKER_CLI = ("DOCKER_", "BUILDKIT_", "COMPOSE_")
+# What Docker's own sign-in helpers (docker-credential-desktop, -wincred, -osxkeychain, -secretservice)
+# need to find the person's Docker sign-in. The docker program gets them; a container never does.
+DOCKER_HELPERS = {"APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"}
 
 
 def launch_environment(cfg: dict, env: dict) -> dict:
@@ -127,8 +130,9 @@ def launch_environment(cfg: dict, env: dict) -> dict:
     _image, flags, _rest = _oci(cfg)
     forwarded = {flags[i + 1] for i in range(len(flags) - 1) if flags[i] == "-e"}
     allowed = forwarded | {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG", "LC_ALL"}
-    return {key: value for key, value in env.items() if key in allowed and not key.upper().startswith(DOCKER_CLI)
-            or key in forwarded}
+    helpers = {key: os.environ[key] for key in DOCKER_HELPERS - forwarded if os.environ.get(key)}
+    return {**helpers, **{key: value for key, value in env.items() if key in allowed and not key.upper().startswith(DOCKER_CLI)
+                          or key in forwarded}}
 
 
 def _fetch(url: str, *, maximum: int = _MAX) -> bytes:
@@ -354,8 +358,13 @@ def _oci_lock(cfg: dict, check: Callable[[], None]) -> dict:
     docker = shutil.which("docker")
     if not docker:
         raise ValueError("mcp_package_docker_required")
-    env = _env(DOCKER_CLI_HINTS="false")
-    _run([docker, "pull", image], env=env, timeout=900, check=check)
+    env = {**_env(DOCKER_CLI_HINTS="false"), **{key: os.environ[key] for key in DOCKER_HELPERS if os.environ.get(key)}}
+    try:
+        _run([docker, "pull", image], env=env, timeout=900, check=check)
+    except ValueError as error:
+        if re.search(r"docker-credential-|error getting credentials|credential helper", str(error), re.IGNORECASE):
+            raise ValueError("mcp_package_docker_credentials") from None
+        raise
     digests = json.loads(_run([docker, "image", "inspect", "--format", "{{json .RepoDigests}}", image], env=env, timeout=60,
                               check=check) or "[]")
     repository = re.sub(r"(:[A-Za-z0-9._-]+|@sha256:[0-9a-f]{64})$", "", image)

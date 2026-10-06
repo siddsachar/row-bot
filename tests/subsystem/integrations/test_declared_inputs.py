@@ -53,11 +53,21 @@ def test_a_typed_authorization_value_is_sent_with_one_scheme(template, typed, se
 
 
 @pytest.mark.parametrize("url", ["https://{host}/mcp", "https://{tenant}.com/mcp", "https://x.{rest}/mcp", "http://{t}.example.test/mcp",
-                                 "https://{tenant}.co.uk/mcp", "https://{tenant}.0.0.1/mcp", "https://{tenant}.com./mcp"])
+                                 "https://{tenant}.co.uk/mcp", "https://{tenant}.0.0.1/mcp", "https://{tenant}.com./mcp",
+                                 # Shared hosting: anyone can have a name there (the Public Suffix List's private section).
+                                 "https://{tenant}.github.io/mcp", "https://{tenant}.vercel.app/mcp",
+                                 "https://{tenant}.netlify.app/mcp", "https://{tenant}.workers.dev/mcp",
+                                 "https://{tenant}.s3.amazonaws.com/mcp", "https://{tenant}.com.au/mcp"])
 def test_a_url_variable_can_never_choose_the_destination(url):
     with pytest.raises(inputs.InputError):
         inputs.check_url(url, [declared("host", "url_variable", "host"), declared("tenant", "url_variable", "tenant"),
                                declared("rest", "url_variable", "rest"), declared("t", "url_variable", "t")])
+
+
+@pytest.mark.parametrize("url", ["https://{tenant}.example.com/mcp", "https://{tenant}.atlassian.net/mcp",
+                                 "https://{tenant}.mcp.example.co.uk/mcp", "https://api.example.com/{tenant}/mcp"])
+def test_a_url_variable_under_one_services_domain_is_fine(url):
+    inputs.check_url(url, [declared("tenant", "url_variable", "tenant")])
 
 
 @pytest.mark.parametrize("name", ["PATH", "NODE_OPTIONS", "LD_PRELOAD", "PYTHONPATH", "DYLD_INSERT_LIBRARIES"])

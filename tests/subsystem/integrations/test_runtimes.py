@@ -236,3 +236,71 @@ def test_a_recipes_keys_become_declared_inputs():
     cfg = json.loads(hermes_mcp.normalize_recipe(recipe, name="notes", pin="e" * 40, source_url="")["import_json"])["mcpServers"]["notes"]
     assert cfg["env"] == {"NOTES_TOKEN": "{notes_token}"} and "auth" not in cfg
     assert [(i["key"], i["secret"], i["target"]) for i in cfg["inputs"]] == [("notes_token", True, "env")]
+
+
+def _registry_bundle(data: bytes, digest: str | None = None) -> tuple[dict, dict]:
+    """A Registry record publishing an MCP bundle, as its catalog row and reference."""
+    import hashlib
+    from row_bot.integrations import sources
+    from row_bot.mcp_client import marketplace
+    record = {"server": {"name": "io.github.fixture/notes", "description": "Reads notes.", "version": "1.2.0",
+                         "packages": [{"registryType": "mcpb", "version": "1.2.0", "transport": {"type": "stdio"},
+                                       "identifier": "https://github.com/fixture/notes/releases/download/v1.2.0/notes.mcpb",
+                                       "fileSha256": digest or hashlib.sha256(data).hexdigest()}]},
+              "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active", "isLatest": True,
+                                                                        "updatedAt": "2026-10-01T00:00:00Z"}}}
+    (entry,) = marketplace.registry_entries({"servers": [record]})
+    row, reference = sources.SOURCES["official"].row(entry)
+    return facts.finish(row), reference
+
+
+def test_a_registry_bundle_is_downloaded_after_consent_and_used_only_if_it_matches_its_checksum(bundled, tmp_path,
+                                                                                                 monkeypatch):
+    from row_bot.integrations import safe
+    from row_bot.mcp_client import registry_snapshot
+    data = bundled()
+    row, reference = _registry_bundle(data)
+    assert reference["entry"].install["bundle"]["sha256"].startswith("sha256:") and row["compatibility"] != "unsupported"
+    plan = plans.compute(row, reference)
+    assert plan["supported"] and "checked against its Registry checksum" in plan["consent"]["downloads"][0]
+    fetched: list[str] = []
+    monkeypatch.setattr(safe, "fetch", lambda url, **kwargs: fetched.append(url) or data)
+    monkeypatch.setattr(registry_snapshot, "revalidate_entry", lambda entry: entry)
+    assert fetched == []  # Reading the item downloaded nothing.
+    plan_id = str(uuid4())
+    paused = plans.start(context(), row, reference, digest=plan["digest"], plan_id=plan_id)
+    assert fetched == ["https://github.com/fixture/notes/releases/download/v1.2.0/notes.mcpb"]
+    assert paused["pause"] == "digest_changed", paused  # The bundle's own reviewed install comes next.
+    review = next(s for s in paused["steps"] if s["type"] == "runtime")["review"]
+    assert review["items"][0]["integrity"] == reference["entry"].install["bundle"]["sha256"]
+    asking = plans.resume(context(review_digest=review["digest"]), plan_id)
+    assert asking["pause"] == "inputs", asking  # Its manifest's settings.
+    saved = next(cfg for cfg in config.read_saved_configuration().document["servers"].values() if cfg.get("bundle"))
+    assert saved["bundle"]["url"].endswith("notes.mcpb") and saved["source"]["marketplace"] == "official"
+
+
+def test_a_registry_bundle_that_does_not_match_its_checksum_is_never_used(bundled, tmp_path, monkeypatch):
+    from row_bot.integrations import safe
+    from row_bot.mcp_client import registry_snapshot
+    data = bundled()
+    row, reference = _registry_bundle(data, digest="0" * 64)
+    plan = plans.compute(row, reference)
+    monkeypatch.setattr(safe, "fetch", lambda url, **kwargs: data)
+    monkeypatch.setattr(registry_snapshot, "revalidate_entry", lambda entry: entry)
+    ended = plans.start(context(), row, reference, digest=plan["digest"], plan_id=str(uuid4()))
+    consent = next(step for step in ended["steps"] if step["type"] == "consent")
+    assert ended["state"] == "failed" and "didn't match the checksum" in consent["message"], ended
+    assert not [cfg for cfg in config.read_saved_configuration().document["servers"].values() if cfg.get("bundle")]
+    assert not [path for path in (tmp_path / "mcp_packages").iterdir() if len(path.name) == 32]
+
+
+@pytest.mark.parametrize("change", [{"fileSha256": ""}, {"fileSha256": "abc"}, {"identifier": "http://example.test/notes.mcpb"},
+                                    {"identifier": "https://user:pass@example.test/notes.mcpb"}, {"runtimeHint": "node"}])
+def test_a_registry_bundle_without_an_exact_checksum_or_https_address_is_not_offered(change):
+    from row_bot.mcp_client import marketplace
+    package = {"registryType": "mcpb", "version": "1.0.0", "transport": {"type": "stdio"},
+               "identifier": "https://example.test/notes.mcpb", "fileSha256": "a" * 64, **change}
+    record = {"server": {"name": "io.github.fixture/notes", "version": "1.0.0", "packages": [package]},
+              "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active", "isLatest": True}}}
+    (entry,) = marketplace.registry_entries({"servers": [record]})
+    assert entry.install is None and "add it from a file" in entry.notes[0]

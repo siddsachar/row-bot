@@ -233,14 +233,28 @@ def _remote(remote: dict) -> dict:
                      **({"inputs": list(inputs.values())} if inputs else {})})
 
 
+def _bundle(package: dict) -> dict:
+    """A Registry MCP bundle: downloaded only after consent and used only if it matches the record's own
+    SHA-256; its manifest then says how it runs and what it asks for, checked as a picked file is."""
+    url, digest = str(package.get("identifier") or ""), str(package.get("fileSha256") or "").lower()
+    parts = urllib.parse.urlsplit(url)
+    if (set(package) - {"registryType", "identifier", "version", "transport", "fileSha256"}
+            or package.get("transport", {"type": "stdio"}) != {"type": "stdio"} or parts.scheme != "https"
+            or not parts.hostname or parts.username or parts.password or parts.fragment or len(url) > 2048
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+        raise _Declared("Download this bundle from its publisher, then add it from a file.")
+    return {"transport": "stdio", "command": "", "args": [], "bundle": {"url": url, "sha256": "sha256:" + digest}}
+
+
 def _package(package: dict) -> dict:
     from row_bot.integrations import inputs as declared
     kind, identifier, version = package.get("registryType"), str(package.get("identifier") or ""), str(package.get("version") or "")
     allowed = {"registryType", "identifier", "version", "transport", "registryBaseUrl", "runtimeHint", "runtimeArguments",
                "packageArguments", "environmentVariables", "fileSha256"}
+    if kind == "mcpb":
+        return _bundle(package)
     if set(package) - allowed or kind not in {"npm", "pypi", "oci"}:
-        raise _Declared("Download this bundle from its publisher, then add it from a file." if kind == "mcpb"
-                        else _UNSUPPORTED_PACKAGE)
+        raise _Declared(_UNSUPPORTED_PACKAGE)
     if package.get("transport") != {"type": "stdio"}:
         raise _Declared("It runs as a web server on this computer; Row-Bot can't start those yet.")
     default = {"npm": "https://registry.npmjs.org", "pypi": "https://pypi.org"}.get(kind, "")
