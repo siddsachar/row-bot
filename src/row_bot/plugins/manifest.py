@@ -241,12 +241,13 @@ def _validate(raw: dict[str, Any], plugin_dir: Path) -> PluginManifest:
                 required_keys=("id",),
                 errors=errors,
             ),
-            skills=_validate_provide_entries(
+            # Native manifests declare a skill by id and path only (as 5.0.0's did): it is named by its id.
+            skills=[{"name": entry.get("id"), **entry} for entry in _validate_provide_entries(
                 provides_raw.get("skills", []),
                 surface="skills",
                 required_keys=("id", "path"),
                 errors=errors,
-            ),
+            )],
         )
 
     permissions = raw.get("permissions", [])

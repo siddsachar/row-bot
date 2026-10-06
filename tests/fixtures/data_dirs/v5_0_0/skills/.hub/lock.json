@@ -1,0 +1,37 @@
+{
+  "records": {
+    "pdf_toolkit": {
+      "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "enabled": false,
+      "file_count": 2,
+      "install_ref": "https://github.com/fixture-org/fixture-skills/tree/main/pdf_toolkit",
+      "installed_at": "2026-08-02T09:00:00+00:00",
+      "local_name": "pdf_toolkit",
+      "metadata": {
+        "file_list": [
+          "SKILL.md",
+          "references/fields.md"
+        ],
+        "repository": "https://github.com/fixture-org/fixture-skills",
+        "trust_level": "community",
+        "upstream_content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+      },
+      "scan_summary": {
+        "blocked": false,
+        "findings": [],
+        "ok": true,
+        "summary": {
+          "block": 0,
+          "info": 0,
+          "warn": 0
+        },
+        "token_estimate": 40
+      },
+      "source": "github",
+      "source_id": "https://github.com/fixture-org/fixture-skills",
+      "updated_at": "2026-08-02T09:00:00+00:00"
+    }
+  },
+  "schema_version": 1,
+  "updated_at": "2026-08-02T09:00:00+00:00"
+}

@@ -71,8 +71,8 @@ def test_duplicate_registration_does_not_finalize_existing_domain_owner():
 
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize("reason", ["stop", "resource"])
-def test_child_entry_rejection_cleans_actual_domain_without_dispatch(tmp_path, monkeypatch, resume, reason):
-    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch)
+def test_child_entry_rejection_cleans_actual_domain_without_dispatch(tmp_path, monkeypatch, resume, reason, reload_for_data_dir):
+    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch, reload_for_data_dir)
     from row_bot.runtime import executions
     registry = executions.GenerationRuntimeRegistry()
     monkeypatch.setattr(executions, "generation_registry", registry)
@@ -106,8 +106,8 @@ def test_child_entry_rejection_cleans_actual_domain_without_dispatch(tmp_path, m
 
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize("reason", ["stop", "resource"])
-def test_workflow_entry_rejection_records_actual_run_outcome(tmp_path, monkeypatch, resume, reason):
-    _, _, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch)
+def test_workflow_entry_rejection_records_actual_run_outcome(tmp_path, monkeypatch, resume, reason, reload_for_data_dir):
+    _, _, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch, reload_for_data_dir)
     from row_bot import agent, tasks
     from row_bot.runtime import executions
     registry = executions.GenerationRuntimeRegistry()
@@ -137,8 +137,8 @@ def test_workflow_entry_rejection_records_actual_run_outcome(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("failure", ["unavailable", "changed"])
-def test_child_resource_inheritance_failure_rolls_back_only_new_child(tmp_path, monkeypatch, failure):
-    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch)
+def test_child_resource_inheritance_failure_rolls_back_only_new_child(tmp_path, monkeypatch, failure, reload_for_data_dir):
+    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch, reload_for_data_dir)
     from row_bot import conversation_resources as resources
     parent = threads.create_thread("Synthetic parent", developer_workspace_id="missing" if failure == "unavailable" else "")
     if failure == "changed":
@@ -162,8 +162,8 @@ def test_child_resource_inheritance_failure_rolls_back_only_new_child(tmp_path, 
 @pytest.mark.parametrize("domain", ["child", "workflow"])
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize("failure", ["closed", "start"])
-def test_rejected_start_finalizes_domain_admission_without_dispatch(tmp_path, monkeypatch, domain, resume, failure):
-    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch)
+def test_rejected_start_finalizes_domain_admission_without_dispatch(tmp_path, monkeypatch, domain, resume, failure, reload_for_data_dir):
+    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch, reload_for_data_dir)
     from row_bot import agent, tasks
     from row_bot.runtime import executions
     registry = executions.GenerationRuntimeRegistry()

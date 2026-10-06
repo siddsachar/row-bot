@@ -1,0 +1,22 @@
+{
+  "fixture-notes-pack": {
+    "enabled": true,
+    "installed": {
+      "version": "1.2.0",
+      "source": "marketplace",
+      "source_ref": "https://github.com/fixture-org/row-bot-plugins",
+      "installed_at": "2026-08-01T10:00:00+00:00"
+    },
+    "config": {
+      "workspace": "fixture-workspace"
+    },
+    "health": {
+      "ok": true,
+      "checked_at": "2026-08-01T10:05:00+00:00",
+      "checks": [
+        {"label": "Required local setup", "status": "ok"},
+        {"label": "mcp_starts", "status": "ok"}
+      ]
+    }
+  }
+}

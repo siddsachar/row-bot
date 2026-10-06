@@ -102,7 +102,7 @@ def test_entered_target_failure_unwinds_before_finish_without_entry_callback(mon
 
 
 @pytest.mark.parametrize("operation", ["inheritance_rollback", "child_delete"])
-def test_child_cleanup_preserves_parent_owned_worktree(tmp_path, monkeypatch, operation):
+def test_child_cleanup_preserves_parent_owned_worktree(tmp_path, monkeypatch, operation, reload_for_data_dir):
     from pathlib import Path
     import subprocess
     from types import SimpleNamespace
@@ -124,7 +124,7 @@ def test_child_cleanup_preserves_parent_owned_worktree(tmp_path, monkeypatch, op
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_subprocess)
-    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch)
+    runner, runs, _, _, threads = _fresh_agent_runner_modules(tmp_path, monkeypatch, reload_for_data_dir)
     from row_bot import conversation_resources as resources
     from row_bot.developer import storage, worktrees
     from row_bot.developer.state import DeveloperWorkspace

@@ -225,3 +225,35 @@ it.each([
     );
   },
 );
+
+// Every other link Row-Bot 5.0.0 made to its Accounts, Channels, MCP and
+// Plugins pages (palette, onboarding, Monitor and Home fixes).
+it.each([
+  ['/settings/accounts', '/settings/apps'],
+  ['/settings/accounts#x', '/settings/apps/x'],
+  ['/settings/google', '/settings/apps/google'],
+  ['/settings/calendar', '/settings/apps/google'],
+  ['/settings/channels#slack', '/settings/apps/slack'],
+  ['/settings/channels#discord', '/settings/apps/discord'],
+  ['/settings/channels#whatsapp', '/settings/apps/whatsapp'],
+  ['/settings/channels#sms', '/settings/apps/sms'],
+  ['/settings/mcp#mcp-servers', '/settings/apps'],
+  ['/settings/mcp#mcp-runtimes', '/settings/apps?view=advanced'],
+  ['/settings/plugins#installed-plugins', '/settings/apps'],
+  ['/settings/plugins#plugin-marketplace', '/settings/apps'],
+])('the 5.0.0 link %s lands on %s', async (path, target) => {
+  renderAt(
+    path,
+    appsController({
+      integrationSources: vi.fn(async () => ({ schema_version: 1, items: [] })),
+      catalogSchedule: vi.fn(async () => ({
+        enabled: false,
+        interval_days: 7,
+      })),
+      appViewSettings: vi.fn(async () => ({ enabled: true, apps: {} })),
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Location').textContent).toBe(target),
+  );
+});
